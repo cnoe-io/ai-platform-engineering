@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { queryRebacGraph } from "@/lib/rbac/rebac-graph";
+import { NextRequest } from "next/server";
 import { withOpenFgaViewAuth } from "../_lib";
 
 export const GET = withErrorHandler(async (request: NextRequest) =>

@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
 import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "@/components/dynamic-agents/DynamicAgentContext";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { ResizableHandle,ResizablePanel,ResizablePanelGroup } from "@/components/ui/resizable";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { useCallback,useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 
 interface ChatViewProps {

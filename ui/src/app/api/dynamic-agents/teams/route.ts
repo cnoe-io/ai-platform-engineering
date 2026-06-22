@@ -3,17 +3,17 @@
  * Used by the agent editor to populate the team sharing dropdown.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  getAuthFromBearerOrSession,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import { NextRequest } from "next/server";
 
 interface Team {
   _id: unknown;
@@ -110,7 +110,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           slug: team.slug,
           description: team.description,
           user_role: role,
-          can_own_agents: role === "admin",
+          // Any active team member may create an agent owned by that team;
+          // POST checks team `use` and writes the creator as `owner`.
+          can_own_agents: role === "admin" || role === "member",
         };
       }),
     );

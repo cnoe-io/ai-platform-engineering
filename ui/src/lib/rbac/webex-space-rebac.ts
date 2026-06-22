@@ -1,19 +1,20 @@
 import type {
-  WebexSpaceAccessCheckResult,
-  WebexSpaceGrantResourceType,
-} from "@/types/webex-rebac";
-import type {
-  UniversalRebacRelationship,
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
-  UniversalRebacSubjectRef,
-  UniversalRebacSubjectType,
+UniversalRebacRelationship,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+UniversalRebacSubjectRef,
+UniversalRebacSubjectType,
 } from "@/types/rbac-universal";
+import type {
+WebexSpaceAccessCheckResult,
+WebexSpaceGrantResourceType,
+} from "@/types/webex-rebac";
 
+import { instantiatePolicyRelationships } from "./authorization-policy-catalog";
 import { checkUniversalRebacRelationship } from "./openfga";
 import {
-  WEBEX_SPACE_GRANT_RESOURCE_TYPES,
-  webexSpaceSubjectId,
+WEBEX_SPACE_GRANT_RESOURCE_TYPES,
+webexSpaceSubjectId,
 } from "./webex-space-grant-store";
 
 const VALID_WEBEX_GRANT_SUBJECT_TYPES = new Set<UniversalRebacSubjectType>([
@@ -72,31 +73,17 @@ export function webexSpaceGrantRelationship(
   };
 }
 
-// Team→space visibility tuples. Without these, the space exists in Mongo but
-// no one can `can_read` it in OpenFGA, so the admin /api/admin/webex/spaces
-// listing endpoint silently filters it out. Mirrors
-// slackChannelTeamVisibilityRelationships for parity with the Slack surface.
+// Materializes policy `webex_space_team_assignment_v1`.
+// assisted-by Codex Codex-sonnet-4-6
 export function webexSpaceTeamVisibilityRelationships(
   workspaceId: string,
   spaceId: string,
   teamSlug: string
 ): UniversalRebacRelationship[] {
-  const spaceResource: UniversalRebacResourceRef = {
-    type: "webex_space",
-    id: webexSpaceSubjectId(workspaceId, spaceId),
-  };
-  return [
-    {
-      subject: { type: "team", id: teamSlug, relation: "admin" },
-      action: "manage",
-      resource: spaceResource,
-    },
-    {
-      subject: { type: "team", id: teamSlug, relation: "member" },
-      action: "use",
-      resource: spaceResource,
-    },
-  ];
+  return instantiatePolicyRelationships("webex_space_team_assignment_v1", {
+    teamSlug,
+    webexSpaceId: webexSpaceSubjectId(workspaceId, spaceId),
+  });
 }
 
 export function parseWebexSpaceGrantSubject(

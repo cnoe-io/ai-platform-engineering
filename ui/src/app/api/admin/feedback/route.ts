@@ -3,15 +3,16 @@
 // Reads from the unified `feedback` collection (populated by web dual-write,
 // Slack bot, and backfill scripts).
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
-import { getConfig } from '@/lib/config';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getConfig } from '@/lib/config';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!getConfig('feedbackEnabled')) {
@@ -33,7 +34,25 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  const isFullAdmin = await requireRbacPermission(session, 'admin_ui', 'view').then(
+    () => true,
+    () => false
+  );
+
+  let scopedChannelNames: string[] | null = null;
+  let scopedOwnerEmail: string | null = null;
+  if (!isFullAdmin) {
+    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
+    const email = typeof session.user?.email === 'string' ? session.user.email.trim() : '';
+    if (!sub) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
+        { status: 401 }
+      );
+    }
+    scopedChannelNames = await getReadableSlackChannelNames(`user:${sub}`);
+    scopedOwnerEmail = email || null;
+  }
 
     const { searchParams } = new URL(request.url);
     const rating = searchParams.get('rating'); // 'positive' | 'negative' | null (all)
@@ -90,6 +109,44 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (to) filter.created_at.$lte = new Date(to);
     }
 
+    // Non-admin: scope to their readable Slack channels OR their own web feedback.
+    if (!isFullAdmin) {
+      const scopeClauses: Record<string, unknown>[] = [];
+      if (scopedChannelNames && scopedChannelNames.length > 0) {
+        scopeClauses.push({
+          source: 'slack',
+          channel_name: scopedChannelNames.length === 1
+            ? scopedChannelNames[0]
+            : { $in: scopedChannelNames },
+        });
+      }
+      if (scopedOwnerEmail) {
+        scopeClauses.push({ user_email: scopedOwnerEmail });
+      }
+      if (scopeClauses.length === 0) {
+        return successResponse({
+          entries: [],
+          channels: [],
+          users: [],
+          pagination: { page, limit, total: 0, total_pages: 0 },
+        });
+      }
+      if (filter.$or) {
+        const existingOr = filter.$or;
+        delete filter.$or;
+        filter.$and = [{ $or: existingOr }, { $or: scopeClauses }];
+      } else {
+        filter.$or = scopeClauses;
+      }
+    }
+
+    const channelDistinctFilter = isFullAdmin
+      ? { source: 'slack', channel_name: { $ne: null } }
+      : { ...filter, source: 'slack', channel_name: { $ne: null } };
+    const userDistinctFilter = isFullAdmin
+      ? { user_email: { $ne: null } }
+      : { ...filter, user_email: { $ne: null } };
+
     const [docs, totalCount, channels, distinctUsers] = await Promise.all([
       feedbackColl
         .find(filter)
@@ -98,8 +155,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         .limit(limit)
         .toArray(),
       feedbackColl.countDocuments(filter),
-      feedbackColl.distinct('channel_name', { source: 'slack', channel_name: { $ne: null } }),
-      feedbackColl.distinct('user_email', { user_email: { $ne: null } }),
+      feedbackColl.distinct('channel_name', channelDistinctFilter),
+      feedbackColl.distinct('user_email', userDistinctFilter),
     ]);
 
     // For web feedback that has a conversation_id, batch-fetch conversation titles

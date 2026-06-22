@@ -1,12 +1,13 @@
 "use client";
 
-import React from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+// assisted-by Codex Codex-sonnet-4-6
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePathname,useRouter,useSearchParams } from "next/navigation";
+import React from "react";
+
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 
 import { AdminSecretsManager } from "./AdminSecretsManager";
-import { CredentialAuditPanel } from "./CredentialAuditPanel";
 import { OAuthConnectorAdminPanel } from "./OAuthConnectorAdminPanel";
 
 export function AdminCredentialManagementPanel() {
@@ -14,8 +15,7 @@ export function AdminCredentialManagementPanel() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams.get("credentialsTab");
-  const linkedTab =
-    requestedTab === "secrets" || requestedTab === "audit" ? requestedTab : "oauth-providers";
+  const linkedTab = requestedTab === "oauth-providers" ? requestedTab : "secrets";
   const [activeTab, setActiveTab] = React.useState(linkedTab);
 
   React.useEffect(() => {
@@ -35,23 +35,19 @@ export function AdminCredentialManagementPanel() {
       <div>
         <h1 className="text-2xl font-semibold">Credentials</h1>
         <p className="text-sm text-muted-foreground">
-          Manage global OAuth providers and credential metadata under the OpenFGA credentials admin surface.
+          Review saved secrets, connected apps, access, usage, and recent activity.
         </p>
       </div>
       <Tabs value={activeTab} onValueChange={updateTab} className="space-y-6">
         <TabsList>
-          <TabsTrigger value="oauth-providers">OAuth Providers</TabsTrigger>
-          <TabsTrigger value="secrets">Global Secrets</TabsTrigger>
-          <TabsTrigger value="audit">Credential Audit</TabsTrigger>
+          <TabsTrigger value="secrets">Secrets</TabsTrigger>
+          <TabsTrigger value="oauth-providers">Connected Apps</TabsTrigger>
         </TabsList>
-        <TabsContent value="oauth-providers">
-          <OAuthConnectorAdminPanel />
-        </TabsContent>
         <TabsContent value="secrets">
           <AdminSecretsManager />
         </TabsContent>
-        <TabsContent value="audit">
-          <CredentialAuditPanel endpoint="/api/admin/credentials/audit" />
+        <TabsContent value="oauth-providers">
+          <OAuthConnectorAdminPanel />
         </TabsContent>
       </Tabs>
     </section>

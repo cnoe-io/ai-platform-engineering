@@ -6,20 +6,20 @@
  *   body: { spaces: Array<{ webex_space_id, space_name, webex_workspace_id? }> }
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import { webexSpaceSubjectId, webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import { webexSpaceSubjectId,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import type { Team } from "@/types/teams";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 interface WebexSpaceTeamMappingDoc {
   _id?: ObjectId;
@@ -140,7 +140,7 @@ export const GET = withErrorHandler(
     const teamsCol = await getCollection<Team>("teams");
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
-    await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { allowAdminBypass: true });
+    await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { bypassForOrgAdmin: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
 
@@ -202,7 +202,7 @@ export const PUT = withErrorHandler(
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
     const ownerTeamSlug = teamSlug(team, teamIdStr);
-    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { allowAdminBypass: true });
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { bypassForOrgAdmin: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
 

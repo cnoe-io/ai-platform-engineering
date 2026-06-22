@@ -39,6 +39,43 @@ export function isCredentialFeatureEnabled(): boolean {
   return envBoolean("CAIPE_CREDENTIALS_ENABLED");
 }
 
+/**
+ * Read an optional boolean sub-flag that defaults to the value of the master
+ * credential flag when unset. This lets a deployment turn the whole credential
+ * subsystem on/off with CAIPE_CREDENTIALS_ENABLED, while still being able to
+ * independently hide one surface (e.g. user Credentials) by explicitly setting
+ * its sub-flag to "false". A sub-flag can never be on when the master is off —
+ * the subsystem (store, key wrapper, routes) must be enabled for either surface
+ * to function.
+ */
+function subFeatureEnabled(name: string): boolean {
+  if (!isCredentialFeatureEnabled()) return false;
+  const raw = env(name)?.toLowerCase();
+  if (raw === undefined) return true; // inherit master (backward-compatible)
+  return raw === "true";
+}
+
+/**
+ * Whether the user-facing Credentials surface (the /credentials
+ * page + the Credentials nav link) is enabled. Independent of the
+ * service-account token surface so a deployment without registered OAuth apps
+ * can hide user credentials while still letting service accounts hold PATs.
+ * Env: CAIPE_USER_CONNECTIONS_ENABLED (defaults to the master flag).
+ */
+export function isUserConnectionsEnabled(): boolean {
+  return subFeatureEnabled("CAIPE_USER_CONNECTIONS_ENABLED");
+}
+
+/**
+ * Whether the service-account Tokens surface (the SA Tokens section + its
+ * token-providers / [id]/credentials routes) is enabled. Independent of the
+ * user Credentials surface.
+ * Env: CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED (defaults to the master flag).
+ */
+export function isServiceAccountTokensEnabled(): boolean {
+  return subFeatureEnabled("CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED");
+}
+
 export function getCredentialFeatureConfig(): CredentialFeatureConfig {
   return {
     enabled: isCredentialFeatureEnabled(),

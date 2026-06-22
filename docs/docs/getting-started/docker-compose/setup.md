@@ -21,25 +21,25 @@ Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
    cp .env.example .env
    ```
 
-   Edit `.env` with your configuration. Minimal example:
+   Edit `.env` with your LLM configuration. The checked-in example is an OSS
+   all-in-one profile set that starts the supervisor, MCP servers, production UI,
+   dynamic agents, local Keycloak/RBAC, MongoDB, and RAG:
 
    ```bash
-   ########### CAIPE Agent Configuration ###########
+   IMAGE_TAG=0.5.16
+   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
 
-   # Enable the agents you want to deploy
+   # All-in-one mode: agents run in-process and use MCP server containers.
+   DISTRIBUTED_AGENTS=
+
+   # Enable the tools you want the supervisor to expose.
    ENABLE_GITHUB=true
 
-   # A2A transport configuration (p2p or slim)
-   A2A_TRANSPORT=p2p
+   # LLM provider (openai, azure-openai, aws-bedrock)
+   LLM_PROVIDER=openai
+   OPENAI_API_KEY=<token>
 
-   # MCP mode configuration (http or stdio)
-   MCP_MODE=http
-
-   # LLM provider (anthropic-claude, aws-bedrock, openai, azure-openai)
-   LLM_PROVIDER=anthropic-claude
-   ANTHROPIC_API_KEY=sk-ant-...
-
-   ########### GitHub Agent Configuration ###########
+   # GitHub MCP server token, if GitHub tools are enabled.
    GITHUB_PERSONAL_ACCESS_TOKEN=<token>
    ```
 
@@ -96,47 +96,80 @@ Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
 
 ## Start CAIPE
 
-Use Docker Compose **profiles** to enable specific agents. If no profile is specified, only the supervisor starts.
+Use Docker Compose **profiles** to select services. The default `.env.example`
+starts the OSS all-in-one stack:
 
-**Available agent profiles:**
+```bash
+docker compose up
+```
+
+Open the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
+
+Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or
+`webex-bot` only when you want those bot integrations.
+
+**Primary profiles:**
 
 | Profile | Description |
 |---------|-------------|
-| `argocd` | ArgoCD GitOps for Kubernetes deployments |
-| `aws` | AWS cloud operations |
-| `backstage` | Backstage developer portal |
-| `confluence` | Confluence documentation |
-| `github` | GitHub repos and pull requests |
-| `jira` | Jira issue tracking |
-| `komodor` | Komodor Kubernetes troubleshooting |
-| `pagerduty` | PagerDuty incident management |
-| `rag` | RAG knowledge base (Milvus, Neo4j, Redis) |
-| `slack` | Slack messaging |
-| `splunk` | Splunk observability |
-| `webex` | Webex collaboration |
-| `slim` | AGNTCY Slim dataplane (set `A2A_TRANSPORT=slim`) |
+| `caipe-supervisor` | Supervisor API and all-in-one agent runtime |
+| `mcp-servers` | MCP server containers used by all-in-one agents |
+| `caipe-ui-prod` | Production CAIPE UI image |
+| `caipe-mongodb` | MongoDB for UI, RBAC, dynamic agents, and checkpoint data |
+| `rbac` | Local Keycloak, OpenFGA, AgentGateway, and config bridge |
+| `dynamic-agents` | Dynamic agent runtime used by the UI |
+| `rag` | Vector RAG services (Milvus, Redis, RAG server) |
+| `web_ingestor` / `web-ingestor` | Web datasource ingestion worker |
+| `slack-bot` | Slack bot integration service |
+| `webex-bot` | Webex bot integration service |
 | `tracing` | Langfuse distributed tracing (Clickhouse, Postgres) |
+
+Domain profiles such as `github`, `argocd`, `jira`, `slack`, and `webex` are
+kept as compatibility aliases for individual MCP services. In all-in-one mode,
+prefer `mcp-servers` plus the matching `ENABLE_*` flags instead of starting
+remote sub-agent containers.
 
 **Examples:**
 
 ```bash
-# Supervisor only
+# Default OSS all-in-one stack from .env
 docker compose up
 
-# Single agent
-COMPOSE_PROFILES="github" docker compose up
+# Render the selected services without starting them
+docker compose config --services
 
-# Multiple agents
-COMPOSE_PROFILES="argocd,aws,backstage" docker compose up
+# Add tracing
+docker compose --profile tracing up
 
-# With RAG knowledge base
-COMPOSE_PROFILES="github,rag" docker compose up
+# Add graph RAG
+docker compose --profile graph_rag up
 
-# With tracing
-COMPOSE_PROFILES="github,tracing" docker compose up
+# Add the web ingestion worker
+docker compose --profile web_ingestor up
 
-# Full stack: agents + RAG + tracing
-COMPOSE_PROFILES="github,rag,tracing" docker compose up
+# Build from source with the same profile set
+docker compose -f docker-compose.dev.yaml up --build
+```
+
+### Deployment modes
+
+The supervisor mode is controlled by `DISTRIBUTED_AGENTS`:
+
+| Value | Mode |
+|-------|------|
+| empty | All-in-one; agents run in-process and call MCP server containers |
+| `all` | Fully distributed; all agents run as remote A2A containers |
+| comma-separated agent names | Hybrid; only listed agents run remotely |
+
+```bash
+# All-in-one, the default in .env.example
+DISTRIBUTED_AGENTS= docker compose up
+
+# Fully distributed in the dev compose file
+DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-agents up --build
+
+# Hybrid example
+DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile argocd --profile github up --build
 ```
 
 ---
@@ -163,10 +196,10 @@ The `tracing` profile starts Langfuse v3 (web UI, worker, ClickHouse, Postgres, 
 
 1. Start with tracing:
    ```bash
-   COMPOSE_PROFILES="github,tracing" docker compose up
+   docker compose --profile tracing up
    ```
 
-2. Open Langfuse at **http://localhost:3000**, create an account, and copy the API keys.
+2. Open Langfuse at **http://localhost:3001**, create an account, and copy the API keys.
 
 3. Add to `.env` and restart:
    ```bash

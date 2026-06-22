@@ -68,7 +68,7 @@ jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
-jest.mock('@/lib/rbac/openfga-owned-resources', () => ({
+jest.mock('@/lib/rbac/openfga-owned-resources-reconcile', () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) => mockReconcileKnowledgeBaseRelationships(...args),
   reconcileDataSourceRelationships: (...args: unknown[]) => mockReconcileDataSourceRelationships(...args),
   reconcileMcpToolRelationships: (...args: unknown[]) => mockReconcileMcpToolRelationships(...args),
@@ -103,6 +103,32 @@ describe('RAG RBAC Integration', () => {
         json: async () => ({}),
       } as Response)
     ) as jest.Mock;
+  });
+
+  describe('RAG health proxy', () => {
+    it('allows GET /api/rag/healthz without a browser session or RBAC check', async () => {
+      jest.mocked(getServerSession).mockResolvedValue(null);
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'healthy', config: { graph_rag_enabled: true } }),
+      } as Response);
+
+      const { GET } = await import('@/app/api/rag/[...path]/route');
+      const response = await GET(
+        ragRequest('/api/rag/healthz', { method: 'GET' }),
+        { params: Promise.resolve({ path: ['healthz'] }) },
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.status).toBe('healthy');
+      expect(mockRequireRbacPermission).not.toHaveBeenCalled();
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/healthz'),
+        { method: 'GET' },
+      );
+    });
   });
 
   describe('User Info API', () => {

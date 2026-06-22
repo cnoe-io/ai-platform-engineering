@@ -12,9 +12,9 @@
  *   POST /api/v1/chat/stream/cancel   → cancelStream
  */
 
-import type { StreamCallbacks, StreamParams } from "./callbacks";
-import { CustomStreamAdapter } from "./clients/browser-custom-consumer";
+import type { StreamCallbacks,StreamParams } from "./callbacks";
 import { AGUIStreamAdapter } from "./clients/browser-agui-consumer";
+import { CustomStreamAdapter } from "./clients/browser-custom-consumer";
 
 // ═══════════════════════════════════════════════════════════════
 // Adapter interface

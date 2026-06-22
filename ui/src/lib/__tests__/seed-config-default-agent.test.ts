@@ -17,20 +17,30 @@
 
 const mockCollection = {
   countDocuments: jest.fn(),
+  findOne: jest.fn(),
   insertOne: jest.fn(),
+  updateOne: jest.fn(),
 };
+const mockReconcileAgentRelationships = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
   getCollection: jest.fn(async () => mockCollection),
+}));
+jest.mock("@/lib/rbac/openfga-agent-tools", () => ({
+  reconcileAgentRelationships: (...args: unknown[]) =>
+    mockReconcileAgentRelationships(...args),
 }));
 
 import {
   bootstrapDefaultDynamicAgentIfEmpty,
   bootstrapDefaultIdentityGroupSyncRuleIfEmpty,
   buildAutoCreateTeamsBootstrapRule,
+  buildHelloWorldAgentDoc,
+  reconcileHelloWorldBootstrapAgent,
   AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
   HELLO_WORLD_AGENT_ID,
+  HELLO_WORLD_BOOTSTRAP_REVISION,
 } from "../seed-config";
 
 describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
@@ -56,7 +66,7 @@ describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
     // Bootstrap-provisioned, not config-driven — admins must be able to
     // edit/delete it through the UI.
     expect(inserted.config_driven).toBe(false);
-    // All four built-in tools enabled.
+    // Built-in tools enabled, including workflow HITL.
     expect(inserted.builtin_tools.fetch_url).toEqual({
       enabled: true,
       allowed_domains: "*",
@@ -67,10 +77,33 @@ describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
       enabled: true,
       max_seconds: 60,
     });
+    expect(inserted.builtin_tools.request_user_input).toEqual({
+      enabled: true,
+    });
+    expect(inserted.interrupt_on).toEqual({
+      builtin: { request_user_input: true },
+    });
+    expect(inserted.hello_world_bootstrap_revision).toBe(
+      HELLO_WORLD_BOOTSTRAP_REVISION,
+    );
     // Empty model is intentional — backend default is used.
     expect(inserted.model).toEqual({ id: "", provider: "" });
     expect(inserted.subagents).toEqual([]);
     expect(inserted.skills).toEqual([]);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith({
+      agentId: HELLO_WORLD_AGENT_ID,
+      previousAllowedTools: {},
+      nextAllowedTools: inserted.allowed_tools,
+      ownerSubject: null,
+      organizationId: "caipe",
+      ownerTeamSlug: null,
+      previousOwnerTeamSlug: null,
+      nextSharedTeamSlugs: [],
+      previousSharedTeamSlugs: [],
+      globalUserAccess: true,
+      previousGlobalUserAccess: false,
+      failClosed: false,
+    });
   });
 
   it("is a no-op when any dynamic agent already exists", async () => {
@@ -102,12 +135,75 @@ describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
   });
 });
 
+describe("buildHelloWorldAgentDoc", () => {
+  it("includes request_user_input and workflow-oriented system prompt", () => {
+    const doc = buildHelloWorldAgentDoc("2026-01-01T00:00:00Z");
+    expect(doc.system_prompt).toContain("request_user_input");
+    expect(doc.system_prompt).toContain("write_file");
+  });
+});
+
+describe("reconcileHelloWorldBootstrapAgent", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("updates system-owned hello-world when bootstrap revision is behind", async () => {
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 1 });
+
+    const updated = await reconcileHelloWorldBootstrapAgent();
+
+    expect(updated).toBe(true);
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: HELLO_WORLD_AGENT_ID, owner_id: "system" }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          hello_world_bootstrap_revision: HELLO_WORLD_BOOTSTRAP_REVISION,
+          builtin_tools: expect.objectContaining({
+            request_user_input: { enabled: true },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("repairs OpenFGA relationships for current system-owned hello-world", async () => {
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 0 });
+    mockCollection.findOne.mockResolvedValue(buildHelloWorldAgentDoc("2026-01-01T00:00:00Z"));
+
+    await expect(reconcileHelloWorldBootstrapAgent()).resolves.toBe(false);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith({
+      agentId: HELLO_WORLD_AGENT_ID,
+      previousAllowedTools: {},
+      nextAllowedTools: {},
+      ownerSubject: null,
+      organizationId: "caipe",
+      ownerTeamSlug: null,
+      previousOwnerTeamSlug: null,
+      nextSharedTeamSlugs: [],
+      previousSharedTeamSlugs: [],
+      globalUserAccess: true,
+      previousGlobalUserAccess: true,
+      failClosed: false,
+    });
+  });
+
+  it("returns false when no document matched", async () => {
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 0 });
+    mockCollection.findOne.mockResolvedValue(null);
+
+    await expect(reconcileHelloWorldBootstrapAgent()).resolves.toBe(false);
+    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
+  });
+});
+
 describe("buildAutoCreateTeamsBootstrapRule", () => {
   it("returns a permissive default rule that matches every group claim", () => {
     const rule = buildAutoCreateTeamsBootstrapRule("2026-01-01T00:00:00Z");
 
     expect(rule.id).toBe(AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID);
-    expect(rule.provider_id).toBe("oidc-claims");
+    // Wildcard so the catch-all applies to every IdP (login claims + Okta sync).
+    expect(rule.provider_id).toBe("*");
     // Catch-all regex with a `team` named capture; matcher uses RegExp().
     expect(rule.include_patterns).toEqual(["^(?<team>.+)$"]);
     // Templates use Handlebars-style refs that the renderer substitutes
@@ -142,9 +238,9 @@ describe("bootstrapDefaultIdentityGroupSyncRuleIfEmpty", () => {
     }
   });
 
-  it("provisions the bootstrap rule when env var is true and rules collection is empty", async () => {
+  it("provisions the bootstrap rule when it does not exist", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(0);
+    mockCollection.findOne.mockResolvedValue(null);
     mockCollection.insertOne.mockResolvedValue({
       insertedId: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
     });
@@ -155,44 +251,76 @@ describe("bootstrapDefaultIdentityGroupSyncRuleIfEmpty", () => {
     expect(mockCollection.insertOne).toHaveBeenCalledTimes(1);
     const inserted = mockCollection.insertOne.mock.calls[0][0];
     expect(inserted.id).toBe(AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID);
+    expect(inserted.provider_id).toBe("*");
     expect(inserted.auto_create_team).toBe(true);
     expect(inserted.enabled).toBe(true);
   });
 
   it("is a no-op when the env var is unset", async () => {
     delete process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS;
-    mockCollection.countDocuments.mockResolvedValue(0);
 
     const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
 
     expect(created).toBe(false);
-    expect(mockCollection.countDocuments).not.toHaveBeenCalled();
+    expect(mockCollection.findOne).not.toHaveBeenCalled();
     expect(mockCollection.insertOne).not.toHaveBeenCalled();
   });
 
   it("is a no-op when the env var is any non-true value", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "1";
-    mockCollection.countDocuments.mockResolvedValue(0);
 
     const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
 
     expect(created).toBe(false);
-    expect(mockCollection.countDocuments).not.toHaveBeenCalled();
+    expect(mockCollection.findOne).not.toHaveBeenCalled();
   });
 
-  it("is a no-op when any rule already exists (admin-managed policy wins)", async () => {
+  it("updates a stale bootstrap rule with old provider_id", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(3);
+    mockCollection.findOne.mockResolvedValue({
+      id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
+      provider_id: "oidc-claims",
+      name: "Auto-create teams from OIDC group claims (bootstrap)",
+    });
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 1 });
+
+    const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
+
+    expect(created).toBe(true);
+    expect(mockCollection.insertOne).not.toHaveBeenCalled();
+    expect(mockCollection.updateOne).toHaveBeenCalledTimes(1);
+    const update = mockCollection.updateOne.mock.calls[0][1];
+    expect(update.$set.provider_id).toBe("*");
+  });
+
+  it("is a no-op when the bootstrap rule is already up to date", async () => {
+    process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
+    const rule = buildAutoCreateTeamsBootstrapRule("2026-01-01T00:00:00.000Z");
+    mockCollection.findOne.mockResolvedValue(rule);
 
     const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
 
     expect(created).toBe(false);
     expect(mockCollection.insertOne).not.toHaveBeenCalled();
+    expect(mockCollection.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when admin-curated rules exist but bootstrap rule is absent", async () => {
+    // Admin-curated rules with different IDs are not touched; the bootstrap
+    // rule itself is simply inserted since findOne returns null for its ID.
+    process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
+    mockCollection.findOne.mockResolvedValue(null);
+    mockCollection.insertOne.mockResolvedValue({ insertedId: "new-id" });
+
+    const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
+
+    expect(created).toBe(true);
+    expect(mockCollection.insertOne).toHaveBeenCalledTimes(1);
   });
 
   it("treats a duplicate-key race as benign", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(0);
+    mockCollection.findOne.mockResolvedValue(null);
     const dupErr = Object.assign(new Error("E11000"), { code: 11000 });
     mockCollection.insertOne.mockRejectedValue(dupErr);
 
@@ -203,7 +331,7 @@ describe("bootstrapDefaultIdentityGroupSyncRuleIfEmpty", () => {
 
   it("re-throws non-duplicate-key errors", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(0);
+    mockCollection.findOne.mockResolvedValue(null);
     mockCollection.insertOne.mockRejectedValue(new Error("connection lost"));
 
     await expect(bootstrapDefaultIdentityGroupSyncRuleIfEmpty()).rejects.toThrow(

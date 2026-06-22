@@ -93,7 +93,8 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-confluence.nameOverride | string | `"agent-confluence"` |  |
 | agent-github.image.pullPolicy | string | `"Always"` |  |
 | agent-github.image.repository | string | `"ghcr.io/cnoe-io/agent-github"` |  |
-| agent-github.mcp.useRemoteMcpServer | bool | `true` |  |
+| agent-github.mcp.mode | string | `"stdio"` |  |
+| agent-github.mcp.useRemoteMcpServer | bool | `false` |  |
 | agent-github.nameOverride | string | `"agent-github"` |  |
 | agent-gitlab.env.GIT_AUTHOR_EMAIL | string | `"ai-agent@cnoe.io"` |  |
 | agent-gitlab.env.GIT_AUTHOR_NAME | string | `"AI Agent"` |  |
@@ -277,9 +278,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.llmSecrets.secretName | string | `"llm-secret"` |  |
 | global.metrics.enabled | bool | `false` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
-| global.slim.enabled | bool | `false` |  |
-| global.slim.endpoint | string | `""` |  |
-| global.slim.transport | string | `"slim"` |  |
 | metrics.grafanaDashboard.enabled | bool | `true` |  |
 | metrics.grafanaDashboard.labels.grafana_dashboard | string | `"1"` |  |
 | metrics.path | string | `"/metrics"` |  |
@@ -437,8 +435,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-netutils (agent) | `0.2.38` | tags: agent-netutils, complete |
 | agent-weather (agent) | `0.2.38` | tags: agent-weather, complete |
 | agent-petstore (agent) | `0.2.38` | tags: agent-petstore, complete |
-| slim | `v0.1.8` | `global.slim.enabled` |
-| slim-control-plane | `v0.1.3` | `global.slim.enabled` |
 | rag-stack | `0.2.38` | tags: rag-stack, complete |
 | caipe-ui | `0.2.38` | tags: caipe-ui |
 | dynamic-agents | `0.2.38` | tags: dynamic-agents |

@@ -1,14 +1,39 @@
+/**
+ * @jest-environment node
+ */
+
+const mockAuthorize = jest.fn();
+const mockAuthorizeMany = jest.fn();
+
+jest.mock("@/lib/authz", () => ({
+  authorize: (...args: unknown[]) => mockAuthorize(...args),
+  authorizeMany: (...args: unknown[]) => mockAuthorizeMany(...args),
+}));
+
 import { ApiError } from "@/lib/api-error";
 
 import {
   filterResourcesByPermission,
+  mcpServerRowPermissionsOrDefault,
   openFgaRelationForResourceAction,
+  resolveMcpServerListPermissions,
   resourceObject,
+  resourcePermissionActionToCasAction,
   requireResourcePermission,
   subjectFromSession,
 } from "../resource-authz";
 
 describe("resource-authz", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("maps legacy list/admin actions onto CAS actions", () => {
+    expect(resourcePermissionActionToCasAction("list")).toBe("discover");
+    expect(resourcePermissionActionToCasAction("admin")).toBe("manage");
+    expect(resourcePermissionActionToCasAction("read")).toBe("read");
+  });
+
   it("maps UI resource actions to OpenFGA check relations", () => {
     expect(openFgaRelationForResourceAction("list")).toBe("can_discover");
     expect(openFgaRelationForResourceAction("discover")).toBe("can_discover");
@@ -152,24 +177,44 @@ describe("resource-authz", () => {
   });
 
   it("does not bypass OpenFGA object checks for session-role admins", async () => {
+    // bypassForOrgAdmin trusts an OpenFGA org-admin tuple, NOT a session role.
+    // A `role: "admin"` claim with no org-admin tuple must still be denied.
     const check = jest.fn(async () => ({ allowed: false }));
 
     await expect(
       requireResourcePermission(
         { sub: "admin-sub", role: "admin" },
         { type: "admin_surface", id: "skill-scan-all", action: "admin" },
-        { allowAdminBypass: true, check },
+        { bypassForOrgAdmin: true, check },
       ),
     ).rejects.toMatchObject({
       statusCode: 403,
       code: "admin_surface#admin",
     });
 
+    // The org-admin bypass probe runs first (can_manage organization:caipe),
+    // then the per-resource check — both deny here.
     expect(check).toHaveBeenCalledWith({
       user: "user:admin-sub",
       relation: "can_manage",
       object: "admin_surface:skill-scan-all",
     });
+  });
+
+  it("bypasses for a real OpenFGA org admin", async () => {
+    // An org admin (can_manage organization:caipe) short-circuits to allow,
+    // even when the per-resource object check would deny.
+    const check = jest.fn(async (tuple: { object: string }) => ({
+      allowed: tuple.object === "organization:caipe",
+    }));
+
+    await expect(
+      requireResourcePermission(
+        { sub: "org-admin-sub", role: "admin" },
+        { type: "admin_surface", id: "skill-scan-all", action: "admin" },
+        { bypassForOrgAdmin: true, check },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("filters session-role admins through OpenFGA instead of returning every resource", async () => {
@@ -184,7 +229,9 @@ describe("resource-authz", () => {
         id: (resource) => resource.id,
       },
       {
-        allowAdminBypass: true,
+        bypassForOrgAdmin: true,
+        // Not an org admin (organization:caipe denied), so the per-resource
+        // OpenFGA check still gates each resource.
         check: async (tuple) => ({ allowed: tuple.object === "mcp_server:visible" }),
       },
     );
@@ -246,5 +293,137 @@ describe("resource-authz", () => {
     );
 
     expect(visible).toEqual([{ id: "ok" }]);
+  });
+
+  describe("CAS default path (no check injection)", () => {
+    it("delegates requireResourcePermission to authorize", async () => {
+      mockAuthorize.mockResolvedValueOnce({
+        decision: "ALLOW",
+        reason: "OK",
+        retriable: false,
+      });
+
+      await expect(
+        requireResourcePermission(
+          { sub: "alice-sub" },
+          { type: "mcp_server", id: "mcp-jira", action: "manage" },
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(mockAuthorize).toHaveBeenCalledWith({
+        subject: { type: "user", id: "alice-sub" },
+        resource: { type: "mcp_server", id: "mcp-jira" },
+        action: "manage",
+      });
+    });
+
+    it("returns 503 when CAS reports AUTHZ_UNAVAILABLE", async () => {
+      mockAuthorize.mockResolvedValueOnce({
+        decision: "DENY",
+        reason: "AUTHZ_UNAVAILABLE",
+        retriable: true,
+      });
+
+      await expect(
+        requireResourcePermission(
+          { sub: "alice-sub" },
+          { type: "mcp_server", id: "mcp-jira", action: "read" },
+        ),
+      ).rejects.toMatchObject({ statusCode: 503, code: "AUTHZ_UNAVAILABLE" });
+    });
+
+    it("filters resources via authorizeMany", async () => {
+      mockAuthorize.mockResolvedValueOnce({
+        decision: "DENY",
+        reason: "NO_CAPABILITY",
+        retriable: false,
+      });
+      mockAuthorizeMany.mockResolvedValueOnce(
+        new Map([
+          ["visible", { decision: "ALLOW", reason: "OK", retriable: false }],
+          ["hidden", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+        ]),
+      );
+
+      const resources = [{ id: "visible" }, { id: "hidden" }];
+      const visible = await filterResourcesByPermission(
+        { sub: "alice-sub" },
+        resources,
+        { type: "mcp_server", action: "read", id: (resource) => resource.id },
+      );
+
+      expect(visible).toEqual([{ id: "visible" }]);
+      expect(mockAuthorizeMany).toHaveBeenCalledWith(
+        { type: "user", id: "alice-sub" },
+        "read",
+        "mcp_server",
+        ["visible", "hidden"],
+      );
+    });
+
+    it("batch-resolves MCP list row permissions and repair capability", async () => {
+      mockAuthorize.mockReset();
+      mockAuthorizeMany.mockReset();
+      mockAuthorizeMany
+        .mockResolvedValueOnce(
+          new Map([
+            ["jira", { decision: "ALLOW", reason: "OK", retriable: false }],
+            ["github", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+          ]),
+        )
+        .mockResolvedValueOnce(
+          new Map([
+            ["jira", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+            ["github", { decision: "ALLOW", reason: "OK", retriable: false }],
+          ]),
+        )
+        .mockResolvedValueOnce(
+          new Map([
+            ["jira", { decision: "ALLOW", reason: "OK", retriable: false }],
+            ["github", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+          ]),
+        );
+      mockAuthorize.mockImplementation(async (req) => {
+        if (req.resource.type === "mcp_server" && req.resource.id === "agentgateway" && req.action === "manage") {
+          return { decision: "ALLOW", reason: "OK", retriable: false };
+        }
+        return { decision: "DENY", reason: "NO_CAPABILITY", retriable: false };
+      });
+
+      const { rows, capabilities } = await resolveMcpServerListPermissions(
+        { sub: "alice-sub" },
+        ["jira", "github"],
+      );
+
+      expect(rows.get("jira")).toEqual({ can_manage: true, can_invoke: false, can_discover: true });
+      expect(rows.get("github")).toEqual({ can_manage: false, can_invoke: true, can_discover: false });
+      expect(capabilities).toEqual({ repair_agentgateway: true });
+      expect(mcpServerRowPermissionsOrDefault(rows, "missing")).toEqual({
+        can_manage: false,
+        can_invoke: false,
+        can_discover: false,
+      });
+    });
+
+    it("grants full permissions to org admins when bypassForOrgAdmin is enabled", async () => {
+      mockAuthorize.mockReset();
+      mockAuthorizeMany.mockReset();
+      mockAuthorize.mockResolvedValue({
+        decision: "ALLOW",
+        reason: "OK",
+        retriable: false,
+      });
+
+      const { rows, capabilities } = await resolveMcpServerListPermissions(
+        { sub: "admin-sub" },
+        ["jira", "github"],
+        { bypassForOrgAdmin: true },
+      );
+
+      expect(mockAuthorizeMany).not.toHaveBeenCalled();
+      expect(rows.get("jira")).toEqual({ can_manage: true, can_invoke: true, can_discover: true });
+      expect(rows.get("github")).toEqual({ can_manage: true, can_invoke: true, can_discover: true });
+      expect(capabilities).toEqual({ repair_agentgateway: true });
+    });
   });
 });

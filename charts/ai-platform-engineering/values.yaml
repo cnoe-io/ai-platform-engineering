@@ -3,20 +3,20 @@ tags:
   complete: false
   caipe-ui: false
   dynamic-agents: false
-  agent-argocd: false
-  agent-aws: false
-  agent-backstage: false
-  agent-confluence: false
-  agent-github: false
-  agent-gitlab: false
-  agent-jira: false
-  agent-komodor: false
-  agent-pagerduty: false
-  agent-slack: false
-  agent-splunk: false
-  agent-victorops: false
-  agent-webex: false
-  agent-netutils: false
+  mcp-argocd: false
+  mcp-aws: false
+  mcp-backstage: false
+  mcp-confluence: false
+  mcp-github: false
+  mcp-gitlab: false
+  mcp-jira: false
+  mcp-komodor: false
+  mcp-pagerduty: false
+  mcp-slack: false
+  mcp-splunk: false
+  mcp-victorops: false
+  mcp-webex: false
+  mcp-netutils: false
   rag-stack: false
   slack-bot: false
   webex-bot: false
@@ -42,11 +42,6 @@ global:
   externalSecrets:
     enabled: false
     apiVersion: "v1beta1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1beta1" if not specified.
-  slim:
-    enabled: false
-    endpoint: ""
-    transport: "slim"
-
   # RAG Stack configuration
   rag:
     enableGraphRag: true
@@ -64,7 +59,7 @@ global:
   # "explicitly false" from the default "false"). To enable VPA selectively, keep global.vpa.enabled=false
   # and set vpa.enabled=true on individual agents instead.
   # Override global defaults per-agent with non-enabled fields:
-  #   agent-github:
+  #   mcp-github:
   #     vpa:
   #       maxAllowed:
   #         cpu: 2
@@ -85,8 +80,8 @@ global:
 
   # VPA config for MCP server Deployments. Each MCP server runs as its own
   # Deployment and gets its own VPA resource.
-  # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
-  #   agent-github:
+  # Override per-agent by setting mcp.vpa under the relevant mcp-* section. Example:
+  #   mcp-github:
   #     mcp:
   #       vpa:
   #         enabled: false   # disable VPA for github MCP only
@@ -109,7 +104,7 @@ global:
       #   memory: 2Gi
 
   agentgateway:
-    enabled: false
+    enabled: true
     # How AgentGateway MCP routing is provisioned. This controls whether the
     # umbrella chart renders Gateway API / AgentGateway custom resources.
     #
@@ -148,33 +143,35 @@ global:
       # Dynamic MCP route reconciliation (static routing mode only).
       #
       # When enabled, a config-bridge sidecar runs alongside the standalone
-      # AgentGateway proxy and reconciles runtime-added MCP servers (the Mongo
-      # `mcp_servers` collection, source=agentgateway) into the proxy config so
+      # AgentGateway proxy and reconciles runtime-added MCP servers from the BFF
+      # internal target API into the proxy config so
       # they receive a /mcp/<id> route WITHOUT a `helm upgrade` / values change.
       #
       # How it works:
       #   - The Helm-rendered static config (jwtAuth + extraMcpTargets) is the
       #     bootstrap/seed; an initContainer seeds a shared emptyDir so the
       #     proxy always starts with a valid config.
-      #   - The sidecar polls Mongo and writes /mcp/<id> routes into that shared
-      #     file; the proxy hot-reloads on change.
+      #   - The sidecar polls the BFF target API and writes /mcp/<id> routes into
+      #     that shared file; the proxy hot-reloads on change.
       #
       # NOTE: route discovery only — it does NOT affect JWT authentication
       # (jwtAuth). Ignored in `gateway-api` routing mode (CRDs manage routes).
       configBridge:
-        enabled: false
+        enabled: true
         image:
           repository: ghcr.io/cnoe-io/agentgateway-config-bridge
           tag: ""              # defaults to agentgateway subchart appVersion
           pullPolicy: IfNotPresent
         pollSeconds: 5
-        mongodb:
-          # MCP-server store connection. Prefer existingSecret over uri.
-          uri: ""              # plain MONGODB_URI (discouraged for real creds)
-          database: caipe
+        bff:
+          # Internal BFF route that publishes sanitized AgentGateway MCP targets.
+          url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets
           existingSecret:
-            name: ""           # e.g. "caipe-ui-mongodb" / your Mongo secret
-            key: MONGODB_URI
+            # Name of the Kubernetes Secret containing AGENTGATEWAY_TARGETS_TOKEN.
+            # Mount the same key into caipe-ui (via caipe-ui.existingSecret or
+            # caipe-ui.externalSecrets) so the BFF and bridge share the token.
+            name: ""
+            key: AGENTGATEWAY_TARGETS_TOKEN
         # securityContext: {}  # optional; defaults to agentgateway.securityContext
         # resources: {}        # optional; defaults to agentgateway.resources
         extraEnv: []
@@ -203,7 +200,28 @@ global:
       port: 9446
       protocol: StreamableHTTP
       pathPrefix: /mcp/knowledge-base
-    # Additional MCP routes that are not rendered from `agent-*` subcharts.
+      providerTokenAuth: true
+    # GitHub MCP server — official GitHub MCP server container.
+    # Routes /mcp/github-mcp-server -> the in-cluster Deployment.
+    # The Deployment is enabled by this same section; keep it opt-in because
+    # the official GitHub MCP server needs a GitHub PAT secret at startup.
+    # When enabled, GITHUB_PERSONAL_ACCESS_TOKEN is injected from
+    # existingSecret; Helm fails early if the secret name is omitted.
+    # assisted-by Codex Codex-sonnet-4-6
+    githubMcpServer:
+      enabled: false
+      image:
+        repository: ghcr.io/github/github-mcp-server
+        # Multi-arch index digest inspected from ghcr.io/github/github-mcp-server:latest.
+        tag: latest@sha256:5c83359327a0bacc3d34db730bea6557d39d341cee0bf6c58c9a896e33150e80
+        pullPolicy: IfNotPresent
+      port: 8082
+      pathPrefix: /mcp/github-mcp-server
+      # Secret containing GITHUB_PERSONAL_ACCESS_TOKEN.
+      existingSecret:
+        name: ""   # e.g. "github-mcp-secret"
+        key: GITHUB_PERSONAL_ACCESS_TOKEN
+    # Additional MCP routes that are not rendered from `mcp-*` subcharts.
     # Use this for platform MCP endpoints such as RAG/Knowledge Base.
     # Each item renders one AgentgatewayBackend and one HTTPRoute:
     #   /mcp/<id> -> static host:port using the requested MCP protocol.
@@ -215,6 +233,14 @@ global:
     #     port: 9446
     #     protocol: StreamableHTTP
     #     pathPrefix: /mcp/knowledge-base
+    #     # Optional: set providerTokenAuth directly, or declare header-targeted
+    #     # credential_sources and the chart derives the AgentGateway transform.
+    #     # assisted-by Codex Codex-sonnet-4-6
+    #     providerTokenAuth: false
+    #     # credential_sources:
+    #     #   - kind: caller_token
+    #     #     name: X-CAIPE-Provider-Token
+    #     #     target: header
     extraMcpTargets: []
 
   # OpenFGA service discovery defaults for CAIPE components that perform
@@ -224,7 +250,7 @@ global:
     storeName: "caipe-openfga"
 
 agentgateway:
-  enabled: false
+  enabled: true
   image:
     repository: cr.agentgateway.dev/agentgateway
     tag: v1.1.0
@@ -314,10 +340,10 @@ skillsLiveSkillsName: ""       # Variant name (looks up data/skills/live-skills.
 skillsLiveSkills: ""           # Inline custom live-skills skill (overrides everything)
 
 ######### Sub-agent MCP server configurations #########
-# Each agent-* block configures one agent's MCP server (alias from Chart.yaml).
+# Each mcp-* block configures one agent's MCP server (alias from Chart.yaml).
 
-agent-argocd:
-  nameOverride: "agent-argocd"
+mcp-argocd:
+  nameOverride: "mcp-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "IfNotPresent"
@@ -336,8 +362,8 @@ agent-argocd:
       enabled: false
       protocol: StreamableHTTP # SSE or StreamableHTTP
 
-agent-backstage:
-  nameOverride: "agent-backstage"
+mcp-backstage:
+  nameOverride: "mcp-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "IfNotPresent"
@@ -353,8 +379,8 @@ agent-backstage:
       enabled: false
       protocol: StreamableHTTP
 
-agent-confluence:
-  nameOverride: "agent-confluence"
+mcp-confluence:
+  nameOverride: "mcp-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "IfNotPresent"
@@ -371,16 +397,22 @@ agent-confluence:
     env:
       TRANSPORT: "streamable-http"
 
-agent-github:
-  nameOverride: "agent-github"
+mcp-github:
+  nameOverride: "mcp-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "IfNotPresent"
   mcp:
-    useRemoteMcpServer: true
+    mode: "stdio"
+    useRemoteMcpServer: false
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
+      # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
+      providerTokenAuth: true
 
-agent-gitlab:
-  nameOverride: "agent-gitlab"
+mcp-gitlab:
+  nameOverride: "mcp-gitlab"
   image:
     repository: "ghcr.io/cnoe-io/agent-gitlab"
     pullPolicy: "IfNotPresent"
@@ -396,6 +428,11 @@ agent-gitlab:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
+      # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
+      providerTokenAuth: true
     env:
       STREAMABLE_HTTP: "true"
       HOST: "0.0.0.0"
@@ -429,8 +466,8 @@ agent-gitlab:
       #
       # GITLAB_DENIED_TOOLS_REGEX: "^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$"
 
-agent-jira:
-  nameOverride: "agent-jira"
+mcp-jira:
+  nameOverride: "mcp-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "IfNotPresent"
@@ -446,8 +483,8 @@ agent-jira:
       enabled: false
       protocol: StreamableHTTP
 
-agent-pagerduty:
-  nameOverride: "agent-pagerduty"
+mcp-pagerduty:
+  nameOverride: "mcp-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "IfNotPresent"
@@ -463,8 +500,8 @@ agent-pagerduty:
       enabled: false
       protocol: StreamableHTTP
 
-agent-slack:
-  nameOverride: "agent-slack"
+mcp-slack:
+  nameOverride: "mcp-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
     pullPolicy: "IfNotPresent"
@@ -486,8 +523,8 @@ agent-slack:
       # or restrict to specific channel IDs: "C123,C456" (whitelist), "!C789" (blacklist)
       # SLACK_MCP_ADD_MESSAGE_TOOL: "false"
 
-agent-aws:
-  nameOverride: "agent-aws"
+mcp-aws:
+  nameOverride: "mcp-aws"
   image:
     repository: "ghcr.io/cnoe-io/agent-aws"
     pullPolicy: "IfNotPresent"
@@ -516,8 +553,8 @@ agent-aws:
     # -- Block kubectl port-forward (tunnel internal services). Defaults to false (off).
     RESTRICT_KUBECTL_PORT_FORWARD: "false"
 
-agent-splunk:
-  nameOverride: "agent-splunk"
+mcp-splunk:
+  nameOverride: "mcp-splunk"
   image:
     repository: "ghcr.io/cnoe-io/agent-splunk"
     pullPolicy: "IfNotPresent"
@@ -533,8 +570,8 @@ agent-splunk:
       enabled: false
       protocol: StreamableHTTP
 
-agent-victorops:
-  nameOverride: "agent-victorops"
+mcp-victorops:
+  nameOverride: "mcp-victorops"
   image:
     repository: "ghcr.io/cnoe-io/agent-victorops"
     pullPolicy: "IfNotPresent"
@@ -549,8 +586,8 @@ agent-victorops:
       enabled: false
       protocol: StreamableHTTP
 
-agent-webex:
-  nameOverride: "agent-webex"
+mcp-webex:
+  nameOverride: "mcp-webex"
   image:
     repository: "ghcr.io/cnoe-io/agent-webex"
     pullPolicy: "IfNotPresent"
@@ -566,8 +603,8 @@ agent-webex:
       enabled: false
       protocol: StreamableHTTP
 
-agent-komodor:
-  nameOverride: "agent-komodor"
+mcp-komodor:
+  nameOverride: "mcp-komodor"
   image:
     repository: "ghcr.io/cnoe-io/agent-komodor"
     pullPolicy: "IfNotPresent"
@@ -583,8 +620,8 @@ agent-komodor:
       enabled: false
       protocol: StreamableHTTP
 
-agent-netutils:
-  nameOverride: "agent-netutils"
+mcp-netutils:
+  nameOverride: "mcp-netutils"
   agentSecrets:
     requiresSecret: false
   image:
@@ -684,6 +721,8 @@ caipe-ui:
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
     SSO_ENABLED: "false"
+    # Okta background sync is configured via the structured `oktaSync:` block
+    # below (sibling of `config:`), modeled after the Backstage Okta provider.
     # Built-in skill IDs to seed (comma-separated whitelist).
     # When set, only listed templates are seeded; unlisted ones are removed on deploy.
     # When unset or empty, all built-in templates are seeded automatically.
@@ -716,10 +755,17 @@ caipe-ui:
     # OpenFGA is installed and the authorization model has been initialized.
     OPENFGA_HTTP: ""
     OPENFGA_STORE_NAME: "caipe-openfga"
-    OPENFGA_RECONCILE_ENABLED: "false"
+    OPENFGA_RECONCILE_ENABLED: "true"
     # Unsafe dev/emergency escape hatch: when true, UI RBAC checks allow all
     # requests without consulting OpenFGA. Do not enable in staging or prod.
     CAIPE_UNSAFE_RBAC_BYPASS: "false"
+    # Identity sync: process IDP group claims at login time and automatically
+    # create teams matching the user's AD/LDAP group memberships.
+    # Set both to "true" when using an IDP (e.g. Keycloak brokering AD/LDAP)
+    # that includes group claims in the OIDC token, so teams stay in sync with
+    # AD groups without requiring manual team management in the Admin UI.
+    IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: "false"
+    IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS: "false"
     # Keycloak Admin API integration for resource/scope synchronization.
     KEYCLOAK_URL: ""
     KEYCLOAK_REALM: "caipe"
@@ -766,6 +812,33 @@ caipe-ui:
     # SOURCE_URL: "https://github.com/your-org/your-repo"
     # Enable Prometheus metrics
     # PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+  # ── Okta directory sync (Identity Sync admin tab) ──────────────────────────
+  # Structured config modeled after the Backstage Okta entity provider. The
+  # chart flattens this into IDENTITY_SYNC_OKTA_* env vars on the caipe-ui
+  # Deployment (non-sensitive → ConfigMap; sensitive → Secret) so the app can
+  # run identically locally (plain env vars) and in-cluster.
+  #
+  # Choose ONE auth mode:
+  #   • token: SSWS API token (simplest)
+  #   • oauth: OAuth 2.0 service app, private-key JWT (least privilege; grant
+  #            scopes okta.groups.read + okta.users.read). Takes precedence.
+  #
+  # Secrets are NOT inlined here. Provide them via `existingSecret` /
+  # `externalSecrets` using these keys, which the Deployment maps by name:
+  #   IDENTITY_SYNC_OKTA_API_TOKEN          (token mode)
+  #   IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY  (oauth mode, PEM PKCS#8)
+  oktaSync:
+    enabled: false
+    # Non-sensitive — rendered into the ConfigMap.
+    orgUrl: ""                 # e.g. https://your-org.okta.com
+    oauth:
+      clientId: ""             # non-sensitive (service app client id)
+      keyId: ""                # optional kid; required for PEM keys
+    # Optional Okta group filter expression (non-sensitive), applied to the
+    # group listing.
+    # groupFilter: 'profile.name eq "Engineering"'
+
   # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
   # BYO MongoDB or DocumentDB: add data entry with secretKey: MONGODB_URI and remoteRef to your store.
   externalSecrets:
@@ -779,6 +852,9 @@ caipe-ui:
 
   # BYO MongoDB/DocumentDB: set existingSecret to a Secret containing MONGODB_URI (and other keys as needed).
   # Leave mongodb.enabled false and provide MONGODB_URI via existingSecret or externalSecrets above.
+  # For Okta sync, add the sensitive credential to the same secret:
+  #   token mode → IDENTITY_SYNC_OKTA_API_TOKEN
+  #   oauth mode → IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY (PEM PKCS#8)
   existingSecret: ""
 
   # MongoDB configuration for CAIPE UI persistence (in-cluster; disable for BYO)
@@ -938,11 +1014,17 @@ dynamic-agents:
     # Connections & Secrets credential exchange client. Disabled by default.
     CAIPE_CREDENTIALS_ENABLED: "false"
     CREDENTIAL_API_URL: ""
+    # CAIPE UI server base URL for built-in workflow tools.
+    CAIPE_API_URL: ""
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     USE_IMPERSONATION_TOKENS: "false"
     # MCP server IDs routed through AgentGateway. "all" only applies to
     # gateway-managed MCP rows; manual/direct MCP rows keep their stored endpoint.
     AGENT_GATEWAY_MCP_SERVER_IDS: "all"
+  agentContext:
+    existingSecret:
+      name: ""
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
     # LLM configuration (override if needed)
     # LLM_PROVIDER: "openai"
     # LLM_MODEL: "gpt-4o"
@@ -981,7 +1063,6 @@ slack-bot:
     APP_NAME: "CAIPE"
     SLACK_BOT_MODE: "socket"
     CAIPE_API_URL: ""
-    SLACK_INTEGRATION_SILENCE_ENV: "false"
     # MONGODB_URI: ""                          # Override per environment
     # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
     SLACK_WORKSPACE_ALIAS: "CAIPE"             # Canonical workspace namespace for Slack ReBAC/routes
@@ -1059,10 +1140,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: keycloak_bot_client_secret
-      # - secretKey: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: keycloak_slack_bot_admin_client_secret
 
   resources:
     requests:
@@ -1273,13 +1350,9 @@ openfga-authz-bridge:
       - RS256
   audit:
     enabled: true
-    mongodbUri: ""
-    mongodbDatabase: caipe
+    serviceUrl: ""
     tenantId: default
     subjectSalt: caipe-098-audit
-    existingSecret:
-      name: ""
-      key: MONGODB_URI
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

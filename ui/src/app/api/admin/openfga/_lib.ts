@@ -1,16 +1,22 @@
-import { NextRequest } from "next/server";
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { OPENFGA_ACTION_RELATIONS } from "@/lib/rbac/tuple-builders";
 import { isUniversalRebacResourceType } from "@/lib/rbac/relationship-validator";
+import { OPENFGA_ACTION_RELATIONS } from "@/lib/rbac/tuple-builders";
+import { NextRequest } from "next/server";
 
 export const ALLOWED_RELATIONS = new Set(["member", "admin", ...OPENFGA_ACTION_RELATIONS]);
 
-const SAFE_ID = /^[A-Za-z0-9._:@#*+-]+$/;
+// `/` is required for fine-grained MCP tool objects (`tool:<server>/<tool>`,
+// `tool:<server>/*`) — without it validateTupleKey rejects every slash-tool
+// tuple before the shape allowlist (which explicitly permits team#member→tool
+// and universal caller→tool grants) can run. Mirrors EXACT_TUPLE_FIELD in
+// tuples/route.ts, which already allows `/`. The per-shape allowlist below is
+// the real authorization guard; SAFE_ID is only a coarse charset filter. (#33)
+const SAFE_ID = /^[A-Za-z0-9._:@#*+/-]+$/;
 const SUBJECT_PREFIXES = ["user:", "service_account:", "slack_channel:"];
 
 export interface OpenFgaAuthContext {
@@ -32,6 +38,7 @@ function isSupportedUniversalSubject(value: string): boolean {
   return (
     SUBJECT_PREFIXES.some((prefix) => value.startsWith(prefix)) ||
     /^team:[A-Za-z0-9._:@*+-]+#(member|admin)$/.test(value) ||
+    /^organization:[A-Za-z0-9._:@*+-]+#(member|admin)$/.test(value) ||
     /^external_group:[A-Za-z0-9._:@*+-]+#member$/.test(value)
   );
 }
@@ -60,7 +67,21 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
     );
   }
 
-  const isUserMembership = user.startsWith("user:") && relation === "member" && object.startsWith("team:");
+  // assisted-by Codex Codex-sonnet-4-6
+  // The team model allows direct user grants for both base membership
+  // relations. Live RBAC e2e uses this admin endpoint to seed team admins.
+  const isUserMembership =
+    user.startsWith("user:") &&
+    ["member", "admin"].includes(relation) &&
+    object.startsWith("team:");
+  // assisted-by Codex Codex-sonnet-4-6
+  // Baseline access and live RBAC setup seed organization membership through
+  // the same admin tuple endpoint, so keep the validator aligned with the
+  // OpenFGA organization model.
+  const isUserOrganizationMembership =
+    user.startsWith("user:") &&
+    ["member", "admin"].includes(relation) &&
+    object.startsWith("organization:");
   const isTeamAgent =
     user.startsWith("team:") &&
     ((user.endsWith("#member") && relation === "user") ||
@@ -87,6 +108,7 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
 
   if (
     !isUserMembership &&
+    !isUserOrganizationMembership &&
     !isTeamAgent &&
     !isTeamTool &&
     !isTeamKb &&

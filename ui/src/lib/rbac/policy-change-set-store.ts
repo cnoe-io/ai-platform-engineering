@@ -1,6 +1,6 @@
+import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import { randomUUID } from "crypto";
 import type { Document } from "mongodb";
-import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
 import { getRbacCollection } from "./mongo-collections";
 import type { PolicyChangeValidationResult } from "./policy-change-validator";

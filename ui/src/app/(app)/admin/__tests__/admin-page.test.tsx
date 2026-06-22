@@ -40,7 +40,6 @@ jest.mock('@/lib/config', () => ({
     ({
       auditLogsEnabled: true,
       feedbackEnabled: true,
-      npsEnabled: true,
       ssoEnabled: false,
     })[key] ?? true,
 }));
@@ -57,42 +56,42 @@ jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-jest.mock('@/components/admin/SimpleLineChart', () => ({
+jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: () => <div data-testid="line-chart" />,
 }));
 
-jest.mock('@/components/admin/MetricsTab', () => ({
+jest.mock('@/components/admin/platform/MetricsTab', () => ({
   MetricsTab: () => <div data-testid="metrics-tab">MetricsTab</div>,
 }));
 
-jest.mock('@/components/admin/HealthTab', () => ({
+jest.mock('@/components/admin/platform/HealthTab', () => ({
   HealthTab: () => <div data-testid="health-tab">HealthTab</div>,
 }));
 
-jest.mock('@/components/admin/ReviewConfigsTab', () => ({
+jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
   ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
 }));
 
-jest.mock('@/components/admin/PlatformSettingsTab', () => ({
+jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
   PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
 }));
 
-jest.mock('@/components/admin/ReleaseNotesSettingsTab', () => ({
+jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
 }));
 
-jest.mock('@/components/admin/SkillMetricsCards', () => ({
+jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div />,
   CategoryBreakdown: () => <div />,
   RunStatsTable: () => <div />,
   TopCreatorsCard: () => <div />,
 }));
 
-jest.mock('@/components/admin/CheckpointStatsSection', () => ({
+jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
   CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
-jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
+jest.mock('@/components/admin/security/OpenFgaRebacTab', () => ({
   OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
 }));
 
@@ -124,31 +123,32 @@ jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
   RagTeamAccessPanel: () => <div data-testid="rag-team-access-panel">RagTeamAccessPanel</div>,
 }));
 
-jest.mock('@/components/admin/identity-group-sync/IdentityGroupSyncTab', () => ({
-  IdentityGroupSyncTab: () => <div data-testid="identity-group-sync-tab">IdentityGroupSyncTab</div>,
-}));
 
-jest.mock('@/components/admin/MigrationTab', () => ({
+jest.mock('@/components/admin/security/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
 }));
 
-jest.mock('@/components/admin/KeycloakMigrationHealthPanel', () => ({
+jest.mock('@/components/admin/security/KeycloakMigrationHealthPanel', () => ({
   KeycloakMigrationHealthPanel: () => <div data-testid="keycloak-health-tab">KeycloakHealthTab</div>,
 }));
 
-jest.mock('@/components/admin/AuditLogsTab', () => ({
+jest.mock('@/components/admin/security/AuditLogsTab', () => ({
   AuditLogsTab: () => <div data-testid="audit-logs-tab">AuditLogsTab</div>,
 }));
 
-jest.mock('@/components/admin/UnifiedAuditTab', () => ({
+jest.mock('@/components/admin/security/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 
-jest.mock('@/components/admin/CreateTeamDialog', () => ({
+jest.mock('@/components/admin/PermissionsToolTab', () => ({
+  PermissionsToolTab: () => <div data-testid="permissions-tool-tab">PermissionsToolTab</div>,
+}));
+
+jest.mock('@/components/admin/teams/CreateTeamDialog', () => ({
   CreateTeamDialog: () => null,
 }));
 
-jest.mock('@/components/admin/TeamDetailsDialog', () => ({
+jest.mock('@/components/admin/teams/TeamDetailsDialog', () => ({
   TeamDetailsDialog: () => null,
 }));
 
@@ -252,21 +252,9 @@ const mockFeedbackResponse = {
   },
 };
 
-const mockNpsResponse = {
-  success: true,
-  data: {
-    nps_score: 0,
-    total_responses: 0,
-    breakdown: { promoters: 0, passives: 0, detractors: 0, promoter_pct: 0, passive_pct: 0, detractor_pct: 0 },
-    trend: [],
-    recent_responses: [],
-    campaigns: [],
-  },
-};
-
 const mockConfigResponse = {
   success: true,
-  data: { auditLogsEnabled: true, npsEnabled: true },
+  data: { auditLogsEnabled: true },
 };
 
 const allGatesOpen = {
@@ -277,7 +265,6 @@ const allGatesOpen = {
   webex: true,
   skills: true,
   feedback: true,
-  nps: true,
   stats: true,
   metrics: true,
   health: true,
@@ -285,7 +272,6 @@ const allGatesOpen = {
   action_audit: true,
   openfga: true,
   migrations: true,
-  identity_group_sync: true,
 };
 
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
@@ -358,13 +344,6 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
         json: () => Promise.resolve(overrides.feedback || mockFeedbackResponse),
       });
     }
-    if (url.includes('/api/admin/nps')) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(overrides.nps || mockNpsResponse),
-      });
-    }
     if (url.includes('/api/config')) {
       return Promise.resolve({
         ok: true,
@@ -398,10 +377,12 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Loading state', () => {
-    it('shows spinner while loading', () => {
+    it('renders the admin shell before lazy tab data loads', async () => {
       setupFetchMock();
       render(<AdminPage />);
-      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+
+      expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+      expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
     });
 
     it('does not eagerly fetch /api/admin/users during loadAdminData', async () => {
@@ -416,7 +397,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
 
       const userListCalls = fetchMock.mock.calls.filter(([url]) => {
@@ -431,6 +412,8 @@ describe('Admin Dashboard Page', () => {
 
   describe('Error state', () => {
     it('shows error message and retry button on fetch failure', async () => {
+      // Must be on a tab with a loader (stats) so a fetch is actually triggered.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
       render(<AdminPage />);
 
@@ -441,6 +424,8 @@ describe('Admin Dashboard Page', () => {
     });
 
     it('shows auth error on 401 response', async () => {
+      // Must be on a tab with a loader (stats) so a fetch is actually triggered.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
         ok: false,
         status: 401,
@@ -473,7 +458,7 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/view platform usage.*read-only access/i)
+          screen.getByText(/view access.*teams.*health.*platform settings/i)
         ).toBeInTheDocument();
       });
     });
@@ -517,9 +502,7 @@ describe('Admin Dashboard Page', () => {
         tabGates: {
           ...allGatesOpen,
           roles: false,
-          identity_group_sync: false,
           feedback: false,
-          nps: false,
           stats: false,
           audit_logs: false,
           action_audit: false,
@@ -582,7 +565,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
@@ -593,7 +576,7 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/manage users.*teams.*monitor usage/i)
+          screen.getByText(/manage access.*teams.*health.*platform settings/i)
         ).toBeInTheDocument();
       });
     });
@@ -671,7 +654,7 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('orders Security & Policy tabs with OpenFGA ReBAC as the default', async () => {
+    it('orders Security & Policy tabs with RBAC Audit second and Permissions Tool as default', async () => {
       currentSearchParams = new URLSearchParams('cat=security');
 
       render(<AdminPage />);
@@ -682,13 +665,14 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByText('Security & Policy'));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'OpenFGA ReBAC',
+        'Permissions Tool',
         'RBAC Audit',
+        'OpenFGA ReBAC',
         'Chat Audit',
         'Keycloak',
         'Migrations',
       ]);
-      expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
@@ -740,12 +724,13 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Default Agent',
+        'General',
         'Release notes',
         'AI Review',
         'Credentials',
         'Knowledge Bases',
         'Skills',
+        'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /release notes/i })).toBeInTheDocument();
@@ -755,10 +740,12 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /rag team access/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
-        'NPS',
       ]);
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
@@ -767,6 +754,10 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Insights$/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: /metrics & health/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      });
 
       expect(screen.getByRole('tab', { name: /metrics/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /health/i })).toBeInTheDocument();
@@ -785,7 +776,6 @@ describe('Admin Dashboard Page', () => {
           webex: false,
           skills: false,
           feedback: false,
-          nps: false,
           stats: false,
           metrics: false,
           health: false,
@@ -793,7 +783,6 @@ describe('Admin Dashboard Page', () => {
           action_audit: false,
           openfga: false,
           migrations: false,
-          identity_group_sync: false,
         },
         statsStatus: 403,
       });
@@ -805,20 +794,21 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
 
-    it('defaults bare /admin to the top-level Settings Default Agent tab', async () => {
+    it('defaults bare /admin to Settings General tab', async () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /default agent/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
-        scroll: false,
-      });
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=settings&tab=settings',
+        { scroll: false }
+      );
     });
 
     it('opens the Release notes settings tab from the query string', async () => {
@@ -839,19 +829,17 @@ describe('Admin Dashboard Page', () => {
     });
 
     it.each([
-      ['settings', 'settings', /^Default Agent$/i],
+      ['settings', 'settings', /^General$/i],
       ['settings', 'release-notes', /^Release notes$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'rag-access', /^Knowledge Bases$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
       ['people', 'teams', /^Teams$/i],
-      ['people', 'identity-groups', /^Identity Groups$/i],
       ['integrations', 'slack', /^Slack$/i],
       ['integrations', 'webex', /^Webex$/i],
       ['insights', 'stats', /^Statistics$/i],
       ['insights', 'feedback', /^Feedback$/i],
-      ['insights', 'nps', /^NPS$/i],
       ['platform', 'metrics', /^Metrics$/i],
       ['platform', 'health', /^Health$/i],
       ['security', 'openfga', /^OpenFGA ReBAC$/i],
@@ -1094,33 +1082,42 @@ describe('Admin Dashboard Page', () => {
 
     it('filters teams by search text and shows an empty result state', async () => {
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      // The Teams grid is server-paginated: search is sent to the API as a
+      // `search` query param and the server returns the matching page. The
+      // mock mirrors that — it filters by the `search` param so the debounced
+      // re-query drives the UI exactly as the real endpoint would.
+      const allTeams = [
+        {
+          _id: 'team-platform',
+          name: 'Platform Team',
+          description: 'Core platform engineering',
+          owner_id: 'platform-owner@example.com',
+          created_at: new Date().toISOString(),
+          members: [
+            { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+          ],
+        },
+        {
+          _id: 'team-security',
+          name: 'Security Team',
+          description: 'Guardrails and audits',
+          owner_id: 'security-owner@example.com',
+          created_at: new Date().toISOString(),
+          members: [
+            { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+          ],
+        },
+      ];
       setupFetchMock({
-        teams: {
-          success: true,
-          data: {
-            teams: [
-              {
-                _id: 'team-platform',
-                name: 'Platform Team',
-                description: 'Core platform engineering',
-                owner_id: 'platform-owner@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-              },
-              {
-                _id: 'team-security',
-                name: 'Security Team',
-                description: 'Guardrails and audits',
-                owner_id: 'security-owner@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-              },
-            ],
-          },
+        teams: (url: string) => {
+          const search = new URL(url, 'http://localhost').searchParams.get('search')?.toLowerCase() ?? '';
+          const matched = search
+            ? allTeams.filter((t) => t.name.toLowerCase().includes(search))
+            : allTeams;
+          return {
+            success: true,
+            data: { teams: matched, total: matched.length, page: 1, page_size: 12, has_more: false },
+          };
         },
       });
 
@@ -1134,7 +1131,10 @@ describe('Admin Dashboard Page', () => {
         { target: { value: 'security' } }
       );
 
-      expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      // Debounced server re-query drops the non-matching team.
+      await waitFor(() => {
+        expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      });
       expect(screen.getByText('Security Team')).toBeInTheDocument();
 
       fireEvent.change(
@@ -1142,7 +1142,7 @@ describe('Admin Dashboard Page', () => {
         { target: { value: 'does-not-exist' } }
       );
 
-      expect(screen.getByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
+      expect(await screen.findByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /clear team search/i })).toBeInTheDocument();
     });
 
@@ -1185,9 +1185,13 @@ describe('Admin Dashboard Page', () => {
         String(url).includes('/api/admin/teams')
       );
       expect(teamRequests).toHaveLength(2);
-      expect(teamRequests[0][0]).toEqual(expect.stringContaining('/api/admin/teams?fresh='));
+      // The grid is server-paginated, so every request carries page/page_size
+      // plus the cache-busting `fresh` stamp and hits with cache: 'no-store'.
+      expect(teamRequests[0][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
+      expect(teamRequests[0][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[0][1]).toMatchObject({ cache: 'no-store' });
-      expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?fresh='));
+      expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
+      expect(teamRequests[1][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[1][1]).toMatchObject({ cache: 'no-store' });
     });
   });
@@ -1212,7 +1216,6 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
-        'NPS',
       ]);
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
@@ -1240,6 +1243,10 @@ describe('Admin Dashboard Page', () => {
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
+
+      // assisted-by Codex Codex-sonnet-4-6
+      // Stats are lazy-loaded when the Insights category is opened.
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(

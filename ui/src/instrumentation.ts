@@ -17,4 +17,10 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { applySeedConfig } = await import("./lib/seed-config");
   await applySeedConfig();
+
+  // Start the IdP directory-sync scheduler so the "Enable background sync"
+  // schedule (Identity Sync admin tab) actually fires. Idempotent and
+  // replica-safe (per-minute fires are claimed atomically in Mongo).
+  const { startIdpSyncScheduler } = await import("./lib/rbac/idp-sync-scheduler");
+  startIdpSyncScheduler();
 }

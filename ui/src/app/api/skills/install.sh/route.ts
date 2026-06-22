@@ -111,15 +111,15 @@
  */
 
 import { NextResponse } from "next/server";
-import {
-  AGENTS,
-  DEFAULT_AGENT_ID,
-  DEFAULT_LIVE_SKILLS_COMMAND,
-  deriveUpdateCommandName,
-  scopesAvailableFor,
-  type AgentSpec,
-} from "../live-skills/agents";
 import { getRequestOrigin } from "../_lib/request-origin";
+import {
+AGENTS,
+DEFAULT_AGENT_ID,
+DEFAULT_LIVE_SKILLS_COMMAND,
+deriveUpdateCommandName,
+scopesAvailableFor,
+type AgentSpec,
+} from "../live-skills/agents";
 
 /* ---------- input sanitizers ---------- */
 

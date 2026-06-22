@@ -10,6 +10,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
 // space onboarding flow no longer calls `ensureTeamClientScope` or
 // `selectAgentGatewayActiveTeamScope` — team identity is derived
@@ -34,6 +35,45 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: jest.fn(
+    async (
+      session: { sub?: string; isServiceAccount?: boolean },
+      target: { type: string; id: string; action: string },
+      options?: { bypassForOrgAdmin?: boolean }
+    ) => {
+      const prefix = session?.isServiceAccount === true ? "service_account" : "user";
+      const user = `${prefix}:${session?.sub ?? ""}`;
+      if (options?.bypassForOrgAdmin) {
+        const org = await mockCheckOpenFgaTuple({
+          user,
+          relation: "can_manage",
+          object: "organization:caipe",
+        });
+        if (org.allowed === true) return;
+      }
+      const relation = target.action === "manage" ? "can_manage" : `can_${target.action}`;
+      const result = await mockCheckOpenFgaTuple({
+        user,
+        relation,
+        object: `${target.type}:${target.id}`,
+      });
+      if (result.allowed === true) return;
+      const error = new Error("You do not have permission to access this resource.") as Error & {
+        statusCode: number;
+        code: string;
+      };
+      error.statusCode = 403;
+      error.code = `${target.type}#${target.action}`;
+      throw error;
+    }
+  ),
+  subjectFromSession: jest.fn((session: { sub?: string; isServiceAccount?: boolean }) => {
+    if (!session?.sub) return null;
+    return `${session.isServiceAccount === true ? "service_account" : "user"}:${session.sub}`;
+  }),
+}));
+
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   ensureWebexBotOboPermissions: (...args: unknown[]) => mockEnsureWebexBotOboPermissions(...args),
   isValidTeamSlug: (slug: string) => /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug),
@@ -55,6 +95,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
   isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: (...args: unknown[]) => mockAuditQuery(...args) }),
 }));
 
 jest.mock("@/lib/rbac/mongo-collections", () => {
@@ -174,6 +218,7 @@ beforeEach(() => {
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockAuditQuery.mockResolvedValue([]);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
@@ -266,6 +311,11 @@ describe("Webex space ReBAC resource APIs", () => {
   });
 
   it("replaces space resource grants and writes webex_space OpenFGA tuples with filtered reads", async () => {
+    // Not an org admin (organization:caipe denied) so the per-space can_manage
+    // check is what authorizes the actor — exercise that path explicitly.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
+      allowed: tuple.object === `webex_space:${workspaceAlias}--${spaceId}`,
+    }));
     mockReadOpenFgaTuples.mockResolvedValue({
       tuples: [
         {
@@ -680,7 +730,7 @@ describe("Webex space ReBAC resource APIs", () => {
         status: "active",
       },
     ]);
-    mockCollections.audit_events = createMockCollection([
+    mockAuditQuery.mockResolvedValue([
       {
         component: "webex_bot",
         outcome: "error",

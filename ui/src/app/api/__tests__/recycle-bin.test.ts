@@ -60,6 +60,19 @@ jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: false }),
 }));
 
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+  requireResourcePermission: jest.fn(async (_session, target: { action: string; type: string }) => {
+    const error = new Error('You do not have permission to access this resource.') as Error & {
+      statusCode: number;
+      code: string;
+    };
+    error.statusCode = 403;
+    error.code = `${target.type}#${target.action}`;
+    throw error;
+  }),
+}));
+
 jest.mock('uuid', () => ({
   v4: () => '550e8400-e29b-41d4-a716-446655440099',
 }));
@@ -190,9 +203,9 @@ describe('Archive API', () => {
       expect(body.data.deleted).toBe(true);
       expect(body.data.permanent).toBe(true);
 
-      // Should have called deleteOne (hard-delete) and deleteMany for messages
-      expect(convCollection.deleteOne).toHaveBeenCalledWith({ _id: '550e8400-e29b-41d4-a716-446655440000' });
-      expect(msgCollection.deleteMany).toHaveBeenCalledWith({ conversation_id: '550e8400-e29b-41d4-a716-446655440000' });
+      // Should have called deleteMany (via shared helper) for both conversations and messages
+      expect(convCollection.deleteMany).toHaveBeenCalledWith({ _id: { $in: ['550e8400-e29b-41d4-a716-446655440000'] } });
+      expect(msgCollection.deleteMany).toHaveBeenCalledWith({ conversation_id: { $in: ['550e8400-e29b-41d4-a716-446655440000'] } });
     });
 
     it('returns 404 for non-existent conversation', async () => {
@@ -612,9 +625,9 @@ describe('Archive API', () => {
 
       await DELETE(req, { params: Promise.resolve({ id: '550e8400-e29b-41d4-a716-446655440000' }) });
 
-      // Verify messages are deleted for the correct conversation ID
+      // Verify messages are deleted for the correct conversation ID (via shared helper, uses $in)
       expect(msgCollection.deleteMany).toHaveBeenCalledWith({
-        conversation_id: '550e8400-e29b-41d4-a716-446655440000',
+        conversation_id: { $in: ['550e8400-e29b-41d4-a716-446655440000'] },
       });
     });
 

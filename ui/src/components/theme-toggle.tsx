@@ -1,19 +1,19 @@
 "use client";
 
-import * as React from "react";
-import { useTheme } from "next-themes";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Sun,
-  Moon,
-  Monitor,
-  Palette,
-  Check,
-  Settings,
-  ChevronDown,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+Check,
+ChevronDown,
+Monitor,
+Moon,
+Palette,
+Settings,
+Sun,
+} from "lucide-react";
+import { useTheme } from "next-themes";
+import * as React from "react";
 
 const themes = [
   {

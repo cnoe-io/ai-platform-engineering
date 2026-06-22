@@ -1,51 +1,51 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  RefreshCw,
-  Wrench,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  AlertCircle,
-  Search,
-  X,
-  Filter,
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
-import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
+import { Permission,useRagPermissions } from "@/hooks/useRagPermissions";
 import {
-  getMCPTools,
-  createMCPTool,
-  updateMCPTool,
-  deleteMCPTool,
-  getMCPBuiltinConfig,
-  updateMCPBuiltinConfig,
-  getDataSources,
-  type MCPToolConfig,
-  type MCPBuiltinToolsConfig,
-  type ParallelSearch,
+createMCPTool,
+deleteMCPTool,
+getDataSources,
+getMCPBuiltinConfig,
+getMCPTools,
+updateMCPBuiltinConfig,
+updateMCPTool,
+type MCPBuiltinToolsConfig,
+type MCPToolConfig,
+type ParallelSearch,
 } from "@/lib/rag-api";
-import { getHealthStatus } from "./api";
 import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+ChevronDown,
+ChevronRight,
+Filter,
+Loader2,
+Pencil,
+Plus,
+RefreshCw,
+Search,
+Trash2,
+Wrench,
+X,
+} from "lucide-react";
+import { useCallback,useEffect,useRef,useState } from "react";
+import { getHealthStatus } from "./api";
 
 // ============================================================================
 // Constants
@@ -520,9 +520,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const [ownerTeamSlug, setOwnerTeamSlug] = useState(initial?.owner_team_slug ?? "");
   const [sharedTeamSlugs, setSharedTeamSlugs] = useState<string[]>(initial?.shared_with_teams ?? []);
   const [sharedWithOrg, setSharedWithOrg] = useState(initial?.shared_with_org ?? false);
-  // Ownership transfer (US3): on edit the owner picker is read-only until the
-  // user invokes the transfer affordance; these track the pending transfer so
-  // the PUT carries owner_team_slug + confirm_not_member.
+  // Ownership transfer (US3): on edit, changing the owner picker marks a
+  // pending transfer so the PUT carries owner_team_slug + confirm_not_member.
   const [transferRequested, setTransferRequested] = useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = useState(false);
   const [availableTeams, setAvailableTeams] = useState<Array<{ _id?: string; slug?: string; name?: string }>>([]);
@@ -588,9 +587,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       shared_with_teams: sharedTeamSlugs,
       shared_with_org: sharedWithOrg,
       creator_subject: initial?.creator_subject ?? null,
-      // Transfer confirmation (US3): only send when the user actually invoked
-      // the transfer affordance, so a normal edit never trips the BFF's
-      // not-a-member transfer gate.
+      // Transfer confirmation (US3): only send when the owner picker changed,
+      // so a normal edit never trips the BFF's not-a-member transfer gate.
       ...(transferRequested
         ? { confirm_not_member: transferConfirmedNotMember }
         : {}),

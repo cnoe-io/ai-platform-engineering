@@ -28,8 +28,6 @@ fi
 # (BFF) + dynamic agents are the runtime; MCP servers are reached via
 # agentgateway / direct connections.
 PROFILES=""
-USE_SLIM=false
-[ "${A2A_TRANSPORT:-p2p}" = "slim" ] && PROFILES="slim" && USE_SLIM=true
 [ "$ENABLE_AWS" = "true" ] && PROFILES="$PROFILES,aws"
 [ "$ENABLE_GITHUB" = "true" ] && PROFILES="$PROFILES,github"
 [ "$ENABLE_BACKSTAGE" = "true" ] && PROFILES="$PROFILES,backstage"
@@ -48,14 +46,6 @@ USE_SLIM=false
 [ "$ENABLE_TRACING" = "true" ] && PROFILES="$PROFILES,tracing"
 
 PROFILES=$(echo "$PROFILES" | sed 's/^,//')
-
-# Deploy SLIM first if needed
-if [ "$USE_SLIM" = "true" ]; then
-    echo "Starting SLIM infrastructure..."
-    COMPOSE_PROFILES=slim docker compose up -d slim-dataplane slim-control-plane
-    echo "Waiting for SLIM to be ready..."
-    sleep 5
-fi
 
 echo "Starting services with profiles: ${PROFILES:-<none>}"
 if [ "$1" = "--no-detach" ] || [ "$1" = "-f" ]; then

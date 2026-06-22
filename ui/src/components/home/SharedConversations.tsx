@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import { Users2, Globe, Users } from "lucide-react";
-import { ConversationCard } from "./ConversationCard";
 import { cn } from "@/lib/utils";
+import { Globe,Users,Users2 } from "lucide-react";
+import React,{ useState } from "react";
+import { ConversationCard } from "./ConversationCard";
 
 type TabId = "shared-with-me" | "team" | "everyone";
 

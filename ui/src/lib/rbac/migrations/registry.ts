@@ -1,22 +1,27 @@
-import { connectToDatabase, getCollection } from "@/lib/mongodb";
+import { connectToDatabase,getCollection } from "@/lib/mongodb";
 import {
-  applyKeycloakRbacReconciliationMigration,
-  KEYCLOAK_RBAC_MIGRATION_DEFINITION,
-  KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
-  planKeycloakRbacReconciliationMigration,
+applyKeycloakRbacReconciliationMigration,
+KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
+planKeycloakRbacReconciliationMigration,
 } from "@/lib/rbac/keycloak-rbac-reconciliation";
-import { readOpenFgaTuples, writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import {
+  deleteExactOpenFgaTuples,
+  readOpenFgaTuples,
+  writeOpenFgaTuples,
+  type OpenFgaTupleKey,
+} from "@/lib/rbac/openfga";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
-import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
 import {
-  applyConversationOwnerIdentityMigration,
-  CONVERSATION_OWNER_IDENTITY_CONFIRMATION,
-  CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
-  deriveConversationOwnerIdentityPlan,
+applyConversationOwnerIdentityMigration,
+CONVERSATION_OWNER_IDENTITY_CONFIRMATION,
+CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
+deriveConversationOwnerIdentityPlan,
 } from "./conversation-owner-identity";
 import {
   applyLegacyRuntimeCleanupMigration,
@@ -26,6 +31,13 @@ import {
   LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
   LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
 } from "./legacy-runtime-cleanup";
+import {
+  applyTeamToolWildcardSlashMigration,
+  planTeamToolWildcardSlashMigration,
+  TEAM_TOOL_WILDCARD_SLASH_CONFIRMATION,
+  TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
+} from "./team-tool-wildcard-slash";
+import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
 export {
   getUnclassifiedSchemaAreas,
   SCHEMA_AREA_CLASSIFICATIONS,
@@ -33,18 +45,24 @@ export {
   type SchemaAreaClassificationEntry,
 } from "./schema-area-classifications";
 import type {
-  MigrationApplyAllItemResult,
-  MigrationApplyAllResult,
-  MigrationApplyResult,
-  MigrationBlockingStatus,
-  MigrationDefinition,
-  MigrationListItem,
-  MigrationListResult,
-  MigrationPlanResult,
-  MigrationSchemaVersionStatus,
-  SchemaVersionBootstrapApplyResult,
-  SchemaVersionBootstrapPlanResult,
+MigrationApplyAllItemResult,
+MigrationApplyAllResult,
+MigrationApplyResult,
+MigrationBlockingStatus,
+MigrationDefinition,
+MigrationListItem,
+MigrationListResult,
+MigrationPlanResult,
+MigrationSchemaVersionStatus,
+SchemaVersionBootstrapApplyResult,
+SchemaVersionBootstrapPlanResult,
 } from "./types";
+export {
+getUnclassifiedSchemaAreas,
+SCHEMA_AREA_CLASSIFICATIONS,
+type SchemaAreaClassification,
+type SchemaAreaClassificationEntry
+} from "./schema-area-classifications";
 
 export const RELEASE_051 = "0.5.1";
 // 0.5.8 manifest — the unified shareable-resource RBAC backfills
@@ -154,6 +172,12 @@ export const PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID =
 // removed. Strictly additive, idempotent.
 export const CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID =
   "creator_from_owner_backfill_v1";
+// Reconciles every `agent_skills` Mongo row to OpenFGA: owner/creator tuples,
+// team shares when visibility is `team`, org-wide grant when `global`, and
+// revokes stale `team#member user skill:<id>` grants left after demoting to
+// `private` before PUT reconciliation shipped.
+export const AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID =
+  "agent_skill_openfga_reconcile_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -165,8 +189,7 @@ const MESSAGING_REBAC_INDEXES_MIGRATION_ID = "messaging_rebac_indexes_v1";
 // ever written. The /api/admin/{slack,webex}/{channels,spaces} list routes
 // filter rows by user `can_read` on the channel/space object, so with no
 // inbound tuples every row got dropped. This migration backfills the missing
-// `team#admin → manage → slack_channel|webex_space` and
-// `team#member → read → slack_channel|webex_space` tuples derived from
+// `team#admin → manage → slack_channel|webex_space` and team-member access tuples derived from
 // existing `channel_team_mappings` / `webex_space_team_mappings` rows. It is
 // fully idempotent because writeOpenFgaTuples no-ops on identical writes.
 const MESSAGING_TEAM_VISIBILITY_MIGRATION_ID = "messaging_team_visibility_v1";
@@ -393,15 +416,43 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     implemented: true,
   },
   {
+    id: AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "agent_skills",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Agent skill OpenFGA visibility reconcile",
+    description:
+      "Aligns OpenFGA grants with each skill's Mongo `visibility`: writes owner/creator tuples, grants or revokes team/org-wide access from existing FGA state, and removes stale team shares on private skills so gallery `can_discover` matches the Private badge.",
+    confirmation: "MIGRATE agent_skills TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "team_resources",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Team tool wildcard underscore→slash",
+    description:
+      "Rewrites legacy team tool-wildcard grants from the underscore form `tool:<server>_*` to the slash form `tool:<server>/*` the AgentGateway bridge actually enforces — in BOTH OpenFGA tuples (team:<slug>#member caller tool:<server>_*) AND the Mongo team.resources.tools[] arrays — so existing team-granted tool wildcards keep working after the caller-keyed check went live (#43). Fresh installs are unaffected (the team-resources route already writes slash).",
+    confirmation: TEAM_TOOL_WILDCARD_SLASH_CONFIRMATION,
+    required: false,
+    implemented: true,
+  },
+  {
     id: "rbac_indexes_v1",
     release: RELEASE_051,
-    schema_area: "audit_events",
+    schema_area: "rbac_indexes",
     from_version: 1,
     to_version: 2,
     kind: "index",
-    title: "RBAC audit and migration indexes",
-    description: "Ensure RBAC audit, schema migration, and provenance indexes exist.",
-    confirmation: "MIGRATE audit_events TO v2",
+    title: "RBAC migration indexes",
+    description: "Ensure RBAC schema migration and provenance indexes exist.",
+    confirmation: "MIGRATE rbac_indexes TO v2",
     required: true,
     implemented: true,
   },
@@ -466,7 +517,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Messaging team→channel/space visibility",
     description:
-      "Backfill team#admin→manage and team#member→read tuples onto previously-onboarded Slack channels and Webex spaces so admins can actually see them in the listing endpoints.",
+      "Backfill team#admin→manage plus team#member Slack channel use/manage and Webex space read tuples onto previously-onboarded messaging mappings so team members can see and maintain assigned Slack integrations.",
     confirmation: "MIGRATE messaging_team_visibility TO v2",
     required: true,
     implemented: true,
@@ -519,6 +570,7 @@ interface MigrationOverrideDoc {
 
 interface MigrationRuntimePlan extends MigrationPlanResult {
   tuples?: OpenFgaTupleKey[];
+  tuple_deletes?: OpenFgaTupleKey[];
   relationships?: Array<{
     subject: { type: string; id: string; relation?: string };
     action: string;
@@ -1866,7 +1918,8 @@ export function deriveMessagingTeamMappingPlan(input: {
 //
 // Tuple shape (per onboarded channel/space with a resolvable team_slug):
 //   team:<slug>#admin  → manage → slack_channel|webex_space:<workspace>--<id>
-//   team:<slug>#member → read   → slack_channel|webex_space:<workspace>--<id>
+//   team:<slug>#member → use/manage → slack_channel:<workspace>--<id>
+//   team:<slug>#member → read       → webex_space:<workspace>--<id>
 //
 // Idempotent: writeOpenFgaTuples no-ops on identical writes.
 export function deriveMessagingTeamVisibilityPlan(input: {
@@ -1992,7 +2045,6 @@ const RBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
   { collection: "schema_migrations", keys: { release: 1, status: 1 } },
   { collection: "rebac_relationships", keys: { "resource.type": 1, "resource.id": 1, action: 1, status: 1 } },
   { collection: "team_membership_sources", keys: { team_slug: 1, user_subject: 1, relationship: 1 } },
-  { collection: "audit_events", keys: { type: 1, ts: -1 } },
 ];
 
 const MESSAGING_REBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
@@ -2022,7 +2074,7 @@ function deriveIndexPlan(): MigrationRuntimePlan {
   return {
     migration_id: RBAC_INDEXES_MIGRATION_ID,
     release: RELEASE_051,
-    schema_area: "audit_events",
+    schema_area: "rbac_indexes",
     kind: "index",
     from_version: 1,
     to_version: 2,
@@ -2035,7 +2087,7 @@ function deriveIndexPlan(): MigrationRuntimePlan {
       after: { keys: spec.keys, options: spec.options ?? {} },
     })),
     tuple_writes_planned: 0,
-    confirmation: "MIGRATE audit_events TO v2",
+    confirmation: "MIGRATE rbac_indexes TO v2",
     indexes: RBAC_INDEX_SPECS,
   };
 }
@@ -2263,6 +2315,36 @@ async function loadAllOpenFgaTuples(): Promise<OpenFgaTupleKey[]> {
 }
 
 /**
+ * Inputs for the team tool-wildcard slash migration (#43/#50): every team doc
+ * (so the Mongo `resources.tools[]` half can be rewritten) plus the OpenFGA
+ * `caller`→`tool:` tuples that are legacy underscore wildcards (so the tuple
+ * half can be rewritten). The tuple filter mirrors `loadKnowledgeBaseTuples` but
+ * keeps `caller`/`tool:` tuples; the migration's own pure logic re-checks the
+ * `<server>_*` shape, so over-fetching here is harmless.
+ */
+async function loadTeamToolWildcardInputs(): Promise<{
+  teams: Array<Record<string, unknown>>;
+  toolTuples: OpenFgaTupleKey[];
+}> {
+  const teamsCol = await getCollection("teams");
+  const teams = (await teamsCol.find({}).toArray()) as Array<Record<string, unknown>>;
+
+  const toolTuples: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({ continuationToken, pageSize: 100 });
+    for (const entry of page.tuples) {
+      if (entry.key.relation === "caller" && entry.key.object.startsWith("tool:")) {
+        toolTuples.push(entry.key);
+      }
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+
+  return { teams, toolTuples };
+}
+
+/**
  * Load every `team_rag_tools` Mongo doc plus a `teamId → slug` map
  * for the MCP tool grants backfill, mirroring
  * `loadKnowledgeBaseSharedTeamGrantsInputs`.
@@ -2378,7 +2460,20 @@ function manifestDefinition(doc: MigrationManifestDoc): MigrationDefinition {
 }
 
 function isMigrationComplete(definition: MigrationDefinition, version?: SchemaVersionDoc, run?: SchemaMigrationDoc): boolean {
-  return run?.status === "completed" || (version?.version ?? 0) >= definition.to_version;
+  return (version?.version ?? 0) >= definition.to_version;
+}
+
+function migrationListStatus(
+  definition: MigrationDefinition,
+  version?: SchemaVersionDoc,
+  run?: SchemaMigrationDoc,
+): MigrationListItem["status"] {
+  // assisted-by Codex Codex-sonnet-4-6
+  // data_schema_versions is the source of truth; completed run rows can drift
+  // and must not hide a repairable version mismatch from the admin UI.
+  if (isMigrationComplete(definition, version, run)) return "completed";
+  if (run?.status && run.status !== "completed") return run.status;
+  return "not_started";
 }
 
 async function seedMigrationManifest(now = new Date().toISOString()): Promise<void> {
@@ -2480,13 +2575,13 @@ export async function listReleaseMigrations(options: { includeCompleted?: boolea
   const migrations = definitions.map((definition) => {
     const version = versionByArea.get(definition.schema_area);
     const run = runById.get(definition.id);
-    const completed = isMigrationComplete(definition, version, run);
+    const status = migrationListStatus(definition, version, run);
     return {
       ...definition,
       blocking: definition.blocking ?? definition.required,
       current_version: version?.version ?? null,
       target_version: definition.to_version,
-      status: completed ? "completed" : run?.status ?? "not_started",
+      status,
       last_run_at: run?.completed_at ?? run?.updated_at,
     };
   });
@@ -2657,10 +2752,9 @@ export async function getMigrationBlockingStatus(input: {
   const overrideActive = isOverrideActive(override, now);
   const pendingRequired = state.migrations.filter((migration) => migration.required);
   const blockingRequired = pendingRequired.filter((migration) => migration.blocking ?? migration.required);
-  const versionBootstrapSchemaAreas = state.schema_versions
-    .filter((schema) => schema.current_version === null)
-    .map((schema) => schema.schema_area)
-    .sort((left, right) => left.localeCompare(right));
+  const versionBootstrapSchemaAreas = schemaAreasNeedingVersionBootstrap(
+    state.schema_versions,
+  );
   const needsVersionBootstrap = versionBootstrapSchemaAreas.length > 0;
   const isBlocking = blockingRequired.length > 0 && !overrideActive;
 
@@ -2815,6 +2909,18 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     const tuples = await loadAllOpenFgaTuples();
     return deriveCreatorFromOwnerBackfillPlan(tuples);
   }
+  if (migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
+    const { planAgentSkillOpenFgaReconcileMigration } = await import(
+      "./agent-skill-openfga-reconcile"
+    );
+    return planAgentSkillOpenFgaReconcileMigration();
+  }
+  if (migrationId === TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID) {
+    const { teams, toolTuples } = await loadTeamToolWildcardInputs();
+    // The migration reads only `_id` + `resources.tools[]`; the loader returns
+    // the looser Mongo doc shape, so narrow to the migration's input type.
+    return planTeamToolWildcardSlashMigration({ teams: teams as never[], toolTuples });
+  }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
   }
@@ -2926,9 +3032,14 @@ async function applyRuntimePlan(input: {
   now: string;
 }): Promise<MigrationApplyResult> {
   let tupleWritesApplied = 0;
-  if (input.plan.tuples && input.plan.tuples.length > 0) {
-    const result = await writeOpenFgaTuples({ writes: input.plan.tuples, deletes: [] });
+  let tupleDeletesApplied = 0;
+  const tupleWrites = input.plan.tuples ?? [];
+  const tupleDeletes = input.plan.tuple_deletes ?? [];
+  if (tupleWrites.length > 0 || tupleDeletes.length > 0) {
+    const { writeOpenFgaTupleDiff } = await import("@/lib/rbac/openfga");
+    const result = await writeOpenFgaTupleDiff({ writes: tupleWrites, deletes: tupleDeletes });
     tupleWritesApplied = result.writes;
+    tupleDeletesApplied = result.deletes;
   }
 
   let relationshipsUpserted = 0;
@@ -3023,6 +3134,7 @@ async function applyRuntimePlan(input: {
     ...input.plan,
     applied_counts: {
       tuple_writes_applied: tupleWritesApplied,
+      tuple_deletes_applied: tupleDeletesApplied,
       relationships_upserted: relationshipsUpserted,
       membership_sources_upserted: membershipSourcesUpserted,
       indexes_created: indexesCreated,
@@ -3073,6 +3185,59 @@ export async function applyMigration(input: {
       actor: input.actor,
       now,
       collections,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
+    const { planAgentSkillOpenFgaReconcileMigration, applyAgentSkillOpenFgaReconcileMigration } =
+      await import("./agent-skill-openfga-reconcile");
+    const plan = await planAgentSkillOpenFgaReconcileMigration();
+    const result = await applyAgentSkillOpenFgaReconcileMigration({
+      plan,
+      actor: input.actor,
+      now,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID) {
+    const { teams, toolTuples } = await loadTeamToolWildcardInputs();
+    const teamsCollection = await getCollection("teams");
+    const result = await applyTeamToolWildcardSlashMigration({
+      teams: teams as never[],
+      toolTuples,
+      actor: input.actor,
+      now,
+      // The migration deletes old `_*` + writes new `/*`. The tuples are
+      // USERSETS (`team:<slug>#member` caller tool:…), so deletes MUST bypass
+      // writeOpenFgaTuples' read-back `/check` filter — OpenFGA `/check` can't
+      // resolve a userset as the `user`, so it would treat those deletes as
+      // "already gone" and silently drop them, orphaning the old `_*` tuples
+      // (reviewer-b finding). Writes go through writeOpenFgaTuples; deletes go
+      // through deleteExactOpenFgaTuples (purpose-built for exact keys
+      // enumerated from a recent read — which loadTeamToolWildcardInputs did).
+      writeTuples: async (diff) => {
+        // Return the ACTUAL applied counts (#57) so applied_counts reflects
+        // reality rather than the planned diff lengths.
+        let writes = 0;
+        let deletes = 0;
+        if (diff.writes.length > 0) {
+          const w = await writeOpenFgaTuples({ writes: diff.writes, deletes: [] });
+          writes = w.writes;
+        }
+        if (diff.deletes.length > 0) {
+          const d = await deleteExactOpenFgaTuples(diff.deletes);
+          deletes = d.deletes;
+        }
+        return { writes, deletes };
+      },
+      teamsCollection: {
+        updateOne: (filter, update) =>
+          teamsCollection.updateOne(filter as never, update as never),
+      },
     });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;

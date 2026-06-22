@@ -1,23 +1,23 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useTheme } from "next-themes";
 import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import { Loader2, RefreshCw, Settings, Filter, RotateCcw, Trash2, X } from 'lucide-react';
+import { Filter,Loader2,RefreshCw,RotateCcw,Settings,Trash2,X } from 'lucide-react';
+import { useTheme } from "next-themes";
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import '../shared/sigma-styles.css';
 
-import OntologyNodeHoverCard from './OntologyNodeHoverCard';
+import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
+import { clearOntology,getOntologyAgentStatus,getOntologyEntitiesBatch,getOntologyGraphStats,getOntologyRelationsBatch,regenerateOntology } from '../../api';
+import { CameraController,GraphDragController,GraphEventsController,GraphSettingsController,SigmaInstanceCapture } from '../shared/SigmaGraph';
+import { EvaluationResult,getColorForNode,getEvaluationResult } from '../shared/graphStyles';
+import { extractRelationId,generateEdgeKey,generateNodeId } from '../shared/graphUtils';
+import OntologyGraphDataController,{ OntologyFilters } from './OntologyGraphDataController';
 import OntologyNodeDetailsCard from './OntologyNodeDetailsCard';
-import OntologyGraphDataController, { OntologyFilters } from './OntologyGraphDataController';
-import { CameraController, SigmaInstanceCapture, GraphDragController, GraphEventsController, GraphSettingsController } from '../shared/SigmaGraph';
-import { getColorForNode, getSigmaEdgeStyle, EvaluationResult, getEvaluationResult } from '../shared/graphStyles';
-import { generateNodeId, generateRelationId, extractRelationId, generateEdgeKey } from '../shared/graphUtils';
-import { getOntologyGraphStats, getOntologyEntitiesBatch, getOntologyRelationsBatch, regenerateOntology, clearOntology, getOntologyAgentStatus } from '../../api';
-import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
+import OntologyNodeHoverCard from './OntologyNodeHoverCard';
 
-interface OntologyGraphProps {}
+type OntologyGraphProps = Record<string, never>;
 
 // Helper function to truncate long labels
 const truncateLabel = (label: string, maxLength: number = 30): string => {

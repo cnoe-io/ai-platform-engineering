@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
@@ -33,11 +33,12 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   }
 
   const service = await getProviderConnectionService();
-  const connection = (await service.listConnections({ type: "user", id: ownerId })).find(
-    (candidate) => candidate.id === connectionId,
-  );
-  if (!connection) {
+  const connection = await service.getConnection(connectionId);
+  if (connection.owner.type !== "user" || connection.owner.id !== ownerId) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
+  }
+  if (connection.status !== "connected") {
+    throw new ApiError("Provider connection requires re-authentication", 401, "CREDENTIAL_REAUTH_REQUIRED");
   }
 
   const token = await service.refreshConnection(connection.id);

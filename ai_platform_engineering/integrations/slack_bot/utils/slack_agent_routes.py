@@ -22,6 +22,7 @@ from .config_models import (
     AgentBinding,
     BotsConfig,
     EscalationConfig,
+    ExecutionIdentity,
     UsersConfig,
     get_escalation_config,
 )
@@ -31,7 +32,7 @@ DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
 SlackAgentRouteMode = Literal["config", "db_prefer", "db_only"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
-AuditCollectionFactory = Callable[[], Optional[Collection[Any]]]
+AuditEventWriter = Callable[[dict[str, Any]], None]
 OpenFgaAgentIdsFactory = Callable[[str, str], list[str]]
 
 
@@ -81,12 +82,12 @@ class SlackAgentRouteResolver:
         *,
         ttl_seconds: Optional[int] = None,
         collection_factory: Optional[CollectionFactory] = None,
-        audit_collection_factory: Optional[AuditCollectionFactory] = None,
+        audit_event_writer: Optional[AuditEventWriter] = None,
         openfga_agent_ids_factory: Optional[OpenFgaAgentIdsFactory] = None,
     ) -> None:
         self._ttl = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
         self._collection_factory = collection_factory
-        self._audit_collection_factory = audit_collection_factory
+        self._audit_event_writer = audit_event_writer
         self._openfga_agent_ids_factory = openfga_agent_ids_factory
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
@@ -118,14 +119,24 @@ class SlackAgentRouteResolver:
             return None
         return client[self._db_name]["slack_channel_agent_routes"]
 
-    def _get_audit_collection(self) -> Optional[Collection[Any]]:
-        if self._audit_collection_factory is not None:
-            return self._audit_collection_factory()
-
-        client = self._get_client()
-        if client is None:
-            return None
-        return client[self._db_name]["audit_events"]
+    def _write_audit_event(self, event: dict[str, Any]) -> None:
+        if self._audit_event_writer is not None:
+            self._audit_event_writer(event)
+            return
+        if os.environ.get("AUDIT_LOG_BACKEND", "service").strip().lower() != "service":
+            return
+        service_url = os.environ.get("AUDIT_SERVICE_URL", "").strip().rstrip("/")
+        if not service_url:
+            return
+        try:
+            requests.post(
+                f"{service_url}/v1/audit/events",
+                headers={"Content-Type": "application/json"},
+                json={"events": [event]},
+                timeout=1,
+            ).raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("SlackAgentRouteResolver: failed to write runtime audit event: %s", exc)
 
     def _record_runtime_error(
         self,
@@ -136,24 +147,19 @@ class SlackAgentRouteResolver:
         action: str,
         message: str,
     ) -> None:
-        collection = self._get_audit_collection()
-        if collection is None:
-            return
-        try:
-            collection.insert_one(
-                {
-                    "type": "slack_runtime",
-                    "component": "slack_bot",
-                    "outcome": "error",
-                    "action": action,
-                    "reason_code": reason_code,
-                    "resource_ref": f"slack_channel:{slack_workspace_ref(workspace_id)}--{channel_id}",
-                    "message": message,
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-        except PyMongoError as exc:
-            logger.warning("SlackAgentRouteResolver: failed to write runtime audit event: %s", exc)
+        self._write_audit_event(
+            {
+                "type": "slack_runtime",
+                "component": "slack_bot",
+                "source": "slack",
+                "outcome": "error",
+                "action": action,
+                "reason_code": reason_code,
+                "resource_ref": f"slack_channel:{slack_workspace_ref(workspace_id)}--{channel_id}",
+                "message": message,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     def _load_routes(self, workspace_id: str, channel_id: str) -> list[dict[str, Any]]:
         agent_ids = self._load_openfga_agent_ids(workspace_id, channel_id)
@@ -471,6 +477,24 @@ def _route_to_agent_binding(route: dict[str, Any]) -> AgentBinding | None:
         return None
 
     try:
+        # Build execution_identity from the Mongo route doc when present.
+        # Omitted / None / unexpected values all fall back to the default
+        # ExecutionIdentity (mode="obo_user") — preserving backward compat.
+        exec_id_raw = route.get("execution_identity")
+        execution_identity: ExecutionIdentity
+        if isinstance(exec_id_raw, dict):
+            try:
+                execution_identity = ExecutionIdentity(**exec_id_raw)
+            except (ValidationError, TypeError):
+                logger.warning(
+                    "SlackAgentRouteResolver: invalid execution_identity for agent=%s; "
+                    "defaulting to obo_user",
+                    agent_id,
+                )
+                execution_identity = ExecutionIdentity()
+        else:
+            execution_identity = ExecutionIdentity()
+
         return AgentBinding(
             agent_id=agent_id.strip(),
             users=UsersConfig(**route["users"]) if isinstance(route.get("users"), dict) else None,
@@ -480,6 +504,7 @@ def _route_to_agent_binding(route: dict[str, Any]) -> AgentBinding | None:
                 if isinstance(route.get("escalation"), dict)
                 else None
             ),
+            execution_identity=execution_identity,
         )
     except ValidationError as exc:
         logger.warning("SlackAgentRouteResolver: invalid route for agent=%s: %s", agent_id, exc)

@@ -1,11 +1,9 @@
 "use client";
 
-import React from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { LiveStreamBanner } from "@/components/layout/LiveStreamBanner";
-import { NPSSurvey } from "@/components/nps/NPSSurvey";
 import { useUserInit } from "@/hooks/use-user-init";
-import { getConfig } from "@/lib/config";
+import React from "react";
 
 export default function AppLayout({
   children,
@@ -20,7 +18,6 @@ export default function AppLayout({
       <AppHeader />
       <LiveStreamBanner />
       {children}
-      {getConfig('npsEnabled') && <NPSSurvey />}
     </div>
   );
 }

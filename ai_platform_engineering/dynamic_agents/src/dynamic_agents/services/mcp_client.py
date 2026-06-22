@@ -11,6 +11,7 @@ import random
 import re
 import ssl
 import time
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import httpx
@@ -28,11 +29,67 @@ from dynamic_agents.services.mcp_endpoint_normalizer import (
 logger = logging.getLogger(__name__)
 
 
-def _gateway_mcp_server_ids() -> set[str]:
-    """Return MCP server IDs that should be reached through AgentGateway."""
-    raw = os.getenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
-    values = {item.strip() for item in raw.split(",") if item.strip()}
-    return values or {"jira"}
+CALLER_PROVIDER_NOT_CONNECTED = "caller_provider_not_connected"
+PINNED_PROVIDER_UNAVAILABLE = "pinned_provider_unavailable"
+
+_PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "atlassian": "Atlassian",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "pagerduty": "PagerDuty",
+    "webex": "Webex",
+}
+
+
+class McpCredentialUnavailableError(RuntimeError):
+    """MCP credential could not be resolved for this server/caller."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "mcp_credential_unavailable",
+        provider: str | None = None,
+        server_id: str | None = None,
+        server_name: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.provider = provider
+        self.server_id = server_id
+        self.server_name = server_name
+
+
+def mcp_credential_connect_warning(error: McpCredentialUnavailableError) -> str:
+    """Build a user-facing warning when a caller-scoped provider is not connected."""
+    server_label = error.server_name or error.server_id or "MCP server"
+    provider = error.provider or "provider"
+    provider_label = _PROVIDER_DISPLAY_NAMES.get(provider, provider.replace("_", " ").title())
+    if error.reason == CALLER_PROVIDER_NOT_CONNECTED:
+        return (
+            f"{server_label} needs your {provider_label} account connected. "
+            f"[Connect {provider_label}](/credentials?tab=connections) — then start a new chat."
+        )
+    return str(error)
+
+
+@dataclass
+class McpCredentialResolutionResult:
+    """Credential resolution output: connectable servers and structured failures."""
+
+    connections: dict[str, dict[str, Any]]
+    failures: dict[str, McpCredentialUnavailableError] = field(default_factory=dict)
+
+
+def _effective_connection_scope(source: Any) -> str:
+    scope = getattr(source, "connection_scope", None)
+    if scope in ("caller", "pinned"):
+        return scope
+    provider_connection_id = (getattr(source, "provider_connection_id", None) or "").strip()
+    provider = (getattr(source, "provider", None) or "").strip()
+    if provider_connection_id and not provider:
+        return "pinned"
+    return "caller"
 
 
 def _agent_gateway_base_url() -> str | None:
@@ -116,6 +173,22 @@ def build_agent_context_headers(agent_id: str, *, now: int | None = None) -> dic
         "X-CAIPE-Agent-Context": encoded,
         "X-CAIPE-Agent-Context-Signature": signature,
     }
+
+
+def warn_if_agent_gateway_missing_hmac() -> None:
+    """Log when AgentGateway routing is enabled without the shared HMAC secret."""
+    gateway_url = _agent_gateway_base_url()
+    if not gateway_url:
+        return
+    if os.getenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip():
+        return
+    logger.warning(
+        "AGENT_GATEWAY_URL is set (%s) but CAIPE_AGENT_CONTEXT_HMAC_SECRET is unset; "
+        "AgentGateway will enforce only coarse mcp_gateway:list checks and per-agent "
+        "tool calls may 403. Set the same shared secret on dynamic-agents and "
+        "openfga-authz-bridge.",
+        gateway_url,
+    )
 
 
 def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
@@ -265,9 +338,6 @@ def build_mcp_connections(
     connections: dict[str, dict[str, Any]] = {}
 
     server_map = {s.id: s for s in servers}
-    gateway_ids = _gateway_mcp_server_ids() if agent_gateway_url else set()
-    gateway_all = "all" in gateway_ids
-
     for server_id in server_ids:
         server = server_map.get(server_id)
         if not server:
@@ -277,12 +347,12 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
+        # assisted-by Codex Codex-sonnet-4-6
+        # In normal product mode AgentGateway is the MCP policy enforcement
+        # point, so every network MCP server routes through it when configured.
         use_gateway = bool(
             agent_gateway_url
-            and (
-                server_id in gateway_ids
-                or (gateway_all and _is_gateway_managed_server(server, agent_gateway_url))
-            )
+            and server.transport in (TransportType.HTTP, TransportType.SSE)
         )
         connections[server_id] = build_mcp_connection_config(
             server,
@@ -384,11 +454,21 @@ async def resolve_mcp_credential_refs(
     config: dict[str, Any],
     *,
     credential_client: CredentialExchangeClient | Any,
+    caller_token: str | None = None,
 ) -> dict[str, Any]:
     """Resolve MCP credential sources into env vars or headers.
 
     Resolution is disabled unless ``USE_IMPERSONATION_TOKENS=true`` so existing
     MCP deployments keep their current credential behavior.
+
+    ``caller_token`` is the validated caller JWT captured by the AgentRuntime at
+    request entry (``self._auth_bearer``). The ``caller_token`` credential source
+    prefers it over the ``current_user_token`` ContextVar, because the ContextVar
+    is not reliably propagated into the (ephemeral) runtime-build async context
+    where credential resolution runs — leaving it empty there and falling back to
+    a service-account mint, which forwards the WRONG identity (service, not the
+    caller/SA) to the MCP. Passing the runtime's already-captured token fixes the
+    per-caller identity end-to-end (#64).
     """
 
     if not _use_impersonation_tokens() or not server.credential_sources:
@@ -413,30 +493,68 @@ async def resolve_mcp_credential_refs(
                 if credential:
                     origin = "secret_ref"
             elif source.kind == "provider_connection":
-                if source.provider:
-                    exchanged = await credential_client.exchange_provider_connection_by_provider(
-                        source.provider,
-                        intended_use="mcp_server",
+                scope = _effective_connection_scope(source)
+                pinned = scope == "pinned"
+                exchanged: dict[str, Any] = {}
+                try:
+                    if pinned and source.provider_connection_id:
+                        exchanged = await credential_client.exchange_provider_connection(
+                            source.provider_connection_id,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                    elif source.provider:
+                        exchanged = await credential_client.exchange_provider_connection_by_provider(
+                            source.provider,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                    elif source.provider_connection_id:
+                        exchanged = await credential_client.exchange_provider_connection(
+                            source.provider_connection_id,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                except Exception as exc:
+                    if pinned:
+                        raise McpCredentialUnavailableError(
+                            f"Pinned provider connection unavailable for server={server.id}",
+                            reason=PINNED_PROVIDER_UNAVAILABLE,
+                            server_id=server.id,
+                            server_name=server.name,
+                        ) from exc
+                    logger.debug(
+                        "credential exchange for server=%s source=%s failed (%s); "
+                        "falling back to static credential if configured",
+                        server.id,
+                        source.name,
+                        type(exc).__name__,
                     )
-                elif source.provider_connection_id:
-                    exchanged = await credential_client.exchange_provider_connection(
-                        source.provider_connection_id,
-                        intended_use="mcp_server",
-                    )
-                else:
                     exchanged = {}
                 access_token = exchanged.get("access_token")
                 if isinstance(access_token, str) and access_token:
                     credential = access_token
-                    origin = "per_user_oauth"
+                    origin = "per_user_oauth" if not pinned else "pinned_provider_connection"
+                elif pinned:
+                    raise McpCredentialUnavailableError(
+                        f"Pinned provider connection unavailable for server={server.id}",
+                        reason=PINNED_PROVIDER_UNAVAILABLE,
+                        server_id=server.id,
+                        server_name=server.name,
+                    )
             elif source.kind == "caller_token":
                 # Forward the caller's own Keycloak JWT so the backend can enforce
-                # per-user RBAC (e.g. RAG group-based access). Absent in non-user
-                # contexts (background reconcile) -> client-credentials fallback below.
-                user_jwt = current_user_token.get()
+                # per-user RBAC (e.g. RAG group-based access). Prefer the explicitly
+                # threaded caller_token (the runtime's request-entry self._auth_bearer)
+                # over the ContextVar, which is empty when credential resolution runs
+                # outside the request task (#64). Absent in non-user contexts
+                # (background reconcile) -> client-credentials fallback below.
+                user_jwt = caller_token or current_user_token.get()
                 if isinstance(user_jwt, str) and user_jwt:
                     credential = user_jwt
                     origin = "user_jwt"
+        except McpCredentialUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 - fall back to static credential below
             logger.debug(
                 "credential exchange for server=%s source=%s failed (%s); "
@@ -448,7 +566,7 @@ async def resolve_mcp_credential_refs(
 
         # Static service-account fallback: keeps shared-token MCP servers
         # (e.g. GitHub/GitLab) working for callers without a personal connection.
-        if not credential and source.fallback_env:
+        if not credential and source.fallback_env and _effective_connection_scope(source) != "pinned":
             env_value = os.getenv(source.fallback_env, "").strip()
             if env_value:
                 credential = env_value
@@ -464,6 +582,24 @@ async def resolve_mcp_credential_refs(
                 origin = "client_credentials"
 
         if not credential:
+            if source.kind == "provider_connection":
+                scope = _effective_connection_scope(source)
+                if scope == "pinned":
+                    raise McpCredentialUnavailableError(
+                        f"Pinned provider connection unavailable for server={server.id}",
+                        reason=PINNED_PROVIDER_UNAVAILABLE,
+                        server_id=server.id,
+                        server_name=server.name,
+                    )
+                if scope == "caller" and source.provider and not source.fallback_env:
+                    raise McpCredentialUnavailableError(
+                        f"Caller has no connected provider for server={server.id} "
+                        f"provider={source.provider}",
+                        reason=CALLER_PROVIDER_NOT_CONNECTED,
+                        provider=source.provider,
+                        server_id=server.id,
+                        server_name=server.name,
+                    )
             logger.info(
                 "MCP credential resolve: server=%s source=%s -> no credential "
                 "(per-user not connected and no fallback)",
@@ -501,25 +637,44 @@ async def resolve_mcp_connections_credential_refs(
     connections: dict[str, dict[str, Any]],
     *,
     credential_client: CredentialExchangeClient | Any | None,
-) -> dict[str, dict[str, Any]]:
-    """Resolve credential refs across a connection map."""
+    caller_token: str | None = None,
+) -> McpCredentialResolutionResult:
+    """Resolve credential refs across a connection map.
+
+    ``caller_token`` (the runtime's request-entry ``self._auth_bearer``) is
+    forwarded to each server's resolution so the ``caller_token`` credential
+    source uses the real caller JWT even when the ``current_user_token``
+    ContextVar is empty at this call site (#64).
+
+    Servers that fail caller-scoped or pinned credential resolution are omitted
+    from ``connections`` and recorded in ``failures`` with structured reasons.
+    """
 
     if credential_client is None or not _use_impersonation_tokens():
-        return connections
+        return McpCredentialResolutionResult(connections=dict(connections))
 
     server_map = {server.id: server for server in servers}
     resolved: dict[str, dict[str, Any]] = {}
+    failures: dict[str, McpCredentialUnavailableError] = {}
     for server_id, config in connections.items():
         server = server_map.get(server_id)
         if server is None:
             resolved[server_id] = config
             continue
-        resolved[server_id] = await resolve_mcp_credential_refs(
-            server,
-            config,
-            credential_client=credential_client,
-        )
-    return resolved
+        try:
+            resolved[server_id] = await resolve_mcp_credential_refs(
+                server,
+                config,
+                credential_client=credential_client,
+                caller_token=caller_token,
+            )
+        except McpCredentialUnavailableError as exc:
+            if exc.server_id is None:
+                exc.server_id = server_id
+            if exc.server_name is None:
+                exc.server_name = server.name
+            failures[server_id] = exc
+    return McpCredentialResolutionResult(connections=resolved, failures=failures)
 
 
 def filter_tools_by_allowed(

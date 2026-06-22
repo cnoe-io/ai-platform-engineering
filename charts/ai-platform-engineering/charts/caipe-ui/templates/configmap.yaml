@@ -24,3 +24,22 @@ data:
   {{- if and .Values.keycloakAdminClient.secretName (not (hasKey .Values.config "KEYCLOAK_ADMIN_CLIENT_ID")) }}
   KEYCLOAK_ADMIN_CLIENT_ID: {{ .Values.keycloakAdminClient.clientId | default "caipe-platform" | quote }}
   {{- end }}
+  {{- /* Okta directory sync — flatten the structured `oktaSync:` block
+         (Backstage-style) into IDENTITY_SYNC_OKTA_* env vars. Only the
+         non-sensitive fields live here; the SSWS token and OAuth private key
+         are mounted from the Secret (existingSecret / externalSecrets) under
+         the matching env-var keys. */}}
+  {{- if .Values.oktaSync.enabled }}
+  IDENTITY_SYNC_OKTA_ORG_URL: {{ .Values.oktaSync.orgUrl | quote }}
+  {{- with .Values.oktaSync.oauth }}
+  {{- if .clientId }}
+  IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID: {{ .clientId | quote }}
+  {{- end }}
+  {{- if .keyId }}
+  IDENTITY_SYNC_OKTA_OAUTH_KEY_ID: {{ .keyId | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.oktaSync.groupFilter }}
+  IDENTITY_SYNC_OKTA_GROUP_FILTER: {{ .Values.oktaSync.groupFilter | quote }}
+  {{- end }}
+  {{- end }}

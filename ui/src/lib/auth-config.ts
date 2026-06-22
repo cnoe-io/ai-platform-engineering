@@ -1,5 +1,5 @@
-import type { NextAuthOptions } from "next-auth";
 import { decodeJwt } from "jose";
+import type { NextAuthOptions } from "next-auth";
 
 /**
  * Auth configuration for OIDC SSO
@@ -40,6 +40,46 @@ export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "f
 // If not set, will auto-detect from common claim names
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
+/**
+ * Resolve the identity-sync provider id for the current login so that
+ * login-time membership rows are tagged with the SAME provider as the
+ * background directory sync (e.g. both `okta`). This is what lets the two
+ * paths merge: one team per group, and either path can add/remove the same
+ * `managed` membership rows.
+ *
+ * Resolution order (most specific wins):
+ *   1. `identity_provider` token claim — set when Keycloak is configured to
+ *      forward the brokered IdP alias (true multi-IdP attribution).
+ *   2. `OIDC_IDP_HINT` — the deployment's configured IdP alias (e.g. "okta",
+ *      "duo-sso"), normalized to a bare provider id ("okta", "duo").
+ *   3. `IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID` — explicit override.
+ *   4. "oidc-claims" — generic fallback when no IdP is known.
+ *
+ * Normalization keeps the provider id aligned with
+ * identity-group-sync-planner.sourceTypeForProvider (which keys off the
+ * `okta`/`ad` prefixes), so "okta" → source_type "okta".
+ */
+function normalizeProviderId(raw: string): string {
+  const value = raw.trim().toLowerCase();
+  if (!value) return "";
+  if (value.startsWith("okta")) return "okta";
+  if (value.startsWith("duo")) return "duo";
+  if (value.startsWith("ad") || value.includes("active-directory")) return "ad";
+  // Strip a trailing "-sso"/"-oidc"/"-saml" connection suffix; otherwise keep as-is.
+  return value.replace(/[-_](sso|oidc|saml)$/i, "");
+}
+
+export function resolveLoginProviderId(profile?: Record<string, unknown>): string {
+  const claim = profile?.identity_provider;
+  if (typeof claim === "string" && claim.trim()) {
+    return normalizeProviderId(claim);
+  }
+  if (process.env.OIDC_IDP_HINT?.trim()) {
+    return normalizeProviderId(process.env.OIDC_IDP_HINT);
+  }
+  return process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims";
+}
+
 // Required group for authorization.
 // Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
 // the group check. Do not bake deployment-specific group names into source.
@@ -71,12 +111,6 @@ function bootstrapAdminEmails(): Set<string> {
 
 const BOOTSTRAP_ADMIN_EMAILS = bootstrapAdminEmails();
 
-if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
-  console.log(
-    `[Auth] 🔑 Bootstrap admins configured (${BOOTSTRAP_ADMIN_EMAILS.size}):`,
-    Array.from(BOOTSTRAP_ADMIN_EMAILS).join(", ")
-  );
-}
 
 export function isBootstrapAdmin(email: string | undefined | null): boolean {
   if (!email) return false;
@@ -148,6 +182,7 @@ async function reconcileLoginGroupsFromClaims(input: {
   email?: string;
   displayName?: string;
   groups: string[];
+  providerId: string;
 }): Promise<void> {
   if (process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED === "false") return;
   if (!input.subject || input.groups.length === 0) return;
@@ -156,7 +191,10 @@ async function reconcileLoginGroupsFromClaims(input: {
     const { reconcileOidcClaimGroupsForUser } = await import("@/lib/rbac/oidc-claim-reconciler");
     await reconcileOidcClaimGroupsForUser({
       ...input,
-      providerId: process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims",
+      // Tag login memberships with the resolved IdP provider (e.g. "okta") so
+      // they share a namespace with the background directory sync and reconcile
+      // the same rows. See resolveLoginProviderId.
+      providerId: input.providerId,
       // Strict opt-in: env must be exactly "true" to enable. Even then the
       // planner still requires the matched rule to have auto_create_team=true
       // (see identity-group-sync-planner.ts) — that's the policy gate.
@@ -674,6 +712,7 @@ export const authOptions: NextAuthOptions = {
           email,
           displayName,
           groups,
+          providerId: resolveLoginProviderId(profileData),
         });
       }
 

@@ -14,6 +14,30 @@ export function getLastActiveConversationId(): string | null {
   return window.localStorage.getItem(LAST_ACTIVE_CONVERSATION_KEY);
 }
 
+/** Best-effort chat URL: resume last active conversation when possible. */
+export function resolveChatNavigationPath(state: {
+  conversations: Conversation[];
+  activeConversationId: string | null;
+}): string {
+  const { conversations, activeConversationId } = state;
+  const lastActive = activeConversationId ?? getLastActiveConversationId();
+  if (lastActive) {
+    if (
+      conversations.length === 0 ||
+      conversations.some((conversation) => conversation.id === lastActive)
+    ) {
+      return `/chat/${lastActive}`;
+    }
+  }
+  if (conversations.length > 0) {
+    const latest = [...conversations].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+    )[0];
+    return `/chat/${latest.id}`;
+  }
+  return "/chat";
+}
+
 function persistLastActiveConversationId(id: string | null): void {
   if (typeof window === "undefined") return;
   if (id) {
@@ -84,8 +108,8 @@ interface ChatState {
   isConversationInputRequired: (conversationId: string) => boolean;
 }
 
-// Track loading state to prevent multiple simultaneous loads
-let isLoadingConversations = false;
+// Coalesce concurrent conversation-list fetches (Sidebar + /chat redirect race).
+let loadConversationsInFlight: Promise<void> | null = null;
 
 // NOTE: savedMessageIds / savedMessageState tracking removed.
 // With the upsert-based API, saveMessagesToServer sends ALL messages every
@@ -630,14 +654,12 @@ const storeImplementation = (set: any, get: any) => ({
           return;
         }
 
-        // Prevent multiple simultaneous loads
-        if (isLoadingConversations) {
-          console.log('[ChatStore] Already loading conversations, skipping...');
-          return;
+        if (loadConversationsInFlight) {
+          console.log('[ChatStore] Joining in-flight conversation load...');
+          return loadConversationsInFlight;
         }
 
-        isLoadingConversations = true;
-
+        loadConversationsInFlight = (async () => {
         try {
           console.log('[ChatStore] Loading conversations from MongoDB...');
           let response;
@@ -786,8 +808,11 @@ const storeImplementation = (set: any, get: any) => ({
           });
           // Don't clear conversations on error - preserve what we have
         } finally {
-          isLoadingConversations = false;
+          loadConversationsInFlight = null;
         }
+        })();
+
+        return loadConversationsInFlight;
       },
 
       // Save messages to MongoDB via upsert (idempotent).

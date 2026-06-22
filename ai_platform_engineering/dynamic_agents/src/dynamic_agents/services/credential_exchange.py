@@ -46,27 +46,39 @@ class CredentialExchangeClient:
             raise ValueError("credential service response did not include credential")
         return credential
 
-    async def exchange_provider_connection(self, provider_connection_id: str, *, intended_use: str) -> dict[str, Any]:
+    async def exchange_provider_connection(
+        self,
+        provider_connection_id: str,
+        *,
+        intended_use: str,
+        mcp_server_id: str | None = None,
+    ) -> dict[str, Any]:
         """Exchange a provider connection for a server-side provider credential."""
 
-        return await self._post(
-            "/exchange",
-            {
-                "provider_connection_id": provider_connection_id,
-                "intended_use": intended_use,
-            },
-        )
+        payload: dict[str, Any] = {
+            "provider_connection_id": provider_connection_id,
+            "intended_use": intended_use,
+        }
+        if mcp_server_id:
+            payload["mcp_server_id"] = mcp_server_id
+        return await self._post("/exchange", payload)
 
-    async def exchange_provider_connection_by_provider(self, provider: str, *, intended_use: str) -> dict[str, Any]:
+    async def exchange_provider_connection_by_provider(
+        self,
+        provider: str,
+        *,
+        intended_use: str,
+        mcp_server_id: str | None = None,
+    ) -> dict[str, Any]:
         """Exchange the current JWT subject's provider connection by provider key."""
 
-        return await self._post(
-            "/exchange",
-            {
-                "provider": provider,
-                "intended_use": intended_use,
-            },
-        )
+        payload: dict[str, Any] = {
+            "provider": provider,
+            "intended_use": intended_use,
+        }
+        if mcp_server_id:
+            payload["mcp_server_id"] = mcp_server_id
+        return await self._post("/exchange", payload)
 
     async def _post(self, path: str, json_body: dict[str, Any]) -> dict[str, Any]:
         client = self._http_client

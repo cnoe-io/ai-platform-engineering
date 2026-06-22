@@ -1,18 +1,20 @@
 "use client";
 
-import React from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+// assisted-by Codex Codex-sonnet-4-6
+
 import { AuthGuard } from "@/components/auth-guard";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Server, Cpu, MessageSquare } from "lucide-react";
-import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
-import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
-import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
+import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
+import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
+import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { Bot,Cpu,MessageSquare,Server } from "lucide-react";
+import { usePathname,useRouter,useSearchParams } from "next/navigation";
+import React from "react";
 
 const BASE_VISIBLE_TABS = ["agents", "mcp-servers", "llm-models"] as const;
 
@@ -21,7 +23,7 @@ function DynamicAgentsPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { gates } = useAdminTabGates();
-  const showConversations = Boolean(gates.audit_logs);
+  const showConversations = Boolean(gates.dynamic_agent_conversations);
   const visibleTabs = React.useMemo(
     () => new Set<string>(showConversations ? [...BASE_VISIBLE_TABS, "conversations"] : BASE_VISIBLE_TABS),
     [showConversations],

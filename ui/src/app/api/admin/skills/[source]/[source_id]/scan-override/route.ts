@@ -48,20 +48,18 @@
  * assisted-by Cursor Composer-Sonnet-4.7
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
-import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-
-const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
+import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
+import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Whether the admin override feature is on. Reads the same env var
@@ -106,32 +104,6 @@ function assertSupportedSource(
 }
 
 /**
- * Background-fire a supervisor catalog refresh. The override changes
- * what the runtime is willing to serve, so the supervisor catalog
- * needs to re-pull. Same pattern as ``configs/[id]/scan/route.ts``;
- * see that file for the full rationale on auth forwarding.
- */
-function triggerSupervisorRefresh(auth?: {
-  accessToken?: string;
-  catalogKey?: string;
-}): void {
-  if (!SUPERVISOR_URL) return;
-  const headers: Record<string, string> = {};
-  if (auth?.accessToken) headers["Authorization"] = `Bearer ${auth.accessToken}`;
-  if (auth?.catalogKey) headers["X-Caipe-Catalog-Key"] = auth.catalogKey;
-  fetch(`${SUPERVISOR_URL}/skills/refresh?include_hubs=false`, {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(30_000),
-  }).catch((err) => {
-    console.warn(
-      "[ScanOverride] Background supervisor refresh failed:",
-      err,
-    );
-  });
-}
-
-/**
  * POST — create or update an admin scan override.
  *
  * Body: ``{ reason: string }``. Reason is required and persisted
@@ -165,7 +137,7 @@ export const POST = withErrorHandler(
     if (!isAdminOverrideEnabled()) {
       throw new ApiError(
         "Scan overrides are disabled by ADMIN_SCAN_OVERRIDE_ENABLED=false. " +
-          "Flip the env var to true on both the UI and supervisor tiers " +
+          "Flip the env var to true on both the UI and runtime tiers " +
           "to re-enable the admin escape hatch.",
         503,
       );
@@ -285,10 +257,8 @@ export const POST = withErrorHandler(
         },
       );
 
-      // Audit row first (before catalog refresh) so a refresh
-      // failure can't lose the audit trail. Audit write is
-      // best-effort by design (see recordScanOverrideEvent
-      // docstring) — never blocks.
+      // Audit write is best-effort by design (see
+      // recordScanOverrideEvent docstring) — never blocks.
       await recordScanOverrideEvent({
         action: "set",
         skill_id: source_id,
@@ -299,13 +269,6 @@ export const POST = withErrorHandler(
         prior_scan_status: "flagged",
         prior_scan_summary: existing.scan_summary,
       });
-
-      const supervisorAuth = {
-        accessToken: (session as { accessToken?: string } | null | undefined)
-          ?.accessToken,
-        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
-      };
-      triggerSupervisorRefresh(supervisorAuth);
 
       return successResponse({
         id: source_id,
@@ -449,13 +412,6 @@ export const DELETE = withErrorHandler(
         prior_scan_status: existing.scan_status ?? "flagged",
         prior_scan_summary: priorScanSummary,
       });
-
-      const supervisorAuth = {
-        accessToken: (session as { accessToken?: string } | null | undefined)
-          ?.accessToken,
-        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
-      };
-      triggerSupervisorRefresh(supervisorAuth);
 
       return successResponse({
         id: source_id,

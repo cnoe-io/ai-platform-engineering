@@ -22,23 +22,32 @@ describe("credential MongoDB indexes", () => {
         },
         {
           collection: CREDENTIAL_COLLECTIONS.providerConnections,
-          keys: { connectorKey: 1, subject: 1 },
-          options: { name: "provider_connections_connector_subject_unique", unique: true },
+          keys: { "owner.type": 1, "owner.id": 1, updatedAt: -1 },
+          options: { name: "provider_connections_owner_updated_at" },
+        },
+        {
+          collection: CREDENTIAL_COLLECTIONS.providerConnections,
+          keys: { "owner.type": 1, "owner.id": 1, provider: 1 },
+          options: {
+            name: "provider_connections_owner_provider_connected_unique",
+            unique: true,
+            partialFilterExpression: { status: "connected" },
+          },
         },
       ]),
     );
   });
 
-  it("adds audit and cleanup indexes without storing raw credential values", () => {
+  it("no longer ships the stale connectorKey/subject index (fields removed from the doc shape)", () => {
+    const names = buildCredentialIndexSpecs().map((s) => s.options?.name);
+    expect(names).not.toContain("provider_connections_connector_subject_unique");
+  });
+
+  it("adds cleanup indexes without storing raw credential values", () => {
     const specs = buildCredentialIndexSpecs();
 
     expect(specs).toEqual(
       expect.arrayContaining([
-        {
-          collection: CREDENTIAL_COLLECTIONS.auditEvents,
-          keys: { createdAt: -1 },
-          options: { name: "credential_audit_events_created_at" },
-        },
         {
           collection: CREDENTIAL_COLLECTIONS.migrationPreviews,
           keys: { expiresAt: 1 },

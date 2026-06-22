@@ -1,14 +1,15 @@
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
+import { getCurrentTraceparent,withAuthzSpan } from "./authz-tracing";
+import { isUnsafeRbacBypassEnabled,warnUnsafeRbacBypassEnabled } from "./bypass";
 import {
-  buildOpenFgaTupleDiff,
-  openFgaCheckRelation,
-  openFgaObject,
-  openFgaSubject,
-  type UniversalRebacTupleDiffInput,
+buildOpenFgaTupleDiff,
+openFgaCheckRelation,
+openFgaObject,
+openFgaSubject,
+type UniversalRebacTupleDiffInput,
 } from "./tuple-builders";
-import { getCurrentTraceparent, withAuthzSpan } from "./authz-tracing";
-import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from "./bypass";
+import { organizationObjectId } from "./organization";
 
 export interface OpenFgaTupleKey {
   user: string;
@@ -36,6 +37,8 @@ export interface TeamResourceTupleDiffInput {
   skills?: ResourceStringDiff;
   tasks?: ResourceStringDiff;
   toolWildcard: ResourceBooleanDiff;
+  /** All enabled MCP server ids — expands tool-wildcard grants to tool:<id>/*. */
+  allMcpServerIds?: string[];
 }
 
 export interface TeamResourceTupleDiff {
@@ -105,8 +108,15 @@ export function isOpenFgaConfigured(): boolean {
   return Boolean(openFgaHttpUrl());
 }
 
+function parseOpenFgaReconcileEnabledFlag(): boolean {
+  const raw = process.env.OPENFGA_RECONCILE_ENABLED?.trim().toLowerCase();
+  if (!raw) return true;
+  if (["false", "0", "no", "off"].includes(raw)) return false;
+  return ["true", "1", "yes", "on"].includes(raw);
+}
+
 export function isOpenFgaReconciliationEnabled(): boolean {
-  return process.env.OPENFGA_RECONCILE_ENABLED?.trim().toLowerCase() === "true" && Boolean(openFgaHttpUrl());
+  return parseOpenFgaReconcileEnabledFlag() && Boolean(openFgaHttpUrl());
 }
 
 function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
@@ -135,6 +145,157 @@ function resourceTuples(
   }));
 }
 
+const MCP_TOOL_WILDCARD_SUFFIX = "_*";
+const MCP_TOOL_SLASH_WILDCARD_SUFFIX = "/*";
+
+function mcpServerIdFromToolPrefix(toolId: string): string | null {
+  let serverId: string | null = null;
+  if (toolId.endsWith(MCP_TOOL_WILDCARD_SUFFIX)) {
+    serverId = toolId.slice(0, -MCP_TOOL_WILDCARD_SUFFIX.length);
+  } else if (toolId.endsWith(MCP_TOOL_SLASH_WILDCARD_SUFFIX)) {
+    serverId = toolId.slice(0, -MCP_TOOL_SLASH_WILDCARD_SUFFIX.length);
+  }
+  return serverId || null;
+}
+
+function mcpServerAccessTuples(
+  teamSlug: string,
+  toolIds: string[],
+  includeOrgAdminManager: boolean
+): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    const object = `mcp_server:${serverId}`;
+    tuples.push(
+      { user: `team:${teamSlug}#member`, relation: "reader", object },
+      { user: `team:${teamSlug}#member`, relation: "user", object },
+      { user: `team:${teamSlug}#member`, relation: "invoker", object },
+      { user: `team:${teamSlug}#admin`, relation: "manager", object },
+    );
+    if (includeOrgAdminManager) {
+      tuples.push({ user: `${organizationObjectId()}#admin`, relation: "manager", object });
+    }
+  }
+  return tuples;
+}
+
+/** Gateway extAuthz checks `tool:<server>/*` (slash), not underscore wildcards. */
+function mcpServerGatewayToolCallerTuples(teamSlug: string, toolIds: string[]): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    tuples.push({
+      user: `team:${teamSlug}#member`,
+      relation: "caller",
+      object: `tool:${serverId}/*`,
+    });
+  }
+  return tuples;
+}
+
+const OPENFGA_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+function isValidTeamAgentId(agentId: string): boolean {
+  return OPENFGA_AGENT_ID_PATTERN.test(agentId);
+}
+
+/**
+ * AgentGateway extAuthz checks `agent:<id> can_call tool:<server>/*`, not team
+ * membership. Mirror team MCP grants onto team-assigned agents at save time.
+ */
+function agentRuntimeToolCallerTuples(agentIds: string[], toolIds: string[]): OpenFgaTupleKey[] {
+  const { mcpServerSelections, directToolIds } = splitTeamToolSelections(toolIds);
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const agentId of agentIds) {
+    if (!isValidTeamAgentId(agentId)) continue;
+    const agentUser = `agent:${agentId}`;
+    for (const selection of mcpServerSelections) {
+      const serverId = mcpServerIdFromToolPrefix(selection);
+      if (!serverId) continue;
+      tuples.push({
+        user: agentUser,
+        relation: "caller",
+        object: `tool:${serverId}/*`,
+      });
+    }
+    for (const toolId of directToolIds) {
+      tuples.push({
+        user: agentUser,
+        relation: "caller",
+        object: `tool:${toolId}`,
+      });
+    }
+  }
+  return tuples;
+}
+
+function mcpServerSelectionsFromIds(serverIds: string[]): string[] {
+  return serverIds.map((serverId) => `${serverId}${MCP_TOOL_WILDCARD_SUFFIX}`);
+}
+
+/** AgentGateway checks per-server wildcards (`tool:<server>/*`), never `tool:*`. */
+function agentRuntimeAllServerWildcards(agentIds: string[], serverIds: string[]): OpenFgaTupleKey[] {
+  return agentRuntimeToolCallerTuples(agentIds, mcpServerSelectionsFromIds(serverIds));
+}
+
+function combinedTeamToolIds(added: string[], removed: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const toolId of [...added, ...removed]) {
+    if (seen.has(toolId)) continue;
+    seen.add(toolId);
+    out.push(toolId);
+  }
+  return out;
+}
+
+function splitTeamToolSelections(toolIds: string[]): {
+  mcpServerSelections: string[];
+  directToolIds: string[];
+} {
+  const mcpServerSelections: string[] = [];
+  const directToolIds: string[] = [];
+  for (const toolId of toolIds) {
+    if (mcpServerIdFromToolPrefix(toolId)) {
+      mcpServerSelections.push(toolId);
+    } else {
+      directToolIds.push(toolId);
+    }
+  }
+  return { mcpServerSelections, directToolIds };
+}
+
+/** Revoke legacy `tool:<prefix>_*` and `mcp_tool:<prefix>_*` tuples from older writers. */
+function mcpServerLegacyToolGrantDeletes(teamSlug: string, toolIds: string[]): OpenFgaTupleKey[] {
+  const deletes: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    const legacyToolId = `${serverId}${MCP_TOOL_WILDCARD_SUFFIX}`;
+    deletes.push({
+      user: `team:${teamSlug}#member`,
+      relation: "caller",
+      object: `tool:${legacyToolId}`,
+    });
+    for (const relation of ["reader", "user", "caller"] as const) {
+      deletes.push({
+        user: `team:${teamSlug}#member`,
+        relation,
+        object: `mcp_tool:${legacyToolId}`,
+      });
+    }
+    deletes.push({
+      user: `team:${teamSlug}#admin`,
+      relation: "manager",
+      object: `mcp_tool:${legacyToolId}`,
+    });
+  }
+  return deletes;
+}
+
 export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): TeamResourceTupleDiff {
   const teamObject = `team:${input.teamSlug}`;
   const memberTuples = input.memberUserIds.map((userId) => ({
@@ -143,29 +304,61 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     object: teamObject,
   }));
 
+  const addedTools = splitTeamToolSelections(input.tools.added);
+  const removedTools = splitTeamToolSelections(input.tools.removed);
+  const wildcardServerSelections = mcpServerSelectionsFromIds(input.allMcpServerIds ?? []);
+  const combinedToolIds = combinedTeamToolIds(input.tools.added, input.tools.removed);
+
   const writes = uniqueTuples([
     ...memberTuples,
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
-    ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.added),
+    ...resourceTuples(input.teamSlug, "caller", "tool", addedTools.directToolIds),
+    // Team Resources accepts MCP server selections as current `<server_id>/*`
+    // or legacy `<server_id>_*`; OpenFGA tuples target `mcp_server:<id>` (BFF)
+    // and `tool:<id>/*` (gateway).
+    ...mcpServerAccessTuples(input.teamSlug, addedTools.mcpServerSelections, true),
+    ...mcpServerGatewayToolCallerTuples(input.teamSlug, addedTools.mcpServerSelections),
+    ...agentRuntimeToolCallerTuples(input.agents.added, input.tools.added),
+    ...(input.toolWildcard.added
+      ? [
+          ...mcpServerAccessTuples(input.teamSlug, wildcardServerSelections, true),
+          ...mcpServerGatewayToolCallerTuples(input.teamSlug, wildcardServerSelections),
+          ...agentRuntimeAllServerWildcards(input.agents.added, input.allMcpServerIds ?? []),
+        ]
+      : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
-    ...(input.toolWildcard.added
-      ? resourceTuples(input.teamSlug, "caller", "tool", ["*"])
-      : []),
   ]);
+
+  const agentsAffectedByWildcard = Array.from(
+    new Set([...input.agents.added, ...input.agents.removed]),
+  );
 
   const deletes = uniqueTuples([
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.removed),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed, "admin"),
-    ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.removed),
+    ...resourceTuples(input.teamSlug, "caller", "tool", removedTools.directToolIds),
+    ...mcpServerAccessTuples(input.teamSlug, removedTools.mcpServerSelections, false),
+    ...mcpServerGatewayToolCallerTuples(input.teamSlug, removedTools.mcpServerSelections),
+    ...mcpServerLegacyToolGrantDeletes(input.teamSlug, removedTools.mcpServerSelections),
+    ...agentRuntimeToolCallerTuples(input.agents.removed, combinedToolIds),
+    ...agentRuntimeToolCallerTuples(input.agents.added, removedTools.mcpServerSelections),
+    ...agentRuntimeToolCallerTuples(input.agents.added, removedTools.directToolIds),
+    ...(input.toolWildcard.added
+      ? agentRuntimeAllServerWildcards(input.agents.removed, input.allMcpServerIds ?? [])
+      : []),
+    ...(input.toolWildcard.removed
+      ? [
+          ...mcpServerAccessTuples(input.teamSlug, wildcardServerSelections, false),
+          ...mcpServerGatewayToolCallerTuples(input.teamSlug, wildcardServerSelections),
+          ...agentRuntimeAllServerWildcards(agentsAffectedByWildcard, input.allMcpServerIds ?? []),
+        ]
+      : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.removed ?? []),
-    ...(input.toolWildcard.removed
-      ? resourceTuples(input.teamSlug, "caller", "tool", ["*"])
-      : []),
   ]);
 
   return { writes, deletes };
@@ -177,25 +370,72 @@ export function buildUniversalRebacTupleDiff(
   return buildOpenFgaTupleDiff(input);
 }
 
+// Module-level singleton: one HTTP round-trip per process lifetime.
+// Reset to null on failure so the next call retries.
+let _storeIdPromise: Promise<string> | null = null;
+
+export function resetOpenFgaStoreIdCacheForTests(): void {
+  if (process.env.NODE_ENV === "test") {
+    _storeIdPromise = null;
+  }
+}
+
 export async function getOpenFgaStoreId(): Promise<string> {
   const explicitStoreId = process.env.OPENFGA_STORE_ID?.trim();
   if (explicitStoreId) return explicitStoreId;
 
-  const baseUrl = openFgaHttpUrl();
-  if (!baseUrl) {
-    throw new Error("OPENFGA_HTTP is not set");
+  if (!_storeIdPromise) {
+    const baseUrl = openFgaHttpUrl();
+    if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+    _storeIdPromise = fetch(`${baseUrl}/stores`, { method: "GET", headers: openFgaHeaders() })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`OpenFGA store discovery failed: ${res.status}`);
+        const body = (await res.json()) as { stores?: Array<{ id?: string; name?: string }> };
+        const store = body.stores?.find((c) => c.name === openFgaStoreName());
+        if (!store?.id) throw new Error(`OpenFGA store ${openFgaStoreName()} was not found`);
+        return store.id;
+      })
+      .catch((err: unknown) => {
+        _storeIdPromise = null;
+        throw err;
+      });
   }
+  return _storeIdPromise;
+}
 
-  const response = await fetch(`${baseUrl}/stores`, { method: "GET", headers: openFgaHeaders() });
+function tupleKeysEqual(a: OpenFgaTupleKey, b: OpenFgaTupleKey): boolean {
+  return a.user === b.user && a.relation === b.relation && a.object === b.object;
+}
+
+/**
+ * Whether an exact tuple is stored in OpenFGA (via Read, not Check).
+ *
+ * Check rejects some valid stored keys (e.g. `user:*`, `organization#member`
+ * on types where Check validation differs from Write). Idempotent
+ * write/delete filtering must use existence, not authorization evaluation.
+ */
+async function tupleExistsInStore(
+  baseUrl: string,
+  storeId: string,
+  tuple: OpenFgaTupleKey,
+): Promise<boolean> {
+  const filter = tupleKeyFilter(tuple);
+  if (!filter?.user || !filter.relation || !filter.object) {
+    return false;
+  }
+  const response = await fetch(`${baseUrl}/stores/${storeId}/read`, {
+    method: "POST",
+    headers: openFgaHeaders(),
+    body: JSON.stringify({ tuple_key: filter, page_size: 1 }),
+  });
   if (!response.ok) {
-    throw new Error(`OpenFGA store discovery failed: ${response.status}`);
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(`OpenFGA tuple read failed: ${response.status} ${errorBody.slice(0, 200)}`);
   }
-  const body = (await response.json()) as { stores?: Array<{ id?: string; name?: string }> };
-  const store = body.stores?.find((candidate) => candidate.name === openFgaStoreName());
-  if (!store?.id) {
-    throw new Error(`OpenFGA store ${openFgaStoreName()} was not found`);
-  }
-  return store.id;
+  const payload = (await response.json()) as {
+    tuples?: Array<{ key?: OpenFgaTupleKey }>;
+  };
+  return (payload.tuples ?? []).some((entry) => entry.key && tupleKeysEqual(entry.key, tuple));
 }
 
 async function tupleAllowed(baseUrl: string, storeId: string, tuple: OpenFgaTupleKey): Promise<boolean> {
@@ -218,6 +458,40 @@ function tupleKeyFilter(tuple?: Partial<OpenFgaTupleKey>): Partial<OpenFgaTupleK
   if (tuple.relation?.trim()) out.relation = tuple.relation.trim();
   if (tuple.object?.trim()) out.object = tuple.object.trim();
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Send multiple Check requests in a single HTTP call via the OpenFGA
+ * /batch-check endpoint (available since OpenFGA v1.8). Returns a boolean
+ * array in the same order as the input tuples. Falls back gracefully: if
+ * OPENFGA_HTTP is unset or batch-check is unavailable, callers should use
+ * checkOpenFgaTuple() instead.
+ */
+export async function batchCheckOpenFgaTuples(tuples: OpenFgaTupleKey[]): Promise<boolean[]> {
+  if (tuples.length === 0) return [];
+  if (isUnsafeRbacBypassEnabled()) {
+    warnUnsafeRbacBypassEnabled("openfga.batch-check");
+    return tuples.map(() => true);
+  }
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+  const storeId = await getOpenFgaStoreId();
+
+  const checks = tuples.map((tuple, i) => ({
+    tuple_key: tuple,
+    correlation_id: String(i),
+  }));
+
+  const response = await fetch(`${baseUrl}/stores/${storeId}/batch-check`, {
+    method: "POST",
+    headers: openFgaHeaders(),
+    body: JSON.stringify({ checks }),
+  });
+  if (!response.ok) {
+    throw new Error(`OpenFGA batch-check failed: ${response.status}`);
+  }
+  const body = (await response.json()) as { result: Record<string, { allowed?: boolean }> };
+  return tuples.map((_, i) => Boolean(body.result[String(i)]?.allowed));
 }
 
 export async function checkOpenFgaTuple(tuple: OpenFgaTupleKey): Promise<OpenFgaCheckResult> {
@@ -473,14 +747,23 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
     return { enabled: true, writes: 0, deletes: 0 };
   }
 
-  // Chunk to honor OpenFGA's per-call entity limit. Each chunk is its
-  // own server-side transaction; on failure we attempt to compensate
-  // already-applied chunks so callers see "all-or-nothing" semantics
-  // across the full diff. If a chunk fails AND compensation also fails,
-  // we surface the original error and log the compensation failure —
-  // the caller is responsible for higher-level rollback (e.g. the
-  // identity-group-sync reconciler reverts Mongo state on this throw).
-  const chunks = chunkOpenFgaDiff(filteredDiff);
+  return applyDiffWithCompensation(baseUrl, storeId, filteredDiff);
+}
+
+/**
+ * Apply a diff in ≤limit-sized chunks. Each chunk is its own server-side
+ * transaction; on failure we attempt to compensate already-applied chunks so
+ * callers see "all-or-nothing" semantics across the full diff. If a chunk
+ * fails AND compensation also fails, we surface the original error and log the
+ * compensation failure — the caller is responsible for higher-level rollback
+ * (e.g. the identity-group-sync reconciler reverts Mongo state on this throw).
+ */
+async function applyDiffWithCompensation(
+  baseUrl: string,
+  storeId: string,
+  diff: TeamResourceTupleDiff,
+): Promise<OpenFgaReconcileResult> {
+  const chunks = chunkOpenFgaDiff(diff);
   const applied: OpenFgaChunkResult[] = [];
   let totalWrites = 0;
   let totalDeletes = 0;
@@ -506,6 +789,45 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
   }
 
   return { enabled: true, writes: totalWrites, deletes: totalDeletes };
+}
+
+/**
+ * Delete an exact set of already-stored tuples, bypassing the read-back
+ * `/check` filtering that `writeOpenFgaTuples` applies.
+ *
+ * `writeOpenFgaTuples` is for reconciling *desired* relationships, where a
+ * `/check` per tuple correctly skips no-op writes/deletes. It MUST NOT be
+ * used to delete userset tuples such as the `team:<slug>#member` channel
+ * visibility grants: OpenFGA `/check` does not resolve a userset as the
+ * `user`, so `filterTupleDiff` would treat those deletes as "already gone"
+ * and silently drop them, orphaning the tuples.
+ *
+ * Callers that have already enumerated the exact stored keys (e.g. channel
+ * offboarding, which reads every tuple where the channel is subject or
+ * object) use this instead. Deleting a tuple that no longer exists is a
+ * server-side error, so only pass keys observed via a recent read.
+ *
+ * Like `writeOpenFgaTuples`, the deletes are chunked to honor OpenFGA's
+ * per-call entity limit and a failed chunk compensates the already-applied
+ * chunks (re-writing them) so the call is all-or-nothing across the diff.
+ */
+export async function deleteExactOpenFgaTuples(
+  deletes: OpenFgaTupleKey[]
+): Promise<OpenFgaReconcileResult> {
+  assertWritableRelations({ writes: [], deletes });
+  if (!isOpenFgaConfigured()) {
+    return { enabled: false, writes: 0, deletes: 0 };
+  }
+  const unique = uniqueTuples(deletes);
+  if (unique.length === 0) {
+    return { enabled: true, writes: 0, deletes: 0 };
+  }
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) {
+    throw new Error("OPENFGA_HTTP is not set");
+  }
+  const storeId = await getOpenFgaStoreId();
+  return applyDiffWithCompensation(baseUrl, storeId, { writes: [], deletes: unique });
 }
 
 /**
@@ -542,19 +864,71 @@ async function compensateAppliedChunks(
   }
 }
 
+/**
+ * Max in-flight `/read` existence checks issued by `filterTupleDiff` at once.
+ *
+ * Each candidate tuple costs one OpenFGA `/read`. A naive `Promise.all` over
+ * the whole diff opens one socket per tuple simultaneously. That was tolerable
+ * when diffs were small (a handful of resource grants), but identity-group-sync
+ * now reconciles the FULL retained membership set each run — tens of thousands
+ * of tuples in a large directory. Firing that many concurrent fetches at once
+ * exhausts the Node HTTP agent / file descriptors and can wedge or crash the
+ * sync mid-run (which is exactly the failure mode that strands Mongo rows
+ * without backing tuples). Bounding concurrency keeps the read phase steady.
+ *
+ * Tunable via `OPENFGA_READ_CONCURRENCY`; defaults to 32 — high enough to keep
+ * the pipeline busy, low enough to never swamp the connection pool.
+ */
+const DEFAULT_OPENFGA_READ_CONCURRENCY = 32;
+
+function openFgaReadConcurrency(): number {
+  const fromEnv = Number(process.env.OPENFGA_READ_CONCURRENCY);
+  if (Number.isFinite(fromEnv) && fromEnv >= 1) {
+    return Math.floor(fromEnv);
+  }
+  return DEFAULT_OPENFGA_READ_CONCURRENCY;
+}
+
+/**
+ * Map `items` through `fn` with at most `limit` promises in flight at a time.
+ * Results preserve input order. A rejection from any worker rejects the whole
+ * call (same semantics as `Promise.all`), so callers' error handling is
+ * unchanged from the previous unbounded implementation.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function filterTupleDiff(
   baseUrl: string,
   storeId: string,
   diff: TeamResourceTupleDiff
 ): Promise<TeamResourceTupleDiff> {
+  const concurrency = openFgaReadConcurrency();
   const writes = (
-    await Promise.all(
-      diff.writes.map(async (tuple) => ((await tupleAllowed(baseUrl, storeId, tuple)) ? null : tuple))
+    await mapWithConcurrency(diff.writes, concurrency, async (tuple) =>
+      (await tupleExistsInStore(baseUrl, storeId, tuple)) ? null : tuple,
     )
   ).filter((tuple): tuple is OpenFgaTupleKey => tuple !== null);
   const deletes = (
-    await Promise.all(
-      diff.deletes.map(async (tuple) => ((await tupleAllowed(baseUrl, storeId, tuple)) ? tuple : null))
+    await mapWithConcurrency(diff.deletes, concurrency, async (tuple) =>
+      (await tupleExistsInStore(baseUrl, storeId, tuple)) ? tuple : null,
     )
   ).filter((tuple): tuple is OpenFgaTupleKey => tuple !== null);
   return { writes, deletes };

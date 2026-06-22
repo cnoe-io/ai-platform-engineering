@@ -1,4 +1,4 @@
-import type { Collection, Document } from "mongodb";
+import type { Collection,Document } from "mongodb";
 
 import { getRbacCollection } from "./mongo-collections";
 

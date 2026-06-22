@@ -45,6 +45,11 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: jest.fn().mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' }),
 }));
 
+const mockAuditWrite = jest.fn();
+jest.mock('@/lib/audit', () => ({
+  getAuditBackend: () => ({ write: mockAuditWrite }),
+}));
+
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
@@ -52,6 +57,7 @@ const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkP
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
+  mockAuditWrite.mockClear();
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
 });
 
@@ -975,15 +981,9 @@ describe('withAuth', () => {
     }
 
     function loggedCapabilities(): string[] {
-      return (console.log as jest.Mock).mock.calls
-        .map((call) => {
-          try {
-            return JSON.parse(String(call[0])) as { capability?: string };
-          } catch {
-            return {};
-          }
-        })
-        .map((event) => event.capability)
+      return mockAuditWrite.mock.calls
+        .map((call) => call[0] as { action?: string })
+        .map((event) => event.action)
         .filter((capability): capability is string => typeof capability === 'string');
     }
 
@@ -1022,7 +1022,6 @@ describe('withAuth', () => {
       ['/api/auth/slack-link', 'POST', 'can_manage_self'],
       ['/api/settings/preferences', 'GET', 'can_manage_self'],
       ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
-      ['/api/nps/active', 'GET', 'can_submit_feedback'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
       ['/api/dynamic-agents/models', 'GET', 'can_chat'],
@@ -1047,6 +1046,67 @@ describe('withAuth', () => {
       const relations = calls.map((c) => c[0]?.relation);
       expect(relations).toContain(expectedRelation);
       expect(relations).not.toContain('can_use');
+    });
+
+    // Regression (2026-06-04): skill authoring is a self-service member
+    // feature. The coarse BFF gate for creating/configuring/deleting skills
+    // must resolve to the member-level `can_use` relation, NOT the admin-only
+    // `can_manage`. Per-skill ownership is enforced separately inside the
+    // route handlers via `requireResourcePermission`. Before this fix the
+    // `skill#configure` / `skill#delete` pairs fell through to `can_manage`,
+    // which locked every generic member out of the Skill Builder ("You do not
+    // have permission to perform this action.").
+    it.each([
+      ['/api/skills/configs', 'POST', 'can_use'],
+      ['/api/skills/configs', 'PUT', 'can_use'],
+      ['/api/skills/configs?id=skill-1', 'DELETE', 'can_use'],
+      ['/api/catalog-api-keys', 'POST', 'can_use'],
+    ])('lets a member reach %s %s via the member-level %s relation', async (
+      path,
+      method,
+      expectedRelation,
+    ) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      expect(relations).not.toContain('can_manage');
+    });
+
+    it('denies a member skill create when OpenFGA has no can_use tuple', async () => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+      mockCheckPermission.mockResolvedValue({
+        allowed: false,
+        reason: 'DENY_NO_CAPABILITY',
+      });
+
+      const handler = jest.fn();
+      const req = new Request('http://test.com/api/skills/configs', {
+        method: 'POST',
+      }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).rejects.toMatchObject({
+        statusCode: 403,
+        reason: 'pdp_denied',
+      });
+      expect(handler).not.toHaveBeenCalled();
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_use');
     });
 
     it('still gates PATCH /api/admin/platform-config behind admin_ui#manage', async () => {
@@ -1108,6 +1168,9 @@ describe('withAuth', () => {
     });
 
     it.each([
+      ['/api/workflow-configs', 'GET', 'can_use', 'dynamic_agent#view'],
+      ['/api/workflow-configs', 'POST', 'can_manage', 'dynamic_agent#manage'],
+      ['/api/workflow-runs', 'GET', 'can_use', 'dynamic_agent#view'],
       ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
       ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],
     ])('maps fallback route %s %s to explicit %s capability', async (

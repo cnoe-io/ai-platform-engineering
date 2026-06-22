@@ -5,7 +5,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/mcp/**'
       - '.github/**'
       - 'build/agents/Dockerfile.mcp'
   workflow_call:
@@ -96,8 +96,8 @@ jobs:
             filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/**'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/build/Dockerfile.mcp'\n`;
             });
             core.setOutput('filters', filters);
 
@@ -149,7 +149,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/prebuild/mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/mcp/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner

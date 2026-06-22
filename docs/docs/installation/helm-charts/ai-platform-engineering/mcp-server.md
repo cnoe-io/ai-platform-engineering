@@ -142,9 +142,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/agent --version 0.2.38
 | serviceAccount.automount | bool | `true` |  |
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
-| slim.enabled | bool | `false` |  |
-| slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` |  |
-| slim.transport | string | `"slim"` |  |
 | tolerations | list | `[]` |  |
 | volumeMounts | list | `[]` |  |
 | volumes | list | `[]` |  |
@@ -155,4 +152,3 @@ helm show values oci://ghcr.io/cnoe-io/charts/agent --version 0.2.38
 | vpa.minAllowed.cpu | string | `"50m"` |  |
 | vpa.minAllowed.memory | string | `"128Mi"` |  |
 | vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
-

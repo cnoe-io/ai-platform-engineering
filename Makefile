@@ -26,7 +26,7 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
-	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
+	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests caipe-ui-e2e-rbac \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	caipe-ui-hot caipe-ui-prod \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
@@ -136,6 +136,16 @@ caipe-ui-dev: ## Run CAIPE UI in development mode
 caipe-ui-tests: ## Run CAIPE UI Jest tests
 	@echo "Running CAIPE UI tests..."
 	@cd ui && npm test
+
+caipe-ui-e2e-rbac: ## Run mocked RBAC Playwright regression (dev server on :3000)
+	@echo "Running mocked RBAC Playwright regression..."
+	@cd ui && RUN_RBAC_REGRESSION=1 CAIPE_UI_BASE_URL=http://localhost:3000 WORKFLOWS_ENABLED=true \
+		npx playwright test \
+			e2e/rbac/workflow-agent-access.spec.ts \
+			e2e/rbac/rbac-admin-regression.spec.ts \
+			e2e/rbac/mcp-openfga-tuples.spec.ts \
+			e2e/rbac/admin-settings-regression.spec.ts \
+			--config=playwright.rbac.config.ts
 
 migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
 	@# One-shot migration for spec 2026-05-26-canonical-team-membership.
@@ -296,51 +306,45 @@ test-core: setup-venv ## Run tests for the core/shared workspace (utils, dynamic
 	@echo "Running general project tests..."
 	@. .venv/bin/activate && PYTHONPATH=. uv run pytest --ignore=integration \
 		--ignore=ai_platform_engineering/knowledge_bases/rag/tests \
-		--ignore=ai_platform_engineering/agents \
+		--ignore=ai_platform_engineering/mcp \
 		--ignore=volumes --ignore=docker-compose
 
 ## ========== Individual MCP Tests ==========
 
 test-mcp-argocd: ## Run ArgoCD MCP tests
 	@echo "Running ArgoCD MCP tests..."
-	@cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
-
-test-agent-argocd: setup-venv ## Run ArgoCD agent unit tests
-	@echo "Running ArgoCD agent unit tests..."
-	@echo "Installing ArgoCD agent..."
-	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
-	@. .venv/bin/activate && PYTHONPATH=. uv run pytest ai_platform_engineering/agents/argocd/tests/ -v
+	@cd ai_platform_engineering/mcp/argocd && $(MAKE) test
 
 test-mcp-backstage: ## Run Backstage MCP tests
 	@echo "Running Backstage MCP tests..."
-	@cd ai_platform_engineering/agents/backstage/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/backstage && $(MAKE) test
 
 test-mcp-confluence: ## Run Confluence MCP tests
 	@echo "Running Confluence MCP tests..."
-	@cd ai_platform_engineering/agents/confluence/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/confluence && $(MAKE) test
 
 test-mcp-jira: ## Run Jira MCP tests
 	@echo "Running Jira MCP tests..."
-	@cd ai_platform_engineering/agents/jira/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/jira && $(MAKE) test
 
 test-mcp-komodor: ## Run Komodor MCP tests
 	@echo "Running Komodor MCP tests..."
-	@cd ai_platform_engineering/agents/komodor/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/komodor && $(MAKE) test
 
 test-mcp-litellm: ## Run LiteLLM MCP tests
 	@echo "Running LiteLLM MCP tests..."
-	@cd ai_platform_engineering/agents/litellm/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/litellm && $(MAKE) test
 
 test-mcp-pagerduty: ## Run PagerDuty MCP tests
 	@echo "Running PagerDuty MCP tests..."
-	@cd ai_platform_engineering/agents/pagerduty/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/pagerduty && $(MAKE) test
 
 test-mcp-slack: ## Slack MCP is external (korotovsky/slack-mcp-server) - no local tests
 	@echo "Slack uses the external OSS korotovsky/slack-mcp-server. No local MCP tests."
 
 test-mcp-splunk: ## Run Splunk MCP tests
 	@echo "Running Splunk MCP tests..."
-	@cd ai_platform_engineering/agents/splunk/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/splunk && $(MAKE) test
 
 test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their own environments)
 	@echo ""
@@ -536,7 +540,7 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
 
-## ========== Comprehensive RBAC tests (spec 102) ==========
+## ========== RBAC tests ==========
 # See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
 
 # Profile selection. Override with E2E_PROFILES=...

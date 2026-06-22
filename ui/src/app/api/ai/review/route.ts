@@ -26,22 +26,22 @@
  *   9. Aggregate via computeScoreAndGrade; pass = score >= min_score.
  */
 
-import { createHash } from "node:crypto";
-import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/da-proxy";
-import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { getCollection } from "@/lib/mongodb";
+import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { ensureConfig } from "@/lib/server/ai-review/defaults";
-import { runCriterion } from "@/lib/server/ai-review/run-criteria";
 import { computeScoreAndGrade } from "@/lib/server/ai-review/grading";
+import { runCriterion } from "@/lib/server/ai-review/run-criteria";
 import {
-  DEFAULT_GRADE_THRESHOLDS,
-  type CriterionVerdict,
-  type ReviewConfig,
-  type ReviewContext,
-  type ReviewRequest,
-  type ReviewResult,
+DEFAULT_GRADE_THRESHOLDS,
+type CriterionVerdict,
+type ReviewConfig,
+type ReviewContext,
+type ReviewRequest,
+type ReviewResult,
 } from "@/types/ai-review";
+import { NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 

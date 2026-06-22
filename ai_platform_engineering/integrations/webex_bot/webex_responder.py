@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any, Protocol
 
 import httpx
@@ -19,6 +20,9 @@ from .utils.user_messages import FRIENDLY_REASON_MESSAGES, GENERIC_REQUEST_DENIE
 logger = logging.getLogger("caipe.webex_bot.webex_responder")
 
 WEBEX_API_BASE_URL = "https://webexapis.com/v1"
+# Avoid spamming duplicate 1:1 linking cards when the user retries before completing SSO.
+_LINKING_CARD_COOLDOWN_SECONDS = 15 * 60
+_recent_linking_cards_sent: dict[str, float] = {}
 
 
 class WebexApiProtocol(Protocol):
@@ -195,6 +199,20 @@ class WebexResponder:
             )
             return
 
+        now = time.time()
+        last_sent = _recent_linking_cards_sent.get(person_id)
+        if last_sent is not None and now - last_sent < _LINKING_CARD_COOLDOWN_SECONDS:
+            await self._reply_to_thread(
+                room_id=room_id,
+                parent_id=parent_id,
+                markdown=(
+                    f"Your Webex account still needs to be linked to {app_name}. "
+                    "Open your **1:1 chat with me** and tap **Link with SSO** on the card I sent earlier "
+                    "(links expire after 10 minutes). After linking, retry here — no need to wait for a new card."
+                ),
+            )
+            return
+
         try:
             await asyncio.to_thread(
                 self._webex_api.create_message,
@@ -202,6 +220,7 @@ class WebexResponder:
                 markdown=f"Link your {app_name} account to Webex to continue.",
                 attachments=[_linking_card(app_name, result.linking_url)],
             )
+            _recent_linking_cards_sent[person_id] = now
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not send Webex 1:1 linking card (type=%s)", type(exc).__name__)
             await self._reply_to_thread(

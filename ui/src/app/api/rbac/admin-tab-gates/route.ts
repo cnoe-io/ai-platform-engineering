@@ -1,22 +1,29 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
 import { ApiError } from "@/lib/api-middleware";
+import { authOptions,isBootstrapAdmin } from "@/lib/auth-config";
 import { getConfig } from "@/lib/config";
 import { getCollection } from "@/lib/mongodb";
 import { parseAdminSimulation } from "@/lib/rbac/admin-simulator";
-import { checkOpenFgaTuple, writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { organizationObjectId } from "@/lib/rbac/organization";
 import {
-  adminSurfaceObject,
-  baselineBootstrapTuples,
-  getBaselineFgaProfile,
-  BASELINE_ADMIN_SURFACES,
+adminSurfaceObject,
+BASELINE_ADMIN_SURFACES,
+baselineBootstrapTuples,
+getBaselineFgaProfile,
 } from "@/lib/rbac/baseline-access";
+import { batchCheckOpenFgaTuples,checkOpenFgaTuple,listOpenFgaObjects,writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { openFgaResourceObject } from "@/lib/rbac/openfga-resource-ids";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
+import {
+createJsonResponseCacheStore,
+envTtlMs,
+withJsonResponseCache,
+} from "@/lib/server-response-cache";
+import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
 import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
-import type { AdminTabKey, AdminTabGatesMap } from "@/lib/rbac/types";
+import { getServerSession } from "next-auth";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 const ALL_TABS: AdminTabKey[] = [
   "users",
@@ -27,16 +34,20 @@ const ALL_TABS: AdminTabKey[] = [
   "webex",
   "skills",
   "feedback",
-  "nps",
   "stats",
   "metrics",
   "health",
   "credentials",
   "audit_logs",
+  "dynamic_agent_conversations",
   "action_audit",
   "openfga",
   "migrations",
+  "service_accounts",
 ];
+
+const DYNAMIC_AGENT_CONVERSATIONS_AUDIT_ID = "dynamic_agent_conversations";
+const adminTabGatesCache = createJsonResponseCacheStore();
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
@@ -88,7 +99,6 @@ async function hasOrganizationAdmin(session: {
  */
 const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
   feedback: "feedbackEnabled",
-  nps: "npsEnabled",
   audit_logs: "auditLogsEnabled",
   action_audit: "actionAuditEnabled",
   credentials: "credentialsEnabled",
@@ -102,7 +112,6 @@ const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
   slack: "slack",
   webex: "webex",
   feedback: "feedback",
-  nps: "nps",
   stats: "stats",
   audit_logs: "audit_logs",
   action_audit: "action_audit",
@@ -129,6 +138,17 @@ async function hasAdminSurfaceManage(openfgaUser: string, tab: AdminTabKey): Pro
   });
 }
 
+async function hasDynamicAgentConversationsRead(openfgaUser: string): Promise<boolean> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // Mirrors /api/dynamic-agents/conversations, which gates this surface on
+  // audit_log:dynamic_agent_conversations#can_read with org-admin bypass.
+  return checkTupleAllowed({
+    user: openfgaUser,
+    relation: "can_read",
+    object: openFgaResourceObject("audit_log", DYNAMIC_AGENT_CONVERSATIONS_AUDIT_ID),
+  });
+}
+
 async function hasBaselineAdminSurfaceRead(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
   if (!BASELINE_TABS.has(tab)) return false;
   return checkTupleAllowed({
@@ -150,7 +170,19 @@ interface WebexSpaceMapping {
   active?: boolean;
 }
 
+// Skip the baseline-repair write RPC for users seen within the last 60 s.
+// The Map is per-process (Next.js server instance); in multi-replica K8s each
+// replica maintains its own cache, which is fine — the repair is idempotent.
+const _baselineRepairSeen = new Map<string, number>();
+const BASELINE_REPAIR_TTL_MS = 60_000;
+
 async function repairCurrentUserBaseline(subject: string, isAdmin: boolean): Promise<void> {
+  if (process.env.NODE_ENV !== "test") {
+    const now = Date.now();
+    const last = _baselineRepairSeen.get(subject);
+    if (last !== undefined && now - last < BASELINE_REPAIR_TTL_MS) return;
+    _baselineRepairSeen.set(subject, now);
+  }
   try {
     const profile = await getBaselineFgaProfile();
     await writeOpenFgaTuples({
@@ -158,11 +190,12 @@ async function repairCurrentUserBaseline(subject: string, isAdmin: boolean): Pro
       deletes: [],
     });
   } catch {
-    // Gate evaluation remains fail-closed if the OpenFGA repair path is unavailable.
+    // Evict the cache entry so the next request retries.
+    _baselineRepairSeen.delete(subject);
   }
 }
 
-async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> {
+async function hasAccessibleSlackChannel(openfgaUser: string): Promise<boolean> {
   try {
     const mappings = await getCollection<SlackChannelMapping>("channel_team_mappings");
     const rows = await mappings
@@ -170,23 +203,25 @@ async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> 
       .limit(500)
       .toArray();
 
-    for (const row of rows) {
-      if (!row.slack_channel_id) continue;
-      if (await checkTupleAllowed({
-        user: openfgaUser,
-        relation: "can_manage",
-        object: `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? "", row.slack_channel_id)}`,
-      })) {
-        return true;
-      }
-    }
+    // Batch all (can_read, can_manage) pairs in a single OpenFGA round-trip.
+    // Team-shared channels show the tab for readers too; row controls still
+    // depend on can_manage.
+    const objects = rows
+      .filter((r) => r.slack_channel_id)
+      .map((r) => `slack_channel:${slackChannelSubjectId(r.slack_workspace_id ?? "", r.slack_channel_id!)}`);
+    if (objects.length === 0) return false;
+    const tuples = objects.flatMap((object) => [
+      { user: openfgaUser, relation: "can_read" as const, object },
+      { user: openfgaUser, relation: "can_manage" as const, object },
+    ]);
+    const results = await batchCheckOpenFgaTuples(tuples);
+    return results.some(Boolean);
   } catch {
     return false;
   }
-  return false;
 }
 
-async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
+async function hasAccessibleWebexSpace(openfgaUser: string): Promise<boolean> {
   try {
     const mappings = await getCollection<WebexSpaceMapping>("webex_space_team_mappings");
     const rows = await mappings
@@ -194,25 +229,44 @@ async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
       .limit(500)
       .toArray();
 
-    for (const row of rows) {
-      if (!row.webex_space_id) continue;
-      if (await checkTupleAllowed({
-        user: openfgaUser,
-        relation: "can_manage",
-        object: `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? "", row.webex_space_id)}`,
-      })) {
-        return true;
-      }
-    }
+    const objects = rows
+      .filter((r) => r.webex_space_id)
+      .map((r) => `webex_space:${webexSpaceSubjectId(r.webex_workspace_id ?? "", r.webex_space_id!)}`);
+    if (objects.length === 0) return false;
+    const tuples = objects.flatMap((object) => [
+      { user: openfgaUser, relation: "can_read" as const, object },
+      { user: openfgaUser, relation: "can_manage" as const, object },
+    ]);
+    const results = await batchCheckOpenFgaTuples(tuples);
+    return results.some(Boolean);
   } catch {
     return false;
   }
-  return false;
+}
+
+/**
+ * The Service Accounts tab is self-service for ANY team member (not admin-only)
+ * — see research.md R-7 (T001). Visibility keys on "belongs to ≥1 team", mirroring
+ * the non-admin, resource-scoped Slack/Webex gates. The real control is per-action
+ * owning-team authorization on every BFF route. Fail-closed on error.
+ */
+async function isMemberOfAnyTeam(openfgaUser: string): Promise<boolean> {
+  try {
+    const result = await listOpenFgaObjects({
+      user: openfgaUser,
+      relation: "member",
+      type: "team",
+    });
+    return result.objects.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function hasResourceScopedIntegrationAccess(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
-  if (tab === "slack") return hasManageableSlackChannel(openfgaUser);
-  if (tab === "webex") return hasManageableWebexSpace(openfgaUser);
+  if (tab === "slack") return hasAccessibleSlackChannel(openfgaUser);
+  if (tab === "webex") return hasAccessibleWebexSpace(openfgaUser);
+  if (tab === "service_accounts") return isMemberOfAnyTeam(openfgaUser);
   return false;
 }
 
@@ -225,6 +279,17 @@ async function hasResourceScopedIntegrationAccess(openfgaUser: string, tab: Admi
  * relationship plus the bootstrap-admin break-glass fallback.
  */
 export async function GET(request?: NextRequest) {
+  if (!request) {
+    return getAdminTabGates();
+  }
+  return withJsonResponseCache(request, adminTabGatesCache, () => getAdminTabGates(request), {
+    ttlMs: envTtlMs("ADMIN_TAB_GATES_CACHE_TTL_MS", 10_000),
+    cacheableStatus: (status) => status === 200 || status === 401 || status === 403,
+    maxEntries: 512,
+  });
+}
+
+async function getAdminTabGates(request?: NextRequest) {
   const session = (await getServerSession(authOptions)) as {
     accessToken?: string;
     sub?: string;
@@ -258,27 +323,120 @@ export async function GET(request?: NextRequest) {
   const currentSubject = getSessionSubject(session);
   const currentUser = currentSubject ? `user:${currentSubject}` : undefined;
   const bootstrapAdmin = isBootstrapAdmin(session.user.email ?? "");
-  if (currentSubject && !simulatedUser) {
-    await repairCurrentUserBaseline(currentSubject, isAdmin);
+
+  // ── Common (non-simulated) path: resolve all primary checks in one batch ──
+  // Simulated-user path falls through to the per-check evaluateTab() below.
+  if (!simulatedUser && currentUser) {
+    // Build the batch: one entry per tab that issues a single /check call.
+    // Tabs without an FGA primary check (credentials → isAdmin,
+    // service_accounts → listOpenFgaObjects) are excluded from the batch and
+    // resolved separately below.
+    type BatchEntry = { tab: AdminTabKey; tuple: OpenFgaTupleKey };
+    const batchEntries: BatchEntry[] = [];
+
+    for (const tab of ALL_TABS) {
+      if (tab === "credentials" || tab === "service_accounts") continue;
+      if (tab === "dynamic_agent_conversations") {
+        if (!isAdmin) {
+          batchEntries.push({
+            tab,
+            tuple: {
+              user: currentUser,
+              relation: "can_read",
+              object: openFgaResourceObject("audit_log", DYNAMIC_AGENT_CONVERSATIONS_AUDIT_ID),
+            },
+          });
+        }
+        continue;
+      }
+      if (BASELINE_TABS.has(tab)) {
+        batchEntries.push({
+          tab,
+          tuple: { user: currentUser, relation: "can_read", object: adminSurfaceObject(tab) },
+        });
+      } else if (!bootstrapAdmin && TAB_ADMIN_SURFACES[tab]) {
+        batchEntries.push({
+          tab,
+          tuple: { user: currentUser, relation: "can_manage", object: adminSurfaceObject(tab) },
+        });
+      }
+    }
+
+    // Single HTTP round-trip for all primary checks + baseline repair in parallel.
+    const [batchResults] = await Promise.all([
+      batchCheckOpenFgaTuples(batchEntries.map((e) => e.tuple)),
+      repairCurrentUserBaseline(currentSubject!, isAdmin),
+    ]);
+
+    const primaryAllowed = new Map<AdminTabKey, boolean>();
+    batchEntries.forEach((entry, i) => primaryAllowed.set(entry.tab, batchResults[i]));
+
+    // Resolve each tab using batch results; run secondary checks in parallel
+    // for the handful of tabs that need resource-scoped fallback.
+    const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
+    const secondaryChecks: Promise<void>[] = [];
+
+    for (const tab of ALL_TABS) {
+      if (tab === "credentials") {
+        gates[tab] = isAdmin && !!getConfig("credentialsEnabled");
+        continue;
+      }
+      if (tab === "dynamic_agent_conversations") {
+        gates[tab] = isAdmin || (primaryAllowed.get(tab) ?? false);
+        continue;
+      }
+
+      const allowed = bootstrapAdmin || (primaryAllowed.get(tab) ?? false);
+
+      // Resource-scoped fallback for slack / webex / service_accounts.
+      if (!allowed) {
+        const t = tab;
+        secondaryChecks.push(
+          hasResourceScopedIntegrationAccess(currentUser, t).then((v) => { if (v) gates[t] = true; })
+        );
+      }
+
+      const flagKey = TAB_FEATURE_FLAGS[tab];
+      gates[tab] = flagKey && allowed ? !!getConfig(flagKey as Parameters<typeof getConfig>[0]) : allowed;
+    }
+
+    await Promise.all(secondaryChecks);
+    return NextResponse.json({ gates, simulation });
   }
 
-  const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
-  for (const tab of ALL_TABS) {
+  // ── Simulated-user path: per-check parallel fan-out (low frequency) ────────
+  async function evaluateTab(tab: AdminTabKey): Promise<boolean> {
     const actor = simulatedUser ?? currentUser;
-    let allowed =
-      tab === "credentials"
-        ? simulatedUser
-          ? await checkTupleAllowed({
-              user: simulatedUser,
-              relation: "can_manage",
-              object: organizationObjectId(),
-            })
-          : isAdmin
-        : BASELINE_TABS.has(tab) && actor
-          ? await hasBaselineAdminSurfaceRead(actor, tab)
-          : simulatedUser
-            ? await hasAdminSurfaceManage(simulatedUser, tab)
-            : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
+    let allowed: boolean;
+
+    if (tab === "dynamic_agent_conversations") {
+      if (simulatedUser) {
+        const simulatedOrgAdmin = await checkTupleAllowed({
+          user: simulatedUser,
+          relation: "can_manage",
+          object: organizationObjectId(),
+        });
+        allowed = simulatedOrgAdmin || await hasDynamicAgentConversationsRead(simulatedUser);
+      } else {
+        allowed = isAdmin || (actor ? await hasDynamicAgentConversationsRead(actor) : false);
+      }
+    } else {
+      allowed =
+        tab === "credentials"
+          ? simulatedUser
+            ? await checkTupleAllowed({
+                user: simulatedUser,
+                relation: "can_manage",
+                object: organizationObjectId(),
+              })
+            : isAdmin
+          : BASELINE_TABS.has(tab) && actor
+            ? await hasBaselineAdminSurfaceRead(actor, tab)
+            : simulatedUser
+              ? await hasAdminSurfaceManage(simulatedUser, tab)
+              : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
+    }
+
     if (!allowed && actor && !simulatedUser) {
       allowed = await hasResourceScopedIntegrationAccess(actor, tab);
     }
@@ -288,8 +446,18 @@ export async function GET(request?: NextRequest) {
       allowed = !!getConfig(flagKey as Parameters<typeof getConfig>[0]);
     }
 
-    gates[tab] = allowed;
+    return allowed;
   }
+
+  const [tabResults] = await Promise.all([
+    Promise.all(ALL_TABS.map(evaluateTab)),
+    currentSubject && !simulatedUser
+      ? repairCurrentUserBaseline(currentSubject, isAdmin)
+      : Promise.resolve(),
+  ]);
+
+  const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
+  ALL_TABS.forEach((tab, i) => { gates[tab] = tabResults[i]; });
 
   return NextResponse.json({ gates, simulation });
 }

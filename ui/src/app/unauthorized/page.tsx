@@ -1,11 +1,12 @@
 "use client";
 
-import React from "react";
-import { signOut } from "next-auth/react";
-import { motion } from "framer-motion";
-import { ShieldX, LogOut, Mail } from "lucide-react";
+// assisted-by Codex Codex-sonnet-4-6
+
 import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
+import { motion } from "framer-motion";
+import { LogOut,Mail,ShieldX } from "lucide-react";
+import { signOut } from "next-auth/react";
 
 export default function UnauthorizedPage() {
   const requiredGroup = config.oidcRequiredGroup;
@@ -31,18 +32,18 @@ export default function UnauthorizedPage() {
 
           {/* Title */}
           <h1 className="text-2xl font-bold text-center mb-2">
-            Access Denied
+            Access Needed
           </h1>
 
           {/* Description */}
           <p className="text-muted-foreground text-center mb-6">
-            You don&apos;t have permission to access this application.
-            Your account is not a member of the required group.
+            This account does not have access yet. Ask an admin to add you to the required group,
+            or sign in with a different account.
           </p>
 
           {/* Required Group Info */}
           <div className="bg-muted/50 rounded-lg p-4 mb-6 border border-border">
-            <p className="text-xs text-muted-foreground mb-1">Required Group Membership</p>
+            <p className="text-xs text-muted-foreground mb-1">Required group</p>
             <code className="text-sm font-mono text-foreground bg-background px-2 py-1 rounded">
               {requiredGroup}
             </code>
@@ -50,19 +51,19 @@ export default function UnauthorizedPage() {
 
           {/* What to do */}
           <div className="space-y-3 mb-6">
-            <p className="text-sm font-medium">What you can do:</p>
+            <p className="text-sm font-medium">What you can do</p>
             <ul className="text-sm text-muted-foreground space-y-2">
               <li className="flex items-start gap-2">
                 <span className="text-primary mt-0.5">•</span>
-                Contact your IT administrator to request access to the <strong>{requiredGroup}</strong> group
+                Ask an admin to add you to <strong>{requiredGroup}</strong>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-primary mt-0.5">•</span>
-                Sign in with a different account that has the required permissions
+                Sign in with another account that already has access
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-primary mt-0.5">•</span>
-                If you believe this is an error, contact your system administrator
+                Contact support if this looks wrong
               </li>
             </ul>
           </div>
@@ -75,7 +76,7 @@ export default function UnauthorizedPage() {
               onClick={() => signOut({ callbackUrl: "/login" })}
             >
               <LogOut className="h-4 w-4" />
-              Sign Out & Try Different Account
+              Try Another Account
             </Button>
 
             <Button

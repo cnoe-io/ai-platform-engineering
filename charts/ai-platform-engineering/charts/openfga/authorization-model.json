@@ -7,7 +7,28 @@
     },
     {
       "type": "service_account",
-      "relations": {}
+      "relations": {
+        "owner_team": {
+          "this": {}
+        },
+        "can_manage": {
+          "computedUserset": {
+            "relation": "owner_team"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner_team": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          }
+        }
+      }
     },
     {
       "type": "anonymous",
@@ -73,6 +94,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",
@@ -939,6 +964,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",
@@ -1956,6 +1985,9 @@
             "directly_related_user_types": [
               {
                 "type": "user"
+              },
+              {
+                "type": "service_account"
               }
             ]
           }
@@ -3185,6 +3217,9 @@
     {
       "type": "skill",
       "relations": {
+        "creator": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -3316,6 +3351,13 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {
@@ -3347,6 +3389,10 @@
                 "relation": "member"
               },
               {
+                "type": "organization",
+                "relation": "member"
+              },
+              {
                 "type": "slack_channel"
               },
               {
@@ -3372,6 +3418,10 @@
               },
               {
                 "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
                 "relation": "member"
               },
               {
@@ -3594,6 +3644,10 @@
               {
                 "type": "external_group",
                 "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -3615,6 +3669,10 @@
               },
               {
                 "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
                 "relation": "member"
               }
             ]
@@ -4354,6 +4412,11 @@
               }
             ]
           }
+        },
+        "can_share": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
         }
       },
       "metadata": {
@@ -4365,6 +4428,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",

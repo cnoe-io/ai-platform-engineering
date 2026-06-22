@@ -8,12 +8,12 @@
  * via the standard /api/chat/conversations/[id]/messages endpoint.
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyRequest,
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyRequest,
 } from "@/lib/da-proxy";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * GET /api/dynamic-agents/conversations/[id]/interrupt-state

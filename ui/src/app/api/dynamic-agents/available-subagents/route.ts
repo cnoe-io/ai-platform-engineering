@@ -2,16 +2,16 @@
  * API route for listing available subagents for a dynamic agent.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { filterResourcesByPermission, requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { getCollection } from "@/lib/mongodb";
+import { filterResourcesByPermission,requireAgentPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "dynamic_agents";
 
@@ -42,7 +42,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     if (!parentAgent) {
       throw new ApiError("Agent not found", 404);
     }
-    await requireResourcePermission(session, { type: "agent", id: agentId, action: "write" });
+    await requireAgentPermission(session, agentId, "write");
 
     // Get all enabled agents (enabled: true OR enabled field doesn't exist, which defaults to true)
     const allAgents = await collection.find({ 

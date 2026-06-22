@@ -1,17 +1,17 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import {
-  createOAuthStateCookie,
-  oauthStateCookieName,
-  pkceChallenge,
-  randomOAuthValue,
-} from "@/lib/credentials/oauth-state";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
+import {
+createOAuthStateCookie,
+oauthStateCookieName,
+pkceChallenge,
+randomOAuthValue,
+} from "@/lib/credentials/oauth-state";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
 function assertFeatureEnabled(): void {

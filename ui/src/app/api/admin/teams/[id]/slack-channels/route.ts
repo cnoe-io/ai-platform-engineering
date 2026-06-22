@@ -19,19 +19,21 @@
  *   so the team-card StatChip can show a count without an extra round-trip.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import { slackChannelSubjectId, slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
+import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { Team } from "@/types/teams";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 interface ChannelTeamMappingDoc {
   _id?: ObjectId;
@@ -61,19 +63,21 @@ async function reconcileSlackChannelOwnership(
   removed: ChannelTeamMappingDoc[],
 ): Promise<void> {
   await writeOpenFgaTupleDiff({
-    writes: addedOrKept.flatMap((channel) => {
-      const object = `slack_channel:${slackChannelSubjectId(channel.slack_workspace_id ?? "", channel.slack_channel_id)}`;
-      return [
-        { user: `team:${slug}#member`, relation: "user", object },
-        { user: `team:${slug}#admin`, relation: "manager", object },
-      ];
-    }),
-    deletes: removed.flatMap((channel) => {
-      const object = `slack_channel:${slackChannelSubjectId(channel.slack_workspace_id ?? "", channel.slack_channel_id)}`;
-      return [
-        { user: `team:${slug}#member`, relation: "user", object },
-        { user: `team:${slug}#admin`, relation: "manager", object },
-      ];
+    ...buildUniversalRebacTupleDiff({
+      writes: addedOrKept.flatMap((channel) =>
+        slackChannelTeamVisibilityRelationships(
+          channel.slack_workspace_id ?? "",
+          channel.slack_channel_id,
+          slug,
+        )
+      ),
+      deletes: removed.flatMap((channel) =>
+        slackChannelTeamVisibilityRelationships(
+          channel.slack_workspace_id ?? "",
+          channel.slack_channel_id,
+          slug,
+        )
+      ),
     }),
   });
 }
@@ -156,7 +160,7 @@ export const GET = withErrorHandler(
       const teamsCol = await getCollection<Team>("teams");
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
-      await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { allowAdminBypass: true });
+      await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { bypassForOrgAdmin: true });
 
       const teamCol = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
 
@@ -224,7 +228,7 @@ export const PUT = withErrorHandler(
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
       const ownerTeamSlug = teamSlug(team, teamIdStr);
-      await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { allowAdminBypass: true });
+      await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { bypassForOrgAdmin: true });
 
       const teamCol = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
 

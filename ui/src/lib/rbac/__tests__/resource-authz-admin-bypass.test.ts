@@ -2,11 +2,18 @@
  * @jest-environment node
  */
 
+jest.mock("@/lib/authz", () => ({
+  authorize: jest.fn(),
+  authorizeMany: jest.fn(),
+}));
+
 import { ApiError } from "@/lib/api-error";
 
 import {
   filterResourcesByPermission,
+  requireAgentPermission,
   requireResourcePermission,
+  requireSkillPermission,
 } from "../resource-authz";
 
 // The `bypassForOrgAdmin: true` option lets the resource-permission helpers
@@ -161,6 +168,70 @@ describe("resource-authz org-admin bypass", () => {
       expect(check).not.toHaveBeenCalledWith(
         expect.objectContaining({ object: "organization:caipe" }),
       );
+    });
+  });
+
+  describe("requireAgentPermission", () => {
+    it("allows organization admins without a per-agent tuple", async () => {
+      const check = jest.fn(async (tuple) => {
+        if (tuple.object === "organization:caipe" && tuple.relation === "can_manage") {
+          return { allowed: true };
+        }
+        return { allowed: false };
+      });
+      await expect(
+        requireAgentPermission({ sub: "admin-sub" }, "hello-world", "write", { check }),
+      ).resolves.toBeUndefined();
+      expect(check).toHaveBeenCalledWith({
+        user: "user:admin-sub",
+        relation: "can_manage",
+        object: "organization:caipe",
+      });
+      expect(check).not.toHaveBeenCalledWith(
+        expect.objectContaining({ object: "agent:hello-world" }),
+      );
+    });
+
+    it("falls through to per-agent checks when the caller is not an org admin", async () => {
+      const check = jest.fn(async (tuple) => {
+        if (tuple.object === "organization:caipe") return { allowed: false };
+        if (tuple.object === "agent:agent-1" && tuple.relation === "can_write") {
+          return { allowed: true };
+        }
+        return { allowed: false };
+      });
+      await expect(
+        requireAgentPermission({ sub: "alice-sub" }, "agent-1", "write", { check }),
+      ).resolves.toBeUndefined();
+      expect(check).toHaveBeenCalledWith({
+        user: "user:alice-sub",
+        relation: "can_write",
+        object: "agent:agent-1",
+      });
+    });
+  });
+
+  describe("requireSkillPermission", () => {
+    it("allows app admins with admin_surface:skills#can_manage without a per-skill tuple", async () => {
+      const check = jest.fn(async (tuple) => {
+        if (tuple.object === "admin_surface:skills" && tuple.relation === "can_manage") {
+          return { allowed: true };
+        }
+        return { allowed: false };
+      });
+      await expect(
+        requireSkillPermission(
+          { sub: "admin-sub", role: "admin" },
+          "skill-hello",
+          "write",
+          { check },
+        ),
+      ).resolves.toBeUndefined();
+      expect(check).toHaveBeenCalledWith({
+        user: "user:admin-sub",
+        relation: "can_manage",
+        object: "admin_surface:skills",
+      });
     });
   });
 });

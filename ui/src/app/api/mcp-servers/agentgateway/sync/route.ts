@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { syncSelectedAgentGatewayMcpServers } from "../_lib";

@@ -1,43 +1,44 @@
 "use client";
 
-import React, { useState, useEffect, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  MessageSquare,
-  MessageCircleQuestion,
-  Radio,
-  History,
-  Plus,
-  Archive,
-  ArchiveRestore,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  Zap,
-  Database,
-  HardDrive,
-  Users2,
-  Shield,
-  Users,
-  TrendingUp,
-  RefreshCw,
-  Globe
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useChatStore } from "@/store/chat-store";
-import { cn, formatDate, truncateText } from "@/lib/utils";
-import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
+// assisted-by Codex Codex-sonnet-4-6
+
+import { NewChatButton } from "@/components/chat/NewChatButton";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
-import { NewChatButton } from "@/components/chat/NewChatButton";
+import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
-import { useSession } from "next-auth/react";
-import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { getStorageMode } from "@/lib/storage-config";
+import { cn,formatDate,truncateText } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
 import { getAgentId } from "@/types/a2a";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+Archive,
+ArchiveRestore,
+ChevronLeft,
+ChevronRight,
+Database,
+Globe,
+HardDrive,
+History,
+MessageCircleQuestion,
+MessageSquare,
+Plus,
+Radio,
+RefreshCw,
+Shield,
+Sparkles,
+TrendingUp,
+Users,
+Users2
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect,useState,useTransition } from "react";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";
@@ -688,28 +689,28 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="h-4 w-4 text-red-500" />
-                  <p className="text-sm font-semibold">Admin Dashboard</p>
+                  <p className="text-sm font-semibold">Admin</p>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Use tabs to navigate between Users, Teams, Statistics, and System Health
+                  Manage access, teams, usage, and system health.
                 </p>
               </div>
 
               <div className="space-y-2 text-xs">
                 <div className="p-2 rounded bg-muted/50 border border-primary/20">
-                  <p className="text-muted-foreground mb-2">Features</p>
+                  <p className="text-muted-foreground mb-2">Go to</p>
                   <div className="space-y-1 text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Users className="h-3 w-3" />
-                      <span>User & Role Management</span>
+                      <span>Users and roles</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="h-3 w-3" />
-                      <span>Team Collaboration</span>
+                      <span>Teams</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <TrendingUp className="h-3 w-3" />
-                      <span>Usage Analytics</span>
+                      <span>Usage</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Database className="h-3 w-3" />

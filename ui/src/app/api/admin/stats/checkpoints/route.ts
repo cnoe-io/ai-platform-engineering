@@ -1,13 +1,13 @@
 // GET /api/admin/stats/checkpoints - Per-agent checkpoint persistence statistics
 
-import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withErrorHandler,
-  successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { connectToDatabase,isMongoDBConfigured } from '@/lib/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 // Limits to prevent overloading MongoDB
 const MAX_PEEK_DOCS = 2;          // documents per agent in data peek

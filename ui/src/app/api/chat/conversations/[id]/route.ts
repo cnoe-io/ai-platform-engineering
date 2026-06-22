@@ -2,18 +2,19 @@
 // PUT /api/chat/conversations/[id] - Update conversation
 // DELETE /api/chat/conversations/[id] - Delete conversation
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireConversationAccess,
-  validateUUID,
+ApiError,
+requireConversationAccess,
+successResponse,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
-import type { Conversation, UpdateConversationRequest } from '@/types/mongodb';
+import type { Conversation,UpdateConversationRequest } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
+import { deleteConversationsPermanently } from '../delete-permanently';
 
 // GET /api/chat/conversations/[id]
 export const GET = withErrorHandler(async (
@@ -147,10 +148,7 @@ export const DELETE = withErrorHandler(async (
     await requireConversationResourcePermission(session, user.email, conversation, 'delete');
 
     if (permanent) {
-      // Hard delete: remove conversation and all messages permanently
-      await conversations.deleteOne({ _id: conversationId });
-      const messages = await getCollection('messages');
-      await messages.deleteMany({ conversation_id: conversationId });
+      await deleteConversationsPermanently([conversation]);
       return successResponse({ deleted: true, permanent: true });
     } else {
       // Soft delete: move to archive by setting deleted_at timestamp

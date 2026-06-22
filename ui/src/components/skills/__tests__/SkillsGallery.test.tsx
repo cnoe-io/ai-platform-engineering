@@ -86,6 +86,7 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
       <div ref={ref} {...rest}>{children}</div>
     )),
@@ -461,6 +462,88 @@ describe("SkillsGallery — Skills Builder button", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — source filter (built-in vs custom)", () => {
+  it("labels user agent_skills from the catalog feed as Custom, not Built-in", async () => {
+    const mongoId = "skill-random-p2h9h87ty";
+    _configs = [];
+    (global.fetch as jest.Mock).mockImplementation((url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/skills?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              skills: [
+                {
+                  id: mongoId,
+                  name: "random",
+                  description: "random",
+                  source: "agent_skills",
+                  source_id: "test@example.com",
+                  visibility: "private",
+                  metadata: { is_system: false, category: "Custom" },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    await renderGallery();
+
+    const heading = screen.getByRole("heading", { name: "random" });
+    expect(heading).toBeInTheDocument();
+    const card = heading.closest("div[class*='group']") ?? heading.parentElement!;
+    expect(within(card as HTMLElement).getByText("Custom")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText("Built-in")).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate a Mongo skill when catalog returns the same agent_skills id", async () => {
+    const mongoId = "skill-random-p2h9h87ty";
+    _configs = [
+      {
+        ...makeQuickStart(mongoId),
+        id: mongoId,
+        name: "random",
+        description: "random",
+        is_system: false,
+        owner_id: "test@example.com",
+        visibility: "private",
+      } as AgentSkill,
+    ];
+    (global.fetch as jest.Mock).mockImplementation((url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/skills?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              skills: [
+                {
+                  id: mongoId,
+                  name: "random",
+                  description: "random",
+                  source: "agent_skills",
+                  source_id: "test@example.com",
+                  visibility: "private",
+                  metadata: { is_system: false, category: "Custom" },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    await renderGallery();
+
+    expect(screen.getAllByRole("heading", { name: "random" })).toHaveLength(1);
+    const heading = screen.getByRole("heading", { name: "random" });
+    const card = heading.closest("div[class*='group']") ?? heading.parentElement!;
+    expect(within(card as HTMLElement).getByText("Custom")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText("Built-in")).not.toBeInTheDocument();
+  });
+
   it("shows only user Mongo skills under Custom and only is_system under Built-in", async () => {
     const userSkill = {
       ...makeQuickStart("user-owned-1"),

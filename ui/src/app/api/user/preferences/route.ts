@@ -13,19 +13,19 @@
  * principal whose preference can be read or written.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 
 import {
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { evaluateAgentAccess } from "@/lib/rbac/pdp-shared";
 import {
-  clearUserPreference,
-  getUserPreference,
-  setUserPreference,
+clearUserPreference,
+getUserPreference,
+setUserPreference,
 } from "@/lib/rbac/user-preferences-store";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9._-]+$/;

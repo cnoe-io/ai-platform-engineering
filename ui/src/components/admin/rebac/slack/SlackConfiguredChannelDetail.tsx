@@ -1,33 +1,35 @@
 "use client";
 
 import { HelpCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect,useState } from "react";
 
-import { PromptEditorWorkbench, type PromptSuggestRequest } from "@/components/prompt/PromptEditorWorkbench";
-import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { PromptEditorWorkbench,type PromptSuggestRequest } from "@/components/prompt/PromptEditorWorkbench";
+import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { DynamicAgentOption, ItemAgentRoute, ItemSummary, TeamOption } from "../connector-admin-adapter";
+import type { DynamicAgentOption,ItemAgentRoute,ItemSummary,TeamOption,SlackRouteExecutionIdentity } from "../connector-admin-adapter";
 import { SlackEmojiCombobox } from "./SlackEmojiCombobox";
 import { SlackUserTokenInput } from "./SlackUserTokenInput";
+import { ServiceAccountSelect } from "./ServiceAccountSelect";
 import {
-  DEFAULT_OVERTHINK_SKIP_MARKERS,
-  draftToRoute,
-  emptyRouteDraft,
-  routeDraftErrorMap,
-  routeToDraft,
-  type ListenMode,
-  type RouteDraft,
-  type RouteEscalationDraft,
-  type RouteSideDraft,
+DEFAULT_OVERTHINK_SKIP_MARKERS,
+draftToRoute,
+emptyRouteDraft,
+routeDraftErrorMap,
+routeToDraft,
+type ListenMode,
+type RouteDraft,
+type RouteEscalationDraft,
+type RouteSideDraft,
 } from "./slack-route-draft";
+import type { SlackRouteExecutionMode } from "@/types/slack-rebac";
 
 function HelpTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -244,6 +246,87 @@ function EscalationEditor({ enabled, onToggleEnabled, escalation, onChange, disa
   );
 }
 
+/**
+ * "Run as" selector shown inside the per-route editor dialog.
+ * Shows a User radio (default) and a Service Account radio. When Service Account
+ * is chosen, shows a picker of active SAs owned by the channel's owning team.
+ * In both modes the effective permissions are the intersection of the chosen
+ * identity's permissions and the agent's permissions.
+ */
+function ExecutionIdentitySelector({
+  mode,
+  serviceAccountSub,
+  onModeChange,
+  onServiceAccountChange,
+  teamSlug,
+  disabled,
+  error,
+}: {
+  mode: SlackRouteExecutionMode;
+  serviceAccountSub: string;
+  onModeChange: (mode: SlackRouteExecutionMode) => void;
+  onServiceAccountChange: (sub: string, name: string) => void;
+  teamSlug?: string;
+  disabled: boolean;
+  error?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="text-sm font-medium">Run as</div>
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="execution-mode"
+              value="obo_user"
+              checked={mode === "obo_user"}
+              disabled={disabled}
+              onChange={() => onModeChange("obo_user")}
+              className="mt-0.5"
+            />
+            <span className="flex flex-col">
+              <span>User</span>
+              <span className="text-xs text-muted-foreground">
+                Permissions are the intersection of the user&apos;s permissions and the agent&apos;s permissions.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="execution-mode"
+              value="service_account"
+              checked={mode === "service_account"}
+              disabled={disabled}
+              onChange={() => onModeChange("service_account")}
+              className="mt-0.5"
+            />
+            <span className="flex flex-col">
+              <span>Service Account</span>
+              <span className="text-xs text-muted-foreground">
+                Permissions are the intersection of the service account&apos;s permissions and the agent&apos;s permissions.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        {mode === "service_account" && (
+          <div className="pl-5">
+            <ServiceAccountSelect
+              value={serviceAccountSub}
+              onChange={onServiceAccountChange}
+              teamSlug={teamSlug}
+              disabled={disabled}
+              error={error}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SlackRouteEditorDialog({
   open,
   onOpenChange,
@@ -279,6 +362,15 @@ function SlackRouteEditorDialog({
   const visibleErrors = submitAttempted ? validationErrors : {};
   const hasErrors = Object.keys(validationErrors).length > 0;
   const formDisabled = disabled || !selectedCanManage;
+  // One route per agent per channel (the route store upserts on agent_id), so
+  // hide agents that already have a route. The agent being edited stays in the
+  // list so it shows as selected and can be swapped for any free agent.
+  const takenAgentIds = new Set(
+    routes.filter((route) => route.agent_id !== editingRoute?.agent_id).map((route) => route.agent_id),
+  );
+  const agentOptions = dynamicAgents
+    .filter((agent) => !takenAgentIds.has(agent._id))
+    .map<AgentPickerOption>((agent) => ({ value: agent._id, label: agent.name || agent._id }));
 
   useEffect(() => {
     if (open) {
@@ -324,6 +416,14 @@ function SlackRouteEditorDialog({
         </DialogHeader>
         <div className="space-y-5">
           <section className="space-y-3">
+            <div className="max-w-48 space-y-2">
+              <Label htmlFor="connector-route-priority" className="block">Priority</Label>
+              <Input id="connector-route-priority" type="number" value={routeDraft.priority} className={cn(visibleErrors.priority && "border-destructive focus-visible:ring-destructive")} onChange={(event) => setRouteDraft((prev) => ({ ...prev, priority: Number(event.target.value) }))} disabled={formDisabled} />
+              {visibleErrors.priority && <p className="text-xs text-destructive">{visibleErrors.priority}</p>}
+            </div>
+          </section>
+          <div className="border-t" />
+          <section className="space-y-3">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="connector-route-agent-id" className="block">Dynamic Agent</Label>
@@ -332,18 +432,37 @@ function SlackRouteEditorDialog({
                   ariaLabel="Dynamic Agent"
                   value={routeDraft.agentId}
                   onChange={(value) => setRouteDraft((prev) => ({ ...prev, agentId: value }))}
-                  disabled={formDisabled || dynamicAgents.length === 0 || Boolean(editingRoute)}
-                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
-                  options={dynamicAgents.map<AgentPickerOption>((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
+                  disabled={formDisabled || agentOptions.length === 0}
+                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : agentOptions.length === 0 ? "All Dynamic Agents already added" : "Select Dynamic Agent"}
+                  options={agentOptions}
                   triggerClassName={cn("h-10", visibleErrors.agentId && "border-destructive focus:ring-destructive")}
                 />
                 {visibleErrors.agentId && <p className="text-xs text-destructive">{visibleErrors.agentId}</p>}
               </div>
-              <div className="max-w-48 space-y-2">
-                <Label htmlFor="connector-route-priority" className="block">Priority</Label>
-                <Input id="connector-route-priority" type="number" value={routeDraft.priority} className={cn(visibleErrors.priority && "border-destructive focus-visible:ring-destructive")} onChange={(event) => setRouteDraft((prev) => ({ ...prev, priority: Number(event.target.value) }))} disabled={formDisabled} />
-                {visibleErrors.priority && <p className="text-xs text-destructive">{visibleErrors.priority}</p>}
-              </div>
+              <ExecutionIdentitySelector
+                mode={routeDraft.executionMode}
+                serviceAccountSub={routeDraft.executionServiceAccountSub}
+                onModeChange={(mode) =>
+                  setRouteDraft((prev) => ({
+                    ...prev,
+                    executionMode: mode,
+                    // Clear SA fields when switching back to user mode
+                    ...(mode === "obo_user"
+                      ? { executionServiceAccountSub: "", executionServiceAccountName: "" }
+                      : {}),
+                  }))
+                }
+                onServiceAccountChange={(sub, name) =>
+                  setRouteDraft((prev) => ({
+                    ...prev,
+                    executionServiceAccountSub: sub,
+                    executionServiceAccountName: name,
+                  }))
+                }
+                teamSlug={selected?.team_slug}
+                disabled={formDisabled}
+                error={visibleErrors.executionServiceAccountSub}
+              />
             </div>
           </section>
           <div className="border-t" />
@@ -382,6 +501,11 @@ function routeSummaryBadges(route: ItemAgentRoute): string[] {
   if (route.users?.overthink?.enabled || route.bots?.overthink?.enabled) badges.push("overthink");
   const esc = route.escalation;
   if (esc && (esc.victorops?.enabled || esc.emoji?.enabled || (esc.users?.length ?? 0) > 0 || (esc.delete_admins?.length ?? 0) > 0)) badges.push("escalation");
+  // Show execution identity badge when it's explicitly a service account
+  const eid: SlackRouteExecutionIdentity | undefined = route.execution_identity;
+  if (eid?.mode === "service_account") {
+    badges.push(eid.service_account_name ? `sa:${eid.service_account_name}` : "sa");
+  }
   return badges;
 }
 
@@ -395,6 +519,7 @@ export function SlackConfiguredChannelDetail({
   setLoading,
   selectedCanManage,
   onRefresh,
+  onDeselect,
   routesFor,
   listApi,
 }: {
@@ -407,6 +532,7 @@ export function SlackConfiguredChannelDetail({
   setLoading: (loading: boolean) => void;
   selectedCanManage: boolean;
   onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+  onDeselect: () => void;
   routesFor: (workspaceId: string, itemId: string) => string;
   listApi: string;
 }) {
@@ -414,6 +540,7 @@ export function SlackConfiguredChannelDetail({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ItemAgentRoute | null>(null);
   const [routePendingDelete, setRoutePendingDelete] = useState<ItemAgentRoute | null>(null);
+  const [channelDeleteOpen, setChannelDeleteOpen] = useState(false);
 
   const setChannelTeam = async (teamSlug: string) => {
     if (!teamSlug) return;
@@ -454,6 +581,26 @@ export function SlackConfiguredChannelDetail({
     }
   };
 
+  const deleteChannelConfirmed = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${listApi}/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.item_id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setChannelDeleteOpen(false);
+      toast(`Removed ${selected.item_name || selected.item_id} from CAIPE.`, "success");
+      // Close the detail panel before reloading so it doesn't briefly render
+      // for a channel that no longer exists.
+      onDeselect();
+      await onRefresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to delete Slack channel", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border bg-background/60 p-3">
@@ -475,7 +622,7 @@ export function SlackConfiguredChannelDetail({
           </div>
           <Button type="button" size="sm" onClick={() => { setEditingRoute(null); setEditorOpen(true); }} disabled={disabled || !selectedCanManage || loading}>Add Agent</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Multiple agents can be associated with {selected.item_name}. The Slack bot picks the highest-priority agent whose listen mode matches the message (mention vs. plain message).</p>
+        <p className="text-xs text-muted-foreground">Multiple agents can be associated with {selected.item_name}. The Slack bot picks the agent with the lowest priority number whose listen mode matches the message (mention vs. plain message).</p>
         {routes.length === 0 ? (
           <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">Add an agent to let this channel respond to Slack messages.</div>
         ) : (
@@ -500,6 +647,16 @@ export function SlackConfiguredChannelDetail({
         )}
       </div>
 
+      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium uppercase tracking-wide text-destructive">Danger zone</div>
+            <p className="text-sm text-muted-foreground">Remove this channel from CAIPE entirely. Deletes its team assignment, every agent route, and all OpenFGA tuples.</p>
+          </div>
+          <Button type="button" variant="destructive" size="sm" onClick={() => setChannelDeleteOpen(true)} disabled={disabled || !selectedCanManage || loading} aria-label={`Delete channel ${selected.item_name || selected.item_id}`}>Delete channel</Button>
+        </div>
+      </div>
+
       <SlackRouteEditorDialog open={editorOpen} onOpenChange={setEditorOpen} selected={selected} dynamicAgents={dynamicAgents} routes={routes} onSaved={onRefresh} disabled={disabled} loading={loading} setLoading={setLoading} selectedCanManage={selectedCanManage} editingRoute={editingRoute} routesFor={routesFor} />
 
       <Dialog open={Boolean(routePendingDelete)} onOpenChange={(open) => { if (!open && !loading) setRoutePendingDelete(null); }}>
@@ -508,10 +665,31 @@ export function SlackConfiguredChannelDetail({
             <DialogTitle>Remove agent from channel?</DialogTitle>
             <DialogDescription>{routePendingDelete ? `This removes agent:${routePendingDelete.agent_id} from the selected Slack channel.` : "This removes the selected agent from the Slack channel."}</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">The OpenFGA tuple will be deleted, and the saved Mongo route metadata for listen mode and priority will be deleted as well.</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRoutePendingDelete(null)} disabled={loading}>Cancel</Button>
             <Button type="button" variant="destructive" onClick={() => void deleteRouteConfirmed()} disabled={loading}>{loading ? "Removing..." : "Remove agent"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={channelDeleteOpen} onOpenChange={(open) => { if (!open && !loading) setChannelDeleteOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete channel from CAIPE?</DialogTitle>
+            <DialogDescription>This removes {selected.item_name || selected.item_id} and everything CAIPE stores about it.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>The following are permanently deleted:</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Its team assignment{selected.team_slug ? ` (team:${selected.team_slug})` : ""}.</li>
+              <li>{routes.length > 0 ? `${routes.length} agent route${routes.length === 1 ? "" : "s"}` : "All agent routes"} and their settings.</li>
+              <li>All OpenFGA tuples granting access through this channel.</li>
+            </ul>
+            <p>The Slack bot stops responding here once its route cache expires. Re-onboard the channel from the Onboard tab to set it up again.</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setChannelDeleteOpen(false)} disabled={loading}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => void deleteChannelConfirmed()} disabled={loading}>{loading ? "Deleting..." : "Delete channel"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

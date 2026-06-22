@@ -4,7 +4,7 @@
 # For setup instructions and agent orchestration details, refer to:
 #   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
 #
-# This docker-compose file supports P2P and SLIM transport via profiles.
+# This docker-compose file uses direct A2A peer-to-peer agent transport.
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
 # ============================================================================
@@ -12,38 +12,22 @@
 services:
 
   ####################################################################################################
-  #                                      SLIM Transport                                              #
+  #                                         MCP Servers                                              #
   ####################################################################################################
-  slim-dataplane:
-    image: ghcr.io/agntcy/slim:0.6.1
-    container_name: slim-dataplane
-    ports: ["46357:46357"]
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
-    profiles:
-      - slim
 
-  slim-control-plane:
-    image: ghcr.io/agntcy/slim/control-plane:0.0.1
-    container_name: slim-control-plane
-    ports: ["50051:50051", "50052:50052"]
+  # Official GitHub MCP server for all-in-one mode.
+  github-mcp-server:
+    image: ghcr.io/github/github-mcp-server:latest
+    container_name: github-mcp-server
     environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+    ports: ["18000:8082"]
     profiles:
-      - slim
-
-  ####################################################################################################
-  #                                       Agent MCP Servers                                          #
-  ####################################################################################################
+      - github
+      - mcp-servers
 
   mcp-backstage:
-    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-0.5.16}
     container_name: mcp-backstage
     env_file: [.env]
     ports: ["18001:8000"]
@@ -60,10 +44,12 @@ services:
     profiles:
       - backstage
       - all-agents
+      - mcp-servers
 
   # ArgoCD MCP
+
   mcp-argocd:
-    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-0.5.16}
     container_name: mcp-argocd
     env_file: [.env]
     ports: ["18002:8000"]
@@ -80,8 +66,10 @@ services:
     profiles:
       - argocd
       - all-agents
+      - mcp-servers
 
   # Confluence MCP
+
   mcp-confluence:
     image: ghcr.io/sooperset/mcp-atlassian:latest
     container_name: mcp-confluence
@@ -94,10 +82,12 @@ services:
     profiles:
       - confluence
       - all-agents
+      - mcp-servers
 
   # Jira MCP
+
   mcp-jira:
-    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-0.5.16}
     container_name: mcp-jira
     env_file: [.env]
     ports: ["18004:8000"]
@@ -114,10 +104,12 @@ services:
     profiles:
       - jira
       - all-agents
+      - mcp-servers
 
   # Komodor MCP
+
   mcp-komodor:
-    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-0.5.16}
     container_name: mcp-komodor
     env_file: [.env]
     ports: ["18005:8000"]
@@ -133,10 +125,12 @@ services:
       start_period: 15s
     profiles:
       - komodor
+      - mcp-servers
 
   # PagerDuty MCP
+
   mcp-pagerduty:
-    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-0.5.16}
     container_name: mcp-pagerduty
     env_file: [.env]
     ports: ["18006:8000"]
@@ -153,8 +147,10 @@ services:
     profiles:
       - pagerduty
       - all-agents
+      - mcp-servers
 
-  # OSS Slack MCP Server (https://github.com/korotovsky/slack-mcp-server)
+  # Slack MCP
+
   mcp-slack:
     image: ghcr.io/korotovsky/slack-mcp-server:v1.2.3
     container_name: mcp-slack
@@ -179,10 +175,12 @@ services:
     profiles:
       - slack
       - all-agents
+      - mcp-servers
 
-  # Splunk MCP
+  # Splunk
+
   mcp-splunk:
-    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-0.5.16}
     container_name: mcp-splunk
     env_file: [.env]
     ports: ["18008:8000"]
@@ -199,10 +197,12 @@ services:
     profiles:
       - splunk
       - all-agents
+      - mcp-servers
 
-  # Webex MCP
+  # Webex
+
   mcp-webex:
-    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-0.5.16}
     container_name: mcp-webex
     env_file: [.env]
     ports: ["18009:8000"]
@@ -219,10 +219,12 @@ services:
     profiles:
       - webex
       - all-agents
+      - mcp-servers
 
   # NetUtils MCP
+
   mcp-netutils:
-    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-0.5.16}
     container_name: mcp-netutils
     env_file: [.env]
     ports: ["18011:8000"]
@@ -239,14 +241,15 @@ services:
     profiles:
       - netutils-agent
       - all-agents
+      - mcp-servers
 
   ####################################################################################################
   #                                      CAIPE UI & MongoDB                                          #
   ####################################################################################################
   # MongoDB for CAIPE UI chat history and user settings
-  caipe-ui-mongodb:
+  caipe-mongodb:
     image: mongo:7.0
-    container_name: caipe-ui-mongodb
+    container_name: caipe-mongodb
     ports:
       - "27017:27017"
     environment:
@@ -254,8 +257,8 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
       - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
     volumes:
-      - caipe_ui_mongodb_data:/data/db
-      - caipe_ui_mongodb_config:/data/configdb
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -263,7 +266,7 @@ services:
       retries: 5
       start_period: 40s
     profiles:
-      - caipe-ui-with-mongodb
+      - caipe-mongodb
 
   # MongoDB Admin UI (optional)
   caipe-ui-mongo-express:
@@ -274,10 +277,10 @@ services:
     environment:
       - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGODB_ROOT_USERNAME:-admin}
       - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
-      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/
       - ME_CONFIG_BASICAUTH=false
     depends_on:
-      caipe-ui-mongodb:
+      caipe-mongodb:
         condition: service_healthy
     profiles:
       - caipe-ui-mongo-express
@@ -285,34 +288,30 @@ services:
   ####################################################################################################
   #                                      CAIPE UI                                                    #
   ####################################################################################################
-  # CAIPE UI - chat + admin BFF for dynamic agents
-  # Features: Chat history, dynamic-agent chat UI, Agent Builder, Workflows,
-  # RBAC admin, Skills, Knowledge Bases.
+  # CAIPE UI - dynamic-agent chat with 3-panel layout
+  # Features: Chat history, streaming chat UI, agent activity timeline
+  # Includes Agent Builder for workflow creation and testing
   #
   # Configuration:
   #   MongoDB: For persistent chat history and user settings
   #   - Configure via MONGODB_* environment variables
   #   - See mongodb service configuration above
   caipe-ui:
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.5.16}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
       - .env
     environment:
       - NODE_ENV=production
-      # Optional Python skills-catalog backend for the /skills + /catalog-api-keys
-      # BFF proxy routes. Unset by default — those routes fall back to local
-      # (MongoDB / built-in) data when NEXT_PUBLIC_A2A_BASE_URL is not configured.
-      - NEXT_PUBLIC_A2A_BASE_URL=${NEXT_PUBLIC_A2A_BASE_URL:-}
       # Enable/Disable RAG Knowledge Bases (default: true)
-      - NEXT_PUBLIC_RAG_ENABLED=${NEXT_PUBLIC_RAG_ENABLED:-true}
+      - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
-      - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
+      - RAG_URL=${RAG_URL:-http://localhost:9446}
       # MongoDB configuration - Enable/disable MongoDB persistence
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
-      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - "MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}"
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 48
       # R4: NEXTAUTH_SECRET MUST be set in the environment (e.g. via .env)
@@ -321,7 +320,7 @@ services:
       # missing or empty so an operator never silently inherits a shared
       # placeholder. (For local dev that genuinely wants a placeholder,
       # use docker-compose.dev.yaml instead.) assisted-by Claude:claude-opus-4-7
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in your .env (run: openssl rand -base64 48)}
+      - "NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in your .env (run: openssl rand -base64 48)}"
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
       - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}
@@ -356,20 +355,82 @@ services:
       - WEBEX_CLIENT_ID=${WEBEX_CLIENT_ID:-}
       - WEBEX_CLIENT_SECRET=${WEBEX_CLIENT_SECRET:-}
       - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+    command: /app/entrypoint.sh
+    depends_on:
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - caipe-ui
+
+  ####################################################################################################
+  #                                      Audit Service                                               #
+  ####################################################################################################
+  # Lightweight audit collector. Services emit JSON batches to this process;
+  # it owns local/S3 storage and serves bounded read queries.
+  audit-service:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.audit-service
+    image: ghcr.io/cnoe-io/caipe-audit-service:${IMAGE_TAG:-0.5.16}
+    container_name: audit-service
+    ports:
+      - "127.0.0.1:${AUDIT_SERVICE_PORT:-8010}:8010"
+    environment:
+      AUDIT_SERVICE_BACKEND: ${AUDIT_SERVICE_BACKEND:-local}
+      AUDIT_SERVICE_LOCAL_PATH: /var/lib/caipe-audit-service
+      AUDIT_SERVICE_LOCAL_GZIP: ${AUDIT_SERVICE_LOCAL_GZIP:-true}
+      AUDIT_SERVICE_LOCAL_RETENTION_DAYS: ${AUDIT_SERVICE_LOCAL_RETENTION_DAYS:-1}
+      AUDIT_SERVICE_S3_BUCKET: ${AUDIT_SERVICE_S3_BUCKET:-}
+      AUDIT_SERVICE_S3_PREFIX: ${AUDIT_SERVICE_S3_PREFIX:-audit}
+      AUDIT_SERVICE_S3_REGION: ${AUDIT_SERVICE_S3_REGION:-us-east-2}
+      AUDIT_SERVICE_S3_ENDPOINT_URL: ${AUDIT_SERVICE_S3_ENDPOINT_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AUDIT_SERVICE_QUEUE_MAX_SIZE: ${AUDIT_SERVICE_QUEUE_MAX_SIZE:-10000}
+      AUDIT_SERVICE_FLUSH_BATCH_SIZE: ${AUDIT_SERVICE_FLUSH_BATCH_SIZE:-500}
+      AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS: ${AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS:-1}
+      AUDIT_SERVICE_READ_DEFAULT_LIMIT: ${AUDIT_SERVICE_READ_DEFAULT_LIMIT:-1000}
+      AUDIT_SERVICE_READ_MAX_LIMIT: ${AUDIT_SERVICE_READ_MAX_LIMIT:-10000}
+      AUDIT_SERVICE_READ_MAX_DAYS: ${AUDIT_SERVICE_READ_MAX_DAYS:-31}
+    volumes:
+      - audit_service_data:/var/lib/caipe-audit-service
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8010/readyz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - audit-service
+      - caipe-ui
+      - dynamic-agents
+      - slack-bot
+      - webex-bot
+      - rbac
 
   ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
   rag-server:
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.5.16}
     container_name: rag-server
     # Network alias keeps the legacy `rag_server` hostname working for any
     # client that still has it hardcoded. AGW's hickory-dns resolver rejects
@@ -421,7 +482,7 @@ services:
   # Ports:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
   dynamic-agents:
-    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.43}
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.5.16}
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
@@ -434,7 +495,7 @@ services:
       - AWS_BEDROCK_USE_CONVERSE_API=${AWS_BEDROCK_USE_CONVERSE_API:-true}
       - AWS_BEDROCK_BASE_MODEL_ID=${AWS_BEDROCK_BASE_MODEL_ID:-}
       # MongoDB (same as CAIPE UI)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication (same OIDC config as CAIPE UI)
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -448,6 +509,8 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
@@ -462,7 +525,7 @@ services:
       - dynamic-agents
 
   agent_ontology:
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-0.5.16}
     container_name: agent_ontology
     ports: ["8098:8098"]
     environment:
@@ -480,8 +543,8 @@ services:
       - graph_rag
 
 
-  rag_web_ingestor:
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.2.36}
+  web_ingestor:
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.5.16}
     container_name: web-ingestor
     environment:
       - INGESTOR_TYPE=webloader
@@ -494,11 +557,11 @@ services:
     restart: unless-stopped
     depends_on: [rag-server]
     profiles:
-      - rag
-      - graph_rag
+      - web-ingestor
+      - web_ingestor
 
-  rag_jira_ingestor:
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.2.36}
+  jira_ingestor:
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.5.16}
     container_name: jira-ingestor
     environment:
       - INGESTOR_TYPE=jira
@@ -514,8 +577,7 @@ services:
     restart: unless-stopped
     depends_on: [rag-server]
     profiles:
-      - rag
-      - graph_rag
+      - jira-ingestor
 
   # RAG Dependencies
   neo4j:
@@ -801,7 +863,7 @@ services:
   #                                 Slack Bot Integration                                            #
   ####################################################################################################
   slack-bot:
-    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-0.4.0}
+    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-0.5.16}
     container_name: slack-bot
     env_file: [.env]
     ports: ["8030:3000"]
@@ -812,12 +874,17 @@ services:
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
       # Spec 103: JIT user creation. See docker-compose.dev.yaml for full
       # description. Defaults to true so first-time DMs work out-of-box.
       - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
       - SLACK_JIT_ALLOWED_EMAIL_DOMAINS=${SLACK_JIT_ALLOWED_EMAIL_DOMAINS:-}
     depends_on:
-      - caipe-ui
+      caipe-ui:
+        condition: service_started
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - slack-bot
       - all-integrations
@@ -826,7 +893,7 @@ services:
   #                                 Webex Bot Integration                                            #
   ####################################################################################################
   webex-bot:
-    image: ghcr.io/cnoe-io/caipe-webex-bot:${IMAGE_TAG:-0.4.0}
+    image: ghcr.io/cnoe-io/caipe-webex-bot:${IMAGE_TAG:-0.5.16}
     container_name: webex-bot
     env_file: [.env]
     ports: ["8032:3002"]
@@ -842,16 +909,464 @@ services:
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     depends_on:
-      - caipe-ui
+      caipe-ui:
+        condition: service_started
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - webex-bot
       - all-integrations
 
+  ####################################################################################################
+  #                                  Enterprise RBAC (098)                                       #
+  ####################################################################################################
+  # Keycloak + OpenFGA + AgentGateway for Enterprise RBAC.
+  # Usage (Slack + RAG RBAC — copy deploy/rbac/.env.rbac.example into .env and set embeddings keys):
+  #   COMPOSE_PROFILES=rbac,rag,slack-bot,caipe-ui,caipe-mongodb \
+  #     docker compose -f docker-compose.dev.yaml up -d
+  #
+  # RAG: http://localhost:9446  (requires Milvus stack + embedding provider env, e.g. AZURE_OPENAI_*)
+  # Slack bot: socket mode or http://localhost:8030 — set SLACK_* tokens in .env
+  #
+  # Admin console: http://localhost:7080/admin (admin / admin)
+  # OpenFGA API: http://localhost:18080  Playground: http://localhost:13002
+  # Agent Gateway proxy: http://localhost:4000
+  # Agent Gateway admin UI: http://localhost:15000/ui
+  #
+  # Test personas (see deploy/keycloak/realm-config.json):
+  #   admin-user / admin       → admin, chat_user
+  #   standard-user / standard → chat_user, team_member
+  #   kb-admin-user / kbadmin  → chat_user, team_member, kb_admin
+  #   denied-user / denied     → (no roles)
+  #   org-b-user / orgb        → chat_user (tenant: globex)
+
+  # Durable Postgres for Keycloak.
+  #
+  # Why this exists: Keycloak's default `start-dev` uses an embedded H2 DB
+  # written under /opt/keycloak/data/h2. Without an external DB AND a named
+  # volume, every `docker compose up` on a recreated container wipes ALL
+  # Keycloak state — users, role assignments, per-team client scopes, the
+  # `team_member:<slug>` realm roles, Slack identity links (slack_user_id
+  # user attribute), token-exchange grants, etc. Mongo still holds the team
+  # docs, so the system silently drifts: BFF startup re-creates the
+  # `team-<slug>` client scopes (via syncTeamScopesOnStartup), but realm
+  # roles + role assignments + identity links are NOT reconciled, leading
+  # to OBO failures like "I couldn't start your CAIPE session".
+  #
+  # Putting Keycloak on Postgres with a named volume makes the dev stack
+  # behave like prod: `docker compose down && up` preserves state;
+  # `docker compose down -v` is the only destructive op.
+  keycloak-postgres:
+    image: postgres:16-alpine
+    container_name: keycloak-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    profiles:
+      - rbac
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    container_name: keycloak
+    environment:
+      # Keycloak 26 requires hostname as a full URL when backchannel-dynamic
+      # is enabled. Frontchannel/browser URLs use this base; backchannel URLs
+      # are rewritten to use the request's hostname (so caipe-ui calling
+      # http://keycloak:7080/.well-known/... gets back token_endpoint that
+      # also uses keycloak:7080 — fixing ECONNREFUSED on server-to-server
+      # token exchange).
+      # See: https://www.keycloak.org/server/hostname#_backchannel_dynamic
+      KC_HOSTNAME: "http://localhost:7080"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_LOG_LEVEL: info
+      # Persist KC state in Postgres instead of the ephemeral embedded H2 DB.
+      # Without this, every container recreate wipes users, roles, role
+      # assignments, per-team client scopes, identity links, etc. — and
+      # Mongo's team docs end up referencing KC objects that no longer exist.
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak # gitleaks:allow - local dev database URL
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      # Cap JVM heap so KC plays nicely on a busy dev laptop. Default
+      # `start-dev` lets the JVM scale to 25% of host memory, which on a
+      # heavily-loaded compose stack can trip Docker Desktop's OOM killer
+      # during schema init (exit 137). 768m headroom is plenty for dev.
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=256m"
+    # `--import-realm` is still safe with a durable DB: KC only imports on
+    # an empty realm, so subsequent boots become idempotent no-ops and your
+    # runtime mutations (teams, role assignments, identity links) survive.
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
+    volumes:
+      - ./charts/ai-platform-engineering/charts/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
+      - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
+    ports:
+      # Keep direct Keycloak access local to the Docker host. Public/browser
+      # ingress should go through the HTTPS reverse proxy.
+      - "127.0.0.1:7080:7080"
+      - "127.0.0.1:7443:7443"
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    # Wait until management is up AND the realm JWKS route returns 200 (TCP-only on 7080 was
+    # too early — realm import can lag, leaving the fetcher in an endless curl loop).
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/9000 && exec 3<&- && exec 3>&- &&
+          exec 3<>/dev/tcp/127.0.0.1/7080 &&
+          printf $$'GET /realms/caipe/protocol/openid-connect/certs HTTP/1.0\r\nHost: localhost:7080\r\nConnection: close\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q ' 200'"
+      interval: 10s
+      timeout: 10s
+      retries: 25
+      start_period: 120s
+    profiles:
+      - rbac
+
+  # One-shot init container: creates the upstream OIDC identity-provider
+  # broker in Keycloak from IDP_* env vars (set in .env).
+  # Skips silently when IDP_ISSUER is unset — local-only users + test
+  # personas still work via direct Keycloak login.
+  keycloak-init:
+    image: ${KEYCLOAK_INIT_IMAGE:-caipe/keycloak-init:dev}
+    build:
+      context: .
+      dockerfile: build/Dockerfile.keycloak-init
+    container_name: keycloak-init
+    entrypoint: ["/bin/sh", "/scripts/init-idp.sh"]
+    volumes:
+      - ./charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh:/scripts/init-idp.sh:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      IDP_ALIAS: ${IDP_ALIAS:-}
+      IDP_DISPLAY_NAME: ${IDP_DISPLAY_NAME:-}
+      IDP_ISSUER: ${IDP_ISSUER:-}
+      IDP_CLIENT_ID: ${IDP_CLIENT_ID:-}
+      IDP_CLIENT_SECRET: ${IDP_CLIENT_SECRET:-}
+      IDP_ACCESS_GROUP: ${IDP_ACCESS_GROUP:-}
+      IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
+      IDP_PKCE_ENABLED: ${IDP_PKCE_ENABLED:-false}
+      KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
+      KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
+      SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
+      KC_REALM: caipe
+      # Spec 104: comma-separated emails that get the admin_user role and the
+      # demo team/agent/tool bundle on first run of init-idp.sh. Sourced from
+      # the same env var the UI uses for bootstrap admin bypass.
+      BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}
+    network_mode: "service:keycloak"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # `on-failure` so transient KC unavailability (start_period race) is
+    # auto-retried instead of leaving the realm half-seeded. Both init
+    # scripts are idempotent — re-running is safe. Use `make rbac-reinit`
+    # to force a re-run after the container has already exited cleanly
+    # (e.g. after `docker compose restart keycloak`, where the existing
+    # exited init container does NOT auto-rerun).
+    restart: on-failure
+    profiles:
+      - rbac
+
+  # One-shot init container: configures token exchange + impersonation
+  # permissions on caipe-slack-bot so the Slack bot can mint JWTs on
+  # behalf of users (RFC 8693).  Idempotent — safe to re-run.
+  keycloak-init-token-exchange:
+    image: ${KEYCLOAK_INIT_IMAGE:-caipe/keycloak-init:dev}
+    build:
+      context: .
+      dockerfile: build/Dockerfile.keycloak-init
+    container_name: keycloak-init-token-exchange
+    entrypoint: ["/bin/sh", "/scripts/init-token-exchange.sh"]
+    volumes:
+      - ./deploy/keycloak/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_REALM: caipe
+      KC_BOT_CLIENT_ID: caipe-slack-bot
+      KC_SSL_REQUIRED: none
+      # Seed the Slack bot's service-account read grant on
+      # system_config:platform_settings so it can read platform-wide settings
+      # (default agent, VictorOps agent) from the BFF. The BFF graphs the bot's
+      # client-credentials token as service_account:<sub>; without this grant
+      # the read 403s and the bot falls back to env/YAML defaults.
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+    network_mode: "service:keycloak"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      # Run AFTER init-idp.sh so we're configuring token exchange against a
+      # realm that already has the slack-bot client wired up by the IdP seed.
+      keycloak-init:
+        condition: service_completed_successfully
+      # Need the OpenFGA store + model seeded before we can write the bot's
+      # platform-settings grant tuple.
+      openfga-init:
+        condition: service_completed_successfully
+    restart: on-failure
+    profiles:
+      - rbac
+
+  # OpenFGA remote PDP for AgentGateway ext_authz.
+  #
+  # AgentGateway calls openfga-authz-bridge on every MCP request; OpenFGA is
+  # the authorization source for the gateway path. We do not run a CEL policy
+  # config bridge for AgentGateway.
+  openfga-postgres:
+    image: postgres:17-alpine
+    container_name: openfga-postgres
+    restart: unless-stopped
+    profiles:
+      - rbac
+    environment:
+      POSTGRES_USER: ${OPENFGA_POSTGRES_USER:-openfga}
+      POSTGRES_PASSWORD: ${OPENFGA_POSTGRES_PASSWORD:-openfga}
+      POSTGRES_DB: ${OPENFGA_POSTGRES_DB:-openfga}
+    volumes:
+      - openfga_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  openfga-migrate:
+    image: openfga/openfga:latest
+    container_name: openfga-migrate
+    profiles:
+      - rbac
+    depends_on:
+      openfga-postgres:
+        condition: service_healthy
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
+    command: migrate
+
+  openfga:
+    image: openfga/openfga:latest
+    container_name: openfga
+    restart: unless-stopped
+    profiles:
+      - rbac
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
+      OPENFGA_DATASTORE_MAX_OPEN_CONNS: "50"
+      OPENFGA_PLAYGROUND_ENABLED: "true"
+      OPENFGA_TRACE_ENABLED: "false"
+    command: run
+    ports:
+      - "127.0.0.1:${OPENFGA_HTTP_PORT:-18080}:8080"
+      - "127.0.0.1:${OPENFGA_GRPC_PORT:-18081}:8081"
+      - "127.0.0.1:${OPENFGA_PLAYGROUND_PORT:-13002}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/grpc_health_probe
+        - -addr=localhost:8081
+      interval: 5s
+      timeout: 30s
+      retries: 10
+
+  openfga-init:
+    build:
+      context: ./deploy/openfga/init
+    container_name: openfga-init
+    profiles:
+      - rbac
+    volumes:
+      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+      # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
+      # starts deny-by-default and you can write tuples later.
+      OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
+    depends_on:
+      openfga:
+        condition: service_healthy
+
+  openfga-authz-bridge:
+    build:
+      context: ./deploy/openfga/bridge
+    container_name: openfga-authz-bridge
+    restart: unless-stopped
+    profiles:
+      - rbac
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+      OPENFGA_RELATION: can_call
+      OPENFGA_OBJECT: mcp_gateway:list
+      OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      # JWT validation config so the bridge can DECODE the caller's bearer and
+      # detect service accounts (preferred_username starts "service-account-", T002)
+      # → namespace service_account:<sub> vs user:<sub>. Without these,
+      # _decode_verified_bearer_claims returns None, SA detection is always False,
+      # and SA tool calls are mis-graphed as user:<sub> → DENY_NO_CAPABILITY (#46).
+      # Values match the AgentGateway listener jwtAuth + every other service's OIDC
+      # config so the iss/aud claims validate identically.
+      JWT_JWKS_URL: ${BRIDGE_JWT_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}
+      CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      # Caller-keyed tool-authorization rollout flag (FR-012c). Default-off so
+      # prod/compose without the var keeps legacy agent-only tool enforcement;
+      # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
+      # agent+caller tool check for E2E.
+      CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
+      TENANT_ID: ${TENANT_ID:-default}
+      AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
+    ports:
+      - "127.0.0.1:${OPENFGA_BRIDGE_PORT:-9100}:9100"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('localhost', 9100), timeout=2).close()"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      openfga-init:
+        condition: service_completed_successfully
+      openfga:
+        condition: service_healthy
+      audit-service:
+        condition: service_healthy
+        required: false
+
+  agentgateway-config-bridge:
+    build:
+      context: ./deploy/agentgateway
+      dockerfile: Dockerfile.config-bridge
+    image: ghcr.io/cnoe-io/agentgateway-config-bridge:${IMAGE_TAG:-0.5.16}
+    container_name: agentgateway-config-bridge
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    profiles:
+      - rbac
+    environment:
+      AGENTGATEWAY_TARGETS_URL: ${AGENTGATEWAY_TARGETS_URL:-http://caipe-ui:3000/api/internal/agentgateway/mcp-targets}
+      AGENTGATEWAY_TARGETS_TOKEN: ${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
+      AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
+      AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
+      AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
+      AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS: ${AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS:-5}
+      AGENTGATEWAY_LOG_LEVEL: ${AGENTGATEWAY_LOG_LEVEL:-info}
+      LOG_LEVEL: ${AGENTGATEWAY_CONFIG_BRIDGE_LOG_LEVEL:-INFO}
+    volumes:
+      - agentgateway_config:/generated
+      - ./deploy/agentgateway/config.yaml:/bootstrap/config.yaml:ro
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          from pathlib import Path
+          import json
+          import sys
+          import yaml
+
+          config_path = Path("/generated/config.yaml")
+          marker_path = Path("/generated/.reconcile_ok")
+          if not config_path.is_file() or config_path.stat().st_size <= 0 or not marker_path.is_file():
+              sys.exit(1)
+          text = config_path.read_text(encoding="utf-8")
+          try:
+              json.loads(text)
+          except json.JSONDecodeError:
+              try:
+                  parsed = yaml.safe_load(text)
+              except yaml.YAMLError:
+                  sys.exit(1)
+              if not isinstance(parsed, dict):
+                  sys.exit(1)
+          sys.exit(0)
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      caipe-ui:
+        condition: service_started
+        required: false
+
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:v1.1.0
+    container_name: agentgateway
+    restart: unless-stopped
+    command: ["--file", "/etc/agentgateway/config.yaml"]
+    environment:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    profiles:
+      - rbac
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      # Wait for the IdP broker + spec-104 role bundle to be seeded before
+      # AG starts validating tokens — otherwise the very first request after
+      # `compose up` can race the seed and 403 a user who SHOULD have roles.
+      keycloak-init:
+        condition: service_completed_successfully
+      # Token-exchange is for Slack bot OBO, not AgentGateway — do not block AG on it.
+      openfga-authz-bridge:
+        condition: service_healthy
+      agentgateway-config-bridge:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+      - "127.0.0.1:15000:15000" # Admin UI (config.config.adminAddr)
+    volumes:
+      - agentgateway_config:/etc/agentgateway:ro
+    tmpfs:
+      - /tmp
+    healthcheck:
+      disable: true
+
+
 volumes:
-  caipe_ui_mongodb_data:
+  mongodb_data:
     driver: local
-  caipe_ui_mongodb_config:
+  mongodb_config:
     driver: local
   langfuse_postgres_data:
     driver: local
@@ -870,4 +1385,12 @@ volumes:
   milvus_minio:
     driver: local
   milvus_data:
+    driver: local
+  openfga_postgres_data:
+    driver: local
+  agentgateway_config:
+    driver: local
+  audit_service_data:
+    driver: local
+  keycloak_postgres_data:
     driver: local

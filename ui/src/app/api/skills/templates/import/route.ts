@@ -1,18 +1,18 @@
+import {
+loadSkillTemplatesInternal,
+type SkillTemplateData,
+} from "@/app/api/skills/skill-templates-loader";
+import {
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import type { AgentSkill } from "@/types/agent-skill";
 import { createHash } from "crypto";
 import { NextRequest } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  requireRbacPermission,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import type { AgentSkill } from "@/types/agent-skill";
-import {
-  loadSkillTemplatesInternal,
-  type SkillTemplateData,
-} from "@/app/api/skills/skill-templates-loader";
 
 /**
  * POST /api/skills/templates/import

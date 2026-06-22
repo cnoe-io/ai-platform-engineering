@@ -5,6 +5,14 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
+const replaceMock = jest.fn();
+let currentSearchParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/admin",
+  useRouter: () => ({ replace: replaceMock }),
+  useSearchParams: () => currentSearchParams,
+}));
+
 import { WebexSpaceRebacPanel } from "../WebexSpaceRebacPanel";
 import { pickTeam } from "@/__test-utils__/team-picker";
 import { pickAgent } from "@/__test-utils__/agent-picker";
@@ -134,6 +142,8 @@ function setupFetchMock() {
 
 beforeEach(() => {
   mockToast.mockClear();
+  replaceMock.mockReset();
+  currentSearchParams = new URLSearchParams();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   setupFetchMock();
@@ -176,6 +186,25 @@ it("organises Webex admin into Configured / Onboard / Advanced tabs, mirrors Sla
   await switchToTab("Advanced");
   expect(await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
+});
+
+it("writes the active sub-tab to the subtab URL param", async () => {
+  render(<WebexSpaceRebacPanel />);
+  await screen.findByRole("tab", { name: "Configured spaces" });
+
+  await switchToTab("Advanced");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", { scroll: false });
+
+  await switchToTab("Onboard spaces");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", { scroll: false });
+});
+
+it("opens the sub-tab named by the subtab URL param on load", async () => {
+  currentSearchParams = new URLSearchParams("subtab=advanced");
+  render(<WebexSpaceRebacPanel />);
+
+  expect(await screen.findByRole("tab", { name: "Advanced" })).toHaveAttribute("aria-selected", "true");
+  expect(await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" })).toBeInTheDocument();
 });
 
 // ── Configured spaces table + diagnostics ──────────────────────────────────

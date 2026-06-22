@@ -1,14 +1,13 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
+import { getAuditReader } from "@/lib/audit/reader";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
-import { getCollection } from "@/lib/mongodb";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 
 function assertFeatureEnabled(): void {
@@ -21,7 +20,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   assertFeatureEnabled();
   const { session } = await getAuthFromBearerOrSession(request);
   await requireBaselineAdminSurfaceRead(session, "credentials");
-  const audit = await getCollection(CREDENTIAL_COLLECTIONS.auditEvents);
-  const events = await audit.find({}).sort({ createdAt: -1 }).limit(100).toArray();
+  const events = await getAuditReader().query({ type: "credential_action", limit: 100 });
   return successResponse(events);
 });

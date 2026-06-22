@@ -52,6 +52,13 @@ describe("OAuth connector env bootstrap", () => {
       clientSecret: "atlassian-secret",
     });
     expect(inputs[1].scopes).toContain("read:me");
+    expect(inputs[1].scopes).toEqual(
+      expect.arrayContaining([
+        "read:jira-user",
+        "write:jira-work",
+        "write:confluence-content",
+      ]),
+    );
     expect(inputs[2]).toMatchObject({
       name: "Webex",
       clientId: "webex-client",

@@ -1,20 +1,42 @@
 import { randomUUID } from "crypto";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { KMSClient } from "@aws-sdk/client-kms";
 
 import { getCollection } from "@/lib/mongodb";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { listOpenFgaObjects } from "@/lib/rbac/openfga";
+import { requireResourcePermission,subjectFromSession,type ResourceAuthzSession } from "@/lib/rbac/resource-authz";
 
 import { CREDENTIAL_COLLECTIONS } from "./collections";
-import { createAwsKmsKeyWrapper, createDevLocalKeyWrapper, createLocalCmkKeyWrapper } from "./key-wrapper";
+import { createAwsKmsKeyWrapper,createDevLocalKeyWrapper,createLocalCmkKeyWrapper } from "./key-wrapper";
 import { MongoEnvelopeCredentialStore } from "./mongo-envelope-store";
 import {
-  deleteAllSecretRefRelationships,
-  deleteSecretRefShare,
-  reconcileSecretRefOwnerRelationships,
-  reconcileSecretRefShare,
+deleteAllSecretRefRelationships,
+deleteSecretRefShare,
+reconcileSecretRefOwnerRelationships,
+reconcileSecretRefShare,
 } from "./secret-openfga";
-import { SecretService, type SecretRefDocument } from "./secret-service";
+import { SecretService,type SecretRefDocument,type SecretUsageReference } from "./secret-service";
+
+interface McpServerSecretUsageDocument {
+  _id: string;
+  name?: string;
+  credential_sources?: Array<{
+    kind?: string;
+    target?: string;
+    name?: string;
+    secret_ref?: string;
+  }>;
+}
+
+const LLM_PROVIDER_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+  "anthropic-claude": "Anthropic Claude",
+  "azure-openai": "Azure OpenAI",
+  "aws-bedrock": "AWS Bedrock",
+  "google-genai": "Google Gemini",
+};
 
 function createConfiguredKeyWrapper() {
   const keyProvider = process.env.CREDENTIAL_KEY_PROVIDER?.trim() || "local-cmk";
@@ -41,6 +63,77 @@ function createConfiguredKeyWrapper() {
   });
 }
 
+function llmProviderUsage(secret: SecretRefDocument): SecretUsageReference[] {
+  const match = /^llm:([^:]+):(.+)$/.exec(secret.name);
+  if (!match) return [];
+  const [, providerId, field] = match;
+  const providerName = LLM_PROVIDER_NAMES[providerId] ?? providerId;
+  return [
+    {
+      type: "llm_provider",
+      id: providerId,
+      name: `${providerName} ${field.replace(/_/g, " ")}`,
+      location: "Agents > Model Providers",
+      detail: "Resolved by provider credential naming convention",
+    },
+  ];
+}
+
+function createSecretUsageResolver() {
+  let mcpServersPromise: Promise<McpServerSecretUsageDocument[]> | null = null;
+
+  async function mcpServers(): Promise<McpServerSecretUsageDocument[]> {
+    mcpServersPromise ??= getCollection<McpServerSecretUsageDocument>("mcp_servers")
+      .then((collection) =>
+        collection
+          .find({ "credential_sources.kind": "secret_ref" } as never)
+          .toArray(),
+      );
+    return mcpServersPromise;
+  }
+
+  return async (secret: SecretRefDocument): Promise<SecretUsageReference[]> => {
+    const usage = [...llmProviderUsage(secret)];
+    for (const server of await mcpServers()) {
+      for (const source of server.credential_sources ?? []) {
+        if (source.kind !== "secret_ref" || source.secret_ref !== secret.id) continue;
+        usage.push({
+          type: "mcp_server",
+          id: String(server._id),
+          name: server.name || String(server._id),
+          location: "Agents > Tools",
+          detail: [source.target, source.name].filter(Boolean).join(": "),
+        });
+      }
+    }
+    return usage;
+  };
+}
+
+function secretIdFromOpenFgaObject(object: string): string | null {
+  const prefix = "secret_ref:";
+  return object.startsWith(prefix) ? object.slice(prefix.length) : null;
+}
+
+function createReadableSecretLister() {
+  return async (session: ResourceAuthzSession): Promise<string[]> => {
+    const subject = subjectFromSession(session);
+    if (!subject) return [];
+    const result = await listOpenFgaObjects({
+      user: subject,
+      relation: "can_read_metadata",
+      type: "secret_ref",
+    });
+    return Array.from(
+      new Set(
+        result.objects
+          .map(secretIdFromOpenFgaObject)
+          .filter((secretId): secretId is string => Boolean(secretId)),
+      ),
+    );
+  };
+}
+
 export async function getCredentialSecretService(): Promise<SecretService> {
   const secretRefsCollection = await getCollection<SecretRefDocument>(
     CREDENTIAL_COLLECTIONS.secretRefs,
@@ -48,7 +141,6 @@ export async function getCredentialSecretService(): Promise<SecretService> {
   const encryptedPayloadsCollection = await getCollection(
     CREDENTIAL_COLLECTIONS.encryptedPayloads,
   );
-  const auditCollection = await getCollection(CREDENTIAL_COLLECTIONS.auditEvents);
 
   return new SecretService({
     secretRefsCollection,
@@ -56,12 +148,13 @@ export async function getCredentialSecretService(): Promise<SecretService> {
       payloadCollection: encryptedPayloadsCollection,
       keyWrapper: createConfiguredKeyWrapper(),
     }),
-    auditCollection,
     authorize: requireResourcePermission,
+    listReadableSecretIds: createReadableSecretLister(),
     reconcileOwnerRelationships: reconcileSecretRefOwnerRelationships,
     reconcileShare: reconcileSecretRefShare,
     deleteShare: deleteSecretRefShare,
     deleteAllRelationships: deleteAllSecretRefRelationships,
+    resolveUsage: createSecretUsageResolver(),
     idGenerator: randomUUID,
   });
 }

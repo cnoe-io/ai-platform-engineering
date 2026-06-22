@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { authenticateRequest } from "../da-proxy";
+import { authenticateRequest, buildBackendHeaders, type AuthResult } from "../da-proxy";
 
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
@@ -83,6 +83,34 @@ describe("authenticateRequest auth result", () => {
       bearerToken: "access-token",
       role: "user",
     });
+  });
+
+  it("forwards a service-account's original JWT to DA as Authorization: Bearer (T023 / FR-010, R-4)", async () => {
+    // A Keycloak client-credentials (service-account) token authenticates the
+    // same way as a user bearer; da-proxy carries `accessToken` verbatim into
+    // the AuthResult, and buildBackendHeaders forwards it unchanged so DA's
+    // JwtAuthMiddleware can validate the SA identity. No SA-specific code path
+    // is required — this test guards that the SA JWT is not dropped/rewritten.
+    const saJwt = "sa-client-credentials-jwt";
+    mockGetAuthFromBearerOrSession.mockResolvedValue({
+      user: { email: "service-account-caipe-sa-incident-bot-a1b2c3", name: null, role: "user" },
+      session: {
+        sub: "sa-user-sub",
+        accessToken: saJwt,
+        isServiceAccount: true,
+        canViewAdmin: false,
+        canAccessDynamicAgents: true,
+      },
+    });
+
+    const result = await authenticateRequest(request("/api/v1/chat/invoke"));
+
+    expect(result).not.toBeInstanceOf(NextResponse);
+    expect(result).toMatchObject({ subject: "sa-user-sub", bearerToken: saJwt });
+
+    // The SA JWT is forwarded downstream unchanged.
+    const headers = buildBackendHeaders("application/json", result as AuthResult);
+    expect(headers["Authorization"]).toBe(`Bearer ${saJwt}`);
   });
 
   it("allows browser session fallback without a bearer token for DA backend calls", async () => {

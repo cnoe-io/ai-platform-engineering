@@ -1,23 +1,22 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
-import {
-  Database,
-  Search,
-  GitFork,
-  ChevronLeft,
-  ChevronRight,
-  BookOpen,
-  Wrench,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
+import { Button } from "@/components/ui/button";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 import type { KbTabKey } from "@/lib/rbac/types";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import {
+BookOpen,
+ChevronLeft,
+ChevronRight,
+Database,
+GitFork,
+Search,
+Wrench,
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface KnowledgeSidebarProps {
   collapsed: boolean;
@@ -83,7 +82,17 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
   };
 
   const activeTab = getActiveTab();
-  const showNoKbBanner = !collapsed && !gatesLoading && !orgAdminBypass && gates.has_any_kb === false;
+  // Only nudge "ask an admin to share a KB" when the user genuinely has nothing
+  // to do here. A team granted an explicit capability (search/ingest) with no KB
+  // assigned yet now has enabled tabs, so the share-request banner would
+  // contradict them — each tab's own empty state guides them instead.
+  const hasExplicitCapability = gates.can_ingest === true || gates.can_search === true;
+  const showNoKbBanner =
+    !collapsed &&
+    !gatesLoading &&
+    !orgAdminBypass &&
+    gates.has_any_kb === false &&
+    !hasExplicitCapability;
 
   return (
     <motion.div

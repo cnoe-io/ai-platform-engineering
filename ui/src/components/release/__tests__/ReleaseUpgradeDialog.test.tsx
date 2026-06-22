@@ -94,6 +94,10 @@ describe("ReleaseUpgradeDialog", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("What's new in 0.5.1")).toBeInTheDocument();
     expect(screen.getByText("Added Slack and Webex ReBAC migration assistant")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View full changelog" })).toHaveAttribute(
+      "href",
+      "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md",
+    );
     expect(screen.getByRole("button", { name: "Open Migration Assistant" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Skip until next login" })).toBeInTheDocument();
 
@@ -155,6 +159,79 @@ describe("ReleaseUpgradeDialog", () => {
     expect(screen.queryByText("Added Slack and Webex ReBAC migration assistant")).not.toBeInTheDocument();
     expect(screen.queryByText(/schema migrations/i)).not.toBeInTheDocument();
     expect(onDismissPermanently).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mention migrations to admins when the migration CTA is hidden", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin
+        releaseVersion="0.5.1"
+        release={release}
+        showMigrationCta={false}
+        onOpenMigrationAssistant={jest.fn()}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/schema migrations/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Admin migration reminder")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Migration Assistant" })).not.toBeInTheDocument();
+  });
+
+  const markdownNotes = {
+    matchedVersion: "0.5.7",
+    title: "Release 0.5.7",
+    date: "2026-06-04",
+    body: [
+      "## Highlights",
+      "Brand new feature for everyone.",
+      "",
+      "## Upgrade Guide: 0.5.6 → 0.5.7",
+      "Run the migration runbook before applying schema changes.",
+    ].join("\n"),
+  };
+
+  it("renders the full curated markdown body and prefers it over parsed sections (admin)", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin
+        releaseVersion="0.5.7"
+        release={release}
+        releaseMarkdown={markdownNotes}
+        onOpenMigrationAssistant={jest.fn()}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    // Curated markdown body is rendered.
+    expect(screen.getByText(/Brand new feature for everyone/)).toBeInTheDocument();
+    // Admins see the Upgrade Guide section.
+    expect(screen.getByText(/Run the migration runbook/)).toBeInTheDocument();
+    // The terse parsed CHANGELOG sections are NOT shown when markdown is present.
+    expect(screen.queryByText("Added Slack and Webex ReBAC migration assistant")).not.toBeInTheDocument();
+  });
+
+  it("hides the admin Upgrade Guide portion of the markdown body for non-admins", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin={false}
+        releaseVersion="0.5.7"
+        release={release}
+        releaseMarkdown={markdownNotes}
+        onOpenMigrationAssistant={jest.fn()}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Brand new feature for everyone/)).toBeInTheDocument();
+    // Non-admins do not see the upgrade runbook / migration content.
+    expect(screen.queryByText(/Run the migration runbook/)).not.toBeInTheDocument();
   });
 
   it("uses user-centric 0.5.1 highlights when release details are unavailable", () => {

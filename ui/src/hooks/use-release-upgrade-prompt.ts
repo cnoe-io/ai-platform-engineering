@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useVersion } from "@/hooks/use-version";
@@ -16,6 +16,32 @@ export interface ReleaseNote {
   version: string;
   date: string;
   sections: { type: string; items: ReleaseNoteItem[] }[];
+}
+
+export interface ReleaseMarkdown {
+  matchedVersion: string | null;
+  title: string | null;
+  date: string | null;
+  body: string;
+}
+
+interface ReleaseNotesResponse {
+  matchedVersion?: string | null;
+  title?: string | null;
+  date?: string | null;
+  body?: string | null;
+}
+
+interface MigrationStatusResponse {
+  success?: boolean;
+  data?: {
+    requires_attention?: boolean;
+    is_blocking?: boolean;
+    needs_version_bootstrap?: boolean;
+    pending_required_count?: number;
+    blocking_required_count?: number;
+    version_bootstrap_required_count?: number;
+  };
 }
 
 interface SettingsResponse {
@@ -61,6 +87,7 @@ export interface ReleaseUpgradePromptState {
   releaseVersion: string | null;
   announcementId: string | null;
   release: ReleaseNote | null;
+  releaseMarkdown: ReleaseMarkdown | null;
   showMigrationCta: boolean;
   toastNotification: ReleaseToastNotification | null;
   isLoading: boolean;
@@ -77,6 +104,22 @@ function normalizeVersion(value?: string | null): string | null {
   const version = value?.trim().replace(/^v/, "");
   if (!version) return null;
   return version;
+}
+
+function baseVersion(value: string): string {
+  return value.trim().replace(/^v/i, "").split(/[-+]/)[0];
+}
+
+function migrationStatusNeedsAttention(status: MigrationStatusResponse["data"] | undefined): boolean {
+  if (!status) return false;
+  return Boolean(
+    status.requires_attention ||
+      status.is_blocking ||
+      status.needs_version_bootstrap ||
+      (status.pending_required_count ?? 0) > 0 ||
+      (status.blocking_required_count ?? 0) > 0 ||
+      (status.version_bootstrap_required_count ?? 0) > 0,
+  );
 }
 
 function resolvePromptVersion(versionInfo: { version?: string; packageVersion?: string } | null): string | null {
@@ -145,6 +188,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const [announcementId, setAnnouncementId] = useState<string | null>(null);
   const [release, setRelease] = useState<ReleaseNote | null>(null);
+  const [releaseMarkdown, setReleaseMarkdown] = useState<ReleaseMarkdown | null>(null);
   const [open, setOpen] = useState(false);
   const [showMigrationCta, setShowMigrationCta] = useState(true);
   const [toastNotification, setToastNotification] = useState<ReleaseToastNotification | null>(null);
@@ -166,6 +210,8 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
         setIsLoading(false);
         setOpen(false);
         setToastNotification(null);
+        setReleaseMarkdown(null);
+        setShowMigrationCta(false);
         return;
       }
 
@@ -202,8 +248,10 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
           setReleaseVersion(null);
           setAnnouncementId(null);
           setRelease(null);
+          setReleaseMarkdown(null);
           setOpen(false);
           setToastNotification(null);
+          setShowMigrationCta(false);
           return;
         }
 
@@ -211,7 +259,6 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
         const activeAnnouncementId = releaseConfig.announcement_id;
         setReleaseVersion(activeReleaseVersion);
         setAnnouncementId(activeAnnouncementId);
-        setShowMigrationCta(isAdmin && releaseConfig.show_migration_cta);
 
         const hasManagedAnnouncement = Boolean(
           normalizeVersion(platformConfigPayload?.data?.release_notes?.release_version),
@@ -225,8 +272,10 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
 
         if (skippedThisSession || permanentlyDismissedAnnouncement || permanentlyDismissedFallback) {
           setRelease(null);
+          setReleaseMarkdown(null);
           setOpen(false);
           setToastNotification(null);
+          setShowMigrationCta(false);
           return;
         }
 
@@ -234,6 +283,52 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
           changelogPayload?.releases?.find((item) => normalizeVersion(item.version) === activeReleaseVersion) ??
           null;
         setRelease(matchingRelease);
+
+        let migrationAttention = false;
+        if (isAdmin && releaseConfig.show_migration_cta) {
+          try {
+            const migrationStatusResponse = await fetch("/api/rbac/migration-status");
+            const migrationStatusPayload: MigrationStatusResponse | null = migrationStatusResponse.ok
+              ? await migrationStatusResponse.json()
+              : null;
+            migrationAttention = migrationStatusNeedsAttention(migrationStatusPayload?.data);
+          } catch (statusError) {
+            console.warn("[release-upgrade-prompt] Failed to load migration status:", statusError);
+          }
+        }
+        if (!cancelled) {
+          setShowMigrationCta(isAdmin && releaseConfig.show_migration_cta && migrationAttention);
+        }
+
+        try {
+          const notesResponse = await fetch(
+            `/api/release-notes?version=${encodeURIComponent(activeReleaseVersion)}`,
+          );
+          const notesPayload: ReleaseNotesResponse | null = notesResponse.ok
+            ? await notesResponse.json()
+            : null;
+          if (!cancelled) {
+            const hasExactChangelog = Boolean(matchingRelease);
+            const hasExactCuratedNotes =
+              Boolean(notesPayload?.body) &&
+              normalizeVersion(notesPayload?.matchedVersion) === baseVersion(activeReleaseVersion);
+            setReleaseMarkdown(
+              !hasExactChangelog && hasExactCuratedNotes
+                ? {
+                    matchedVersion: notesPayload.matchedVersion ?? null,
+                    title: notesPayload.title ?? null,
+                    date: notesPayload.date ?? null,
+                    body: notesPayload.body,
+                  }
+                : null,
+            );
+          }
+        } catch (notesError) {
+          console.warn("[release-upgrade-prompt] Failed to load curated release notes:", notesError);
+          if (!cancelled) setReleaseMarkdown(null);
+        }
+
+        if (cancelled) return;
         setOpen(true);
         setToastNotification(
           releaseConfig.show_toast
@@ -249,6 +344,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
         if (!cancelled) {
           setOpen(false);
           setRelease(null);
+          setReleaseMarkdown(null);
           setToastNotification(null);
         }
       } finally {
@@ -327,6 +423,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
     releaseVersion,
     announcementId,
     release,
+    releaseMarkdown,
     showMigrationCta,
     toastNotification,
     isLoading,

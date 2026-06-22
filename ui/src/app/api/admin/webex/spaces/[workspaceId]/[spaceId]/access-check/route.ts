@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { parseWebexSpaceRouteParams } from "@/lib/rbac/webex-space-openfga";
 import { checkWebexSpaceAccess } from "@/lib/rbac/webex-space-rebac";
-import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
+import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 import { withWebexSpaceRebacViewAuth } from "../../../_lib";
 

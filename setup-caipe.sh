@@ -13,7 +13,7 @@ set -euo pipefail
 CAIPE_CHART_VERSION="${CAIPE_CHART_VERSION:-}"
 CAIPE_OCI_REPO="oci://ghcr.io/cnoe-io/charts/ai-platform-engineering"
 LANGFUSE_PORT=3100
-SUPERVISOR_PORT=8000
+DYNAMIC_AGENTS_PORT=8001
 UI_PORT=3000
 RAG_SERVER_PORT=9446
 
@@ -50,7 +50,15 @@ AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 AWS_BEDROCK_ENABLE_PROMPT_CACHE="${AWS_BEDROCK_ENABLE_PROMPT_CACHE:-}"
 LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; default applied per-use
+# Capture whether the caller set these explicitly (env/CLI) BEFORE the defaults
+# below collapse them to a non-empty value. The upgrade path
+# (detect_deployed_features) uses these flags to decide whether to inherit the
+# *deployed* RAG embeddings provider/model — mirroring LLM_PROVIDER, which is
+# empty by default and inherited from llm-secret.
+# assisted-by claude code claude-opus-4-8
+_EMBEDDINGS_MODEL_EXPLICIT="${EMBEDDINGS_MODEL:+set}"
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
+_EMBEDDINGS_PROVIDER_EXPLICIT="${EMBEDDINGS_PROVIDER:+set}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
 # Provider-specific embeddings credentials (only the active provider's vars are required).
 # These mirror the env vars the RAG server's EmbeddingsFactory reads at runtime.
@@ -59,6 +67,10 @@ COHERE_API_KEY="${COHERE_API_KEY:-}"
 VOYAGE_API_KEY="${VOYAGE_API_KEY:-}"
 HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN:-}"
 EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}"
+# Explicit embedding vector dimensions override — passed to rag-server as
+# EMBEDDINGS_DIMENSIONS so Milvus collection creation and query-time validation
+# always use the correct size, even for models not in EmbeddingsFactory's built-in map.
+EMBEDDINGS_DIMENSIONS="${EMBEDDINGS_DIMENSIONS:-}"
 # Source hint for the embeddings menu: distinguishes "voyage" and
 # "custom-litellm" (both materialise EMBEDDINGS_PROVIDER=litellm internally
 # but route through different model menus and credential prompts).
@@ -139,8 +151,14 @@ LITELLM_ROUTE_EMBEDDINGS=false
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-caipe-litellm}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
 OLLAMA_PORT=11434
+# Base URL the RAG server uses for Ollama embeddings. The EmbeddingsFactory
+# default (http://localhost:11434) is the pod's own loopback and cannot reach
+# Ollama, so on a k8s/kind deploy this must point at an in-cluster Ollama
+# (see deploy/kind/ollama.yaml). Resolved per-use in create_namespace_and_secrets.
+# assisted-by claude code claude-opus-4-8
+OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
 AGENTGATEWAY_PORT=8080
@@ -148,7 +166,9 @@ KEYCLOAK_PORT=7080
 OPENFGA_PORT=18080
 INJECT_CORPORATE_CA=false
 CA_SSL_FIX_PROMPTED=false
-SUPERVISOR_RAG_RESTARTED=false
+RAG_INGESTOR_SECRET_READY=false
+RAG_INGESTOR_OIDC_ISSUER=""
+RAG_INGESTOR_OIDC_CLIENT_ID=""
 LANGFUSE_PUBLIC_KEY=""
 LANGFUSE_SECRET_KEY=""
 PF_PIDS=()
@@ -191,18 +211,39 @@ ENABLE_WEBEX_BOT="${ENABLE_WEBEX_BOT:-false}"
 # explicit CLI choice wins over the env-file auto-enable. Empty = no CLI flag given.
 _SLACK_BOT_FORCED=""
 _WEBEX_BOT_FORCED=""
-# Agents selected interactively; empty means all defaults are used (non-interactive path)
+# Agents selected interactively or via CAIPE_SELECTED_AGENTS; empty means all
+# defaults are used (non-interactive path).
+# assisted-by Codex Codex-sonnet-4-6
 SELECTED_AGENTS=()
-CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
+CAIPE_SELECTED_AGENTS="${CAIPE_SELECTED_AGENTS:-}"
+if [[ -n "$CAIPE_SELECTED_AGENTS" ]]; then
+  IFS=',' read -ra _selected_agents_from_env <<< "$CAIPE_SELECTED_AGENTS"
+  for _agent in "${_selected_agents_from_env[@]}"; do
+    _agent="${_agent#"${_agent%%[![:space:]]*}"}"
+    _agent="${_agent%"${_agent##*[![:space:]]}"}"
+    [[ -n "$_agent" ]] && SELECTED_AGENTS+=("$_agent")
+  done
+  unset _selected_agents_from_env _agent
+fi
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
 # would stop bash from reading the rest of the script.  Instead, open
 # /dev/tty on fd 3 and redirect all interactive `read` calls to <&3.
+# assisted-by Codex Codex-sonnet-4-6
+for _arg in "$@"; do
+  case "$_arg" in
+    --non-interactive) NON_INTERACTIVE=true ;;
+  esac
+done
+unset _arg
+
 _tty_fd_opened=false
 { exec 3</dev/tty; _tty_fd_opened=true; } 2>/dev/null || true
 if ! $_tty_fd_opened; then
-  if [[ -t 0 ]]; then
+  if $NON_INTERACTIVE; then
+    exec 3</dev/null
+  elif [[ -t 0 ]]; then
     exec 3<&0
   else
     echo "ERROR: no terminal available for interactive prompts." >&2
@@ -217,7 +258,7 @@ cleanup_on_exit() {
     kill "$pid" 2>/dev/null || true
   done
   # Fallback: kill any kubectl port-forward processes started for our services
-  pkill -f "kubectl port-forward.*caipe-supervisor-agent.*${SUPERVISOR_PORT:-8000}:8000" 2>/dev/null || true
+  pkill -f "kubectl port-forward.*caipe-dynamic-agents.*${DYNAMIC_AGENTS_PORT:-8001}:8001" 2>/dev/null || true
   pkill -f "kubectl port-forward.*caipe-caipe-ui.*${UI_PORT:-3000}:3000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*langfuse-web.*${LANGFUSE_PORT:-3100}:3000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*caipe-keycloak.*${KEYCLOAK_PORT:-7080}:8080" 2>/dev/null || true
@@ -367,23 +408,6 @@ wait_for_pods() {
           fi
           break
         fi
-
-        # Supervisor stuck connecting to RAG → restart if RAG is ready
-        if ! $SUPERVISOR_RAG_RESTARTED && $ENABLE_RAG \
-           && echo "$pod" | grep -q "supervisor" \
-           && echo "$pod_logs" | grep -q "RAG server connection attempt.*failed\|Connection refused"; then
-          local rag_ok
-          rag_ok=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-            | awk '/rag-server/ && $3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print "yes"}' | head -1)
-          if [[ "$rag_ok" == "yes" ]]; then
-            _wfp_clear_table
-            warn "[auto-heal] Supervisor stuck connecting to RAG; restarting"
-            kubectl rollout restart deployment/caipe-supervisor-agent -n "$ns" &>/dev/null || true
-            SUPERVISOR_RAG_RESTARTED=true
-            log "[auto-heal] Supervisor restarted to reconnect to RAG"
-            sleep 5
-          fi
-        fi
       done
     fi
 
@@ -421,6 +445,63 @@ _install_helm_linux() {
   log "helm installed"
 }
 
+_install_openssl_linux() {
+  log "Installing openssl..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y openssl &>/dev/null ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf install -y openssl &>/dev/null ;;
+    *)
+      err "Cannot auto-install openssl on distro '${os_id}' — install it manually and re-run"
+      exit 1 ;;
+  esac
+  log "openssl installed"
+}
+
+_install_curl_linux() {
+  log "Installing curl..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y curl &>/dev/null ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf install -y curl &>/dev/null ;;
+    *)
+      err "Cannot auto-install curl on distro '${os_id}' — install it manually and re-run"
+      exit 1 ;;
+  esac
+  log "curl installed"
+}
+
+_install_jq_linux() {
+  log "Installing jq..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y jq &>/dev/null
+      ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf install -y jq &>/dev/null
+      ;;
+    *)
+      local ver
+      ver=$(curl -sL https://api.github.com/repos/jqlang/jq/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+      curl -sLo /tmp/jq "https://github.com/jqlang/jq/releases/download/${ver}/jq-linux-amd64"
+      chmod +x /tmp/jq
+      sudo mv /tmp/jq /usr/local/bin/jq || mv /tmp/jq "$HOME/.local/bin/jq"
+      ;;
+  esac
+  log "jq installed"
+}
+
 _install_kind_linux() {
   log "Installing kind..."
   local ver
@@ -445,22 +526,6 @@ _install_kind_macos() {
   fi
 }
 
-_install_ollama_linux() {
-  log "Installing Ollama..."
-  curl -fsSL https://ollama.ai/install.sh | sh
-  log "Ollama installed"
-}
-
-_install_ollama_macos() {
-  log "Installing Ollama..."
-  if command -v brew &>/dev/null; then
-    brew install ollama
-  else
-    log "Please install Ollama manually: https://ollama.ai/download"
-    log "Or install Homebrew and run: brew install ollama"
-  fi
-  log "Ollama installed"
-}
 
 _install_docker_linux() {
   log "Installing Docker..."
@@ -505,6 +570,12 @@ $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
 
 _install_docker_macos() {
   log "Installing Docker..."
+  # Docker.app already present but not started (e.g. after upgrade or first boot)
+  if [[ -d "/Applications/Docker.app" ]]; then
+    warn "Docker Desktop is installed but not running — start it, wait for the whale icon to appear, then re-run this script"
+    open -a Docker 2>/dev/null || true
+    exit 0
+  fi
   if command -v brew &>/dev/null; then
     brew install --cask docker
     log "Docker Desktop installed — open the Docker app to complete setup, then re-run this script"
@@ -582,6 +653,47 @@ check_prerequisites() {
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
     if [[ "$(uname -s)" == "Linux" ]]; then
+      # Determine which missing tools need sudo vs can be installed as current user
+      local needs_sudo=()
+      local no_sudo=()
+      for tool in "${missing[@]}"; do
+        case "$tool" in
+          kubectl|helm) no_sudo+=("$tool") ;;
+          *)            needs_sudo+=("$tool") ;;
+        esac
+      done
+
+      # If any tools need sudo, check whether sudo is usable and user consents
+      if [[ ${#needs_sudo[@]} -gt 0 ]]; then
+        local sudo_ok=false
+        if sudo -n true 2>/dev/null; then
+          sudo_ok=true
+        elif ask_yn "Installing ${needs_sudo[*]} requires sudo. Allow this script to run sudo?" "y"; then
+          sudo_ok=true
+        fi
+
+        if [[ "$sudo_ok" == false ]]; then
+          warn "Cannot install ${needs_sudo[*]} without sudo."
+          warn "Please run the following command(s) on your machine first, then re-run this script:"
+          warn ""
+          local os_id
+          os_id=$(. /etc/os-release 2>/dev/null && echo "$ID" || echo "unknown")
+          case "$os_id" in
+            ubuntu|debian)
+              warn "  sudo apt-get update && sudo apt-get install -y ${needs_sudo[*]}" ;;
+            fedora|rhel|centos|rocky|almalinux)
+              warn "  sudo dnf install -y ${needs_sudo[*]}" ;;
+            *)
+              warn "  Install: ${needs_sudo[*]}  (use your distro's package manager)"
+              warn "  e.g. for jq: sudo apt-get install -y jq  OR  sudo dnf install -y jq" ;;
+          esac
+          warn ""
+          warn "Then re-run:"
+          warn "  bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)"
+          exit 1
+        fi
+      fi
+
       log "Auto-installing missing tools on Linux: ${missing[*]}"
       mkdir -p "$HOME/.local/bin"
       export PATH="$HOME/.local/bin:$PATH"
@@ -589,6 +701,9 @@ check_prerequisites() {
         case "$tool" in
           kubectl) _install_kubectl_linux ;;
           helm)    _install_helm_linux ;;
+          jq)      _install_jq_linux ;;
+          openssl) _install_openssl_linux ;;
+          curl)    _install_curl_linux ;;
           *)
             err "Missing required tool '${tool}' — install it and re-run"
             exit 1
@@ -603,6 +718,11 @@ check_prerequisites() {
   fi
 
   # Docker is required by kind — detect and auto-install before any cluster work
+  # On macOS, Docker Desktop installs to /usr/local/bin/docker which may not be in PATH
+  # when invoked via SSH or a minimal shell; add it if present.
+  if [[ "$(uname -s)" == "Darwin" && -x "/usr/local/bin/docker" && ! "$(command -v docker 2>/dev/null)" ]]; then
+    export PATH="/usr/local/bin:$PATH"
+  fi
   if ! command -v docker &>/dev/null; then
     warn "Docker is not installed — it is required to run kind clusters."
     local os
@@ -629,22 +749,38 @@ check_prerequisites() {
   _check_docker_access
 
   if ! command -v kind &>/dev/null; then
-    warn "kind not found — Kind cluster options will be unavailable"
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      _install_kind_linux
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      _install_kind_macos
+    else
+      warn "kind not found — install it manually: https://kind.sigs.k8s.io/docs/user/quick-start/"
+    fi
   fi
 
   # k9s — optional but strongly recommended; auto-install if missing
   if ! command -v k9s &>/dev/null; then
     if [[ "$(uname -s)" == "Linux" ]]; then
-      log "Installing k9s (Kubernetes TUI)..."
-      local _k9s_url
-      _k9s_url=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest \
-        | grep "browser_download_url" | grep "Linux_amd64.tar.gz" | head -1 | cut -d'"' -f4)
-      if [[ -n "$_k9s_url" ]]; then
-        curl -sL "$_k9s_url" | sudo tar xz -C /usr/local/bin k9s 2>/dev/null \
-          && log "k9s installed: $(k9s version --short 2>/dev/null || true)" \
-          || warn "k9s install failed — you can install it manually from https://k9scli.io"
+      local _k9s_sudo_ok=false
+      if sudo -n true 2>/dev/null; then
+        _k9s_sudo_ok=true
+      elif ask_yn "Installing k9s (Kubernetes TUI) requires sudo. Allow?" "y"; then
+        _k9s_sudo_ok=true
+      fi
+      if [[ "$_k9s_sudo_ok" == true ]]; then
+        log "Installing k9s (Kubernetes TUI)..."
+        local _k9s_url
+        _k9s_url=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest \
+          | grep "browser_download_url" | grep "Linux_amd64.tar.gz" | head -1 | cut -d'"' -f4)
+        if [[ -n "$_k9s_url" ]]; then
+          curl -sL "$_k9s_url" | sudo tar xz -C /usr/local/bin k9s 2>/dev/null \
+            && log "k9s installed: $(k9s version --short 2>/dev/null || true)" \
+            || warn "k9s install failed — you can install it manually from https://k9scli.io"
+        else
+          warn "Could not fetch k9s release URL — skipping k9s install"
+        fi
       else
-        warn "Could not fetch k9s release URL — skipping k9s install"
+        warn "Skipping k9s install — run manually: https://k9scli.io/topics/install/"
       fi
     elif [[ "$(uname -s)" == "Darwin" ]]; then
       if command -v brew &>/dev/null; then
@@ -655,7 +791,7 @@ check_prerequisites() {
     fi
   fi
 
-  log "Prerequisites checked (docker, kubectl, helm, openssl, curl, jq, k9s)"
+  log "Prerequisites checked (docker, kubectl, helm, kind, openssl, curl, jq, k9s)"
 }
 
 choose_cluster() {
@@ -673,8 +809,8 @@ choose_cluster() {
         fi
         CLUSTER_NAME="${KIND_CLUSTER_NAME:-caipe}"
         log "No kubectl context — creating Kind cluster '${CLUSTER_NAME}'..."
-        kind create cluster --name "$CLUSTER_NAME"
-        kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
+        kind create cluster --name "$CLUSTER_NAME" </dev/null
+        kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
         log "Context set to kind-${CLUSTER_NAME}"
       else
         err "No current kubectl context. Pass --create-cluster to auto-create a Kind cluster."
@@ -772,13 +908,21 @@ choose_cluster() {
       tty_read -r CLUSTER_NAME
       CLUSTER_NAME="${CLUSTER_NAME:-caipe}"
       log "Creating Kind cluster '${CLUSTER_NAME}'..."
-      kind create cluster --name "$CLUSTER_NAME"
-      kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
+      kind create cluster --name "$CLUSTER_NAME" </dev/null
+      kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
       log "Context set to kind-${CLUSTER_NAME}"
       ;;
     kind:*)
       CLUSTER_NAME="${selected#kind:}"
-      kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
+      if ! kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null; then
+        warn "Context 'kind-${CLUSTER_NAME}' not found in kubeconfig — restoring via kind export kubeconfig..."
+        if ! kind export kubeconfig --name "${CLUSTER_NAME}" 2>/dev/null; then
+          err "Could not restore kubeconfig for kind cluster '${CLUSTER_NAME}'."
+          err "The cluster container may be stopped. Try: docker start $(docker ps -aqf name=kind)"
+          exit 1
+        fi
+        kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
+      fi
       log "Context set to kind-${CLUSTER_NAME}"
       ;;
     context)
@@ -806,7 +950,11 @@ choose_cluster() {
       ctx_choice="${ctx_choice:-1}"
       if [[ "$ctx_choice" -ge 1 && "$ctx_choice" -le "${#ctx_arr[@]}" ]]; then
         local target_ctx="${ctx_arr[$((ctx_choice - 1))]}"
-        kubectl config use-context "$target_ctx" &>/dev/null
+        if ! kubectl config use-context "$target_ctx" 2>/dev/null; then
+          err "Could not switch to context '${target_ctx}'."
+          err "Run 'kubectl config get-contexts' to verify available contexts."
+          exit 1
+        fi
         CLUSTER_NAME="$target_ctx"
         log "Switched to context '${target_ctx}'"
       else
@@ -904,71 +1052,6 @@ choose_chart_version() {
   log "Using chart version ${CAIPE_CHART_VERSION}"
 }
 
-choose_deployment_mode() {
-  step "Deployment mode"
-
-  if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && $NON_INTERACTIVE; then
-    log "Using deployment mode from environment: ${CAIPE_DEPLOYMENT_MODE}"
-    return
-  fi
-
-  if $NON_INTERACTIVE; then
-    log "Deployment mode: ${CAIPE_DEPLOYMENT_MODE} (default)"
-    return
-  fi
-
-  # If not already detected, try reading from the live Helm release
-  if [[ -z "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
-    local _hm
-    _hm=$(helm get values caipe -n caipe -o json 2>/dev/null \
-      | jq -r '.global.deploymentMode // empty' 2>/dev/null || true)
-    case "$_hm" in
-      single-node) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
-      multi-node)  CAIPE_DEPLOYMENT_MODE="distributed" ;;
-    esac
-    [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected existing deployment mode from cluster: ${CAIPE_DEPLOYMENT_MODE}"
-  fi
-
-  # Already known — confirm and skip
-  if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
-    log "Detected existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
-    if ! ask_yn "Keep existing deployment mode (${CAIPE_DEPLOYMENT_MODE})?" "y"; then
-      CAIPE_DEPLOYMENT_MODE=""  # fall through to prompt
-    else
-      return 0
-    fi
-  fi
-
-  echo ""
-  echo -e "  ${BOLD}How would you like to deploy CAIPE?${NC}"
-  echo ""
-  echo -e "  ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
-  echo ""
-  echo -e "  ${BOLD}1) All-in-One CAIPE${NC}  ${DIM}(recommended)${NC}"
-  echo -e "     ${DIM}A single supervisor pod handles all agent integrations internally.${NC}"
-  echo -e "     ${DIM}Simpler to deploy, fewer pods, lower resource requirements.${NC}"
-  echo -e "     ${DIM}Best for: demos, development, resource-constrained environments.${NC}"
-  echo ""
-  echo -e "  ${BOLD}2) Distributed CAIPE${NC}"
-  echo -e "     ${DIM}Each integration (GitHub, Jira, ArgoCD, Slack, etc.) runs as its${NC}"
-  echo -e "     ${DIM}own independent service. Agent failures are isolated and individual${NC}"
-  echo -e "     ${DIM}agents can be scaled or restarted without affecting the others.${NC}"
-  echo -e "     ${DIM}Best for: production, large teams, high-availability requirements.${NC}"
-  echo ""
-  prompt "Select deployment mode ${CYAN}[1]${NC}${BOLD}: "
-  tty_read -r mode_choice
-  mode_choice="${mode_choice:-1}"
-  if _is_back "$mode_choice"; then return 1; fi
-
-  case "$mode_choice" in
-    1) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
-    2) CAIPE_DEPLOYMENT_MODE="distributed" ;;
-    *) err "Invalid choice"; exit 1 ;;
-  esac
-
-  log "Deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
-}
-
 collect_credentials() {
   step "LLM credentials"
 
@@ -1026,22 +1109,22 @@ collect_credentials() {
       echo ""
       echo -e "  ${DIM}Select your LLM provider (powered by cnoe-agent-utils LLMFactory):${NC}"
       echo -e "    ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
-      echo -e "    ${BOLD}1) Anthropic Claude  (claude-haiku-4-5, claude-sonnet-4, etc.) — recommended${NC}"
-      echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
-      echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
-      echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
-      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(local models: llama2, mistral, neural-chat, etc.)${NC}"
+      echo -e "    ${BOLD}1)${NC} Ollama            ${DIM}(in-cluster: qwen3:0.6b, qwen2.5:1.5b, lfm2.5, arcee-ai/arcee-agent, etc.) — default${NC}"
+      echo -e "    ${BOLD}2)${NC} Anthropic Claude  ${DIM}(claude-haiku-4-5, claude-sonnet-4, etc.)${NC}"
+      echo -e "    ${BOLD}3)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
+      echo -e "    ${BOLD}4)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
+      echo -e "    ${BOLD}5)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
       echo ""
       prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r provider_choice
       provider_choice="${provider_choice:-1}"
       if _is_back "$provider_choice"; then return 1; fi
       case "$provider_choice" in
-        1) LLM_PROVIDER="anthropic-claude" ;;
-        2) LLM_PROVIDER="aws-bedrock" ;;
-        3) LLM_PROVIDER="openai" ;;
-        4) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
-        5) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
+        1) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
+        2) LLM_PROVIDER="anthropic-claude" ;;
+        3) LLM_PROVIDER="aws-bedrock" ;;
+        4) LLM_PROVIDER="openai" ;;
+        5) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
         *) err "Invalid choice"; continue ;;
       esac
     fi
@@ -1067,10 +1150,16 @@ collect_credentials() {
     # ── Collect credentials per provider — return 1 loops back to provider menu
     local _cred_status=0
     case "$LLM_PROVIDER" in
-      anthropic-claude) _collect_anthropic_credentials  || _cred_status=$? ;;
-      aws-bedrock)      _collect_bedrock_credentials    || _cred_status=$? ;;
+      anthropic-claude) _collect_anthropic_credentials    || _cred_status=$? ;;
+      aws-bedrock)      _collect_bedrock_credentials      || _cred_status=$? ;;
       azure-openai)     _collect_azure_openai_credentials || _cred_status=$? ;;
-      *)                _collect_openai_credentials     || _cred_status=$? ;;
+      *)
+        # Ollama and vLLM set their own endpoint and credentials before reaching
+        # here — prompting again would be redundant and misleading.
+        if ! $ENABLE_OLLAMA && ! $ENABLE_VLLM; then
+          _collect_openai_credentials || _cred_status=$?
+        fi
+        ;;
     esac
 
     [[ $_cred_status -eq 0 ]] && break
@@ -1471,64 +1560,52 @@ _collect_vllm_credentials() {
 }
 
 _collect_ollama_config() {
-  if ! command -v ollama &>/dev/null; then
-    step "Installing Ollama"
-    if [[ "$(uname -s)" == "Linux" ]]; then
-      _install_ollama_linux
-    elif [[ "$(uname -s)" == "Darwin" ]]; then
-      _install_ollama_macos
-    else
-      err "Unsupported OS for automatic Ollama installation"
-      exit 1
-    fi
-  fi
-
   if ! $NON_INTERACTIVE; then
     echo ""
-    echo -e "  ${DIM}Available Ollama models: llama2, mistral, neural-chat, dolphin-mixtral, vicuna${NC}"
+    echo -e "  ${DIM}Tool-calling models (required for agents):${NC}"
+    echo -e "  ${DIM}  qwen3:0.6b (default) · qwen3:1.7b · qwen2.5:1.5b · lfm2.5 · arcee-ai/arcee-agent${NC}"
+    echo -e "  ${DIM}  qwen2.5:7b · qwen2.5:14b · mistral:7b · ministral3:3b · phi4-mini${NC}"
+    echo -e "  ${DIM}  smollm2:1.7b · smollm2:360m · smollm2:135m  (ultra-compact, no tool support)${NC}"
+    echo -e "  ${DIM}Other models (no tool support): gemma3, llama3.2${NC}"
+    echo -e "  ${DIM}lfm2.5: https://ollama.com/library/lfm2.5${NC}"
+    echo -e "  ${DIM}smollm2: https://ollama.com/library/smollm2${NC}"
+    echo -e "  ${DIM}arcee-ai/arcee-agent: https://ollama.com/arcee-ai/arcee-agent${NC}"
     prompt "Ollama model to use ${CYAN}[${OLLAMA_MODEL}]${NC}${BOLD}: "
     tty_read -r input
     OLLAMA_MODEL="${input:-$OLLAMA_MODEL}"
   fi
 
-  step "Starting Ollama service"
-  # Start ollama in background if not already running
-  if ! curl -s "http://localhost:${OLLAMA_PORT}/api/tags" &>/dev/null; then
-    log "Starting Ollama service..."
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-      # macOS: start via launchctl if installed via brew
-      launchctl start com.ollama.ollama 2>/dev/null || {
-        log "Starting ollama serve in background..."
-        nohup ollama serve &>/dev/null &
-      }
-    else
-      # Linux: start ollama serve
-      log "Starting ollama serve in background..."
-      nohup ollama serve &>/dev/null &
-    fi
-    sleep 2
-  fi
-
-  log "Pulling Ollama model: ${OLLAMA_MODEL}"
-  ollama pull "$OLLAMA_MODEL" || warn "Failed to pull model — you may need to run 'ollama pull ${OLLAMA_MODEL}' manually"
-
-  # Verify Ollama is responding
-  if curl -s "http://localhost:${OLLAMA_PORT}/api/tags" &>/dev/null; then
-    log "Ollama service is running"
-  else
-    warn "Ollama service may not be running. Verify with: curl http://localhost:${OLLAMA_PORT}/api/tags"
-  fi
-
-  # Configure OpenAI-compatible endpoint for Ollama
-  # Ollama API listens on http://localhost:11434/api/generate, but we need OpenAI-compatible format
-  # So we'll use the localhost endpoint directly
-  OPENAI_ENDPOINT="http://localhost:${OLLAMA_PORT}"
+  # Ollama runs in-cluster; use the FQDN so DNS resolution works regardless of
+  # the pod's search domain. The OpenAI SDK appends /chat/completions to the
+  # base URL, so the /v1 prefix is required or requests will 404.
+  local _ollama_fqdn="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+  OPENAI_ENDPOINT="${_ollama_fqdn}/v1"
   OPENAI_API_KEY="ollama"
   OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
 
   EMBEDDINGS_PROVIDER="ollama"
+  # Default to nomic-embed-text when no embeddings model is set — gemma3 and
+  # most chat models lack the /api/embed capability Ollama embeddings require.
+  # nomic-embed-text is a small (274 MB), purpose-built embedding model that
+  # the Ollama init container will pull alongside the chat model.
+  if [[ -z "${EMBEDDINGS_MODEL:-}" || "${EMBEDDINGS_MODEL}" == "text-embedding-3-large" ]]; then
+    EMBEDDINGS_MODEL="snowflake-arctic-embed2"
+  fi
 
-  log "Provider: openai (via Ollama local)  Model: ${OLLAMA_MODEL}  Port: ${OLLAMA_PORT}"
+  # Offer LiteLLM as a proxy in front of Ollama. This is recommended for local
+  # setups: it adds a stable OpenAI-compatible endpoint, enables multi-model
+  # routing, and matches the production vLLM architecture.
+  if ! $NON_INTERACTIVE && ! $LLM_VIA_LITELLM; then
+    echo ""
+    echo -e "  ${DIM}LiteLLM proxy provides a stable OpenAI-compatible endpoint in front of${NC}"
+    echo -e "  ${DIM}Ollama, enables multi-model routing, and is recommended for local setups.${NC}"
+    if ask_yn "Deploy LiteLLM proxy in front of Ollama? (recommended)" "y"; then
+      LLM_VIA_LITELLM=true
+      log "LiteLLM proxy enabled (will front Ollama at ${_ollama_fqdn})"
+    fi
+  fi
+
+  log "Provider: openai (via in-cluster Ollama)  Model: ${OLLAMA_MODEL}  Embeddings: ${EMBEDDINGS_MODEL}"
 }
 
 _collect_openai_embeddings_key() {
@@ -1773,7 +1850,12 @@ install_nginx_ingress() {
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --namespace ingress-nginx --create-namespace \
     --set controller.service.type=LoadBalancer \
-    --wait --timeout=120s 2>&1 | grep -v "^Warning\|unchanged" || true
+    --set controller.admissionWebhooks.enabled=false \
+    2>&1 | grep -v "^Warning\|unchanged" || true
+
+  # Wait for the controller pod to become Ready before polling for IP
+  kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx \
+    --timeout=120s 2>/dev/null || true
 
   # Wait for LoadBalancer IP assignment from MetalLB
   local ingress_ip="" retries=0
@@ -1879,6 +1961,16 @@ install_nginx_ingress() {
 
     # Persist iptables rules and ip_forward so they survive a reboot.
     _persist_iptables "$ingress_ip"
+
+    # Update /etc/hosts so local health-check curls (run_validation, sanity tests)
+    # resolve the domain to the MetalLB IP directly, bypassing the *.local.me →
+    # 127.0.0.1 special-domain default. Idempotent: removes stale entry first.
+    if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+      local _hosts_marker="# caipe-ingress"
+      sudo sed -i "/${_hosts_marker}/d" /etc/hosts 2>/dev/null || true
+      echo "${ingress_ip} ${CAIPE_DOMAIN} ${_hosts_marker}" | sudo tee -a /etc/hosts >/dev/null \
+        && log "/etc/hosts: ${CAIPE_DOMAIN} → ${ingress_ip} (local health-check resolution)"
+    fi
   elif $ENABLE_METALLB && [[ "$(uname -s)" != "Linux" ]]; then
     log "Skipping iptables DNAT (non-Linux host) — use port-forward or *.local.me → 127.0.0.1 for local access"
   fi
@@ -2031,7 +2123,7 @@ _choose_agents() {
   if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
     local _ha
     _ha=$(helm get values caipe -n caipe -o json 2>/dev/null \
-      | jq -r '."supervisor-agent".singleNode.enabledSubAgents // {} | to_entries[] | select(.value==true) | .key' \
+      | jq -r '.tags // {} | to_entries[] | select(.key | startswith("agent-")) | select(.value==true) | .key | sub("^agent-"; "")' \
       2>/dev/null || true)
     if [[ -n "$_ha" ]]; then
       while IFS= read -r _akey; do
@@ -2099,7 +2191,7 @@ _choose_agents() {
 choose_features() {
   step "Feature selection"
 
-  echo -e "  ${DIM}Base setup always includes: supervisor and NetUtils agents${NC}"
+  echo -e "  ${DIM}Base setup always includes: dynamic agents runtime and NetUtils agent${NC}"
 
   if $NON_INTERACTIVE; then
     if $ENABLE_RAG; then
@@ -2112,8 +2204,8 @@ choose_features() {
       log "RAG skipped (pass --rag to enable)"
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
-    $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (default; pass --no-agentgateway to skip)" || log "AgentGateway disabled (--no-agentgateway)"
-    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (default; pass --no-rbac-runtime to skip)" || log "RBAC runtime disabled (--no-rbac-runtime)"
+    log "AgentGateway enabled (required)"
+    log "RBAC runtime enabled (required — Keycloak + OpenFGA)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (default; pass --no-persistence to skip)" || log "Persistence disabled (--no-persistence)"
     $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (default; pass --no-dynamic-agents to skip)" || log "Dynamic agents disabled (--no-dynamic-agents)"
     $ENABLE_METALLB && log "MetalLB enabled (default; pass --no-metallb to skip)" || log "MetalLB disabled (--no-metallb)"
@@ -2284,26 +2376,26 @@ choose_features() {
 
       echo ""
       echo -e "  ${DIM}Embeddings provider:${NC}"
-      echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
-      echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
-      echo -e "    ${BOLD}3)${NC} AWS Bedrock        ${DIM}(Titan / Cohere on Bedrock — reuses LLM AWS creds)${NC}"
-      echo -e "    ${BOLD}4)${NC} Cohere             ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
-      echo -e "    ${BOLD}5)${NC} Voyage AI          ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
-      echo -e "    ${BOLD}6)${NC} HuggingFace        ${DIM}(local — requires rag-server -hf image variant)${NC}"
-      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — runs in cluster, no API key needed)${NC}"
-      echo -e "    ${BOLD}8)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
+      echo -e "    ${BOLD}1)${NC} Ollama             ${DIM}(local — snowflake-arctic-embed2 default, no API key needed) — default${NC}"
+      echo -e "    ${BOLD}2)${NC} OpenAI             ${DIM}(text-embedding-3-large)${NC}"
+      echo -e "    ${BOLD}3)${NC} Azure OpenAI        ${DIM}(uses your Azure deployment)${NC}"
+      echo -e "    ${BOLD}4)${NC} AWS Bedrock         ${DIM}(Titan / Cohere on Bedrock — reuses LLM AWS creds)${NC}"
+      echo -e "    ${BOLD}5)${NC} Cohere              ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
+      echo -e "    ${BOLD}6)${NC} Voyage AI           ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
+      echo -e "    ${BOLD}7)${NC} HuggingFace         ${DIM}(local — requires rag-server -hf image variant)${NC}"
+      echo -e "    ${BOLD}8)${NC} LiteLLM Proxy       ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
       echo ""
       prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r emb_provider_choice
       emb_provider_choice="${emb_provider_choice:-1}"
       case "$emb_provider_choice" in
-        1) EMBEDDINGS_PROVIDER="openai" ;;
-        2) EMBEDDINGS_PROVIDER="azure-openai" ;;
-        3) EMBEDDINGS_PROVIDER="aws-bedrock" ;;
-        4) EMBEDDINGS_PROVIDER="cohere" ;;
-        5) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="voyage" ;;
-        6) EMBEDDINGS_PROVIDER="huggingface" ;;
-        7) EMBEDDINGS_PROVIDER="ollama" ;;
+        1) EMBEDDINGS_PROVIDER="ollama" ;;
+        2) EMBEDDINGS_PROVIDER="openai" ;;
+        3) EMBEDDINGS_PROVIDER="azure-openai" ;;
+        4) EMBEDDINGS_PROVIDER="aws-bedrock" ;;
+        5) EMBEDDINGS_PROVIDER="cohere" ;;
+        6) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="voyage" ;;
+        7) EMBEDDINGS_PROVIDER="huggingface" ;;
         8) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="custom-litellm" ;;
         *) err "Invalid choice"; exit 1 ;;
       esac
@@ -2423,9 +2515,13 @@ choose_features() {
           warn "  Ensure your chart sets rag-stack.rag-server.image.tag to a tag with the -hf suffix."
           ;;
         ollama)
-          echo -e "    ${BOLD}1)${NC} nomic-embed-text       ${DIM}(default, 768 dims)${NC}"
-          echo -e "    ${BOLD}2)${NC} mxbai-embed-large      ${DIM}(higher quality, 1024 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} Custom"
+          echo -e "    ${BOLD}1)${NC} nomic-embed-text          ${DIM}(274 MB · 768 dims · fast CPU)${NC}"
+          echo -e "    ${BOLD}2)${NC} mxbai-embed-large         ${DIM}(670 MB · 1024 dims · MTEB 64.68 English)${NC}"
+          echo -e "    ${BOLD}3)${NC} qwen3-embedding:0.6b      ${DIM}(639 MB · 1024 dims · MTEB 64.33 multilingual · 32K ctx)${NC}"
+          echo -e "    ${BOLD}4)${NC} snowflake-arctic-embed2   ${DIM}(default · 1.2 GB · 1024 dims · strong retrieval)${NC}"
+          echo -e "    ${BOLD}5)${NC} bge-m3                    ${DIM}(1.2 GB · 1024 dims · hybrid dense+sparse+multi-vector)${NC}"
+          echo -e "    ${BOLD}6)${NC} qwen3-embedding:8b        ${DIM}(4.7 GB · 4096 dims · MTEB #1 multilingual — GPU recommended)${NC}"
+          echo -e "    ${BOLD}7)${NC} Custom"
           echo ""
           prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
           tty_read -r emb_choice
@@ -2433,7 +2529,11 @@ choose_features() {
           case "$emb_choice" in
             1) EMBEDDINGS_MODEL="nomic-embed-text" ;;
             2) EMBEDDINGS_MODEL="mxbai-embed-large" ;;
-            3)
+            3) EMBEDDINGS_MODEL="qwen3-embedding:0.6b" ;;
+            4) EMBEDDINGS_MODEL="snowflake-arctic-embed2" ;;
+            5) EMBEDDINGS_MODEL="bge-m3" ;;
+            6) EMBEDDINGS_MODEL="qwen3-embedding:8b" ;;
+            7)
               prompt "Enter Ollama model name: "
               tty_read -r EMBEDDINGS_MODEL
               [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
@@ -2451,6 +2551,37 @@ choose_features() {
           ;;
       esac
       log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
+      # Resolve dimensions for known models; leave unset for unknowns so the RAG
+      # server's live-embed detection (restapi.py) is the authoritative source.
+      if [[ -z "${EMBEDDINGS_DIMENSIONS:-}" ]]; then
+        case "${EMBEDDINGS_MODEL}" in
+          # Ollama local models
+          nomic-embed-text)              EMBEDDINGS_DIMENSIONS=768  ;;
+          mxbai-embed-large)             EMBEDDINGS_DIMENSIONS=1024 ;;
+          snowflake-arctic-embed2)       EMBEDDINGS_DIMENSIONS=1024 ;;
+          bge-m3)                        EMBEDDINGS_DIMENSIONS=1024 ;;
+          qwen3-embedding:0.6b)          EMBEDDINGS_DIMENSIONS=1024 ;;
+          qwen3-embedding:1.7b)          EMBEDDINGS_DIMENSIONS=1536 ;;
+          qwen3-embedding:4b)            EMBEDDINGS_DIMENSIONS=2560 ;;
+          qwen3-embedding:8b)            EMBEDDINGS_DIMENSIONS=4096 ;;
+          # OpenAI / Azure
+          text-embedding-3-small|text-embedding-ada-002) EMBEDDINGS_DIMENSIONS=1536 ;;
+          text-embedding-3-large)        EMBEDDINGS_DIMENSIONS=3072 ;;
+          # AWS Bedrock
+          amazon.titan-embed-text-v1)    EMBEDDINGS_DIMENSIONS=1536 ;;
+          amazon.titan-embed-text-v2:0)  EMBEDDINGS_DIMENSIONS=1024 ;;
+          cohere.embed-english-v3|cohere.embed-multilingual-v3) EMBEDDINGS_DIMENSIONS=1024 ;;
+          # Cohere direct
+          embed-english-v3.0|embed-multilingual-v3.0) EMBEDDINGS_DIMENSIONS=1024 ;;
+          embed-english-light-v3.0)      EMBEDDINGS_DIMENSIONS=384  ;;
+          # Voyage / LiteLLM
+          voyage/voyage-3-lite)          EMBEDDINGS_DIMENSIONS=512  ;;
+          voyage/voyage-*)               EMBEDDINGS_DIMENSIONS=1024 ;;
+          mistral/mistral-embed)         EMBEDDINGS_DIMENSIONS=1024 ;;
+          gemini/text-embedding-004|vertex_ai/textembedding-gecko*) EMBEDDINGS_DIMENSIONS=768 ;;
+        esac
+        [[ -n "${EMBEDDINGS_DIMENSIONS:-}" ]] && log "Resolved embedding dimensions: ${EMBEDDINGS_DIMENSIONS} (model: ${EMBEDDINGS_MODEL})"
+      fi
 
       # Collect any extra credentials the chosen embeddings provider needs.
       case "${EMBEDDINGS_PROVIDER_SOURCE:-$EMBEDDINGS_PROVIDER}" in
@@ -2499,15 +2630,12 @@ choose_features() {
           # purely for embeddings.
           if ! $ENABLE_OLLAMA; then
             warn "Ollama embeddings selected, but no Ollama LLM was configured."
-            warn "  The RAG server will reach OLLAMA_BASE_URL=http://localhost:${OLLAMA_PORT}."
-            warn "  You must run an Ollama server reachable from inside the cluster."
+            warn "  You must deploy an Ollama server reachable from inside the cluster."
           else
-            # Pull the embedding model. This is typically a different model from
-            # the LLM model (e.g. nomic-embed-text vs llama2), so it must be
-            # pulled separately even though _collect_ollama_config already pulled
-            # the LLM model.
-            log "Pulling Ollama embedding model: ${EMBEDDINGS_MODEL}"
-            ollama pull "${EMBEDDINGS_MODEL}" || warn "Failed to pull embedding model — run 'ollama pull ${EMBEDDINGS_MODEL}' manually"
+            # The in-cluster Ollama init container pulls EMBEDDINGS_MODEL at pod
+            # startup when it differs from OPENAI_MODEL_NAME (via the optional
+            # secretKeyRef in deploy/kind/ollama.yaml). No host-side pull needed.
+            log "Embedding model '${EMBEDDINGS_MODEL}' will be pulled by the Ollama init container."
           fi
           ;;
         custom-litellm)
@@ -2569,7 +2697,7 @@ choose_features() {
       log "Secret '${_secret_name}' already exists in cluster"
       if ask_yn "Keep existing ${_agent} credentials?" "y"; then
         HELM_AGENT_ARGS+=(
-          --set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=true"
+          --set "tags.agent-${_agent}=true"
           --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
         )
         continue
@@ -2654,12 +2782,12 @@ choose_features() {
         -n caipe "${_secret_args[@]}" \
         --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
       HELM_AGENT_ARGS+=(
-        --set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=true"
+        --set "tags.agent-${_agent}=true"
         --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
       )
       log "${_agent}: secret created"
     else
-      $_skip && HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=false")
+      $_skip && HELM_AGENT_ARGS+=(--set "tags.agent-${_agent}=false")
     fi
   done
 
@@ -2668,16 +2796,12 @@ choose_features() {
   for _agent in "${_all_agents[@]}"; do
     local _selected=false
     for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_agent" == "$_s" ]] && { _selected=true; break; }; done
-    $_selected || HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=false")
+    $_selected || HELM_AGENT_ARGS+=(--set "tags.agent-${_agent}=false")
   done
 
   echo ""
   if $ENABLE_DYNAMIC_AGENTS; then
-    log "Dynamic agents enabled by default (custom agent builder)"
-    if ! ask_yn "Keep dynamic agents?" "y"; then
-      ENABLE_DYNAMIC_AGENTS=false
-      log "Dynamic agents disabled"
-    fi
+    log "Dynamic agents enabled (custom agent builder)"
   else
     if ask_yn "Enable dynamic agents (custom agent builder)?" "y"; then
       ENABLE_DYNAMIC_AGENTS=true
@@ -2699,43 +2823,12 @@ choose_features() {
     fi
   fi
 
-  echo ""
-  echo -e "  ${DIM}AgentGateway federates all MCP servers behind a single endpoint,${NC}"
-  echo -e "  ${DIM}allowing MCP clients (Cursor, VS Code, Claude Code) to connect once.${NC}"
-  if $ENABLE_AGENTGATEWAY; then
-    log "AgentGateway enabled by default (federates MCP servers)"
-    if ! ask_yn "Keep AgentGateway?" "y"; then
-      ENABLE_AGENTGATEWAY=false
-      log "AgentGateway disabled"
-    fi
-  else
-    if ask_yn "Enable AgentGateway for MCP server access?" "y"; then
-      ENABLE_AGENTGATEWAY=true
-      log "AgentGateway enabled"
-    else
-      log "AgentGateway skipped"
-    fi
-  fi
-
-  echo ""
-  echo -e "  ${DIM}RBAC runtime installs the in-chart Keycloak, OpenFGA, OpenFGA ext_authz bridge,${NC}"
-  echo -e "  ${DIM}and standalone AgentGateway proxy added for the 0.5.0 RBAC release.${NC}"
-  if $ENABLE_RBAC_RUNTIME; then
-    log "RBAC runtime enabled by default (Keycloak + OpenFGA + ext_authz)"
-    ENABLE_AGENTGATEWAY=true
-    if ! ask_yn "Keep RBAC runtime?" "y"; then
-      ENABLE_RBAC_RUNTIME=false
-      log "RBAC runtime disabled"
-    fi
-  else
-    if ask_yn "Enable RBAC runtime services?" "y"; then
-      ENABLE_RBAC_RUNTIME=true
-      ENABLE_AGENTGATEWAY=true
-      log "RBAC runtime enabled"
-    else
-      log "RBAC runtime skipped"
-    fi
-  fi
+  # AgentGateway, Keycloak, and OpenFGA are required components in 0.5.10+.
+  # They are always enabled; the flags remain so env-var overrides still work.
+  ENABLE_AGENTGATEWAY=true
+  ENABLE_RBAC_RUNTIME=true
+  log "AgentGateway enabled (required — federates MCP servers)"
+  log "RBAC runtime enabled (required — Keycloak + OpenFGA + ext_authz)"
 
   echo ""
   echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
@@ -2974,14 +3067,10 @@ provision_agent_secrets() {
     _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
     log "Agent ${agent}: secret '${secret_name}' ready"
 
-    # tags.agent-* deploys the agent as its own service (distributed/multi-node);
-    # singleNode.enabledSubAgents.* loads it in-process in all-in-one mode. Set
-    # both so the agent activates regardless of deployment mode (matches the
-    # interactive path, which sets the singleNode flag too).
+    # tags.agent-* deploys the agent's MCP server as its own service.
     HELM_AGENT_ARGS+=(
       --set "tags.agent-${agent}=true"
       --set "agent-${agent}.agentSecrets.secretName=${secret_name}"
-      --set "supervisor-agent.singleNode.enabledSubAgents.${agent}=true"
     )
   done
 }
@@ -3045,7 +3134,7 @@ provision_ui_secret() {
 
   # Propagate NEXT_PUBLIC_* and feature flags as Helm env overrides
   local next_public_keys=(
-    NEXT_PUBLIC_A2A_BASE_URL NEXT_PUBLIC_SSO_ENABLED
+    NEXT_PUBLIC_SSO_ENABLED
     NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS NEXT_PUBLIC_RAG_ENABLED
     NEXT_PUBLIC_RAG_URL NEXT_PUBLIC_RAG_WEBUI_URL NEXT_PUBLIC_MONGODB_ENABLED
     AUDIT_LOGS_ENABLED WORKFLOW_RUNNER_ENABLED FEEDBACK_ENABLED NPS_ENABLED
@@ -3080,7 +3169,7 @@ provision_bot_secrets() {
     local _slack_keys=(
       SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET
       SLACK_LINK_HMAC_SECRET SLACK_INTEGRATION_AUTH_CLIENT_SECRET
-      KEYCLOAK_BOT_CLIENT_SECRET KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET OAUTH2_CLIENT_SECRET
+      KEYCLOAK_BOT_CLIENT_SECRET OAUTH2_CLIENT_SECRET
     )
     local _slack_literals=()
     if [[ -n "$env_file" && -f "$env_file" ]]; then
@@ -3090,11 +3179,10 @@ provision_bot_secrets() {
         [[ -n "$_v" ]] && _slack_literals+=(--from-literal="${_k}=${_v}")
       done
     fi
-    # Local-dev OBO/admin defaults (match charts/.../keycloak/realm-config.json).
+    # Local-dev OBO defaults (match charts/.../keycloak/realm-config.json).
     if [[ -z "$CAIPE_DOMAIN" ]]; then
       _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_BOT_CLIENT_SECRET caipe-slack-bot-dev-secret
       _bot_default_literal _slack_literals "${_slack_literals[*]}" OAUTH2_CLIENT_SECRET caipe-slack-bot-dev-secret
-      _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET caipe-platform-dev-secret
     fi
     if [[ ${#_slack_literals[@]} -gt 0 ]]; then
       kubectl create secret generic slack-bot-secrets -n caipe "${_slack_literals[@]}" \
@@ -3188,7 +3276,6 @@ slack-bot:
     SLACK_INTEGRATION_AUTH_TOKEN_URL: "${_issuer}/protocol/openid-connect/token"
     SLACK_INTEGRATION_AUTH_CLIENT_ID: "caipe-slack-bot"
     KEYCLOAK_BOT_CLIENT_ID: "caipe-slack-bot"
-    KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID: "caipe-platform"
     SLACK_JIT_CREATE_USER: "true"
 SLACKEOF
   fi
@@ -3215,7 +3302,10 @@ WEBEXEOF
 create_namespace_and_secrets() {
   step "Namespace and secrets"
 
-  kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+  if ! kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+    err "Failed to create namespace 'caipe' — check your kubectl context and cluster connectivity"
+    exit 1
+  fi
   log "Namespace 'caipe' ready"
 
   _ensure_caipe_platform_secret  # must exist before helm install; see PR #1519
@@ -3382,6 +3472,21 @@ create_namespace_and_secrets() {
     log "HuggingFace embeddings configured (device: ${EMBEDDINGS_DEVICE:-cpu})"
   fi
 
+  # Ollama embeddings — the RAG server (EmbeddingsFactory) reads OLLAMA_BASE_URL,
+  # whose default http://localhost:11434 is the pod's own loopback and cannot
+  # reach Ollama. Wire it explicitly into llm-secret, defaulting to the
+  # in-cluster Ollama Service (deploy/kind/ollama.yaml); override with the
+  # OLLAMA_BASE_URL env var for an external/host Ollama.
+  # EMBEDDINGS_MODEL is also written so the Ollama init container (which reads
+  # it via an optional secretKeyRef) can pull the embedding model on first run.
+  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "ollama" ]]; then
+    local _ollama_base="${OLLAMA_BASE_URL:-http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}}"
+    secret_args+=(--from-literal=OLLAMA_BASE_URL="${_ollama_base}")
+    secret_args+=(--from-literal=EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL}")
+    log "Added OLLAMA_BASE_URL=${_ollama_base} to llm-secret (Ollama embeddings)"
+    log "Added EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL} to llm-secret (Ollama init container pull)"
+  fi
+
   kubectl create secret generic llm-secret -n caipe \
     "${secret_args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
@@ -3451,6 +3556,36 @@ create_namespace_and_secrets() {
       --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
     HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
     log "caipe-ui-secret ready (NextAuth secret + caipe-ui client id/secret; default SSO)"
+  fi
+
+  # Inject AGENTGATEWAY_TARGETS_TOKEN into caipe-ui-secret so the config-bridge
+  # sidecar and the BFF share the same bearer token. Generated once and persisted
+  # (idempotent re-runs). Both code paths above (--ui-env-file and default SSO)
+  # produce caipe-ui-secret before this point.
+  if $ENABLE_AGENTGATEWAY; then
+    local _ag_token
+    _ag_token=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.AGENTGATEWAY_TARGETS_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    [[ -z "$_ag_token" ]] && _ag_token="$(openssl rand -hex 32)"
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/AGENTGATEWAY_TARGETS_TOKEN\",\"value\":\"$(echo -n "$_ag_token" | base64 -w0)\"}]" &>/dev/null
+    log "AGENTGATEWAY_TARGETS_TOKEN patched into caipe-ui-secret"
+
+    # Shared HMAC for signed agent_id context (dynamic-agents + openfga-authz-bridge).
+    # Prefer an existing value in the secret or .env; generate once when missing.
+    local _hmac_secret
+    _hmac_secret=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.CAIPE_AGENT_CONTEXT_HMAC_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    if [[ -z "$_hmac_secret" && -n "${ENV_FILE:-}" ]]; then
+      _hmac_secret=$(_env_get "$ENV_FILE" "CAIPE_AGENT_CONTEXT_HMAC_SECRET" || true)
+    fi
+    if [[ -z "$_hmac_secret" && -n "${UI_ENV_FILE:-}" ]]; then
+      _hmac_secret=$(_env_get "$UI_ENV_FILE" "CAIPE_AGENT_CONTEXT_HMAC_SECRET" || true)
+    fi
+    [[ -z "$_hmac_secret" ]] && _hmac_secret="$(openssl rand -hex 32)"
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/CAIPE_AGENT_CONTEXT_HMAC_SECRET\",\"value\":\"$(echo -n "$_hmac_secret" | base64 -w0)\"}]" &>/dev/null
+    log "CAIPE_AGENT_CONTEXT_HMAC_SECRET patched into caipe-ui-secret"
   fi
 
   # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
@@ -3796,246 +3931,29 @@ patch_deployment_with_ca() {
 }
 
 # ─── Post-deploy patches ─────────────────────────────────────────────────────
-# Consolidated workarounds for upstream chart issues (v0.2.x).
+# Consolidated workarounds for upstream chart issues.
 # Called once after helm install and idempotently by auto-heal.
 #
-# 1 & 2. Schema fix + httpx redirect (sitecustomize.py, single ConfigMap)
-#    - PlatformEngineerResponse schema needs additionalProperties:false and
-#      all properties in required for OpenAI gpt-5.x strict mode.
-#    - httpx follow_redirects=True for MCP trailing-slash 307 redirects.
-#    Note: agent sys.path setup is handled in the Dockerfile PYTHONPATH, not here.
-# 2b.   OpenAI response dedup fix (agent-fix ConfigMap, supervisor only)
-#    - Mounts a patched agent.py that sets from_response_format_tool=True
-#      when handle_structured_response parses a PlatformEngineerResponse
-#      in PRIORITY 2/3 paths. Prevents duplicated output with OpenAI models.
-# 3.    Corporate CA mount — optional; mounts pre-created CA ConfigMap into pods.
-#       The ConfigMap is created by prepare_corporate_ca() before Helm deploy.
-# 4.    Langfuse secret injection — tracing secret patched into supervisor.
-# 5.    RAG startup sequencing — waits for Milvus, then restarts RAG server
-#       with SKIP_INIT_TESTS=false so it can run its full initialization checks.
+# 1. Corporate CA mount — optional; mounts pre-created CA ConfigMap into pods.
+#    The ConfigMap is created by prepare_corporate_ca() before Helm deploy.
+# 2. Langfuse secret injection — tracing secret patched into dynamic-agents.
+# 3. RAG startup sequencing — waits for Milvus, then restarts RAG server
+#    with SKIP_INIT_TESTS=false so it can run its full initialization checks.
 
-AGENT_DEPLOYMENTS="caipe-supervisor-agent caipe-agent-netutils caipe-agent-weather"
+AGENT_DEPLOYMENTS="caipe-dynamic-agents caipe-agent-netutils"
 
-_create_agent_patches_configmap() {
-  # Use apply (idempotent) so re-runs update the ConfigMap with new fixes
-  kubectl create configmap agent-patches -n caipe \
-    --from-literal=sitecustomize.py='
-import importlib, json, sys, os
-
-# ── Fix 1: OpenAI Responses API strict schema ──
-# PlatformEngineerResponse and nested models need additionalProperties:false
-# and all properties listed in required for gpt-5.x strict mode.
-def _fix_strict_schema(schema):
-    if isinstance(schema, dict):
-        if schema.get("type") == "object":
-            if "additionalProperties" not in schema:
-                schema["additionalProperties"] = False
-            props = schema.get("properties", {})
-            if props:
-                schema["required"] = sorted(props.keys())
-        for v in schema.values():
-            _fix_strict_schema(v)
-    elif isinstance(schema, list):
-        for v in schema:
-            _fix_strict_schema(v)
-
-try:
-    mod = importlib.import_module(
-        "ai_platform_engineering.multi_agents.platform_engineer.response_format"
-    )
-    for cls_name in ("PlatformEngineerResponse", "Metadata", "InputField"):
-        cls = getattr(mod, cls_name, None)
-        if cls is None:
-            continue
-        _orig = cls.model_json_schema.__func__
-        @classmethod
-        def _patched(klass, *a, _orig_fn=_orig, **kw):
-            s = _orig_fn(klass, *a, **kw)
-            _fix_strict_schema(s)
-            return s
-        cls.model_json_schema = _patched
-except Exception:
-    pass
-
-# ── Fix 2: httpx redirect for MCP trailing-slash 307 ──
-try:
-    import httpx
-    _httpx_orig = httpx.AsyncClient.__init__
-    def _httpx_patched(self, *a, **kw):
-        kw.setdefault("follow_redirects", True)
-        _httpx_orig(self, *a, **kw)
-    httpx.AsyncClient.__init__ = _httpx_patched
-except Exception:
-    pass
-
-# ── Fix 3: Strip langchain internal "config" kwarg from Anthropic API calls ──
-# langchain-anthropic passes LangChain RunnableConfig as "config" kwarg to
-# AsyncMessages.create() which the Anthropic SDK does not accept.
-try:
-    import anthropic
-    _orig_async_create = anthropic.resources.messages.AsyncMessages.create
-    async def _patched_async_create(self, *args, **kwargs):
-        kwargs.pop("config", None)
-        return await _orig_async_create(self, *args, **kwargs)
-    anthropic.resources.messages.AsyncMessages.create = _patched_async_create
-
-    _orig_sync_create = anthropic.resources.messages.Messages.create
-    def _patched_sync_create(self, *args, **kwargs):
-        kwargs.pop("config", None)
-        return _orig_sync_create(self, *args, **kwargs)
-    anthropic.resources.messages.Messages.create = _patched_sync_create
-except Exception:
-    pass
-
-# ── Note: OpenAI response dedup is handled separately by the agent-fix ──
-# ── ConfigMap (see _create_agent_fix_configmap / _apply_agent_fix_volume). ──
-' --dry-run=client -o json | kubectl apply -f - &>/dev/null
-  log "Applied agent-patches ConfigMap (sys.path fix + schema fix + httpx redirect + anthropic config fix)"
-}
-
-_apply_agent_patches_volume() {
-  local deploy="$1"
-  if ! kubectl get deployment "$deploy" -n caipe &>/dev/null; then
-    return
-  fi
-
-  local volumes
-  volumes=$(kubectl get deployment "$deploy" -n caipe \
-    -o jsonpath='{.spec.template.spec.volumes[*].name}' 2>/dev/null)
-  if echo "$volumes" | grep -q "agent-patches"; then
-    return
-  fi
-
-  local current_pypath
-  current_pypath=$(kubectl get deployment "$deploy" -n caipe \
-    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="PYTHONPATH")].value}' 2>/dev/null)
-  current_pypath="${current_pypath:-/app}"
-  [[ "$current_pypath" != *"/opt/agent-patches"* ]] && current_pypath="${current_pypath}:/opt/agent-patches"
-
-  local container
-  container=$(kubectl get deployment "$deploy" -n caipe \
-    -o jsonpath='{.spec.template.spec.containers[0].name}' 2>/dev/null)
-
-  kubectl patch deployment "$deploy" -n caipe --type='strategic' -p="{
-    \"spec\": {
-      \"template\": {
-        \"spec\": {
-          \"volumes\": [{
-            \"name\": \"agent-patches\",
-            \"configMap\": {\"name\": \"agent-patches\"}
-          }],
-          \"containers\": [{
-            \"name\": \"${container}\",
-            \"volumeMounts\": [{
-              \"name\": \"agent-patches\",
-              \"mountPath\": \"/opt/agent-patches\",
-              \"readOnly\": true
-            }],
-            \"env\": [
-              {\"name\": \"PYTHONPATH\", \"value\": \"${current_pypath}\"}
-            ]
-          }]
-        }
-      }
-    }
-  }" &>/dev/null
-  log "Applied agent patches to ${deploy}"
-}
-
-# ── Agent fix: mount fixed agent.py via ConfigMap ──
-# Replaces the in-container agent.py to fix OpenAI response deduplication.
-# Root cause: OpenAI streams PlatformEngineerResponse as plain text, not tool
-# calls. The fix sets from_response_format_tool=True when handle_structured_response
-# successfully parses the response in PRIORITY 2/3 paths.
-# When piped (curl | bash), $0 is "bash" so dirname is meaningless.
-# Fall back to $PWD; the agent_fix function already handles missing files.
+# Resolve script dir (used for bundled kind manifests).
 if [[ -f "$0" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 else
   SCRIPT_DIR="$PWD"
 fi
 
-_create_agent_fix_configmap() {
-  local fix_file="${SCRIPT_DIR}/agent_fix.py"
-  if [[ ! -f "$fix_file" ]]; then
-    log "WARNING: ${fix_file} not found — skipping agent fix"
-    return 1
-  fi
-  kubectl create configmap agent-fix -n caipe \
-    --from-file=agent.py="$fix_file" \
-    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
-  log "Created/updated agent-fix ConfigMap"
-}
-
-_apply_agent_fix_volume() {
-  local deploy="caipe-supervisor-agent"
-  if ! kubectl get deployment "$deploy" -n caipe &>/dev/null; then
-    return
-  fi
-
-  local volumes
-  volumes=$(kubectl get deployment "$deploy" -n caipe \
-    -o jsonpath='{.spec.template.spec.volumes[*].name}' 2>/dev/null)
-  if echo "$volumes" | grep -q "agent-fix"; then
-    return
-  fi
-
-  local container
-  container=$(kubectl get deployment "$deploy" -n caipe \
-    -o jsonpath='{.spec.template.spec.containers[0].name}' 2>/dev/null)
-
-  kubectl patch deployment "$deploy" -n caipe --type='strategic' -p="{
-    \"spec\": {
-      \"template\": {
-        \"spec\": {
-          \"volumes\": [{
-            \"name\": \"agent-fix\",
-            \"configMap\": {\"name\": \"agent-fix\"}
-          }],
-          \"containers\": [{
-            \"name\": \"${container}\",
-            \"volumeMounts\": [{
-              \"name\": \"agent-fix\",
-              \"mountPath\": \"/app/ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/agent.py\",
-              \"subPath\": \"agent.py\",
-              \"readOnly\": true
-            }]
-          }]
-        }
-      }
-    }
-  }" &>/dev/null
-  log "Applied agent fix volume mount to ${deploy}"
-}
-
 post_deploy_patches() {
   step "Applying post-deploy patches"
   local needs_rollout=false
 
-  # ── 1 & 2. Schema fix + httpx redirect (single ConfigMap) ──
-  _create_agent_patches_configmap
-  for deploy in $AGENT_DEPLOYMENTS; do
-    local before after
-    before=$(kubectl get deployment "$deploy" -n caipe \
-      -o jsonpath='{.spec.template.spec.volumes[*].name}' 2>/dev/null || true)
-    _apply_agent_patches_volume "$deploy"
-    after=$(kubectl get deployment "$deploy" -n caipe \
-      -o jsonpath='{.spec.template.spec.volumes[*].name}' 2>/dev/null || true)
-    [[ "$before" != "$after" ]] && needs_rollout=true
-  done
-
-  # ── 2b. Agent fix (OpenAI response dedup — supervisor only) ──
-  if _create_agent_fix_configmap; then
-    local before_exec after_exec
-    before_exec=$(kubectl get deployment caipe-supervisor-agent -n caipe \
-      -o jsonpath='{.spec.template.spec.volumes[*].name}' 2>/dev/null || true)
-    _apply_agent_fix_volume
-    after_exec=$(kubectl get deployment caipe-supervisor-agent -n caipe \
-      -o jsonpath='{.spec.template.spec.volumes[*].name}' 2>/dev/null || true)
-    [[ "$before_exec" != "$after_exec" ]] && needs_rollout=true
-  fi
-
-  # ── 3. Corporate CA patch (optional) ──
+  # ── 1. Corporate CA patch (optional) ──
   # The CA ConfigMap was already created by prepare_corporate_ca() before Helm deploy.
   # Here we just mount it into the deployments that need outbound TLS.
   if $INJECT_CORPORATE_CA && kubectl get configmap corporate-ca-bundle -n caipe &>/dev/null; then
@@ -4064,15 +3982,15 @@ post_deploy_patches() {
     fi
   fi
 
-  # ── 4. Langfuse secret injection ──
+  # ── 2. Langfuse secret injection ──
   if $ENABLE_TRACING; then
     local envfrom
-    envfrom=$(kubectl get deployment caipe-supervisor-agent -n caipe \
+    envfrom=$(kubectl get deployment caipe-dynamic-agents -n caipe \
       -o jsonpath='{.spec.template.spec.containers[0].envFrom}' 2>/dev/null || true)
     if ! echo "$envfrom" | grep -q "langfuse-secret"; then
-      kubectl patch deployment caipe-supervisor-agent -n caipe --type='json' \
+      kubectl patch deployment caipe-dynamic-agents -n caipe --type='json' \
         -p='[{"op":"add","path":"/spec/template/spec/containers/0/envFrom/-","value":{"secretRef":{"name":"langfuse-secret"}}}]' &>/dev/null
-      log "Langfuse secret patched into supervisor"
+      log "Langfuse secret patched into dynamic-agents"
       needs_rollout=true
     fi
   fi
@@ -4088,7 +4006,7 @@ post_deploy_patches() {
     log "All patches already applied — nothing to do"
   fi
 
-  # ── 5. RAG startup sequencing + RBAC ──
+  # ── 3. RAG startup sequencing + RBAC ──
   # RAG server was deployed with SKIP_INIT_TESTS=true so it wouldn't fail before
   # Milvus/Redis were ready and before the CA bundle was mounted. Now that infra
   # is healthy we disable the skip and restart RAG to run its full init checks.
@@ -4100,9 +4018,9 @@ post_deploy_patches() {
       -o jsonpath='{.data.OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
     _rag_oidc_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
       -o jsonpath='{.data.OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
-    _rag_ingestor_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
+    _rag_ingestor_issuer=$(kubectl get secret rag-ingestor-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
-    _rag_ingestor_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
+    _rag_ingestor_client_id=$(kubectl get secret rag-ingestor-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
     if [[ -n "$_rag_oidc_issuer" && -n "$_rag_oidc_client_id" ]]; then
       local _rag_env_args=(
@@ -4154,9 +4072,9 @@ post_deploy_patches() {
 
   # ── 8b. Set MCP_MODE=http on all agents that have a separate MCP sidecar pod ──
   # By default MCP_MODE is unset (= "stdio"), which causes agents to try to spawn
-  # the MCP server as a local subprocess. In both single-node and distributed Helm
-  # deployments the MCP server runs as a separate pod (caipe-agent-<name>-mcp), so
-  # each agent must use HTTP mode to reach it over the cluster network.
+  # the MCP server as a local subprocess. Each agent's MCP server runs as a
+  # separate pod (caipe-agent-<name>-mcp), so each agent must use HTTP mode to
+  # reach it over the cluster network.
   # Without this fix agents only have fallback tools (tool_result_to_file, wait)
   # and cannot perform any real operations (e.g. Webex post_message, Jira create_issue).
   # We patch MCP_MODE into each agent's secret (preferred) so it survives pod restarts.
@@ -4182,96 +4100,8 @@ post_deploy_patches() {
       && log "netutils agent: MCP_MODE=http set via deployment env"
   fi
 
-  # ── 9. Expose supervisor via nginx ingress at /supervisor sub-path ──
-  # The A2A chat streaming and health checks in the UI are client-side browser
-  # fetches to caipeUrl (A2A_BASE_URL). The supervisor must be reachable from
-  # the user's browser (not just within the cluster). We create a separate nginx
-  # ingress that routes /supervisor(/|$)(.*) → caipe-supervisor-agent:8000 with
-  # path rewrite so the supervisor sees requests at its root (/). The UI's
-  # A2A_BASE_URL is set to https://<domain>/supervisor (done in deploy_caipe).
-  # We also update EXTERNAL_URL on the supervisor so the agent card's "url" field
-  # reflects the publicly accessible URL.
+  # ── 9. Domain-scoped Keycloak SSO setup ──
   if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
-    local supervisor_url="https://${CAIPE_DOMAIN}/supervisor"
-    local tls_secret="caipe-tls"
-
-    # Kubernetes Ingress host must be a DNS name, not an IP.
-    # Use separate YAML for IP vs DNS domains.
-    if [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      kubectl apply -f - &>/dev/null <<SUPERVISOR_INGRESS_EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: caipe-supervisor-agent
-  namespace: caipe
-  annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /\$2
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-spec:
-  ingressClassName: nginx
-  tls:
-  - secretName: ${tls_secret}
-  rules:
-  - http:
-      paths:
-      - path: /supervisor(/|\$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: caipe-supervisor-agent
-            port:
-              number: 8000
-SUPERVISOR_INGRESS_EOF
-    else
-      kubectl apply -f - &>/dev/null <<SUPERVISOR_INGRESS_EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: caipe-supervisor-agent
-  namespace: caipe
-  annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /\$2
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-spec:
-  ingressClassName: nginx
-  tls:
-  - hosts:
-    - ${CAIPE_DOMAIN}
-    secretName: ${tls_secret}
-  rules:
-  - host: ${CAIPE_DOMAIN}
-    http:
-      paths:
-      - path: /supervisor(/|\$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: caipe-supervisor-agent
-            port:
-              number: 8000
-SUPERVISOR_INGRESS_EOF
-    fi
-    log "supervisor ingress: created/updated at ${supervisor_url}"
-
-    # Update EXTERNAL_URL so the agent card returns the public URL
-    local cur_ext
-    cur_ext=$(kubectl get deployment caipe-supervisor-agent -n caipe \
-      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXTERNAL_URL")].value}' \
-      2>/dev/null || true)
-    if [[ "$cur_ext" != "$supervisor_url" ]]; then
-      kubectl set env deployment/caipe-supervisor-agent -n caipe \
-        EXTERNAL_URL="$supervisor_url" &>/dev/null \
-        && log "supervisor: EXTERNAL_URL set to ${supervisor_url}"
-    fi
-
     # In-chart Keycloak SSO over a public DNS domain: NextAuth's server-side
     # callback (token exchange + JWKS) hits the PUBLIC Keycloak endpoints
     # (KC_HOSTNAME). The UI pod resolves the public host to the public IP and
@@ -4296,6 +4126,21 @@ SUPERVISOR_INGRESS_EOF
     # non-admin user. Self-guards via _local_admin_active (RBAC + DNS domain +
     # no brokered IdP).
     provision_local_users
+
+    # RAG web-ingestor service account: creates caipe-web-ingestor client in
+    # Keycloak and stores credentials in rag-ingestor-secret. Must run after
+    # Keycloak is ready and before helm install so the secret exists when the
+    # rag-server and web-ingestor pods start.
+    provision_rag_ingestor_client
+
+    # Add aud=caipe-ui to user access tokens so the Next.js gateway accepts
+    # bearer auth on dynamic-agents streaming endpoints.
+    provision_caipe_ui_audience_mapper
+
+    # Sync Keycloak client redirect URIs / web origins to the current domain.
+    # Must run after audience mapper (which establishes the port-forward pattern)
+    # and is idempotent: safe to re-run on domain changes.
+    update_keycloak_client_urls
   fi
 }
 
@@ -4392,6 +4237,299 @@ JSON
   fi
 }
 
+# Idempotently creates a `caipe-web-ingestor` Keycloak client (client-credentials
+# grant, service-account enabled) and stores the secret in the k8s Secret
+# `rag-ingestor-secret`. Both the rag-server (token validation) and the
+# web-ingestor sidecar (token acquisition) read their INGESTOR_OIDC_* vars from
+# that secret via envFrom, so no credentials appear in Helm values.
+# Must be called after Keycloak is Ready and before helm install/upgrade.
+# assisted-by claude code claude-sonnet-4-6
+provision_rag_ingestor_client() {
+  $ENABLE_RAG || return 0
+
+  # Use the public domain issuer when available; fall back to the in-cluster
+  # Keycloak service URL so the web-ingestor works on Kind without a domain.
+  local issuer_base
+  if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    issuer_base="https://${CAIPE_DOMAIN}"
+  else
+    issuer_base="http://caipe-keycloak.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:8080"
+  fi
+
+  local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$kcadm_user" ]] && kcadm_user="admin"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "RAG ingestor client: no Keycloak admin password available; skipping"
+    return 0
+  fi
+
+  local _pf_port=17085
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=${kcadm_user}" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "RAG ingestor client: could not obtain Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  local client_id="caipe-web-ingestor"
+  local issuer="${issuer_base}/realms/caipe"
+
+  # Check if client already exists
+  local existing_uuid
+  existing_uuid=$(curl -s -H "Authorization: Bearer $tok" \
+    "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
+    | jq -r '.[0].id // empty' 2>/dev/null)
+
+  local client_secret
+  if [[ -n "$existing_uuid" ]]; then
+    # Regenerate secret for idempotency (re-runs get a fresh secret stored in k8s)
+    client_secret=$(curl -s -X POST -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients/${existing_uuid}/client-secret" \
+      | jq -r '.value // empty' 2>/dev/null)
+    log "RAG ingestor client: reused existing '${client_id}', refreshed secret"
+  else
+    # Create the client
+    local create_body
+    create_body=$(cat <<JSON
+{
+  "clientId": "${client_id}",
+  "name": "CAIPE RAG Web Ingestor",
+  "description": "Service account for the RAG web-ingestor sidecar to authenticate to the RAG server",
+  "enabled": true,
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "bearerOnly": false,
+  "standardFlowEnabled": false,
+  "implicitFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "serviceAccountsEnabled": true,
+  "clientAuthenticatorType": "client-secret"
+}
+JSON
+)
+    local create_code
+    create_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/clients" -d "$create_body")
+    if [[ ! "$create_code" =~ ^20 ]]; then
+      warn "RAG ingestor client: Keycloak client creation returned HTTP ${create_code}; skipping"
+      kill "$_pf" 2>/dev/null || true
+      return 0
+    fi
+    existing_uuid=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
+      | jq -r '.[0].id // empty' 2>/dev/null)
+    client_secret=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients/${existing_uuid}/client-secret" \
+      | jq -r '.value // empty' 2>/dev/null)
+    # Add a hardcoded-audience mapper so the token carries aud=caipe-web-ingestor.
+    # The rag-server auth manager validates audience against INGESTOR_OIDC_CLIENT_ID;
+    # Keycloak does not include the client_id in aud by default.
+    curl -s -o /dev/null -X POST \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/clients/${existing_uuid}/protocol-mappers/models" -d "{
+        \"name\": \"caipe-web-ingestor-audience\",
+        \"protocol\": \"openid-connect\",
+        \"protocolMapper\": \"oidc-hardcoded-claim-mapper\",
+        \"config\": {
+          \"claim.name\": \"aud\",
+          \"claim.value\": \"${client_id}\",
+          \"jsonType.label\": \"String\",
+          \"id.token.claim\": \"false\",
+          \"access.token.claim\": \"true\",
+          \"access.tokenResponse.claim\": \"false\"
+        }
+      }"
+    log "RAG ingestor client: created '${client_id}' in Keycloak realm 'caipe'"
+  fi
+
+  kill "$_pf" 2>/dev/null || true
+
+  if [[ -z "$client_secret" ]]; then
+    warn "RAG ingestor client: could not retrieve client secret; skipping"
+    return 0
+  fi
+
+  # Store in k8s secret so both rag-server and web-ingestor can mount it via envFrom
+  kubectl create secret generic rag-ingestor-secret -n caipe \
+    --from-literal=INGESTOR_OIDC_ISSUER="${issuer}" \
+    --from-literal=INGESTOR_OIDC_CLIENT_ID="${client_id}" \
+    --from-literal=INGESTOR_OIDC_CLIENT_SECRET="${client_secret}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+  log "RAG ingestor client: credentials stored in rag-ingestor-secret (issuer=${issuer})"
+  RAG_INGESTOR_SECRET_READY=true
+  RAG_INGESTOR_OIDC_ISSUER="${issuer}"
+  RAG_INGESTOR_OIDC_CLIENT_ID="${client_id}"
+
+  # Restart rag-server so the web-ingestor sidecar picks up the new secret.
+  # Use maxUnavailable=1/maxSurge=0 to avoid scheduling failure on CPU-constrained
+  # single-node clusters where a surge pod cannot fit alongside the old pod.
+  if kubectl get deploy rag-server -n caipe &>/dev/null 2>&1; then
+    local _rs_patch='{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1,"maxSurge":0}}}}'
+    kubectl patch deploy rag-server -n caipe -p "$_rs_patch" &>/dev/null 2>&1 || true
+    kubectl rollout restart deploy/rag-server -n caipe &>/dev/null 2>&1 || true
+    kubectl rollout status deploy/rag-server -n caipe --timeout=120s &>/dev/null 2>&1 || true
+    local _rs_restore='{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":"25%","maxSurge":"25%"}}}}'
+    kubectl patch deploy rag-server -n caipe -p "$_rs_restore" &>/dev/null 2>&1 || true
+    log "RAG ingestor: rag-server restarted to pick up new client secret"
+  fi
+}
+
+# Update caipe-ui and caipe-platform Keycloak client redirect URIs, web origins,
+# and root URL to match CAIPE_DOMAIN. Keycloak imports the realm once at first
+# install; the imported URIs are never updated by helm upgrade, so a domain
+# change (e.g. caipe.local.me → caipe.example.com) leaves stale URIs
+# that cause "Invalid parameter: redirect_uri" on login.
+# assisted-by claude code claude-sonnet-4-6
+update_keycloak_client_urls() {
+  $ENABLE_RBAC_RUNTIME || return 0
+  [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
+
+  local kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "update_keycloak_client_urls: no Keycloak admin password; skipping"
+    return 0
+  fi
+
+  local _pf_port=17087
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=admin" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "update_keycloak_client_urls: could not obtain Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  local target_origin="https://${CAIPE_DOMAIN}"
+  for client_id in caipe-ui caipe-platform; do
+    local uuid
+    uuid=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
+      | jq -r '.[0].id // empty' 2>/dev/null)
+    [[ -z "$uuid" ]] && continue
+
+    local current body http_code
+    current=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients/${uuid}")
+    body=$(echo "$current" | jq \
+      --arg origin "$target_origin" \
+      '.redirectUris = [$origin + "/*"] | .webOrigins = [$origin] | .rootUrl = $origin | .baseUrl = "/"')
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/clients/${uuid}" -d "$body")
+
+    if [[ "$http_code" == "204" ]]; then
+      log "Keycloak ${client_id}: redirect URIs updated to ${target_origin}/*"
+    else
+      warn "Keycloak ${client_id}: redirect URI update returned HTTP ${http_code}"
+    fi
+  done
+
+  kill "$_pf" 2>/dev/null || true
+}
+
+# Add an oidc-audience-mapper to the caipe-ui Keycloak client so that the
+# user's access token carries aud=caipe-ui. The Next.js gateway validates bearer
+# tokens against OIDC_CLIENT_ID=caipe-ui; without this mapper the token has
+# aud=["account"] only and the dynamic-agents streaming endpoint returns 401
+# BEARER_AUDIENCE_MISMATCH.
+# assisted-by claude code claude-sonnet-4-6
+provision_caipe_ui_audience_mapper() {
+  $ENABLE_RBAC_RUNTIME || return 0
+  [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
+
+  local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$kcadm_user" ]] && kcadm_user="admin"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "caipe-ui audience mapper: no Keycloak admin password available; skipping"
+    return 0
+  fi
+
+  local _pf_port=17086
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=${kcadm_user}" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "caipe-ui audience mapper: could not obtain Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  local client_uuid
+  client_uuid=$(curl -s -H "Authorization: Bearer $tok" \
+    "$kc/admin/realms/caipe/clients?clientId=caipe-ui" \
+    | jq -r '.[0].id // empty' 2>/dev/null)
+  if [[ -z "$client_uuid" ]]; then
+    warn "caipe-ui audience mapper: could not find caipe-ui client; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  # Idempotent: 409 Conflict means the mapper already exists
+  local http_code
+  http_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+    "$kc/admin/realms/caipe/clients/${client_uuid}/protocol-mappers/models" -d '{
+      "name": "caipe-ui-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "config": {
+        "included.client.audience": "caipe-ui",
+        "id.token.claim": "false",
+        "access.token.claim": "true"
+      }
+    }')
+  kill "$_pf" 2>/dev/null || true
+
+  if [[ "$http_code" == "201" ]]; then
+    log "caipe-ui audience mapper: created (aud=caipe-ui will be included in access tokens)"
+  elif [[ "$http_code" == "409" ]]; then
+    log "caipe-ui audience mapper: already exists (idempotent)"
+  else
+    warn "caipe-ui audience mapper: unexpected HTTP ${http_code}"
+  fi
+}
+
 # True when we should self-provision a local Keycloak admin login. Requires the
 # RBAC runtime + a DNS domain (SSO needs a browser-reachable issuer) and is
 # skipped when an upstream IdP is brokered (IDP_ISSUER set in an env file) —
@@ -4469,7 +4607,7 @@ provision_local_users() {
     local email="$1" pw="$2" first="$3" last="$4" uid body
     uid=$(curl -s -H "Authorization: Bearer $tok" \
       "$kc/admin/realms/caipe/users?email=${email}&exact=true" \
-      | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+      | jq -r '.[0].id // empty' 2>/dev/null)
     body=$(cat <<JSON
 {"username":"${email}","email":"${email}","emailVerified":true,"enabled":true,"firstName":"${first}","lastName":"${last}","credentials":[{"type":"password","value":"${pw}","temporary":false}]}
 JSON
@@ -4547,7 +4685,7 @@ _patch_rag_server_envfrom() {
 # R2 (May 2026): The bitnami/mongodb install used to ship with the
 # literal password "changeme" baked into four sites in this script
 # (helm upgrade auth.rootPassword + auth.passwords[0], plus the
-# MONGODB_URI written into the dynamic-agents/supervisor/ui ConfigMaps).
+# MONGODB_URI written into the dynamic-agents/ui ConfigMaps).
 # Any operator who ran the workshop on-ramp inherited the same admin
 # password — and the same cluster-internal `mongodb://admin:changeme@…`
 # URI made it into the BFF's session-store Secret.
@@ -4673,10 +4811,15 @@ deploy_shared_postgres() {
       --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   fi
 
-  if kubectl get statefulset "${SHARED_PG_SERVICE}" -n caipe &>/dev/null; then
-    log "Shared Postgres already present (${SHARED_PG_SERVICE}) — skipping install"
-    return 0
-  fi
+  # Try known name variants (bitnami 18.x uses -primary suffix in standalone mode).
+  # Use GET-by-name to avoid RBAC restrictions on cluster-wide LIST operations.
+  local _pg_sts_check
+  for _pg_sts_check in "${SHARED_PG_SERVICE}" "${SHARED_PG_SERVICE}-primary"; do
+    if kubectl get statefulset "$_pg_sts_check" -n caipe &>/dev/null; then
+      log "Shared Postgres already present (${_pg_sts_check}) — skipping install"
+      return 0
+    fi
+  done
 
   step "Deploying shared Postgres (${SHARED_PG_SERVICE}) for Keycloak/OpenFGA"
 
@@ -4697,18 +4840,69 @@ CREATE DATABASE litellm OWNER litellm;
 PGINIT
   fi
 
-  helm repo add bitnami https://charts.bitnami.com/bitnami &>/dev/null 2>&1 || true
-  helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
+  helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+  helm repo update bitnami 2>/dev/null || true
+  if ! helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
     -n caipe \
+    --create-namespace \
     --set "fullnameOverride=${SHARED_PG_SERVICE}" \
     --set architecture=standalone \
     --set "auth.postgresPassword=${SHARED_PG_ADMIN_PASSWORD}" \
     --set primary.persistence.size=4Gi \
     --set-file "primary.initdb.scripts.caipe-init\.sql=${initdb_file}" \
-    --timeout 5m &>/dev/null
+    --timeout 5m 2>&1 | while IFS= read -r line; do log "$line"; done; then
+    rm -f "$initdb_file"
+    err "Shared Postgres install failed — check the output above and re-run"
+    exit 1
+  fi
   rm -f "$initdb_file"
 
-  kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s &>/dev/null
+  # Let the API server process all resource creation before we start polling.
+  sleep 5
+
+  # Resolve the actual StatefulSet name — bitnami postgresql 18.x names it
+  # 'caipe-postgres-primary' in standalone mode, not 'caipe-postgres'.
+  # Use GET-by-name for each known variant to avoid RBAC list restrictions.
+  log "Waiting for Postgres StatefulSet to appear..."
+  local _pg_sts="" _pg_deadline=$(( SECONDS + 90 ))
+  until [[ -n "$_pg_sts" ]]; do
+    local _candidate
+    for _candidate in "${SHARED_PG_SERVICE}" "${SHARED_PG_SERVICE}-primary"; do
+      if kubectl get statefulset "$_candidate" -n caipe &>/dev/null; then
+        _pg_sts="$_candidate"
+        break
+      fi
+    done
+    if [[ -z "$_pg_sts" ]]; then
+      if [[ $SECONDS -ge $_pg_deadline ]]; then
+        err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet after 90s"
+        err "--- helm release status ---"
+        helm status "${SHARED_PG_SERVICE}" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- GET by name attempts ---"
+        kubectl get statefulset "${SHARED_PG_SERVICE}" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        kubectl get statefulset "${SHARED_PG_SERVICE}-primary" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- StatefulSets in all namespaces ---"
+        kubectl get statefulset --all-namespaces 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- Pods in namespace caipe ---"
+        kubectl get pods -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- GET pod caipe-postgres-0 by name ---"
+        kubectl get pod caipe-postgres-0 -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- kubectl context + server ---"
+        kubectl config current-context 2>&1 | while IFS= read -r l; do err "  context: $l"; done
+        kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}' 2>&1 \
+          | while IFS= read -r l; do err "  server: $l"; done
+        err "--- helm env (shows KUBECONFIG helm is using) ---"
+        helm env 2>&1 | grep -E 'KUBE|DATA' | while IFS= read -r l; do err "  $l"; done
+        err "--- KUBECONFIG env var ---"
+        err "  KUBECONFIG=${KUBECONFIG:-<unset>}"
+        exit 1
+      fi
+      sleep 3
+    fi
+  done
+  log "Waiting for Postgres to be ready (StatefulSet: ${_pg_sts})..."
+  kubectl rollout status statefulset/"${_pg_sts}" -n caipe --timeout=300s 2>&1 \
+    | while IFS= read -r line; do log "$line"; done
   log "Shared Postgres deployed (${SHARED_PG_SERVICE}) with keycloak/openfga databases"
 }
 
@@ -4841,45 +5035,6 @@ subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
       &>/dev/null || true
   fi
 
-  # Patch MONGODB_URI into the supervisor ConfigMap so it reads task configs
-  # from MongoDB instead of falling back to task_config.yaml only.
-  # In multi-node mode the supervisor mounts caipe-supervisor-agent-env;
-  # in single-node mode it mounts caipe-single-node-agent-env — patch both.
-  local needs_restart=0
-  if kubectl get cm caipe-supervisor-agent-env -n caipe &>/dev/null; then
-    local cur_sup_uri
-    cur_sup_uri=$(kubectl get cm caipe-supervisor-agent-env -n caipe \
-      -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
-    if [[ "$cur_sup_uri" != "$mongo_uri" ]]; then
-      python3 -c "
-import subprocess, json
-patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 'caipe'}})
-subprocess.run(['kubectl','patch','cm','caipe-supervisor-agent-env',
-  '-n','caipe','--type','merge','-p',patch], check=False)
-"
-      needs_restart=1
-      log "supervisor MONGODB_URI patched (multi-node cm) → ${mongo_uri}"
-    fi
-  fi
-  # Also patch caipe-single-node-agent-env (single-node deployments)
-  if kubectl get cm caipe-single-node-agent-env -n caipe &>/dev/null; then
-    local cur_sn_uri
-    cur_sn_uri=$(kubectl get cm caipe-single-node-agent-env -n caipe \
-      -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
-    if [[ "$cur_sn_uri" != "$mongo_uri" ]]; then
-      python3 -c "
-import subprocess, json
-patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 'caipe'}})
-subprocess.run(['kubectl','patch','cm','caipe-single-node-agent-env',
-  '-n','caipe','--type','merge','-p',patch], check=False)
-"
-      needs_restart=1
-      log "supervisor MONGODB_URI patched (single-node cm) → ${mongo_uri}"
-    fi
-  fi
-  if [[ "$needs_restart" -eq 1 ]]; then
-    kubectl rollout restart deploy/caipe-supervisor-agent -n caipe &>/dev/null
-  fi
 }
 
 _wait_for_milvus() {
@@ -4919,22 +5074,6 @@ _finalize_rag_startup() {
       | wc -l | tr -d ' ')
     if [[ "$rag_status" -gt 0 ]]; then
       log "RAG server is healthy"
-      log "Restarting supervisor to reconnect to RAG server..."
-      kubectl rollout restart deployment/caipe-supervisor-agent -n caipe &>/dev/null || true
-      SUPERVISOR_RAG_RESTARTED=true
-      local sup_wait=0
-      while [[ $sup_wait -lt 60 ]]; do
-        local sup_ready
-        sup_ready=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
-          | awk '/caipe-supervisor-agent/ && $3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print}' \
-          | wc -l | tr -d ' ')
-        if [[ "$sup_ready" -gt 0 ]]; then
-          log "Supervisor is ready with RAG connection"
-          break
-        fi
-        sleep 5
-        sup_wait=$((sup_wait + 5))
-      done
       return 0
     fi
 
@@ -5129,41 +5268,56 @@ deploy_vllm() {
 # combos so a bare --litellm never breaks an otherwise-valid install.
 _finalize_litellm_mode() {
   $LLM_VIA_LITELLM || return 0
-  if $ENABLE_VLLM || $ENABLE_OLLAMA; then
-    warn "--litellm ignored: vLLM/Ollama mode already routes through LiteLLM"
+  if $ENABLE_VLLM; then
+    warn "--litellm ignored: vLLM mode already routes through LiteLLM"
     LLM_VIA_LITELLM=false
     return 0
   fi
   case "$LLM_PROVIDER" in
     anthropic-claude|openai|aws-bedrock|azure-openai) ;;
     *)
-      warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
-      LLM_VIA_LITELLM=false
-      return 0
+      # Ollama sets LLM_PROVIDER=openai, so it passes the check above.
+      # Any other unknown provider is unsupported.
+      if ! $ENABLE_OLLAMA; then
+        warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
+        LLM_VIA_LITELLM=false
+        return 0
+      fi
       ;;
   esac
 
-  LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
-  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
-  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
-  LITELLM_ENDPOINT="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  local _lep="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  LITELLM_ENDPOINT="$_lep"
   LITELLM_API_KEY="$LITELLM_MASTER_KEY"
+  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
+  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
 
-  # Only OpenAI-compatible embeddings can be fronted by the proxy; other
-  # embeddings providers (bedrock/cohere/huggingface/voyage) keep their native
-  # path so RAG still works.
-  case "$EMBEDDINGS_PROVIDER" in
-    openai|azure-openai)
-      LITELLM_ROUTE_EMBEDDINGS=true
-      EMBEDDINGS_PROVIDER="litellm"
-      EMBEDDINGS_MODEL="caipe-embeddings"
-      ;;
-    *)
-      LITELLM_ROUTE_EMBEDDINGS=false
-      ;;
-  esac
+  if $ENABLE_OLLAMA; then
+    LITELLM_CHAT_SOURCE="ollama"
+    # Route Ollama embeddings through LiteLLM too so everything goes via
+    # the single proxy endpoint.
+    LITELLM_ROUTE_EMBEDDINGS=true
+    LITELLM_EMBED_SOURCE="ollama"
+    EMBEDDINGS_PROVIDER="litellm"
+    # Keep the real embed model name (e.g. nomic-embed-text) — LiteLLM
+    # registers it under that same alias in the model_list.
+  else
+    LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
+    # Only OpenAI-compatible embeddings can be fronted by the proxy; other
+    # providers (bedrock/cohere/huggingface/voyage) keep their native path.
+    case "$EMBEDDINGS_PROVIDER" in
+      openai|azure-openai)
+        LITELLM_ROUTE_EMBEDDINGS=true
+        EMBEDDINGS_PROVIDER="litellm"
+        EMBEDDINGS_MODEL="caipe-embeddings"
+        ;;
+      *)
+        LITELLM_ROUTE_EMBEDDINGS=false
+        ;;
+    esac
+  fi
 
-  log "Unified LiteLLM mode ON — chat=${LITELLM_CHAT_SOURCE}, embeddings source=${LITELLM_EMBED_SOURCE} (routed via proxy: ${LITELLM_ROUTE_EMBEDDINGS})"
+  log "LiteLLM proxy mode ON — chat=${LITELLM_CHAT_SOURCE}, embed_source=${LITELLM_EMBED_SOURCE} (routed: ${LITELLM_ROUTE_EMBEDDINGS})"
 }
 
 # Build the proxy model_list for unified mode from the captured real provider and
@@ -5193,6 +5347,15 @@ _litellm_unified_assets() {
   local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}}}"
 
   case "$LITELLM_CHAT_SOURCE" in
+    ollama)
+      local _ollama_base="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "ollama/'"${OLLAMA_MODEL}"'"
+          api_base: "'"${_ollama_base}"'"
+'
+      # No upstream secret needed — Ollama has no auth
+      ;;
     anthropic-claude)
       ml+='      - model_name: "caipe-chat"
         litellm_params:
@@ -5240,6 +5403,14 @@ _litellm_unified_assets() {
 
   if $LITELLM_ROUTE_EMBEDDINGS; then
     case "$LITELLM_EMBED_SOURCE" in
+      ollama)
+        local _ollama_base="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+        ml+='      - model_name: "'"${LITELLM_EMBED_MODEL_REAL}"'"
+        litellm_params:
+          model: "ollama/'"${LITELLM_EMBED_MODEL_REAL}"'"
+          api_base: "'"${_ollama_base}"'"
+'
+        ;;
       openai)
         ml+='      - model_name: "caipe-embeddings"
         litellm_params:
@@ -5429,7 +5600,6 @@ _write_rbac_runtime_values() {
   env:
     KC_HOSTNAME: "https://${CAIPE_DOMAIN}"
     KC_PROXY_HEADERS: "xforwarded"
-    KC_HOSTNAME_STRICT: "false"
   ingress:
     enabled: true
     className: "nginx"
@@ -5722,26 +5892,12 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
-    # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, the
-    # /api/a2a health probe, etc.). Must use the internal k8s service URL to
-    # avoid hairpin routing failures through the nginx ingress when the pod calls
-    # its own cluster domain. NOTE: these MUST be set under caipe-ui.config.* (the
-    # caipe-ui Deployment consumes config via `envFrom: caipe-caipe-ui-config`
-    # and defines no explicit env: entries, so caipe-ui.env.* is silently
-    # ignored). The chart's default config.A2A_BASE_URL hardcodes the DEFAULT
-    # release name (ai-platform-engineering-supervisor-agent); since we install as
-    # release "caipe" the service is caipe-supervisor-agent, so we must override
-    # it or the UI shows the Supervisor permanently OFFLINE.
-    --set "caipe-ui.config.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
-    # NEXT_PUBLIC_A2A_BASE_URL: client-side browser fetches (A2A streaming, health)
-    # Must be the externally reachable URL so the browser can connect (via the
-    # /supervisor ingress that routes to caipe-supervisor-agent:8000).
-    --set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
+    # The UI reaches the dynamic-agents runtime server-side via DYNAMIC_AGENTS_URL.
+    # The caipe-ui chart already defaults that to http://<release>-dynamic-agents:8001
+    # (the internal k8s service), so no override is needed here. The browser never
+    # talks to dynamic-agents directly — chat streaming is proxied through the
+    # Next.js BFF — so there is no public base URL to set.
   )
-  # When no domain is set (local dev), default to localhost for port-forward usage
-  if [[ -z "$CAIPE_DOMAIN" ]]; then
-    helm_args+=(--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
-  fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
   # patched in provision_ui_secret; here we flip the server-side flag too)
@@ -5773,23 +5929,15 @@ deploy_caipe() {
     fi
   fi
 
-  # ── Deployment mode ──────────────────────────────────────────────────────
-  # all-in-one: supervisor loads all agent integrations in-process via MCP.
-  #   - Single pod, lower footprint, task builder tools work via /tools endpoint.
-  # distributed: each agent runs as its own A2A service pod (legacy multi-node).
-  if [[ "${CAIPE_DEPLOYMENT_MODE:-all-in-one}" == "all-in-one" ]]; then
+  # Wire the config-bridge bearer token secret so the sidecar can authenticate
+  # to the BFF's internal MCP-targets endpoint. caipe-ui-secret holds the same
+  # key (patched in create_namespace_and_secrets), so both sides share the token.
+  if $ENABLE_AGENTGATEWAY; then
     helm_args+=(
-      --set "global.deploymentMode=single-node"
-      --set "supervisor-agent.image.args={platform-engineer-single}"
-      --set "supervisor-agent.env.SKIP_AGENT_CONNECTIVITY_CHECK=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.netutils=true"
+      --set "global.agentgateway.static.configBridge.bff.existingSecret.name=caipe-ui-secret"
+      --set "openfga-authz-bridge.agentContext.existingSecret.name=caipe-ui-secret"
+      --set "dynamic-agents.agentContext.existingSecret.name=caipe-ui-secret"
     )
-    log "Deployment mode: All-in-One (single supervisor with embedded agents)"
-  else
-    helm_args+=(
-      --set "global.deploymentMode=multi-node"
-    )
-    log "Deployment mode: Distributed (each agent runs as its own service)"
   fi
 
   # Append per-agent enable/secret flags collected interactively
@@ -5821,6 +5969,16 @@ deploy_caipe() {
       da_oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
       da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
       da_oidc_admin_group=$(_env_get "$UI_ENV_FILE" "OIDC_REQUIRED_ADMIN_GROUP")
+    fi
+    # Fallback: derive issuer from CAIPE_DOMAIN when the env file doesn't have it.
+    # Keycloak sets KC_HOSTNAME=https://${CAIPE_DOMAIN} so tokens carry that as iss.
+    # dynamic-agents must use the same issuer string; without it tokens fail validation
+    # with "Invalid issuer" (internal http://keycloak:8080 vs external https://domain).
+    if [[ -z "$da_oidc_issuer" && -n "${CAIPE_DOMAIN:-}" ]]; then
+      da_oidc_issuer="https://${CAIPE_DOMAIN}/realms/caipe"
+    fi
+    if [[ -z "$da_oidc_client_id" ]]; then
+      da_oidc_client_id="caipe-platform"
     fi
     # Seed configuration: models + MCP servers pointing to cluster-local services.
     # Also carries auth/OIDC config — using a values file avoids --set comma
@@ -5864,12 +6022,14 @@ DAEOF
       fi
     fi
 
-    # Build provider-appropriate model list for the seed config.
+    # Build provider-appropriate model list.
+    # caipe-ui.appConfig.models → caipe-caipe-ui-app-config ConfigMap →
+    # APP_CONFIG_PATH env → applySeedConfig() at ui startup → llm_models MongoDB.
     # Bedrock requires cross-region inference profile IDs (global.anthropic.* or us.anthropic.*).
     # Anthropic-claude and Azure use short model names.
     cat >> "$_da_values_file" <<DAEOF
-  seedConfig:
-    enabled: true
+caipe-ui:
+  appConfig:
     models:
 DAEOF
     if [[ "$_provider" == "aws-bedrock" ]]; then
@@ -5903,8 +6063,30 @@ DAEOF
         provider: "azure-openai"
         description: "GPT-4o via Azure OpenAI"
 DAEOF
+    elif $ENABLE_OLLAMA; then
+      # Ollama uses the OpenAI-compatible API; seed the actual Ollama model name
+      # (OPENAI_MODEL_NAME = OLLAMA_MODEL, e.g. lfm2.5) so dynamic agents can find it.
+      local _ollama_display="${OPENAI_MODEL_NAME:-qwen3:0.6b}"
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "${_ollama_display}"
+        name: "${_ollama_display} (Ollama)"
+        provider: "openai"
+        description: "Local model served via in-cluster Ollama"
+DAEOF
+    elif [[ "$_provider" == "openai" ]]; then
+      local _oai_model="${OPENAI_MODEL_NAME:-gpt-4o-mini}"
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "gpt-4o-mini"
+        name: "GPT-4o Mini"
+        provider: "openai"
+        description: "Fast GPT-4o Mini via OpenAI"
+      - model_id: "${_oai_model}"
+        name: "${_oai_model}"
+        provider: "openai"
+        description: "Primary model via OpenAI"
+DAEOF
     else
-      # anthropic-claude (default) and other providers use short model names
+      # anthropic-claude (default)
       local _anthropic_model="${ANTHROPIC_MODEL_NAME:-claude-haiku-4-5}"
       cat >> "$_da_values_file" <<DAEOF
       - model_id: "${_anthropic_model}"
@@ -5921,7 +6103,7 @@ DAEOF
     mcp_servers:
 DAEOF
 
-    # Add a seedConfig entry for each deployed MCP agent.
+    # Add an appConfig entry for each deployed MCP agent.
     # The script deploys agents from _AGENT_TAGS when enabled; always add netutils.
     declare -A _MCP_META=(
       [argocd]="ArgoCD|ArgoCD application and deployment management"
@@ -5938,7 +6120,7 @@ DAEOF
       [github]="GitHub|GitHub repository and workflow management"
     )
     # Always-on agents
-    local _always_on=(netutils weather)
+    local _always_on=(netutils)
     local _seeded=()
     for _a in "${_always_on[@]}"; do
       [[ -n "${_MCP_META[$_a]+_}" ]] || continue
@@ -5991,7 +6173,7 @@ DAEOF
     fi
 
     helm_args+=(--values "$_da_values_file")
-    log "Dynamic agents seedConfig: models + MCP servers written to ${_da_values_file}"
+    log "caipe-ui appConfig + dynamic-agents auth: models + MCP servers written to ${_da_values_file}"
   fi
 
   # When a domain is set, push non-sensitive config values from the ui-env-file
@@ -6010,17 +6192,6 @@ DAEOF
       val=$(_env_get "$UI_ENV_FILE" "$key")
       if [[ -n "$val" ]]; then helm_args+=(--set "caipe-ui.config.${key}=${val}"); fi
     done
-
-    # Skills panel: proxy /skills* and /internal/supervisor/skills-status to the supervisor.
-    # The service name follows Helm release naming: <release>-supervisor-agent.
-    helm_args+=(--set "caipe-ui.config.BACKEND_SKILLS_URL=http://caipe-supervisor-agent:8000")
-
-    # Limit tool output size to prevent LLM context overflow (per-tool cap in chars).
-    # GitHub MCP list tools (list_pull_requests etc.) can return 100K+ tokens untruncated.
-    helm_args+=(
-      --set "supervisor-agent.env.GH_CLI_MAX_OUTPUT_SIZE=8000"
-      --set "supervisor-agent.env.MAX_TOOL_OUTPUT_SIZE=8000"
-    )
   fi
 
   if $ENABLE_RAG; then
@@ -6034,6 +6205,7 @@ DAEOF
       --set "caipe-ui.config.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER}"
+      ${EMBEDDINGS_DIMENSIONS:+--set "rag-stack.rag-server.env.EMBEDDINGS_DIMENSIONS=${EMBEDDINGS_DIMENSIONS}"}
       --set 'rag-stack.milvus.cluster.enabled=false'
       --set 'rag-stack.milvus.standalone.disk.enabled=true'
       --set 'rag-stack.milvus.etcd.replicaCount=1'
@@ -6041,9 +6213,44 @@ DAEOF
       --set 'rag-stack.milvus.minio.replicas=1'
       --set 'rag-stack.milvus.minio.persistence.size=10Gi'
       --set 'rag-stack.milvus.minio.resources.requests.memory=256Mi'
-      --set 'supervisor-agent.env.RAG_SERVER_URL=http://rag-server:9446'
       --set 'rag-stack.rag-server.env.SKIP_INIT_TESTS=true'
     )
+    # Wire UI OIDC provider into rag-server so user tokens are validated.
+    if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+      helm_args+=(
+        --set "rag-stack.rag-server.env.OIDC_ISSUER=https://${CAIPE_DOMAIN}/realms/caipe"
+        --set 'rag-stack.rag-server.env.OIDC_CLIENT_ID=caipe-ui'
+        --set 'rag-stack.rag-server.env.OIDC_GROUP_CLAIM=members\,groups'
+      )
+    fi
+    # Pre-load ingestor secret state from an existing cluster secret so that
+    # re-runs (upgrade path) also get webIngestor.enabled=true without having
+    # to wait for post_deploy_patches to re-provision Keycloak credentials.
+    if [[ "${RAG_INGESTOR_SECRET_READY:-false}" != "true" ]] \
+        && kubectl get secret rag-ingestor-secret -n caipe &>/dev/null 2>&1; then
+      RAG_INGESTOR_OIDC_ISSUER=$(kubectl get secret rag-ingestor-secret -n caipe \
+        -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
+      RAG_INGESTOR_OIDC_CLIENT_ID=$(kubectl get secret rag-ingestor-secret -n caipe \
+        -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
+      [[ -n "$RAG_INGESTOR_OIDC_ISSUER" ]] && RAG_INGESTOR_SECRET_READY=true \
+        && log "RAG web-ingestor: loaded existing rag-ingestor-secret from cluster"
+    fi
+    # Wire Keycloak client credentials into both rag-server (token validation)
+    # and web-ingestor (token acquisition) when the secret was provisioned.
+    if [[ "${RAG_INGESTOR_SECRET_READY:-false}" == "true" ]]; then
+      helm_args+=(
+        --set 'rag-stack.rag-server.webIngestor.enabled=true'
+        --set 'rag-stack.rag-server.webIngestor.envFrom[0].secretRef.name=rag-ingestor-secret'
+        # Pass non-secret OIDC config directly as env so the rag-server auth manager
+        # can validate ingestor tokens even before the envFrom template fix ships.
+        --set "rag-stack.rag-server.env.INGESTOR_OIDC_ISSUER=${RAG_INGESTOR_OIDC_ISSUER}"
+        --set "rag-stack.rag-server.env.INGESTOR_OIDC_CLIENT_ID=${RAG_INGESTOR_OIDC_CLIENT_ID}"
+      )
+      log "RAG web-ingestor: Keycloak OIDC credentials wired via rag-ingestor-secret"
+    else
+      helm_args+=(--set 'rag-stack.rag-server.webIngestor.enabled=false')
+      log "RAG web-ingestor: disabled (no Keycloak credentials available)"
+    fi
 
     if [[ "$EMBEDDINGS_PROVIDER" == "litellm" && -n "${LITELLM_ENDPOINT:-}" ]]; then
       helm_args+=(
@@ -6086,25 +6293,15 @@ DAEOF
   fi
 
   if $ENABLE_TRACING; then
+    # dynamic-agents uses cnoe-agent-utils TracingManager, which reads
+    # ENABLE_TRACING + the LANGFUSE_* creds from its config. Langfuse public/
+    # secret keys are wired separately (langfuse secret); here we flip the
+    # flag and point at the in-cluster Langfuse host.
     helm_args+=(
-      --set supervisor-agent.env.ENABLE_TRACING=true
-      --set supervisor-agent.env.LANGFUSE_TRACING_ENABLED=true
-      --set supervisor-agent.env.LANGFUSE_HOST=http://langfuse-web.langfuse.svc.cluster.local:3000
-      --set supervisor-agent.env.OTEL_EXPORTER_OTLP_ENDPOINT=http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel
+      --set dynamic-agents.config.ENABLE_TRACING=true
+      --set dynamic-agents.config.LANGFUSE_HOST=http://langfuse-web.langfuse.svc.cluster.local:3000
     )
     log "Tracing configuration added"
-  fi
-
-  if $ENABLE_PERSISTENCE; then
-    helm_args+=(
-      --set 'global.langgraphRedis.enabled=true'
-      --set 'supervisor-agent.checkpointPersistence.type=redis'
-      --set 'supervisor-agent.checkpointPersistence.redis.autoDiscoverService=langgraph-redis'
-      --set 'supervisor-agent.memoryPersistence.type=redis'
-      --set 'supervisor-agent.memoryPersistence.redis.autoDiscoverService=langgraph-redis'
-      --set 'supervisor-agent.memoryPersistence.enableFactExtraction=true'
-    )
-    log "Redis persistence configured (langgraph-redis subchart, fact extraction enabled)"
   fi
 
   if $ENABLE_RBAC_RUNTIME; then
@@ -6157,7 +6354,7 @@ DAEOF
       --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffer-size=128k"
       --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffers-number=4"
       --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-busy-buffers-size=256k"
-      # Long timeout for SSE streaming (dynamic agents, supervisor A2A).
+      # Long timeout for SSE streaming (dynamic agents chat).
       # Default nginx 60s kills connections mid-stream when LLM is still generating.
       --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-read-timeout=3600"
       --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-send-timeout=3600"
@@ -6175,11 +6372,30 @@ DAEOF
     log "UI secret helm args added"
   fi
 
+  # Delete any stale helm hook Jobs from a previous failed install/upgrade.
+  # If left behind they block pre-upgrade hooks on the next run (helm waits
+  # for them and hits the deadline). Safe to delete: helm recreates them.
+  kubectl delete jobs -n "${CAIPE_NAMESPACE:-caipe}" \
+    -l 'helm.sh/hook' --ignore-not-found 2>/dev/null || true
+
   if ! helm upgrade --install caipe "$CAIPE_OCI_REPO" "${helm_args[@]}" 2>&1; then
     err "Helm install failed (see output above)"
     exit 1
   fi
   log "CAIPE Helm release deployed"
+
+  # Helm only restarts pods when the Deployment spec changes, not on ConfigMap-only
+  # updates. When OIDC_ISSUER / AUTH_ENABLED are freshly set (domain run), the
+  # dynamic-agents pod must be cycled so it picks up the new issuer from the ConfigMap.
+  # Without this it keeps using the internal http://keycloak:8080 issuer URL and rejects
+  # every token with "Invalid issuer", blocking all chat in the Custom Agents UI.
+  if $ENABLE_DYNAMIC_AGENTS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    if kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
+      kubectl rollout status deploy/caipe-dynamic-agents -n caipe --timeout=120s &>/dev/null 2>&1 || true
+      log "dynamic-agents: restarted to apply OIDC issuer config"
+    fi
+  fi
+
   # Non-fatal: a timeout here (e.g. credential-less agents that never become
   # ready) must NOT abort the script under `set -e` — post_deploy_patches still
   # needs to run the RBAC reconcile + local-admin provisioning on the healthy
@@ -6225,8 +6441,10 @@ run_validation() {
   local pass=0 fail=0 warn_count=0
 
   # ── Kubernetes health ──
+  # Exclude Completed/Succeeded job pods — they are not failures.
   local total ready
-  total=$(kubectl get pods -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  total=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
+    | awk '$3!="Completed" && $3!="Succeeded"' | wc -l | tr -d ' ')
   ready=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
     | awk '$3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print}' \
     | wc -l | tr -d ' ')
@@ -6237,44 +6455,60 @@ run_validation() {
     print_result "$(date '+%H:%M:%S') ✗ Pods: ${ready}/${total} ready in caipe namespace"
     fail=$((fail + 1))
     kubectl get pods -n caipe --no-headers 2>/dev/null \
-      | awk '$3!="Running" || ($2~"^[0-9]+/[0-9]+$" && split($2,a,"/") && a[1]!=a[2])' \
+      | awk '$3!="Completed" && $3!="Succeeded" && ($3!="Running" || ($2~"^[0-9]+/[0-9]+$" && split($2,a,"/") && a[1]!=a[2]))' \
       | while IFS= read -r pod_line; do
           print_result "$(date '+%H:%M:%S')   ⚠ ${pod_line}"
         done
   fi
 
-  # ── Supervisor agent card ──
-  local agent_card
-  agent_card=$(curl -sf "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
-  if [[ -n "$agent_card" ]] && echo "$agent_card" | jq -e '.name' &>/dev/null; then
-    local agent_name skills_count
-    agent_name=$(echo "$agent_card" | jq -r '.name')
-    skills_count=$(echo "$agent_card" | jq -r '.skills | length' 2>/dev/null || echo "0")
-    print_result "$(date '+%H:%M:%S') ✓ Agent card OK (name: ${agent_name}, skills: ${skills_count})"
+  # ── Dynamic agents runtime health ──
+  local da_health
+  da_health=$(curl -sf "http://localhost:${DYNAMIC_AGENTS_PORT}/healthz" --max-time 5 2>/dev/null || echo "")
+  if [[ -n "$da_health" ]] && echo "$da_health" | jq -e '.status == "healthy"' &>/dev/null; then
+    print_result "$(date '+%H:%M:%S') ✓ Dynamic agents runtime healthy"
     pass=$((pass + 1))
   else
-    print_result "$(date '+%H:%M:%S') ✗ Supervisor agent card not reachable"
+    print_result "$(date '+%H:%M:%S') ✗ Dynamic agents runtime not healthy"
     fail=$((fail + 1))
   fi
 
-  # ── Sub-agent registration ──
-  for agent in weather netutils; do
-    if echo "$agent_card" | grep -qi "$agent" 2>/dev/null; then
-      print_result "$(date '+%H:%M:%S') ✓ ${agent} agent registered"
+  # ── MCP agent servers ──
+  for agent in netutils; do
+    if kubectl get deployment "caipe-agent-${agent}-mcp" -n caipe &>/dev/null 2>&1; then
+      print_result "$(date '+%H:%M:%S') ✓ ${agent} MCP server deployed"
       pass=$((pass + 1))
     else
-      print_result "$(date '+%H:%M:%S') ⚠ ${agent} agent not visible in agent card"
+      print_result "$(date '+%H:%M:%S') ⚠ ${agent} MCP server not found"
       warn_count=$((warn_count + 1))
     fi
   done
 
   # ── HTTP endpoints ──
-  if check_http "http://localhost:${UI_PORT}" "CAIPE UI"; then
-    pass=$((pass + 1))
+  # When ingress is enabled the UI has no local port-forward; check via ingress.
+  local _ui_url
+  if $ENABLE_INGRESS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    _ui_url="https://${CAIPE_DOMAIN}"
   else
-    fail=$((fail + 1))
+    _ui_url="http://localhost:${UI_PORT}"
   fi
-  if check_http "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" "Supervisor A2A"; then
+  if $ENABLE_INGRESS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    local _ui_code
+    _ui_code=$(curl -sk -o /dev/null -w "%{http_code}" "${_ui_url}/" --max-time 10 2>/dev/null || echo "000")
+    if [[ "$_ui_code" =~ ^(200|301|302|405)$ ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ CAIPE UI reachable via ingress (HTTP ${_ui_code})"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ CAIPE UI unreachable via ingress (HTTP ${_ui_code})"
+      fail=$((fail + 1))
+    fi
+  else
+    if check_http "${_ui_url}" "CAIPE UI"; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1))
+    fi
+  fi
+  if check_http "http://localhost:${DYNAMIC_AGENTS_PORT}/health" "Dynamic agents runtime"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
@@ -6288,14 +6522,14 @@ run_validation() {
       fail=$((fail + 1))
     fi
 
-    local has_lf_key
-    has_lf_key=$(kubectl get deployment caipe-supervisor-agent -n caipe \
-      -o jsonpath='{.spec.template.spec.containers[0].envFrom[*].secretRef.name}' 2>/dev/null || true)
-    if echo "$has_lf_key" | grep -q "langfuse-secret"; then
-      print_result "$(date '+%H:%M:%S') ✓ Supervisor has langfuse-secret mounted"
+    local da_tracing
+    da_tracing=$(kubectl get deployment caipe-dynamic-agents -n caipe \
+      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_TRACING")].value}' 2>/dev/null || true)
+    if [[ "$da_tracing" == "true" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ Dynamic agents tracing enabled"
       pass=$((pass + 1))
     else
-      print_result "$(date '+%H:%M:%S') ✗ Supervisor missing langfuse-secret envFrom"
+      print_result "$(date '+%H:%M:%S') ✗ Dynamic agents tracing not enabled"
       fail=$((fail + 1))
     fi
   fi
@@ -6311,17 +6545,6 @@ run_validation() {
       pass=$((pass + 1))
     else
       print_result "$(date '+%H:%M:%S') ✗ RAG server pod is not ready"
-      fail=$((fail + 1))
-    fi
-
-    local rag_url
-    rag_url=$(kubectl get deployment caipe-supervisor-agent -n caipe \
-      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="RAG_SERVER_URL")].value}' 2>/dev/null || true)
-    if [[ "$rag_url" == "http://rag-server:9446" ]]; then
-      print_result "$(date '+%H:%M:%S') ✓ Supervisor RAG_SERVER_URL is correct"
-      pass=$((pass + 1))
-    else
-      print_result "$(date '+%H:%M:%S') ✗ Supervisor RAG_SERVER_URL is '${rag_url:-unset}' (expected http://rag-server:9446)"
       fail=$((fail + 1))
     fi
   fi
@@ -6438,57 +6661,26 @@ run_sanity_tests() {
 
   local pass=0 fail=0
 
-  # ── Test 1: Agent card is valid JSON with required fields ──
-  local agent_card
-  agent_card=$(curl -sf "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
-  if [[ -n "$agent_card" ]] && echo "$agent_card" | jq -e '.name and .skills' &>/dev/null; then
-    print_result "$(date '+%H:%M:%S') ✓ [T1] Agent card schema valid (name, skills present)"
+  # ── Test 1: Dynamic agents health endpoint ──
+  local da_health
+  da_health=$(curl -sf "http://localhost:${DYNAMIC_AGENTS_PORT}/healthz" --max-time 5 2>/dev/null || echo "")
+  if [[ -n "$da_health" ]] && echo "$da_health" | jq -e '.status' &>/dev/null; then
+    print_result "$(date '+%H:%M:%S') ✓ [T1] Dynamic agents /healthz OK"
     pass=$((pass + 1))
   else
-    print_result "$(date '+%H:%M:%S') ✗ [T1] Agent card missing required fields"
-    fail=$((fail + 1))
-  fi
-
-  # ── Test 2: Send a simple A2A message/stream and check first SSE event ──
-  print_result "$(date '+%H:%M:%S')   … [T2] Sending A2A message (this may take up to 90s)..."
-  local msg_id
-  msg_id="sanity-$(date +%s)"
-  local a2a_response
-  a2a_response=$(curl -s -N -X POST "http://localhost:${SUPERVISOR_PORT}/" \
-    -H 'Content-Type: application/json' \
-    --max-time 90 \
-    -d "{
-      \"jsonrpc\": \"2.0\",
-      \"id\": \"sanity-test-1\",
-      \"method\": \"message/stream\",
-      \"params\": {
-        \"message\": {
-          \"role\": \"user\",
-          \"parts\": [{\"kind\": \"text\", \"text\": \"What is 2+2? Reply with just the number.\"}],
-          \"messageId\": \"${msg_id}\"
-        }
-      }
-    }" 2>/dev/null | head -1 || echo "")
-
-  # Strip "data: " prefix from SSE event
-  a2a_response="${a2a_response#data: }"
-
-  if [[ -n "$a2a_response" ]] && echo "$a2a_response" | jq -e '.result' &>/dev/null; then
-    print_result "$(date '+%H:%M:%S') ✓ [T2] A2A message/stream returned valid response"
-    pass=$((pass + 1))
-  elif [[ -n "$a2a_response" ]] && echo "$a2a_response" | jq -e '.error' &>/dev/null; then
-    local err_msg
-    err_msg=$(echo "$a2a_response" | jq -r '.error.message // .error' 2>/dev/null || true)
-    print_result "$(date '+%H:%M:%S') ✗ [T2] A2A message/stream error: ${err_msg:0:120}"
-    fail=$((fail + 1))
-  else
-    print_result "$(date '+%H:%M:%S') ✗ [T2] A2A message/stream no response (timeout or refused)"
+    print_result "$(date '+%H:%M:%S') ✗ [T1] Dynamic agents /healthz failed"
     fail=$((fail + 1))
   fi
 
   # ── Test 3: CAIPE UI serves HTML ──
-  local ui_content_type
-  ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "http://localhost:${UI_PORT}/" --max-time 5 2>/dev/null || echo "")
+  local ui_content_type _t3_url
+  if $ENABLE_INGRESS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    _t3_url="https://${CAIPE_DOMAIN}/"
+    ui_content_type=$(curl -sk -o /dev/null -w "%{content_type}" "${_t3_url}" --max-time 10 2>/dev/null || echo "")
+  else
+    _t3_url="http://localhost:${UI_PORT}/"
+    ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "${_t3_url}" --max-time 5 2>/dev/null || echo "")
+  fi
   if echo "$ui_content_type" | grep -qi "text/html"; then
     print_result "$(date '+%H:%M:%S') ✓ [T3] CAIPE UI serves HTML content"
     pass=$((pass + 1))
@@ -6497,32 +6689,21 @@ run_sanity_tests() {
     fail=$((fail + 1))
   fi
 
-  # ── Test 4: Sub-agent direct health (distributed mode only) ──
-  # In single-node mode agents run in-process inside the supervisor — no separate
-  # K8s services exist. Detect mode via the ConfigMap that Helm only creates in
-  # single-node deployments.
-  if kubectl get configmap caipe-single-node-agent-env -n caipe &>/dev/null; then
-    print_result "$(date '+%H:%M:%S') ─ [T4] skipped (single-node mode: agents run in-process)"
-  else
-    for agent_svc in caipe-agent-weather caipe-agent-netutils; do
-      local agent_label="${agent_svc#caipe-agent-}"
-      local agent_card_resp
-      agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
-        curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
-      if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
-        print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
-        fail=$((fail + 1))
-      fi
-    done
-  fi
+  # ── Test 4: Sub-agent MCP deployments exist ──
+  for agent_svc in caipe-agent-netutils-mcp; do
+    local agent_label="${agent_svc#caipe-agent-}"
+    if kubectl get deployment "$agent_svc" -n caipe &>/dev/null; then
+      print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} deployment present"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ─ [T4] ${agent_label} deployment not present (agent disabled)"
+    fi
+  done
 
   # ── Test 5: RAG server health (if RAG enabled) ──
   if $ENABLE_RAG; then
     local rag_health
-    rag_health=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
+    rag_health=$(kubectl exec deployment/caipe-dynamic-agents -n caipe -- \
       curl -sf "http://rag-server:9446/healthz" --max-time 5 2>/dev/null || echo "")
     if [[ -n "$rag_health" ]] && echo "$rag_health" | jq -e '.status // .config' &>/dev/null; then
       print_result "$(date '+%H:%M:%S') ✓ [T5] RAG server /healthz OK"
@@ -6588,10 +6769,6 @@ auto_heal_pods() {
     local deploy
     deploy=$(kubectl get rs "$owner" -n "$ns" -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null || true)
     if [[ -n "$deploy" ]]; then
-      # Skip supervisor if we already restarted it for RAG reconnection
-      if [[ "$deploy" == "caipe-supervisor-agent" ]] && $SUPERVISOR_RAG_RESTARTED; then
-        continue
-      fi
       warn "[auto-heal] Pod ${pod} in ${3:-CrashLoop}; restarting deployment/${deploy}"
       kubectl rollout restart "deployment/${deploy}" -n "$ns" &>/dev/null || true
       ((healed++))
@@ -6664,16 +6841,16 @@ auto_heal_langfuse_secret() {
     return 0
   fi
 
-  # Check if supervisor deployment has langfuse-secret in envFrom
+  # Check if dynamic-agents deployment has langfuse-secret in envFrom
   local envfrom
-  envfrom=$(kubectl get deployment caipe-supervisor-agent -n caipe \
+  envfrom=$(kubectl get deployment caipe-dynamic-agents -n caipe \
     -o jsonpath='{.spec.template.spec.containers[0].envFrom[*].secretRef.name}' 2>/dev/null || true)
 
   if ! echo "$envfrom" | grep -q "langfuse-secret"; then
-    warn "[auto-heal] Supervisor missing langfuse-secret; re-patching"
-    kubectl patch deployment caipe-supervisor-agent -n caipe --type='json' \
+    warn "[auto-heal] dynamic-agents missing langfuse-secret; re-patching"
+    kubectl patch deployment caipe-dynamic-agents -n caipe --type='json' \
       -p='[{"op":"add","path":"/spec/template/spec/containers/0/envFrom/-","value":{"secretRef":{"name":"langfuse-secret"}}}]' &>/dev/null || true
-    log "[auto-heal] langfuse-secret patched into supervisor"
+    log "[auto-heal] langfuse-secret patched into dynamic-agents"
     return 1
   fi
 
@@ -6801,55 +6978,6 @@ auto_heal_rag_server() {
     fi
   fi
 
-  # Check supervisor RAG_SERVER_URL
-  local rag_url
-  rag_url=$(kubectl get deployment caipe-supervisor-agent -n caipe \
-    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="RAG_SERVER_URL")].value}' 2>/dev/null || true)
-
-  if [[ -z "$rag_url" || "$rag_url" == "http://localhost:9446" ]]; then
-    warn "[auto-heal] Supervisor has wrong RAG_SERVER_URL (${rag_url:-unset}); fixing"
-    kubectl set env deployment/caipe-supervisor-agent -n caipe \
-      RAG_SERVER_URL=http://rag-server:9446 &>/dev/null || true
-    log "[auto-heal] Supervisor RAG_SERVER_URL corrected to http://rag-server:9446"
-    return 1
-  fi
-
-  return 0
-}
-
-auto_heal_supervisor_rag() {
-  if ! $ENABLE_RAG; then return 0; fi
-  if $SUPERVISOR_RAG_RESTARTED; then return 0; fi
-
-  # Only proceed if RAG server is fully healthy
-  local rag_healthy
-  rag_healthy=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
-    | awk '/rag-server/ && $3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print}' \
-    | wc -l | tr -d ' ')
-  if [[ "${rag_healthy:-0}" -eq 0 ]]; then
-    return 0
-  fi
-
-  # Only check the running+ready supervisor pod (not Terminating/starting ones)
-  local sup_pod
-  sup_pod=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
-    | awk '/caipe-supervisor-agent/ && $3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print $1}' \
-    | head -1)
-  if [[ -z "$sup_pod" ]]; then
-    return 0
-  fi
-
-  local sup_logs
-  sup_logs=$(kubectl logs "$sup_pod" -n caipe --tail=200 2>/dev/null || true)
-
-  if echo "$sup_logs" | grep -q "RAG is DISABLED\|RAG disabled\|Failed to connect to RAG server"; then
-    warn "[auto-heal] Supervisor has RAG disabled but RAG server is healthy; restarting supervisor"
-    kubectl rollout restart deployment/caipe-supervisor-agent -n caipe &>/dev/null || true
-    SUPERVISOR_RAG_RESTARTED=true
-    log "[auto-heal] Supervisor restarted to reconnect to RAG"
-    return 1
-  fi
-
   return 0
 }
 
@@ -6878,9 +7006,6 @@ auto_heal_pod_logs() {
         break
       fi
     fi
-
-    # Supervisor: RAG disabled while RAG server is healthy (handled by auto_heal_supervisor_rag)
-    # Skip here to avoid duplicate detection
 
     # UI: ECONNREFUSED to rag-server → rag-server not ready yet, will self-resolve
     # No action needed, just informational
@@ -6914,10 +7039,6 @@ auto_heal_services() {
         -o jsonpath="{.items[?(@.metadata.name=='${svc}')].metadata.name}" 2>/dev/null || true)
 
       if [[ -n "$deploy_name" ]]; then
-        # Skip if this deployment was recently restarted (e.g. supervisor RAG reconnect)
-        if [[ "$deploy_name" == "caipe-supervisor-agent" ]] && $SUPERVISOR_RAG_RESTARTED; then
-          continue
-        fi
         local pod_count
         pod_count=$(kubectl get deployment "$deploy_name" -n "$ns" \
           -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
@@ -6953,16 +7074,13 @@ run_auto_heal() {
   # 3. Fix RAG server configuration issues
   auto_heal_rag_server || total_healed=$((total_healed + $?))
 
-  # 4. Restart supervisor if RAG is healthy but supervisor has RAG disabled
-  auto_heal_supervisor_rag || total_healed=$((total_healed + $?))
-
-  # 5. Fix services with no endpoints
+  # 4. Fix services with no endpoints
   auto_heal_services caipe || total_healed=$((total_healed + $?))
 
-  # 6. Scan running pod logs for errors (SSL, misconfig, etc.)
+  # 5. Scan running pod logs for errors (SSL, misconfig, etc.)
   auto_heal_pod_logs caipe || total_healed=$((total_healed + $?))
 
-  # 7. Fix Langfuse secret missing from supervisor
+  # 6. Fix Langfuse secret missing from dynamic-agents
   if $ENABLE_TRACING; then
     auto_heal_langfuse_secret || total_healed=$((total_healed + $?))
   fi
@@ -7049,7 +7167,7 @@ monitor_port_forwards() {
   PF_FAIL_COUNT=()
   PF_LAST_RESTART=()
 
-  start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
+  start_pf caipe-dynamic-agents caipe "$DYNAMIC_AGENTS_PORT" 8001 "Dynamic agents"
   # When ingress is enabled the UI is served via nginx-ingress at the domain —
   # no local port-forward needed.
   if ! $ENABLE_INGRESS; then
@@ -7077,7 +7195,7 @@ monitor_port_forwards() {
   local pf_wait=0
   while [[ $pf_wait -lt 15 ]]; do
     local all_up=true
-    curl -sf -o /dev/null --max-time 2 "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" 2>/dev/null || all_up=false
+    curl -sf -o /dev/null --max-time 2 "http://localhost:${DYNAMIC_AGENTS_PORT}/health" 2>/dev/null || all_up=false
     if ! $ENABLE_INGRESS; then
       curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
     else
@@ -7136,7 +7254,7 @@ monitor_port_forwards() {
   else
     echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
   fi
-  echo -e "    Supervisor A2A  ${CYAN}http://localhost:${SUPERVISOR_PORT}${NC}"
+  echo -e "    Dynamic agents  ${CYAN}http://localhost:${DYNAMIC_AGENTS_PORT}${NC}"
   if $ENABLE_RAG; then
     if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
       echo -e "    RAG Server      ${CYAN}https://${CAIPE_DOMAIN}/api/rag${NC}  (proxied by UI)"
@@ -7181,7 +7299,7 @@ monitor_port_forwards() {
   fi
   echo ""
   echo -e "  ${BOLD}Chart:${NC}   v${CAIPE_CHART_VERSION}"
-  local agent_list="weather, netutils"
+  local agent_list="netutils"
   $ENABLE_RAG && agent_list+=", rag"
   echo -e "  ${BOLD}Agents:${NC}  ${agent_list}"
   $AUTOHEAL_ENABLED && echo -e "  ${BOLD}Auto-heal:${NC} ${GREEN}enabled${NC} (every ${AUTOHEAL_INTERVAL}s)"
@@ -7196,8 +7314,7 @@ monitor_port_forwards() {
     echo -e "    ${DIM}kubectl get secret caipe-mongodb-credentials -n caipe -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
     echo ""
   fi
-  echo -e "  ${BOLD}CLI chat:${NC}"
-  echo -e "    ${DIM}uvx https://github.com/cnoe-io/agent-chat-cli.git a2a${NC}"
+  echo -e "  ${BOLD}Chat:${NC} open the CAIPE UI at ${CYAN}http://localhost:${UI_PORT}${NC}"
   echo ""
   echo -e "  ${YELLOW}${BOLD}Keep this script running to maintain port-forwarding.${NC}"
   echo -e "  ${DIM}Press Ctrl+C to stop all services.${NC}"
@@ -7282,7 +7399,7 @@ cmd_cleanup() {
   check_prerequisites
 
   # Kill any port-forwards on known ports
-  for port in "$LANGFUSE_PORT" "$SUPERVISOR_PORT" "$UI_PORT" "$AGENTGATEWAY_PORT"; do
+  for port in "$LANGFUSE_PORT" "$DYNAMIC_AGENTS_PORT" "$UI_PORT" "$AGENTGATEWAY_PORT"; do
     kill_port_on "$port"
   done
 
@@ -7320,6 +7437,19 @@ cmd_cleanup() {
     if ask_yn "Delete LiteLLM proxy resources?" "y"; then
       kubectl delete deployment,svc,configmap -l app=litellm-proxy -n caipe 2>/dev/null || true
       log "LiteLLM proxy deleted"
+    fi
+  fi
+
+  # Ollama (deployed via kubectl, not Helm)
+  if kubectl get deployment ollama -n caipe &>/dev/null; then
+    if ask_yn "Delete Ollama resources?" "y"; then
+      local _ollama_yaml="${SCRIPT_DIR}/deploy/kind/ollama.yaml"
+      if [[ -f "$_ollama_yaml" ]]; then
+        kubectl delete -f "$_ollama_yaml" 2>/dev/null || true
+      else
+        kubectl delete deployment,svc,pvc -l app=ollama -n caipe 2>/dev/null || true
+      fi
+      log "Ollama deleted"
     fi
   fi
 
@@ -7404,7 +7534,7 @@ cmd_cleanup() {
           prompt "Enter the cluster name to delete: "
           tty_read -r del_cluster
           if [[ -n "$del_cluster" ]] && echo "$clusters" | grep -q "^${del_cluster}$"; then
-            kind delete cluster --name "$del_cluster"
+            kind delete cluster --name "$del_cluster" </dev/null
             log "Cluster '${del_cluster}' deleted"
           else
             err "Cluster '${del_cluster}' not found"
@@ -7454,6 +7584,9 @@ detect_deployed_features() {
   fi
   if helm status vllm -n caipe &>/dev/null; then
     ENABLE_VLLM=true
+  fi
+  if kubectl get deployment ollama -n caipe &>/dev/null 2>&1; then
+    ENABLE_OLLAMA=true
   fi
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
@@ -7513,23 +7646,67 @@ detect_deployed_features() {
     log "Loaded LLM config from existing llm-secret (provider: ${LLM_PROVIDER:-unknown})"
   fi
 
-  # ── Read deployment mode from Helm values ─────────────────────────────────
-  if [[ -z "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
-    local _helm_mode
-    _helm_mode=$(helm get values caipe -n caipe -o json 2>/dev/null \
-      | jq -r '.global.deploymentMode // empty' 2>/dev/null || true)
-    case "$_helm_mode" in
-      single-node) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
-      multi-node)  CAIPE_DEPLOYMENT_MODE="distributed" ;;
-    esac
-    [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+  # ── Read RAG embeddings provider/model + creds from the deployed release ───
+  # The interactive wizard reads these in choose_features, but that block sits
+  # after choose_features' `--non-interactive` early return — so an unattended
+  # upgrade never saw it and silently reset RAG embeddings to the
+  # EMBEDDINGS_PROVIDER default (openai), dropping the deployed provider's
+  # config. Read them here (the upgrade path always runs detect_deployed_features
+  # first) so the non-interactive flow reaches parity with the interactive one.
+  # assisted-by claude code claude-opus-4-8
+  if $ENABLE_RAG; then
+    local _rag_vals
+    _rag_vals=$(helm get values caipe -n caipe -o json 2>/dev/null || true)
+    # Adopt the deployed provider/model unless the caller set them explicitly.
+    if [[ -z "${_EMBEDDINGS_PROVIDER_EXPLICIT:-}" ]]; then
+      local _dep _dem
+      _dep=$(echo "$_rag_vals" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_PROVIDER // empty' 2>/dev/null || true)
+      _dem=$(echo "$_rag_vals" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_MODEL // empty' 2>/dev/null || true)
+      if [[ -n "$_dep" ]]; then
+        EMBEDDINGS_PROVIDER="$_dep"
+        [[ -n "$_dem" && -z "${_EMBEDDINGS_MODEL_EXPLICIT:-}" ]] && EMBEDDINGS_MODEL="$_dem"
+        log "Detected RAG embeddings: ${EMBEDDINGS_PROVIDER}/${EMBEDDINGS_MODEL}"
+      fi
+    fi
+    # Rescue the active provider's embeddings credentials from the existing
+    # llm-secret (fills only unset vars, so explicit env creds always win). No
+    # prompts here — this is the unattended path; choose_features still prompts
+    # interactively when a credential is genuinely absent.
+    local _emb_secret
+    _emb_secret=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+    if [[ -n "$_emb_secret" ]]; then
+      _emb_val() { echo "$_emb_secret" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+      case "$EMBEDDINGS_PROVIDER" in
+        openai)
+          [[ -z "${OPENAI_API_KEY:-}" ]] && OPENAI_API_KEY=$(_emb_val OPENAI_API_KEY)
+          ;;
+        azure-openai)
+          [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(_emb_val AZURE_OPENAI_API_KEY)
+          [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_emb_val AZURE_OPENAI_ENDPOINT)
+          [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_emb_val AZURE_OPENAI_API_VERSION)
+          ;;
+        litellm)
+          # RAG talks to a LiteLLM-compatible endpoint (generic proxy or Voyage);
+          # recover endpoint + key so we re-point at the same backend.
+          [[ -z "${LITELLM_ENDPOINT:-}" ]] && LITELLM_ENDPOINT=$(_emb_val LITELLM_API_BASE)
+          [[ -z "${LITELLM_API_KEY:-}" ]]  && LITELLM_API_KEY=$(_emb_val LITELLM_API_KEY)
+          ;;
+        cohere)
+          [[ -z "${COHERE_API_KEY:-}" ]] && COHERE_API_KEY=$(_emb_val COHERE_API_KEY)
+          ;;
+        huggingface)
+          [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]] && HUGGINGFACEHUB_API_TOKEN=$(_emb_val HUGGINGFACEHUB_API_TOKEN)
+          ;;
+        # aws-bedrock embeddings reuse the LLM-side AWS creds loaded above.
+      esac
+    fi
   fi
 
   # ── Read selected agents from Helm values ─────────────────────────────────
   if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
     local _helm_agents
     _helm_agents=$(helm get values caipe -n caipe -o json 2>/dev/null \
-      | jq -r '."supervisor-agent".singleNode.enabledSubAgents // {} | to_entries[] | select(.value==true) | .key' \
+      | jq -r '.tags // {} | to_entries[] | select(.key | startswith("agent-")) | select(.value==true) | .key | sub("^agent-"; "")' \
       2>/dev/null || true)
     if [[ -n "$_helm_agents" ]]; then
       while IFS= read -r _a; do
@@ -7546,14 +7723,14 @@ detect_deployed_features() {
       local _on=false
       for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_a" == "$_s" ]] && { _on=true; break; }; done
       if $_on; then
-        HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_a}=true")
+        HELM_AGENT_ARGS+=(--set "tags.agent-${_a}=true")
         # Wire existing agent secret if present
         local _sec="caipe-${_a}-secret"
         if kubectl get secret "$_sec" -n caipe &>/dev/null 2>&1; then
           HELM_AGENT_ARGS+=(--set "agent-${_a}.agentSecrets.secretName=${_sec}")
         fi
       else
-        HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_a}=false")
+        HELM_AGENT_ARGS+=(--set "tags.agent-${_a}=false")
       fi
     done
   fi
@@ -7584,7 +7761,7 @@ cmd_validate() {
   detect_deployed_features
 
   step "Port-forwarding for validation"
-  start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
+  start_pf caipe-dynamic-agents caipe "$DYNAMIC_AGENTS_PORT" 8001 "Dynamic agents"
   start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
@@ -7641,6 +7818,158 @@ ensure_healthy() {
   run_auto_heal
 }
 
+# ─── Saved configuration ─────────────────────────────────────────────────────
+CAIPE_CONFIG_FILE="${CAIPE_CONFIG_FILE:-${HOME}/.config/caipe/config.yaml}"
+
+_cfg_get() {
+  # Extract a scalar value from the saved YAML: _cfg_get <key>
+  local key="$1"
+  grep -m1 "^${key}:" "$CAIPE_CONFIG_FILE" 2>/dev/null \
+    | sed 's/^[^:]*:[[:space:]]*//' | tr -d '"' | tr -d "'"
+}
+
+_save_caipe_config() {
+  mkdir -p "$(dirname "$CAIPE_CONFIG_FILE")"
+  cat > "$CAIPE_CONFIG_FILE" <<CFGYAML
+# CAIPE setup configuration — saved by setup-caipe.sh
+# Edit or delete this file to change defaults on the next run.
+# API keys and passwords are NOT stored here.
+cluster_context: "$(kubectl config current-context 2>/dev/null || echo '')"
+chart_version: "${CAIPE_CHART_VERSION:-}"
+llm_provider: "${LLM_PROVIDER:-}"
+enable_ollama: "${ENABLE_OLLAMA:-false}"
+ollama_model: "${OLLAMA_MODEL:-qwen3:0.6b}"
+embeddings_provider: "${EMBEDDINGS_PROVIDER:-}"
+embeddings_model: "${EMBEDDINGS_MODEL:-}"
+enable_rag: "${ENABLE_RAG:-false}"
+enable_graph_rag: "${ENABLE_GRAPH_RAG:-false}"
+enable_dynamic_agents: "${ENABLE_DYNAMIC_AGENTS:-true}"
+enable_tracing: "${ENABLE_TRACING:-false}"
+enable_metallb: "${ENABLE_METALLB:-false}"
+enable_ingress: "${ENABLE_INGRESS:-false}"
+domain: "${CAIPE_DOMAIN:-}"
+selected_agents: "${SELECTED_AGENTS[*]:-}"
+CFGYAML
+  log "Configuration saved to ${CAIPE_CONFIG_FILE}"
+}
+
+_load_caipe_config() {
+  [[ -f "$CAIPE_CONFIG_FILE" ]] || return 0
+  $NON_INTERACTIVE && return 0
+
+  echo ""
+  echo -e "  ${DIM}Saved configuration found: ${CAIPE_CONFIG_FILE}${NC}"
+  echo ""
+
+  local _ctx _chart _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _metallb _ingress _domain _agents
+  _ctx=$(_cfg_get cluster_context)
+  _chart=$(_cfg_get chart_version)
+  _llm=$(_cfg_get llm_provider)
+  _ollama=$(_cfg_get enable_ollama)
+  _omodel=$(_cfg_get ollama_model)
+  _eprov=$(_cfg_get embeddings_provider)
+  _emodel=$(_cfg_get embeddings_model)
+  _rag=$(_cfg_get enable_rag)
+  _grag=$(_cfg_get enable_graph_rag)
+  _dynagents=$(_cfg_get enable_dynamic_agents)
+  _tracing=$(_cfg_get enable_tracing)
+  _metallb=$(_cfg_get enable_metallb)
+  _ingress=$(_cfg_get enable_ingress)
+  _domain=$(_cfg_get domain)
+  _agents=$(_cfg_get selected_agents)
+
+  [[ -n "$_ctx" ]]        && echo -e "    ${DIM}cluster:         ${NC}${_ctx}"
+  [[ -n "$_chart" ]]      && echo -e "    ${DIM}chart version:   ${NC}${_chart}"
+  if [[ "$_ollama" == "true" ]]; then
+    echo -e "    ${DIM}LLM:             ${NC}Ollama (${_omodel})"
+  elif [[ -n "$_llm" ]]; then
+    echo -e "    ${DIM}LLM:             ${NC}${_llm}"
+  fi
+  [[ -n "$_eprov" ]]      && echo -e "    ${DIM}embeddings:      ${NC}${_eprov} (${_emodel})"
+  [[ -n "$_rag" ]]        && echo -e "    ${DIM}RAG:             ${NC}${_rag}  graph-RAG: ${_grag:-false}"
+  [[ -n "$_dynagents" ]]  && echo -e "    ${DIM}dynamic agents:  ${NC}${_dynagents}"
+  [[ -n "$_tracing" ]]    && echo -e "    ${DIM}tracing:         ${NC}${_tracing}"
+  [[ -n "$_metallb" ]]    && echo -e "    ${DIM}metallb:         ${NC}${_metallb}  ingress: ${_ingress:-false}"
+  [[ -n "$_domain" ]]     && echo -e "    ${DIM}domain:          ${NC}${_domain}"
+  [[ -n "$_agents" ]]     && echo -e "    ${DIM}agents:          ${NC}${_agents}"
+  echo ""
+
+  if ! ask_yn "Use saved configuration?" "y"; then
+    return 0
+  fi
+
+  # Apply saved values — only set if not already overridden by CLI flags / env
+  [[ -n "$_chart"      && -z "${CAIPE_CHART_VERSION:-}"   ]] && CAIPE_CHART_VERSION="$_chart"
+  [[ -n "$_llm"        && -z "${LLM_PROVIDER:-}"          ]] && LLM_PROVIDER="$_llm"
+  [[ "$_ollama" == "true" ]] && ENABLE_OLLAMA=true
+  [[ -n "$_omodel"     && -z "${OLLAMA_MODEL:-}"          ]] && OLLAMA_MODEL="$_omodel"
+  [[ -n "$_eprov"      && -z "${EMBEDDINGS_PROVIDER:-}"   ]] && EMBEDDINGS_PROVIDER="$_eprov"
+  # Use _EMBEDDINGS_MODEL_EXPLICIT (set at startup from env) rather than a
+  # zero-check: EMBEDDINGS_MODEL defaults to text-embedding-3-large so -z
+  # always fails and the saved model is never restored.
+  [[ -n "$_emodel"     && -z "${_EMBEDDINGS_MODEL_EXPLICIT:-}" ]] && EMBEDDINGS_MODEL="$_emodel"
+  [[ "$_rag"      == "true" ]] && ENABLE_RAG=true
+  [[ "$_grag"     == "true" ]] && ENABLE_GRAPH_RAG=true && ENABLE_RAG=true
+  [[ "$_dynagents" == "false" ]] && ENABLE_DYNAMIC_AGENTS=false
+  [[ "$_tracing"  == "true"  ]] && ENABLE_TRACING=true
+  [[ "$_metallb"  == "true"  ]] && ENABLE_METALLB=true
+  [[ "$_metallb"  == "false" ]] && ENABLE_METALLB=false
+  # MetalLB is a prerequisite for ingress; restore ingress flag from config,
+  # but always disable it when MetalLB is disabled (even if config says true).
+  if [[ "$_metallb" == "false" ]]; then
+    ENABLE_INGRESS=false
+  elif [[ "$_ingress" == "true" ]]; then
+    ENABLE_INGRESS=true
+  elif [[ "$_ingress" == "false" ]]; then
+    ENABLE_INGRESS=false
+  fi
+  [[ -n "$_domain"     && -z "${CAIPE_DOMAIN:-}"          ]] && CAIPE_DOMAIN="$_domain"
+  if [[ -n "$_agents" && ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    read -ra SELECTED_AGENTS <<< "$_agents"
+  fi
+
+  # Switch to the saved context; for kind contexts, re-export if missing.
+  # If context can't be restored, skip NON_INTERACTIVE so cluster wizard runs.
+  local _ctx_ok=true
+  if [[ -n "$_ctx" ]]; then
+    local _cur_ctx
+    _cur_ctx=$(kubectl config current-context 2>/dev/null || true)
+    if [[ "$_cur_ctx" != "$_ctx" ]]; then
+      if kubectl config use-context "$_ctx" 2>/dev/null; then
+        log "Switched to saved context '${_ctx}'"
+      elif [[ "$_ctx" == kind-* ]] && command -v kind &>/dev/null; then
+        local _kind_name="${_ctx#kind-}"
+        if kind get clusters 2>/dev/null | grep -qx "$_kind_name"; then
+          kind export kubeconfig --name "$_kind_name" </dev/null 2>/dev/null || true
+          if kubectl config use-context "$_ctx" 2>/dev/null; then
+            log "Restored context '${_ctx}' via kind export kubeconfig"
+          else
+            warn "Saved context '${_ctx}' not found — you will be prompted to choose a cluster"
+            _ctx_ok=false
+          fi
+        else
+          warn "Kind cluster '${_kind_name}' not found — you will be prompted to choose a cluster"
+          _ctx_ok=false
+        fi
+      else
+        warn "Saved context '${_ctx}' not found — you will be prompted to choose a cluster"
+        _ctx_ok=false
+      fi
+    fi
+  fi
+
+  if $_ctx_ok; then
+    NON_INTERACTIVE=true
+    log "Saved configuration loaded — skipping wizard"
+  else
+    # Signal cmd_setup to activate non-interactive mode once the cluster
+    # selection wizard has run and the correct context is established.
+    _SAVED_CONFIG_ACCEPTED=true
+    log "Saved configuration loaded (wizard will run for cluster selection only)"
+  fi
+}
+_SAVED_CONFIG_ACCEPTED=false
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 cmd_setup() {
   echo ""
@@ -7659,11 +7988,27 @@ BANNER
   echo -e "${BLUE}${BOLD}║${NC}  Your 🤖 Agentic AI automation super hero 🦸  ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Multi-Agent System on Kubernetes${NC}             ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/cnoe-io/ai-platform-engineering${NC}   ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Powered by cnoe-agent-utils LLMFactory${NC}       ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/cnoe-io/cnoe-agent-utils${NC}          ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}╚═══════════════════════════════════════════════╝${NC}"
   echo ""
 
+  # On hosts where kubectl is a k3s symlink (/usr/local/bin/kubectl -> k3s),
+  # the binary reads /etc/rancher/k3s/k3s.yaml by default when KUBECONFIG is
+  # unset, while helm uses the standard Go client which reads ~/.kube/config.
+  # Set KUBECONFIG here — before any kubectl call — so both tools always read
+  # the same file and see the same cluster and contexts.
+  export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+
   check_prerequisites
+  _load_caipe_config
   choose_cluster
+
+  # If saved config was loaded but context needed interactive cluster selection,
+  # now that the cluster is set activate non-interactive for the remaining steps.
+  $_SAVED_CONFIG_ACCEPTED && NON_INTERACTIVE=true
 
   # ── Fast re-run detection ──
   # If CAIPE is already deployed, offer the user a shortcut instead of
@@ -7772,7 +8117,7 @@ BANNER
   # ── Wizard step loop — each step can return 1 to go back ─────────────
   # The || _rc=$? shield is required: set -e would otherwise kill the script
   # the moment any step function returns non-zero (e.g. user typed 'b').
-  local _wizard_steps=(choose_chart_version choose_deployment_mode collect_credentials choose_features)
+  local _wizard_steps=(choose_chart_version collect_credentials choose_features)
   local _step=0
   while [[ $_step -lt ${#_wizard_steps[@]} ]]; do
     local _rc=0
@@ -7783,6 +8128,9 @@ BANNER
       *) exit 1 ;;
     esac
   done
+
+  # Persist the wizard choices for the next run (no secrets stored).
+  _save_caipe_config
 
   # Resolve unified LiteLLM mode before secrets/helm so the agent llm-secret and
   # RAG embeddings config are repointed at the proxy (must run after
@@ -7815,6 +8163,38 @@ BANNER
     deploy_litellm
   elif $LLM_VIA_LITELLM; then
     deploy_litellm
+  fi
+
+  if $ENABLE_OLLAMA; then
+    # The caipe namespace is already created by create_namespace_and_secrets,
+    # and llm-secret (referenced by the Ollama pod) is provisioned there too.
+    # Ollama must be fully ready before deploy_caipe so agents never start
+    # against a missing LLM endpoint. The init container pulls the model
+    # (potentially several GB), so allow up to 10 minutes on first run.
+    step "Deploying in-cluster Ollama"
+    local _ollama_yaml="${SCRIPT_DIR}/deploy/kind/ollama.yaml"
+    if [[ ! -f "$_ollama_yaml" ]]; then
+      err "deploy/kind/ollama.yaml not found at ${_ollama_yaml}."
+      err "When running via 'curl | bash', clone the repo and run setup-caipe.sh directly:"
+      err "  git clone https://github.com/cnoe-io/ai-platform-engineering && cd ai-platform-engineering && bash setup-caipe.sh"
+      exit 1
+    fi
+    kubectl apply -f "$_ollama_yaml" 2>&1 \
+      | grep -v "^$" | while IFS= read -r line; do log "$line"; done
+    log "Waiting for Ollama to be ready (model pull may take several minutes on first run)..."
+    kubectl rollout status deployment/ollama -n caipe --timeout=10m 2>&1 \
+      | while IFS= read -r line; do log "$line"; done
+
+    # On re-runs that add RAG with Ollama embeddings, the Deployment spec is
+    # unchanged so no new pod is created and the init container never re-runs.
+    # Pull the embedding model directly on the running pod instead (idempotent —
+    # Ollama skips models that are already cached).
+    if $ENABLE_RAG && [[ "${EMBEDDINGS_PROVIDER:-}" == "ollama" && -n "${EMBEDDINGS_MODEL:-}" ]]; then
+      log "Pulling Ollama embedding model '${EMBEDDINGS_MODEL}' on running pod (skips if already cached)..."
+      kubectl exec deploy/ollama -n caipe -- ollama pull "${EMBEDDINGS_MODEL}" 2>&1 \
+        | while IFS= read -r line; do log "$line"; done \
+        || warn "Ollama embedding model pull failed — RAG may not work until '${EMBEDDINGS_MODEL}' is available"
+    fi
   fi
 
   # MetalLB and nginx-ingress must be ready before CAIPE Helm deploy
@@ -7909,7 +8289,7 @@ Commands:
                 features (RAG, tracing), deploy, port-forward (default)
   port-forward  Start port-forwarding, run validation + sanity tests,
                 monitor with auto-restart and periodic health checks (5m)
-  validate      Run validation and sanity tests (A2A, agents, RAG, tracing)
+  validate      Run validation and sanity tests (dynamic agents, agents, RAG, tracing)
   creds         Re-print the default local Keycloak logins (admin + standard
                 user) from the persisted Secrets — run any time after install
   cleanup       Interactive teardown: uninstall releases, delete secrets,
@@ -7920,6 +8300,8 @@ Commands:
 Options:
   --non-interactive  Skip all prompts (use current context, latest chart,
                      defaults for endpoint/model, no RAG/tracing unless flagged)
+  --load-config=FILE Load wizard config from FILE instead of the default
+                     ~/.config/caipe/config.yaml (shows summary, asks confirmation)
   --create-cluster   Create a Kind cluster if no kubectl context exists
                      (default name: caipe, override with KIND_CLUSTER_NAME)
   --rag              Enable RAG stack (vector-only by default)
@@ -7950,8 +8332,6 @@ Options:
   --webex-bot        Deploy the Webex bot surface (webex-bot subchart). Auto-enabled when
                      --env-file sets ENABLE_WEBEX_BOT/ENABLE_WEBEX; needs WEBEX_INTEGRATION_BOT_ACCESS_TOKEN
   --no-webex-bot     Skip the Webex bot surface (overrides the env-file value)
-  --all-in-one       All-in-One CAIPE: single supervisor with all agents embedded (default)
-  --distributed      Distributed CAIPE: each agent runs as its own independent service
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters — default ON
   --no-metallb       Skip MetalLB (also disables --ingress, which depends on it)
   --ingress          Install nginx-ingress + MetalLB and expose UI via domain — default ON
@@ -8150,14 +8530,13 @@ for arg in "$@"; do
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
+    --load-config=*)   CAIPE_CONFIG_FILE="${arg#--load-config=}" ;;
     --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
     --no-dynamic-agents) ENABLE_DYNAMIC_AGENTS=false ;;
     --slack-bot)       ENABLE_SLACK_BOT=true;  _SLACK_BOT_FORCED=on ;;
     --no-slack-bot)    ENABLE_SLACK_BOT=false; _SLACK_BOT_FORCED=off ;;
     --webex-bot)       ENABLE_WEBEX_BOT=true;  _WEBEX_BOT_FORCED=on ;;
     --no-webex-bot)    ENABLE_WEBEX_BOT=false; _WEBEX_BOT_FORCED=off ;;
-    --all-in-one)      CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
-    --distributed)     CAIPE_DEPLOYMENT_MODE="distributed" ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;

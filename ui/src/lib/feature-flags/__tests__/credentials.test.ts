@@ -3,6 +3,8 @@ import { afterAll, beforeEach, describe, expect, it } from "@jest/globals";
 import {
   getCredentialFeatureConfig,
   isCredentialFeatureEnabled,
+  isServiceAccountTokensEnabled,
+  isUserConnectionsEnabled,
 } from "../credentials";
 
 const ORIGINAL_ENV = process.env;
@@ -15,6 +17,8 @@ function resetEnv(overrides: Record<string, string | undefined> = {}): void {
   delete process.env.CREDENTIAL_KMS_CMK_ID;
   delete process.env.CREDENTIAL_KMS_REGION;
   delete process.env.CREDENTIAL_SERVICE_AUDIENCE;
+  delete process.env.CAIPE_USER_CONNECTIONS_ENABLED;
+  delete process.env.CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED;
 
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) {
@@ -34,7 +38,7 @@ describe("credential feature flags", () => {
     resetEnv();
   });
 
-  it("keeps Connections & Secrets disabled by default", () => {
+  it("keeps the Credentials surface disabled by default", () => {
     expect(isCredentialFeatureEnabled()).toBe(false);
     expect(getCredentialFeatureConfig()).toMatchObject({
       enabled: false,
@@ -72,5 +76,51 @@ describe("credential feature flags", () => {
       kmsRegion: "us-west-2",
       serviceAudience: "caipe-credential-service-local",
     });
+  });
+});
+
+describe("credential sub-surface flags (Credentials vs SA Tokens)", () => {
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  beforeEach(() => {
+    resetEnv();
+  });
+
+  it("both sub-surfaces are off when the master flag is off, regardless of sub-flag", () => {
+    resetEnv({
+      CAIPE_CREDENTIALS_ENABLED: "false",
+      CAIPE_USER_CONNECTIONS_ENABLED: "true",
+      CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED: "true",
+    });
+    // A sub-flag can never be on when the subsystem master is off.
+    expect(isUserConnectionsEnabled()).toBe(false);
+    expect(isServiceAccountTokensEnabled()).toBe(false);
+  });
+
+  it("both sub-surfaces inherit the master flag when their sub-flags are unset", () => {
+    resetEnv({ CAIPE_CREDENTIALS_ENABLED: "true" });
+    expect(isUserConnectionsEnabled()).toBe(true);
+    expect(isServiceAccountTokensEnabled()).toBe(true);
+  });
+
+  it("hides user Credentials independently while keeping SA Tokens on", () => {
+    resetEnv({
+      CAIPE_CREDENTIALS_ENABLED: "true",
+      CAIPE_USER_CONNECTIONS_ENABLED: "false",
+      // SA tokens flag unset → inherits master (on)
+    });
+    expect(isUserConnectionsEnabled()).toBe(false);
+    expect(isServiceAccountTokensEnabled()).toBe(true);
+  });
+
+  it("hides SA Tokens independently while keeping user Credentials on", () => {
+    resetEnv({
+      CAIPE_CREDENTIALS_ENABLED: "true",
+      CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED: "false",
+    });
+    expect(isServiceAccountTokensEnabled()).toBe(false);
+    expect(isUserConnectionsEnabled()).toBe(true);
   });
 });

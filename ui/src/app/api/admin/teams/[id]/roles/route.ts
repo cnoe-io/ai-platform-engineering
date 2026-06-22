@@ -20,27 +20,27 @@
  *   now belong in OpenFGA relationships and are always hidden/rejected here.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  ensureRealmRole,
-  findUserIdByEmail,
-  assignRealmRolesToUser,
-  removeRealmRolesFromUser,
-  listRealmRoles,
-  type KeycloakRole,
+assignRealmRolesToUser,
+ensureRealmRole,
+findUserIdByEmail,
+listRealmRoles,
+removeRealmRolesFromUser,
+type KeycloakRole,
 } from "@/lib/rbac/keycloak-admin";
+import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
 import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 // Roles that should never appear in the team picker — Keycloak system roles
 // users have no business toggling at the team scope. They're either the

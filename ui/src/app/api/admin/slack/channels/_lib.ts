@@ -17,11 +17,14 @@ export async function withSlackChannelRebacViewAuth<T>(
 ): Promise<T> {
   const { session } = await getAuthFromBearerOrSession(request);
   if (target) {
+    // bypassForOrgAdmin so an org admin can read a channel that has no
+    // per-channel grants yet — e.g. one just imported from config and not yet
+    // assigned to a team.
     await requireResourcePermission(session, {
       type: "slack_channel",
       id: slackChannelSubjectId(target.workspaceId, target.channelId),
       action: "read",
-    }, { allowAdminBypass: true });
+    }, { bypassForOrgAdmin: true });
   } else {
     await requireAdminSurfaceManage(session, "slack");
   }
@@ -35,11 +38,14 @@ export async function withSlackChannelRebacManageAuth<T>(
 ): Promise<T> {
   const { session } = await getAuthFromBearerOrSession(request);
   if (target) {
+    // bypassForOrgAdmin so an org admin can onboard/assign-team a channel that
+    // doesn't yet have per-channel manage grants (without it, an imported
+    // channel 403s before it can be assigned to a team).
     await requireResourcePermission(session, {
       type: "slack_channel",
       id: slackChannelSubjectId(target.workspaceId, target.channelId),
       action: "manage",
-    }, { allowAdminBypass: true });
+    }, { bypassForOrgAdmin: true });
   } else {
     await requireAdminSurfaceManage(session, "slack");
   }

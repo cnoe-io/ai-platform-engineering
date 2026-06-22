@@ -1,35 +1,37 @@
 "use client";
 
-import { ChevronRight, FileUp, HelpCircle, RefreshCw, RotateCw, Settings2 } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronRight,FileUp,HelpCircle,RefreshCw,RotateCw,Settings2 } from "lucide-react";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
+import { useSubtabParam } from "@/hooks/use-subtab-param";
 import { cn } from "@/lib/utils";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
-  ConnectorAdminAdapter,
-  DiagnosticRoute,
-  DiscoveredItem,
-  DynamicAgentOption,
-  ItemAgentRoute,
-  ItemDiagnostics,
-  ItemSummary,
-  RuntimeStatus,
-  RuntimeSyncSummary,
-  SyncPreviewAgent,
-  SyncPreviewChannel,
-  TeamOption,
+ConnectorAdminAdapter,
+DiagnosticRoute,
+DiscoveredItem,
+DynamicAgentOption,
+ItemAgentRoute,
+ItemDiagnostics,
+ItemSummary,
+RuntimeStatus,
+RuntimeSyncSummary,
+SyncPreviewAgent,
+SyncPreviewChannel,
+TeamOption,
 } from "./connector-admin-adapter";
 
 type PanelView = "channels" | "onboard" | "advanced";
+const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "advanced"];
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
 
@@ -379,6 +381,7 @@ interface ItemDetailProps {
   dynamicAgents: DynamicAgentOption[];
   teams: TeamOption[];
   onRefresh: (nextRoutes?: ItemAgentRoute[]) => Promise<void> | void;
+  onDeselect: () => void;
   setLoading: (loading: boolean) => void;
   setMessage: (message: string | null) => void;
   fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
@@ -388,7 +391,7 @@ interface ItemDetailProps {
 
 function ItemDetail({
   adapter, selected, diagnostics, routes,
-  dynamicAgents, teams, onRefresh, setLoading, setMessage,
+  dynamicAgents, teams, onRefresh, onDeselect, setLoading, setMessage,
   fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage,
 }: ItemDetailProps) {
   const diagnosticsMissingRouteableAgent =
@@ -423,6 +426,7 @@ function ItemDetail({
         setLoading,
         setMessage,
         onRefresh,
+        onDeselect,
         routesFor: adapter.api.routesFor,
         listApi: adapter.api.list,
       })}
@@ -460,7 +464,11 @@ export function ConnectorAdminPanel({
   const [discoveredRows, setDiscoveredRows] = useState<Array<DiscoveredItem & { selected: boolean; team_slug: string; agent_id: string; is_existing: boolean }>>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [view, setView] = useState<PanelView>("channels");
+  // Sub-tab (Configured / Onboard / Advanced) is mirrored to the `subtab` URL
+  // param so admins can deep-link and refresh without losing their place. In
+  // self-service mode there is no tab bar — the configured table always shows —
+  // so `view` stays local there and the URL is left untouched.
+  const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
 
@@ -960,6 +968,7 @@ export function ConnectorAdminPanel({
                                   if (nextRoutes) setRoutes(nextRoutes);
                                   await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
                                 }}
+                                onDeselect={() => setSelectedKey("")}
                                 fixDiagnosticRoute={fixDiagnosticRoute} fixMissingRouteableAgent={fixMissingRouteableAgent}
                                 disabled={disabled} loading={loading} selectedCanManage={selectedCanManage} message={message}
                               />

@@ -1,10 +1,10 @@
 import type { Document } from "mongodb";
 
+import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
 import type {
-  SlackChannelGrantResourceType,
-  SlackChannelResourceGrant,
+SlackChannelGrantResourceType,
+SlackChannelResourceGrant,
 } from "@/types/slack-rebac";
-import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 import { getRbacCollection } from "./mongo-collections";
 
@@ -97,6 +97,23 @@ export async function replaceSlackChannelGrants(
   }
 
   return listSlackChannelGrants(workspaceRef, channelId);
+}
+
+// Hard-delete every grant document for a channel, regardless of status. Used
+// when offboarding a channel entirely. There is no per-grant delete path
+// elsewhere (grants are otherwise only reconciled as a full set via
+// replaceSlackChannelGrants), so this is the only destructive grant op.
+export async function deleteSlackChannelGrants(
+  workspaceId: string,
+  channelId: string
+): Promise<number> {
+  const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
+  const workspaceRef = slackWorkspaceRef(workspaceId);
+  const result = await collection.deleteMany({
+    workspace_id: workspaceRef,
+    channel_id: channelId,
+  } as never);
+  return result.deletedCount ?? 0;
 }
 
 export async function ensureRouteOwnedAgentGrants(

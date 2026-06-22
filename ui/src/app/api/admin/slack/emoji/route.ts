@@ -1,12 +1,12 @@
+import {
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
+} from "@/lib/api-middleware";
 import { createHash } from "crypto";
 import { NextRequest } from "next/server";
-import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
-} from "@/lib/api-middleware";
 
 interface SlackEmojiListResponse {
   ok: boolean;

@@ -171,6 +171,35 @@ describe("admin user sibling routes dual-auth PDP gates", () => {
     expect(mockGetRealmUserById).not.toHaveBeenCalledWith("alice-sub");
   });
 
+  it("allows an admin with users#can_manage to open another user's details", async () => {
+    // Org/super admins hold can_manage on the users surface; that authorizes
+    // reading any user's profile (the user_profile object is self-read only).
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:bob-sub" &&
+        tuple.relation === "can_manage" &&
+        tuple.object === "admin_surface:users",
+    }));
+    mockGetRealmUserById.mockResolvedValue({
+      id: "alice-sub",
+      username: "alice@example.com",
+      email: "alice@example.com",
+      enabled: true,
+      attributes: {},
+    });
+
+    const { GET } = await import("../[id]/route");
+    const response = await GET(
+      request("/api/admin/users/alice-sub", { method: "GET" }),
+      { params: Promise.resolve({ id: "alice-sub" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.user).toEqual(expect.objectContaining({ id: "alice-sub" }));
+    expect(mockGetRealmUserById).toHaveBeenCalledWith("alice-sub");
+  });
+
   it("requires admin_surface users read even when organization admin view is allowed", async () => {
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
       allowed:

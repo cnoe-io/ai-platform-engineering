@@ -1,9 +1,14 @@
 """Slack channel ReBAC helpers.
 
-The Slack runtime must satisfy two authorization layers before invoking a
-resource: the channel must be allowed to expose the resource, and the user must
-also have access to that resource. The BFF owns the policy decision endpoint; the
-bot keeps this module small and transport-focused.
+The Slack bot enforces one authorization layer before invoking an agent:
+  Channel grant: the channel must have the agent explicitly assigned in
+  OpenFGA. User-level ``can_use`` is enforced downstream by the API when
+  the conversation is created — the bot delegates that gate to avoid
+  duplicating policy logic.
+
+The BFF owns the policy decision endpoint. The bot calls the BFF's
+``/api/integrations/slack/channels/{workspace}/{channel}/access-check``
+endpoint without a ``user_subject`` so only the channel grant is evaluated.
 """
 
 from __future__ import annotations
@@ -22,7 +27,6 @@ logger = logging.getLogger("caipe.slack_bot.slack_rebac")
 SlackChannelRebacReason = Literal[
     "allowed",
     "missing_channel_grant",
-    "missing_user_grant",
     "unsupported_action",
     "pdp_unavailable",
 ]
@@ -34,22 +38,10 @@ class SlackChannelRebacDecision:
 
     allowed: bool
     channel_allowed: bool
-    user_allowed: bool
     reason: SlackChannelRebacReason
 
 
 PostCheck = Callable[[str, dict[str, object], str], SlackChannelRebacDecision]
-
-
-def build_team_member_subject(team_slug: Optional[str]) -> Optional[str]:
-    """Build a `team:<slug>#member` Universal ReBAC subject for the channel-resolved team.
-
-    Returns ``None`` when no team scope is available (DM / unmapped channel)
-    so the caller falls back to a user-only ReBAC check.
-    """
-    if not team_slug:
-        return None
-    return f"team:{team_slug}#member"
 
 
 def _default_base_url() -> str:
@@ -81,7 +73,6 @@ def _http_post_check(base_url: str, path: str, payload: dict[str, object], token
         return SlackChannelRebacDecision(
             allowed=False,
             channel_allowed=False,
-            user_allowed=False,
             reason="pdp_unavailable",
         )
 
@@ -89,7 +80,6 @@ def _http_post_check(base_url: str, path: str, payload: dict[str, object], token
     return SlackChannelRebacDecision(
         allowed=bool(result.get("allowed")),
         channel_allowed=bool(result.get("channel_allowed")),
-        user_allowed=bool(result.get("user_allowed")),
         reason=str(result.get("reason") or "pdp_unavailable"),  # type: ignore[arg-type]
     )
 
@@ -118,16 +108,31 @@ class SlackChannelRebacEvaluator:
             )
         return _http_post_check(self.base_url, path, payload, token)
 
-    def check_agent_access(
+    def check_channel_grant(
         self,
         *,
         workspace_id: str,
         channel_id: str,
         agent_id: str,
-        team_slug: Optional[str],
-        obo_token: str,
+        obo_token: Optional[str],
     ) -> SlackChannelRebacDecision:
-        """Check whether a Slack channel and user can use an agent."""
+        """Check whether a channel has this agent explicitly assigned.
+
+        Does not evaluate user-level ``can_use`` — that gate is enforced by
+        the API when the conversation is created.
+        """
+        if not obo_token:
+            logger.warning(
+                "check_channel_grant: no OBO token available for channel=%s agent=%s",
+                channel_id,
+                agent_id,
+            )
+            return SlackChannelRebacDecision(
+                allowed=False,
+                channel_allowed=False,
+                user_allowed=False,
+                reason="pdp_unavailable",
+            )
 
         path = (
             "/api/integrations/slack/channels/"
@@ -138,9 +143,6 @@ class SlackChannelRebacEvaluator:
             "resource": {"type": "agent", "id": agent_id},
             "action": "use",
         }
-        subject = build_team_member_subject(team_slug)
-        if subject:
-            payload["user_subject"] = subject
         return self._post(path, payload, obo_token)
 
 

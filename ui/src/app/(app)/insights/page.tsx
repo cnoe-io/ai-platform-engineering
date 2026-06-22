@@ -1,40 +1,40 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import {
+CategoryBreakdown,
+RunStatsTable,
+VisibilityBreakdown,
+} from "@/components/admin/insights/SkillMetricsCards";
+import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
+import { AuthGuard } from "@/components/auth-guard";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { getStorageMode } from "@/lib/storage-config";
+import { cn } from "@/lib/utils";
+import type { SkillMetricsPersonal } from "@/types/agent-skill";
 import { motion } from "framer-motion";
 import {
-  MessageSquare,
-  Hash,
-  TrendingUp,
-  Clock,
-  Calendar,
-  Bot,
-  ThumbsUp,
-  ThumbsDown,
-  Lightbulb,
-  BarChart3,
-  FileText,
-  Zap,
-  Database,
-  Layers,
-  CheckCircle,
-  XCircle,
+BarChart3,
+Bot,
+Calendar,
+CheckCircle,
+Clock,
+Database,
+FileText,
+Hash,
+Layers,
+Lightbulb,
+MessageSquare,
+ThumbsDown,
+ThumbsUp,
+TrendingUp,
+XCircle,
+Zap,
 } from "lucide-react";
-import { AuthGuard } from "@/components/auth-guard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
-import {
-  VisibilityBreakdown,
-  CategoryBreakdown,
-  RunStatsTable,
-} from "@/components/admin/SkillMetricsCards";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getStorageMode } from "@/lib/storage-config";
-import type { SkillMetricsPersonal } from "@/types/agent-skill";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import React,{ useEffect,useState } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────
 interface SkillUsageEntry {

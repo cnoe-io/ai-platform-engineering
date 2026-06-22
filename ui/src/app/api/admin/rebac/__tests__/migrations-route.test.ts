@@ -17,6 +17,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockWriteOpenFgaTupleDiff = jest.fn();
 const mockGetKeycloakRbacDiagnosticValues = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
@@ -66,6 +67,8 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
+  readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -116,12 +119,13 @@ beforeEach(() => {
   process.env.KEYCLOAK_REALM = "caipe";
   for (const key of Object.keys(collections)) delete collections[key];
   mockGetAuthFromBearerOrSession.mockResolvedValue({
-    user: { email: "admin@example.com", name: "Admin" },
+    user: { email: "admin@example.com", name: "Admin", role: "admin" },
     session: { sub: "admin-sub", role: "admin", user: { email: "admin@example.com" } },
   });
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockImplementation(async (name: string) => collections[name] ?? createCollection());
   mockConnectToDatabase.mockImplementation(async () => ({
     db: {
@@ -265,6 +269,53 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
+  it("keeps a completed run actionable when the schema version is still behind", async () => {
+    collections.schema_migrations = createCollection([
+      {
+        _id: "rbac_indexes_v1",
+        release: "0.5.1",
+        schema_area: "rbac_indexes",
+        status: "completed",
+        completed_at: "2026-06-19T12:00:00.000Z",
+      },
+    ]);
+    collections.data_schema_versions = createCollection([
+      { _id: "rbac_indexes", version: 1, last_migration_id: "schema_version_bootstrap_v1" },
+    ]);
+    const { GET } = await import("../migrations/route");
+
+    const response = await GET(request("/api/admin/rebac/migrations"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.migrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rbac_indexes_v1",
+          schema_area: "rbac_indexes",
+          current_version: 1,
+          target_version: 2,
+          status: "not_started",
+        }),
+      ]),
+    );
+    expect(body.data.completed_migrations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "rbac_indexes_v1" }),
+      ]),
+    );
+    expect(body.data.schema_versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          schema_area: "rbac_indexes",
+          current_version: 1,
+          target_version: 2,
+          status: "behind",
+        }),
+      ]),
+    );
+  });
+
   it("returns blocking migration status and records super-admin overrides", async () => {
     collections.data_schema_versions = createCollection([{ _id: "conversations", version: 1 }]);
     const statusRoute = await import("../migrations/status/route");
@@ -308,7 +359,7 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
-  it("includes unversioned schema areas in migration status so admins get a runtime warning", async () => {
+  it("includes actionable unversioned schema areas in migration status (not orphan collections)", async () => {
     collections.messages = createCollection();
     collections.feedback = createCollection();
     collections.data_schema_versions = createCollection([
@@ -321,8 +372,13 @@ describe("admin ReBAC migrations API", () => {
 
     expect(statusResponse.status).toBe(200);
     expect(statusBody.data.needs_version_bootstrap).toBe(true);
-    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThanOrEqual(2);
+    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThan(0);
+    // Manifest-backed areas without version rows should alert; raw Mongo collections
+    // with no migration target (messages, feedback) should not inflate the count.
     expect(statusBody.data.version_bootstrap_schema_areas).toEqual(
+      expect.arrayContaining(["dynamic_agents"]),
+    );
+    expect(statusBody.data.version_bootstrap_schema_areas).not.toEqual(
       expect.arrayContaining(["messages", "feedback"]),
     );
     expect(statusBody.data.requires_attention).toBe(true);
@@ -633,7 +689,7 @@ describe("admin ReBAC migrations API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "user:alice-sub", relation: "member", object: "team:platform" },
         { user: "team:platform#member", relation: "user", object: "agent:agent-1" },
@@ -663,7 +719,7 @@ describe("admin ReBAC migrations API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "agent:agent-1", relation: "caller", object: "tool:github/search" },
         { user: "agent:agent-1", relation: "caller", object: "tool:github/issues" },
@@ -691,7 +747,7 @@ describe("admin ReBAC migrations API", () => {
     const response = await POST(
       request("/api/admin/rebac/migrations/rbac_indexes_v1/apply", {
         method: "POST",
-        body: JSON.stringify({ confirmation: "MIGRATE audit_events TO v2" }),
+        body: JSON.stringify({ confirmation: "MIGRATE rbac_indexes TO v2" }),
       }),
       { params: Promise.resolve({ migrationId: "rbac_indexes_v1" }) },
     );
@@ -738,7 +794,7 @@ describe("admin ReBAC migrations API", () => {
     );
 
     expect(applyResponse.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "slack_channel:T123--C123", relation: "user", object: "agent:agent-1" },
         { user: "slack_channel:T123--C124", relation: "user", object: "agent:agent-1" },
@@ -786,7 +842,7 @@ describe("admin ReBAC migrations API", () => {
     );
 
     expect(applyResponse.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "webex_space:WEBEX--space-1", relation: "reader", object: "knowledge_base:kb-1" },
         { user: "webex_space:WEBEX--space-2", relation: "user", object: "agent:agent-1" },
@@ -848,5 +904,52 @@ describe("admin ReBAC migrations API", () => {
     expect(collections.webex_space_agent_routes.createIndex).toHaveBeenCalled();
     expect(collections.webex_space_team_mappings.createIndex).toHaveBeenCalled();
     expect(indexBody.data.applied_counts.indexes_created).toBeGreaterThan(0);
+  });
+
+  it("backfills Slack team member manage tuples for configured channels", async () => {
+    const planRoute = await import("../migrations/[migrationId]/plan/route");
+    const applyRoute = await import("../migrations/[migrationId]/apply/route");
+
+    const planResponse = await planRoute.POST(
+      request("/api/admin/rebac/migrations/messaging_team_visibility_v1/plan", { method: "POST" }),
+      { params: Promise.resolve({ migrationId: "messaging_team_visibility_v1" }) },
+    );
+    const planBody = await planResponse.json();
+
+    expect(planResponse.status).toBe(200);
+    expect(planBody.data.counts).toMatchObject({
+      slack_channels_scanned: 1,
+      webex_spaces_scanned: 1,
+    });
+    expect(planBody.data.counts.tuple_writes_planned).toBeGreaterThanOrEqual(4);
+    expect(planBody.data.tuples).toEqual(
+      expect.arrayContaining([
+        {
+          user: "team:platform#member",
+          relation: "manager",
+          object: "slack_channel:T123--C123",
+        },
+      ]),
+    );
+
+    const applyResponse = await applyRoute.POST(
+      request("/api/admin/rebac/migrations/messaging_team_visibility_v1/apply", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "MIGRATE messaging_team_visibility TO v2" }),
+      }),
+      { params: Promise.resolve({ migrationId: "messaging_team_visibility_v1" }) },
+    );
+
+    expect(applyResponse.status).toBe(200);
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        {
+          user: "team:platform#member",
+          relation: "manager",
+          object: "slack_channel:T123--C123",
+        },
+      ]),
+      deletes: [],
+    });
   });
 });

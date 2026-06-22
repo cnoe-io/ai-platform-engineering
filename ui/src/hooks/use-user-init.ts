@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
+import { useSession } from "next-auth/react";
+import { useEffect,useState } from "react";
 
 /**
  * Hook to ensure user is initialized in MongoDB on first login

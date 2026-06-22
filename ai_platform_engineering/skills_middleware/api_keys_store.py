@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """MongoDB-backed catalog API keys (hashed secrets only) for FR-018 / T046.
 
-Key format: ``{key_id}.{secret}`` (secret is opaque). Only ``sha256`` hash
-of ``pepper:secret`` is stored.
+Key format: ``{key_id}.{secret}`` (secret is opaque). Only a versioned scrypt
+digest is stored (matches the BFF ``catalog-api-keys`` module).
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -19,16 +21,31 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _COLLECTION = "catalog_api_keys"
+_SCRYPT_PREFIX = "scrypt:v1"
+_SCRYPT_KEY_LEN = 32
+_SCRYPT_N = 16384
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_MAXMEM = 32 * 1024 * 1024
 
 
 def _pepper() -> str:
     return os.getenv("CAIPE_CATALOG_API_KEY_PEPPER", os.getenv("SKILLS_API_KEY_PEPPER", ""))
 
 
-def _hash_secret(secret: str) -> str:
-    p = _pepper()
-    payload = f"{p}:{secret}".encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+# assisted-by Codex Codex-sonnet-4-6
+def _hash_secret(key_id: str, secret: str) -> str:
+    digest = hashlib.scrypt(
+        f"{_pepper()}:{secret}".encode("utf-8"),
+        salt=key_id.encode("utf-8"),
+        n=_SCRYPT_N,
+        r=_SCRYPT_R,
+        p=_SCRYPT_P,
+        dklen=_SCRYPT_KEY_LEN,
+        maxmem=_SCRYPT_MAXMEM,
+    )
+    encoded = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return f"{_SCRYPT_PREFIX}:{encoded}"
 
 
 def _get_collection():
@@ -69,7 +86,10 @@ def verify_catalog_api_key(raw_key: str) -> str | None:
 
     if not doc:
         return None
-    if doc.get("key_hash") != _hash_secret(secret):
+    if not hmac.compare_digest(
+        str(doc.get("key_hash") or ""),
+        _hash_secret(key_id, secret),
+    ):
         return None
 
     # Optional last_used_at (best-effort)
@@ -106,7 +126,7 @@ def create_catalog_api_key(
     now = time.time()
     doc: dict[str, Any] = {
         "key_id": key_id,
-        "key_hash": _hash_secret(secret),
+        "key_hash": _hash_secret(key_id, secret),
         "owner_user_id": owner_user_id,
         "scopes": scopes or ["catalog:read"],
         "created_at": now,

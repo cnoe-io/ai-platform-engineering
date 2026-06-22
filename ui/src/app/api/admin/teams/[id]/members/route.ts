@@ -1,34 +1,39 @@
 // POST /api/admin/teams/[id]/members - Add members to a team
 // DELETE /api/admin/teams/[id]/members - Remove a member from a team
 
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateEmail,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+validateEmail,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import {
-  listActiveTeamMembershipSourcesForTeamUser,
-  markTeamMembershipSourceRemoved,
-  upsertTeamMembershipSource,
+listActiveTeamMembershipSourcesForTeamUser,
+markTeamMembershipSourceRemoved,
+upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
-import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
+import { findUserRoleInTeam, loadActiveTeamMembersPage } from '@/lib/rbac/team-membership-store';
 import {
-  buildTeamMembershipTuples,
-  mongoRoleToOpenFgaRelations,
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
-  type TeamMemberRelation,
+buildTeamMembershipTuples,
+mongoRoleToOpenFgaRelations,
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
+type TeamMemberRelation,
 } from '@/lib/rbac/team-membership-sync';
-import { readTeamOpenFgaTuples } from '@/lib/rbac/team-openfga-sync-status';
-import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
+import {
+classifyMemberSyncStatus,
+readTeamMemberOpenFgaTuples,
+readTeamOpenFgaTuples,
+} from '@/lib/rbac/team-openfga-sync-status';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import type { Team } from '@/types/teams';
+import { ObjectId } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 type TeamDocument = Omit<Team, '_id'> & { _id: ObjectId };
 
@@ -159,6 +164,86 @@ function manualMembershipSource(input: {
     created_at: timestamp,
   };
 }
+
+// GET /api/admin/teams/[id]/members — paginated, search-filtered member list.
+//
+// Returns one page of the team's deduplicated members so the Admin team
+// dialog can show large rosters without loading every membership-source row.
+// Query params: `page` (1-based), `page_size` (1–100, default 25), `search`
+// (case-insensitive email substring). Each member carries `source_types`
+// (e.g. ["okta"]) and `idp_managed` so the UI can badge provenance and lock
+// the remove action for directory-managed members.
+export const GET = withErrorHandler(async (
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) => {
+  const mongoCheck = requireMongoDB();
+  if (mongoCheck) return mongoCheck;
+
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'view');
+
+  const params = await context.params;
+  const teamId = parseTeamId(params.id);
+  const teams = await getCollection<TeamDocument>('teams');
+  const team = await teams.findOne({ _id: teamId });
+  if (!team) {
+    throw new ApiError('Team not found', 404);
+  }
+
+  const teamSlug = String(team.slug || '').trim();
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+  const pageSizeRaw = parseInt(url.searchParams.get('page_size') || '25', 10) || 25;
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+  const search = (url.searchParams.get('search') || '').trim();
+
+  const { members, total } = teamSlug
+    ? await loadActiveTeamMembersPage(teamSlug, {
+        page,
+        pageSize,
+        search,
+        ownerEmail: typeof team.owner_id === 'string' ? team.owner_id : undefined,
+      })
+    : { members: [], total: 0 };
+
+  // Decorate each member with its OpenFGA sync state (synced/pending/drifted/
+  // unknown) so the dialog can badge the row. This is PAGE-SCOPED: we read
+  // tuples for only the subjects on this page (one filtered `{user, object}`
+  // read each), never the whole team. Reading the full `team:<slug>` tuple set
+  // here would be catastrophic for a team like `everyone` (tens of thousands
+  // of tuples) and previously truncated at 1000, falsely flagging most members
+  // as "drifted". Read-only — computing the badge never writes tuples.
+  const subjects = members
+    .map((m) => m.user_subject)
+    .filter((s): s is string => Boolean(s));
+  const relationsBySubject = teamSlug
+    ? await readTeamMemberOpenFgaTuples(teamSlug, subjects)
+    : null;
+
+  const membersWithSync = members.map((member) => {
+    // `owner` grants both admin+member; otherwise the role maps directly.
+    const requiredRelations = mongoRoleToOpenFgaRelations(member.role);
+    const relationsHeld = member.user_subject
+      ? (relationsBySubject?.get(member.user_subject) ?? null)
+      : null;
+    const sync = classifyMemberSyncStatus({
+      teamSlug,
+      userSubject: member.user_subject,
+      requiredRelations,
+      relationsHeld: teamSlug ? relationsHeld : null,
+    });
+    return { ...member, sync_status: sync.status, sync_reason: sync.reason };
+  });
+
+  return successResponse({
+    members: membersWithSync,
+    total,
+    page,
+    page_size: pageSize,
+    has_more: page * pageSize < total,
+  });
+});
 
 // POST /api/admin/teams/[id]/members
 export const POST = withErrorHandler(async (

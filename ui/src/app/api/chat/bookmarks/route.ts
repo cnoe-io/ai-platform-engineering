@@ -1,20 +1,20 @@
 // GET /api/chat/bookmarks - Get user's bookmarks
 // POST /api/chat/bookmarks - Create bookmark
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  paginatedResponse,
-  validateRequired,
-  validateUUID,
-  ApiError,
-  getPaginationParams,
+ApiError,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+validateRequired,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireResourcePermission } from '@/lib/rbac/resource-authz';
-import type { ConversationBookmark, CreateBookmarkRequest } from '@/types/mongodb';
+import type { ConversationBookmark,CreateBookmarkRequest } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/chat/bookmarks
 export const GET = withErrorHandler(async (request: NextRequest) => {

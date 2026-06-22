@@ -1,13 +1,13 @@
-import { NextRequest } from "next/server";
-import crypto from "crypto";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getRealmUserById, mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import { getRealmUserById,mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import crypto from "crypto";
+import { NextRequest } from "next/server";
 
 const HMAC_TTL_SECONDS = 600;
 

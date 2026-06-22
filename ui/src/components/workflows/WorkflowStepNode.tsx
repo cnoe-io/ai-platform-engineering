@@ -1,11 +1,11 @@
 "use client";
 
-import React, { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { useTheme } from "next-themes";
-import { Plus } from "lucide-react";
+import { AgentAvatar,type AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
 import { cn } from "@/lib/utils";
-import { AgentAvatar, type AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
+import { Handle,Position,type NodeProps } from "@xyflow/react";
+import { Plus } from "lucide-react";
+import { useTheme } from "next-themes";
+import { memo } from "react";
 
 export interface WorkflowStepNodeData {
   stepIndex: number;

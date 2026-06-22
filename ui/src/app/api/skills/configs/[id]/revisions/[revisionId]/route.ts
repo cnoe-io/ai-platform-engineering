@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
 
+import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { isMongoDBConfigured } from "@/lib/mongodb";
-import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import { getRevision } from "@/lib/skill-revisions";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 /**
  * GET /api/skills/configs/[id]/revisions/[revisionId]
@@ -38,7 +38,7 @@ export const GET = withErrorHandler(
       if (!skill) {
         throw new ApiError("Skill not found", 404);
       }
-      await requireResourcePermission(session, { type: "skill", id, action: "read" });
+      await requireSkillPermission(session, id, "read");
       const revision = await getRevision(id, revisionId);
       if (!revision) {
         throw new ApiError("Revision not found", 404);

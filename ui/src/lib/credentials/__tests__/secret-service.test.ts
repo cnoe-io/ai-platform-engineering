@@ -19,6 +19,9 @@ class MemorySecretRefsCollection {
       Object.entries(query).every(([key, value]) => {
         if (key === "owner.type") return doc.owner?.type === value;
         if (key === "owner.id") return doc.owner?.id === value;
+        if (key === "id" && value && typeof value === "object" && "$in" in value) {
+          return (value.$in as string[]).includes(String(doc.id));
+        }
         return doc[key] === value;
       }),
     );
@@ -66,15 +69,22 @@ class MemorySecretRefsCollection {
   }
 }
 
-function createService() {
+function createService(
+  options: {
+    resolveUsage?: ConstructorParameters<typeof SecretService>[0]["resolveUsage"];
+    listReadableSecretIds?: ConstructorParameters<typeof SecretService>[0]["listReadableSecretIds"];
+  } = {},
+) {
   const refs = new MemorySecretRefsCollection();
   const payloadStore = {
     putSecret: jest.fn(async () => undefined),
     getSecret: jest.fn(async () => "github-token-value"),
+    getMaskedPreview: jest.fn(async (secretRefId: string) =>
+      secretRefId === "shared-secret" ? "jir_...alue" : "gith...alue",
+    ),
     rotateSecret: jest.fn(async () => undefined),
     deleteSecret: jest.fn(async () => undefined),
   };
-  const audit = { insertOne: jest.fn(async () => ({ acknowledged: true })) };
   const authorize = jest.fn(async () => undefined);
   const reconcileOwnerRelationships = jest.fn(async () => undefined);
   const reconcileShare = jest.fn(async () => undefined);
@@ -84,7 +94,6 @@ function createService() {
   return {
     refs,
     payloadStore,
-    audit,
     authorize,
     reconcileOwnerRelationships,
     reconcileShare,
@@ -93,12 +102,13 @@ function createService() {
     service: new SecretService({
       secretRefsCollection: refs,
       payloadStore,
-      auditCollection: audit,
       authorize,
+      listReadableSecretIds: options.listReadableSecretIds,
       reconcileOwnerRelationships,
       reconcileShare,
       deleteShare,
       deleteAllRelationships,
+      resolveUsage: options.resolveUsage,
       idGenerator: () => "secret-1",
       now: () => new Date("2026-05-21T00:00:00.000Z"),
     }),
@@ -106,11 +116,11 @@ function createService() {
 }
 
 describe("SecretService", () => {
-  it("creates a secret ref and stores raw material only in the encrypted payload store", async () => {
+  it("creates a secret ref and stores raw material plus masked preview only in the encrypted payload store", async () => {
     const { refs, payloadStore, reconcileOwnerRelationships, service } = createService();
 
     const result = await service.createSecret({
-      session: { sub: "alice-sub" },
+      session: { sub: "alice-sub", user: { email: "alice@example.test", name: "Alice Example" } },
       owner: { type: "user", id: "alice-sub" },
       name: "GitHub token",
       type: "bearer_token",
@@ -121,10 +131,22 @@ describe("SecretService", () => {
       id: "secret-1",
       name: "GitHub token",
       maskedPreview: "gith...alue",
+      createdBy: {
+        type: "user",
+        id: "alice-sub",
+        email: "alice@example.test",
+        name: "Alice Example",
+      },
+      storage: expect.objectContaining({
+        metadataCollection: "credential_secret_refs",
+        payloadCollection: "credential_encrypted_payloads",
+        valuePreviewAvailable: true,
+      }),
     });
     expect(payloadStore.putSecret).toHaveBeenCalledWith({
       secretRefId: "secret-1",
       plaintext: "github-token-value",
+      maskedPreview: "gith...alue",
     });
     expect(reconcileOwnerRelationships).toHaveBeenCalledWith({
       secretId: "secret-1",
@@ -132,10 +154,48 @@ describe("SecretService", () => {
       ownerSubject: "alice-sub",
     });
     expect(JSON.stringify(refs.docs)).not.toContain("github-token-value");
+    expect(JSON.stringify(refs.docs)).not.toContain("gith...alue");
+    expect(refs.docs[0]).not.toHaveProperty("maskedPreview");
+  });
+
+  it("adds usage metadata without loading plaintext", async () => {
+    const resolveUsage = jest.fn(async () => [
+      {
+        type: "mcp_server" as const,
+        id: "mcp-github",
+        name: "GitHub MCP",
+        location: "Agents > Tools",
+        detail: "env: GITHUB_TOKEN",
+      },
+    ]);
+    const { service } = createService({ resolveUsage });
+    await service.createSecret({
+      session: { sub: "alice-sub" },
+      owner: { type: "user", id: "alice-sub" },
+      name: "GitHub token",
+      type: "bearer_token",
+      plaintext: "github-token-value",
+    });
+
+    await expect(service.listAllSecretsForAdmin()).resolves.toEqual([
+      expect.objectContaining({
+        id: "secret-1",
+        usage: [
+          {
+            type: "mcp_server",
+            id: "mcp-github",
+            name: "GitHub MCP",
+            location: "Agents > Tools",
+            detail: "env: GITHUB_TOKEN",
+          },
+        ],
+      }),
+    ]);
+    expect(resolveUsage).toHaveBeenCalledWith(expect.objectContaining({ id: "secret-1" }));
   });
 
   it("lists only masked secret metadata for an owner", async () => {
-    const { service } = createService();
+    const { payloadStore, service } = createService();
     await service.createSecret({
       session: { sub: "alice-sub" },
       owner: { type: "user", id: "alice-sub" },
@@ -155,6 +215,101 @@ describe("SecretService", () => {
         maskedPreview: "gith...alue",
       }),
     ]);
+    expect(payloadStore.getMaskedPreview).toHaveBeenCalledWith("secret-1");
+  });
+
+  it("repairs legacy all-star previews without returning plaintext", async () => {
+    const { payloadStore, service } = createService();
+    await service.createSecret({
+      session: { sub: "alice-sub" },
+      owner: { type: "user", id: "alice-sub" },
+      name: "ArgoCD token",
+      type: "bearer_token",
+      plaintext: "argocd",
+    });
+    payloadStore.getSecret.mockResolvedValueOnce("argocd");
+    payloadStore.getMaskedPreview.mockResolvedValueOnce("******");
+
+    await expect(
+      service.listSecrets({
+        session: { sub: "alice-sub" },
+        owner: { type: "user", id: "alice-sub" },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "secret-1",
+        maskedPreview: "a...d",
+      }),
+    ]);
+    expect(payloadStore.putSecret).toHaveBeenLastCalledWith({
+      secretRefId: "secret-1",
+      plaintext: "argocd",
+      maskedPreview: "a...d",
+    });
+    expect(JSON.stringify(await service.listSecrets({
+      session: { sub: "alice-sub" },
+      owner: { type: "user", id: "alice-sub" },
+    }))).not.toContain("argocd");
+  });
+
+  it("keeps metadata lists available when a saved preview cannot be loaded", async () => {
+    const { payloadStore, service } = createService();
+    await service.createSecret({
+      session: { sub: "alice-sub" },
+      owner: { type: "user", id: "alice-sub" },
+      name: "Jira token",
+      type: "bearer_token",
+      plaintext: "jira-token-value",
+    });
+    payloadStore.getMaskedPreview.mockRejectedValueOnce(new Error("preview store unavailable"));
+
+    await expect(
+      service.listSecrets({
+        session: { sub: "alice-sub" },
+        owner: { type: "user", id: "alice-sub" },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "secret-1",
+        maskedPreview: "unavailable",
+      }),
+    ]);
+    expect(JSON.stringify(await service.listAllSecretsForAdmin())).not.toContain("jira-token-value");
+  });
+
+  it("includes shared secrets discovered through the authorization graph", async () => {
+    const listReadableSecretIds = jest.fn(async () => ["shared-secret"]);
+    const { authorize, refs, service } = createService({ listReadableSecretIds });
+    refs.docs.push(
+      {
+        id: "shared-secret",
+        owner: { type: "user", id: "alice-sub" },
+        createdBy: { type: "user", id: "alice-sub", email: "alice@example.test" },
+        name: "Jira",
+        type: "bearer_token",
+        sharedWithTeams: ["eti_sre_admins_jenkins"],
+        createdAt: new Date("2026-05-21T00:00:00.000Z"),
+        updatedAt: new Date("2026-05-21T00:00:00.000Z"),
+      },
+    );
+
+    await expect(
+      service.listSecrets({
+        session: { sub: "eti-sre-cicd.gen" },
+        owner: { type: "user", id: "eti-sre-cicd.gen" },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "shared-secret",
+        name: "Jira",
+        maskedPreview: "jir_...alue",
+      }),
+    ]);
+    expect(listReadableSecretIds).toHaveBeenCalledWith({ sub: "eti-sre-cicd.gen" });
+    expect(authorize).toHaveBeenCalledWith(
+      { sub: "eti-sre-cicd.gen" },
+      { type: "secret_ref", id: "shared-secret", action: "read-metadata" },
+    );
   });
 
   it("rotates, shares, revokes, and deletes without returning raw material", async () => {
@@ -187,6 +342,7 @@ describe("SecretService", () => {
     expect(payloadStore.putSecret).toHaveBeenLastCalledWith({
       secretRefId: "secret-1",
       plaintext: "new-token-value",
+      maskedPreview: "new-...alue",
     });
     expect(reconcileShare).toHaveBeenCalledWith("secret-1", "platform-team");
     expect(deleteShare).toHaveBeenCalledWith("secret-1", "platform-team");
@@ -195,7 +351,7 @@ describe("SecretService", () => {
   });
 
   it("supports admin listing and metadata edits without exposing plaintext", async () => {
-    const { refs, service } = createService();
+    const { payloadStore, refs, service } = createService();
     await service.createSecret({
       session: { sub: "alice-sub" },
       owner: { type: "user", id: "alice-sub" },
@@ -211,6 +367,7 @@ describe("SecretService", () => {
         maskedPreview: "gith...alue",
       }),
     ]);
+    expect(payloadStore.getMaskedPreview).toHaveBeenCalledWith("secret-1");
 
     await service.updateSecretMetadataForAdmin({
       secretId: "secret-1",
@@ -222,5 +379,6 @@ describe("SecretService", () => {
       description: "Used by GitHub MCP",
     });
     expect(JSON.stringify(refs.docs)).not.toContain("github-token-value");
+    expect(JSON.stringify(refs.docs)).not.toContain("gith...alue");
   });
 });

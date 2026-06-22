@@ -16,17 +16,15 @@
 
 import { ApiError } from "@/lib/api-error";
 
-import {
-  reconcileShareableResource,
-  type ShareableResourceInput,
-} from "./openfga-owned-resources";
-import type { OpenFgaReconcileResult } from "./openfga";
-import {
-  canTransferResourceOwnership,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-} from "./resource-authz";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
+import type { OpenFgaReconcileResult } from "./openfga";
+import type { ShareableResourceInput } from "./openfga-owned-resources";
+import { reconcileShareableResource } from "./openfga-owned-resources-reconcile";
+import {
+canTransferResourceOwnership,
+requireResourcePermission,
+type ResourceAuthzSession,
+} from "./resource-authz";
 
 /** Owner/shared/creator + org-scope state persisted on (and read from) config. */
 export interface ShareableOwnershipState {
@@ -136,7 +134,19 @@ async function defaultCanUseOwnerTeam(
     });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Treat team admins/owners as members for owner-team writes even when an
+    // older OpenFGA projection lacks the derived can_use edge.
+    try {
+      await requireResourcePermission(session, {
+        type: "team",
+        id: slug,
+        action: "manage",
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

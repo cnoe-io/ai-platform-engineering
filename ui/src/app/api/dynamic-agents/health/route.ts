@@ -7,8 +7,8 @@
  * GET /api/dynamic-agents/health
  */
 
-import { NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
+import { NextResponse } from "next/server";
 
 export async function GET(): Promise<Response> {
   const config = getServerConfig();

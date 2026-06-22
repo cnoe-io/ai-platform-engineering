@@ -65,12 +65,12 @@ describe('getServerConfig', () => {
     beforeEach(() => {
       // Clear ALL env vars that the config reads
       clearEnv(
-        'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
+        'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
         'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
         'ACTION_AUDIT_ENABLED',
         'CAIPE_UNSAFE_RBAC_BYPASS',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
@@ -90,7 +90,6 @@ describe('getServerConfig', () => {
       expect(cfg.ssoEnabled).toBe(false);
       expect(cfg.ragEnabled).toBe(true); // default true
       expect(cfg.feedbackEnabled).toBe(true); // default true
-      expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
       expect(cfg.credentialsEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
@@ -139,15 +138,16 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
         'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
-        'npsEnabled', 'auditLogsEnabled',
+        'auditLogsEnabled',
         'actionAuditEnabled',
+        'auditLogBackend',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsUrl',
         'reportProblemEnabled',
@@ -156,6 +156,7 @@ describe('getServerConfig', () => {
         'ticketEnabled', 'ticketProvider',
         'userInfoToolEnabled',
         'oidcRequiredGroup',
+        'oktaSyncEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -858,15 +859,16 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
       'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
-      'npsEnabled', 'auditLogsEnabled',
+      'auditLogsEnabled',
       'actionAuditEnabled',
+      'auditLogBackend',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsUrl',
       'reportProblemEnabled',
@@ -875,6 +877,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'ticketEnabled', 'ticketProvider',
       'userInfoToolEnabled',
       'oidcRequiredGroup',
+      'oktaSyncEnabled',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });
@@ -1161,7 +1164,7 @@ describe('edge cases', () => {
   describe('getClientConfigScript serialization roundtrip', () => {
     it('should roundtrip all default config values', () => {
       clearEnv(
-        'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
+        'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
         'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
@@ -1254,7 +1257,7 @@ describe('end-to-end: layout injection → client read', () => {
   it('should handle the "clean deploy" scenario (no env vars)', () => {
     // Simulate a fresh deployment with no env vars at all
     clearEnv(
-      'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
+      'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
       'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
       'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',

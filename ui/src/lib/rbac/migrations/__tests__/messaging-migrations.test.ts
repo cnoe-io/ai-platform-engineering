@@ -173,7 +173,7 @@ describe("messaging RBAC migration derivation", () => {
 
   // assisted-by Cursor Claude:claude-opus-4-7
   describe("deriveMessagingTeamVisibilityPlan", () => {
-    it("emits team#admin->manage and team#member->use tuples per Slack channel mapping", () => {
+    it("emits member use/manage and admin manage tuples per Slack channel mapping", () => {
       const plan = deriveMessagingTeamVisibilityPlan({
         teams: [{ _id: "team-1", slug: "platform" }],
         slackMappings: [
@@ -200,16 +200,21 @@ describe("messaging RBAC migration derivation", () => {
             relation: "user",
             object: "slack_channel:CAIPE--C0B4QFN4Q21",
           },
+          {
+            user: "team:platform#member",
+            relation: "manager",
+            object: "slack_channel:CAIPE--C0B4QFN4Q21",
+          },
         ]),
       );
-      expect(plan.tuples).toHaveLength(2);
+      expect(plan.tuples).toHaveLength(3);
       expect(plan.counts).toMatchObject({
         slack_channels_scanned: 1,
         webex_spaces_scanned: 0,
-        relationships_planned: 2,
-        tuples_planned: 2,
+        relationships_planned: 3,
+        tuples_planned: 3,
         missing_teams: 0,
-        tuple_writes_planned: 2,
+        tuple_writes_planned: 3,
       });
     });
 
@@ -258,7 +263,7 @@ describe("messaging RBAC migration derivation", () => {
       });
 
       expect(plan.counts.missing_teams).toBe(0);
-      expect(plan.tuples).toHaveLength(2);
+      expect(plan.tuples).toHaveLength(3);
       expect(plan.tuples?.[0].object).toBe("slack_channel:CAIPE--C0AV2F7N2BX");
     });
 
@@ -356,7 +361,7 @@ describe("messaging RBAC migration derivation", () => {
         webexMappings: [],
       });
 
-      expect(plan.tuples).toHaveLength(2);
+      expect(plan.tuples).toHaveLength(3);
     });
 
     it("uses the correct migration identifiers", () => {

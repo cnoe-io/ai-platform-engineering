@@ -1,22 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
-import { recordScanEvent } from "@/lib/skill-scan-history";
-import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
-import type { HubSkillDoc } from "@/lib/hub-crawl";
-import {
-  loadSkillTemplatesInternal,
-  loadTemplateAncillaryFiles,
-  resolveTemplateDir,
+loadSkillTemplatesInternal,
+loadTemplateAncillaryFiles,
+resolveTemplateDir,
 } from "@/app/api/skills/skill-templates-loader";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import type { HubSkillDoc } from "@/lib/hub-crawl";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
+import { isSkillScannerConfigured,scanSkillContent } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
+import type { AgentSkill,ScanStatus } from "@/types/agent-skill";
 
 /**
  * Persistence shape for a built-in template scan. Built-ins live on the
@@ -652,11 +652,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (user.role !== "admin") {
       throw new ApiError("Bulk scan is restricted to admins.", 403);
     }
-    await requireResourcePermission(session, {
-      type: "admin_surface",
-      id: "skills-scan-all",
-      action: "admin",
-    });
+    // Use the Skills admin surface bootstrapped for org admins (`admin_surface:skills`),
+    // not a separate `skills-scan-all` object that is never granted in baseline FGA.
+    await requireAdminSurfaceManage(session, "skills");
 
     const body = (await req.json().catch(() => ({}))) as BulkBody;
     const scope: Scope = body.scope ?? "all";

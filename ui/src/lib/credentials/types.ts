@@ -1,4 +1,6 @@
-export type CredentialOwnerType = "organization" | "team" | "user";
+// assisted-by Codex Codex-sonnet-4-6
+
+export type CredentialOwnerType = "organization" | "team" | "user" | "service_account";
 export type CredentialSecretType = "api_key" | "basic_auth" | "bearer_token" | "custom";
 export type ProviderConnectionStatus =
   | "connected"
@@ -10,6 +12,9 @@ export type ProviderConnectionStatus =
 export interface CredentialOwnerRef {
   type: CredentialOwnerType;
   id: string;
+  email?: string;
+  name?: string;
+  displayName?: string;
 }
 
 export interface CredentialSecretRef {
@@ -26,6 +31,7 @@ export interface CredentialSecretRef {
 export interface CredentialEncryptedPayload {
   secretRefId: string;
   ciphertext: string;
+  maskedPreviewCiphertext?: string;
   encryptedDek: string;
   keyProvider: "aws-kms" | "local-cmk" | "dev-local";
   cmkId: string | null;

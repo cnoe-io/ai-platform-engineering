@@ -1,13 +1,11 @@
 import {
-  isOpenFgaReconciliationEnabled,
-  readOpenFgaTuples,
-  writeOpenFgaTupleDiff,
-  type OpenFgaReconcileResult,
-  type OpenFgaTupleKey,
-  type TeamResourceTupleDiff,
+type OpenFgaTupleKey,
+type TeamResourceTupleDiff,
 } from "./openfga";
 import { openFgaResourceId } from "./openfga-resource-ids";
 import { organizationObjectId } from "./organization";
+
+export type { TeamResourceTupleDiff } from "./openfga";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
@@ -27,17 +25,19 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   return out;
 }
 
-async function reconcileOwnedResource(diff: TeamResourceTupleDiff): Promise<OpenFgaReconcileResult> {
-  try {
-    return await writeOpenFgaTupleDiff(diff);
-  } catch (error) {
-    console.warn("[openfga-owned-resources] reconciliation failed:", error);
-    return { enabled: isOpenFgaReconciliationEnabled(), writes: 0, deletes: 0 };
-  }
+export type OwnerSubjectKind = "user" | "service_account";
+
+function ownerPrincipal(
+  subjectId: string | null | undefined,
+  kind: OwnerSubjectKind = "user",
+): string | null {
+  if (!subjectId || !isValidOpenFgaId(subjectId)) return null;
+  return `${kind}:${subjectId}`;
 }
 
 interface OwnedResourceInput {
   ownerSubject?: string | null;
+  ownerSubjectKind?: OwnerSubjectKind;
   ownerTeamSlug?: string | null;
   /**
    * Keycloak `sub` of the creator. Written once as an audit-only
@@ -253,8 +253,9 @@ export interface ShareableResourceInput {
   objectId: string;
   /** Keycloak `sub` of the creator → `user:<sub> creator <type>:<id>` (audit-only, never deleted). */
   creatorSubject?: string | null;
-  /** Optional personal/service-account owner subject → `user:<sub> owner <type>:<id>`. */
+  /** Optional personal/service-account owner subject → `<kind>:<sub> owner <type>:<id>`. */
   ownerSubject?: string | null;
+  ownerSubjectKind?: OwnerSubjectKind;
   ownerTeamSlug?: string | null;
   /** Transfer: revokes the old owner team's grants when it differs from `ownerTeamSlug`. */
   previousOwnerTeamSlug?: string | null;
@@ -298,8 +299,9 @@ export function buildShareableResourceTupleDiff(
   }
 
   // 2. optional personal owner subject.
-  if (input.ownerSubject && isValidOpenFgaId(input.ownerSubject)) {
-    writes.push({ user: `user:${input.ownerSubject}`, relation: "owner", object });
+  const ownerUser = ownerPrincipal(input.ownerSubject, input.ownerSubjectKind);
+  if (ownerUser) {
+    writes.push({ user: ownerUser, relation: "owner", object });
   }
 
   // 3. owner-team + shared-team grants (the shared primitive).
@@ -350,12 +352,6 @@ export function buildShareableResourceTupleDiff(
   return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }
 
-export async function reconcileShareableResource(
-  input: ShareableResourceInput,
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildShareableResourceTupleDiff(input));
-}
-
 export function buildMcpServerRelationshipTupleDiff(
   input: McpServerRelationshipInput
 ): TeamResourceTupleDiff {
@@ -364,16 +360,21 @@ export function buildMcpServerRelationshipTupleDiff(
   }
   const writes: OpenFgaTupleKey[] = [];
   const object = `mcp_server:${input.serverId}`;
-  if (input.ownerSubject && isValidOpenFgaId(input.ownerSubject)) {
-    writes.push({ user: `user:${input.ownerSubject}`, relation: "owner", object });
+  const ownerUser = ownerPrincipal(input.ownerSubject, input.ownerSubjectKind);
+  if (ownerUser) {
+    writes.push({ user: ownerUser, relation: "owner", object });
   }
   if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
     writes.push(
+      { user: `team:${input.ownerTeamSlug}#member`, relation: "reader", object },
       { user: `team:${input.ownerTeamSlug}#member`, relation: "user", object },
       { user: `team:${input.ownerTeamSlug}#member`, relation: "invoker", object },
       { user: `team:${input.ownerTeamSlug}#admin`, relation: "manager", object },
     );
   }
+  // assisted-by Codex Codex-sonnet-4-6
+  // User-created servers should be visible/manageable to organization admins immediately.
+  writes.push({ user: `${organizationObjectId()}#admin`, relation: "manager", object });
   return { writes: uniqueTuples(writes), deletes: [] };
 }
 
@@ -389,14 +390,17 @@ export function buildConfigDrivenMcpServerRelationshipTupleDiff(
   }
 
   const object = `mcp_server:${input.serverId}`;
+  const orgMember = `organization:${organizationId}#member`;
+  // Org members may list/discover default MCP servers but must not invoke/test
+  // them directly; runtime agent tool calls use agent-scoped tool tuples instead.
+  // Org admins retain invoke via manager → can_manage → can_invoke.
   return {
     writes: uniqueTuples([
-      { user: `organization:${organizationId}#member`, relation: "reader", object },
-      { user: `organization:${organizationId}#member`, relation: "user", object },
-      { user: `organization:${organizationId}#member`, relation: "invoker", object },
+      { user: orgMember, relation: "reader", object },
+      { user: orgMember, relation: "user", object },
       { user: `organization:${organizationId}#admin`, relation: "manager", object },
     ]),
-    deletes: [],
+    deletes: uniqueTuples([{ user: orgMember, relation: "invoker", object }]),
   };
 }
 
@@ -409,8 +413,9 @@ export function buildLlmModelRelationshipTupleDiff(
   }
   const writes: OpenFgaTupleKey[] = [];
   const object = `llm_model:${modelObjectId}`;
-  if (input.ownerSubject && isValidOpenFgaId(input.ownerSubject)) {
-    writes.push({ user: `user:${input.ownerSubject}`, relation: "owner", object });
+  const ownerUser = ownerPrincipal(input.ownerSubject, input.ownerSubjectKind);
+  if (ownerUser) {
+    writes.push({ user: ownerUser, relation: "owner", object });
   }
   if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
     writes.push(
@@ -465,36 +470,6 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
   });
 }
 
-export async function reconcileMcpServerRelationships(
-  input: McpServerRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildMcpServerRelationshipTupleDiff(input));
-}
-
-export async function reconcileConfigDrivenMcpServerRelationships(
-  input: ConfigDrivenMcpServerRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildConfigDrivenMcpServerRelationshipTupleDiff(input));
-}
-
-export async function reconcileLlmModelRelationships(
-  input: LlmModelRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildLlmModelRelationshipTupleDiff(input));
-}
-
-export async function reconcileConfigDrivenLlmModelRelationships(
-  input: ConfigDrivenLlmModelRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildConfigDrivenLlmModelRelationshipTupleDiff(input));
-}
-
-export async function reconcileKnowledgeBaseRelationships(
-  input: KnowledgeBaseRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildKnowledgeBaseRelationshipTupleDiff(input));
-}
-
 /**
  * Build a data_source tuple diff with the same owner + shared-teams
  * semantics as `buildKnowledgeBaseRelationshipTupleDiff`. The relation
@@ -521,14 +496,8 @@ export function buildDataSourceRelationshipTupleDiff(
   });
 }
 
-export async function reconcileDataSourceRelationships(
-  input: DataSourceRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildDataSourceRelationshipTupleDiff(input));
-}
-
 /**
- * Build an mcp_tool tuple diff. Non-admin team members get `reader` +
+ * Build an mcp_tool tuple diff.
  * `user` + `caller` on the tool, and team admins get `manager` (so they
  * can update or delete it via `PUT/DELETE /v1/mcp/custom-tools/<tool_id>`).
  * Mirrors the relation set on the `mcp_tool` type in
@@ -563,67 +532,5 @@ export function buildMcpToolRelationshipTupleDiff(
     // the tool (the invoke path checks `can_call`). Org-wide grants reuse the
     // same relation set.
     extraMemberRelations: ["user", "caller"],
-  });
-}
-
-export async function reconcileMcpToolRelationships(
-  input: McpToolRelationshipInput
-): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildMcpToolRelationshipTupleDiff(input));
-}
-
-/**
- * Remove every tuple targeting `mcp_tool:<toolId>` so deleting a custom MCP
- * tool leaves no orphaned grants (owner, shared-team, creator, or caller).
- * Closes FR-028 — previously the DELETE path dropped the config but left the
- * OpenFGA tuples dangling, so a future tool reusing the id would inherit stale
- * access. Idempotent: a no-op when reconciliation is disabled.
- */
-export async function deleteAllMcpToolRelationshipTuples(
-  toolId: string
-): Promise<OpenFgaReconcileResult> {
-  if (!isValidOpenFgaId(toolId)) {
-    throw new Error(`Invalid OpenFGA mcp tool id: ${toolId}`);
-  }
-  if (!isOpenFgaReconciliationEnabled()) {
-    return { enabled: false, writes: 0, deletes: 0 };
-  }
-
-  const object = `mcp_tool:${toolId}`;
-  const allTuples: OpenFgaTupleKey[] = [];
-  let continuationToken: string | undefined;
-  do {
-    const page = await readOpenFgaTuples({ tuple: { object }, continuationToken });
-    allTuples.push(...page.tuples.map((tuple) => tuple.key));
-    continuationToken = page.continuationToken;
-  } while (continuationToken);
-
-  return writeOpenFgaTupleDiff({
-    writes: [],
-    deletes: allTuples.filter((tuple) => tuple.object === object),
-  });
-}
-
-export async function deleteAllMcpServerRelationshipTuples(
-  serverId: string
-): Promise<OpenFgaReconcileResult> {
-  if (!isValidOpenFgaId(serverId)) {
-    throw new Error(`Invalid OpenFGA MCP server id: ${serverId}`);
-  }
-  if (!isOpenFgaReconciliationEnabled()) {
-    return { enabled: false, writes: 0, deletes: 0 };
-  }
-
-  const allTuples: OpenFgaTupleKey[] = [];
-  let continuationToken: string | undefined;
-  do {
-    const page = await readOpenFgaTuples({ continuationToken });
-    allTuples.push(...page.tuples.map((tuple) => tuple.key));
-    continuationToken = page.continuationToken;
-  } while (continuationToken);
-
-  return writeOpenFgaTupleDiff({
-    writes: [],
-    deletes: allTuples.filter((tuple) => tuple.user === `mcp_server:${serverId}` || tuple.object === `mcp_server:${serverId}`),
   });
 }

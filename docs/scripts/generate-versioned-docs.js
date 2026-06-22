@@ -123,11 +123,86 @@ function sanitizeVersionLinks(versionDir, tag) {
           path.dirname(relWithinVersion).split(path.sep).join('/')
         );
         if (sanitizeFileLinks(abs, fileDirRepoRel, tag)) count += 1;
+        if (sanitizeMdxBreakingPatterns(abs)) count += 1;
       }
     }
   };
   walk(versionDir);
   return count;
+}
+
+// ---------------------------------------------------------------------------
+// MDX sanitizer
+//
+// Frozen tag snapshots can contain markdown that compiled fine as plain MD but
+// breaks under MDX (e.g. nested backticks leaking `{objectType}` expressions).
+// Patch known offenders in-place after the version tree is copied.
+// ---------------------------------------------------------------------------
+
+const MDX_MODULE_API_P2_BLOCK = `- Paginate FGA tuples for the resource object:
+
+\`\`\`ts
+readOpenFgaTuples({
+  tuple: { object: objectType + ':' + objectId },
+})
+\`\`\`
+
+- Collect slugs via \`extractTeamSlugsFromTuples\`.`;
+
+const MDX_MODULE_API_P3_BLOCK = `3. Call \`reconcileShareableResource\` with the descriptor fields (example below).
+4. Never persist to Mongo.
+
+\`\`\`ts
+reconcileShareableResource({
+  objectType: descriptor.objectType,
+  objectId,
+  creatorSubject: ownerSubject,
+  ownerSubject,
+  ownerTeamSlug,
+  previousOwnerTeamSlug,
+  nextSharedTeamSlugs,
+  previousSharedTeamSlugs,
+  memberRelations: descriptor.memberRelations,
+  sharedWithOrg,
+  previousSharedWithOrg,
+})
+\`\`\``;
+
+function sanitizeMdxBreakingPatterns(absFile) {
+  if (!absFile.endsWith('specs/2026-06-04-fga-projected-team-shares/contracts/module-api.md')) {
+    return false;
+  }
+
+  let content = fs.readFileSync(absFile, 'utf8');
+  const original = content;
+
+  // 0.5.9: nested backticks in a list item leak \`{objectType}\` into MDX.
+  content = content.replace(
+    /- Paginate `readOpenFgaTuples\(\{ tuple: \{ object: `\$\{objectType\}:\$\{objectId\}` \} \}\)`\.\r?\n- Collect slugs via `extractTeamSlugsFromTuples`\./,
+    MDX_MODULE_API_P2_BLOCK
+  );
+
+  // 0.5.10+: indented fenced block inside a list item is not always treated as code.
+  content = content.replace(
+    /- Paginate FGA tuples for the resource object:\r?\n\r?\n  ```ts\r?\n  readOpenFgaTuples\(\{ tuple: \{ object: `\$\{objectType\}:\$\{objectId\}` \} \}\)\r?\n  ```\r?\n\r?\n- Collect slugs via `extractTeamSlugsFromTuples`\./,
+    MDX_MODULE_API_P2_BLOCK
+  );
+
+  // 0.5.9: long inline reconcile call with \`{ objectType,\` shorthand.
+  content = content.replace(
+    /3\. Call `reconcileShareableResource\(\{ objectType, objectId, creatorSubject: ownerSubject, ownerSubject, ownerTeamSlug, previousOwnerTeamSlug, nextSharedTeamSlugs, previousSharedTeamSlugs, memberRelations: descriptor\.memberRelations, sharedWithOrg, previousSharedWithOrg \}\)`\.\r?\n4\. Never persist to Mongo\./,
+    MDX_MODULE_API_P3_BLOCK
+  );
+
+  // 0.5.10+: indented reconcile example inside numbered list.
+  content = content.replace(
+    /3\. Call `reconcileShareableResource` with the descriptor fields:\r?\n\r?\n   ```ts\r?\n   reconcileShareableResource\(\{\r?\n     objectType,\r?\n     objectId,\r?\n     creatorSubject: ownerSubject,\r?\n     ownerSubject,\r?\n     ownerTeamSlug,\r?\n     previousOwnerTeamSlug,\r?\n     nextSharedTeamSlugs,\r?\n     previousSharedTeamSlugs,\r?\n     memberRelations: descriptor\.memberRelations,\r?\n     sharedWithOrg,\r?\n     previousSharedWithOrg,\r?\n   \}\)\r?\n   ```\r?\n4\. Never persist to Mongo\./,
+    MDX_MODULE_API_P3_BLOCK
+  );
+
+  if (content === original) return false;
+  fs.writeFileSync(absFile, content);
+  return true;
 }
 
 function compareVersionsDesc(a, b) {

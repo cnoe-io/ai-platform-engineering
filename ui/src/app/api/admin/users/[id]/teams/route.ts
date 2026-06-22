@@ -1,13 +1,24 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { getRealmUserById } from "@/lib/rbac/keycloak-admin";
+import {
+listActiveTeamMembershipSourcesForTeamUser,
+markTeamMembershipSourceRemoved,
+upsertTeamMembershipSource,
+} from "@/lib/rbac/team-membership-source-store";
+import { findUserRoleInTeam } from "@/lib/rbac/team-membership-store";
+import {
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
+} from "@/lib/rbac/team-membership-sync";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import { type NextRequest,NextResponse } from "next/server";
 
 function requireMongoDB(): NextResponse | null {
   if (!isMongoDBConfigured) {
@@ -23,6 +34,44 @@ function requireMongoDB(): NextResponse | null {
   return null;
 }
 
+interface TeamDoc {
+  _id: unknown;
+  slug?: string;
+  name?: string;
+}
+
+async function findTeamBySlugOrName(teamId: string): Promise<TeamDoc | null> {
+  const col = await getCollection<TeamDoc>("teams");
+  return col.findOne({ $or: [{ slug: teamId }, { name: teamId }] });
+}
+
+function manualSource(input: {
+  teamId: string;
+  teamSlug: string;
+  email: string;
+  relationship: "member" | "admin";
+  actor: string;
+  now: Date;
+  userSubject?: string;
+}): TeamMembershipSource {
+  const ts = input.now.toISOString();
+  return {
+    team_id: input.teamId,
+    team_slug: input.teamSlug,
+    user_subject: input.userSubject,
+    user_email: input.email,
+    relationship: input.relationship,
+    source_type: "manual",
+    managed: false,
+    status: "active",
+    first_seen_at: ts,
+    last_seen_at: ts,
+    last_applied_at: ts,
+    created_by: input.actor,
+    created_at: ts,
+  };
+}
+
 export const POST = withErrorHandler(
   async (
     request: NextRequest,
@@ -35,7 +84,7 @@ export const POST = withErrorHandler(
     await requireRbacPermission(session, "admin_ui", "admin");
 
     const params = await context.params;
-    const id = params.id;
+    const userId = params.id;
 
     let body: { teamId?: string };
     try {
@@ -44,32 +93,44 @@ export const POST = withErrorHandler(
       throw new ApiError("Invalid JSON body", 400);
     }
 
-    const teamId = typeof body.teamId === "string" ? body.teamId.trim() : "";
-    if (!teamId) {
+    const teamSlugOrName = typeof body.teamId === "string" ? body.teamId.trim() : "";
+    if (!teamSlugOrName) {
       throw new ApiError("teamId is required", 400);
     }
 
-    const kcUser = await getRealmUserById(id);
+    const [kcUser, team] = await Promise.all([
+      getRealmUserById(userId),
+      findTeamBySlugOrName(teamSlugOrName),
+    ]);
+
     const email = String(kcUser.email ?? "").trim().toLowerCase();
     if (!email) {
-      throw new ApiError("User has no email — cannot add to team membership list", 400);
+      throw new ApiError("User has no email — cannot add to team", 400);
+    }
+    if (!team) {
+      throw new ApiError(`Team not found: ${teamSlugOrName}`, 404);
     }
 
-    const col = await getCollection<{ team_id: string; members?: string[] }>(
-      "team_kb_ownership"
-    );
+    const teamSlug = String(team.slug ?? "").trim();
+    const teamId = String(team._id);
+
+    if (!teamSlug) {
+      throw new ApiError("Team has no slug — cannot add member", 400);
+    }
+
+    const existing = await findUserRoleInTeam(teamSlug, { user_email: email });
+    if (existing !== null) {
+      throw new ApiError("User is already a member of this team", 400);
+    }
+
     const now = new Date();
-    const result = await col.updateOne(
-      { team_id: teamId },
-      {
-        $addToSet: { members: email },
-        $set: { updated_at: now },
-      }
-    );
+    const actor = session?.user?.email ?? "admin";
+    const keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
 
-    if (result.matchedCount === 0) {
-      throw new ApiError("Team ownership record not found for teamId", 404);
-    }
+    await writeTeamMembershipTuples(keycloakSubject, teamSlug, ["member"], "assign");
+    await upsertTeamMembershipSource(
+      manualSource({ teamId, teamSlug, email, relationship: "member", actor, now, userSubject: keycloakSubject })
+    );
 
     return successResponse({ ok: true }, 200);
   }
@@ -87,7 +148,7 @@ export const DELETE = withErrorHandler(
     await requireRbacPermission(session, "admin_ui", "admin");
 
     const params = await context.params;
-    const id = params.id;
+    const userId = params.id;
 
     let body: { teamId?: string };
     try {
@@ -96,30 +157,54 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Invalid JSON body", 400);
     }
 
-    const teamId = typeof body.teamId === "string" ? body.teamId.trim() : "";
-    if (!teamId) {
+    const teamSlugOrName = typeof body.teamId === "string" ? body.teamId.trim() : "";
+    if (!teamSlugOrName) {
       throw new ApiError("teamId is required", 400);
     }
 
-    const kcUser = await getRealmUserById(id);
+    const [kcUser, team] = await Promise.all([
+      getRealmUserById(userId),
+      findTeamBySlugOrName(teamSlugOrName),
+    ]);
+
     const email = String(kcUser.email ?? "").trim().toLowerCase();
     if (!email) {
       throw new ApiError("User has no email", 400);
     }
+    if (!team) {
+      throw new ApiError(`Team not found: ${teamSlugOrName}`, 404);
+    }
 
-    const col = await getCollection<{ team_id: string; members?: string[] }>(
-      "team_kb_ownership"
-    );
-    const updated = await col.updateOne(
-      { team_id: teamId },
-      {
-        $pull: { members: email },
-        $set: { updated_at: new Date() },
-      }
+    const teamSlug = String(team.slug ?? "").trim();
+    const teamId = String(team._id);
+
+    if (!teamSlug) {
+      throw new ApiError("Team has no slug", 400);
+    }
+
+    const canonicalRole = await findUserRoleInTeam(teamSlug, { user_email: email });
+    if (canonicalRole === null) {
+      throw new ApiError("User is not a member of this team", 404);
+    }
+
+    const now = new Date();
+    const actor = session?.user?.email ?? "admin";
+    const keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
+
+    await markTeamMembershipSourceRemoved(
+      manualSource({ teamId, teamSlug, email, relationship: canonicalRole, actor, now, userSubject: keycloakSubject }),
+      actor,
+      now.toISOString()
     );
 
-    if (updated.matchedCount === 0) {
-      throw new ApiError("Team ownership record not found for teamId", 404);
+    const otherSources = await listActiveTeamMembershipSourcesForTeamUser({
+      teamId,
+      teamSlug,
+      userSubject: keycloakSubject,
+      userEmail: email,
+    });
+    if (otherSources.length === 0) {
+      await writeTeamMembershipTuples(keycloakSubject, teamSlug, [canonicalRole], "remove");
     }
 
     return successResponse({ ok: true });

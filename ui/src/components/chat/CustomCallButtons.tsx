@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
+import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { cn } from "@/lib/utils";
-import { AGENT_LOGOS, AgentLogoConfig } from "@/components/shared/AgentLogos";
+import { motion } from "framer-motion";
 
 export interface CustomCall {
   id: string;

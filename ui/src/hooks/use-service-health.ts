@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useBatchPrometheus, type BatchQuery } from "./use-prometheus";
+import { useBatchPrometheus,type BatchQuery } from "./use-prometheus";
 
 // ────────────────────────────────────────────────────────────────
 // Types

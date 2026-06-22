@@ -52,6 +52,7 @@ jest.mock("@/store/workflow-run-store", () => ({
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
       <div ref={ref} {...rest}>{children}</div>
     )),

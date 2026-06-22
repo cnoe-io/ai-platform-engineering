@@ -23,6 +23,11 @@ _LINK_BASE_URL = os.environ.get(
 # not write link nonces — see ui/src/lib/rbac/webex-link-nonce.ts.
 UI_WEBEX_LINK_NONCES_COLLECTION = "webex_link_nonces"
 
+# Brief positive cache so a just-completed SSO link is visible before Keycloak
+# attribute search catches up on the next Webex message.
+_RESOLVE_CACHE_TTL_SECONDS = 60
+_resolve_cache: dict[str, tuple[str, float]] = {}
+
 
 def _hmac_secret() -> str:
     secret = os.environ.get("WEBEX_LINK_HMAC_SECRET", "").strip()
@@ -63,6 +68,14 @@ async def resolve_webex_user(webex_user_id: str) -> Optional[str]:
     if not is_valid_webex_person_id(webex_user_id):
         logger.warning("Rejected identity lookup for invalid Webex person id shape")
         return None
+
+    cached = _resolve_cache.get(webex_user_id)
+    if cached is not None:
+        keycloak_user_id, expires_at = cached
+        if time.time() < expires_at:
+            return keycloak_user_id
+        _resolve_cache.pop(webex_user_id, None)
+
     user = await get_user_by_attribute(WEBEX_USER_ATTRIBUTE, webex_user_id)
     if user is None:
         return None
@@ -73,7 +86,10 @@ async def resolve_webex_user(webex_user_id: str) -> Optional[str]:
             webex_user_id,
         )
         return None
-    return user.get("id")
+    keycloak_user_id = user.get("id")
+    if keycloak_user_id:
+        _resolve_cache[webex_user_id] = (keycloak_user_id, time.time() + _RESOLVE_CACHE_TTL_SECONDS)
+    return keycloak_user_id
 
 
 async def complete_linking(webex_user_id: str, keycloak_user_id: str) -> bool:
@@ -82,6 +98,10 @@ async def complete_linking(webex_user_id: str, keycloak_user_id: str) -> bool:
         user_id=keycloak_user_id,
         attr=WEBEX_USER_ATTRIBUTE,
         value=webex_user_id,
+    )
+    _resolve_cache[webex_user_id] = (
+        keycloak_user_id,
+        time.time() + _RESOLVE_CACHE_TTL_SECONDS,
     )
     logger.info("Identity linked: webex=%s → keycloak=%s", webex_user_id, keycloak_user_id)
     return True

@@ -22,8 +22,8 @@
  * creation — even for the team's creator.
  */
 
-import { isValidTeamSlug, searchRealmUsers } from "@/lib/rbac/keycloak-admin";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { isValidTeamSlug,searchRealmUsers } from "@/lib/rbac/keycloak-admin";
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 
 export type TeamMemberRelation = "member" | "admin";
 export type TeamMembershipAction = "assign" | "remove";

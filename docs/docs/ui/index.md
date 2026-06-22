@@ -30,7 +30,7 @@ The CAIPE UI serves as the primary graphical interface for platform engineers, S
 # From repository root - installs dependencies and runs dev server
 make caipe-ui
 
-# Or run with Docker Compose (includes supervisor)
+# Or run with Docker Compose (includes the dynamic-agents runtime)
 make caipe-ui-docker-compose
 ```
 
@@ -39,7 +39,7 @@ Visit [http://localhost:3000](http://localhost:3000)
 ### Using Docker Compose
 
 ```bash
-# Start CAIPE supervisor + UI
+# Start the dynamic-agents runtime + UI
 COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
 
 # Or with --profile flag
@@ -82,11 +82,11 @@ The UI follows a modern React architecture with these core principles:
        │               │                        │
        └───────────────┼────────────────────────┘
                        │
-                   A2A Client
+                  Next.js BFF
                        │
                        ▼
-              CAIPE Supervisor
-                  (Port 8000)
+            dynamic-agents runtime
+                  (Port 8100)
 ```
 
 ### 3-Panel Layout
@@ -191,8 +191,7 @@ Declarative UI components for rich interactions:
 
 | Variable | Default (Dev) | Default (Docker) | Description |
 |----------|---------------|------------------|-------------|
-| `CAIPE_URL` | `http://localhost:8000` | `http://caipe-supervisor:8000` | CAIPE supervisor endpoint |
-| `NEXT_PUBLIC_CAIPE_URL` | Same as `CAIPE_URL` | Same as `CAIPE_URL` | Client-side accessible URL |
+| `DYNAMIC_AGENTS_URL` | `http://localhost:8100` | `http://dynamic-agents:8100` | dynamic-agents runtime endpoint (server-side) |
 | `NEXTAUTH_URL` | `http://localhost:3000` | `http://localhost:3000` | NextAuth base URL |
 | `NEXTAUTH_SECRET` | (required) | (required) | Secret for session encryption |
 | `OAUTH_CLIENT_ID` | (optional) | (optional) | OAuth client ID |
@@ -338,20 +337,6 @@ npx tsc --noEmit
 
 ## Integration
 
-### Embedding in Backstage
-
-The CAIPE UI can be embedded as a Backstage plugin:
-
-```bash
-# Install the plugin
-npm install @caipe/plugin-agent-forge
-
-# Add to Backstage app
-import { AgentForgePage } from '@caipe/plugin-agent-forge';
-```
-
-See [Agent Forge Plugin Documentation](../tools-utils/agent-forge-backstage-plugin) for details.
-
 ### API Integration
 
 The UI exposes REST API endpoints for programmatic access:
@@ -365,16 +350,16 @@ The UI exposes REST API endpoints for programmatic access:
 
 ### Connection Issues
 
-**Problem**: Cannot connect to CAIPE supervisor
+**Problem**: Cannot connect to the dynamic-agents runtime
 
-**Solution**: Verify the `CAIPE_URL` environment variable points to the correct endpoint:
+**Solution**: Verify the `DYNAMIC_AGENTS_URL` environment variable points to the correct endpoint:
 
 ```bash
-# Check supervisor is running
-curl http://localhost:8000/.well-known/agent-card.json
+# Check the dynamic-agents runtime is running
+curl http://localhost:8100/healthz
 
 # Update environment
-export CAIPE_URL=http://localhost:8000
+export DYNAMIC_AGENTS_URL=http://localhost:8100
 ```
 
 ### Authentication Errors
@@ -393,7 +378,7 @@ export CAIPE_URL=http://localhost:8000
 **Solution**:
 1. Ensure browser supports Server-Sent Events (SSE)
 2. Check network tab for active event streams
-3. Verify CAIPE supervisor streaming is enabled
+3. Verify the dynamic-agents runtime streaming is enabled
 
 ## Next Steps
 

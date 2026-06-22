@@ -32,8 +32,6 @@ flowchart LR
         subgraph PORTAL["Backstage"]
             direction TB
             BS[Backstage]
-            AF[Agent-Forge]
-            BS --- AF
         end
 
         subgraph AIPLATFORM["CAIPE (Community AI Platform Engineering)"]
@@ -64,7 +62,6 @@ flowchart LR
     V --> ES
     ES --> MA
 
-    AF --> MA
     MA --> A1
     MA --> A2
     MA --> A3
@@ -85,7 +82,7 @@ flowchart LR
     classDef whitebg fill:#ffffff,stroke:#ffffff,stroke-width:0px
 
     class AC,GITEA,IG,V,KC,ES core
-    class BS,AF portal
+    class BS portal
     class AIPE ai
     class A1,A2,A3,A4,A5 agents
     class LT,GH external
@@ -99,8 +96,7 @@ flowchart LR
 3. **Authentication Setup**: Keycloak provides SSO for Backstage and other platform services
 4. **Secret Management**: Vault stores secrets, External Secrets distributes to applications
 5. **Developer Access**: NGINX Ingress routes traffic, Backstage provides developer portal
-6. **AI Integration**: Agent-Forge plugin in Backstage connects to CAIPE MAS Agent
-7. **Multi-Agent System**: Orchestrator manages individual agents for different platform domains
+6. **Multi-Agent System**: Orchestrator manages individual agents for different platform domains
 
 ## Step 1: Install Pre-requisities (Recommended)
 
@@ -462,7 +458,7 @@ vncserver -kill :1
 ```
 
 ## Problem
-Kubernetes pod `ai-platform-engineering-supervisor-agent-d8cffb7fb-vg4w4` failing with:
+Kubernetes pod `ai-platform-engineering-dynamic-agents-d8cffb7fb-vg4w4` failing with:
 ```
 to create fsnotify watcher: too many open files
 ```
@@ -476,7 +472,7 @@ Default system limit of 1024 file descriptors insufficient for applications crea
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ai-platform-engineering-supervisor-agent
+  name: ai-platform-engineering-dynamic-agents
   namespace: ai-platform-engineering
 spec:
   template:
@@ -488,7 +484,7 @@ spec:
         - name: fs.inotify.max_user_watches
           value: "524288"
       containers:
-      - name: supervisor-agent
+      - name: dynamic-agents
         securityContext:
           capabilities:
             add:
@@ -507,7 +503,7 @@ echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 
 # Restart the pod
-kubectl delete pod ai-platform-engineering-supervisor-agent-d8cffb7fb-vg4w4 -n ai-platform-engineering
+kubectl delete pod ai-platform-engineering-dynamic-agents-d8cffb7fb-vg4w4 -n ai-platform-engineering
 ```
 
 ## Verification

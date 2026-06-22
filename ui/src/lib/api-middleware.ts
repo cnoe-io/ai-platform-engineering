@@ -235,16 +235,7 @@ export async function getAuthenticatedUser(
   }
 
   let role = 'user';
-  if (isBootstrapAdminEmail(session.user.email)) {
-    role = 'admin';
-  } else if (
-    process.env.NODE_ENV === 'test' &&
-    session.role === 'admin' &&
-    (
-      typeof session.accessToken !== 'string' ||
-      jwtHasRealmRole(session.accessToken, 'admin')
-    )
-  ) {
+  if (isBootstrapAdminEmail(session.user.email) || session.role === 'admin') {
     role = 'admin';
   }
 
@@ -323,7 +314,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'user_settings', scope: 'read' }
       : { resource: 'user_settings', scope: 'write' };
   }
-  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+  if (pathname.startsWith('/api/feedback')) {
     return { resource: 'feedback', scope: 'submit' };
   }
   if (
@@ -345,7 +336,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
     return { resource: 'credential_vault', scope: 'use' };
   }
 
-  if (pathname.startsWith('/api/task-configs')) {
+  if (pathname.startsWith('/api/workflow-configs')) {
     return method === 'GET'
       ? { resource: 'dynamic_agent', scope: 'view' }
       : { resource: 'dynamic_agent', scope: 'manage' };
@@ -611,6 +602,17 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   }
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
+  }
+  if (resource === 'skill') {
+    // Skills are a self-service member feature. Browsing/running AND authoring
+    // (create/configure) plus minting the caller's own catalog API keys are
+    // available to any org member (`can_use` = member or admin). Mutation and
+    // deletion of an EXISTING skill are additionally constrained per-resource by
+    // ownership via `requireResourcePermission({ type: "skill", action: ... })`
+    // in the route handlers, so this coarse org gate must NOT collapse to the
+    // admin-only `can_manage` — otherwise generic members can't create or edit
+    // their own skills at all (the create path has no resource to scope yet).
+    return 'can_use';
   }
   if (scope === 'view' || scope === 'read' || scope === 'query' || scope === 'invoke') {
     return 'can_use';
@@ -940,7 +942,17 @@ export async function requireRbacPermission(
  * Handle API errors and return appropriate response
  */
 export function handleApiError(error: unknown): NextResponse {
-  console.error('API Error:', error);
+  const statusCode =
+    error !== null &&
+    typeof error === 'object' &&
+    typeof (error as { statusCode?: unknown }).statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : error instanceof CredentialError
+        ? error.status
+        : 500;
+  if (statusCode >= 500 || process.env.API_ERROR_LOG_4XX === 'true') {
+    console.error('API Error:', error);
+  }
 
   if (
     error instanceof ApiError ||

@@ -7,16 +7,16 @@
  * Only returns conversations that have an agent participant (Dynamic Agent conversations).
  */
 
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
+import { NextRequest } from "next/server";
 
 /**
  * GET /api/dynamic-agents/conversations
@@ -28,7 +28,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "audit_log", id: "dynamic_agent_conversations", action: "read" });
+  // assisted-by Codex Codex-sonnet-4-6
+  await requireResourcePermission(
+    session,
+    { type: "audit_log", id: "dynamic_agent_conversations", action: "read" },
+    { bypassForOrgAdmin: true },
+  );
 
     const { page, pageSize, skip } = getPaginationParams(request);
     const url = new URL(request.url);

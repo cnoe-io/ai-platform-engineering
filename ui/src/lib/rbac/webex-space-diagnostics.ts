@@ -1,17 +1,17 @@
 import {
-  listOpenFgaWebexSpaceAgentIds,
-  webexSpaceOpenFgaUser,
+type ConnectorDiagnostics,
+type ConnectorDiagnosticsAdapter,
+type ConnectorHealthSummary,
+type ConnectorRouteMetadata,
+type ConnectorRuntimeRouteDiagnostic,
+computeConnectorDiagnostics,
+computeConnectorHealthSummary,
+} from "@/lib/rbac/connector-diagnostics";
+import {
+listOpenFgaWebexSpaceAgentIds,
+webexSpaceOpenFgaUser,
 } from "@/lib/rbac/webex-space-openfga";
 import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
-import {
-  type ConnectorDiagnostics,
-  type ConnectorDiagnosticsAdapter,
-  type ConnectorHealthSummary,
-  type ConnectorRouteMetadata,
-  type ConnectorRuntimeRouteDiagnostic,
-  computeConnectorDiagnostics,
-  computeConnectorHealthSummary,
-} from "@/lib/rbac/connector-diagnostics";
 
 export type WebexRuntimeRouteDiagnostic = ConnectorRuntimeRouteDiagnostic;
 
@@ -59,7 +59,7 @@ const WEBEX_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
   },
   buildExtraRouteWarnings,
   shouldSurfaceLastRuntimeError: (lastError, openfgaError) => {
-    // The Webex bot logs OPENFGA_READ_FAILED into audit_events when
+    // The Webex bot logs OPENFGA_READ_FAILED through audit-service when
     // tuple reads fail. Once OpenFGA is reachable again, the stored
     // error is stale — suppress it so the diagnostics panel doesn't
     // light up red after the underlying issue cleared.

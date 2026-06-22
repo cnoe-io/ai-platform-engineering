@@ -1,16 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import type { AgentSkill } from "@/types/agent-skill";
-import {
-  loadSkillTemplatesInternal,
-  type SkillTemplateData,
+loadSkillTemplatesInternal,
+type SkillTemplateData,
 } from "@/app/api/skills/skill-templates-loader";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import type { AgentSkill } from "@/types/agent-skill";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Seed API Route

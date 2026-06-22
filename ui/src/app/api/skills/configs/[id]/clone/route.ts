@@ -1,17 +1,17 @@
 import { NextRequest } from "next/server";
 
-import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
+import { recordRevision } from "@/lib/skill-revisions";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordRevision } from "@/lib/skill-revisions";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -56,7 +56,7 @@ export const POST = withErrorHandler(
         // caller can't see.
         throw new ApiError("Skill not found", 404);
       }
-      await requireResourcePermission(session, { type: "skill", id, action: "read" });
+      await requireSkillPermission(session, id, "read");
 
       // Optional caller overrides via JSON body (name + description).
       // If the body is missing or invalid we just default to
@@ -101,7 +101,6 @@ export const POST = withErrorHandler(
           import_kind: source.is_system ? "clone_of_builtin" : "clone_of_user",
         },
         visibility: "private",
-        shared_with_teams: undefined,
         skill_content: source.skill_content,
         is_quick_start: source.is_quick_start,
         difficulty: source.difficulty,

@@ -180,8 +180,6 @@ affinity: {}
 # Each key-value pair is injected as a flat environment variable via ConfigMap (envFrom).
 # For sensitive values (OIDC secrets, MongoDB URI, etc.) use existingSecret or externalSecrets below.
 config:
-  # CAIPE Supervisor URL - should point to the supervisor-agent service
-  A2A_BASE_URL: ""
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
@@ -330,7 +328,7 @@ config:
   # SOURCE_URL: "https://github.com/your-org/your-repo"
   # Report a Problem: enabled by default, set to "false" to hide the button
   # REPORT_PROBLEM_ENABLED: "false"
-  # Ticket integration: route reported problems to Jira/GitHub via A2A agents
+  # Ticket integration: route reported problems to Jira/GitHub agents
   # Jira ticket creation (set both to enable)
   # JIRA_TICKET_ENABLED: "true"
   # JIRA_TICKET_PROJECT: "OPENSD"
@@ -359,8 +357,8 @@ existingSecret: ""
 #
 # The BFF's `fetchFreshAdminToken` (ui/src/lib/rbac/keycloak-admin.ts) needs
 # `KEYCLOAK_ADMIN_CLIENT_ID` + `KEYCLOAK_ADMIN_CLIENT_SECRET` in the pod's
-# environment to call the Keycloak Admin REST API via the supervisor's
-# confidential `caipe-platform` client. Before this block was added, the
+# environment to call the Keycloak Admin REST API via the confidential
+# `caipe-platform` client. Before this block was added, the
 # operator had two flavors of half-fix:
 #
 #   - Set `caipe-ui.existingSecret=<same-secret>` which mounts the Secret

@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
 
+  // Keep the Okta SDK as a native Node require instead of bundling it. The SDK
+  // does `const nodeFetch = require('node-fetch')` and calls it directly;
+  // when bundled, CJS/ESM interop turns that into `{ default: fn }`, so the call
+  // throws "nodeFetch is not a function". Externalizing preserves the raw
+  // require so node-fetch resolves to the callable function.
+  serverExternalPackages: ["@okta/okta-sdk-nodejs"],
+
   // No NEXT_PUBLIC_* env vars needed — config is served via GET /api/config
   // and consumed client-side through the ConfigProvider + useConfig() hook.
 

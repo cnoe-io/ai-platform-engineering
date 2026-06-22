@@ -12,12 +12,9 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
       "Org-admin manager grants on admin_surface:* objects (e.g. admin_surface:rag_datasources, admin_surface:slack). The `admin_surface_rag_datasources_admin_grant_v1` and `admin_surface_slack_admin_grant_v1` migrations backfill these tuples for every existing org admin.",
   },
   agent_skills: {
-    classification: "baseline_v1",
-    description: "Skill catalog/config records; start at v1 unless a future data migration is registered.",
-  },
-  audit_events: {
     classification: "migration",
-    description: "RBAC index migration target.",
+    description:
+      "Skill catalog/config records. `agent_skill_openfga_reconcile_v1` aligns OpenFGA grants with Mongo `visibility` (team slugs from FGA) and revokes stale team shares on private skills.",
   },
   channel_team_mappings: {
     classification: "baseline_v1",
@@ -97,14 +94,6 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "metadata",
     description: "Temporary migration override control table.",
   },
-  nps_campaigns: {
-    classification: "baseline_v1",
-    description: "NPS campaign records.",
-  },
-  nps_responses: {
-    classification: "baseline_v1",
-    description: "NPS response records.",
-  },
   openfga_tuples: {
     classification: "migration",
     description:
@@ -125,6 +114,10 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   rebac_relationships: {
     classification: "baseline_v1",
     description: "Universal ReBAC relationship provenance records.",
+  },
+  rbac_indexes: {
+    classification: "migration",
+    description: "RBAC schema migration and provenance index migration target.",
   },
   schema_migrations: {
     classification: "metadata",

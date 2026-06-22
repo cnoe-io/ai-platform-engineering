@@ -5,7 +5,14 @@ import pytest
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPCredentialSource, MCPServerConfig, TransportType
 from dynamic_agents.services import mcp_client
-from dynamic_agents.services.mcp_client import build_mcp_connection_config, resolve_mcp_credential_refs
+from dynamic_agents.services.mcp_client import (
+    CALLER_PROVIDER_NOT_CONNECTED,
+    McpCredentialUnavailableError,
+    build_mcp_connection_config,
+    mcp_credential_connect_warning,
+    resolve_mcp_connections_credential_refs,
+    resolve_mcp_credential_refs,
+)
 
 
 class FakeCredentialClient:
@@ -14,7 +21,9 @@ class FakeCredentialClient:
         assert intended_use == "mcp_server"
         return "github-token-value"
 
-    async def exchange_provider_connection_by_provider(self, provider: str, *, intended_use: str) -> dict:
+    async def exchange_provider_connection_by_provider(
+        self, provider: str, *, intended_use: str, mcp_server_id: str | None = None
+    ) -> dict:
         assert provider == "atlassian"
         assert intended_use == "mcp_server"
         return {"access_token": "atlassian-oauth-token", "provider_connection_id": "conn-for-user"}
@@ -98,12 +107,16 @@ async def test_resolves_provider_connection_by_provider_to_dedicated_header_when
 class NoConnectionCredentialClient:
     """Simulates a caller with no provider connection (exchange raises 404)."""
 
-    async def exchange_provider_connection_by_provider(self, provider: str, *, intended_use: str) -> dict:
+    async def exchange_provider_connection_by_provider(
+        self, provider: str, *, intended_use: str, mcp_server_id: str | None = None
+    ) -> dict:
         raise RuntimeError("CREDENTIAL_NOT_FOUND")
 
 
 class ConnectedCredentialClient:
-    async def exchange_provider_connection_by_provider(self, provider: str, *, intended_use: str) -> dict:
+    async def exchange_provider_connection_by_provider(
+        self, provider: str, *, intended_use: str, mcp_server_id: str | None = None
+    ) -> dict:
         return {"access_token": "user-github-oauth-token"}
 
 
@@ -170,8 +183,8 @@ async def test_per_user_token_wins_over_fallback_env(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_no_credential_and_no_fallback_skips_injection(monkeypatch):
-    """No connection and no fallback_env -> no header injected, no exception raised."""
+async def test_no_credential_and_no_fallback_raises_for_caller_scope(monkeypatch):
+    """No connection and no fallback_env -> fail closed for caller-scoped provider."""
     monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     server = MCPServerConfig(
@@ -190,13 +203,16 @@ async def test_no_credential_and_no_fallback_skips_injection(monkeypatch):
     )
     config = build_mcp_connection_config(server)
 
-    resolved = await resolve_mcp_credential_refs(
-        server,
-        config,
-        credential_client=NoConnectionCredentialClient(),
-    )
+    with pytest.raises(McpCredentialUnavailableError) as exc_info:
+        await resolve_mcp_credential_refs(
+            server,
+            config,
+            credential_client=NoConnectionCredentialClient(),
+        )
 
-    assert "X-CAIPE-Provider-Token" not in resolved.get("headers", {})
+    assert exc_info.value.reason == CALLER_PROVIDER_NOT_CONNECTED
+    assert exc_info.value.provider == "github"
+    assert "GitHub" in mcp_credential_connect_warning(exc_info.value)
 
 
 def _kb_server() -> MCPServerConfig:
@@ -301,3 +317,136 @@ async def test_credential_refs_are_noop_when_impersonation_disabled(monkeypatch)
     )
 
     assert "env" not in resolved
+
+
+class PinnedCredentialClient:
+    async def exchange_provider_connection(
+        self,
+        provider_connection_id: str,
+        *,
+        intended_use: str,
+        mcp_server_id: str | None = None,
+    ) -> dict:
+        assert provider_connection_id == "conn-admin"
+        assert intended_use == "mcp_server"
+        assert mcp_server_id == "mcp-custom"
+        return {"access_token": "pinned-atlassian-token"}
+
+
+class EmptyPinnedCredentialClient:
+    async def exchange_provider_connection(
+        self,
+        provider_connection_id: str,
+        *,
+        intended_use: str,
+        mcp_server_id: str | None = None,
+    ) -> dict:
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_pinned_provider_connection_uses_connection_id(monkeypatch):
+    monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
+    server = MCPServerConfig(
+        _id="mcp-custom",
+        name="Custom Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp/mcp-custom",
+        credential_sources=[
+            MCPCredentialSource(
+                kind="provider_connection",
+                target="header",
+                name="X-CAIPE-Provider-Token",
+                connection_scope="pinned",
+                provider_connection_id="conn-admin",
+            )
+        ],
+    )
+    config = build_mcp_connection_config(server)
+
+    resolved = await resolve_mcp_credential_refs(
+        server,
+        config,
+        credential_client=PinnedCredentialClient(),
+    )
+
+    assert resolved["headers"]["X-CAIPE-Provider-Token"] == "pinned-atlassian-token"
+
+
+@pytest.mark.asyncio
+async def test_pinned_provider_connection_raises_when_unavailable(monkeypatch):
+    monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
+    server = MCPServerConfig(
+        _id="mcp-custom",
+        name="Custom Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp/mcp-custom",
+        credential_sources=[
+            MCPCredentialSource(
+                kind="provider_connection",
+                target="header",
+                name="X-CAIPE-Provider-Token",
+                connection_scope="pinned",
+                provider_connection_id="conn-admin",
+            )
+        ],
+    )
+    config = build_mcp_connection_config(server)
+
+    with pytest.raises(McpCredentialUnavailableError):
+        await resolve_mcp_credential_refs(
+            server,
+            config,
+            credential_client=EmptyPinnedCredentialClient(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_resolve_mcp_connections_omits_caller_scope_failures(monkeypatch):
+    """Batch resolution drops servers with caller credential failures."""
+    monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
+    jira_server = MCPServerConfig(
+        _id="jira",
+        name="Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp/jira",
+        credential_sources=[
+            MCPCredentialSource(
+                kind="provider_connection",
+                target="header",
+                name="X-CAIPE-Provider-Token",
+                provider="atlassian",
+            )
+        ],
+    )
+    github_server = MCPServerConfig(
+        _id="github",
+        name="GitHub",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp/github",
+        credential_sources=[
+            MCPCredentialSource(
+                kind="provider_connection",
+                target="header",
+                name="X-CAIPE-Provider-Token",
+                provider="github",
+                fallback_env="GITHUB_PERSONAL_ACCESS_TOKEN",
+            )
+        ],
+    )
+    monkeypatch.setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "org-pat-value")
+    connections = {
+        "jira": build_mcp_connection_config(jira_server),
+        "github": build_mcp_connection_config(github_server),
+    }
+
+    result = await resolve_mcp_connections_credential_refs(
+        [jira_server, github_server],
+        connections,
+        credential_client=NoConnectionCredentialClient(),
+    )
+
+    assert "jira" not in result.connections
+    assert "github" in result.connections
+    assert result.failures["jira"].reason == CALLER_PROVIDER_NOT_CONNECTED
+    assert "Atlassian" in mcp_credential_connect_warning(result.failures["jira"])

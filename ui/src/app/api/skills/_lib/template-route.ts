@@ -17,17 +17,17 @@
  * ignored for backward compatibility with copy-pasted one-liners.
  */
 
-import { NextResponse } from "next/server";
 import fs from "fs";
+import { NextResponse } from "next/server";
 import path from "path";
 import {
-  AGENTS,
-  DEFAULT_AGENT_ID,
-  parseFrontmatter,
-  renderForAgent,
-  scopesAvailableFor,
-  type AgentScope,
-  type AgentSpec,
+AGENTS,
+DEFAULT_AGENT_ID,
+parseFrontmatter,
+renderForAgent,
+scopesAvailableFor,
+type AgentScope,
+type AgentSpec,
 } from "../live-skills/agents";
 import { getRequestOrigin } from "./request-origin";
 

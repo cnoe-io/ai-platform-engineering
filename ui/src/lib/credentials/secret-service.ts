@@ -1,17 +1,45 @@
+// assisted-by Codex Codex-sonnet-4-6
+
 import { ApiError } from "@/lib/api-error";
 import type { ResourceAuthzSession } from "@/lib/rbac/resource-authz";
 
 import { writeCredentialAuditEvent } from "./audit";
-import { maskCredentialValue } from "./masking";
-import type { CredentialOwnerRef, CredentialSecretType } from "./types";
+import { CREDENTIAL_COLLECTIONS } from "./collections";
+import { CredentialError } from "./errors";
+import { isOpaqueMaskedPreview, maskCredentialValue } from "./masking";
+import type { CredentialOwnerRef,CredentialSecretType } from "./types";
+
+export interface SecretActorRef {
+  type: "user" | "service_account";
+  id: string;
+  email?: string;
+  name?: string;
+  displayName?: string;
+}
+
+export interface SecretStorageMetadata {
+  metadataCollection: string;
+  payloadCollection: string;
+  encryption: "AES-256-GCM envelope encryption";
+  plaintextReadableByBrowser: false;
+  valuePreviewAvailable: true;
+}
+
+export interface SecretUsageReference {
+  type: "mcp_server" | "llm_provider";
+  id: string;
+  name: string;
+  location: string;
+  detail?: string;
+}
 
 export interface SecretRefDocument {
   id: string;
   owner: CredentialOwnerRef;
+  createdBy?: SecretActorRef;
   name: string;
   type: CredentialSecretType;
   description?: string;
-  maskedPreview: string;
   sharedWithTeams: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -21,11 +49,14 @@ export interface SecretRefDocument {
 export interface SecretMetadata {
   id: string;
   owner: CredentialOwnerRef;
+  createdBy?: SecretActorRef;
   name: string;
   type: CredentialSecretType;
   description?: string;
   maskedPreview: string;
   sharedWithTeams: string[];
+  usage: SecretUsageReference[];
+  storage: SecretStorageMetadata;
   createdAt: string;
   updatedAt: string;
   rotatedAt?: string;
@@ -45,12 +76,10 @@ interface SecretRefsCollection {
 }
 
 interface PayloadStore {
-  putSecret(input: { secretRefId: string; plaintext: string }): Promise<void>;
+  putSecret(input: { secretRefId: string; plaintext: string; maskedPreview?: string }): Promise<void>;
+  getSecret?(secretRefId: string): Promise<string>;
+  getMaskedPreview(secretRefId: string): Promise<string>;
   deleteSecret?(secretRefId: string): Promise<void>;
-}
-
-interface AuditCollection {
-  insertOne(document: Record<string, unknown>): Promise<unknown>;
 }
 
 type AuthorizeSecretAction = (
@@ -58,11 +87,13 @@ type AuthorizeSecretAction = (
   target: { type: "secret_ref"; id: string; action: "read-metadata" | "use" | "manage" | "share" | "audit" },
 ) => Promise<void>;
 
+type ListReadableSecretIds = (session: ResourceAuthzSession) => Promise<string[]>;
+
 export interface SecretServiceOptions {
   secretRefsCollection: SecretRefsCollection;
   payloadStore: PayloadStore;
-  auditCollection: AuditCollection;
   authorize: AuthorizeSecretAction;
+  listReadableSecretIds?: ListReadableSecretIds;
   reconcileOwnerRelationships?: (input: {
     secretId: string;
     owner: CredentialOwnerRef;
@@ -71,6 +102,7 @@ export interface SecretServiceOptions {
   reconcileShare?: (secretId: string, teamId: string) => Promise<void>;
   deleteShare?: (secretId: string, teamId: string) => Promise<void>;
   deleteAllRelationships?: (secretId: string) => Promise<void>;
+  resolveUsage?: (secret: SecretRefDocument) => Promise<SecretUsageReference[]>;
   idGenerator: () => string;
   now?: () => Date;
 }
@@ -110,6 +142,8 @@ export interface AdminUpdateSecretMetadataInput {
   description?: string;
 }
 
+const MASKED_PREVIEW_UNAVAILABLE = "unavailable";
+
 function requireNonEmptyString(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -118,15 +152,57 @@ function requireNonEmptyString(value: string, field: string): string {
   return trimmed;
 }
 
-function toMetadata(doc: SecretRefDocument): SecretMetadata {
+function actorFromSession(session: ResourceAuthzSession): SecretActorRef | undefined {
+  const id = typeof session.sub === "string" && session.sub.trim() ? session.sub.trim() : "";
+  if (!id) return undefined;
+  const sessionUser = session.user as
+    | { email?: string | null; name?: string | null; displayName?: string | null }
+    | null
+    | undefined;
+  const email = typeof sessionUser?.email === "string" && sessionUser.email.trim()
+    ? sessionUser.email.trim()
+    : undefined;
+  const name = typeof sessionUser?.name === "string" && sessionUser.name.trim()
+    ? sessionUser.name.trim()
+    : undefined;
+  const displayName = typeof sessionUser?.displayName === "string" && sessionUser.displayName.trim()
+    ? sessionUser.displayName.trim()
+    : undefined;
+  return {
+    type: session.isServiceAccount === true ? "service_account" : "user",
+    id,
+    ...(email ? { email } : {}),
+    ...(name ? { name } : {}),
+    ...(displayName ? { displayName } : {}),
+  };
+}
+
+function secretStorageMetadata(): SecretStorageMetadata {
+  return {
+    metadataCollection: CREDENTIAL_COLLECTIONS.secretRefs,
+    payloadCollection: CREDENTIAL_COLLECTIONS.encryptedPayloads,
+    encryption: "AES-256-GCM envelope encryption",
+    plaintextReadableByBrowser: false,
+    valuePreviewAvailable: true,
+  };
+}
+
+function toMetadata(
+  doc: SecretRefDocument,
+  maskedPreview: string,
+  usage: SecretUsageReference[] = [],
+): SecretMetadata {
   return {
     id: doc.id,
     owner: doc.owner,
+    createdBy: doc.createdBy,
     name: doc.name,
     type: doc.type,
     description: doc.description,
-    maskedPreview: doc.maskedPreview,
-    sharedWithTeams: doc.sharedWithTeams,
+    maskedPreview,
+    sharedWithTeams: doc.sharedWithTeams ?? [],
+    usage,
+    storage: secretStorageMetadata(),
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
     rotatedAt: doc.rotatedAt?.toISOString(),
@@ -136,24 +212,26 @@ function toMetadata(doc: SecretRefDocument): SecretMetadata {
 export class SecretService {
   private readonly secretRefsCollection: SecretRefsCollection;
   private readonly payloadStore: PayloadStore;
-  private readonly auditCollection: AuditCollection;
   private readonly authorize: AuthorizeSecretAction;
+  private readonly listReadableSecretIds: ListReadableSecretIds;
   private readonly reconcileOwnerRelationships: NonNullable<SecretServiceOptions["reconcileOwnerRelationships"]>;
   private readonly reconcileShare: NonNullable<SecretServiceOptions["reconcileShare"]>;
   private readonly deleteShare: NonNullable<SecretServiceOptions["deleteShare"]>;
   private readonly deleteAllRelationships: NonNullable<SecretServiceOptions["deleteAllRelationships"]>;
+  private readonly resolveUsage: NonNullable<SecretServiceOptions["resolveUsage"]>;
   private readonly idGenerator: () => string;
   private readonly now: () => Date;
 
   constructor(options: SecretServiceOptions) {
     this.secretRefsCollection = options.secretRefsCollection;
     this.payloadStore = options.payloadStore;
-    this.auditCollection = options.auditCollection;
     this.authorize = options.authorize;
+    this.listReadableSecretIds = options.listReadableSecretIds ?? (async () => []);
     this.reconcileOwnerRelationships = options.reconcileOwnerRelationships ?? (async () => undefined);
     this.reconcileShare = options.reconcileShare ?? (async () => undefined);
     this.deleteShare = options.deleteShare ?? (async () => undefined);
     this.deleteAllRelationships = options.deleteAllRelationships ?? (async () => undefined);
+    this.resolveUsage = options.resolveUsage ?? (async () => []);
     this.idGenerator = options.idGenerator;
     this.now = options.now ?? (() => new Date());
   }
@@ -163,44 +241,69 @@ export class SecretService {
     const plaintext = requireNonEmptyString(input.plaintext, "plaintext");
     const id = this.idGenerator();
     const now = this.now();
+    const maskedPreview = maskCredentialValue(plaintext);
 
     const doc: SecretRefDocument = {
       id,
       owner: input.owner,
+      createdBy: actorFromSession(input.session),
       name,
       type: input.type,
       description: input.description?.trim() || undefined,
-      maskedPreview: maskCredentialValue(plaintext),
       sharedWithTeams: [],
       createdAt: now,
       updatedAt: now,
       rotatedAt: now,
     };
 
-    await this.payloadStore.putSecret({ secretRefId: id, plaintext });
+    await this.payloadStore.putSecret({ secretRefId: id, plaintext, maskedPreview });
     await this.reconcileOwnerRelationships({
       secretId: id,
       owner: input.owner,
       ownerSubject: typeof input.session.sub === "string" ? input.session.sub : null,
     });
     await this.secretRefsCollection.insertOne(doc);
-    await writeCredentialAuditEvent(this.auditCollection, {
+    writeCredentialAuditEvent({
       action: "credential.create",
       actor: { type: "user", id: String(input.session.sub ?? "unknown") },
       resource: { type: "secret_ref", id },
       result: "success",
     });
 
-    return toMetadata(doc);
+    return this.metadataFor(doc, maskedPreview);
   }
 
   async listSecrets(input: ListSecretsInput): Promise<SecretMetadata[]> {
-    const docs = await this.secretRefsCollection
+    const docsById = new Map<string, SecretRefDocument>();
+    const ownedDocs = await this.secretRefsCollection
       .find({ "owner.type": input.owner.type, "owner.id": input.owner.id })
       .sort({ name: 1 })
       .toArray();
+    for (const doc of ownedDocs) {
+      docsById.set(doc.id, doc);
+    }
+
+    let readableSecretIds: string[] = [];
+    try {
+      readableSecretIds = await this.listReadableSecretIds(input.session);
+    } catch {
+      readableSecretIds = [];
+    }
+    const missingReadableIds = Array.from(new Set(readableSecretIds)).filter(
+      (secretId) => !docsById.has(secretId),
+    );
+    if (missingReadableIds.length > 0) {
+      const readableDocs = await this.secretRefsCollection
+        .find({ id: { $in: missingReadableIds } })
+        .sort({ name: 1 })
+        .toArray();
+      for (const doc of readableDocs) {
+        docsById.set(doc.id, doc);
+      }
+    }
 
     const visible: SecretMetadata[] = [];
+    const docs = Array.from(docsById.values()).sort((a, b) => a.name.localeCompare(b.name));
     for (const doc of docs) {
       try {
         await this.authorize(input.session, {
@@ -208,7 +311,7 @@ export class SecretService {
           id: doc.id,
           action: "read-metadata",
         });
-        visible.push(toMetadata(doc));
+        visible.push(await this.metadataFor(doc));
       } catch {
         // Drop denied resources from list responses to avoid disclosing existence.
       }
@@ -218,7 +321,7 @@ export class SecretService {
 
   async listAllSecretsForAdmin(): Promise<SecretMetadata[]> {
     const docs = await this.secretRefsCollection.find({}).sort({ updatedAt: -1 }).toArray();
-    return docs.map(toMetadata);
+    return Promise.all(docs.map((doc) => this.metadataFor(doc)));
   }
 
   async updateSecretMetadataForAdmin(input: AdminUpdateSecretMetadataInput): Promise<SecretMetadata> {
@@ -231,7 +334,7 @@ export class SecretService {
       update.description = input.description.trim() || undefined;
     }
     await this.secretRefsCollection.updateOne({ id: input.secretId }, { $set: update });
-    return toMetadata({ ...doc, ...update });
+    return this.metadataFor({ ...doc, ...update });
   }
 
   async deleteSecretForAdmin(secretId: string): Promise<void> {
@@ -244,7 +347,7 @@ export class SecretService {
   async getSecretMetadata(input: SecretByIdInput): Promise<SecretMetadata> {
     const doc = await this.getSecretRef(input.secretId);
     await this.authorize(input.session, { type: "secret_ref", id: input.secretId, action: "read-metadata" });
-    return toMetadata(doc);
+    return this.metadataFor(doc);
   }
 
   async rotateSecret(input: RotateSecretInput): Promise<SecretMetadata> {
@@ -253,30 +356,33 @@ export class SecretService {
     await this.authorize(input.session, { type: "secret_ref", id: input.secretId, action: "manage" });
 
     const now = this.now();
-    await this.payloadStore.putSecret({ secretRefId: input.secretId, plaintext });
+    const maskedPreview = maskCredentialValue(plaintext);
+    await this.payloadStore.putSecret({
+      secretRefId: input.secretId,
+      plaintext,
+      maskedPreview,
+    });
     await this.secretRefsCollection.updateOne(
       { id: input.secretId },
       {
         $set: {
-          maskedPreview: maskCredentialValue(plaintext),
           updatedAt: now,
           rotatedAt: now,
         },
       },
     );
-    await writeCredentialAuditEvent(this.auditCollection, {
+    writeCredentialAuditEvent({
       action: "credential.rotate",
       actor: { type: "user", id: String(input.session.sub ?? "unknown") },
       resource: { type: "secret_ref", id: input.secretId },
       result: "success",
     });
 
-    return toMetadata({
+    return this.metadataFor({
       ...doc,
-      maskedPreview: maskCredentialValue(plaintext),
       updatedAt: now,
       rotatedAt: now,
-    });
+    }, maskedPreview);
   }
 
   async shareSecret(input: SecretShareInput): Promise<void> {
@@ -315,5 +421,50 @@ export class SecretService {
       throw new ApiError("Credential secret was not found", 404, "CREDENTIAL_NOT_FOUND");
     }
     return doc;
+  }
+
+  private async metadataFor(
+    doc: SecretRefDocument,
+    maskedPreviewOverride?: string,
+  ): Promise<SecretMetadata> {
+    const [usage, maskedPreview] = await Promise.all([
+      this.resolveUsage(doc),
+      this.maskedPreviewFor(doc.id, maskedPreviewOverride),
+    ]);
+    return toMetadata(doc, maskedPreview, usage);
+  }
+
+  private async maskedPreviewFor(secretId: string, maskedPreviewOverride?: string): Promise<string> {
+    if (maskedPreviewOverride !== undefined) {
+      return maskedPreviewOverride;
+    }
+
+    try {
+      const storedMaskedPreview = await this.payloadStore.getMaskedPreview(secretId);
+      return await this.repairOpaqueMaskedPreview(secretId, storedMaskedPreview);
+    } catch (error) {
+      const reason = error instanceof CredentialError ? error.reasonCode : "unknown";
+      console.warn("[credentials] masked preview unavailable", { secretId, reason });
+      return MASKED_PREVIEW_UNAVAILABLE;
+    }
+  }
+
+  private async repairOpaqueMaskedPreview(secretId: string, maskedPreview: string): Promise<string> {
+    if (!isOpaqueMaskedPreview(maskedPreview) || !this.payloadStore.getSecret) {
+      return maskedPreview;
+    }
+
+    const plaintext = await this.payloadStore.getSecret(secretId);
+    const repairedPreview = maskCredentialValue(plaintext);
+    if (repairedPreview === maskedPreview) {
+      return maskedPreview;
+    }
+
+    await this.payloadStore.putSecret({
+      secretRefId: secretId,
+      plaintext,
+      maskedPreview: repairedPreview,
+    });
+    return repairedPreview;
   }
 }

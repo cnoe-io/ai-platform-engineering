@@ -3,8 +3,8 @@
 
 export { SkillsGallery } from "./SkillsGallery";
 export { SkillsRunner } from "./SkillsRunner";
-export { WorkflowHistoryView } from "./WorkflowHistoryView";
 export { TrySkillsGateway } from "./TrySkillsGateway";
+export { WorkflowHistoryView } from "./WorkflowHistoryView";
 
 // New Workspace API (replaces SkillsBuilderEditor as of the
 // /skills/workspace/[id] consolidation).

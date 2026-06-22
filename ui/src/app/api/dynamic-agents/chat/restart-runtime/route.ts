@@ -9,13 +9,13 @@
  * Body: { agent_id, conversation_id }
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getServerConfig } from "@/lib/config";
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { getServerConfig } from "@/lib/config";
+import { requireAgentPermission } from "@/lib/rbac/resource-authz";
+import { NextRequest,NextResponse } from "next/server";
 
 export async function POST(request: NextRequest): Promise<Response> {
   const config = getServerConfig();
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (!sessionForAuthz) {
       throw new ApiError("Unauthorized", 401);
     }
-    await requireResourcePermission(sessionForAuthz, { type: "agent", id: body.agent_id, action: "manage" });
+    await requireAgentPermission(sessionForAuthz, body.agent_id, "manage");
   } catch (err) {
     if (err instanceof ApiError) {
       return NextResponse.json(

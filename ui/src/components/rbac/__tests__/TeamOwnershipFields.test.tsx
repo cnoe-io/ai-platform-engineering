@@ -2,14 +2,14 @@
  * Tests for the shared <TeamOwnershipFields> control bundle
  * (spec 2026-06-03-unified-shareable-resource-rbac, US1 contract ui-component.md).
  *
- * Pins the behavior every host editor relies on: owner picker disabled on edit,
- * effective-access preview names exactly the grants the save will write, share
- * multi-select toggles, creator shown read-only, and (US3) the not-a-member
- * transfer confirmation gates onTransfer.
+ * Pins the behavior every host editor relies on: owner picker disabled on edit
+ * (unless transfers are allowed), share multi-select toggles, creator shown
+ * read-only, and (US3) the not-a-member transfer confirmation gates onTransfer.
+ * assisted-by Codex Codex-sonnet-4-6
  */
 
 import * as React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
@@ -53,20 +53,15 @@ describe("TeamOwnershipFields", () => {
     expect(screen.getByLabelText(/Owner Team/i)).toBeDisabled();
   });
 
-  it("shows the effective-access preview naming the owner team", () => {
-    setup({ ownerTeamSlug: "platform", sharedTeamSlugs: ["data-eng"] });
-    const note = screen.getByRole("note", { name: /Effective access summary/i });
-    expect(note).toHaveTextContent("team:platform#member");
-    expect(note).toHaveTextContent("(owner team)");
-    expect(note).toHaveTextContent("team:data-eng#member");
-  });
-
-  it("dedupes the owner team out of the shared preview", () => {
-    setup({ ownerTeamSlug: "platform", sharedTeamSlugs: ["platform", "sre"] });
-    const note = screen.getByRole("note", { name: /Effective access summary/i });
-    const platformGrants = note.querySelectorAll("li");
-    // platform appears once (as owner), sre once (as shared) → 2 list items.
-    expect(platformGrants).toHaveLength(2);
+  it("keeps the owner picker editable on edit when transfers are allowed", () => {
+    setup({ isEditing: true, allowTransfer: true });
+    expect(screen.getByLabelText(/Owner Team/i)).not.toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /Transfer ownership/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Changing the owner team will transfer ownership when you save/i),
+    ).toBeInTheDocument();
   });
 
   it("shows the creator subject read-only when present", () => {
@@ -82,9 +77,8 @@ describe("TeamOwnershipFields", () => {
       ownerTeamSlug: "platform",
       currentUserTeamSlugs: ["platform"], // NOT a member of sre
     });
-    // Enter transfer mode.
-    fireEvent.click(screen.getByRole("button", { name: /Transfer ownership/i }));
-    // Attempt to transfer to sre (not a member) → confirm returns false → no call.
+    // The picker is directly editable; attempt to transfer to sre (not a
+    // member) → confirm returns false → no call.
     await pickTeam(/Owner Team/i, "sre");
     expect(confirmSpy).toHaveBeenCalled();
     expect(onTransfer).not.toHaveBeenCalled();
@@ -99,7 +93,6 @@ describe("TeamOwnershipFields", () => {
       ownerTeamSlug: "platform",
       currentUserTeamSlugs: ["platform"],
     });
-    fireEvent.click(screen.getByRole("button", { name: /Transfer ownership/i }));
     await pickTeam(/Owner Team/i, "sre");
     expect(onOwnerTeamChange).toHaveBeenCalledWith("sre");
     expect(onTransfer).toHaveBeenCalledWith("sre", true);
@@ -108,9 +101,12 @@ describe("TeamOwnershipFields", () => {
 
   it("hides the share section when showShare is false", () => {
     setup({ showShare: false });
-    expect(
-      screen.queryByRole("note", { name: /Effective access summary/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Share with Teams/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the share section when showShare is true", () => {
+    setup({ showShare: true });
+    expect(screen.getByText(/Share with Teams/i)).toBeInTheDocument();
   });
 
   it("renders betweenOwnerAndShare slot content", () => {

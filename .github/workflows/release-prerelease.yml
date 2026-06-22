@@ -1,0 +1,303 @@
+name: "[Release] Pre-release Build"
+description: "Create an rc/hotfix tag on a release/* branch and trigger a coordinated build of all containers and the Helm chart."
+
+# Usage:
+#   GitHub UI → Actions → "[Release] Pre-release Build" → Run workflow
+#   gh workflow run release-prerelease.yml -f release_branch=release/0.8.0
+#   gh workflow run release-prerelease.yml -f release_branch=release/0.8.0 -f tag_version=0.8.0-rc.12
+#
+# What this does:
+#   1. Lists available release/* branches in the job summary.
+#   2. Validates the specified branch and derives the next rc/hotfix tag (or
+#      uses the one you provide).
+#   3. Mirrors what auto-tag.yml does on a branch push:
+#        a. Bumps pyproject.toml + uv.lock + ALL Chart.yaml (version + appVersion)
+#           to the rc version, commits, then creates the rc image tag.
+#        b. Bumps Chart.yaml version fields to the chart tag, commits, then
+#           creates the chart tag.
+#      Both commits are pushed to the release branch so that ci-helm.yml
+#      finds the expected version in Chart.yaml when it checks out at the tag.
+#   4. The push-tag event triggers required container CI workflows automatically.
+#   5. Explicitly dispatches ci-helm.yml with force_build=true so the Helm
+#      chart is published even when no chart files changed in this commit.
+#
+# To force-rebuild every container image fresh (bypass retag for unchanged
+# components), run each ci-*.yml individually via workflow_dispatch with
+# force_build=true after this workflow has created the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: |
+          Release branch to build from (e.g. release/0.8.0 or release/0.8.0-hotfix).
+          Run without specifying a tag to see available branches in the job summary.
+        required: true
+        type: string
+      tag_version:
+        description: |
+          RC/hotfix tag to create (e.g. 0.8.0-rc.3 or 0.8.0-hotfix.2).
+          Leave blank to auto-detect and increment the latest existing tag on this branch.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prepare:
+    name: Bump versions, commit, create tags
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      rc_tag: ${{ steps.tag.outputs.rc_tag }}
+      chart_tag: ${{ steps.tag.outputs.chart_tag }}
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # Check out the release branch so we can bump version files on it.
+      # The workflow file itself comes from main (dispatch ref); code comes from
+      # the release branch.
+      - name: 📥 Checkout release branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.release_branch }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 📋 List available release branches
+        env:
+          SELECTED_RELEASE_BRANCH: ${{ inputs.release_branch }}
+        run: |
+          set -euo pipefail
+
+          BRANCHES=$(git ls-remote --heads origin 'refs/heads/release/*' \
+            | awk '{print $2}' | sed 's|refs/heads/||' | sort)
+
+          echo "## Available release/* branches" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -z "$BRANCHES" ]]; then
+            echo "_No release/* branches found._" >> "$GITHUB_STEP_SUMMARY"
+          else
+            while IFS= read -r branch; do
+              echo "- \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
+            done <<< "$BRANCHES"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Selected:** \`${SELECTED_RELEASE_BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ✅ Validate branch and determine tags
+        id: tag
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          TAG_VERSION: ${{ inputs.tag_version }}
+        run: |
+          # Validate branch exists on the remote
+          if ! git ls-remote --exit-code --heads origin "refs/heads/${RELEASE_BRANCH}" >/dev/null 2>&1; then
+            echo "❌ Branch '${RELEASE_BRANCH}' not found in remote."
+            exit 1
+          fi
+
+          # Derive base version and suffix type from branch name
+          if [[ "$RELEASE_BRANCH" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)-hotfix$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            SUFFIX_TYPE="hotfix"
+          elif [[ "$RELEASE_BRANCH" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            SUFFIX_TYPE="rc"
+          else
+            echo "❌ Branch must match release/<x.y.z> or release/<x.y.z>-hotfix"
+            exit 1
+          fi
+
+          # Determine rc/hotfix tag
+          if [[ -n "$TAG_VERSION" ]]; then
+            RC_TAG="$TAG_VERSION"
+            BASE_VERSION_RE="${BASE_VERSION//./\\.}"
+            if ! [[ "$RC_TAG" =~ ^${BASE_VERSION_RE}-(rc|hotfix)\.[0-9]+$ ]]; then
+              echo "❌ tag_version '${RC_TAG}' does not match branch base version '${BASE_VERSION}'"
+              exit 1
+            fi
+          else
+            LATEST_NUM=$(git tag --list "${BASE_VERSION}-${SUFFIX_TYPE}.*" \
+              | grep -oP "(?<=${SUFFIX_TYPE}\.)[0-9]+$" | sort -n | tail -1)
+            NEXT_NUM=$(( ${LATEST_NUM:-0} + 1 ))
+            RC_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${NEXT_NUM}"
+          fi
+
+          # Verify the rc tag does not already exist
+          if git rev-parse "${RC_TAG}" >/dev/null 2>&1; then
+            echo "❌ Tag '${RC_TAG}' already exists. Provide a different tag_version."
+            exit 1
+          fi
+
+          # Determine chart tag (auto-detect next chart suffix)
+          LATEST_CHART_NUM=$(git tag --list "${RC_TAG}-chart.*" \
+            | grep -oP "(?<=chart\.)[0-9]+$" | sort -n | tail -1)
+          NEXT_CHART_NUM=$(( ${LATEST_CHART_NUM:-0} + 1 ))
+          CHART_TAG="${RC_TAG}-chart.${NEXT_CHART_NUM}"
+
+          echo "rc_tag=${RC_TAG}" >> "$GITHUB_OUTPUT"
+          echo "chart_tag=${CHART_TAG}" >> "$GITHUB_OUTPUT"
+          echo "✅ rc_tag=${RC_TAG}  chart_tag=${CHART_TAG}"
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+
+      - name: 📦 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: ⚙️ Install yq
+        env:
+          YQ_VERSION: v4.53.3
+          YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
+        run: |
+          set -euo pipefail
+
+          curl -fsSL -o /tmp/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
+          yq --version
+
+      - name: 📝 Bump to rc version and create rc tag
+        env:
+          RC_TAG: ${{ steps.tag.outputs.rc_tag }}
+        run: |
+          git config user.name "caipe-ci-release[bot]"
+          git config user.email "caipe-ci-release[bot]@users.noreply.github.com"
+
+          # pyproject.toml: hotfix needs PEP 440 local version (x.y.z+hotfix.N)
+          PYPROJECT_VERSION="${RC_TAG}"
+          if [[ "$RC_TAG" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-hotfix\.([0-9]+)$ ]]; then
+            PYPROJECT_VERSION="${BASH_REMATCH[1]}+hotfix.${BASH_REMATCH[2]}"
+          fi
+          sed -i "s/^version = \".*\"/version = \"${PYPROJECT_VERSION}\"/" pyproject.toml
+          echo "  ✅ pyproject.toml → ${PYPROJECT_VERSION}"
+
+          # Regenerate uv.lock
+          uv lock
+          echo "  ✅ uv.lock regenerated"
+
+          # All Chart.yaml: version + appVersion
+          while IFS= read -r chart_file; do
+            yq -i ".version = \"${RC_TAG}\"" "$chart_file"
+            yq -i ".appVersion = \"${RC_TAG}\"" "$chart_file"
+            echo "  ✅ $chart_file → ${RC_TAG}"
+          done < <(find charts -name "Chart.yaml" -type f | sort)
+
+          # Commit version bump
+          git add pyproject.toml uv.lock
+          find charts -name "Chart.yaml" -type f | xargs git add
+          git commit -m "chore: bump version to ${RC_TAG}"
+          echo "  ✅ Committed rc version bump"
+
+          # Create annotated rc tag on this commit
+          git tag -a "${RC_TAG}" -m "Pre-release ${RC_TAG}"
+          echo "  ✅ Tagged ${RC_TAG}"
+
+      - name: 📝 Bump Chart.yaml to chart tag and create chart tag
+        env:
+          RC_TAG: ${{ steps.tag.outputs.rc_tag }}
+          CHART_TAG: ${{ steps.tag.outputs.chart_tag }}
+        run: |
+          # Chart-only bump: version → chart tag, appVersion stays at rc tag
+          while IFS= read -r chart_file; do
+            yq -i ".version = \"${CHART_TAG}\"" "$chart_file"
+            echo "  ✅ $chart_file version → ${CHART_TAG} (appVersion stays ${RC_TAG})"
+          done < <(find charts -name "Chart.yaml" -type f | sort)
+
+          find charts -name "Chart.yaml" -type f | xargs git add
+          git commit -m "chore: bump version to ${CHART_TAG}"
+          echo "  ✅ Committed chart version bump"
+
+          # Create annotated chart tag on this commit
+          git tag -a "${CHART_TAG}" -m "Pre-release chart ${CHART_TAG}"
+          echo "  ✅ Tagged ${CHART_TAG}"
+
+      - name: 🚀 Push commits and tags
+        env:
+          RC_TAG: ${{ steps.tag.outputs.rc_tag }}
+          CHART_TAG: ${{ steps.tag.outputs.chart_tag }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+        run: |
+          git push origin HEAD:${RELEASE_BRANCH} "${RC_TAG}" "${CHART_TAG}"
+          echo "✅ Pushed branch + tags: ${RC_TAG}  ${CHART_TAG}"
+
+      - name: 📊 Summary
+        env:
+          RC_TAG: ${{ steps.tag.outputs.rc_tag }}
+          CHART_TAG: ${{ steps.tag.outputs.chart_tag }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+
+          ## Tags created
+
+          | Tag | Purpose |
+          |-----|---------|
+          | \`${RC_TAG}\` | Container images |
+          | \`${CHART_TAG}\` | Helm chart |
+
+          ## What happens next
+
+          The tag push triggers these required CI workflows automatically:
+          - \`ci-caipe-ui\`
+          - \`ci-dynamic-agents\`
+          - \`ci-slack-bot\`
+          - \`ci-webex-bot\`
+          - \`ci-skill-scanner\`
+          - \`ci-mcp-sub-agent\`
+          - \`ci-a2a-rag\`
+          - \`ci-helm\` (also dispatched explicitly with \`force_build=true\`)
+
+          > To force-rebuild every image fresh (bypass retag for unchanged components),
+          > run each \`ci-*.yml\` manually via **workflow_dispatch** with
+          > \`force_build=true\` and \`tag_version=${RC_TAG}\` after this workflow completes.
+          EOF
+
+  dispatch-helm:
+    name: Dispatch helm chart CI (force_build)
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 🚀 Dispatch ci-helm.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHART_TAG: ${{ needs.prepare.outputs.chart_tag }}
+        run: |
+          # Dispatch at main so the latest workflow file (with force_build) is used.
+          # ci-helm.yml explicitly checks out at tag_version, so release-branch
+          # code is used for packaging regardless of which ref the workflow runs at.
+          gh workflow run ci-helm.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f tag_version="${CHART_TAG}" \
+            -f force_build=true
+
+          echo "✅ Dispatched ci-helm.yml with chart_tag=${CHART_TAG} force_build=true"

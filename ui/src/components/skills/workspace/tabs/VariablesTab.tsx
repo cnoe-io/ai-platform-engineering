@@ -12,18 +12,18 @@
  * that aren't declared, so the user can promote them with one click.
  */
 
-import React, { useCallback, useMemo } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus,Trash2 } from "lucide-react";
+import { useCallback,useMemo } from "react";
 
+import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
-  extractPromptVariables,
-  type SkillInputVariable,
+extractPromptVariables,
+type SkillInputVariable,
 } from "@/types/agent-skill";
-import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
 
 export interface VariablesTabProps {
   form: UseSkillFormResult;

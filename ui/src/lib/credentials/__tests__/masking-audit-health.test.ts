@@ -1,11 +1,24 @@
+import { getAuditBackend } from "@/lib/audit";
 import { writeCredentialAuditEvent } from "@/lib/credentials/audit";
 import { getCredentialDependencyHealth } from "@/lib/credentials/health";
-import { maskCredentialValue, redactCredentialDetails } from "@/lib/credentials/masking";
+import {
+  isOpaqueMaskedPreview,
+  maskCredentialValue,
+  redactCredentialDetails,
+} from "@/lib/credentials/masking";
+
+jest.mock("@/lib/audit", () => ({
+  getAuditBackend: jest.fn(),
+}));
 
 describe("credential masking", () => {
   it("masks credential values without exposing the full value", () => {
     expect(maskCredentialValue("ghp_1234567890abcdef")).toBe("ghp_...cdef");
-    expect(maskCredentialValue("short")).toBe("*****");
+    expect(maskCredentialValue("short")).toBe("s...t");
+    expect(maskCredentialValue("abcd")).toBe("a***");
+    expect(maskCredentialValue("a")).toBe("*");
+    expect(isOpaqueMaskedPreview("*****")).toBe(true);
+    expect(isOpaqueMaskedPreview("s...t")).toBe(false);
   });
 
   it("redacts sensitive detail keys before audit persistence", () => {
@@ -26,21 +39,19 @@ describe("credential masking", () => {
 });
 
 describe("credential audit writer", () => {
-  it("writes a redacted audit event with stable non-secret fields", async () => {
-    const insertOne = jest.fn(async () => ({ acknowledged: true }));
+  it("writes a redacted audit event via the backend (no secret values persisted)", () => {
+    const mockWrite = jest.fn();
+    (getAuditBackend as jest.Mock).mockReturnValue({ write: mockWrite });
 
-    await writeCredentialAuditEvent(
-      { insertOne },
-      {
-        action: "credential.rotate",
-        actor: { type: "user", id: "alice-sub" },
-        resource: { type: "secret_ref", id: "secret-1" },
-        result: "success",
-        details: { plaintext: "github-token-value", reason: "user-requested" },
-      },
-    );
+    writeCredentialAuditEvent({
+      action: "credential.rotate",
+      actor: { type: "user", id: "alice-sub" },
+      resource: { type: "secret_ref", id: "secret-1" },
+      result: "success",
+      details: { plaintext: "github-token-value", reason: "user-requested" },
+    });
 
-    expect(insertOne).toHaveBeenCalledWith(
+    expect(mockWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "credential.rotate",
         actor: { type: "user", id: "alice-sub" },
@@ -49,7 +60,7 @@ describe("credential audit writer", () => {
         details: { plaintext: "[redacted]", reason: "user-requested" },
       }),
     );
-    expect(JSON.stringify(insertOne.mock.calls)).not.toContain("github-token-value");
+    expect(JSON.stringify(mockWrite.mock.calls)).not.toContain("github-token-value");
   });
 });
 

@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Type, Palette, Monitor, Check, Cloud, CloudOff, ChevronDown } from "lucide-react";
-import { useTheme } from "next-themes";
+import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
+import { gradientThemes,type GradientThemeId } from "@/lib/gradient-themes";
+import { cn } from "@/lib/utils";
 import { isFeatureEnabled } from "@/store/feature-flag-store";
-import { gradientThemes, type GradientThemeId } from "@/lib/gradient-themes";
-import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
+import { AnimatePresence,motion } from "framer-motion";
+import { Check,ChevronDown,Cloud,CloudOff,Monitor,Palette,Type,X } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useCallback,useEffect,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 
 // Font size options
 const fontSizes = [
@@ -59,7 +59,7 @@ export function isMemoryEnabled(): boolean {
   return isFeatureEnabled("memory");
 }
 
-export function SettingsPanel({ compact = false }: { compact?: boolean } = {}) {
+export function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -475,18 +475,16 @@ export function SettingsPanel({ compact = false }: { compact?: boolean } = {}) {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size={compact ? "icon" : "sm"}
-        className={cn("h-8", compact ? "w-8" : "gap-1.5 text-xs")}
+      <button
         onClick={() => setOpen(true)}
         title="UI Personalization"
         aria-label="UI Personalization"
+        className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
-        <Palette className="h-3.5 w-3.5" />
-        {!compact && <span className="hidden sm:inline">{currentTheme.label}</span>}
-        {!compact && <ChevronDown className="h-3 w-3" />}
-      </Button>
+        <Palette className="h-3.5 w-3.5 shrink-0" />
+        <span className="overflow-hidden whitespace-nowrap hidden sm:block">{currentTheme.label}</span>
+        <ChevronDown className="h-3 w-3 shrink-0 hidden sm:block" />
+      </button>
 
       {typeof document !== "undefined" && createPortal(modalContent, document.body)}
     </>

@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useChatStore } from "@/store/chat-store";
-import { getLastActiveConversationId } from "@/store/chat-store";
-import { getStorageMode } from "@/lib/storage-config";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { getStorageMode } from "@/lib/storage-config";
+import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect,useRef } from "react";
 
 async function resolveDefaultAgentId(): Promise<string | undefined> {
   try {
@@ -38,13 +37,14 @@ async function resolveDefaultAgentId(): Promise<string | undefined> {
  */
 function ChatRedirectPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const redirected = useRef(false);
 
   const createConversation = useChatStore((s) => s.createConversation);
   const loadConversationsFromServer = useChatStore((s) => s.loadConversationsFromServer);
 
   useEffect(() => {
+    if (status === "loading") return;
     if (redirected.current) return;
 
     const resolve = async () => {
@@ -70,10 +70,12 @@ function ChatRedirectPage() {
         ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
         : currentConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned
+      // 1. Resume the last active conversation when it still exists in the loaded list.
+      // Prefer owned entries for auto-pick below, but an explicit last-active id from
+      // this browser should win to avoid spawning duplicate empty chats on /chat.
       if (lastActiveConversationId) {
-        const stillOwned = ownedConversations.some((c) => c.id === lastActiveConversationId);
-        if (stillOwned) {
+        const stillExists = currentConversations.some((c) => c.id === lastActiveConversationId);
+        if (stillExists) {
           redirected.current = true;
           router.replace(`/chat/${lastActiveConversationId}`);
           return;
@@ -103,7 +105,7 @@ function ChatRedirectPage() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
 
   return (
     <div className="flex-1 flex items-center justify-center h-full bg-background">

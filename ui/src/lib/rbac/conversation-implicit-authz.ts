@@ -1,10 +1,10 @@
 import type { Conversation } from "@/types/mongodb";
 
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-  type ResourcePermissionAction,
+filterResourcesByPermission,
+requireResourcePermission,
+type ResourceAuthzSession,
+type ResourcePermissionAction,
 } from "./resource-authz";
 
 function stableSubject(session: ResourceAuthzSession): string | null {
@@ -32,11 +32,15 @@ export async function requireConversationResourcePermission(
   action: ResourcePermissionAction,
 ): Promise<void> {
   if (isImplicitConversationOwner(session, userEmail, conversation)) return;
-  await requireResourcePermission(session, {
-    type: "conversation",
-    id: conversation._id,
-    action,
-  });
+  await requireResourcePermission(
+    session,
+    {
+      type: "conversation",
+      id: conversation._id,
+      action,
+    },
+    { bypassForOrgAdmin: true },
+  );
 }
 
 export async function filterConversationsByImplicitOrExplicitPermission<T extends Conversation>(
@@ -51,11 +55,16 @@ export async function filterConversationsByImplicitOrExplicitPermission<T extend
       .map((conversation) => conversation._id),
   );
   const explicitCandidates = conversations.filter((conversation) => !implicitIds.has(conversation._id));
-  const explicitVisible = await filterResourcesByPermission(session, explicitCandidates, {
-    type: "conversation",
-    action,
-    id: (conversation) => conversation._id,
-  });
+  const explicitVisible = await filterResourcesByPermission(
+    session,
+    explicitCandidates,
+    {
+      type: "conversation",
+      action,
+      id: (conversation) => conversation._id,
+    },
+    { bypassForOrgAdmin: true },
+  );
   const explicitIds = new Set(explicitVisible.map((conversation) => conversation._id));
   return conversations.filter((conversation) => implicitIds.has(conversation._id) || explicitIds.has(conversation._id));
 }

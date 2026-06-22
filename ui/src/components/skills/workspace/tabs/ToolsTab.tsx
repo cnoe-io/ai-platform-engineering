@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 /**
  * ToolsTab — manage the skill's `allowed-tools` list.
  *
@@ -14,49 +16,49 @@
  * tools↔frontmatter sync; this component only mutates `allowedTools`.
  */
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
 import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  Globe,
-  Info,
-  Loader2,
-  Plus,
-  Search,
-  Server,
-  Trash2,
-  Wrench,
-  Zap,
+Check,
+ChevronDown,
+ChevronRight,
+ExternalLink,
+Globe,
+Info,
+Loader2,
+Plus,
+Search,
+Server,
+Trash2,
+Wrench,
+Zap,
 } from "lucide-react";
+import {
+useCallback,
+useEffect,
+useMemo,
+useRef,
+useState,
+} from "react";
 
+import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
 import type {
-  BuiltinToolDefinition,
-  MCPServerConfig,
-  MCPToolInfo,
+BuiltinToolDefinition,
+MCPServerConfig,
+MCPToolInfo,
 } from "@/types/dynamic-agent";
 import {
-  composeAllowedTools,
-  encodeMcpTool,
-  partitionAllowedTools,
+composeAllowedTools,
+encodeMcpTool,
+partitionAllowedTools,
 } from "./tools-strings";
 
 export interface ToolsTabProps {
@@ -781,8 +783,8 @@ function PhantomMcpServerRow({
         <span className="font-mono text-muted-foreground">{serverId}</span>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        These tools reference an MCP server that isn’t registered here.
-        Remove or re-add the server in “MCP Servers”.
+        These tools reference a connection that is not registered here.
+        Remove or re-add the connection in Tools.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {tools.map((t) => (

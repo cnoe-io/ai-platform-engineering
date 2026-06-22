@@ -6,6 +6,15 @@ export interface ReconcileTeamMembershipSourcesInput {
   existingSources: TeamMembershipSource[];
   desiredSources: TeamMembershipSource[];
   now: string;
+  /**
+   * External group ids actually observed in this sync. When provided, removals
+   * are limited to existing memberships whose `external_group_id` is in this
+   * set — so a FILTERED or otherwise partial fetch can add/update within the
+   * groups it saw but never removes memberships for groups it didn't fetch.
+   * When undefined, the fetch is treated as the complete directory snapshot and
+   * any managed membership not in `desiredSources` is removed (full reconcile).
+   */
+  observedGroupIds?: Set<string>;
 }
 
 export interface ReconcileTeamMembershipSourcesResult {
@@ -63,18 +72,40 @@ export function reconcileTeamMembershipSources(
   const sourcesToAdd = input.desiredSources.filter((source) => !existingBySource.has(sourceKey(source)));
   const sourcesToRemove = existingActive
     .filter((source) => source.managed && !desiredBySource.has(sourceKey(source)))
+    // Scope guard: when the caller observed only a subset of groups (e.g. a
+    // group filter), never remove memberships for groups outside that subset —
+    // their absence from `desiredSources` just means we didn't look, not that
+    // the membership is gone. Rows with no external_group_id (defensive) are
+    // only removable in a full reconcile.
+    .filter((source) => {
+      if (!input.observedGroupIds) return true; // full snapshot: remove freely
+      return source.external_group_id
+        ? input.observedGroupIds.has(source.external_group_id)
+        : false;
+    })
     .map((source) => ({ ...source, status: "removed" as const, removed_at: input.now }));
 
-  const remainingAccess = new Set(
-    existingActive
-      .filter((source) => !sourcesToRemove.some((removed) => sourceKey(removed) === sourceKey(source)))
-      .map(accessKey)
-  );
-
+  // Tuple writes cover EVERY membership that should hold a live tuple after
+  // this reconcile — the retained existing sources plus the newly-added ones —
+  // not just the adds. This is what makes the sync self-healing: if a prior
+  // run upserted the Mongo source row but its OpenFGA write never landed (e.g.
+  // the pod was SIGKILLed mid-reconcile, so the catchable rollback never ran),
+  // that row is "existing" on every later run and the old add-only diff would
+  // never revisit it — its tuple would stay missing forever. By re-deriving
+  // the full desired tuple set each run we converge to the correct state.
+  //
+  // Re-emitting an already-present tuple is safe and cheap: writeOpenFgaTuples()
+  // reads each candidate back (see filterTupleDiff) and drops the ones already
+  // stored, so a steady-state sync performs zero actual writes. uniqueTuples
+  // collapses multiple sources that map to the same (user, relation, team).
+  const removedKeys = new Set(sourcesToRemove.map((source) => sourceKey(source)));
+  const activeAfterReconcile = [
+    ...existingActive.filter((source) => !removedKeys.has(sourceKey(source))),
+    ...sourcesToAdd,
+  ];
   const tupleWrites = uniqueTuples(
-    sourcesToAdd
+    activeAfterReconcile
       .filter((source) => source.status === "active" && source.user_subject)
-      .filter((source) => !remainingAccess.has(accessKey(source)))
       .map(memberTuple)
   );
 

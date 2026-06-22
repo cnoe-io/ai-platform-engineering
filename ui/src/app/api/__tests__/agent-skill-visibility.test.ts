@@ -50,6 +50,36 @@ jest.mock("@/lib/rbac/openfga", () => ({
     .mockResolvedValue({ writes: 0, deletes: 0, enabled: false }),
   writeOpenFgaTuples: jest.fn().mockResolvedValue(undefined),
   deleteOpenFgaTuples: jest.fn().mockResolvedValue(undefined),
+  isOpenFgaReconciliationEnabled: jest.fn().mockReturnValue(false),
+  readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
+}));
+
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+  requireResourcePermission: jest.fn().mockResolvedValue(undefined),
+  requireSkillPermission: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock("@/lib/rbac/skill-team-grants", () => ({
+  reconcileSkillTeamShares: jest.fn().mockResolvedValue({
+    teamSlugs: [],
+    writesPlanned: 0,
+    writesApplied: 0,
+    deletesPlanned: 0,
+    deletesApplied: 0,
+    enabled: false,
+  }),
+  readSkillSharedTeamSlugsFromOpenFga: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock("@/lib/agent-skill-visibility", () => ({
+  getAgentSkillVisibleToUser: jest.fn(async (_id: string, _email: string) => {
+    const { getCollection } = jest.requireMock("@/lib/mongodb");
+    const collection = await getCollection("agent_skills");
+    return collection.findOne();
+  }),
+  hydrateAgentSkillTeamShares: jest.fn(async (skill: unknown) => skill),
+  hydrateAgentSkillTeamSharesList: jest.fn(async (skills: unknown[]) => skills),
 }));
 
 function createMockCollection() {
@@ -172,7 +202,7 @@ describe("POST /api/skills/configs - visibility", () => {
     const collection = await mockGetCollection("agent_skills");
     const insertedConfig = collection.insertOne.mock.calls[0][0];
     expect(insertedConfig.visibility).toBe("team");
-    expect(insertedConfig.shared_with_teams).toEqual(["team-1", "team-2"]);
+    expect(insertedConfig.shared_with_teams).toBeUndefined();
   });
 
   it("should reject 'team' visibility without shared_with_teams", async () => {
@@ -385,7 +415,8 @@ describe("PUT /api/skills/configs - visibility updates", () => {
     const response = await PUT(request);
     expect(response.status).toBe(200);
 
-    const updatePayload = configsCollection.updateOne.mock.calls[0][1].$set;
-    expect(updatePayload.shared_with_teams).toBeUndefined();
+    const updateCall = configsCollection.updateOne.mock.calls[0][1];
+    expect(updateCall.$set.shared_with_teams).toBeUndefined();
+    expect(updateCall.$unset).toEqual({ shared_with_teams: "" });
   });
 });

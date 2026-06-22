@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { oauthStateCookieName, parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
+import { oauthStateCookieName,parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
 function assertFeatureEnabled(): void {
@@ -138,7 +138,7 @@ function completionPage(input: {
 export const GET = withErrorHandler(async (request: NextRequest, context?: { params: Promise<{ provider_key: string }> }) => {
   assertFeatureEnabled();
   const { provider_key: providerKey } = await context!.params;
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { session, user } = await getAuthFromBearerOrSession(request);
   const ownerId = typeof session.sub === "string" ? session.sub : "";
   if (!ownerId) {
     throw new ApiError("Authenticated subject is required", 401, "UNAUTHORIZED");
@@ -174,7 +174,12 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   try {
     await service.completeConnection({
       providerKey,
-      owner: { type: "user", id: ownerId },
+      owner: {
+        type: "user",
+        id: ownerId,
+        ...(user?.email ? { email: user.email } : {}),
+        ...(user?.name ? { name: user.name } : {}),
+      },
       code,
       codeVerifier: parsedState.codeVerifier,
       requestedScopes: parsedState.requestedScopes,

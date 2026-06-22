@@ -27,82 +27,6 @@ services:
     command: platform-engineer
 
   ####################################################################################################
-  #                                   AI Platform Engineer A2A SLIM                                  #
-  ####################################################################################################
-  platform-engineer-slim:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
-    container_name: platform-engineer-slim
-    volumes:
-      - ../.env:/app/.env
-      - ../prompt_config.yaml:/app/prompt_config.yaml
-    profiles:
-      - slim
-    depends_on:
-      - slim-dataplane
-      - agent-weather-slim
-      - agent-petstore-slim
-    env_file:
-      - ../.env
-    ports:
-      # Expose the AI Platform Engineer agent on port 8000
-      - "8000:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - WEATHER_AGENT_HOST=agent-weather-slim
-      - PETSTORE_AGENT_HOST=agent-petstore-slim
-    command: platform-engineer
-
-  ####################################################################################################
-  #                                 SLIM Dataplane and control plane                                 #
-  ####################################################################################################
-  slim-dataplane:
-    image: ghcr.io/agntcy/slim:0.3.15
-    container_name: slim-dataplane
-    profiles:
-      - slim
-    ports:
-      - "46357:46357"
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes:
-      - ../slim-config.yaml:/config.yaml
-    command: ["/slim", "--config", "/config.yaml"]
-  slim-control-plane:
-    image: ghcr.io/agntcy/slim/control-plane:0.0.1
-    container_name: slim-control-plane
-    profiles:
-      - slim
-      - slim-tracing
-    ports:
-      - "50051:50051"
-      - "50052:50052"
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes:
-      - ../slim-config.yaml:/config.yaml
-    command: ["/slim", "--config", "/config.yaml"]
-
-  ####################################################################################################
-  #                                      AGENT WEATHER A2A over SLIM                                 #
-  ####################################################################################################
-  agent-weather-slim:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
-    container_name: agent-weather-slim
-    profiles:
-      - slim
-    depends_on:
-      - slim-dataplane
-    volumes:
-      - ../.env:/app/.env
-    ports:
-      - "8009:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-
-  ####################################################################################################
   #                                      AGENT WEATHER A2A P2P                                       #
   ####################################################################################################
   agent-weather-p2p:
@@ -121,24 +45,6 @@ services:
       - MCP_MODE=${MCP_MODE:-http}
       - MCP_PORT=8000
       - MCP_HOST=mcp-weather
-
-  ####################################################################################################
-  #                                      AGENT PETSTORE A2A over SLIM                                #
-  ####################################################################################################
-  agent-petstore-slim:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
-    container_name: agent-petstore-slim
-    profiles:
-      - slim
-    depends_on:
-      - slim-dataplane
-    volumes:
-      - ../.env:/app/.env
-    ports:
-      - "8010:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
 
   ####################################################################################################
   #                                      AGENT PETSTORE A2A P2P                                      #
@@ -170,7 +76,6 @@ services:
     profiles:
       - tracing
       - p2p-tracing
-      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -217,7 +122,6 @@ services:
     profiles:
       - tracing
       - p2p-tracing
-      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -266,7 +170,6 @@ services:
     profiles:
       - tracing
       - p2p-tracing
-      - slim-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -292,7 +195,6 @@ services:
     profiles:
       - tracing
       - p2p-tracing
-      - slim-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -317,7 +219,6 @@ services:
     profiles:
       - tracing
       - p2p-tracing
-      - slim-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -335,7 +236,6 @@ services:
     profiles:
       - tracing
       - p2p-tracing
-      - slim-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s

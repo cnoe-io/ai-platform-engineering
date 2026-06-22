@@ -1,20 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
-import { checkOpenFgaTuple, type OpenFgaCheckResult, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
+ *   Aggregates locally (Mongo + hubs + templates).
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -324,48 +322,7 @@ export async function filterSkillsByOpenFga(
 }
 
 /**
- * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
- * Returns null if not configured or unreachable.
- * Forwards query params so the backend can also filter server-side.
- */
-async function fetchFromBackend(
-  params: QueryParams,
-  authHeader?: string | null,
-): Promise<CatalogResponse | null> {
-  const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
-  if (!backendUrl) return null;
-
-  try {
-    const url = new URL("/skills", backendUrl);
-    const incoming = new URLSearchParams();
-    if (params.includeContent) incoming.set("include_content", "true");
-    if (params.q) incoming.set("q", params.q);
-    if (params.source) incoming.set("source", params.source);
-    if (params.repo) incoming.set("repo", params.repo);
-    if (params.visibility) incoming.set("visibility", params.visibility);
-    if (params.tags.length > 0) incoming.set("tags", params.tags.join(","));
-    if (params.page !== null) {
-      incoming.set("page", String(params.page));
-      incoming.set("page_size", String(params.pageSize));
-    }
-    applySkillsCatalogQueryToBackendUrl(url, incoming);
-
-    const headers: Record<string, string> = {};
-    if (authHeader) headers["Authorization"] = authHeader;
-
-    const res = await fetch(url.toString(), {
-      headers,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as CatalogResponse;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Local aggregation fallback: merge skill-templates (filesystem) and
+ * Local aggregation: merge skill-templates (filesystem) and
  * persisted agent skills from MongoDB (`agent_skills`) into a single catalog.
  */
 async function aggregateLocally(
@@ -722,27 +679,13 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(req);
 
   const params = parseQueryParams(req);
-  const authHeader = req.headers.get("Authorization");
   const skillAuth = {
     subject: typeof session?.sub === "string" ? `user:${session.sub}` : null,
     mode: params.includeContent ? ("use" as const) : ("read" as const),
     isAdmin: user.role === "admin" || session?.role === "admin",
   };
 
-  // Try backend proxy first (forwards all query params)
-  const backendResult = await fetchFromBackend(params, authHeader);
-  if (backendResult) {
-    const authorizedSkills = await filterSkillsByOpenFga(backendResult.skills, skillAuth);
-    return NextResponse.json(
-      sanitizeCatalogResponse({
-        ...backendResult,
-        skills: authorizedSkills,
-        meta: { ...backendResult.meta, total: authorizedSkills.length },
-      }),
-    );
-  }
-
-  // Local aggregation fallback
+  // Local aggregation (Mongo + hubs + templates).
   try {
     const catalog = await aggregateLocally(params.includeContent);
     const filtered = filterSkills(catalog.skills, params);

@@ -1,14 +1,17 @@
 import { getServerSession } from "next-auth";
-import { notFound, redirect } from "next/navigation";
+import { notFound,redirect } from "next/navigation";
 
 import { CredentialsWorkspace } from "@/components/credentials/CredentialsWorkspace";
 import { authOptions } from "@/lib/auth-config";
-import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
+import { isUserConnectionsEnabled } from "@/lib/feature-flags/credentials";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 
 export default async function CredentialsPage() {
-  if (!getCredentialFeatureConfig().enabled) {
+  // Gated on the user-facing Credentials surface flag (independent of the SA
+  // token surface). False when CAIPE_USER_CONNECTIONS_ENABLED=false even if the
+  // credential subsystem is on for service-account tokens.
+  if (!isUserConnectionsEnabled()) {
     notFound();
   }
 

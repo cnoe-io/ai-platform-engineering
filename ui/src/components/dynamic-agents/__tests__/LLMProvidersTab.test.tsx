@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { LLMProvidersTab } from "../LLMProvidersTab";
 
 jest.mock("../LLMModelsTab", () => ({
@@ -59,10 +61,10 @@ describe("LLMProvidersTab", () => {
   it("shows provider status cards and keeps the model list available", async () => {
     render(<LLMProvidersTab />);
 
-    expect(await screen.findByText("LLM Providers")).toBeInTheDocument();
+    expect(await screen.findByText("Model Providers")).toBeInTheDocument();
     expect(await screen.findByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("AWS Bedrock")).toBeInTheDocument();
-    expect(await screen.findByText("Credential secret configured")).toBeInTheDocument();
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(screen.getByTestId("llm-models-tab")).toBeInTheDocument();
   });
 
@@ -70,11 +72,11 @@ describe("LLMProvidersTab", () => {
     const user = userEvent.setup();
     render(<LLMProvidersTab />);
 
-    await user.click(await screen.findByRole("button", { name: /configure aws bedrock/i }));
+    await user.click(await screen.findByRole("button", { name: /connect aws bedrock/i }));
     await user.type(screen.getByLabelText(/access key id/i), "aws-access-key-test");
     await user.type(screen.getByLabelText(/secret access key/i), "secret-value");
     await user.type(screen.getByLabelText(/region/i), "us-east-1");
-    await user.click(screen.getByRole("button", { name: /save provider credentials/i }));
+    await user.click(screen.getByRole("button", { name: /save connection/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(

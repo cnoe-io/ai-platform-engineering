@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
 
 import { withRebacViewAuth } from "../_lib";

@@ -1,7 +1,8 @@
 import type {
-  ItemAgentRoute,
-  RouteEscalationConfig,
-  RouteSideConfig,
+ItemAgentRoute,
+RouteEscalationConfig,
+RouteSideConfig,
+SlackRouteExecutionIdentity,
 } from "../connector-admin-adapter";
 
 export type ListenMode = "message" | "mention" | "all";
@@ -34,6 +35,12 @@ export interface RouteDraft {
   bots: RouteSideDraft;
   escalationEnabled: boolean;
   escalation: RouteEscalationDraft;
+  /** Execution identity for this route. Defaults to obo_user when not set. */
+  executionMode: "obo_user" | "service_account";
+  /** SA sub — only relevant when executionMode === "service_account". */
+  executionServiceAccountSub: string;
+  /** Display name cache — only relevant when executionMode === "service_account". */
+  executionServiceAccountName: string;
 }
 
 export function splitList(value: string): string[] {
@@ -72,6 +79,9 @@ export function emptyRouteDraft(): RouteDraft {
       users: "",
       deleteAdmins: "",
     },
+    executionMode: "obo_user",
+    executionServiceAccountSub: "",
+    executionServiceAccountName: "",
   };
 }
 
@@ -93,6 +103,8 @@ function sideToDraft(
 
 export function routeToDraft(route: ItemAgentRoute): RouteDraft {
   const esc = route.escalation;
+  const eid = route.execution_identity;
+  const executionMode = eid?.mode === "service_account" ? "service_account" : "obo_user";
   return {
     agentId: route.agent_id,
     priority: route.priority ?? 100,
@@ -111,6 +123,9 @@ export function routeToDraft(route: ItemAgentRoute): RouteDraft {
       users: joinList(esc?.users),
       deleteAdmins: joinList(esc?.delete_admins),
     },
+    executionMode,
+    executionServiceAccountSub: eid?.service_account_sub ?? "",
+    executionServiceAccountName: eid?.service_account_name ?? "",
   };
 }
 
@@ -131,7 +146,10 @@ function sideDraftToConfig(draft: RouteSideDraft, enabled: boolean, listKey: "us
   };
 }
 
-export function draftToRoute(draft: RouteDraft): ItemAgentRoute {
+/** Route shape sent to the BFF — extends ItemAgentRoute with the execution_identity field. */
+export type DraftRoutePayload = ItemAgentRoute & { execution_identity?: SlackRouteExecutionIdentity };
+
+export function draftToRoute(draft: RouteDraft): DraftRoutePayload {
   const esc = draft.escalation;
   const escalationUsers = splitList(esc.users);
   const deleteAdmins = splitList(esc.deleteAdmins);
@@ -145,6 +163,19 @@ export function draftToRoute(draft: RouteDraft): ItemAgentRoute {
         ...(deleteAdmins.length > 0 ? { delete_admins: deleteAdmins } : {}),
       }
     : undefined;
+
+  // Build execution_identity — always include it so BFF stores the explicit choice.
+  const execution_identity: SlackRouteExecutionIdentity =
+    draft.executionMode === "service_account" && draft.executionServiceAccountSub.trim()
+      ? {
+          mode: "service_account",
+          service_account_sub: draft.executionServiceAccountSub.trim(),
+          ...(draft.executionServiceAccountName.trim()
+            ? { service_account_name: draft.executionServiceAccountName.trim() }
+            : {}),
+        }
+      : { mode: "obo_user" };
+
   return {
     agent_id: draft.agentId.trim(),
     enabled: true,
@@ -152,6 +183,7 @@ export function draftToRoute(draft: RouteDraft): ItemAgentRoute {
     users: sideDraftToConfig(draft.users, draft.usersEnabled, "user_list"),
     ...(draft.botsEnabled ? { bots: sideDraftToConfig(draft.bots, true, "bot_list") } : {}),
     ...(escalation && Object.keys(escalation).length > 0 ? { escalation } : {}),
+    execution_identity,
   };
 }
 
@@ -159,6 +191,9 @@ export function routeDraftErrorMap(draft: RouteDraft): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!draft.agentId.trim()) errors.agentId = "Choose a Dynamic Agent.";
   if (!Number.isFinite(draft.priority)) errors.priority = "Priority must be a valid number.";
+  if (draft.executionMode === "service_account" && !draft.executionServiceAccountSub.trim()) {
+    errors.executionServiceAccountSub = "Choose a service account.";
+  }
   if (!draft.usersEnabled && !draft.botsEnabled) errors.responding = "Enable users, bots, or both.";
   if (draft.usersEnabled && draft.users.overthinkEnabled && splitList(draft.users.overthinkSkipMarkers).length === 0) {
     errors.usersSkipMarkers = "Skip markers cannot be empty.";

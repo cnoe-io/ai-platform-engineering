@@ -1,14 +1,14 @@
+import { ApiError } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  agentGatewayAdminConfigUrl,
-  buildAgentGatewayMcpDiscovery,
-  toAgentGatewayMcpServerDocument,
-  type AgentGatewayMcpDiscovery,
+agentGatewayAdminConfigUrl,
+buildAgentGatewayMcpDiscovery,
+toAgentGatewayMcpServerDocument,
+type AgentGatewayMcpDiscovery,
 } from "@/lib/rbac/agentgateway-mcp-discovery";
-import type { MCPServerConfig } from "@/types/dynamic-agent";
-import { ApiError } from "@/lib/api-middleware";
-import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources";
+import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
+import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -67,18 +67,23 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
       skipped.push({ id: target.id, reason: target.status });
       continue;
     }
+    await reconcileConfigDrivenMcpServerRelationships({
+      serverId: target.id,
+      organizationId: caipeOrgKey(),
+    });
     const doc = toAgentGatewayMcpServerDocument(target);
     if (target.status === "legacy") {
+      const existing = await collection.findOne({ _id: target.id } as never);
+      const existingCredentialSources = existing?.credential_sources;
+      if (Array.isArray(existingCredentialSources) && existingCredentialSources.length > 0) {
+        doc.credential_sources = existingCredentialSources;
+      }
       await collection.updateOne({ _id: target.id } as never, { $set: doc } as never);
       migrated.push(target.id);
     } else {
       await collection.insertOne(doc);
       added.push(target.id);
     }
-    await reconcileConfigDrivenMcpServerRelationships({
-      serverId: target.id,
-      organizationId: caipeOrgKey(),
-    });
   }
 
   for (const id of selectedIds) {

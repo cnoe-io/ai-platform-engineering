@@ -5,21 +5,21 @@
 //   persists all streaming data directly (Phase 1/3). Future cleanup: remove
 //   POST once all conversations have been migrated to server-side persistence.
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  paginatedResponse,
-  ApiError,
-  requireConversationAccess,
-  validateUUID,
-  validateRequired,
-  getPaginationParams,
+ApiError,
+getPaginationParams,
+paginatedResponse,
+requireConversationAccess,
+successResponse,
+validateRequired,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
-import type { Message, AddMessageRequest, Conversation } from '@/types/mongodb';
+import type { AddMessageRequest,Conversation,Message } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/chat/conversations/[id]/messages
 export const GET = withErrorHandler(async (

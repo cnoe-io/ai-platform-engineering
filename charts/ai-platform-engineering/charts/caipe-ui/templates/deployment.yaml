@@ -100,10 +100,6 @@ spec:
               value: {{ index .Values.config "SLACK_BOT_ADMIN_TOKEN_URL" | default (printf "http://%s-keycloak:8080/realms/%s/protocol/openid-connect/token" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
             - name: OPENFGA_HTTP
               value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
-            - name: A2A_BASE_URL
-              value: {{ index .Values.config "A2A_BASE_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
-            - name: BACKEND_SKILLS_URL
-              value: {{ index .Values.config "BACKEND_SKILLS_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
             - name: SLACK_BOT_ADMIN_URL
               value: {{ index .Values.config "SLACK_BOT_ADMIN_URL" | default (printf "http://%s-slack-bot:3001" .Release.Name) | quote }}
             - name: WEBEX_BOT_ADMIN_URL

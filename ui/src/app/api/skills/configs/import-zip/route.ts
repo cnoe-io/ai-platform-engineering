@@ -1,36 +1,36 @@
 import { NextRequest } from "next/server";
 
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import {
+BUILTIN_LOCKED_MESSAGE,
+canMutateBuiltinSkill,
+} from "@/lib/builtin-skill-policy";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import {
+filterResourcesByPermission,
+requireSkillPermission,
+} from "@/lib/rbac/resource-authz";
+import { reconcileSkillTeamShares } from "@/lib/rbac/skill-team-grants";
+import {
+generateSkillIdFromName,
+type ImportConflictAction,
+type ImportConflictDecision,
+} from "@/lib/skill-import-helpers";
+import { recordRevision } from "@/lib/skill-revisions";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordRevision } from "@/lib/skill-revisions";
 import {
-  generateSkillIdFromName,
-  type ImportConflictAction,
-  type ImportConflictDecision,
-} from "@/lib/skill-import-helpers";
-import {
-  parseSkillZip,
-  buildConflictDecisions,
-  type ZipParseFailureReason,
-  type ZipSkillCandidate,
+buildConflictDecisions,
+parseSkillZip,
+type ZipParseFailureReason,
+type ZipSkillCandidate,
 } from "@/lib/skill-zip-import";
-import {
-  canMutateBuiltinSkill,
-  BUILTIN_LOCKED_MESSAGE,
-} from "@/lib/builtin-skill-policy";
-import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
-import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
-import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
+import type { AgentSkill,ScanStatus } from "@/types/agent-skill";
 
 /**
  * POST /api/skills/configs/import-zip
@@ -62,7 +62,6 @@ import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
  */
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
-const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
 /** 50 MB matches our MAX_TOTAL_UNCOMPRESSED_BYTES; raw upload cap. */
 const MAX_RAW_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -132,17 +131,6 @@ interface RunZipImportArgs {
   /** Concrete authorization hook for overwriting an existing skill. */
   canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
   grantTeamAccess?: (teamRefs: string[], skillIds: string[]) => Promise<void>;
-}
-
-function triggerSupervisorRefresh(): void {
-  if (!SUPERVISOR_URL) return;
-  const url = `${SUPERVISOR_URL}/skills/refresh?include_hubs=false`;
-  fetch(url, {
-    method: "POST",
-    signal: AbortSignal.timeout(30_000),
-  }).catch((err) => {
-    console.warn("[ImportZip] Background supervisor refresh failed:", err);
-  });
 }
 
 /**
@@ -375,7 +363,6 @@ async function createNew(args: CreateNewArgs): Promise<ImportedSkillSummary> {
     created_at: now,
     updated_at: now,
     visibility: normalizedTeamRefs.length > 0 ? "team" : "private",
-    shared_with_teams: normalizedTeamRefs.length > 0 ? normalizedTeamRefs : undefined,
     skill_content: skillMdBody,
     ancillary_files: Object.keys(candidate.ancillaryFiles).length
       ? candidate.ancillaryFiles
@@ -488,9 +475,7 @@ async function overwriteExisting(
     scan_summary: scanResult.scan_summary,
     scan_updated_at: candidate.skillContent.trim() ? now : existing.scan_updated_at,
     updated_at: now,
-    ...(normalizedTeamRefs.length > 0
-      ? { visibility: "team" as const, shared_with_teams: normalizedTeamRefs }
-      : {}),
+    ...(normalizedTeamRefs.length > 0 ? { visibility: "team" as const } : {}),
     // Tasks: replace the prompt body so the runnable behaviour
     // matches the new SKILL.md, but keep the existing display_text /
     // subagent so users don't lose their custom labelling.
@@ -671,23 +656,33 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       teamRefs,
       loadVisibleSkills: async () => visible,
       canOverwriteSkill: async (skill) => {
-        await requireResourcePermission(session, { type: "skill", id: skill.id, action: "write" });
+        await requireSkillPermission(session, skill.id, "write");
       },
       grantTeamAccess: async (refs, skillIds) => {
-        await grantSkillsToTeams({ teamRefs: refs, skillIds });
+        const ownerSubject =
+          typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
+        for (const skillId of skillIds) {
+          await reconcileSkillTeamShares({
+            skillId,
+            ownerSubject,
+            previousTeamRefs: [],
+            nextTeamRefs: refs,
+            nextVisibility: refs.length > 0 ? "team" : "private",
+          });
+        }
       },
       persistSkill: async (skill, mode) => {
+        const { shared_with_teams: _omit, ...mongoRow } = skill;
         if (mode === "create") {
-          await collection.insertOne(skill);
+          await collection.insertOne(mongoRow as AgentSkill);
         } else {
-          await collection.updateOne({ id: skill.id }, { $set: skill });
+          await collection.updateOne(
+            { id: skill.id },
+            { $set: mongoRow, $unset: { shared_with_teams: "" } },
+          );
         }
       },
     });
-
-    if (result.phase === "import") {
-      triggerSupervisorRefresh();
-    }
 
     return successResponse(result);
   });

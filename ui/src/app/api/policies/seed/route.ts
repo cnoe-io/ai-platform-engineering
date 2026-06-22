@@ -1,14 +1,14 @@
-import { NextRequest } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { readFileSync } from "fs";
+import { NextRequest } from "next/server";
+import { join } from "path";
 
 interface PolicyDocument {
   name: string;

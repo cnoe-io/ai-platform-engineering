@@ -12,12 +12,12 @@
  * fallback identity is returned.
  */
 
-import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload, errors as joseErrors } from 'jose';
+import { createRemoteJWKSet,errors as joseErrors,jwtVerify,SignJWT,type JWTPayload } from 'jose';
 
 import {
-  KNOWN_NEXTAUTH_PLACEHOLDERS,
-  getSafeNextAuthSecret,
-  isStrictSecretMode,
+getSafeNextAuthSecret,
+isStrictSecretMode,
+KNOWN_NEXTAUTH_PLACEHOLDERS,
 } from './nextauth-secret-guard';
 
 export interface JWTIdentity {
@@ -49,6 +49,12 @@ let _cachedJWKSUri: string | null = null;
 
 // Cache for additional JWKS endpoints (keyed by URL)
 const _additionalJWKSCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+function jwtDebugLog(message: string): void {
+  if (process.env.AUTH_JWT_DEBUG === 'true') {
+    console.log(message);
+  }
+}
 
 /**
  * Fetch the JWKS URI from OIDC discovery and cache the keyset.
@@ -176,7 +182,7 @@ export async function validateBearerJWT(
       issuer,
       audience,
     });
-    console.log(`[jwt] Validated via primary JWKS (iss=${issuer})`);
+    jwtDebugLog(`[jwt] Validated via primary JWKS (iss=${issuer})`);
     return extractIdentity(payload);
   } catch (primaryError) {
     // Only fall back to additional JWKS on key-not-found errors.
@@ -192,7 +198,7 @@ export async function validateBearerJWT(
     for (let i = 0; i < additionalSets.length; i++) {
       try {
         const { payload } = await jwtVerify(token, additionalSets[i]);
-        console.log(`[jwt] Validated via additional JWKS (${additionalUrls[i]})`);
+        jwtDebugLog(`[jwt] Validated via additional JWKS (${additionalUrls[i]})`);
         return extractIdentity(payload);
       } catch {
         // This keyset didn't match either — try the next one

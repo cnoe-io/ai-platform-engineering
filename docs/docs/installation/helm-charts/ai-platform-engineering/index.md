@@ -289,9 +289,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.mcp.vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
 | global.metrics.enabled | bool | `true` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
-| global.slim.enabled | bool | `false` |  |
-| global.slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` |  |
-| global.slim.transport | string | `"slim"` |  |
 | global.vpa.controlledResources[0] | string | `"cpu"` |  |
 | global.vpa.controlledResources[1] | string | `"memory"` |  |
 | global.vpa.enabled | bool | `false` |  |
@@ -410,23 +407,20 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | supervisor-agent.singleNode.enabledSubAgents.webex | bool | `true` |  |
 | supervisor-agent.singleNode.subagentModels | object | `{}` |  |
 | supervisor-agent.singleNode.supervisorModel | string | `""` |  |
-| tags.agent-argocd | bool | `false` |  |
-| tags.agent-aws | bool | `false` |  |
-| tags.agent-backstage | bool | `false` |  |
-| tags.agent-confluence | bool | `false` |  |
-| tags.agent-github | bool | `false` |  |
-| tags.agent-gitlab | bool | `false` |  |
-| tags.agent-jira | bool | `false` |  |
-| tags.agent-komodor | bool | `false` |  |
-| tags.agent-netutils | bool | `false` |  |
-| tags.agent-pagerduty | bool | `false` |  |
-| tags.agent-petstore | bool | `false` |  |
-| tags.agent-slack | bool | `false` |  |
-| tags.agent-splunk | bool | `false` |  |
-| tags.agent-victorops | bool | `false` |  |
-| tags.agent-weather | bool | `false` |  |
-| tags.agent-weather | bool | `false` |  |
-| tags.agent-webex | bool | `false` |  |
+| tags.mcp-argocd | bool | `false` |  |
+| tags.mcp-aws | bool | `false` |  |
+| tags.mcp-backstage | bool | `false` |  |
+| tags.mcp-confluence | bool | `false` |  |
+| tags.mcp-github | bool | `false` |  |
+| tags.mcp-gitlab | bool | `false` |  |
+| tags.mcp-jira | bool | `false` |  |
+| tags.mcp-komodor | bool | `false` |  |
+| tags.mcp-netutils | bool | `false` |  |
+| tags.mcp-pagerduty | bool | `false` |  |
+| tags.mcp-slack | bool | `false` |  |
+| tags.mcp-splunk | bool | `false` |  |
+| tags.mcp-victorops | bool | `false` |  |
+| tags.mcp-webex | bool | `false` |  |
 | tags.basic | bool | `false` |  |
 | tags.caipe-ui | bool | `false` |  |
 | tags.complete | bool | `false` |  |
@@ -456,8 +450,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-netutils (agent) | `0.2.38` | tags: agent-netutils, complete |
 | agent-weather (agent) | `0.2.38` | tags: agent-weather, complete |
 | agent-petstore (agent) | `0.2.38` | tags: agent-petstore, complete |
-| slim | `v0.1.8` | `global.slim.enabled` |
-| slim-control-plane | `v0.1.3` | `global.slim.enabled` |
 | rag-stack | `0.2.38` | tags: rag-stack, complete |
 | caipe-ui | `0.2.38` | tags: caipe-ui |
 | dynamic-agents | `0.2.38` | tags: dynamic-agents |

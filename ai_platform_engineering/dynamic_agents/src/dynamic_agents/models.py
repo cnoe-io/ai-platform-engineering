@@ -87,6 +87,13 @@ class MCPCredentialSource(BaseModel):
     secret_ref: str | None = Field(None, description="Credential secret_ref id")
     provider_connection_id: str | None = Field(None, description="Provider connection id")
     provider: str | None = Field(None, description="Provider key for JWT subject-owned provider connection")
+    connection_scope: Literal["caller", "pinned"] | None = Field(
+        None,
+        description=(
+            "Custom MCP servers: pinned always uses provider_connection_id for every caller; "
+            "caller resolves provider for the JWT subject. Built-in servers default to caller."
+        ),
+    )
     fallback_env: str | None = Field(
         None,
         description=(
@@ -623,6 +630,13 @@ class ChatRequest(BaseModel):
             "Supported: system_prompt, allowed_tools, model, builtin_tools, "
             "interrupt_on, subagents, skills, features, backend. "
             "Ignored: ui, name, description, owner_id, visibility, enabled, is_system, config_driven."
+        ),
+    )
+    workflow_config_id: str | None = Field(
+        None,
+        description=(
+            "When set, agent use may be delegated from workflow execution: the caller "
+            "must be allowed to run this workflow and the agent must appear in its steps."
         ),
     )
 

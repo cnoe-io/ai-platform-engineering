@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { ApiError, requireRbacPermission, withErrorHandler } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { requireRbacPermission, withErrorHandler, ApiError } from "@/lib/api-middleware";
-import type { AuditEvent, AuditOutcome, RbacResource } from "@/lib/rbac/types";
+import { getAuditReader } from "@/lib/audit/reader";
+import type { AuditEvent, AuditOutcome, AuditPdp, AuditReasonCode, RbacResource } from "@/lib/rbac/types";
+import { getServerSession } from "next-auth";
+import { NextRequest, NextResponse } from "next/server";
 
-const COLLECTION = "authorization_decision_records";
-
-/** MongoDB row shape (`ts` as Date per data-model / audit persistence). */
-type AuthorizationDecisionDocument = Omit<AuditEvent, "ts"> & { ts: Date };
+// assisted-by Codex Codex-sonnet-4-6
 
 function parseIsoDate(value: string | null, label: string): Date {
   if (!value?.trim()) {
@@ -21,39 +18,26 @@ function parseIsoDate(value: string | null, label: string): Date {
   return d;
 }
 
-function documentToAuditEvent(doc: AuthorizationDecisionDocument): AuditEvent {
-  const ts =
-    doc.ts instanceof Date
-      ? doc.ts.toISOString()
-      : new Date(doc.ts as unknown as string).toISOString();
+function recordToAuditEvent(record: Record<string, unknown>): AuditEvent {
+  const rawTs = record.ts;
+  const ts = rawTs instanceof Date ? rawTs.toISOString() : new Date(String(rawTs)).toISOString();
 
   return {
     ts,
-    tenant_id: doc.tenant_id,
-    subject_hash: doc.subject_hash,
-    actor_hash: doc.actor_hash,
-    capability: doc.capability,
-    component: doc.component,
-    resource_ref: doc.resource_ref,
-    outcome: doc.outcome,
-    reason_code: doc.reason_code,
-    pdp: doc.pdp,
-    correlation_id: doc.correlation_id,
+    tenant_id: String(record.tenant_id ?? ""),
+    subject_hash: String(record.subject_hash ?? ""),
+    actor_hash: typeof record.actor_hash === "string" ? record.actor_hash : undefined,
+    capability: String(record.capability ?? record.action ?? ""),
+    component: String(record.component ?? "admin_ui") as RbacResource,
+    resource_ref: typeof record.resource_ref === "string" ? record.resource_ref : undefined,
+    outcome: String(record.outcome ?? "deny") as AuditOutcome,
+    reason_code: String(record.reason_code ?? "DENY_NO_CAPABILITY") as AuditReasonCode,
+    pdp: String(record.pdp ?? "openfga") as AuditPdp,
+    correlation_id: String(record.correlation_id ?? ""),
   };
 }
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
-  if (!isMongoDBConfigured) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "MongoDB not configured",
-        code: "MONGODB_NOT_CONFIGURED",
-      },
-      { status: 503 },
-    );
-  }
-
   const session = (await getServerSession(authOptions)) as {
     accessToken?: string;
     sub?: string;
@@ -114,44 +98,23 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     throw new ApiError("`limit` must be a number between 1 and 200", 400, "VALIDATION_ERROR");
   }
 
-  const filter: Record<string, unknown> = {
-    ts: { $gte: from, $lte: to },
-  };
+  const rows = await getAuditReader().query({
+    since: from,
+    until: to,
+    tenantId: session.org,
+    component,
+    capability,
+    subjectHash,
+    outcome,
+    limit: page * limit,
+  });
 
-  if (session.org) {
-    filter.tenant_id = session.org;
-  }
-
-  if (component) {
-    filter.component = component as RbacResource;
-  }
-  if (capability) {
-    filter.capability = capability;
-  }
-  if (subjectHash) {
-    filter.subject_hash = subjectHash;
-  }
-  if (outcome) {
-    filter.outcome = outcome;
-  }
-
-  const coll = await getCollection<AuthorizationDecisionDocument>(COLLECTION);
-
-  const [total, docs] = await Promise.all([
-    coll.countDocuments(filter),
-    coll
-      .find(filter)
-      .sort({ ts: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .toArray(),
-  ]);
-
-  const records: AuditEvent[] = docs.map(documentToAuditEvent);
+  const offset = (page - 1) * limit;
+  const records: AuditEvent[] = rows.slice(offset, offset + limit).map(recordToAuditEvent);
 
   return NextResponse.json({
     records,
-    total,
+    total: rows.length,
     page,
     limit,
   });

@@ -5,35 +5,40 @@
  * The gateway owns all config writes — DA is a pure runtime reader.
  */
 
-import { NextRequest } from "next/server";
-import { Collection, ObjectId } from "mongodb";
+import {
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+withErrorHandler,
+} from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
-} from "@/lib/api-middleware";
-import type {
-  DynamicAgentConfig,
-  VisibilityType,
-  LegacyVisibilityType,
-  SubAgentRef,
-} from "@/types/dynamic-agent";
-import {
-  allowedToolsFromAgent,
-  deleteAllAgentToolTuples,
-  reconcileAgentRelationships,
+allowedToolsFromAgent,
+deleteAllAgentToolTuples,
+reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
+import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { getPlatformDefaultAgentId,isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
+filterResourcesByPermission,
+requireAgentPermission,
+requireResourcePermission,
+agentRowPermissionsOrDefault,
+resolveAgentListPermissions,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
-import { caipeOrgKey } from "@/lib/rbac/organization";
-import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
+import type {
+DynamicAgentConfig,
+DynamicAgentConfigWithPermissions,
+LegacyVisibilityType,
+SubAgentRef,
+VisibilityType,
+} from "@/types/dynamic-agent";
+import { Collection,ObjectId } from "mongodb";
+import { NextRequest } from "next/server";
 
 const PLATFORM_DEFAULT_VISIBILITY_ERROR =
   "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before changing this agent's visibility.";
@@ -264,12 +269,35 @@ async function canUseOwnerTeam(
 ): Promise<boolean> {
   const ownerTeamSlug = normalizeString(ownerTeam.slug);
   if (!ownerTeamSlug) return false;
+  return canUseTeamSlug(session, ownerTeamSlug);
+}
+
+async function canUseTeamSlug(
+  session: Parameters<typeof requireResourcePermission>[0],
+  teamSlug: string,
+): Promise<boolean> {
   try {
-    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    await requireResourcePermission(session, { type: "team", id: teamSlug, action: "use" });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Team admins/owners may be represented only by the manage relation in
+    // older projections; they still count as members for owner-team selection.
+    try {
+      await requireResourcePermission(session, { type: "team", id: teamSlug, action: "manage" });
+      return true;
+    } catch {
+      return false;
+    }
   }
+}
+
+async function requireAgentWritePermission(
+  session: Parameters<typeof requireAgentPermission>[0],
+  agentId: string,
+  _agent: DynamicAgentConfig,
+): Promise<void> {
+  await requireAgentPermission(session, agentId, "write");
 }
 
 /**
@@ -344,29 +372,37 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
       : {};
 
-    const [items, total] = await Promise.all([
-      collection
-        .find(query)
-        .sort({ created_at: -1 })
-        .skip(skip)
-        .limit(pageSize)
-        .toArray(),
-      collection.countDocuments(query),
-    ]);
+    const allItems = await collection.find(query).sort({ created_at: -1 }).toArray();
 
     // Normalize legacy documents
-    const normalizedItems = items.map((item) =>
+    const normalizedItems = allItems.map((item) =>
       normalizeAgentDoc(item as unknown as Record<string, unknown>),
+    ) as unknown as DynamicAgentConfig[];
+    const platformDefaultAgentId = await getPlatformDefaultAgentId();
+    const scopedItems = await filterAgentsByOwnershipScopeForSession(
+      session,
+      normalizedItems,
+      platformDefaultAgentId,
     );
-    const visibleItems = await filterResourcesByPermission(session, normalizedItems, {
-      type: "agent",
-      action: enabledOnly ? "use" : "discover",
-      id: (agent) => String(agent._id),
-    });
+    const listTarget = {
+      type: "agent" as const,
+      action: enabledOnly ? ("use" as const) : ("discover" as const),
+      id: (agent: DynamicAgentConfig) => String(agent._id),
+    };
+    const visibleItems = await filterResourcesByPermission(session, scopedItems, listTarget);
+    const pageItems = visibleItems.slice(skip, skip + pageSize);
+    const { rows } = await resolveAgentListPermissions(
+      session,
+      pageItems.map((agent) => String(agent._id)),
+    );
+    const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
+      ...(agent as DynamicAgentConfig),
+      permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
+    }));
 
     return paginatedResponse(
-      visibleItems,
-      visibleItems.length < normalizedItems.length ? visibleItems.length : total,
+      items,
+      visibleItems.length,
       page,
       pageSize,
     );
@@ -532,6 +568,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ownerTeamSlug,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs: [],
+      // Encode `visibility === 'global'` as the wildcard `user:* user
+      // agent:<id>` grant so a freshly-created global agent is usable by
+      // every member without waiting for the list-time repair in
+      // available/route.ts. Fresh create has no previous state to revoke.
+      globalUserAccess: visibility === "global",
     });
 
     try {
@@ -564,7 +605,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "agent", id, action: "write" });
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -574,6 +614,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!agent) {
       throw new ApiError("Agent not found", 404);
     }
+    await requireAgentWritePermission(session, id, agent);
 
     // Config-driven guard
     if (agent.config_driven) {
@@ -724,6 +765,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       previousOwnerTeamSlug: transferPreviousOwner,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs,
+      // Keep the wildcard `user:* user agent:<id>` grant in sync with
+      // visibility on every edit. Without this a `global → team` demote
+      // would update Mongo but leave the everyone-can-use grant behind,
+      // so non-owner-team members keep `can_use` (the SRE-agent leak).
+      // `currentVisibility` may be the legacy 'private' value on old docs;
+      // only an exact 'global' match counts as a previous wildcard grant.
+      globalUserAccess: finalVisibility === "global",
+      previousGlobalUserAccess: currentVisibility === "global",
     });
 
     const updated = await collection.findOneAndUpdate(
@@ -757,7 +806,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "agent", id, action: "delete" });
+  await requireAgentPermission(session, id, "delete");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 

@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
 import JSZip from "jszip";
+import { NextRequest,NextResponse } from "next/server";
 
-import { isMongoDBConfigured } from "@/lib/mongodb";
-import {
-  withAuth,
-  withErrorHandler,
-  ApiError,
-} from "@/lib/api-middleware";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import {
+ApiError,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { isMongoDBConfigured } from "@/lib/mongodb";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -113,7 +113,7 @@ export const GET = withErrorHandler(
     return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
-      await requireResourcePermission(session, { type: "skill", id, action: "read" });
+      await requireSkillPermission(session, id, "read");
 
       const buffer = await buildZip(skill);
       const folderName = safeFolderName(skill);

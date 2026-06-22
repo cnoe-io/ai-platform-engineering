@@ -1,4 +1,4 @@
-import { ApiError, requireRbacPermission } from "@/lib/api-middleware";
+import { ApiError,requireRbacPermission } from "@/lib/api-middleware";
 import { findUserRoleInTeam } from "@/lib/rbac/team-membership-store";
 
 /**

@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
-import { CheckCircle, Loader2, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CheckCircle,Circle,Loader2 } from "lucide-react";
 
 export interface TaskItem {
   content: string;

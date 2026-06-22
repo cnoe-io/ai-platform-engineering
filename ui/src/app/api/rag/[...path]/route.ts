@@ -1,28 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-config';
 import {
-  ApiError,
-  requireRbacPermission,
-  handleApiError,
+ApiError,
+handleApiError,
+requireRbacPermission,
 } from '@/lib/api-middleware';
-import type { RbacScope } from '@/lib/rbac/types';
+import { authOptions } from '@/lib/auth-config';
+import { getDevAnonymousSession,isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-  type ResourcePermissionAction,
+deleteAllMcpToolRelationshipTuples,
+reconcileDataSourceRelationships,
+reconcileKnowledgeBaseRelationships,
+reconcileMcpToolRelationships,
+} from '@/lib/rbac/openfga-owned-resources-reconcile';
+import { organizationObjectId } from '@/lib/rbac/organization';
+import {
+filterResourcesByPermission,
+requireResourcePermission,
+type ResourceAuthzSession,
+type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
 import { resolveShareableOwnershipWrite } from '@/lib/rbac/shareable-resource';
-import {
-  reconcileDataSourceRelationships,
-  reconcileKnowledgeBaseRelationships,
-  reconcileMcpToolRelationships,
-  deleteAllMcpToolRelationshipTuples,
-} from '@/lib/rbac/openfga-owned-resources';
-import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
-import { organizationObjectId } from '@/lib/rbac/organization';
-import { getDevAnonymousSession, isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import type { RbacScope } from '@/lib/rbac/types';
+import { getServerSession } from 'next-auth';
+import { NextRequest,NextResponse } from 'next/server';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
@@ -42,7 +42,7 @@ import { getDevAnonymousSession, isDevAnonymousAuthEnabled } from '@/lib/auth/de
  * authoritative source (OIDC provider's userinfo endpoint).
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
+ *   /api/rag/healthz -> RAG_SERVER_URL/healthz (readiness probe, no Bearer token)
  *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  *
  * The Web UI backend enforces coarse RAG access before proxying and
@@ -193,13 +193,21 @@ function normalizeSlugList(raw: unknown): string[] {
   return out;
 }
 
-/** Boolean membership check (`team:<slug>#can_use`) for the shared resolver. */
+/** Boolean membership check (`team:<slug>#can_use` or `#can_manage`) for owner writes. */
 async function canUseTeam(session: ResourceAuthzSession, slug: string): Promise<boolean> {
   try {
     await requireResourcePermission(session, { type: 'team', id: slug, action: 'use' });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Team admins/owners are valid destination members even when an older
+    // projection has manage but lacks the derived can_use edge.
+    try {
+      await requireResourcePermission(session, { type: 'team', id: slug, action: 'manage' });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -482,10 +490,13 @@ async function getAuthorizedRagContext(
   if (kbId && isDatasourceCreateRequest(method, pathSegments)) {
     const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
     if (ownerTeamSlug) {
-      await requireResourcePermission(
+      const canUseOwnerTeam = await canUseTeam(
         { sub: session.sub, role: session.role, user: session.user },
-        { type: 'team', id: ownerTeamSlug, action: 'use' },
+        ownerTeamSlug,
       );
+      if (!canUseOwnerTeam) {
+        throw new ApiError('You must belong to the owner team to assign it.', 403, 'OWNER_TEAM_FORBIDDEN');
+      }
     }
     const ownerSubject = normalizeString(session.sub);
     if (!ownerSubject) {
@@ -809,6 +820,16 @@ export async function GET(
       targetUrl.searchParams.append(key, value);
     });
 
+    if (request.method === 'GET' && targetPath === 'healthz') {
+      // assisted-by Codex Codex-sonnet-4-6
+      // Health is a readiness probe, not a data operation. Keep KB/query/admin
+      // routes RBAC-gated, but let UI status checks verify that RAG is up even
+      // when the browser session has no downstream Keycloak access token.
+      const response = await fetch(targetUrl.toString(), { method: 'GET' });
+      const data = await response.json();
+      return NextResponse.json(data, { status: response.status });
+    }
+
     const { headers, session } = await getAuthorizedRagContext('GET', path, request);
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
@@ -840,6 +861,8 @@ export async function POST(
     const ragServerUrl = getRagServerUrl();
     const targetPath = path.join('/');
     const targetUrl = `${ragServerUrl}/${targetPath}`;
+    const contentType = request.headers.get('content-type') ?? '';
+    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
 
     // Parse the JSON body when present. We attempt a parse whenever a
     // content-length is absent-but-nonempty OR positive, because the
@@ -850,7 +873,7 @@ export async function POST(
     let body: unknown = undefined;
     const contentLength = request.headers.get('content-length');
     const hasBody = contentLength === null || parseInt(contentLength) > 0;
-    if (hasBody) {
+    if (hasBody && !isMultipart) {
       try {
         body = await request.json();
       } catch {
@@ -911,7 +934,10 @@ export async function POST(
       headers,
     };
 
-    if (body !== undefined) {
+    if (isMultipart) {
+      delete headers['Content-Type'];
+      fetchOptions.body = await request.formData();
+    } else if (body !== undefined) {
       fetchOptions.body = JSON.stringify(body);
     }
 

@@ -1,53 +1,53 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+AiReviewButton,
+AiReviewPanel,
+buildLastReview,
+useAiReview,
+} from "@/components/ai-review";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { getMarkdownComponents } from "@/lib/markdown-components";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { gradientThemes } from "@/lib/gradient-themes";
+import { getMarkdownComponents } from "@/lib/markdown-components";
+import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
-import { TeamPicker, TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
-import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
-
-// Lazy-load CodeMirror to avoid SSR issues
-const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 import type {
-  DynamicAgentConfig,
-  DynamicAgentConfigCreate,
-  DynamicAgentConfigUpdate,
-  VisibilityType,
-  SubAgentRef,
-  BuiltinToolsConfig,
-  AgentUIConfig,
-  CustomThemeConfig,
-  FeaturesConfig,
-  InterruptOn,
+AgentUIConfig,
+BuiltinToolsConfig,
+CustomThemeConfig,
+DynamicAgentConfig,
+DynamicAgentConfigCreate,
+DynamicAgentConfigUpdate,
+FeaturesConfig,
+InterruptOn,
+SubAgentRef,
+VisibilityType,
 } from "@/types/dynamic-agent";
+import { AnimatePresence,motion } from "framer-motion";
+import { ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
+import React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { AgentAvatar } from "./AgentAvatar";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
-import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
+import { SubagentPicker } from "./SubagentPicker";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
-import { gradientThemes } from "@/lib/gradient-themes";
-import { AgentAvatar } from "./AgentAvatar";
-import {
-  useAiReview,
-  AiReviewButton,
-  AiReviewPanel,
-  buildLastReview,
-} from "@/components/ai-review";
+
+// Lazy-load CodeMirror to avoid SSR issues
+const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -82,7 +82,7 @@ const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.Re
     value: "team",
     label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Owner-team members can use; admins can manage. Optionally share with other teams.",
+    description: "Team members can use; you manage as creator; team admins can manage. Optionally share with other teams.",
   },
   {
     value: "global",
@@ -365,9 +365,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     source?.shared_with_teams || []
   );
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
-  // Ownership transfer (spec 2026-06-03, US3). On edit, the owner picker is
-  // read-only until the user invokes the transfer affordance; these track the
-  // pending transfer so the PUT can send owner_team_slug + confirm_not_member.
+  // Ownership transfer (spec 2026-06-03, US3). On edit, changing the owner
+  // picker marks a pending transfer so the PUT can send owner_team_slug +
+  // confirm_not_member.
   const [transferRequested, setTransferRequested] = React.useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
@@ -720,7 +720,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (activeStep === "instructions" && review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before continuing.");
+        const message = "AI Review failed — address the comments below before continuing.";
+        // assisted-by Codex Codex-sonnet-4-6
+        // A blocking review should be visible even when the footer is below the fold.
+        toast(message, "error");
+        setError(message);
         return;
       }
     }
@@ -876,7 +880,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before saving.");
+        const message = "AI Review failed — address the comments in the Instructions step before saving.";
+        // assisted-by Codex Codex-sonnet-4-6
+        // Return to the reviewed content so the user can see and act on comments.
+        toast(message, "error");
+        setActiveStep("instructions");
+        setError(message);
         setLoading(false);
         return;
       }
@@ -943,8 +952,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           features: features,
           interrupt_on: interruptOn,
           // Ownership transfer (US3): only send owner_team_slug when the user
-          // actually invoked the transfer affordance, so a normal edit never
-          // trips the route's transfer guard.
+          // changed the owner picker, so a normal edit never trips the route's
+          // transfer guard.
           ...(transferRequested
             ? {
                 owner_team_slug: ownerTeamSlug,
@@ -1126,7 +1135,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             />
           </div>
 
-          <fieldset disabled={readOnly} className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
+          <fieldset className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
@@ -1140,7 +1149,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   placeholder="e.g., Code Review Agent"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                 />
                 {/* Show generated ID */}
                 {isEditing ? (
@@ -1177,7 +1186,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                         }
                       }
                     }}
-                    disabled={loading || modelsLoading || availableModels.length === 0}
+                    disabled={loading || !!readOnly || modelsLoading || availableModels.length === 0}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {modelsLoading ? (
@@ -1213,7 +1222,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       variant="outline"
                       size="sm"
                       className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
-                      disabled={!canSuggest || loading}
+                      disabled={!canSuggest || loading || !!readOnly}
                       onClick={() => { setShowSuggestBasicInput((v) => { if (!v) setEnhanceExistingBasic(!!description.trim()); return !v; }); setShowSuggestPromptInput(false); }}
                       title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "AI-generate description and theme"}
                     >
@@ -1285,7 +1294,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   placeholder="What does this agent do?"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                   rows={2}
                 />
               </div>
@@ -1308,7 +1317,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                           ? "border-primary bg-primary/10"
                           : "border-border hover:border-primary/50 hover:bg-muted/50"
                       )}
-                      disabled={loading}
+                      disabled={loading || !!readOnly}
                       title={theme.description}
                     >
                       <div
@@ -1339,7 +1348,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                           ? "border-primary bg-primary/10"
                           : "border-border hover:border-primary/50 hover:bg-muted/50"
                       )}
-                      disabled={loading}
+                      disabled={loading || !!readOnly}
                       title="Custom colors"
                     >
                       <div
@@ -1461,7 +1470,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 ownerRequired
                 allowTransfer={isEditing}
                 resourceNoun="agent"
-                disabled={loading}
+                disabled={loading || !!readOnly}
                 showShare={visibility === "team"}
                 currentUserTeamSlugs={availableTeams
                   .map((team) => team.slug)
@@ -1490,28 +1499,58 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       ? `${team.name} (${team.user_role})`
                       : team.name,
                     _id: team._id,
-                    disabled: !team.can_own_agents,
+                    disabled: team.can_own_agents === false,
                   }))}
+                ownerHelpText={
+                  <>
+                    Select a team you belong to as the owner. You manage this
+                    agent as its creator; team members can use it; team admins
+                    can manage it.
+                  </>
+                }
                 shareHelpText={
                   <>
-                    Select which teams can access this agent. Each selected
-                    team gets <code>can_use</code> on the agent in OpenFGA, so
-                    every member can DM it and use it in any Slack channel or
-                    Webex space mapped to that team.
+                    Select which additional teams can access this agent. Each
+                    selected team gets <code>can_use</code> on the agent in
+                    OpenFGA, so members can DM it and use it in any Slack
+                    channel or Webex space mapped to that team. Team admins can
+                    manage shared agents.
                   </>
                 }
                 renderGrantDetail={(slug) => (
                   <>
-                    every member of <code>team:{slug}</code> can DM this agent
-                    in a 1:1 chat and use it in any Slack channel or Webex space
-                    that is mapped to <code>team:{slug}</code>.
+                    every member of <code>team:{slug}</code> can use this agent
+                    in chat; team admins of <code>team:{slug}</code> can manage
+                    it.
                   </>
                 )}
+                extraGrantPreviewItems={
+                  isPlatformDefault
+                    ? [
+                        {
+                          id: "platform-default-user-wildcard",
+                          line: (
+                            <>
+                              <code>user:*</code> can use this agent (platform
+                              default)
+                            </>
+                          ),
+                          detail: (
+                            <>
+                              Every signed-in user can use this agent while it
+                              remains the platform default for new chats in Admin
+                              → Settings. This is the <code>user:* user agent</code>{" "}
+                              OpenFGA grant, in addition to any team shares below.
+                            </>
+                          ),
+                        },
+                      ]
+                    : undefined
+                }
                 ownerExtra={
-                  !isEditing &&
-                  availableTeams.every((team) => !team.can_own_agents) ? (
+                  !isEditing && availableTeams.length === 0 ? (
                     <p className="text-xs text-destructive">
-                      You need to be a platform admin or a team admin to create a team-owned agent.
+                      You must belong to at least one team to create a team-owned agent.
                     </p>
                   ) : null
                 }
@@ -1544,7 +1583,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                                 ? "border-primary bg-primary/5"
                                 : "border-muted hover:border-primary/50"
                             } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
-                            disabled={loading || lockedByPlatformDefault}
+                            disabled={loading || !!readOnly || lockedByPlatformDefault}
                           >
                             <div className="flex items-center gap-2 mb-1">
                               {opt.icon}
@@ -1555,6 +1594,28 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                         );
                       })}
                     </div>
+                    {visibility === "global" && (
+                      <div
+                        role="note"
+                        aria-label="Global visibility OpenFGA grant"
+                        className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+                        data-testid="global-visibility-grant-preview"
+                      >
+                        <div className="mb-2 font-medium">
+                          On save, this OpenFGA grant will be written:
+                        </div>
+                        <ul className="space-y-1.5">
+                          <li>
+                            <code>user:*</code> can use this agent
+                            {isPlatformDefault ? " (global + platform default)" : " (global visibility)"}
+                            <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
+                              Every signed-in user receives <code>can_use</code> on
+                              this agent via the <code>user:* user agent</code> tuple.
+                            </span>
+                          </li>
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 }
               />
@@ -1576,7 +1637,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       variant="outline"
                       size="sm"
                       className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
-                      disabled={!canSuggest || loading}
+                      disabled={!canSuggest || loading || !!readOnly}
                       onClick={() => { setShowSuggestPromptInput((v) => { if (!v) setEnhanceExisting(!!systemPrompt.trim()); return !v; }); setShowSuggestBasicInput(false); }}
                       title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "Generate system prompt with AI"}
                     >
@@ -1741,7 +1802,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                               indentOnInput: true,
                             }}
                             placeholder="You are a helpful AI assistant that specializes in..."
-                            editable={!loading && generatingField !== "system_prompt"}
+                            editable={!loading && !readOnly && generatingField !== "system_prompt"}
                           />
                         </React.Suspense>
                       </div>
@@ -1800,7 +1861,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <BuiltinToolsPicker
                 value={builtinTools}
                 onChange={setBuiltinTools}
-                disabled={loading}
+                disabled={loading || !!readOnly}
               />
 
               {/* MCP Tools */}
@@ -1816,7 +1877,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 <AllowedToolsPicker
                   value={allowedTools}
                   onChange={setAllowedTools}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                 />
               </div>
 
@@ -1825,7 +1886,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 <MiddlewarePicker
                   value={features}
                   onChange={setFeatures}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                   availableModels={availableModels}
                 />
               </div>
@@ -1845,7 +1906,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <SkillsSelector
                 value={skills}
                 onChange={setSkills}
-                disabled={loading}
+                disabled={loading || !!readOnly}
               />
             </div>
           )}
@@ -1865,7 +1926,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               setFeatures={setFeatures}
               availableModels={availableModels}
               setMiddlewareError={setMiddlewareError}
-              loading={loading}
+              loading={loading || !!readOnly}
               visibility={visibility}
             />
           )}
@@ -1916,40 +1977,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </>
           )}
         </div>
-        {!readOnly && firstBlocker && !loading && (
-          // Inline blocker hint. Renders only when the submit button is
-          // disabled AND we're not mid-save. Includes a click-to-jump shortcut
-          // so the user can land on the offending step in one click without
-          // hunting through the wizard. Wrapped in flex so the label and the
-          // jump-to button sit on one line on wide screens and wrap on narrow.
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid="create-agent-blocker-hint"
-            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
-          >
-            <span>
-              Required: <span className="font-medium">{firstBlocker.label}</span>
-              {blockerStepLabel ? (
-                <>
-                  {" "}<span className="text-muted-foreground">(on {blockerStepLabel} step)</span>
-                </>
-              ) : null}
-              {blockers.length > 1 ? (
-                <span className="text-muted-foreground"> · {blockers.length - 1} more</span>
-              ) : null}
-            </span>
-            {blockerStepLabel && firstBlocker.step !== activeStep ? (
-              <button
-                type="button"
-                onClick={() => setActiveStep(firstBlocker.step)}
-                className="underline underline-offset-2 hover:text-destructive/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive rounded-sm"
-              >
-                Go to {blockerStepLabel}
-              </button>
-            ) : null}
-          </div>
-        )}
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {readOnly ? "Close" : "Cancel"}
         </Button>

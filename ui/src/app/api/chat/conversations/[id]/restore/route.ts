@@ -1,16 +1,16 @@
 // POST /api/chat/conversations/[id]/restore - Restore a soft-deleted conversation from archive
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateUUID,
+ApiError,
+successResponse,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // POST /api/chat/conversations/[id]/restore
 export const POST = withErrorHandler(async (

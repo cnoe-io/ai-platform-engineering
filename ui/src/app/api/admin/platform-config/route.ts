@@ -3,20 +3,26 @@
 
 // assisted-by claude code claude-sonnet-4-6
 
-import { NextRequest, NextResponse } from 'next/server';
+import { ApiError,requireRbacPermission,withAuth,withErrorHandler } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
-import { ApiError, withAuth, withErrorHandler, requireRbacPermission } from '@/lib/api-middleware';
-import { requireResourcePermission } from '@/lib/rbac/resource-authz';
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import {
-  DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
-  MAX_DISCOVERY_CACHE_TTL_MINUTES,
-  MIN_DISCOVERY_CACHE_TTL_MINUTES,
-  normalizeDiscoveryCacheTtlMinutes,
+DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
+MAX_DISCOVERY_CACHE_TTL_MINUTES,
+MIN_DISCOVERY_CACHE_TTL_MINUTES,
+normalizeDiscoveryCacheTtlMinutes,
 } from '@/lib/rbac/discovery-cache-config';
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from '@/lib/rbac/openfga';
+import { requireResourcePermission } from '@/lib/rbac/resource-authz';
+import {
+createJsonResponseCacheStore,
+envTtlMs,
+withJsonResponseCache,
+} from '@/lib/server-response-cache';
+import { NextRequest,NextResponse } from 'next/server';
 
 const CONFIG_ID = 'platform_settings';
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+const platformConfigCache = createJsonResponseCacheStore();
 
 interface PlatformConfigDoc {
   _id?: string;
@@ -102,6 +108,14 @@ function normalizeReleaseNotesConfig(input: unknown = {}) {
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  return withJsonResponseCache(request, platformConfigCache, () => getPlatformConfig(request), {
+    ttlMs: envTtlMs('PLATFORM_CONFIG_CACHE_TTL_MS', 10_000),
+    cacheableStatus: (status) => status === 200 || status === 403,
+    maxEntries: 512,
+  });
+});
+
+async function getPlatformConfig(request: NextRequest) {
   return await withAuth(request, async (_req, _user, session) => {
     await requireResourcePermission(session, {
       type: 'system_config',
@@ -133,7 +147,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       },
     });
   });
-});
+}
 
 export const PATCH = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, user, session) => {
@@ -242,6 +256,8 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       },
       { upsert: true },
     );
+    platformConfigCache.responses.clear();
+    platformConfigCache.inflight.clear();
 
     return NextResponse.json({
       success: true,

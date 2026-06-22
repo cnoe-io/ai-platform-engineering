@@ -1,4 +1,4 @@
-import { getCollection } from "@/lib/mongodb";
+import { getAuditReader } from "@/lib/audit/reader";
 
 export type ConnectorKind = "slack_channel" | "webex_space";
 
@@ -53,10 +53,10 @@ export interface ConnectorDiagnosticsAdapter {
   botLabel: string;
   runtimeLabel: string;
   tupleNoun: string;
-  // The audit_events.component value to query for
+  // The audit-service component value to query for
   // last_runtime_error. e.g. "slack_bot" / "webex_bot".
   auditComponent: string;
-  // resource_ref the bot writes into audit_events — Slack uses
+  // resource_ref the bot writes into audit-service — Slack uses
   // `slack_channel:<workspace>--<channel>`, Webex uses
   // `webex_space:<workspace>--<space>`.
   auditResourceRef: (workspaceId: string, itemId: string) => string;
@@ -115,20 +115,20 @@ async function latestRuntimeError(
 ): Promise<ConnectorLastRuntimeError | null> {
   const resourceRef = adapter.auditResourceRef(workspaceId, itemId);
   try {
-    const auditEvents = await getCollection("audit_events");
-    const rows = await auditEvents
-      .find({
-        component: adapter.auditComponent,
-        outcome: "error",
-        resource_ref: resourceRef,
-      })
-      .sort({ ts: -1 })
-      .limit(1)
-      .toArray();
+    const until = new Date();
+    const since = new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const rows = await getAuditReader().query({
+      since,
+      until,
+      component: adapter.auditComponent,
+      outcome: "error",
+      resourceRef,
+      limit: 1,
+    });
     const event = rows[0] as Record<string, unknown> | undefined;
     if (!event) return null;
     return {
-      ts: typeof event.ts === "string" ? event.ts : undefined,
+      ts: event.ts instanceof Date ? event.ts.toISOString() : typeof event.ts === "string" ? event.ts : undefined,
       reason_code: typeof event.reason_code === "string" ? event.reason_code : undefined,
       message: typeof event.message === "string" ? event.message : undefined,
       action: typeof event.action === "string" ? event.action : undefined,
