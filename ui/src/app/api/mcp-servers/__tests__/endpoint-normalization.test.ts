@@ -197,7 +197,7 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
     expect(persisted.agentgateway_target_endpoint).toBe("http://mcp-argocd:8000/mcp");
   });
 
-  it("keeps a correctly-qualified gateway endpoint as the route on create", async () => {
+  it("persists upstream when an AgentGateway picker target is selected for a new server id", async () => {
     mockFindOne.mockResolvedValue(null);
     mockInsertOne.mockResolvedValue({ acknowledged: true });
     const { POST } = await import("../route");
@@ -206,18 +206,20 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
       request("/api/mcp-servers", {
         method: "POST",
         body: JSON.stringify({
-          id: "jira",
-          name: "Jira",
+          id: "jira-gu",
+          name: "JIRA_GU",
           transport: "http",
-          endpoint: "http://agentgateway:4000/mcp/mcp-jira",
+          endpoint: "http://agentgateway:4000/mcp/jira",
+          agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
         }),
       }),
     );
 
     expect(response.status).toBe(201);
     const persisted = mockInsertOne.mock.calls[0][0];
-    expect(persisted.endpoint).toBe("http://agentgateway:4000/mcp/mcp-jira");
-    expect(persisted.agentgateway_target_endpoint).toBeUndefined();
+    expect(persisted.endpoint).toBe("http://agentgateway:4000/mcp/mcp-jira-gu");
+    expect(persisted.agentgateway_target_endpoint).toBe("http://mcp-jira:8000/mcp");
+    expect(persisted.source).toBe("agentgateway");
   });
 
   it("stores Authorization saved secrets as provider-token gateway headers", async () => {

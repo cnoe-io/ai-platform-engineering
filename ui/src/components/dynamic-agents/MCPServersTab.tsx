@@ -11,9 +11,10 @@ DialogFooter,
 DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { toYaml } from "@/lib/yaml-serializer";
-import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
+import type { MCPServerConfigWithPermissions, MCPToolInfo } from "@/types/dynamic-agent";
 import {
 AlertCircle,
 CheckCircle2,
@@ -38,6 +39,16 @@ import { MCPServerEditor } from "./MCPServerEditor";
 export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
 const MCP_SERVERS_LIST_URL = "/api/mcp-servers?page_size=100";
 
+const DEFAULT_ROW_PERMISSIONS = {
+  can_manage: false,
+  can_invoke: false,
+  can_discover: false,
+} as const;
+
+const DEFAULT_LIST_CAPABILITIES = {
+  repair_agentgateway: false,
+} as const;
+
 interface ProbeResult {
   server_id: string;
   loading: boolean;
@@ -60,24 +71,49 @@ interface FetchServersOptions {
 
 interface ToolTestResult {
   success: boolean;
+  application_success?: boolean;
   status?: number;
   result?: unknown;
   error?: string;
+  credential_resolution?: Array<{
+    name: string;
+    kind: string;
+    origin: string;
+    provider?: string;
+    provider_connection_id?: string;
+  }>;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function isLockedConfigDrivenServer(server: MCPServerConfig | null | undefined): boolean {
+function isLockedConfigDrivenServer(server: MCPServerConfigWithPermissions | null | undefined): boolean {
   return server?.config_driven === true && server.source !== "agentgateway";
 }
 
+function serverCanManage(server: MCPServerConfigWithPermissions | null | undefined): boolean {
+  return server?.permissions?.can_manage === true;
+}
+
+function serverCanInvoke(server: MCPServerConfigWithPermissions | null | undefined): boolean {
+  return server?.permissions?.can_invoke === true;
+}
+
+function serverCanProbe(server: MCPServerConfigWithPermissions | null | undefined): boolean {
+  return server?.permissions?.can_discover === true;
+}
+
+function serverCanTest(server: MCPServerConfigWithPermissions | null | undefined): boolean {
+  return serverCanInvoke(server) || serverCanManage(server);
+}
+
 export function MCPServersTab() {
-  const [servers, setServers] = React.useState<MCPServerConfig[]>([]);
+  const [servers, setServers] = React.useState<MCPServerConfigWithPermissions[]>([]);
+  const [listCapabilities, setListCapabilities] = React.useState(DEFAULT_LIST_CAPABILITIES);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [editingServer, setEditingServer] = React.useState<MCPServerConfig | null>(null);
+  const [editingServer, setEditingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
   const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
@@ -86,7 +122,10 @@ export function MCPServersTab() {
   const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
   const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
   const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
-  const [testingServer, setTestingServer] = React.useState<MCPServerConfig | null>(null);
+  const [testingServer, setTestingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
+  const [pendingDeleteServerId, setPendingDeleteServerId] = React.useState<string | null>(null);
+  const [deletingServerId, setDeletingServerId] = React.useState<string | null>(null);
+  const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
 
   const fetchServers = React.useCallback(async ({
     showLoading = true,
@@ -102,7 +141,14 @@ export function MCPServersTab() {
       const response = await fetch(MCP_SERVERS_LIST_URL, { cache: "no-store" });
       const data = await response.json();
       if (data.success) {
-        setServers(data.data.items || []);
+        const items = (data.data.items || []) as MCPServerConfigWithPermissions[];
+        setServers(
+          items.map((server) => ({
+            ...server,
+            permissions: server.permissions ?? DEFAULT_ROW_PERMISSIONS,
+          })),
+        );
+        setListCapabilities(data.data.capabilities ?? DEFAULT_LIST_CAPABILITIES);
         setError(null);
       } else {
         if (!preserveListOnError) {
@@ -147,25 +193,45 @@ export function MCPServersTab() {
     };
   }, [fetchServers]);
 
-  const handleDelete = async (serverId: string) => {
-    if (!confirm("Are you sure you want to delete this MCP server?")) return;
+  const clearRowActionError = React.useCallback((serverId: string) => {
+    setRowActionErrors((prev) => {
+      if (!prev[serverId]) return prev;
+      const next = { ...prev };
+      delete next[serverId];
+      return next;
+    });
+  }, []);
 
+  const handleDelete = async (serverId: string) => {
+    setDeletingServerId(serverId);
+    clearRowActionError(serverId);
     try {
       const response = await fetch(`/api/mcp-servers?id=${serverId}`, {
         method: "DELETE",
       });
       const data = await response.json();
       if (data.success) {
+        setPendingDeleteServerId(null);
         fetchServers();
       } else {
-        alert(data.error || "Failed to delete server");
+        setRowActionErrors((prev) => ({
+          ...prev,
+          [serverId]: data.error || "Failed to delete server",
+        }));
       }
     } catch (err: unknown) {
-      alert(errorMessage(err, "Failed to delete server"));
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [serverId]: errorMessage(err, "Failed to delete server"),
+      }));
+    } finally {
+      setDeletingServerId(null);
     }
   };
 
-  const handleToggleEnabled = async (server: MCPServerConfig) => {
+  const handleToggleEnabled = async (server: MCPServerConfigWithPermissions) => {
+    if (!serverCanManage(server)) return;
+    clearRowActionError(server._id);
     try {
       const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
         method: "PUT",
@@ -176,10 +242,16 @@ export function MCPServersTab() {
       if (data.success) {
         fetchServers();
       } else {
-        alert(data.error || "Failed to update server");
+        setRowActionErrors((prev) => ({
+          ...prev,
+          [server._id]: data.error || "Failed to update server",
+        }));
       }
     } catch (err: unknown) {
-      alert(errorMessage(err, "Failed to update server"));
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [server._id]: errorMessage(err, "Failed to update server"),
+      }));
     }
   };
 
@@ -278,7 +350,7 @@ export function MCPServersTab() {
   /**
    * Export server configuration as YAML file
    */
-  const handleExportYaml = (server: MCPServerConfig) => {
+  const handleExportYaml = (server: MCPServerConfigWithPermissions) => {
     const exportConfig = {
       id: server._id,
       name: server.name,
@@ -333,7 +405,11 @@ export function MCPServersTab() {
     return (
       <MCPServerEditor
         server={editingServer}
-        readOnly={isLockedConfigDrivenServer(editingServer)}
+        readOnly={
+          isCreating
+            ? false
+            : isLockedConfigDrivenServer(editingServer) || !serverCanManage(editingServer)
+        }
         onSave={() => {
           setEditingServer(null);
           setIsCreating(false);
@@ -358,20 +434,22 @@ export function MCPServersTab() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncAgentGateway}
-              disabled={agentGatewaySyncing}
-              title="Admin repair: re-import built-in AgentGateway MCP routes and repair stale registrations"
-            >
-              {agentGatewaySyncing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Globe className="h-4 w-4 mr-2" />
-              )}
-              Repair AgentGateway
-            </Button>
+            {listCapabilities.repair_agentgateway && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncAgentGateway}
+                disabled={agentGatewaySyncing}
+                title="Admin repair: re-import built-in AgentGateway MCP routes and repair stale registrations"
+              >
+                {agentGatewaySyncing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Globe className="h-4 w-4 mr-2" />
+                )}
+                Repair AgentGateway
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => fetchServers()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -471,10 +549,13 @@ export function MCPServersTab() {
             {/* Server rows */}
             {servers.map((server) => {
               const probe = probeResults[server._id];
+              const rowActionError = rowActionErrors[server._id];
               return (
                 <div key={server._id} className="space-y-2">
                   <div
-                    className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
+                    className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
+                      serverCanManage(server) ? "cursor-pointer" : "cursor-default"
+                    }`}
                     onClick={() => setEditingServer(server)}
                   >
                     <div className="col-span-3">
@@ -527,10 +608,24 @@ export function MCPServersTab() {
 
                     <div className="col-span-2">
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (!isLockedConfigDrivenServer(server)) handleToggleEnabled(server); }}
-                        className={`flex items-center gap-1.5 ${isLockedConfigDrivenServer(server) ? "cursor-not-allowed opacity-60" : ""}`}
-                        disabled={isLockedConfigDrivenServer(server)}
-                        title={isLockedConfigDrivenServer(server) ? "Config-driven servers cannot be modified" : undefined}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isLockedConfigDrivenServer(server) || !serverCanManage(server)) return;
+                          handleToggleEnabled(server);
+                        }}
+                        className={`flex items-center gap-1.5 ${
+                          isLockedConfigDrivenServer(server) || !serverCanManage(server)
+                            ? "cursor-not-allowed opacity-60"
+                            : ""
+                        }`}
+                        disabled={isLockedConfigDrivenServer(server) || !serverCanManage(server)}
+                        title={
+                          isLockedConfigDrivenServer(server)
+                            ? "Config-driven servers cannot be modified"
+                            : !serverCanManage(server)
+                              ? "You do not have permission to modify this server"
+                              : undefined
+                        }
                       >
                         {server.enabled ? (
                           <>
@@ -549,36 +644,40 @@ export function MCPServersTab() {
                     </div>
 
                     <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleProbe(server._id)}
-                        disabled={probe?.loading}
-                        aria-label={`Probe tools for ${server.name}`}
-                        title="Probe for tools"
-                      >
-                        {probe?.loading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Zap className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setTestingServer(server)}
-                        disabled={server.transport !== "http" || !server.enabled}
-                        aria-label={`Test MCP tools for ${server.name}`}
-                        title={
-                          server.transport === "http"
-                            ? "Test MCP tools"
-                            : "Tool testing currently supports HTTP MCP servers"
-                        }
-                      >
-                        <FlaskConical className="h-4 w-4" />
-                      </Button>
+                      {serverCanProbe(server) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleProbe(server._id)}
+                          disabled={probe?.loading}
+                          aria-label={`Probe tools for ${server.name}`}
+                          title="Probe for tools"
+                        >
+                          {probe?.loading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Zap className="h-4 w-4" />
+                          )}
+                        </Button>
+                      )}
+                      {serverCanTest(server) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setTestingServer(server)}
+                          disabled={server.transport !== "http" || !server.enabled}
+                          aria-label={`Test MCP tools for ${server.name}`}
+                          title={
+                            server.transport === "http"
+                              ? "Test MCP tools"
+                              : "Tool testing currently supports HTTP MCP servers"
+                          }
+                        >
+                          <FlaskConical className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -598,18 +697,76 @@ export function MCPServersTab() {
                           Config
                         </Badge>
                       )}
-                      {!isLockedConfigDrivenServer(server) && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(server._id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      {!isLockedConfigDrivenServer(server) && serverCanManage(server) && (
+                        pendingDeleteServerId === server._id ? (
+                          <div className="flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/10 px-2 py-1">
+                            <span className="max-w-[7rem] truncate text-xs font-medium text-destructive">
+                              Delete {server.name}?
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                              disabled={deletingServerId === server._id}
+                              onClick={() => setPendingDeleteServerId(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              aria-label={`Confirm delete ${server.name}`}
+                              className="h-7 bg-destructive px-2 text-xs text-destructive-foreground hover:bg-destructive/90"
+                              disabled={deletingServerId === server._id}
+                              onClick={() => void handleDelete(server._id)}
+                            >
+                              {deletingServerId === server._id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                "Delete"
+                              )}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => {
+                              setPendingDeleteServerId(server._id);
+                              clearRowActionError(server._id);
+                            }}
+                            aria-label={`Delete ${server.name}`}
+                            title="Delete server"
+                            disabled={deletingServerId === server._id}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )
                       )}
                     </div>
                   </div>
+
+                  {rowActionError && (
+                    <div className="ml-12 pl-4 border-l-2 border-destructive/30">
+                      <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                        <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-1 items-start justify-between gap-3">
+                          <p className="text-sm text-destructive">{rowActionError}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => clearRowActionError(server._id)}
+                          >
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Probe results */}
                   {probe && !probe.loading && (
@@ -720,59 +877,115 @@ function schemaProperties(tool: MCPToolInfo | undefined): ToolSchemaProperty[] {
   });
 }
 
-function isSimpleSchemaProperty(property: ToolSchemaProperty): boolean {
-  return ["string", "number", "integer", "boolean"].includes(property.type) || Boolean(property.enumValues?.length);
+interface ParamRow {
+  id: string;
+  key: string;
+  value: string;
 }
 
-function defaultParamsForProperties(properties: ToolSchemaProperty[]): Record<string, string | boolean> {
-  const params: Record<string, string | boolean> = {};
-  for (const property of properties) {
+let paramRowIdCounter = 0;
+
+function createParamRow(overrides?: Partial<Pick<ParamRow, "key" | "value">>): ParamRow {
+  paramRowIdCounter += 1;
+  return {
+    id: `param-row-${paramRowIdCounter}`,
+    key: overrides?.key ?? "",
+    value: overrides?.value ?? "",
+  };
+}
+
+function rowsFromSchema(properties: ToolSchemaProperty[]): ParamRow[] {
+  if (properties.length === 0) {
+    return [createParamRow()];
+  }
+  return properties.map((property) => {
+    let value = "";
     if (typeof property.defaultValue === "boolean") {
-      params[property.name] = property.defaultValue;
-    } else if (typeof property.defaultValue === "number" || typeof property.defaultValue === "string") {
-      params[property.name] = String(property.defaultValue);
+      value = String(property.defaultValue);
+    } else if (
+      typeof property.defaultValue === "number" ||
+      typeof property.defaultValue === "string"
+    ) {
+      value = String(property.defaultValue);
     } else if (property.type === "boolean") {
-      params[property.name] = false;
-    } else {
-      params[property.name] = "";
+      value = "false";
+    }
+    return createParamRow({ key: property.name, value });
+  });
+}
+
+function coerceParamValue(raw: string): unknown {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (/^-?\d+$/.test(raw)) return Number.parseInt(raw, 10);
+  if (/^-?\d+\.\d+$/.test(raw)) return Number.parseFloat(raw);
+  if (raw.startsWith("{") || raw.startsWith("[") || raw.startsWith('"')) {
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return raw;
     }
   }
-  return params;
+  return raw;
 }
 
-function buildParamsFromFields(
+function buildParamsFromRows(
+  rows: ParamRow[],
   properties: ToolSchemaProperty[],
-  values: Record<string, string | boolean>,
 ): Record<string, unknown> {
+  const required = new Set(properties.filter((property) => property.required).map((property) => property.name));
   const params: Record<string, unknown> = {};
-  for (const property of properties) {
-    const raw = values[property.name];
-    if (typeof raw === "boolean") {
-      params[property.name] = raw;
+  const seenKeys = new Set<string>();
+
+  for (const row of rows) {
+    const key = row.key.trim();
+    const value = row.value.trim();
+    if (!key && !value) continue;
+    if (!key) {
+      throw new Error("Each parameter row needs a name");
+    }
+    if (seenKeys.has(key)) {
+      throw new Error(`Duplicate parameter: ${key}`);
+    }
+    seenKeys.add(key);
+    if (!value) {
+      if (required.has(key)) {
+        throw new Error(`${key} is required`);
+      }
       continue;
     }
-    const text = String(raw ?? "").trim();
-    if (!text && !property.required) continue;
-    if (!text && property.required) {
-      throw new Error(`${property.name} is required`);
-    }
-    if (property.type === "number" || property.type === "integer") {
-      const value = Number(text);
-      if (!Number.isFinite(value)) throw new Error(`${property.name} must be a number`);
-      params[property.name] = property.type === "integer" ? Math.trunc(value) : value;
-    } else {
-      params[property.name] = text;
+    params[key] = coerceParamValue(value);
+  }
+
+  for (const key of required) {
+    if (!(key in params)) {
+      throw new Error(`${key} is required`);
     }
   }
+
   return params;
 }
+
+function rowsFromParamsObject(params: Record<string, unknown>): ParamRow[] {
+  const entries = Object.entries(params);
+  if (entries.length === 0) {
+    return [createParamRow()];
+  }
+  return entries.map(([key, value]) =>
+    createParamRow({
+      key,
+      value: typeof value === "string" ? value : prettyJson(value),
+    }),
+  );
+}
+
 
 function MCPToolTestDialog({
   server,
   open,
   onOpenChange,
 }: {
-  server: MCPServerConfig | null;
+  server: MCPServerConfigWithPermissions | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -781,7 +994,7 @@ function MCPToolTestDialog({
   const [selectedTool, setSelectedTool] = React.useState("");
   const [paramsText, setParamsText] = React.useState("{}");
   const [paramsMode, setParamsMode] = React.useState<"fields" | "json">("fields");
-  const [paramValues, setParamValues] = React.useState<Record<string, string | boolean>>({});
+  const [paramRows, setParamRows] = React.useState<ParamRow[]>(() => [createParamRow()]);
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<ToolTestResult | null>(null);
@@ -794,7 +1007,7 @@ function MCPToolTestDialog({
     setSelectedTool("");
     setParamsText("{}");
     setParamsMode("fields");
-    setParamValues({});
+    setParamRows([createParamRow()]);
     setResult(null);
     setError(null);
 
@@ -829,19 +1042,36 @@ function MCPToolTestDialog({
     () => schemaProperties(selectedToolDetails),
     [selectedToolDetails],
   );
-  const canUseFieldMode = selectedProperties.length > 0 && selectedProperties.every(isSimpleSchemaProperty);
   const hasRequiredParams = selectedProperties.some((property) => property.required);
+  const schemaMissing = selectedProperties.length === 0;
 
   React.useEffect(() => {
     setResult(null);
     setError(null);
-    setParamValues(defaultParamsForProperties(selectedProperties));
+    setParamRows(rowsFromSchema(selectedProperties));
     setParamsText("{}");
-    setParamsMode(canUseFieldMode ? "fields" : "json");
-  }, [canUseFieldMode, selectedTool, selectedProperties]);
+    setParamsMode("fields");
+  }, [selectedTool, selectedProperties]);
 
-  function updateParamValue(name: string, value: string | boolean) {
-    setParamValues((current) => ({ ...current, [name]: value }));
+  function updateParamRow(id: string, patch: Partial<Pick<ParamRow, "key" | "value">>) {
+    setParamRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+    setResult(null);
+  }
+
+  function addParamRow() {
+    setParamRows((current) => [...current, createParamRow()]);
+    setResult(null);
+  }
+
+  function removeParamRow(id: string) {
+    setParamRows((current) => {
+      if (current.length <= 1) {
+        return [createParamRow()];
+      }
+      return current.filter((row) => row.id !== id);
+    });
     setResult(null);
   }
 
@@ -851,11 +1081,11 @@ function MCPToolTestDialog({
     setResult(null);
 
     let params: Record<string, unknown>;
-    if (paramsMode === "fields" && canUseFieldMode) {
+    if (paramsMode === "fields") {
       try {
-        params = buildParamsFromFields(selectedProperties, paramValues);
+        params = buildParamsFromRows(paramRows, selectedProperties);
       } catch (err: unknown) {
-        setError(errorMessage(err, "Check the required fields"));
+        setError(errorMessage(err, "Check the parameter rows"));
         return;
       }
     } else {
@@ -896,8 +1126,11 @@ function MCPToolTestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-3xl h-[85vh] max-h-[85vh] gap-4 overflow-hidden p-6"
+        style={{ display: "flex", flexDirection: "column" }}
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Test MCP tools</DialogTitle>
           <DialogDescription>
             {server
@@ -906,7 +1139,8 @@ function MCPToolTestDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 overflow-y-auto pr-1">
+        <ScrollArea className="min-h-0 flex-1" data-testid="mcp-tool-test-scroll">
+          <div className="flex flex-col gap-4 pr-3">
           {loadingTools ? (
             <div className="flex items-center gap-2 rounded-md border p-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -945,11 +1179,11 @@ function MCPToolTestDialog({
                       Parameters
                     </label>
                     <p className="text-xs text-muted-foreground">
-                      {selectedProperties.length === 0
-                        ? "This tool does not define any parameters."
+                      {schemaMissing
+                        ? "Add name/value rows with +, or switch to JSON for nested objects."
                         : hasRequiredParams
-                          ? "Fill the required fields before running the tool."
-                          : "Optional fields can be left blank."}
+                          ? "Required parameters must have a value. Add more rows with + if needed."
+                          : "Optional rows can be left blank or removed."}
                     </p>
                   </div>
                   <div className="flex rounded-md bg-muted p-1" aria-label="Parameter entry mode">
@@ -958,8 +1192,21 @@ function MCPToolTestDialog({
                       size="sm"
                       variant={paramsMode === "fields" ? "secondary" : "ghost"}
                       className="h-7 px-2 text-xs"
-                      disabled={!canUseFieldMode}
-                      onClick={() => setParamsMode("fields")}
+                      onClick={() => {
+                        if (paramsMode === "json") {
+                          try {
+                            const parsed = JSON.parse(paramsText || "{}") as unknown;
+                            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                              setParamRows(rowsFromParamsObject(parsed as Record<string, unknown>));
+                            } else {
+                              setParamRows([createParamRow()]);
+                            }
+                          } catch {
+                            setParamRows([createParamRow()]);
+                          }
+                        }
+                        setParamsMode("fields");
+                      }}
                     >
                       Fields
                     </Button>
@@ -969,9 +1216,9 @@ function MCPToolTestDialog({
                       variant={paramsMode === "json" ? "secondary" : "ghost"}
                       className="h-7 px-2 text-xs"
                       onClick={() => {
-                        if (paramsMode === "fields" && canUseFieldMode) {
+                        if (paramsMode === "fields") {
                           try {
-                            setParamsText(prettyJson(buildParamsFromFields(selectedProperties, paramValues)));
+                            setParamsText(prettyJson(buildParamsFromRows(paramRows, selectedProperties)));
                           } catch {
                             setParamsText("{}");
                           }
@@ -984,66 +1231,71 @@ function MCPToolTestDialog({
                   </div>
                 </div>
 
-                {paramsMode === "fields" && canUseFieldMode ? (
+                {paramsMode === "fields" ? (
                   <div className="grid gap-3 rounded-md border p-3">
-                    {selectedProperties.length === 0 ? (
-                      <div className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                        No parameters needed.
-                      </div>
-                    ) : (
-                      selectedProperties.map((property) => (
-                        <div key={property.name} className="grid gap-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <label htmlFor={`mcp-test-param-${property.name}`} className="text-sm font-medium">
-                              {property.name}
-                            </label>
-                            {property.required ? (
-                              <Badge variant="outline" className="text-[10px] uppercase">
-                                Required
-                              </Badge>
-                            ) : null}
-                          </div>
-                          {property.type === "boolean" ? (
-                            <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                              <input
-                                id={`mcp-test-param-${property.name}`}
-                                type="checkbox"
-                                checked={Boolean(paramValues[property.name])}
-                                onChange={(event) => updateParamValue(property.name, event.target.checked)}
-                                className="h-4 w-4 accent-primary"
-                              />
-                              Enabled
-                            </label>
-                          ) : property.enumValues?.length ? (
-                            <select
-                              id={`mcp-test-param-${property.name}`}
-                              value={String(paramValues[property.name] ?? "")}
-                              onChange={(event) => updateParamValue(property.name, event.target.value)}
-                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    {paramRows.map((row, index) => {
+                      const schemaProperty = selectedProperties.find((property) => property.name === row.key.trim());
+                      const valueLabel = row.key.trim()
+                        ? `Value for ${row.key.trim()}`
+                        : `Parameter value ${index + 1}`;
+                      return (
+                        <div key={row.id} className="grid gap-1.5">
+                          <div className="flex items-start gap-2">
+                            <div className="grid flex-1 gap-1.5 sm:grid-cols-2">
+                              <div className="grid gap-1">
+                                <label htmlFor={`mcp-test-param-key-${row.id}`} className="text-xs text-muted-foreground">
+                                  Name
+                                </label>
+                                <input
+                                  id={`mcp-test-param-key-${row.id}`}
+                                  value={row.key}
+                                  onChange={(event) => updateParamRow(row.id, { key: event.target.value })}
+                                  placeholder="parameter_name"
+                                  className="h-10 rounded-md border border-input bg-background px-3 text-sm font-mono"
+                                />
+                              </div>
+                              <div className="grid gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label htmlFor={`mcp-test-param-value-${row.id}`} className="text-xs text-muted-foreground">
+                                    Value
+                                  </label>
+                                  {schemaProperty?.required ? (
+                                    <Badge variant="outline" className="text-[10px] uppercase">
+                                      Required
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <input
+                                  id={`mcp-test-param-value-${row.id}`}
+                                  aria-label={valueLabel}
+                                  value={row.value}
+                                  onChange={(event) => updateParamRow(row.id, { value: event.target.value })}
+                                  placeholder={schemaProperty?.required ? "Required value" : "Optional value"}
+                                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="mt-6 h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                              aria-label={`Remove parameter row ${index + 1}`}
+                              onClick={() => removeParamRow(row.id)}
                             >
-                              <option value="">Select {property.name}</option>
-                              {property.enumValues.map((value) => (
-                                <option key={value} value={value}>
-                                  {value}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              id={`mcp-test-param-${property.name}`}
-                              value={String(paramValues[property.name] ?? "")}
-                              type={property.type === "number" || property.type === "integer" ? "number" : "text"}
-                              onChange={(event) => updateParamValue(property.name, event.target.value)}
-                              placeholder={property.required ? `Enter ${property.name}` : "Optional"}
-                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                            />
-                          )}
-                          {property.description ? (
-                            <p className="text-xs text-muted-foreground">{property.description}</p>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {schemaProperty?.description ? (
+                            <p className="text-xs text-muted-foreground">{schemaProperty.description}</p>
                           ) : null}
                         </div>
-                      ))
-                    )}
+                      );
+                    })}
+                    <Button type="button" variant="outline" size="sm" className="w-fit" onClick={addParamRow}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add parameter
+                    </Button>
                   </div>
                 ) : (
                   <>
@@ -1053,9 +1305,16 @@ function MCPToolTestDialog({
                       onChange={(event) => setParamsText(event.target.value)}
                       className="min-h-28 font-mono text-xs"
                       spellCheck={false}
+                      placeholder={
+                        schemaMissing
+                          ? '{"jql": "project = MERAKI ORDER BY updated DESC"}'
+                          : "{}"
+                      }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Use <code className="font-mono">{"{}"}</code> for tools that do not take arguments.
+                      {schemaMissing
+                        ? "Pass a JSON object with the tool argument names and values."
+                        : <>Use <code className="font-mono">{"{}"}</code> for tools that do not take arguments.</>}
                     </p>
                   </>
                 )}
@@ -1075,24 +1334,64 @@ function MCPToolTestDialog({
 
           {result && (
             <div className="grid gap-2">
-              <div className="flex items-center gap-2 text-sm">
-                {result.success ? (
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                ) : (
-                  <AlertCircle className="h-4 w-4 text-destructive" />
-                )}
-                <span className={result.success ? "text-green-600 dark:text-green-400" : "text-destructive"}>
-                  {result.success ? "Tool call succeeded" : "Tool call failed"}
-                </span>
-              </div>
+              {(() => {
+                const transportOk = result.success;
+                const applicationOk = result.application_success ?? result.success;
+                const showApplicationWarning = transportOk && !applicationOk;
+                return (
+                  <>
+                    <div className="flex items-center gap-2 text-sm">
+                      {showApplicationWarning ? (
+                        <AlertCircle className="h-4 w-4 text-amber-500" />
+                      ) : transportOk ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span
+                        className={
+                          showApplicationWarning
+                            ? "text-amber-600 dark:text-amber-400"
+                            : transportOk
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-destructive"
+                        }
+                      >
+                        {showApplicationWarning
+                          ? "MCP call succeeded, but the tool returned an application error"
+                          : transportOk
+                            ? "Tool call succeeded"
+                            : "Tool call failed"}
+                      </span>
+                    </div>
+                    {result.credential_resolution && result.credential_resolution.length > 0 && (
+                      <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">Credential resolution</p>
+                        <ul className="mt-1 space-y-1">
+                          {result.credential_resolution.map((entry) => (
+                            <li key={`${entry.kind}-${entry.name}`}>
+                              {entry.name}: {entry.origin}
+                              {entry.provider ? ` (${entry.provider})` : ""}
+                              {entry.origin === "none"
+                                ? " — connect the provider under Credentials or check MCP server credential sources"
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               <pre className="max-h-72 overflow-auto rounded-md border bg-muted/40 p-3 text-xs">
                 {prettyJson(result.result ?? result.error ?? result)}
               </pre>
             </div>
           )}
-        </div>
+          </div>
+        </ScrollArea>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>

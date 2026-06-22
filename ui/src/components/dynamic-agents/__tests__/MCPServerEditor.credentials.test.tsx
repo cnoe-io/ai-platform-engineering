@@ -254,11 +254,54 @@ describe("MCPServerEditor credential sources", () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: /select an agentgateway target/i }));
+    await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
     await user.type(screen.getByPlaceholderText(/search targets/i), "test");
     await user.click(screen.getByText("Test ArgoCD"));
 
     expect(screen.getByLabelText(/endpoint url/i)).toHaveValue("http://agentgateway:4000/mcp/mcp-test-argocd");
+  });
+
+  it("submits the picked AgentGateway upstream when creating a new server", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({
+          targets: [
+            {
+              id: "jira",
+              name: "Jira",
+              endpoint: "http://agentgateway:4000/mcp/jira",
+              target_endpoint: "http://mcp-jira:8000/mcp",
+            },
+          ],
+        });
+      }
+      if (url === "/api/credentials/secrets" || url === "/api/credentials/connections" || url === "/api/credentials/oauth-connectors") {
+        return response([]);
+      }
+      if (url === "/api/mcp-servers" && init?.method === "POST") {
+        return response({ _id: "mcp-jira-gu" }, true);
+      }
+      return response({});
+    });
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "JIRA_GU");
+    await user.click(screen.getByRole("button", { name: /edit generated name/i }));
+    await user.clear(screen.getByLabelText(/generated name/i));
+    await user.type(screen.getByLabelText(/generated name/i), "jira-gu");
+    await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
+    await user.click(screen.getByText("Jira"));
+    await user.click(screen.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }));
+    await user.click(screen.getByRole("button", { name: /create server/i }));
+
+    await waitFor(() =>
+      expect(createBody()).toMatchObject({
+        id: "jira-gu",
+        endpoint: "http://agentgateway:4000/mcp/jira",
+        agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
+      }),
+    );
   });
 
   it("creates provider connection sources from selectable connected apps", async () => {

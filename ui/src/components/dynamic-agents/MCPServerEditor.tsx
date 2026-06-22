@@ -15,6 +15,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  SUPPRESS_PASSWORD_MANAGER_FORM_PROPS,
+  SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS,
+  SUPPRESS_SECRET_LIKE_INPUT_PROPS,
+} from "@/lib/suppress-password-manager";
 import type {
 MCPCredentialSource,
 MCPServerConfig,
@@ -182,6 +187,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [description, setDescription] = React.useState(server?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "sse");
   const [endpoint, setEndpoint] = React.useState(server?.endpoint || "");
+  const [pickedAgentGatewayUpstream, setPickedAgentGatewayUpstream] = React.useState(
+    server?.agentgateway_target_endpoint?.trim() || "",
+  );
   const [command, setCommand] = React.useState(server?.command || "");
   const [args, setArgs] = React.useState<string[]>(server?.args || []);
   const [envVars, setEnvVars] = React.useState<{ key: string; value: string }[]>(
@@ -455,6 +463,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
+          ...(transport !== "stdio" && pickedAgentGatewayUpstream.trim()
+            ? { agentgateway_target_endpoint: pickedAgentGatewayUpstream.trim() }
+            : {}),
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -482,6 +493,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
+          ...(transport !== "stdio" && pickedAgentGatewayUpstream.trim()
+            ? { agentgateway_target_endpoint: pickedAgentGatewayUpstream.trim() }
+            : {}),
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -536,22 +550,24 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
         </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" {...SUPPRESS_PASSWORD_MANAGER_FORM_PROPS}>
           <fieldset className={readOnly ? "opacity-70" : ""}>
           {/* Basic Info */}
           <div className="space-y-4">
             <h3 className="text-sm font-medium">Basic Information</h3>
 
             <div className="space-y-2">
-              <Label htmlFor="name">
+              <Label htmlFor="mcp-display-name">
                 Display Name <span className="text-destructive">*</span>
               </Label>
               <Input
-                id="name"
+                id="mcp-display-name"
+                name="mcp-display-name"
                 placeholder="e.g., Meraki Docs"
                 value={name}
                 onChange={(e) => handleDisplayNameChange(e.target.value)}
                 disabled={loading || readOnly}
+                {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
               />
               {!isEditing && (
                 <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
@@ -575,11 +591,12 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   </div>
                   {showGeneratedNameEditor && (
                     <div className="mt-2 space-y-1.5">
-                      <Label htmlFor="id" className="text-xs">
+                      <Label htmlFor="mcp-generated-name" className="text-xs">
                         Generated name
                       </Label>
                       <Input
-                        id="id"
+                        id="mcp-generated-name"
+                        name="mcp-generated-name"
                         aria-label="Generated name"
                         placeholder="meraki-docs"
                         value={id}
@@ -589,6 +606,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                         }}
                         disabled={loading || readOnly}
                         className="h-9 font-mono text-xs"
+                        {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                       />
                     </div>
                   )}
@@ -600,11 +618,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
               <Label htmlFor="description">Description</Label>
               <Textarea
                 id="description"
+                name="mcp-description"
                 placeholder="What does this server provide?"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 disabled={loading || readOnly}
                 rows={2}
+                {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
               />
             </div>
           </div>
@@ -644,11 +664,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   </Label>
                   <Input
                     id="command"
+                    name="mcp-command"
                     placeholder="e.g., npx, uvx, python"
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
                     disabled={loading || readOnly}
                     className="font-mono"
+                    {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                   />
                 </div>
 
@@ -667,6 +689,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       }}
                       disabled={loading || readOnly}
                       className="font-mono"
+                      {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                     />
                     <Button type="button" variant="outline" onClick={handleAddArg} disabled={loading || readOnly}>
                       <Plus className="h-4 w-4" />
@@ -715,6 +738,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             onChange={(e) => handleUpdateEnvVar(i, "key", e.target.value)}
                             disabled={loading || readOnly}
                             className="font-mono flex-1"
+                            {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                           />
                           <Input
                             placeholder="value"
@@ -722,6 +746,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             onChange={(e) => handleUpdateEnvVar(i, "value", e.target.value)}
                             disabled={loading || readOnly}
                             className="font-mono flex-[2]"
+                            {...SUPPRESS_SECRET_LIKE_INPUT_PROPS}
                           />
                           <Button
                             type="button"
@@ -739,20 +764,59 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 </div>
               </>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-4">
+                {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="agentgateway-target">AgentGateway target</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Pick a routed MCP target from AgentGateway. Saved HTTP and SSE MCP servers
+                      always go through AgentGateway so tool access can be authorized.
+                    </p>
+                    <TeamPicker
+                      id="agentgateway-target"
+                      value={selectedAgentGatewayTargetId}
+                      onChange={(targetId) => {
+                        const target = agentGatewayTargets.find((candidate) => candidate.id === targetId);
+                        if (target) {
+                          setEndpoint(target.endpoint);
+                          setPickedAgentGatewayUpstream(target.target_endpoint?.trim() || "");
+                          setEndpointProbe(null);
+                        }
+                      }}
+                      options={agentGatewayTargetOptions}
+                      placeholder="Select an AgentGateway target"
+                      searchPlaceholder="Search targets..."
+                      emptyLabel="No targets match"
+                      disabled={loading || readOnly}
+                      hideSlugSuffix
+                      contentSide="top"
+                      triggerClassName="w-full font-mono"
+                      contentClassName="min-w-[min(420px,90vw)]"
+                      helperText={`${agentGatewayTargets.length} targets available`}
+                    />
+                  </div>
+                ) : null}
+                <div className="space-y-2">
                 <Label htmlFor="endpoint">
                   Endpoint URL <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="endpoint"
+                  name="mcp-endpoint"
                   placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
                   value={endpoint}
                   onChange={(e) => {
-                    setEndpoint(e.target.value);
+                    const nextEndpoint = e.target.value;
+                    setEndpoint(nextEndpoint);
                     setEndpointProbe(null);
+                    const matchingTarget = agentGatewayTargets.find(
+                      (candidate) => candidate.endpoint === nextEndpoint.trim(),
+                    );
+                    setPickedAgentGatewayUpstream(matchingTarget?.target_endpoint?.trim() || "");
                   }}
                   disabled={loading || readOnly}
                   className="font-mono"
+                  {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                 />
                 {transport === "http" ? (
                   <div className="flex flex-wrap items-center gap-2">
@@ -791,29 +855,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                     ) : null}
                   </div>
                 ) : null}
-                {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">
-                      Pick an AgentGateway target to use its routed endpoint. Saved HTTP and SSE MCP
-                      servers always go through AgentGateway so tool access can be authorized.
-                    </p>
-                    <TeamPicker
-                      value={selectedAgentGatewayTargetId}
-                      onChange={(targetId) => {
-                        const target = agentGatewayTargets.find((candidate) => candidate.id === targetId);
-                        if (target) setEndpoint(target.endpoint);
-                      }}
-                      options={agentGatewayTargetOptions}
-                      placeholder="Select an AgentGateway target"
-                      searchPlaceholder="Search targets..."
-                      emptyLabel="No targets match"
-                      disabled={loading || readOnly}
-                      hideSlugSuffix
-                      triggerClassName="max-w-md font-mono"
-                      contentClassName="min-w-[min(420px,90vw)]"
-                    />
-                  </div>
-                ) : null}
+                </div>
               </div>
             )}
           </div>
@@ -882,6 +924,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                         handleUpdateCredentialKind(i, event.target.value as MCPCredentialSource["kind"])
                       }
                       disabled={readOnly}
+                      {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                     >
                       <option value="secret_ref">Saved secret</option>
                       <option value="provider_connection">Connected app</option>
@@ -892,6 +935,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       value={source.target}
                       onChange={(event) => handleUpdateCredentialSource(i, "target", event.target.value)}
                       disabled={readOnly}
+                      {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                     >
                       <option value="env">Environment</option>
                       <option value="header">Header</option>
@@ -906,6 +950,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             : CUSTOM_HEADER_VALUE}
                           onChange={(event) => handleSelectCredentialHeader(i, event.target.value)}
                           disabled={readOnly}
+                          {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                         >
                           {HEADER_NAME_OPTIONS.map((headerName) => (
                             <option key={headerName} value={headerName}>
@@ -921,6 +966,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             value={source.name}
                             onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
                             disabled={readOnly}
+                            {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                           />
                         ) : null}
                       </div>
@@ -931,6 +977,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                         value={source.name}
                         onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
                         disabled={readOnly}
+                        {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                       />
                     )}
                     {source.kind === "secret_ref" ? (
@@ -941,6 +988,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           value={source.secret_ref ?? ""}
                           onChange={(event) => handleUpdateCredentialSource(i, "secret_ref", event.target.value)}
                           disabled={readOnly || secretOptions.length === 0}
+                          {...SUPPRESS_SECRET_LIKE_INPUT_PROPS}
                         >
                           <option value="" disabled>
                             {secretOptions.length === 0 ? "No saved secrets" : "Select a secret"}
@@ -964,6 +1012,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                         value={source.provider_connection_id ?? ""}
                         onChange={(event) => handleSelectProviderConnection(i, event.target.value)}
                         disabled={readOnly || providerConnectionOptions.length === 0}
+                        {...SUPPRESS_SECRET_LIKE_INPUT_PROPS}
                       >
                         <option value="" disabled>
                           {providerConnectionOptions.length === 0 ? "No connected apps" : "Select a connected app"}

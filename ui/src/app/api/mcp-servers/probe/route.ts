@@ -13,6 +13,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { authenticateRequest,buildBackendHeaders } from "@/lib/da-proxy";
+import { isAgentGatewayEndpoint, listHttpMcpTools } from "@/lib/mcp-http-server-client";
 import { getCollection } from "@/lib/mongodb";
 import { cacheMcpToolCatalog } from "@/lib/rbac/mcp-tool-catalog";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
@@ -275,6 +276,32 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     try {
       if (isHttpMcpServer(server)) {
+        if (isAgentGatewayEndpoint(server)) {
+          const listed = await listHttpMcpTools({
+            request,
+            session,
+            server,
+            serverId: id,
+          });
+          const toolTest = await smokeTestNoArgumentTool(server, listed.tools, listed.sessionId);
+          try {
+            await cacheMcpToolCatalog({
+              serverId: id,
+              tools: listed.tools,
+              source: "probe",
+            });
+          } catch (cacheError) {
+            console.warn("[mcp-servers/probe] failed to cache AgentGateway tool catalog:", cacheError);
+          }
+          return successResponse({
+            server_id: id,
+            success: true,
+            tools: listed.tools,
+            source: "agentgateway",
+            ...(toolTest ? { tool_test: toolTest } : {}),
+          });
+        }
+
         const directResult = await listToolsDirect(server);
         if (directResult) {
           const toolTest = await smokeTestNoArgumentTool(server, directResult.tools, directResult.sessionId);

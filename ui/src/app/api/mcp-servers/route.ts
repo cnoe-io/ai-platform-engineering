@@ -9,12 +9,15 @@ import {
 ApiError,
 getAuthFromBearerOrSession,
 getPaginationParams,
-paginatedResponse,
 successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
+import {
+  isAgentGatewayManagedEndpoint,
+  resolveAgentGatewayUpstreamEndpoint,
+} from "@/lib/rbac/agentgateway-upstream-resolver";
 import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
@@ -23,10 +26,17 @@ reconcileMcpServerRelationships,
 } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import {
 filterResourcesByPermission,
+mcpServerRowPermissionsOrDefault,
 requireResourcePermission,
+resolveMcpServerListPermissions,
 } from "@/lib/rbac/resource-authz";
-import type { MCPCredentialSource, MCPServerConfig,TransportType } from "@/types/dynamic-agent";
-import { NextRequest } from "next/server";
+import type {
+MCPCredentialSource,
+MCPServerConfig,
+MCPServerConfigWithPermissions,
+TransportType,
+} from "@/types/dynamic-agent";
+import { NextRequest, NextResponse } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -133,10 +143,50 @@ function isLockedConfigDrivenServer(server: MCPServerConfig): boolean {
 }
 
 function isAgentGatewayEndpoint(endpoint: string | undefined): boolean {
-  if (!endpoint) return false;
-  const gatewayBase = agentGatewayBaseForNormalizer().replace(/\/+$/, "");
-  const trimmed = endpoint.trim().replace(/\/+$/, "");
-  return trimmed === gatewayBase || trimmed.startsWith(`${gatewayBase}/mcp`);
+  return isAgentGatewayManagedEndpoint(endpoint);
+}
+
+async function normalizeNetworkServerForAgentGateway(input: {
+  serverId: string;
+  transport: TransportType;
+  endpoint?: string;
+  existingTargetEndpoint?: string;
+  pickedTargetEndpoint?: string;
+  credentialSources?: unknown;
+}): Promise<{
+  endpoint?: string;
+  agentgateway_target_endpoint?: string;
+  source?: "agentgateway";
+  agentgateway_discovered?: boolean;
+  credential_sources?: MCPCredentialSource[];
+}> {
+  if (!isNetworkTransport(input.transport)) {
+    return {
+      endpoint: input.endpoint,
+      credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
+    };
+  }
+
+  const upstreamEndpoint = isAgentGatewayEndpoint(input.endpoint)
+    ? await resolveAgentGatewayUpstreamEndpoint({
+        endpoint: input.endpoint,
+        pickedTargetEndpoint: input.pickedTargetEndpoint,
+        existingTargetEndpoint: input.existingTargetEndpoint,
+      })
+    : normalizeMcpEndpointForServer({
+        endpoint: input.endpoint,
+        serverId: input.serverId,
+        agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
+        directEndpointDefaultPath: input.transport === "http" ? "/mcp" : undefined,
+      });
+
+  return {
+    endpoint: agentGatewayRouteFor(input.serverId),
+    agentgateway_target_endpoint: upstreamEndpoint,
+    source: "agentgateway",
+    agentgateway_discovered: false,
+    credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
+  };
 }
 
 function agentGatewayRouteFor(serverId: string): string {
@@ -161,44 +211,6 @@ function normalizeCredentialSourcesForAgentGateway(value: unknown): MCPCredentia
       }
       return source;
     });
-}
-
-function normalizeNetworkServerForAgentGateway(input: {
-  serverId: string;
-  transport: TransportType;
-  endpoint?: string;
-  existingTargetEndpoint?: string;
-  credentialSources?: unknown;
-}): {
-  endpoint?: string;
-  agentgateway_target_endpoint?: string;
-  source?: "agentgateway";
-  agentgateway_discovered?: boolean;
-  credential_sources?: MCPCredentialSource[];
-} {
-  if (!isNetworkTransport(input.transport)) {
-    return {
-      endpoint: input.endpoint,
-      credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
-    };
-  }
-
-  const upstreamEndpoint = isAgentGatewayEndpoint(input.endpoint)
-    ? input.existingTargetEndpoint
-    : normalizeMcpEndpointForServer({
-        endpoint: input.endpoint,
-        serverId: input.serverId,
-        agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
-        directEndpointDefaultPath: input.transport === "http" ? "/mcp" : undefined,
-      });
-
-  return {
-    endpoint: agentGatewayRouteFor(input.serverId),
-    agentgateway_target_endpoint: upstreamEndpoint,
-    source: "agentgateway",
-    agentgateway_discovered: false,
-    credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
-  };
 }
 
 async function selfHealAgentGatewayMcpServersForList(
@@ -243,12 +255,30 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, {
-      bypassForOrgAdmin: true,
-    });
+    const permissionOptions = { bypassForOrgAdmin: true as const };
+    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, permissionOptions);
     const pageItems = visibleItems.slice(skip, skip + pageSize);
+    const { rows, capabilities } = await resolveMcpServerListPermissions(
+      session,
+      pageItems.map((server) => String(server._id)),
+      permissionOptions,
+    );
+    const items: MCPServerConfigWithPermissions[] = pageItems.map((server) => ({
+      ...server,
+      permissions: mcpServerRowPermissionsOrDefault(rows, String(server._id)),
+    }));
 
-    return paginatedResponse(pageItems, visibleItems.length, page, pageSize);
+    return NextResponse.json({
+      success: true,
+      data: {
+        items,
+        capabilities,
+        total: visibleItems.length,
+        page,
+        page_size: pageSize,
+        has_more: page * pageSize < visibleItems.length,
+      },
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -308,10 +338,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       body.endpoint as string | undefined,
     );
 
-    const gatewayManaged = normalizeNetworkServerForAgentGateway({
+    const gatewayManaged = await normalizeNetworkServerForAgentGateway({
       serverId,
       transport: body.transport as TransportType,
       endpoint: body.endpoint as string | undefined,
+      pickedTargetEndpoint:
+        typeof body.agentgateway_target_endpoint === "string"
+          ? body.agentgateway_target_endpoint
+          : undefined,
       credentialSources: body.credential_sources,
     });
 
@@ -412,7 +446,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const nextTransport = (updateData.transport as TransportType | undefined) ?? server.transport;
     if (isNetworkTransport(nextTransport)) {
-      const gatewayManaged = normalizeNetworkServerForAgentGateway({
+      const gatewayManaged = await normalizeNetworkServerForAgentGateway({
         serverId: String(id),
         transport: nextTransport,
         endpoint:
@@ -420,6 +454,10 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
             ? updateData.endpoint
             : (server.agentgateway_target_endpoint || server.endpoint),
         existingTargetEndpoint: server.agentgateway_target_endpoint,
+        pickedTargetEndpoint:
+          typeof body.agentgateway_target_endpoint === "string"
+            ? body.agentgateway_target_endpoint
+            : undefined,
         credentialSources: updateData.credential_sources ?? server.credential_sources,
       });
       updateData.endpoint = gatewayManaged.endpoint;

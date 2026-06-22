@@ -61,6 +61,22 @@ export interface MCPServerConfig {
   updated_at: string;
 }
 
+/** Per-row OpenFGA decisions returned by GET /api/mcp-servers (batch-checked). */
+export interface MCPServerRowPermissions {
+  can_manage: boolean;
+  can_invoke: boolean;
+  can_discover: boolean;
+}
+
+/** List-level capabilities returned once per GET /api/mcp-servers response. */
+export interface MCPServerListCapabilities {
+  repair_agentgateway: boolean;
+}
+
+export interface MCPServerConfigWithPermissions extends MCPServerConfig {
+  permissions: MCPServerRowPermissions;
+}
+
 export interface MCPCredentialSource {
   kind: 'secret_ref' | 'provider_connection' | 'caller_token';
   target: 'env' | 'header';
@@ -80,6 +96,8 @@ export interface MCPServerConfigCreate {
   description?: string;
   transport: TransportType;
   endpoint?: string;
+  /** Upstream MCP URL when the form endpoint is an AgentGateway route from the picker. */
+  agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -93,6 +111,7 @@ export interface MCPServerConfigUpdate {
   description?: string;
   transport?: TransportType;
   endpoint?: string;
+  agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -395,6 +414,17 @@ export interface DynamicAgentConfig {
   last_review?: import("./ai-review").LastReview;
   created_at: string;
   updated_at: string;
+}
+
+/** Per-row OpenFGA decisions returned by GET /api/dynamic-agents (batch-checked). */
+export interface AgentRowPermissions {
+  can_manage: boolean;
+  can_write: boolean;
+  can_discover: boolean;
+}
+
+export interface DynamicAgentConfigWithPermissions extends DynamicAgentConfig {
+  permissions: AgentRowPermissions;
 }
 
 export interface DynamicAgentConfigCreate {

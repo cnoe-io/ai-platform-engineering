@@ -12,8 +12,11 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCredentialRetrievalService } from "@/lib/credentials/retrieval-service-factory";
 import { getCollection } from "@/lib/mongodb";
+import {
+  readMcpToolApplicationSuccess,
+  resolveMcpHeaderCredentials,
+} from "@/lib/mcp-credential-headers";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
@@ -97,47 +100,6 @@ function isAgentGatewayEndpoint(server: MCPServerConfig): boolean {
   }
 }
 
-function userAuthorizationHeader(
-  request: NextRequest,
-  session: Awaited<ReturnType<typeof getAuthFromBearerOrSession>>["session"],
-): string | null {
-  const sessionToken = typeof session?.accessToken === "string" ? session.accessToken.trim() : "";
-  if (sessionToken) {
-    return sessionToken.toLowerCase().startsWith("bearer ") ? sessionToken : `Bearer ${sessionToken}`;
-  }
-
-  const requestAuthorization = request.headers.get("authorization")?.trim();
-  return requestAuthorization?.toLowerCase().startsWith("bearer ") ? requestAuthorization : null;
-}
-
-function isProviderBearerSource(headerName: string): boolean {
-  const normalized = headerName.trim().toLowerCase();
-  return (
-    normalized === "authorization" ||
-    normalized === "x-caipe-token" ||
-    normalized === "x-caipe-provider-token"
-  );
-}
-
-function providerCredentialHeader(sourceName: string, viaAgentGateway: boolean): string {
-  return viaAgentGateway && isProviderBearerSource(sourceName) ? "X-CAIPE-Provider-Token" : sourceName;
-}
-
-function providerCredentialValue(
-  credential: string,
-  sourceName: string,
-  headerName: string,
-  viaAgentGateway: boolean,
-): string {
-  if (viaAgentGateway && headerName.toLowerCase() === "x-caipe-provider-token") {
-    return credential.replace(/^Bearer\s+/i, "");
-  }
-  if (sourceName.toLowerCase() === "authorization" && !credential.toLowerCase().startsWith("bearer ")) {
-    return `Bearer ${credential}`;
-  }
-  return credential;
-}
-
 function diagnosticOpenFgaTuples(
   serverId: string,
   agentId: string,
@@ -215,56 +177,6 @@ async function mcpJsonRpc(input: {
   }
 }
 
-async function resolveHeaderCredentials(
-  request: NextRequest,
-  session: Awaited<ReturnType<typeof getAuthFromBearerOrSession>>["session"],
-  server: MCPServerConfig,
-  viaAgentGateway: boolean,
-): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  const service = await getCredentialRetrievalService();
-  const credentialHeaders = new Headers({
-    authorization: "Bearer mcp-test-tool",
-    "x-caipe-credential-caller": "mcp_runtime",
-    "x-caipe-credential-audience": process.env.CREDENTIAL_SERVICE_AUDIENCE || "caipe-credential-service",
-  });
-  // Preserve no browser fetch metadata on purpose: this is a server-side
-  // runtime-style credential retrieval, not a browser-readable secret fetch.
-  void request;
-
-  for (const source of server.credential_sources ?? []) {
-    if (source.kind !== "secret_ref" || source.target !== "header" || !source.secret_ref) continue;
-    const result = await service.retrieve({
-      headers: credentialHeaders,
-      body: { secret_ref: source.secret_ref, intended_use: "mcp_server" },
-      session,
-    });
-    const headerName = providerCredentialHeader(source.name, viaAgentGateway);
-    headers[headerName] = providerCredentialValue(
-      result.credential,
-      source.name,
-      headerName,
-      viaAgentGateway,
-    );
-  }
-
-  if (viaAgentGateway) {
-    const authorization = userAuthorizationHeader(request, session);
-    if (!authorization) {
-      throw new ApiError(
-        "A signed-in user token is required to test AgentGateway-routed MCP tools",
-        401,
-        "MCP_TEST_AUTH_REQUIRED",
-      );
-    }
-    headers.Authorization = authorization;
-    const agentContext = buildAgentContextHeaders(diagnosticAgentId(server._id || server.id || "mcp-server", session));
-    Object.assign(headers, agentContext);
-  }
-
-  return headers;
-}
-
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   const body = (await request.json()) as Record<string, unknown>;
@@ -289,7 +201,31 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     : [];
 
   try {
-    const headers = await resolveHeaderCredentials(request, session, server, viaAgentGateway);
+    let credentialResolution;
+    try {
+      credentialResolution = await resolveMcpHeaderCredentials({
+        request,
+        session,
+        server,
+        viaAgentGateway,
+        retrievalCaller: "mcp-test-tool",
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "MCP_AUTH_REQUIRED") {
+        throw new ApiError(
+          "A signed-in user token is required to test AgentGateway-routed MCP tools",
+          401,
+          "MCP_TEST_AUTH_REQUIRED",
+        );
+      }
+      throw error;
+    }
+
+    const headers = {
+      ...credentialResolution.headers,
+      ...buildAgentContextHeaders(diagnosticAgent),
+    };
+
     const initialized = await mcpJsonRpc({
       endpoint: server.endpoint,
       headers,
@@ -321,13 +257,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     });
     const payload = invoked.payload as { error?: { message?: unknown }; result?: unknown } | null;
     const errorMessage = typeof payload?.error?.message === "string" ? payload.error.message : undefined;
+    const toolResult = payload?.result ?? invoked.payload;
+    const applicationSuccess = readMcpToolApplicationSuccess(toolResult);
+    const transportSuccess = invoked.ok && !payload?.error;
 
     return successResponse({
       server_id: serverId,
       tool_name: toolName,
-      success: invoked.ok && !payload?.error,
+      success: transportSuccess,
+      application_success: applicationSuccess ?? transportSuccess,
       status: invoked.status,
-      result: payload?.result ?? invoked.payload,
+      result: toolResult,
+      credential_resolution: credentialResolution.sources,
       ...(errorMessage ? { error: errorMessage } : {}),
     });
   } finally {

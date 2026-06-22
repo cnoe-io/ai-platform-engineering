@@ -12,7 +12,11 @@ const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockGetCredentialRetrievalService = jest.fn();
+const mockGetProviderConnectionService = jest.fn();
 const mockRetrieve = jest.fn();
+const mockRefreshConnection = jest.fn();
+const mockListConnections = jest.fn();
+const mockIsCredentialFeatureEnabled = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
@@ -63,6 +67,14 @@ jest.mock("@/lib/credentials/retrieval-service-factory", () => ({
   getCredentialRetrievalService: (...args: unknown[]) => mockGetCredentialRetrievalService(...args),
 }));
 
+jest.mock("@/lib/credentials/oauth-service-factory", () => ({
+  getProviderConnectionService: (...args: unknown[]) => mockGetProviderConnectionService(...args),
+}));
+
+jest.mock("@/lib/feature-flags/credentials", () => ({
+  isCredentialFeatureEnabled: (...args: unknown[]) => mockIsCredentialFeatureEnabled(...args),
+}));
+
 function request(body: Record<string, unknown>, headers?: HeadersInit): NextRequest {
   return new NextRequest(new URL("/api/mcp-servers/test-tool", "http://localhost:3000"), {
     method: "POST",
@@ -85,6 +97,13 @@ describe("POST /api/mcp-servers/test-tool", () => {
     mockGetAuthFromBearerOrSession.mockResolvedValue({ session });
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockGetCredentialRetrievalService.mockResolvedValue({ retrieve: mockRetrieve });
+    mockGetProviderConnectionService.mockResolvedValue({
+      listConnections: mockListConnections,
+      getConnection: jest.fn(),
+      refreshConnection: mockRefreshConnection,
+    });
+    mockIsCredentialFeatureEnabled.mockReturnValue(true);
+    mockListConnections.mockResolvedValue([]);
     mockRetrieve.mockResolvedValue({ credential: "argocd-provider-token" });
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 2, deletes: 0 });
   });
@@ -234,5 +253,77 @@ describe("POST /api/mcp-servers/test-tool", () => {
     const initializeHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers;
     expect(initializeHeaders.Authorization).toBe("Bearer user-keycloak-token");
     expect(initializeHeaders["X-CAIPE-Provider-Token"]).toBe("argocd-provider-token");
+  });
+
+  it("forwards Atlassian provider_connection tokens for AgentGateway Jira tests", async () => {
+    mockListConnections.mockResolvedValue([
+      {
+        id: "atlassian-conn-1",
+        provider: "atlassian",
+        status: "connected",
+        owner: { type: "user", id: "user-sub" },
+      },
+    ]);
+    mockRefreshConnection.mockResolvedValue({ accessToken: "atlassian-user-token", expiresIn: 3600 });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "jira",
+        name: "Jira",
+        transport: "http",
+        endpoint: "http://agentgateway:4000/mcp/jira",
+        source: "agentgateway",
+        enabled: true,
+        credential_sources: [
+          {
+            kind: "provider_connection",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+            provider: "atlassian",
+          },
+        ],
+      }),
+    });
+
+    global.fetch = jest.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: "tools-call-1",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ success: false, error: "Failed to fetch Jira issue" }),
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "mcp-session-id": "mcp-session-1",
+            },
+          },
+        ),
+    ) as unknown as typeof fetch;
+
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request({ serverId: "jira", toolName: "get_issue", params: { issue_key: "SRE-1000" } }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.success).toBe(true);
+    expect(body.data.application_success).toBe(false);
+    expect(body.data.credential_resolution).toEqual([
+      expect.objectContaining({ origin: "provider_connection", provider: "atlassian" }),
+    ]);
+
+    const initializeHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers;
+    expect(initializeHeaders["X-CAIPE-Provider-Token"]).toBe("atlassian-user-token");
   });
 });
