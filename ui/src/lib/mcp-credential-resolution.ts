@@ -67,6 +67,21 @@ export async function resolveProviderConnectionCredential(input: {
       throw new McpCredentialUnavailableError("Provider connection is not pinned on this MCP server");
     }
     connection = await service.getConnection(providerConnectionId);
+    if (connection.status !== "connected") {
+      const callerOwnsConnection =
+        connection.owner.type === ownerType && connection.owner.id === subject;
+      if (callerOwnsConnection) {
+        const replacement = (await service.listConnections({ type: ownerType, id: subject })).find(
+          (candidate) =>
+            candidate.provider === connection!.provider &&
+            candidate.status === "connected" &&
+            candidate.id !== providerConnectionId,
+        );
+        if (replacement) {
+          connection = replacement;
+        }
+      }
+    }
   } else if (providerKey) {
     connection = (await service.listConnections({ type: ownerType, id: subject })).find(
       (candidate) => candidate.provider === providerKey && candidate.status === "connected",

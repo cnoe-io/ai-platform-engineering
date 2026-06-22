@@ -66,9 +66,10 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
 
   api: {
     list: "/api/admin/slack/channels",
-    discoveryUrl: (page, cursor) => {
+    discoveryUrl: (page, cursor, q) => {
       const p = new URLSearchParams({ member_only: "1", limit: "500" });
       if (cursor) p.set("cursor", cursor);
+      if (q) p.set("q", q);
       void page;
       return `/api/admin/slack/available-channels?${p.toString()}`;
     },
@@ -93,6 +94,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
       item_id: String(r.channel_id),
       item_name: formatSlackChannelName(r.channel_name ?? r.channel_id),
       team_slug: r.team_slug ? String(r.team_slug) : undefined,
+      primary_agent_id: r.primary_agent_id ? String(r.primary_agent_id) : undefined,
       active_grants: Number(r.active_grants ?? 0),
       can_manage: Boolean(r.can_manage),
       health: r.health as ItemSummary["health"],

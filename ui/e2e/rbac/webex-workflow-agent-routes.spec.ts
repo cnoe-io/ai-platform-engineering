@@ -206,7 +206,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
 
     await page.goto("/admin?cat=integrations&tab=webex", { waitUntil: "domcontentloaded" });
     await page.getByRole("tab", { name: "Onboard spaces" }).click();
-    await page.getByRole("button", { name: /Find Webex Spaces with Bot Integration/i }).click();
+    await page.getByRole("button", { name: /Find spaces/i }).click();
 
     await expect(page.getByText(/bot-visible spaces discovered/i)).toBeVisible();
     await page.getByRole("checkbox", { name: /Import Workflow Alerts/i }).check();

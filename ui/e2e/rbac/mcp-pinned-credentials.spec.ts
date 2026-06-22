@@ -102,7 +102,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "caller",
         provider: "atlassian",
       },
@@ -143,7 +143,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "pinned",
         provider_connection_id: ADMIN_ATLASSIAN_CONNECTION.id,
       },

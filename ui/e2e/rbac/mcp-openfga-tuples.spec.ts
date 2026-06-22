@@ -635,7 +635,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await expect(page.getByLabel(/^Secret$/).first()).toContainText("Jira token");
-    await expect(page.getByLabel(/Credential header/i).first()).toHaveValue("Authorization");
+    await expect(page.getByLabel(/Credential header/i).first()).toHaveValue("X-CAIPE-Provider-Token");
     await page.getByLabel(/^Secret$/).first().selectOption(secretIds.jira);
 
     await page.getByRole("button", { name: "Add Credential" }).click();
@@ -656,7 +656,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       {
         kind: "secret_ref",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         secret_ref: "secret-jira-token",
       },
       {
@@ -776,7 +776,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "pinned",
         provider_connection_id: "conn-atlassian",
       },
