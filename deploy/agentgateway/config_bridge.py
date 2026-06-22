@@ -237,9 +237,10 @@ def select_gateway_targets_from_bff_payload(payload: dict[str, Any]) -> list[Mcp
             "transport": "http",
             "source": "agentgateway",
             "agentgateway_target_endpoint": item.get("target_endpoint"),
+            "credential_sources": item.get("credential_sources")
+            if isinstance(item.get("credential_sources"), list)
+            else [],
         }
-        if isinstance(item.get("credential_sources"), list):
-            document["credential_sources"] = item["credential_sources"]
         documents.append(document)
     return select_gateway_targets(documents)
 
@@ -337,13 +338,65 @@ def _mcp_route(
     }
 
 
-def _route_policies_for(target_id: str, base: dict[str, Any]) -> dict[str, Any]:
+def _forward_credentials_through_gateway(target: McpGatewayTarget | None) -> bool:
+    """Return true when AgentGateway should wire resolved credential headers upstream.
+
+  When ``credential_sources`` is empty the MCP server uses its own configured
+  credentials; the gateway must not rewrite ``Authorization`` or provider-token
+  headers (extAuthz/FGA still applies).
+    """
+
+    if target is None:
+        # No BFF target row for this id — preserve bootstrap defaults.
+        return True
+    return len(target.credential_sources) > 0
+
+
+def _strip_credential_forwarding_transforms(policies: dict[str, Any]) -> dict[str, Any]:
+    """Remove provider-token header rewrites from a route policy object."""
+
+    merged = copy.deepcopy(policies)
+    transformations = merged.get("transformations")
+    if not isinstance(transformations, dict):
+        return merged
+    request = transformations.get("request")
+    if not isinstance(request, dict):
+        return merged
+    request_set = request.get("set")
+    if not isinstance(request_set, dict):
+        return merged
+    for key in ("authorization", "x-caipe-provider-token"):
+        request_set.pop(key, None)
+    if not request_set:
+        transformations.pop("request", None)
+    if not transformations:
+        merged.pop("transformations", None)
+    return merged
+
+
+def _strip_route_credential_forwarding(route: dict[str, Any]) -> dict[str, Any]:
+    """Drop credential header transforms from a rendered MCP route."""
+
+    stripped = copy.deepcopy(route)
+    policies = stripped.get("policies")
+    if isinstance(policies, dict):
+        stripped["policies"] = _strip_credential_forwarding_transforms(policies)
+    return stripped
+
+
+def _route_policies_for(
+    target_id: str,
+    base: dict[str, Any],
+    *,
+    forward_credentials: bool,
+) -> dict[str, Any]:
     """Merge any per-server route-policy override onto the base MCP route policy."""
 
     merged = copy.deepcopy(base)
-    override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
-    if override:
-        merged.update(copy.deepcopy(override))
+    if forward_credentials:
+        override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
+        if override:
+            merged.update(copy.deepcopy(override))
     return merged
 
 
@@ -477,6 +530,7 @@ def merge_agentgateway_mcp_routes(
     builtin_routes = builtin_routes or {}
     builtin_ids = set(builtin_routes)
     builtin_paths = {f"/mcp/{target_id}" for target_id in builtin_ids}
+    targets_by_id = {target.id: target for target in targets}
     # Dynamic (BFF-managed) targets are everything not shipped as a built-in.
     dynamic_targets = [target for target in targets if target.id not in builtin_ids]
     desired_by_path = {f"/mcp/{target.id}": target for target in dynamic_targets}
@@ -512,14 +566,25 @@ def merge_agentgateway_mcp_routes(
         if not (isinstance(route, dict) and _is_managed_mcp_route_path(_route_path(route)))
     ]
     # Protected built-in routes: always present, rendered from their authoritative
-    # bootstrap definition (preserving per-route transformations/policies).
-    retained_routes.extend(copy.deepcopy(builtin_routes[target_id]) for target_id in sorted(builtin_ids))
+    # bootstrap definition unless the BFF reports empty credential_sources — then
+    # strip credential header transforms so the upstream MCP uses its own config.
+    for target_id in sorted(builtin_ids):
+        route = copy.deepcopy(builtin_routes[target_id])
+        if not _forward_credentials_through_gateway(targets_by_id.get(target_id)):
+            route = _strip_route_credential_forwarding(route)
+        retained_routes.append(route)
     retained_routes.extend(
         _mcp_route(
             target,
             _merge_request_transformations(
-                _route_policies_for(target.id, policies),
-                _credential_source_transformations(target.credential_sources),
+                _route_policies_for(
+                    target.id,
+                    policies,
+                    forward_credentials=_forward_credentials_through_gateway(target),
+                ),
+                _credential_source_transformations(target.credential_sources)
+                if _forward_credentials_through_gateway(target)
+                else {},
             ),
             # Servers handled by a route-level transformation must NOT carry a
             # target-level backendAuth (drop any stale PAT preserved from the
@@ -527,7 +592,8 @@ def merge_agentgateway_mcp_routes(
             # transformation merged in by _route_policies_for above.
             target_policies=(
                 None
-                if target.id in DEFAULT_MCP_ROUTE_POLICY_OVERRIDES
+                if _forward_credentials_through_gateway(target)
+                and target.id in DEFAULT_MCP_ROUTE_POLICY_OVERRIDES
                 else (
                     target_policies_by_path.get(f"/mcp/{target.id}")
                     or DEFAULT_MCP_TARGET_POLICIES.get(target.id)

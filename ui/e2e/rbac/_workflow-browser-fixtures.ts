@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
+import type { BuiltinToolsConfigWithIndex } from "../../src/types/dynamic-agent";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -77,7 +78,7 @@ export type WorkflowAgentFixture = {
   name: string;
   description?: string;
   allowed_tools?: Record<string, string[] | boolean>;
-  builtin_tools?: Record<string, { enabled?: boolean }>;
+  builtin_tools?: BuiltinToolsConfigWithIndex;
 };
 
 export type WorkflowScenario = {
@@ -315,7 +316,7 @@ export function buildSreAgentWithWorkflowsFixture(
     permissions: { can_manage: true, can_write: true, can_discover: true },
     builtin_tools: {
       workflows: workflowIds,
-    },
+    } as BuiltinToolsConfigWithIndex,
   };
 }
 

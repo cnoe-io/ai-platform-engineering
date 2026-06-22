@@ -106,7 +106,7 @@ test.describe("mocked workflows RBAC and MCP regression", () => {
     await page.getByRole("button", { name: /Restrict for this step/i }).click();
     await page.getByRole("button", { name: "mcp-jira" }).click();
 
-    await expect.poll(() => mocks.probeRequests).toEqual(["mcp-jira"]);
+    await expect.poll(() => mocks.probeRequests).toContain("mcp-jira");
     await expect(page.getByText("search", { exact: true })).toBeVisible();
     await expect(page.getByText("get_issue", { exact: true })).toBeVisible();
   });

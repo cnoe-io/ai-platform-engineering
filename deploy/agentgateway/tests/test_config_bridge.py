@@ -351,14 +351,16 @@ def test_merge_agentgateway_mcp_routes_drops_stale_backend_auth_for_transform_se
             bridge.McpGatewayTarget(
                 id="github",
                 upstream_url="http://github-mcp-server:8082/mcp",
+                credential_sources=(
+                    {
+                        "kind": "provider_connection",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "provider": "github",
+                    },
+                ),
             )
         ],
-    )
-
-    route = next(
-        route
-        for route in rendered["binds"][0]["listeners"][0]["routes"]
-        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/github"
     )
     target = route["backends"][0]["mcp"]["targets"][0]
     assert target["mcp"]["host"] == "http://github-mcp-server:8082/mcp"
@@ -380,6 +382,14 @@ def test_merge_agentgateway_mcp_routes_applies_provider_token_transform() -> Non
             bridge.McpGatewayTarget(
                 id="gitlab",
                 upstream_url="http://mcp-gitlab:8000/mcp",
+                credential_sources=(
+                    {
+                        "kind": "provider_connection",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "provider": "gitlab",
+                    },
+                ),
             )
         ],
     )
@@ -432,6 +442,14 @@ def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> Non
             bridge.McpGatewayTarget(
                 id="knowledge-base",
                 upstream_url="http://rag-server:9446/mcp",
+                credential_sources=(
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "fallback_client_credentials": True,
+                    },
+                ),
             )
         ],
     )

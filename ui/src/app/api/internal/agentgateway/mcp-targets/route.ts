@@ -74,9 +74,9 @@ function toBridgeTarget(server: MCPServerConfig): AgentGatewayBridgeTarget | nul
   return {
     id,
     target_endpoint: targetEndpoint,
-    ...(Array.isArray(server.credential_sources)
-      ? { credential_sources: server.credential_sources }
-      : {}),
+    // Always send the array so the config bridge can tell "no credentials" ([])
+    // from servers that should use their own upstream configuration.
+    credential_sources: Array.isArray(server.credential_sources) ? server.credential_sources : [],
   };
 }
 

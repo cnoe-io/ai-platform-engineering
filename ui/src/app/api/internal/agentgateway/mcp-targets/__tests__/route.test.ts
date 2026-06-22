@@ -126,10 +126,12 @@ describe("internal AgentGateway MCP targets API", () => {
         {
           id: "manual-target",
           target_endpoint: "http://manual:8000/mcp",
+          credential_sources: [],
         },
         {
           id: "manual-endpoint-target",
           target_endpoint: "http://mcp-manual-endpoint:8000/mcp",
+          credential_sources: [],
         },
       ],
     });
