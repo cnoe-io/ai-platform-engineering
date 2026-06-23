@@ -41,6 +41,10 @@ interface NormalizedSpace {
 interface CacheEntry {
   spaces: NormalizedSpace[];
   fetched_at: number;
+  refreshing?: Promise<NormalizedSpace[]>;
+  last_error?: string;
+  started_at?: number;
+  updated_at?: number;
 }
 
 // Webex space lists rarely change between admin actions. The TTL is
@@ -54,6 +58,89 @@ const MAX_WEBEX_PAGES = 50;
 const cache = new Map<string, CacheEntry>();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function tokenCacheKey(token: string): string {
+  return token.slice(-12);
+}
+
+export function __resetWebexSpaceDiscoveryCacheForTests(): void {
+  cache.clear();
+}
+
+function refreshWebexSpaceCache(token: string): Promise<NormalizedSpace[]> {
+  const cacheKey = tokenCacheKey(token);
+  const existing = cache.get(cacheKey);
+  if (existing?.refreshing) return existing.refreshing;
+
+  const refreshing = listAllRooms(token)
+    .then((spaces) => {
+      cache.set(cacheKey, {
+        spaces,
+        fetched_at: Date.now(),
+        started_at: existing?.started_at,
+        updated_at: Date.now(),
+      });
+      return spaces;
+    })
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      cache.set(cacheKey, {
+        spaces: existing?.spaces ?? [],
+        fetched_at: existing?.fetched_at ?? 0,
+        last_error: message,
+        started_at: existing?.started_at,
+        updated_at: Date.now(),
+      });
+      throw err;
+    });
+
+  cache.set(cacheKey, {
+    spaces: existing?.spaces ?? [],
+    fetched_at: existing?.fetched_at ?? 0,
+    refreshing,
+    last_error: existing?.last_error,
+    started_at: Date.now(),
+    updated_at: Date.now(),
+  });
+  return refreshing;
+}
+
+export function warmWebexSpaceDiscovery(token: string): void {
+  void getDiscoveryCacheTtlMs()
+    .then((cacheTtlMs) => {
+      const cacheKey = tokenCacheKey(token);
+      const cached = cache.get(cacheKey);
+      const fresh =
+        cacheTtlMs > 0 &&
+        Boolean(cached?.spaces.length) &&
+        Date.now() - (cached?.fetched_at ?? 0) < cacheTtlMs;
+      if (!fresh) {
+        void refreshWebexSpaceCache(token).catch((err) => {
+          console.warn("[Admin WebexSpaces] background refresh failed", err);
+        });
+      }
+    })
+    .catch((err) => {
+      console.warn("[Admin WebexSpaces] failed to read discovery cache TTL", err);
+    });
+}
+
+export async function getWebexSpaceDiscoveryStatus(token: string) {
+  const cacheTtlMs = await getDiscoveryCacheTtlMs();
+  const cached = cache.get(tokenCacheKey(token));
+  const now = Date.now();
+  const hasSnapshot = Boolean(cached?.spaces.length);
+  const fresh = Boolean(hasSnapshot && cacheTtlMs > 0 && cached && now - cached.fetched_at < cacheTtlMs);
+  return {
+    status: cached?.refreshing ? ("warming" as const) : fresh ? ("ready" as const) : hasSnapshot ? ("stale" as const) : ("empty" as const),
+    spaces_indexed: cached?.spaces.length ?? 0,
+    fetched_at: cached?.fetched_at || null,
+    updated_at: cached?.updated_at || null,
+    started_at: cached?.started_at || null,
+    ttl_seconds: Math.floor(cacheTtlMs / 1000),
+    last_error: cached?.last_error,
+  };
+}
 
 export function isSafeWebexPaginationUrl(url: string): boolean {
   try {
@@ -159,7 +246,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       : DEFAULT_UI_LIMIT;
 
   const now = Date.now();
-  const cacheKey = token.slice(-12);
+  const cacheKey = tokenCacheKey(token);
   const cached = cache.get(cacheKey);
   const cacheTtlMs = await getDiscoveryCacheTtlMs();
 

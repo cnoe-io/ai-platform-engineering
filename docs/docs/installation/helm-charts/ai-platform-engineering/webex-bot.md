@@ -53,7 +53,7 @@ real values in chart values:
 | `config.WEBEX_THREAD_CONTEXT_MAX_MESSAGES` | string | `10` | Maximum prior thread messages fetched from Webex, including the root message when present |
 | `config.WEBEX_THREAD_CONTEXT_MAX_CHARS` | string | `4000` | Maximum formatted thread-context characters sent to agents |
 | `config.WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES` | string | `false` | Opt-in first-message auto-assignment for unmapped spaces |
-| `config.WEBEX_ADMIN_API_ENABLED` | string | `false` | Enables internal bot admin API |
+| `config.WEBEX_ADMIN_API_ENABLED` | string | `true` | Enables internal bot admin API (required for Health dashboard and route admin) |
 | `config.WEBEX_ADMIN_JWT_AUDIENCE` | string | `caipe-webex-bot-admin` | Required JWT audience for admin API calls |
 | `config.KEYCLOAK_URL` | string | `http://ai-platform-engineering-keycloak:8080` | Internal Keycloak URL |
 | `config.OPENFGA_HTTP` | string | `http://ai-platform-engineering-openfga:8080` | Internal OpenFGA HTTP URL |

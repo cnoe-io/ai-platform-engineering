@@ -40,11 +40,20 @@ async function getWebexBotAdminToken(): Promise<string> {
     return tokenCache.accessToken;
   }
 
-  const clientId = process.env.WEBEX_BOT_ADMIN_CLIENT_ID || "caipe-ui";
-  const clientSecret = process.env.WEBEX_BOT_ADMIN_CLIENT_SECRET;
+  const clientSecret =
+    process.env.WEBEX_BOT_ADMIN_CLIENT_SECRET?.trim() ||
+    process.env.OIDC_CLIENT_SECRET?.trim();
   if (!clientSecret) {
-    throw new ApiError("WEBEX_BOT_ADMIN_CLIENT_SECRET is not configured", 503);
+    throw new ApiError(
+      "WEBEX_BOT_ADMIN_CLIENT_SECRET (or OIDC_CLIENT_SECRET) is not configured",
+      503
+    );
   }
+
+  const clientId =
+    process.env.WEBEX_BOT_ADMIN_CLIENT_ID?.trim() ||
+    process.env.OIDC_CLIENT_ID?.trim() ||
+    "caipe-ui";
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",

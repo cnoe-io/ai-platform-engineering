@@ -130,6 +130,7 @@ def test_umbrella_values_define_webex_bot_section() -> None:
     webex = values["webex-bot"]
     assert webex["existingSecret"] == "webex-bot-secrets"
     assert webex["config"]["WEBEX_ADMIN_JWT_AUDIENCE"] == "caipe-webex-bot-admin"
+    assert webex["config"]["WEBEX_ADMIN_API_ENABLED"] == "true"
     assert webex["config"]["WEBEX_ADMIN_API_PORT"] == "3002"
     assert "ghcr.io/cnoe-io/caipe-webex-bot" in webex["image"]["repository"]
 
