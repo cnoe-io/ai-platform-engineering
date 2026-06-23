@@ -605,9 +605,7 @@ describe('GET /api/chat/shared — public conversations', () => {
     GET = mod.GET;
   });
 
-  // Spec 098-enterprise-rbac: `/api/chat/shared` now relies on the ReBAC
-  // post-filter and the Mongo query is just `{ owner_id: { $ne: caller } }`.
-  it('queries only owner_id !== caller and delegates is_public visibility to the ReBAC filter', async () => {
+  it('prefilters sharing candidates and delegates final visibility to the ReBAC filter', async () => {
     mockGetServerSession.mockResolvedValue(userSession(VIEWER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -627,7 +625,12 @@ describe('GET /api/chat/shared — public conversations', () => {
 
     const findCall = convsCol.find.mock.calls[0][0];
     expect(findCall.owner_id).toEqual({ $ne: VIEWER_EMAIL });
-    expect(JSON.stringify(findCall)).not.toContain('sharing.');
+    expect(findCall.$or).toEqual([
+      { 'sharing.is_public': true },
+      { 'sharing.shared_with': VIEWER_EMAIL },
+      { 'sharing.share_link_enabled': true },
+      { 'sharing.shared_with_teams.0': { $exists: true } },
+    ]);
   });
 
   it('excludes own public conversations from shared listing', async () => {

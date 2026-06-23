@@ -319,9 +319,12 @@ services:
       # `docker compose up` with the supplied message if the env var is
       # missing or empty so an operator never silently inherits a shared
       # placeholder. (For local dev that genuinely wants a placeholder,
-      # use docker-compose.dev.yaml instead.) assisted-by Claude:claude-opus-4-7
+      # use docker-compose.dev.yaml instead.)
       - "NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in your .env (run: openssl rand -base64 48)}"
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      # OpenFGA ReBAC reconciliation for the local RBAC profile.
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
       - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
@@ -332,6 +335,15 @@ services:
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
       - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
+      # Local Docker Keycloak admin client. The rbac profile seeds this
+      # confidential client in realm-config.json; Kubernetes should inject
+      # production values from its secret store instead.
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
+      - KEYCLOAK_RESOURCE_SERVER_ID=${KEYCLOAK_RESOURCE_SERVER_ID:-caipe-platform}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
@@ -359,7 +371,7 @@ services:
       - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
       - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -504,6 +516,9 @@ services:
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      # Centralized Authorization Service. Dynamic Agents delegates agent-use
+      # decisions to the UI BFF and fails closed with 503 if this is unset.
+      - AUTHZ_SERVICE_URL=${AUTHZ_SERVICE_URL:-http://caipe-ui:3000}
       # Tracing (Langfuse)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -1067,6 +1082,8 @@ services:
       IDP_PKCE_ENABLED: ${IDP_PKCE_ENABLED:-false}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      KEYCLOAK_UI_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-caipe-ui-dev-secret}
+      KEYCLOAK_PLATFORM_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
       CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
       SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       KC_REALM: caipe

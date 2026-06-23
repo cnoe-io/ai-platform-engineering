@@ -9,6 +9,7 @@ computeWebexSpaceHealthSummary,
 type WebexSpaceHealthSummary,
 } from "@/lib/rbac/webex-space-diagnostics";
 import { listWebexSpaceGrants,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
 
 interface WebexSpaceTeamMappingDoc {
   webex_workspace_id?: string;
@@ -18,6 +19,23 @@ interface WebexSpaceTeamMappingDoc {
   team_id?: string;
   team_slug?: string;
   active?: boolean;
+}
+
+function pickPrimaryAgentId(
+  routes: Awaited<ReturnType<typeof listWebexSpaceAgentRoutes>>,
+  grants: Awaited<ReturnType<typeof listWebexSpaceGrants>>
+): string | undefined {
+  const enabledRoute = routes
+    .filter((route) => route.enabled !== false)
+    .sort(
+      (left, right) =>
+        (left.priority ?? 100) - (right.priority ?? 100) ||
+        left.agent_id.localeCompare(right.agent_id)
+    )[0];
+  if (enabledRoute?.agent_id) return enabledRoute.agent_id;
+  const agentGrant = grants.find((grant) => grant.resource?.type === "agent");
+  const grantAgentId = agentGrant?.resource?.id;
+  return typeof grantAgentId === "string" && grantAgentId.trim() ? grantAgentId.trim() : undefined;
 }
 
 async function webexSpaceAccess(
@@ -58,8 +76,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
           : { canRead: false, canManage: false };
         if (!access.canRead) return null;
-        const [grants, health] = await Promise.all([
+        const [grants, routes, health] = await Promise.all([
           listWebexSpaceGrants(workspaceId, row.webex_space_id),
+          listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id),
           includeHealth
             ? computeWebexSpaceHealthSummary(workspaceId, row.webex_space_id).catch(
                 (): WebexSpaceHealthSummary => ({
@@ -76,6 +95,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           space_name: row.space_name ?? row.space_title ?? row.webex_space_id,
           team_id: row.team_id,
           team_slug: row.team_slug,
+          primary_agent_id: pickPrimaryAgentId(routes, grants),
           active_grants: grants.length,
           can_manage: access.canManage,
           ...(health ? { health } : {}),

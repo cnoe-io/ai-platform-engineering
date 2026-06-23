@@ -1,7 +1,36 @@
+## 0.5.19-dev.3 (2026-06-23)
+
+### Feat
+
+- **admin,mcp**: self-service integration panel modes, bulk onboarding, and credential relink (#1985)
+
+### Fix
+
+- **docker-compose**: Update to wire openfga into first install ui (#1907)
+- **caipe-ui**: replace per-pod token Map with MongoDB-backed L1+L2 store (#1987)
+
+## 0.5.19-dev.2 (2026-06-23)
+
+### Feat
+
+- **admin**: improve health and integration diagnostics (#1992)
+- **mcp**: default servers to streamable HTTP
+
+### Fix
+
+- **ui**: scope /api/chat/shared pre-filter to sharing-configured conversations
+
+## 0.5.19-dev.1 (2026-06-22)
+
+### Fix
+
+- **ui,chart**: handle Kubernetes tcp:// port env vars and wire platform health probe hosts (#1983)
+
 ## 0.5.19 (2026-06-22)
 
 ### Fix
 
+- **mcp**: route Confluence provider tokens through AgentGateway
 - **identity-sync**: remove proactive Okta credential health check on page load (#1975)
 
 ## 0.5.18-dev.1 (2026-06-22)

@@ -55,7 +55,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
       serverId: "pinned-jira",
     });
     await selectAgentGatewayTarget(page, /Jira/i);
-    await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+    await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
@@ -89,7 +89,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
       serverId: "caller-jira",
     });
     await selectAgentGatewayTarget(page, /Jira/i);
-    await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+    await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
@@ -102,7 +102,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "caller",
         provider: "atlassian",
       },
@@ -143,7 +143,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "pinned",
         provider_connection_id: ADMIN_ATLASSIAN_CONNECTION.id,
       },

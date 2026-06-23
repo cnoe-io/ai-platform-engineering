@@ -296,9 +296,18 @@ git commit -s -m "docs: release <to> — blog post, docs snapshot, version prune
 
 ## Guidelines
 
-- `<!-- truncate -->` goes immediately after the Highlights section so the blog
-  list shows just the intro paragraph
-- Show concrete before/after YAML for every breaking change — never prose-only
+### Voice and audience
+
+- **Write for end users, not operators or engineers.** The release notes section (Highlights, What's New, Bug Fixes) is read by people deciding whether to upgrade and by users discovering new capabilities. The Upgrade Guide section is the only place technical operator details belong.
+- **Describe what users can do or what changed for them** — not how it was implemented. "Team members can now connect their own Slack channels" is good. "Non-admin users can self-serve `integration_panel_modes`" is not.
+- **Describe bug fixes by the symptom users experienced**, not the root cause. "Users were randomly logged out in multi-replica deployments" is good. "Per-pod in-memory token Map replaced with MongoDB-backed L1+L2 store" is not.
+- **No internal identifiers in release notes** — no API route paths, env var names, function names, internal module names, Helm key paths, or code-level details. Those belong only in the Upgrade Guide if they are operator-actionable.
+- **Keep feature bullets short and outcome-focused.** One sentence: what you can do now that you couldn't before, or what problem went away.
+
+### Structure and formatting
+
+- `<!-- truncate -->` goes immediately after the Highlights section so the blog list shows just the intro paragraph
+- Show concrete before/after YAML for every breaking change in the Upgrade Guide — never prose-only
 - For breaking changes, state the *consequence* of not updating
 - Keep the upgrade runbook linear — steps should be self-contained
 - If `helm show values` is unavailable, ask the user to paste output — never guess

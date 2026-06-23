@@ -3,7 +3,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { allAdminTabGates,isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
-import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
+import type { AdminTabGatesMap,AdminTabKey,IntegrationPanelModesMap } from "@/lib/rbac/types";
 import { useSession } from "next-auth/react";
 import { useCallback,useEffect,useRef,useState } from "react";
 
@@ -32,6 +32,8 @@ const ALL_GATES = allAdminTabGates(EMPTY_GATES);
 
 interface AdminTabGatesState {
   gates: AdminTabGatesMap;
+  /** Slack/Webex panel mode when the integration tab gate is open. */
+  integrationPanelModes: IntegrationPanelModesMap;
   loading: boolean;
   error: string | null;
   simulation: AdminTabGateSimulation | null;
@@ -84,6 +86,7 @@ export function useAdminTabGates(
 ): AdminTabGatesState {
   const { data: session, status } = useSession();
   const [gates, setGates] = useState<AdminTabGatesMap>(EMPTY_GATES);
+  const [integrationPanelModes, setIntegrationPanelModes] = useState<IntegrationPanelModesMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [simulation, setSimulation] = useState<AdminTabGateSimulation | null>(null);
@@ -96,6 +99,7 @@ export function useAdminTabGates(
   const fetchGates = useCallback(async () => {
     if (devAuthEnabled && !simulationTarget) {
       setGates(ALL_GATES);
+      setIntegrationPanelModes({ slack: "full", webex: "full" });
       setSimulation(null);
       setError(null);
       setLoading(false);
@@ -119,10 +123,12 @@ export function useAdminTabGates(
       if (data.gates) {
         setGates(data.gates);
       }
+      setIntegrationPanelModes(data.integration_panel_modes ?? {});
       setSimulation(data.simulation ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setGates(EMPTY_GATES);
+      setIntegrationPanelModes({});
       setSimulation(null);
     } finally {
       setLoading(false);
@@ -136,11 +142,13 @@ export function useAdminTabGates(
     if (status === "unauthenticated") {
       if (devAuthEnabled && !simulationTarget) {
         setGates(ALL_GATES);
+        setIntegrationPanelModes({ slack: "full", webex: "full" });
         setSimulation(null);
         setLoading(false);
         return;
       }
       setGates(EMPTY_GATES);
+      setIntegrationPanelModes({});
       setSimulation(null);
       setLoading(false);
       return;
@@ -165,5 +173,5 @@ export function useAdminTabGates(
     .filter(([, v]) => v)
     .map(([k]) => k);
 
-  return { gates, loading, error, simulation, visibleTabs, refresh: fetchGates };
+  return { gates, integrationPanelModes, loading, error, simulation, visibleTabs, refresh: fetchGates };
 }
