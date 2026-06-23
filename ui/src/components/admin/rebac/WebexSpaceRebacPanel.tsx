@@ -110,7 +110,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   },
   itemKey: (item) => `${item.workspace_id}/${item.item_id}`,
   parseDiscoveryPage: (json) => {
-    const d = apiData<{ spaces: unknown[]; next_cursor?: string | null; has_more?: boolean }>(
+    const d = apiData<{ spaces: unknown[]; next_cursor?: string | null; has_more?: boolean; total_matches?: number }>(
       json as { spaces: unknown[] },
     );
     const spaces = (d.spaces ?? []) as Record<string, unknown>[];
