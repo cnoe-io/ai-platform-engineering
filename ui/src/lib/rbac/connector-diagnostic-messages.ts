@@ -1,4 +1,5 @@
-import type { ConnectorListenMode,ConnectorRuntimeRouteDiagnostic } from "@/lib/rbac/connector-diagnostics";
+// assisted-by Codex Codex-sonnet-4-6
+import type { ConnectorListenMode } from "@/lib/rbac/connector-diagnostics";
 
 /** Turn `agent-jira-gu` into a readable label for admin UI copy. */
 export function formatAgentLabel(agentId: string): string {
@@ -60,7 +61,12 @@ export function ambiguousRoutesMessage(
   return `When ${trigger}, multiple agents can answer (${labels}) at the same priority (${priority}). Only ${preferred} responds first under current tie-break rules. Use Fix routing issues to set a clear primary agent, or adjust listen modes and priorities below.`;
 }
 
-export function routeStatusLabel(route: ConnectorRuntimeRouteDiagnostic): {
+export function routeStatusLabel(route: {
+  openfga_tuple: boolean;
+  route_metadata: boolean;
+  listen: ConnectorListenMode;
+  runtime_matches: { mention: boolean; message: boolean };
+}): {
   authBadge: string;
   routingBadge: string;
   matchSummary: string;

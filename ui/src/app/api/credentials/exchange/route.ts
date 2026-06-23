@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 import { NextRequest } from "next/server";
 
 import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
@@ -37,7 +38,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const ownerType = identity.isServiceAccount === true ? "service_account" : "user";
 
   const service = await getProviderConnectionService();
-  let connection = providerConnectionId
+  const connection = providerConnectionId
     ? await service.getConnection(providerConnectionId)
     : (await service.listConnections({ type: ownerType, id: identity.sub })).find(
         (candidate) => candidate.provider === provider && candidate.status === "connected",

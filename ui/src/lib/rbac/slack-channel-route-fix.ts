@@ -1,5 +1,11 @@
-import type { ConnectorRuntimeRouteDiagnostic } from "@/lib/rbac/connector-diagnostics";
+// assisted-by Codex Codex-sonnet-4-6
 import type { ItemAgentRoute,RouteListenMode } from "@/components/admin/rebac/connector-admin-adapter";
+
+type SlackRouteDiagnostic = {
+  agent_id: string;
+  openfga_tuple: boolean;
+  route_metadata: boolean;
+};
 
 function listenMode(route: ItemAgentRoute): RouteListenMode {
   return route.users?.listen ?? "mention";
@@ -20,7 +26,7 @@ function defaultRouteForAgent(agentId: string): ItemAgentRoute {
 
 /** Merge diagnostics with saved routes and apply safe automatic fixes. */
 export function planSlackRouteFixes(
-  diagnosticsRoutes: ConnectorRuntimeRouteDiagnostic[],
+  diagnosticsRoutes: SlackRouteDiagnostic[],
   existingRoutes: ItemAgentRoute[],
   primaryAgentId?: string,
 ): ItemAgentRoute[] {
@@ -80,7 +86,7 @@ export function planSlackRouteFixes(
 }
 
 export function slackRouteFixesNeeded(
-  diagnosticsRoutes: ConnectorRuntimeRouteDiagnostic[],
+  diagnosticsRoutes: SlackRouteDiagnostic[],
   existingRoutes: ItemAgentRoute[],
 ): boolean {
   const hasMissingMetadata = diagnosticsRoutes.some(

@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -261,7 +262,7 @@ export function HealthTab({
               size="sm"
               className="gap-1.5"
               onClick={refreshAll}
-              disabled={loading || platformProbeStatus === "checking"}
+              disabled={loading}
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

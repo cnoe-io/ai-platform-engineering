@@ -21,6 +21,10 @@ function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
 }
 
+type SlackItemSummary = ItemSummary & {
+  primary_agent_id?: string;
+};
+
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -248,10 +252,11 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
 
   fixAllDiagnosticIssues: async ({ item, diagnostics, routes }) => {
     const routeUrl = `/api/admin/slack/channels/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes`;
+    const primaryAgentId = (item as SlackItemSummary).primary_agent_id;
     const nextRoutes = planSlackRouteFixes(
       diagnostics.routes,
       routes,
-      item.primary_agent_id,
+      primaryAgentId,
     );
     const res = await fetch(routeUrl, {
       method: "PUT",

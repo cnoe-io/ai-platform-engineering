@@ -13,7 +13,7 @@
  *   - /api/platform/health never returns 500
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -78,16 +78,67 @@ function healthResponse(
   };
 }
 
+const directoryUpdatedAt = Date.parse("2026-06-22T17:45:00.000Z");
+
+function slackDirectoryStatus() {
+  return {
+    configured: true,
+    bot_admin: { reachable: true },
+    users: {
+      status: "ready",
+      users_indexed: 42,
+      active_users_indexed: 39,
+      pages_scanned: 3,
+      members_seen: 44,
+      fetched_at: directoryUpdatedAt,
+      updated_at: directoryUpdatedAt,
+      started_at: directoryUpdatedAt - 2500,
+    },
+    emoji: {
+      status: "ready",
+      emoji_indexed: 17,
+      fetched_at: directoryUpdatedAt,
+      updated_at: directoryUpdatedAt,
+      started_at: directoryUpdatedAt - 1500,
+    },
+  };
+}
+
+function webexDirectoryStatus() {
+  return {
+    configured: true,
+    bot_admin: {
+      reachable: true,
+      runtime: {
+        route_mode: "dynamic",
+        static_spaces: 2,
+        static_routes: 3,
+        cache_size: 4,
+      },
+    },
+    platform: {
+      reachable: true,
+      spaces_onboarded: 2,
+      routes_configured: 3,
+    },
+    space_discovery: {
+      configured: true,
+      status: "ready",
+      spaces_indexed: 12,
+      fetched_at: directoryUpdatedAt,
+      updated_at: directoryUpdatedAt,
+      started_at: directoryUpdatedAt - 2000,
+      ttl_seconds: 300,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helper: mount the app and intercept /api/platform/health
 // ---------------------------------------------------------------------------
 
 async function setupWithHealth(
-  page: typeof test.prototype["context"] extends infer C
-    ? C extends { newPage(): Promise<infer P> }
-      ? P
-      : never
-    : never,
+  page: Page,
   healthBody: ReturnType<typeof healthResponse>,
 ) {
   await installMockedRbacApp(page, {
@@ -96,6 +147,22 @@ async function setupWithHealth(
       async ({ route, path }) => {
         if (path === "/api/platform/health") {
           await fulfillJson(route, healthBody, healthBody.summary.down > 0 ? 503 : 200);
+          return true;
+        }
+        if (path === "/api/admin/slack/directory/status") {
+          await fulfillJson(route, { success: true, data: slackDirectoryStatus() });
+          return true;
+        }
+        if (path === "/api/admin/webex/directory/status") {
+          await fulfillJson(route, { success: true, data: webexDirectoryStatus() });
+          return true;
+        }
+        if (path === "/api/admin/metrics") {
+          await fulfillJson(route, {
+            success: false,
+            code: "PROMETHEUS_NOT_CONFIGURED",
+            error: "Prometheus not configured",
+          });
           return true;
         }
         if (path === "/api/rag/healthz" || path === "/api/rag/health") {
@@ -122,7 +189,7 @@ async function setupWithHealth(
 }
 
 async function openHealthPopover(
-  page: Parameters<typeof setupWithHealth>[0],
+  page: Page,
   statusPattern: RegExp = /system status: connected/i,
 ) {
   await dismissReleaseUpgradeDialog(page);
@@ -195,7 +262,6 @@ test.describe("Platform Health widget", () => {
     );
     await setupWithHealth(page, healthResponse(probes));
 
-    const badge = page.getByRole("button", { name: /system status: disconnected/i });
     await openHealthPopover(page, /system status: disconnected/i);
 
     await expect(page.getByText("Issues Detected")).toBeVisible();
@@ -253,5 +319,28 @@ test.describe("Platform Health widget", () => {
     for (const label of ["Keycloak", "OpenFGA", "MongoDB", "RAG Server", "Dynamic Agents"]) {
       await expect(popover.getByText(label, { exact: true }).first()).toBeVisible();
     }
+  });
+
+  test("admin Health tab shows Slack and Webex directory diagnostics with repair navigation", async ({ page }) => {
+    await setupWithHealth(page, healthResponse());
+
+    await page.goto("/admin?cat=metrics&tab=health");
+    await dismissReleaseUpgradeDialog(page);
+
+    await expect(page.getByRole("tab", { name: "Health", selected: true })).toBeVisible();
+    await expect(page.getByText("Platform Services", { exact: true })).toBeVisible();
+    await expect(page.getByText("All dependency checks are passing.")).toBeVisible();
+
+    await expect(page.getByText("Slack Integration")).toBeVisible();
+    await expect(page.getByText("ready: 39 active / 42 indexed")).toBeVisible();
+    await expect(page.getByText("ready: 17 emoji indexed")).toBeVisible();
+
+    await expect(page.getByText("Webex Integration")).toBeVisible();
+    await expect(page.getByText("dynamic · 2 spaces · 3 routes · cache 4")).toBeVisible();
+    await expect(page.getByText("2 spaces onboarded · 3 routes configured")).toBeVisible();
+    await expect(page.getByText("ready: 12 spaces indexed")).toBeVisible();
+
+    await page.getByRole("button", { name: "Webex Admin" }).click();
+    await expect(page).toHaveURL(/\/admin\?cat=integrations&tab=webex/);
   });
 });
