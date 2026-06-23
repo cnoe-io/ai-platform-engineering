@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -55,6 +56,56 @@ type MainView =
   | { kind: "ingest" }
   | { kind: "ingestRun"; runId: string };
 
+/**
+ * Map the active view to its URL segments under `/projects/<slug>/tome`. The
+ * view lives in the route (not React state) so every surface is deep-linkable
+ * and browser back/forward work. Wiki page paths (which contain `/` and `.md`)
+ * are namespaced under `wiki/` / `history/` so they can't collide with the
+ * reserved `talk` / `ingest` segments.
+ */
+function viewToPath(slug: string, view: MainView): string {
+  const base = `/projects/${slug}/tome`;
+  switch (view.kind) {
+    case "agent":
+      return base;
+    case "talk":
+      return `${base}/talk`;
+    case "ingest":
+      return `${base}/ingest`;
+    case "ingestRun":
+      return `${base}/ingest/${encodeURIComponent(view.runId)}`;
+    case "page":
+      return `${base}/wiki/${view.path}`;
+    case "pageHistory":
+      return `${base}/history/${view.path}`;
+  }
+}
+
+/** Parse the catch-all segments back into a view. Unknown shapes fall to agent. */
+function pathToView(segments: string[]): MainView {
+  const [head, ...rest] = segments;
+  switch (head) {
+    case undefined:
+      return { kind: "agent" };
+    case "talk":
+      return { kind: "talk" };
+    case "ingest":
+      return rest[0]
+        ? { kind: "ingestRun", runId: rest[0] }
+        : { kind: "ingest" };
+    case "wiki":
+      return rest.length
+        ? { kind: "page", path: rest.join("/") }
+        : { kind: "agent" };
+    case "history":
+      return rest.length
+        ? { kind: "pageHistory", path: rest.join("/") }
+        : { kind: "agent" };
+    default:
+      return { kind: "agent" };
+  }
+}
+
 function pageTitleOf(path: string, markdown: string): string {
   const [fm] = parseFrontmatter(markdown);
   return typeof fm.title === "string"
@@ -63,12 +114,32 @@ function pageTitleOf(path: string, markdown: string): string {
 }
 
 export function TomeWiki({ slug }: { slug: string }) {
+  // The active view lives in the URL (deep-linkable, back/forward works), but we
+  // navigate with `history.pushState` rather than `router.push` so this client
+  // component never remounts — only the derived `view` changes, swapping the
+  // main pane while the sidebar, breadcrumb, and loaded page tree persist. Next
+  // syncs pushState into `usePathname`, so direct loads and popstate still work.
+  const pathname = usePathname();
+  const base = `/projects/${slug}/tome`;
+  const segments = useMemo(() => {
+    if (!pathname) return [];
+    const rest = pathname.startsWith(base) ? pathname.slice(base.length) : "";
+    return rest.split("/").map(decodeURIComponent).filter(Boolean);
+  }, [pathname, base]);
+  // The active view is derived from the URL — Agent is the landing view.
+  const view = useMemo(() => pathToView(segments), [segments]);
+  const navigate = useCallback(
+    (next: MainView) => {
+      const url = viewToPath(slug, next);
+      if (url !== pathname) window.history.pushState(null, "", url);
+    },
+    [slug, pathname],
+  );
+
   const [data, setData] = useState<PagesResponse | null>(null);
   // The project's display name for the breadcrumb (falls back to the slug).
   const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Chat is the landing view; wiki + ingest live below it in the nav.
-  const [view, setView] = useState<MainView>({ kind: "agent" });
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -110,9 +181,10 @@ export function TomeWiki({ slug }: { slug: string }) {
     };
   }, [slug]);
 
-  const openPage = useCallback((path: string) => {
-    setView({ kind: "page", path });
-  }, []);
+  const openPage = useCallback(
+    (path: string) => navigate({ kind: "page", path }),
+    [navigate],
+  );
   const openArtifact = useCallback((path: string) => setArtifactPath(path), []);
 
   const loading = data === null && !error;
@@ -166,16 +238,19 @@ export function TomeWiki({ slug }: { slug: string }) {
         });
         if (!res.ok) throw new Error(`delete failed (${res.status})`);
         // Leave any view that was showing the now-deleted page.
-        setView((v) =>
-          v.kind === "page" && v.path === path ? { kind: "agent" } : v,
-        );
+        if (
+          (view.kind === "page" || view.kind === "pageHistory") &&
+          view.path === path
+        ) {
+          navigate({ kind: "agent" });
+        }
         setArtifactPath((p) => (p === path ? null : p));
         await load();
       } catch (e) {
         setError(String((e as Error)?.message ?? e));
       }
     },
-    [slug, load],
+    [slug, load, view, navigate],
   );
 
   // Import .md/.mdx files as wiki pages (each file's text → PUT /pages).
@@ -231,7 +306,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [
           {
             label: pageTitleOf(path, md),
-            onClick: () => setView({ kind: "page", path }),
+            onClick: () => navigate({ kind: "page", path }),
           },
           { label: "History" },
         ];
@@ -240,11 +315,14 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Schedule new ingest" }];
       case "ingestRun":
         return [
-          { label: "Schedule new ingest", onClick: () => setView({ kind: "ingest" }) },
+          {
+            label: "Schedule new ingest",
+            onClick: () => navigate({ kind: "ingest" }),
+          },
           { label: "Run" },
         ];
     }
-  }, [view, data]);
+  }, [view, data, navigate]);
 
   const navActive = {
     agent: view.kind === "agent",
@@ -267,7 +345,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <Breadcrumb
             items={[
-              { label: "tome", onClick: () => setView({ kind: "agent" }) },
+              { label: "tome", onClick: () => navigate({ kind: "agent" }) },
               ...crumbs,
             ]}
           />
@@ -292,7 +370,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     icon={<MessageSquare className="h-4 w-4" />}
                     label="Agent"
                     active={navActive.agent}
-                    onClick={() => setView({ kind: "agent" })}
+                    onClick={() => navigate({ kind: "agent" })}
                     tipTitle="Agent"
                     tipDescription="Chat with the editing agent that reads and writes this project's wiki pages. Ask it to draft, refine, or reorganize content."
                   />
@@ -300,7 +378,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     icon={<RefreshCw className="h-4 w-4" />}
                     label="Schedule new ingest"
                     active={navActive.ingest}
-                    onClick={() => setView({ kind: "ingest" })}
+                    onClick={() => navigate({ kind: "ingest" })}
                     tipTitle="Schedule new ingest"
                     tipDescription="Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
                   />
@@ -308,7 +386,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     icon={<MessagesSquare className="h-4 w-4" />}
                     label="Talk"
                     active={navActive.talk}
-                    onClick={() => setView({ kind: "talk" })}
+                    onClick={() => navigate({ kind: "talk" })}
                     tipTitle="Talk"
                     tipDescription="The project's talk page: discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
                   />
@@ -494,8 +572,8 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <IngestPanel
                   slug={slug}
                   canEdit
-                  onOpenRun={(runId) => setView({ kind: "ingestRun", runId })}
-                  onRunStarted={(runId) => setView({ kind: "ingestRun", runId })}
+                  onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
+                  onRunStarted={(runId) => navigate({ kind: "ingestRun", runId })}
                 />
               </div>
             ) : view.kind === "ingestRun" ? (
@@ -519,7 +597,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onWrite={writeMarkdown}
                     onReload={load}
                     onOpenHistory={() =>
-                      setView({ kind: "pageHistory", path: view.path })
+                      navigate({ kind: "pageHistory", path: view.path })
                     }
                   />
                 ) : (

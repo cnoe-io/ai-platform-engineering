@@ -71,6 +71,9 @@ export function TalkPanel({ slug }: { slug: string }) {
   const restoreRef = useRef<{ height: number; top: number } | null>(null);
   // Whether to pin to the bottom after the next render (new message + at bottom).
   const stickBottomRef = useRef(true);
+  // First visit to the panel should land on the newest message. Resets on
+  // remount (i.e. each time the Talk view is opened).
+  const initialScrollRef = useRef(false);
 
   const hasMore = !reachedStart;
 
@@ -178,7 +181,20 @@ export function TalkPanel({ slug }: { slug: string }) {
     if (restoreRef.current) {
       vp.scrollTop = restoreRef.current.top + (vp.scrollHeight - restoreRef.current.height);
       restoreRef.current = null;
-    } else if (stickBottomRef.current) {
+      return;
+    }
+    if (!initialScrollRef.current && messages.length > 0) {
+      // First content render: always land on the newest message. Re-pin on the
+      // next frame as a backstop in case markdown height settles after layout.
+      initialScrollRef.current = true;
+      vp.scrollTop = vp.scrollHeight;
+      requestAnimationFrame(() => {
+        const v = viewportRef.current;
+        if (v) v.scrollTop = v.scrollHeight;
+      });
+      return;
+    }
+    if (stickBottomRef.current) {
       vp.scrollTop = vp.scrollHeight;
     }
   }, [messages]);
