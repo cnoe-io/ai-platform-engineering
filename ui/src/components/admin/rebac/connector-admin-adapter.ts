@@ -294,6 +294,19 @@ export interface ConnectorAdminAdapter {
     routes: ItemAgentRoute[];
   }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
 
+  /** When true, show a batch Fix routing issues action for this channel/space. */
+  diagnosticIssuesBatchFixable?: (input: {
+    diagnostics: ItemDiagnostics;
+    routes: ItemAgentRoute[];
+  }) => boolean;
+
+  /** Apply safe automatic fixes for common routing diagnostics issues. */
+  fixAllDiagnosticIssues?: (input: {
+    item: ItemSummary;
+    diagnostics: ItemDiagnostics;
+    routes: ItemAgentRoute[];
+  }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
+
   // Webex only: auto-fix card when a space has no routeable agent.
   missingRouteableAgentAutoFix?: {
     title: string;

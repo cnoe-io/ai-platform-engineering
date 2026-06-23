@@ -232,7 +232,7 @@ it("fixes stale diagnostic route metadata (orphan) by issuing DELETE", async () 
   render(<WebexSpaceRebacPanel />);
   await expandSpaceRow("Platform Alerts");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:foo-bar routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for foo-bar/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -246,7 +246,7 @@ it("fixes mention-only diagnostic route by lifting listen mode to all", async ()
   render(<WebexSpaceRebacPanel />);
   await expandSpaceRow("Platform Alerts");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:incident-agent routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for incident-agent/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
