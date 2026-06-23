@@ -20,7 +20,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -151,6 +150,9 @@ jobs:
   publish:
     name: Push Helm Charts to GHCR
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     # Publish on merge to main or workflow_dispatch
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
 

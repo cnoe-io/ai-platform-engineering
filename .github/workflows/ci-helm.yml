@@ -28,12 +28,14 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publish-release-helm:
     name: Publish Tagged Helm Charts
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       is_final_release: ${{ steps.tag.outputs.is_final_release }}
       tag_version: ${{ steps.tag.outputs.tag_version }}
