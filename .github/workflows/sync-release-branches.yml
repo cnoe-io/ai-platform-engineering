@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   discover-release-branches:
@@ -55,6 +54,9 @@ jobs:
   sync-to-release:
     name: "Sync main → ${{ matrix.branch }}"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     needs: discover-release-branches
     if: needs.discover-release-branches.outputs.branches != '[]' && needs.discover-release-branches.outputs.branches != 'null'
     strategy:
