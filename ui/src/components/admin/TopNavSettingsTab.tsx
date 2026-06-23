@@ -155,6 +155,7 @@ export function TopNavSettingsTab({ isAdmin }: TopNavSettingsTabProps) {
       }
       setSavedKey(currentKey);
       setResult("success");
+      window.dispatchEvent(new CustomEvent("caipe:top-nav-config-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setResult("error");
@@ -177,6 +178,7 @@ export function TopNavSettingsTab({ isAdmin }: TopNavSettingsTabProps) {
       setSavedKey("");
       await load();
       setResult("success");
+      window.dispatchEvent(new CustomEvent("caipe:top-nav-config-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setResult("error");
