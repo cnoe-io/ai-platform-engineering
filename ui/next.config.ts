@@ -22,7 +22,8 @@ const nextConfig: NextConfig = {
   // HTTP security headers — applied to all responses
   headers: async () => [
     {
-      source: '/(.*)',
+      // All routes except /apps/* proxy routes (those are iframe-embeddable)
+      source: '/((?!apps/).*)',
       headers: [
         { key: 'X-Frame-Options', value: 'DENY' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -43,6 +44,15 @@ const nextConfig: NextConfig = {
             "frame-ancestors 'none'",
           ].join('; '),
         },
+      ],
+    },
+    {
+      // /apps/* proxy routes — framing allowed (these render inside AgenticAppEmbed iframe)
+      source: '/apps/(.*)',
+      headers: [
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
       ],
     },
   ],

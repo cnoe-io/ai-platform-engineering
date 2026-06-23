@@ -1,0 +1,570 @@
+# Standalone RBAC stack for feat/tome-native-app-new (runs alongside main instance)
+# Ports: keycloak=17080, agentgateway=14000, openfga=28080, authz-bridge=19100, audit=38010
+#        dynamic-agents=18100, mcp-netutils=28011, finops-app=3010, weather-app=3020, jira-app=3041, oss-repo-management=3040
+#        mongodb=27117
+# Start: docker compose -f docker-compose.tome.yaml --env-file .env up -d
+
+name: caipe-tome
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-tome
+    ports:
+      - "127.0.0.1:27117:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: changeme
+      MONGO_INITDB_DATABASE: caipe
+    volumes:
+      - mongodb_tome_data:/data/db
+      - mongodb_tome_config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.audit-service
+    image: ghcr.io/cnoe-io/caipe-audit-service:${IMAGE_TAG:-0.5.16}
+    container_name: audit-service-tome
+    ports:
+    - 127.0.0.1:38010:8010
+    environment:
+      AUDIT_SERVICE_BACKEND: ${AUDIT_SERVICE_BACKEND:-local}
+      AUDIT_SERVICE_LOCAL_PATH: /var/lib/caipe-audit-service
+      AUDIT_SERVICE_LOCAL_GZIP: ${AUDIT_SERVICE_LOCAL_GZIP:-true}
+      AUDIT_SERVICE_LOCAL_RETENTION_DAYS: ${AUDIT_SERVICE_LOCAL_RETENTION_DAYS:-1}
+      AUDIT_SERVICE_S3_BUCKET: ${AUDIT_SERVICE_S3_BUCKET:-}
+      AUDIT_SERVICE_S3_PREFIX: ${AUDIT_SERVICE_S3_PREFIX:-audit}
+      AUDIT_SERVICE_S3_REGION: ${AUDIT_SERVICE_S3_REGION:-us-east-2}
+      AUDIT_SERVICE_S3_ENDPOINT_URL: ${AUDIT_SERVICE_S3_ENDPOINT_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AUDIT_SERVICE_QUEUE_MAX_SIZE: ${AUDIT_SERVICE_QUEUE_MAX_SIZE:-10000}
+      AUDIT_SERVICE_FLUSH_BATCH_SIZE: ${AUDIT_SERVICE_FLUSH_BATCH_SIZE:-500}
+      AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS: ${AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS:-1}
+      AUDIT_SERVICE_READ_DEFAULT_LIMIT: ${AUDIT_SERVICE_READ_DEFAULT_LIMIT:-1000}
+      AUDIT_SERVICE_READ_MAX_LIMIT: ${AUDIT_SERVICE_READ_MAX_LIMIT:-10000}
+      AUDIT_SERVICE_READ_MAX_DAYS: ${AUDIT_SERVICE_READ_MAX_DAYS:-31}
+    volumes:
+    - audit_service_data:/var/lib/caipe-audit-service
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8010/readyz',timeout=3);
+        sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+  keycloak-postgres:
+    image: postgres:16-alpine
+    container_name: keycloak-postgres-tome
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    volumes:
+    - keycloak_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U keycloak -d keycloak
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    container_name: keycloak-tome
+    environment:
+      KC_HOSTNAME: http://localhost:17080
+      KC_HOSTNAME_STRICT: 'false'
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: 'true'
+      KC_LOG_LEVEL: info
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      JAVA_OPTS_KC_HEAP: -Xms256m -Xmx768m -XX:MaxMetaspaceSize=256m
+    command:
+    - start-dev
+    - --import-realm
+    - --http-port
+    - '7080'
+    - --https-port
+    - '7443'
+    - --features=token-exchange,admin-fine-grained-authz:v1
+    volumes:
+    - ./charts/ai-platform-engineering/charts/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
+    - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
+    ports:
+    - 127.0.0.1:17080:7080
+    - 127.0.0.1:17443:7443
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - 'bash -c "exec 3<>/dev/tcp/127.0.0.1/9000 && exec 3<&- && exec 3>&- && exec
+        3<>/dev/tcp/127.0.0.1/7080 && printf $$''GET /realms/caipe/protocol/openid-connect/certs
+        HTTP/1.0\r\nHost: localhost:7080\r\nConnection: close\r\n\r\n'' >&3 && head
+        -n 1 <&3 | grep -q '' 200''"'
+      interval: 10s
+      timeout: 10s
+      retries: 25
+      start_period: 120s
+  keycloak-init:
+    image: ${KEYCLOAK_INIT_IMAGE:-caipe/keycloak-init:dev}
+    build:
+      context: .
+      dockerfile: build/Dockerfile.keycloak-init
+    container_name: keycloak-init-tome
+    entrypoint:
+    - /bin/sh
+    - /scripts/init-idp.sh
+    volumes:
+    - ./charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh:/scripts/init-idp.sh:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      IDP_ALIAS: ${IDP_ALIAS:-}
+      IDP_DISPLAY_NAME: ${IDP_DISPLAY_NAME:-}
+      IDP_ISSUER: ${IDP_ISSUER:-}
+      IDP_CLIENT_ID: ${IDP_CLIENT_ID:-}
+      IDP_CLIENT_SECRET: ${IDP_CLIENT_SECRET:-}
+      IDP_ACCESS_GROUP: ${IDP_ACCESS_GROUP:-}
+      IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
+      IDP_PKCE_ENABLED: ${IDP_PKCE_ENABLED:-false}
+      KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
+      KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
+      SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
+      KC_REALM: caipe
+      BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}
+    network_mode: service:keycloak
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: on-failure
+  keycloak-patch-redirect-uris:
+    image: python:3.13-slim
+    container_name: keycloak-patch-redirect-uris-tome
+    network_mode: service:keycloak
+    depends_on:
+      keycloak-init:
+        condition: service_completed_successfully
+    restart: on-failure
+    environment:
+      KEYCLOAK_URL: http://localhost:7080
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      EXTRA_REDIRECT_URIS: ${CAIPE_UI_EXTRA_REDIRECT_URIS:-http://localhost:33000/*}
+      EXTRA_WEB_ORIGINS: ${CAIPE_UI_EXTRA_WEB_ORIGINS:-http://localhost:33000}
+    command:
+      - python3
+      - -c
+      - |
+        import json, os, sys, time, urllib.request, urllib.parse
+
+        base    = os.environ["KEYCLOAK_URL"]
+        admin   = os.environ["KEYCLOAK_ADMIN"]
+        pw      = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
+        extra_r = [u.strip() for u in os.environ.get("EXTRA_REDIRECT_URIS", "").split(",") if u.strip()]
+        extra_w = [u.strip() for u in os.environ.get("EXTRA_WEB_ORIGINS",   "").split(",") if u.strip()]
+
+        def post(url, data, headers={}):
+            req = urllib.request.Request(url, data=urllib.parse.urlencode(data).encode(), headers=headers)
+            return json.load(urllib.request.urlopen(req))
+
+        def get(url, token):
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+            return json.load(urllib.request.urlopen(req))
+
+        def put(url, token, body):
+            req = urllib.request.Request(url, method="PUT",
+                data=json.dumps(body).encode(),
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+            urllib.request.urlopen(req)
+
+        token = post(f"{base}/realms/master/protocol/openid-connect/token",
+            {"username": admin, "password": pw, "grant_type": "password", "client_id": "admin-cli"})["access_token"]
+
+        clients = get(f"{base}/admin/realms/caipe/clients?clientId=caipe-ui", token)
+        client  = get(f"{base}/admin/realms/caipe/clients/{clients[0]['id']}", token)
+        client["redirectUris"] = sorted(set(client.get("redirectUris", []) + extra_r))
+        client["webOrigins"]   = sorted(set(client.get("webOrigins",   []) + extra_w))
+        put(f"{base}/admin/realms/caipe/clients/{clients[0]['id']}", token, client)
+        print("patched caipe-ui:", client["redirectUris"], client["webOrigins"])
+
+  keycloak-init-token-exchange:
+    image: ${KEYCLOAK_INIT_IMAGE:-caipe/keycloak-init:dev}
+    build:
+      context: .
+      dockerfile: build/Dockerfile.keycloak-init
+    container_name: keycloak-init-token-exchange-tome
+    entrypoint:
+    - /bin/sh
+    - /scripts/init-token-exchange.sh
+    volumes:
+    - ./deploy/keycloak/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_REALM: caipe
+      KC_BOT_CLIENT_ID: caipe-slack-bot
+      KC_SSL_REQUIRED: none
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+    network_mode: service:keycloak
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+      openfga-init:
+        condition: service_completed_successfully
+    restart: on-failure
+  openfga-postgres:
+    image: postgres:17-alpine
+    container_name: openfga-postgres-tome
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${OPENFGA_POSTGRES_USER:-openfga}
+      POSTGRES_PASSWORD: ${OPENFGA_POSTGRES_PASSWORD:-openfga}
+      POSTGRES_DB: ${OPENFGA_POSTGRES_DB:-openfga}
+    volumes:
+    - openfga_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+  openfga-migrate:
+    image: openfga/openfga:latest
+    container_name: openfga-migrate-tome
+    depends_on:
+      openfga-postgres:
+        condition: service_healthy
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
+    command: migrate
+  openfga:
+    image: openfga/openfga:latest
+    container_name: openfga-tome
+    restart: unless-stopped
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
+      OPENFGA_DATASTORE_MAX_OPEN_CONNS: '50'
+      OPENFGA_PLAYGROUND_ENABLED: 'true'
+      OPENFGA_TRACE_ENABLED: 'false'
+    command: run
+    ports:
+    - 127.0.0.1:28080:8080
+    - 127.0.0.1:28081:8081
+    - 127.0.0.1:23002:3000
+    healthcheck:
+      test:
+      - CMD
+      - /usr/local/bin/grpc_health_probe
+      - -addr=localhost:8081
+      interval: 5s
+      timeout: 30s
+      retries: 10
+  openfga-init:
+    build:
+      context: ./deploy/openfga/init
+    container_name: openfga-init-tome
+    volumes:
+    - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+      OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
+    depends_on:
+      openfga:
+        condition: service_healthy
+  openfga-authz-bridge:
+    build:
+      context: ./deploy/openfga/bridge
+    container_name: openfga-authz-bridge-tome
+    restart: unless-stopped
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+      OPENFGA_RELATION: can_call
+      OPENFGA_OBJECT: mcp_gateway:list
+      OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      JWT_JWKS_URL: ${BRIDGE_JWT_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}
+      CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
+      TENANT_ID: ${TENANT_ID:-default}
+      AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
+    ports:
+    - 127.0.0.1:19100:9100
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import socket; socket.create_connection(('localhost', 9100), timeout=2).close()
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      openfga-init:
+        condition: service_completed_successfully
+      openfga:
+        condition: service_healthy
+      audit-service:
+        condition: service_healthy
+        required: false
+  agentgateway-config-bridge:
+    build:
+      context: ./deploy/agentgateway
+      dockerfile: Dockerfile.config-bridge
+    image: ghcr.io/cnoe-io/agentgateway-config-bridge:${IMAGE_TAG:-0.5.16}
+    container_name: agentgateway-config-bridge-tome
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    environment:
+      AGENTGATEWAY_TARGETS_URL: http://host.docker.internal:33000/api/internal/agentgateway/mcp-targets
+      AGENTGATEWAY_TARGETS_TOKEN: ${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
+      AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
+      AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
+      AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
+      AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS: ${AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS:-5}
+      AGENTGATEWAY_LOG_LEVEL: ${AGENTGATEWAY_LOG_LEVEL:-info}
+      LOG_LEVEL: ${AGENTGATEWAY_CONFIG_BRIDGE_LOG_LEVEL:-INFO}
+    volumes:
+    - agentgateway_config:/generated
+    - ./deploy/agentgateway/config.yaml:/bootstrap/config.yaml:ro
+    tmpfs:
+    - /tmp
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - "from pathlib import Path\nimport json\nimport sys\nimport yaml\n\nconfig_path\
+        \ = Path(\"/generated/config.yaml\")\nmarker_path = Path(\"/generated/.reconcile_ok\"\
+        )\nif not config_path.is_file() or config_path.stat().st_size <= 0 or not\
+        \ marker_path.is_file():\n    sys.exit(1)\ntext = config_path.read_text(encoding=\"\
+        utf-8\")\ntry:\n    json.loads(text)\nexcept json.JSONDecodeError:\n    try:\n\
+        \        parsed = yaml.safe_load(text)\n    except yaml.YAMLError:\n     \
+        \   sys.exit(1)\n    if not isinstance(parsed, dict):\n        sys.exit(1)\n\
+        sys.exit(0)\n"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on: {}
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:v1.1.0
+    container_name: agentgateway-tome
+    restart: unless-stopped
+    command:
+    - --file
+    - /etc/agentgateway/config.yaml
+    environment:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
+    read_only: true
+    security_opt:
+    - no-new-privileges:true
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+      openfga-authz-bridge:
+        condition: service_healthy
+      agentgateway-config-bridge:
+        condition: service_healthy
+    ports:
+    - 14000:4000
+    - 127.0.0.1:25000:15000
+    volumes:
+    - agentgateway_config:/etc/agentgateway:ro
+    tmpfs:
+    - /tmp
+    healthcheck:
+      disable: true
+
+  dynamic-agents:
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.5.16}
+    container_name: dynamic-agents-tome
+    ports:
+      - "18100:8001"
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://admin:changeme@mongodb:27017/caipe?authSource=admin}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+      OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM:-}
+      OIDC_REQUIRED_ADMIN_GROUP: ${OIDC_REQUIRED_ADMIN_GROUP:-}
+      AUDIT_SERVICE_URL: http://audit-service:8010
+      AGENT_RUNTIME_TTL_SECONDS: ${AGENT_RUNTIME_TTL_SECONDS:-3600}
+      CORS_ORIGINS: ${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mcp-netutils:
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-0.5.16}
+    container_name: mcp-netutils-tome
+    ports:
+      - "28011:8000"
+    environment:
+      MCP_MODE: http
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+    restart: unless-stopped
+
+  finops-app:
+    image: node:22-alpine
+    container_name: finops-app-tome
+    working_dir: /app
+    command: node apps/agentic-apps/finops/server.mjs
+    volumes:
+      - ./ui/apps:/app/apps:ro
+    ports:
+      - "127.0.0.1:3010:3010"
+    environment:
+      FINOPS_APP_PORT: "3010"
+      FINOPS_APP_BASE_PATH: /apps/finops
+      FINOPS_DATA_SOURCE: ${FINOPS_DATA_SOURCE:-litellm}
+      FINOPS_AWS_AGENT_ID: ${FINOPS_AWS_AGENT_ID:-agent-aws-cost-explorer}
+      FINOPS_LITELLM_AGENT_ID: ${FINOPS_LITELLM_AGENT_ID:-agent-litellm-finops}
+      FINOPS_LOOKBACK_DAYS: ${FINOPS_LOOKBACK_DAYS:-30}
+      A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
+      AGENTIC_APP_FINOPS_JWT_DISABLED: "true"
+      LITELLM_API_URL: ${LITELLM_API_URL:-https://litellm.prod.outshift.ai}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-${ANTHROPIC_API_KEY:-}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3010/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  weather-app:
+    image: node:22-alpine
+    container_name: weather-app-tome
+    working_dir: /app
+    command: node apps/agentic-apps/weather/server.mjs
+    volumes:
+      - ./ui/apps:/app/apps:ro
+    ports:
+      - "127.0.0.1:3020:3020"
+    environment:
+      WEATHER_APP_PORT: "3020"
+      WEATHER_APP_BASE_PATH: /apps/weather
+      WEATHER_AGENT_ID: ${WEATHER_AGENT_ID:-agent-weather-agent}
+      A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
+      AGENTIC_APP_WEATHER_JWT_DISABLED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3020/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  jira-app:
+    image: node:22-alpine
+    container_name: jira-app-tome
+    working_dir: /app
+    command: node apps/agentic-apps/jira-project-dashboard/server.mjs
+    volumes:
+      - ./ui/apps:/app/apps:ro
+    ports:
+      - "127.0.0.1:3041:3041"
+    environment:
+      JIRA_PROJECT_DASHBOARD_APP_PORT: "3041"
+      JIRA_PROJECT_DASHBOARD_APP_BASE_PATH: /apps/jira-project-dashboard
+      JIRA_PROJECT_DASHBOARD_JIRA_AGENT_ID: ${JIRA_PROJECT_DASHBOARD_JIRA_AGENT_ID:-agent-jira-agent}
+      A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
+      AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_DISABLED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3041/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  oss-repo-management-app:
+    image: node:22-alpine
+    container_name: oss-repo-management-app-tome
+    working_dir: /app
+    command: node apps/agentic-apps/oss-repo-management/server.mjs
+    volumes:
+      - ./ui/apps:/app/apps:ro
+    ports:
+      - "127.0.0.1:3040:3040"
+    environment:
+      OSS_REPO_MANAGEMENT_APP_PORT: "3040"
+      OSS_REPO_MANAGEMENT_APP_BASE_PATH: /apps/oss-repo-management
+      OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID: ${OSS_REPO_MANAGEMENT_GITHUB_AGENT_ID:-agent-github-agent}
+      A2A_BASE_URL: ${NEXT_PUBLIC_A2A_BASE_URL:-http://host.docker.internal:8000}
+      AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_DISABLED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3040/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  keycloak_postgres_data: null
+  openfga_postgres_data: null
+  agentgateway_config: null
+  audit_service_data: null
+  mongodb_tome_data: null
+  mongodb_tome_config: null
+

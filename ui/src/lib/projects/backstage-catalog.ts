@@ -136,7 +136,7 @@ export function projectCatalogBundleYaml(project: ProjectDocument): string {
     catalogToYaml(project.catalog),
     "",
     "# Associated Components",
-    ...project.components.flatMap((component) => [
+    ...(project.components ?? []).flatMap((component) => [
       catalogToYaml(component),
       "",
     ]),

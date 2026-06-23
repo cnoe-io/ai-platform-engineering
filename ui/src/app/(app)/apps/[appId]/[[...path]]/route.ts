@@ -374,9 +374,21 @@ function isDocumentNavigation(request: Request): boolean {
     return false;
   }
   const fetchDest = request.headers.get("sec-fetch-dest")?.toLowerCase();
+  // Only redirect top-level document navigations — not iframe/frame loads.
+  // iframe requests send Sec-Fetch-Dest: iframe; redirecting those into the
+  // SSO flow causes the login page to load inside the iframe, which then
+  // tries to redirect to the IdP and breaks with ERR_CONNECTION_REFUSED.
   if (fetchDest === "document") {
     return true;
   }
+  if (fetchDest && fetchDest !== "") {
+    // Any other explicit Sec-Fetch-Dest (iframe, frame, embed, etc.) is not a
+    // top-level navigation — return JSON 401 so the iframe shows a blank page
+    // rather than an auth redirect loop.
+    return false;
+  }
+  // No Sec-Fetch-Dest header (older browser or non-browser client) — fall
+  // back to Accept-based heuristic but only if it looks like a full page load.
   const accept = request.headers.get("accept")?.toLowerCase() ?? "";
   return accept.includes("text/html");
 }
