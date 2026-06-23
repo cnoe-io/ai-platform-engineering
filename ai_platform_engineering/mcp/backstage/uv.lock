@@ -578,7 +578,7 @@ wheels = [
 [[package]]
 name = "mcp-agent-auth"
 version = "0.1.0"
-source = { editable = "../../common/mcp-auth" }
+source = { editable = "../common/mcp-auth" }
 dependencies = [
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
@@ -607,7 +607,7 @@ dev = [
 [[package]]
 name = "mcp-backstage"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "fastmcp" },
@@ -626,7 +626,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==3.2.4" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", specifier = "==1.27.1" },
-    { name = "mcp-agent-auth", editable = "../../common/mcp-auth" },
+    { name = "mcp-agent-auth", editable = "../common/mcp-auth" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "pyyaml", specifier = "==6.0.3" },

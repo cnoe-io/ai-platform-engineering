@@ -23,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -51,6 +50,7 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: read
 
       - name: Determine Tag
         id: version
@@ -74,6 +74,7 @@ jobs:
           UI_CHANGED: ${{ steps.filter.outputs.ui }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           FORCE_BUILD: ${{ inputs.force_build }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
@@ -121,7 +122,7 @@ jobs:
               SHOULD_BUILD="true"
               echo "🚀 Build all: first pre-release or final release"
             fi
-          elif [ "$UI_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          elif [ "$UI_CHANGED" == "true" ] || [ "$EVENT_NAME" == "workflow_dispatch" ]; then
             SHOULD_BUILD="true"
             echo "📦 UI files changed or manual trigger: building"
           fi
@@ -149,15 +150,6 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
         with:
           egress-policy: audit
-
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
 
       - name: Free disk space
         run: |
@@ -251,6 +243,7 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: 📦 Install crane
         run: |
@@ -261,8 +254,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GH_ACTOR" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -398,11 +392,14 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: 🔔 Notify release finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           BUILD_RESULT="${{ needs.build-and-push.result }}"
           RETAG_RESULT="${{ needs.retag-unchanged.result }}"
@@ -418,13 +415,9 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
-          {
-            "event_type": "ci-completed",
-            "client_payload": {
-              "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
-              "conclusion": "$CONCLUSION"
-            }
-          }
-          EOF
+          jq -n \
+            --arg tag "$TAG_VERSION" \
+            --arg workflow "$WORKFLOW_NAME" \
+            --arg conclusion "$CONCLUSION" \
+            '{event_type: "ci-completed", client_payload: {tag: $tag, workflow: $workflow, conclusion: $conclusion}}' \
+            | gh api --method POST "/repos/${REPOSITORY}/dispatches" --input -

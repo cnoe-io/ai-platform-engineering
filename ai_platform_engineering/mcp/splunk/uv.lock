@@ -629,7 +629,7 @@ wheels = [
 [[package]]
 name = "mcp-agent-auth"
 version = "0.1.0"
-source = { editable = "../../common/mcp-auth" }
+source = { editable = "../common/mcp-auth" }
 dependencies = [
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
@@ -658,7 +658,7 @@ dev = [
 [[package]]
 name = "mcp-splunk"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
@@ -685,7 +685,7 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==6.0.1" },
     { name = "mcp", specifier = "==1.27.1" },
-    { name = "mcp-agent-auth", editable = "../../common/mcp-auth" },
+    { name = "mcp-agent-auth", editable = "../common/mcp-auth" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.17.1" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },

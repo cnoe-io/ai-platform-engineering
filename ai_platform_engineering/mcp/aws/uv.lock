@@ -578,7 +578,7 @@ wheels = [
 [[package]]
 name = "mcp-aws"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "mcp" },
