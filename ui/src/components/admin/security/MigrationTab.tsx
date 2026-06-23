@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import {
 AlertCircle,
 CheckCircle2,
@@ -190,8 +192,6 @@ function schemaStatusIconClass(status: MigrationSchemaVersion["status"], needsMi
 }
 
 export function MigrationTab({ isAdmin }: MigrationTabProps) {
-  const [release, setRelease] = useState("0.5.1");
-  const [runtime, setRuntime] = useState<MigrationRuntime | null>(null);
   const [schemaVersions, setSchemaVersions] = useState<MigrationSchemaVersion[]>([]);
   const [migrations, setMigrations] = useState<MigrationListItem[]>([]);
   const [completedMigrations, setCompletedMigrations] = useState<MigrationListItem[]>([]);
@@ -259,7 +259,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     selectableBulkMigrations.length > 0 && selectedBulkMigrations.length === selectableBulkMigrations.length;
 
   // Migrations that exist but are not yet implemented in code — these are
-  // skipped by "Migrate all" and surfaced so the count isn't surprising.
+  // skipped by "apply all" and surfaced so the count isn't surprising.
   const registeredNotImplementedCount = useMemo(
     () => migrations.filter((migration) => !migration.implemented && migration.status !== "completed").length,
     [migrations],
@@ -276,8 +276,6 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           .then((response) => readJson<MigrationBlockingStatus>(response))
           .catch(() => null),
       ]);
-      setRelease(data.release);
-      setRuntime(data.runtime);
       setSchemaVersions(data.schema_versions ?? []);
       setMigrations(data.migrations);
       setCompletedMigrations(data.completed_migrations ?? []);
@@ -308,7 +306,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     let cancelled = false;
     loadMigrations()
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load migrations");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load updates");
       });
     return () => {
       cancelled = true;
@@ -323,7 +321,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             <ShieldAlert className="h-5 w-5 text-amber-500" />
             Admin access required
           </CardTitle>
-          <CardDescription>Schema migrations can change persisted data and require administrator access.</CardDescription>
+          <CardDescription>Platform data updates require administrator access.</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -343,7 +341,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       );
       setPlan(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to plan migration");
+      setError(err instanceof Error ? err.message : "Failed to preview update");
     } finally {
       setPlanning(false);
     }
@@ -391,7 +389,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       );
       setBulkPlans(plans);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to plan selected migrations");
+      setError(err instanceof Error ? err.message : "Failed to preview selected updates");
     } finally {
       setBulkPlanning(false);
     }
@@ -416,7 +414,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       setApplyResult(data);
       await loadMigrations();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to apply migration");
+      setError(err instanceof Error ? err.message : "Failed to apply update");
     } finally {
       setApplying(false);
     }
@@ -454,9 +452,9 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     }
   }
 
-  // One-click "Migrate all to latest": the server initializes unversioned schema
+  // One-click "apply all updates": the server initializes unversioned schema
   // areas to v1, then applies every pending migration in dependency order. No
-  // typed confirmation — the dialog's explicit "Confirm & migrate" is the gate;
+  // typed confirmation — the dialog's explicit "Confirm & apply" is the gate;
   // the constant is sent automatically so the user never types a phrase.
   async function runApplyAll() {
     setError(null);
@@ -474,10 +472,10 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       setApplyAllOpen(false);
       await loadMigrations();
       if (data.failed_count > 0) {
-        setError(`${data.failed_count} migration(s) failed during Migrate all. See the report below.`);
+        setError(`${data.failed_count} update(s) failed while applying all updates. See the report below.`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to migrate all");
+      setError(err instanceof Error ? err.message : "Failed to apply all updates");
     } finally {
       setApplyingAll(false);
     }
@@ -522,7 +520,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       await loadMigrations({ keepSelection: true });
     } catch (err) {
       const failedMigration = selectedBulkMigrations[results.length];
-      const message = err instanceof Error ? err.message : "Failed to apply selected migrations";
+      const message = err instanceof Error ? err.message : "Failed to apply selected updates";
       setBulkApplyResult(results.length > 0 ? { applied_count: results.length, results } : null);
       setError(failedMigration ? `Failed applying ${failedStep}: ${message}` : message);
     } finally {
@@ -546,13 +544,13 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       <Card>
         <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1.5">
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle role="heading" aria-level={2} className="flex items-center gap-2">
               <Database className="h-5 w-5" />
-              {release} Schema Migrations
+              Platform Data Updates
             </CardTitle>
             <CardDescription>
-              Preview and apply schema-versioned migrations for the release. Private conversation ownership stays implicit;
-              shared/resource access is reconciled through explicit ReBAC migrations.
+              Review and apply required data updates so conversations, sharing, and access rules stay aligned with this
+              platform.
             </CardDescription>
           </div>
           <Button
@@ -566,13 +564,13 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               setCopiedConfirmation(false);
               resetBulkPreview();
               loadMigrations({ keepSelection: true }).catch((err) =>
-                setError(err instanceof Error ? err.message : "Failed to refresh migrations"),
+                setError(err instanceof Error ? err.message : "Failed to refresh updates"),
               );
             }}
             disabled={loading}
           >
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            Refresh migrations
+            Refresh updates
           </Button>
         </CardHeader>
       </Card>
@@ -582,12 +580,12 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           <div className="space-y-1.5">
             <CardTitle className="flex items-center gap-2 text-base">
               <Rocket className="h-5 w-5 text-primary" />
-              Migrate all to latest
+              Apply all updates
             </CardTitle>
             <CardDescription>
               {pendingImplementedCount > 0
-                ? `Apply all ${pendingImplementedCount} pending migration${pendingImplementedCount === 1 ? "" : "s"} in dependency order, in one step. Missing schema-version metadata is initialized to v1 first.`
-                : "All migrations are up to date — nothing to apply."}
+                ? `Apply all ${pendingImplementedCount} pending update${pendingImplementedCount === 1 ? "" : "s"} in the right order, in one step.`
+                : "Everything is up to date."}
             </CardDescription>
           </div>
           <Button
@@ -599,7 +597,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             disabled={pendingImplementedCount === 0 || applyingAll || loading}
           >
             {applyingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
-            {pendingImplementedCount > 0 ? `Migrate all (${pendingImplementedCount})` : "Up to date"}
+            {pendingImplementedCount > 0 ? `Apply all (${pendingImplementedCount})` : "Up to date"}
           </Button>
         </CardHeader>
         {applyAllResult && (
@@ -623,7 +621,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               </div>
               {applyAllResult.bootstrap && applyAllResult.bootstrap.schema_areas.length > 0 && (
                 <div className="mt-1 text-xs">
-                  Initialized {applyAllResult.bootstrap.schema_areas.length} schema area(s) to v1.
+                  Prepared {applyAllResult.bootstrap.schema_areas.length} data area(s).
                 </div>
               )}
             </div>
@@ -654,21 +652,20 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Rocket className="h-5 w-5 text-primary" />
-              Migrate all to latest
+              Apply all updates
             </DialogTitle>
             <DialogDescription>
-              This applies schema migrations to live ReBAC data and cannot be undone automatically. Review what will run,
-              then confirm.
+              This updates live access data and cannot be undone automatically. Review what will run, then confirm.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[55vh] space-y-3 overflow-auto">
             {unversionedSchemaAreaNames.length > 0 && (
               <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-sm text-amber-900">
-                Initialize {unversionedSchemaAreaNames.length} schema area(s) to v1 (writes data_schema_versions only).
+                Prepare {unversionedSchemaAreaNames.length} data area(s) before applying updates.
               </div>
             )}
             <p className="text-sm font-medium">
-              {pendingImplementedCount} migration{pendingImplementedCount === 1 ? "" : "s"} will run in dependency order:
+              {pendingImplementedCount} update{pendingImplementedCount === 1 ? "" : "s"} will run in the right order:
             </p>
             <ul className="space-y-1 text-sm">
               {selectableBulkMigrations.map((migration) => (
@@ -686,7 +683,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             </ul>
             {registeredNotImplementedCount > 0 && (
               <p className="text-xs text-muted-foreground">
-                {registeredNotImplementedCount} registered-but-not-implemented migration(s) will be skipped.
+                {registeredNotImplementedCount} registered update(s) are not ready yet and will be skipped.
               </p>
             )}
           </div>
@@ -696,7 +693,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             </Button>
             <Button type="button" onClick={runApplyAll} disabled={applyingAll || pendingImplementedCount === 0}>
               {applyingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
-              Confirm &amp; migrate
+              Confirm &amp; apply
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -714,9 +711,9 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       <Card>
         <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1.5">
-            <CardTitle className="text-base">Runtime and DB Versions</CardTitle>
+            <CardTitle className="text-base">Update Status</CardTitle>
             <CardDescription>
-              Runtime migration release: {runtime?.migration_release ?? release}. DB schema areas are versioned independently.
+              Data areas are checked independently so only required updates are shown.
             </CardDescription>
           </div>
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -725,7 +722,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               checked={showAllSchemaVersions}
               onChange={(event) => setShowAllSchemaVersions(event.target.checked)}
             />
-            Show collections without pending migrations ({hiddenSchemaVersionCount})
+            Show areas already up to date ({hiddenSchemaVersionCount})
           </label>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -736,11 +733,11 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                 <div className="min-w-0 flex-1 space-y-2">
                   <div>
                     <p className="font-medium">
-                      {unversionedSchemaAreaNames.length} schema areas are missing version metadata.
+                      {unversionedSchemaAreaNames.length} data area(s) need update status.
                     </p>
                     <p className="text-amber-900/80">
-                      Missing version rows are initialized to v1 automatically before bulk apply. This only writes
-                      data_schema_versions and does not modify collection documents.
+                      Status records are prepared automatically before applying updates. This does not modify collection
+                      documents.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -756,7 +753,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                       ) : (
                         <CheckCircle2 className="mr-2 h-4 w-4" />
                       )}
-                      Initialize all to v1
+                      Prepare all
                     </Button>
                   </div>
                   {versionBootstrapResult && (
@@ -775,7 +772,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {visibleSchemaVersions.length === 0 ? (
               <div className="rounded-lg border bg-card/60 p-3 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
-                No collections need migration.
+                Everything is up to date.
               </div>
             ) : (
               visibleSchemaVersions.map((schema) => {
@@ -820,14 +817,14 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
         <Card>
           <CardContent className="flex items-center gap-2 pt-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading migration manifest...
+            Loading updates...
           </CardContent>
         </Card>
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card/40 px-3 py-2">
             <p className="text-sm text-muted-foreground">
-              Need fine-grained control? Preview, select, and apply migrations one at a time.
+              Need fine-grained control? Preview, select, and apply updates one at a time.
             </p>
             <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdvanced((value) => !value)}>
               <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -847,10 +844,11 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                       disabled={selectableBulkMigrations.length === 0}
                       onChange={(event) => toggleAllPendingMigrations(event.target.checked)}
                     />
-                    Select all pending migrations ({selectableBulkMigrations.length})
+                    Select all pending updates ({selectableBulkMigrations.length})
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    {selectedBulkMigrations.length} migrations selected for preview and apply.
+                    {selectedBulkMigrations.length} update{selectedBulkMigrations.length === 1 ? "" : "s"} selected for
+                    preview and apply.
                   </p>
                 </div>
                 <Button
@@ -873,12 +871,12 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                   checked={showCompleted}
                   onChange={(event) => setShowCompleted(event.target.checked)}
                 />
-                Show completed migrations ({completedMigrations.length})
+                Show completed updates ({completedMigrations.length})
               </label>
             </div>
             {visibleMigrations.length === 0 && (
               <Card>
-                <CardContent className="pt-6 text-sm text-muted-foreground">No active migrations.</CardContent>
+                <CardContent className="pt-6 text-sm text-muted-foreground">No pending updates.</CardContent>
               </Card>
             )}
             {visibleMigrations.map((migration) => (
@@ -919,7 +917,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                   {migration.status === "completed" && (
                     <label className="flex w-fit items-center gap-2 rounded-md border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">
                       <input
-                        aria-label="Migration complete"
+                        aria-label="Update complete"
                         type="checkbox"
                         checked
                         readOnly
@@ -966,20 +964,19 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             {(selectedBulkMigrations.length > 0 || bulkApplyResult) && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Bulk Migration Preview</CardTitle>
+                  <CardTitle className="text-base">Selected Updates Preview</CardTitle>
                   <CardDescription>
-                    Review selected migrations, then type the bulk confirmation before applying them in order.
-                    Missing schema-version metadata is initialized first.
+                    Review selected updates, then type the bulk confirmation before applying them in order.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-muted-foreground">
                     {selectedBulkMigrations.length > 0
-                      ? `${selectedBulkMigrations.length} migrations selected.`
+                      ? `${selectedBulkMigrations.length} update${selectedBulkMigrations.length === 1 ? "" : "s"} selected.`
                       : "Bulk apply complete."}
                   </p>
                   {bulkPlans.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Preview selected migrations to unlock apply.</p>
+                    <p className="text-sm text-muted-foreground">Preview selected updates to unlock apply.</p>
                   ) : (
                     <div className="space-y-3">
                       {bulkPlans.map((bulkPlan) => {
@@ -1049,7 +1046,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                   </Button>
                   {bulkApplyResult && (
                     <div className="rounded-lg border border-emerald-300/60 bg-emerald-50 p-3 text-sm text-emerald-900">
-                      <div>Applied {bulkApplyResult.applied_count} selected migration(s).</div>
+                      <div>Applied {bulkApplyResult.applied_count} selected update(s).</div>
                       {bulkApplyResult.results.map((result) => (
                         <div key={result.migration_id} className="mt-2">
                           <div className="font-medium">{result.title}</div>
@@ -1068,7 +1065,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
 
             <Card>
             <CardHeader>
-              <CardTitle className="text-base">Migration Preview</CardTitle>
+              <CardTitle className="text-base">Update Preview</CardTitle>
               <CardDescription>
                 Review counts and sample changes, then type the exact confirmation before applying.
               </CardDescription>
@@ -1078,7 +1075,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                 <div className="space-y-2 text-sm text-muted-foreground">
                   {selectedMigration && (
                     <p>
-                      Selected migration:{" "}
+                      Selected update:{" "}
                       <span className="font-medium text-foreground">{selectedMigration.title}</span>
                     </p>
                   )}

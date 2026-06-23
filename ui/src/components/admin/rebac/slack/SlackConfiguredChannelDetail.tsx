@@ -622,7 +622,7 @@ export function SlackConfiguredChannelDetail({
           </div>
           <Button type="button" size="sm" onClick={() => { setEditingRoute(null); setEditorOpen(true); }} disabled={disabled || !selectedCanManage || loading}>Add Agent</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Multiple agents can be associated with {selected.item_name}. The Slack bot picks the highest-priority agent whose listen mode matches the message (mention vs. plain message).</p>
+        <p className="text-xs text-muted-foreground">Multiple agents can be associated with {selected.item_name}. The Slack bot picks the agent with the lowest priority number whose listen mode matches the message (mention vs. plain message).</p>
         {routes.length === 0 ? (
           <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">Add an agent to let this channel respond to Slack messages.</div>
         ) : (
@@ -665,7 +665,6 @@ export function SlackConfiguredChannelDetail({
             <DialogTitle>Remove agent from channel?</DialogTitle>
             <DialogDescription>{routePendingDelete ? `This removes agent:${routePendingDelete.agent_id} from the selected Slack channel.` : "This removes the selected agent from the Slack channel."}</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">The OpenFGA tuple will be deleted, and the saved Mongo route metadata for listen mode and priority will be deleted as well.</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRoutePendingDelete(null)} disabled={loading}>Cancel</Button>
             <Button type="button" variant="destructive" onClick={() => void deleteRouteConfirmed()} disabled={loading}>{loading ? "Removing..." : "Remove agent"}</Button>

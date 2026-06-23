@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
@@ -82,8 +84,8 @@ function LLMModelEditor({ model, readOnly, onSave, onCancel }: LLMModelEditorPro
               {readOnly
                 ? "This model is managed by configuration and cannot be edited."
                 : isEditing
-                ? "Update model display information."
-                : "Register an LLM model available to agents."}
+                ? "Update how this model appears to agent builders."
+                : "Add a model that agents can use."}
             </CardDescription>
           </div>
         </div>
@@ -101,8 +103,7 @@ function LLMModelEditor({ model, readOnly, onSave, onCancel }: LLMModelEditorPro
             <div className="flex items-start gap-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 p-3">
               <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                This assumes the API keys / credentials for this model are already available to the
-                agent runtime (via environment variables or secrets).
+                Make sure this model provider is connected before assigning the model to an agent.
               </p>
             </div>
           )}
@@ -117,7 +118,7 @@ function LLMModelEditor({ model, readOnly, onSave, onCancel }: LLMModelEditorPro
               disabled={isEditing}
             />
             <p className="text-xs text-muted-foreground">
-              Unique identifier used in agent configuration. Cannot be changed after creation.
+              Unique model identifier. This cannot be changed after creation.
             </p>
           </div>
 
@@ -140,7 +141,7 @@ function LLMModelEditor({ model, readOnly, onSave, onCancel }: LLMModelEditorPro
               onChange={(e) => setProvider(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Must match a provider supported by the agent runtime.
+              Use the provider name configured for this model.
             </p>
           </div>
 
@@ -333,7 +334,7 @@ export function LLMModelsTab() {
             <Cpu className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No LLM Models Yet</h3>
             <p className="text-muted-foreground mb-4">
-              Add your first model to make it available for agent configuration.
+              Add a model before assigning one to an agent.
             </p>
             <Button onClick={() => setIsCreating(true)}>
               <Plus className="h-4 w-4 mr-2" />

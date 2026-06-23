@@ -7,6 +7,7 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
 countRealmUsers,
+findRealmUsersByExactEmail,
 getRealmUserById,
 listRealmRoleMappingsForUser,
 listUsersWithRole,
@@ -16,8 +17,12 @@ import {
 curateRealmRolesForUser,
 type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
+import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
-import { listTeamMembershipSources } from "@/lib/rbac/team-membership-source-store";
+import {
+listActiveTeamMembershipSourcesBySlug,
+listTeamMembershipSources,
+} from "@/lib/rbac/team-membership-source-store";
 import { type NextRequest,NextResponse } from "next/server";
 
 type AdminUsersListBase = {
@@ -131,18 +136,27 @@ async function loadRoleUserIdSet(roleName: string): Promise<Set<string>> {
   return ids;
 }
 
-async function loadTeamMemberEmails(teamId: string): Promise<Set<string>> {
-  // Canonical source of team membership is `team_membership_sources` (post
-  // 2026-05-26 canonical-membership refactor). The legacy `team_kb_ownership`
-  // store this used to read is no longer populated, which is why the team
-  // filter silently matched nobody.
-  const sources = await listTeamMembershipSources(teamId);
+// `team_membership_sources` is the canonical membership store. It carries
+// BOTH a `team_id` (Mongo `_id` string) and a `team_slug`; the two are not
+// interchangeable, so a caller must look up by whichever identifier it holds.
+function membershipEmails(sources: { status?: string; user_email?: string }[]): Set<string> {
   const emails = new Set<string>();
   for (const s of sources) {
     if (s.status !== "active") continue;
     if (s.user_email) emails.add(s.user_email.trim().toLowerCase());
   }
   return emails;
+}
+
+// Admin `?team=` filter passes the team's Mongo `_id` string.
+async function loadTeamMemberEmails(teamId: string): Promise<Set<string>> {
+  return membershipEmails(await listTeamMembershipSources(teamId));
+}
+
+// Non-admin team scope resolves teams from OpenFGA `team:<slug>` objects, so
+// it holds slugs rather than ids.
+async function loadTeamMemberEmailsBySlug(slug: string): Promise<Set<string>> {
+  return membershipEmails(await listActiveTeamMembershipSourcesBySlug(slug));
 }
 
 function mapBaseRow(
@@ -224,23 +238,99 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const includeRoles = includeRolesRaw === "true" || includeRolesRaw === "1";
 
   if (!hasAdminView) {
-    const subject = typeof session.sub === "string" ? session.sub : "";
+    const subject = typeof session.sub === "string" ? session.sub.trim() : "";
     if (!subject) {
       throw new ApiError("A stable user subject is required to load your user profile.", 401);
     }
     const pendingSlackIds = await loadPendingSlackIds();
-    // Self-scoped fallback always includes roles; cost is one user.
-    const self = await enrichListRow(
-      await getRealmUserById(subject),
-      pendingSlackIds,
-      true
+
+    let teamSlugs: string[] = [];
+    try {
+      const teamObjects = await listOpenFgaObjects({
+        user: `user:${subject}`,
+        relation: "member",
+        type: "team",
+      });
+      teamSlugs = teamObjects.objects
+        .map((obj) => {
+          const parts = obj.split(":");
+          return parts.length >= 2 ? parts.slice(1).join(":") : "";
+        })
+        .filter(Boolean);
+    } catch {
+      // fall through to self-only
+    }
+
+    if (teamSlugs.length === 0) {
+      const self = await enrichListRow(
+        await getRealmUserById(subject),
+        pendingSlackIds,
+        true
+      );
+      return NextResponse.json({
+        users: [self],
+        total: 1,
+        page: 1,
+        pageSize: 1,
+        scoped: "self",
+      });
+    }
+
+    const teamEmailUnion = new Set<string>();
+    await Promise.all(
+      teamSlugs.map(async (slug) => {
+        try {
+          const emails = await loadTeamMemberEmailsBySlug(slug);
+          for (const email of emails) teamEmailUnion.add(email);
+        } catch {
+          // skip this team on error
+        }
+      })
     );
+
+    if (teamEmailUnion.size === 0) {
+      const self = await enrichListRow(
+        await getRealmUserById(subject),
+        pendingSlackIds,
+        true
+      );
+      return NextResponse.json({
+        users: [self],
+        total: 1,
+        page: 1,
+        pageSize: 1,
+        scoped: "self",
+      });
+    }
+
+    // Resolve each team member by exact email rather than scanning the whole
+    // realm. The membership store already gives us the exact set of emails, so
+    // an indexed per-email lookup is O(team size) instead of O(realm size) —
+    // critical now that every non-admin pays this on each Users-tab load.
+    const seenIds = new Set<string>();
+    const teamUsers: AdminUsersListItem[] = [];
+    await Promise.all(
+      [...teamEmailUnion].map(async (email) => {
+        try {
+          const matches = await findRealmUsersByExactEmail(email);
+          for (const u of matches) {
+            const id = String(u.id ?? "");
+            if (!id || seenIds.has(id)) continue;
+            seenIds.add(id);
+            teamUsers.push(await enrichListRow(u, pendingSlackIds, false));
+          }
+        } catch {
+          // skip this email on error
+        }
+      })
+    );
+
     return NextResponse.json({
-      users: [self],
-      total: 1,
+      users: teamUsers,
+      total: teamUsers.length,
       page: 1,
-      pageSize: 1,
-      scoped: "self",
+      pageSize: teamUsers.length,
+      scoped: "team",
     });
   }
 

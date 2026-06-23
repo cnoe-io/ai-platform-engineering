@@ -3,8 +3,9 @@
  * 
  * This returns agents that the user can chat with:
  * - Global agents (visibility: 'global')
- * - Team agents (visibility: 'team') for teams the user belongs to
- * - Private agents (visibility: 'private') owned by the user
+ * - Team agents for teams the user belongs to (owner or shared)
+ * - Agents owned directly by the user
+ * - The configured platform default agent
  * 
  * Only returns enabled agents.
  */
@@ -15,14 +16,21 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
+import {
+createJsonResponseCacheStore,
+envTtlMs,
+withJsonResponseCache,
+} from "@/lib/server-response-cache";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "dynamic_agents";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+const availableAgentsCache = createJsonResponseCacheStore();
 
 function normalizeDefaultAgentId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -122,6 +130,13 @@ async function ensureAllUsersAgentGrants(
  * List dynamic agents available for the current user to chat with.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  return withJsonResponseCache(request, availableAgentsCache, () => getAvailableAgents(request), {
+    ttlMs: envTtlMs("DYNAMIC_AGENTS_AVAILABLE_CACHE_TTL_MS", 10_000),
+    maxEntries: 512,
+  });
+});
+
+async function getAvailableAgents(request: NextRequest) {
   const { session } = await getAuthFromBearerOrSession(request);
   await ensureBaselineAccess(session);
 
@@ -143,7 +158,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .toArray();
   await ensureAllUsersAgentGrants(agents, defaultAgentId);
 
-  const visibleAgents = await filterResourcesByPermission(session, agents, {
+  const scopedAgents = await filterAgentsByOwnershipScopeForSession(
+    session,
+    agents,
+    defaultAgentId,
+  );
+
+  const visibleAgents = await filterResourcesByPermission(session, scopedAgents, {
     type: "agent",
     action: "use",
     id: (agent) => String(agent._id),
@@ -161,4 +182,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   });
 
   return successResponse(normalizedAgents);
-});
+}

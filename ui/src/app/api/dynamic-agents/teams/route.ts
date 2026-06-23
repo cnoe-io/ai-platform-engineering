@@ -110,7 +110,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           slug: team.slug,
           description: team.description,
           user_role: role,
-          can_own_agents: role === "admin",
+          // Any active team member may create an agent owned by that team;
+          // POST checks team `use` and writes the creator as `owner`.
+          can_own_agents: role === "admin" || role === "member",
         };
       }),
     );

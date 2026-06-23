@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.5.13-dev.1"
+version = "0.5.19-dev.2"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -11,7 +11,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.3.0",
     "ag-ui-protocol==0.1.15",
-    "agntcy-app-sdk==0.4.0",
+    "beautifulsoup4==4.14.3",
     # `cachetools.TTLCache` backs the Keycloak JWKS / userinfo cache and the
     # PDP decision cache used by `utils/auth/keycloak_authz.py`. Pinned to
     # match the version already locked across every agent sub-package in
@@ -20,21 +20,22 @@ dependencies = [
     "cachetools==6.2.2",
     "cnoe-agent-utils==0.4.0",
     "config==0.5.1",
-    "cryptography==46.0.7",
+    "cryptography==49.0.0",
     "fastapi==0.135.3",
     "httpx==0.28.1",
     "hvac==2.4.0",
-    "langchain==1.2.15",
-    "langchain-core==1.4.0",
+    "langchain==1.3.9",
+    "langchain-core==1.4.8",
     "langchain-mcp-adapters==0.2.1",
     "langfuse==3.14.3",
-    "langgraph==1.1.6",
+    "langgraph==1.2.6",
     "langmem==0.0.30",
     "mdformat==1.0.0",
     "prometheus-client==0.23.1",
     "pydantic==2.12.5",
     "pydantic-core==2.41.5",
-    "pyjwt==2.12.0",
+    "pyjwt==2.13.0",
+    "requests==2.33.0",
     # Single-node mode dependencies (uses upstream deepagents library)
     "deepagents==0.3.8",
     "nest-asyncio==1.6.0",
@@ -52,6 +53,10 @@ dependencies = [
     "langgraph-checkpoint-mongodb==0.3.1",
     # Async MongoDB driver for MongoDB store
     "motor==3.7.1",
+    # S3-compatible object storage client for audit log backend
+    "boto3==1.42.7",
+    # Parquet writer for columnar audit log files (S3 backend)
+    "pyarrow==23.0.1",
 ]
 
 [tool.pytest.ini_options]
@@ -105,4 +110,4 @@ url = "https://pypi.org/simple/"
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]
+constraint-dependencies = ["pypdf==6.13.3"]

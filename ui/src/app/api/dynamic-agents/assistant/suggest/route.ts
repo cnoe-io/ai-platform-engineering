@@ -201,8 +201,8 @@ function buildPrompts(body: SuggestFieldRequest): {
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const auth = await authenticateRequest(request, {
-    resource: "dynamic_agent",
-    scope: "manage",
+    resource: "ai_assist",
+    scope: "invoke",
   });
   if (auth instanceof NextResponse) return auth;
 

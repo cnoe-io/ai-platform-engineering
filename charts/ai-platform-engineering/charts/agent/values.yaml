@@ -209,13 +209,6 @@ agentSecrets:
     target: {}
     data: []
 
-# Slim transport configuration - fallback values for standalone testing
-# In production, these are provided by the parent chart's global.slim section
-slim:
-  enabled: false
-  endpoint: ""
-  transport: "slim"
-
 # Prometheus metrics configuration
 # The agent exposes metrics at /metrics endpoint
 # Note: ServiceMonitor is managed at the parent chart level (one for all)

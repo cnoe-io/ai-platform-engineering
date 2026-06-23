@@ -8,8 +8,8 @@ allowing fine-grained control over which tools can be executed by which agents.
 
 The policy file (policy.lp) uses Answer Set Programming to define authorization
 rules. The policy:
-- Allows read-only GitHub MCP tools for all agents
-- Allows create_repository and create_pull_request only in self-service mode
+- Allows read-only GitHub operations for all agents
+- Allows GitHub write operations only in self-service mode
 - Blocks write operations by default
 - Allows all tools for non-GitHub agents (Jira, Webex, etc.)
 

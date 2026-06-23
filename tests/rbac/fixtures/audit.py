@@ -1,26 +1,19 @@
 """Audit log assertion helpers (Python side) — spec 102 T018.
 
-Reads from the MongoDB collection that both runtimes write authorization
-decisions to. The collection name is `authz_decisions` per `data-model.md` §E1
-and `contracts/audit-event.schema.json`.
-
-⚠️ Existing TS audit code in `ui/src/lib/rbac/audit.ts` writes to two
-collections: `authorization_decision_records` (richer schema) and
-`audit_events` (compact). Per the implementation-plan note 2026-04-22, we are
-introducing the canonical `authz_decisions` collection in T022 (Python side)
-and migrating the TS emitter to mirror it in Phase 11 polish (T128).
-For now this helper looks at `authz_decisions` first and falls back to
-`authorization_decision_records` so tests remain green during the migration.
+Audit storage is owned by audit-service. These helpers query the service API
+instead of tailing MongoDB collections.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
+import json
 import os
 import time
+import urllib.parse
+import urllib.request
 from typing import Any
-
-import pymongo  # type: ignore[import-not-found]
 
 REQUIRED_REASONS = {
     "OK",
@@ -33,16 +26,31 @@ REQUIRED_REASONS = {
 }
 
 
-def _mongo_client() -> pymongo.MongoClient:
-    uri = os.environ.get("AUTHZ_MONGO_URI") or os.environ.get(
-        "MONGO_URI", "mongodb://localhost:27017"
+def _audit_service_url() -> str:
+    value = os.environ.get("AUDIT_SERVICE_URL") or os.environ.get(
+        "E2E_AUDIT_SERVICE_URL", "http://localhost:8010"
     )
-    return pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
+    return value.rstrip("/")
 
 
-def _db():
-    name = os.environ.get("AUTHZ_MONGO_DB", "caipe")
-    return _mongo_client()[name]
+def _subject_hash(sub: str) -> str:
+    # assisted-by Codex Codex-sonnet-4-6
+    salt = os.environ.get("AUDIT_SUBJECT_SALT", "caipe-098-audit")
+    digest = hashlib.sha256(f"{salt}:{sub}".encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _query_audit_records(params: dict[str, str], limit: int = 50) -> list[dict[str, Any]]:
+    query = {
+        "limit": str(limit),
+        "since": (_dt.datetime.now(tz=_dt.UTC) - _dt.timedelta(days=1)).isoformat(),
+        **params,
+    }
+    url = f"{_audit_service_url()}/v1/audit/events?{urllib.parse.urlencode(query)}"
+    with urllib.request.urlopen(url, timeout=3) as response:  # noqa: S310
+        payload = json.loads(response.read().decode("utf-8"))
+    records = payload.get("records", [])
+    return records if isinstance(records, list) else []
 
 
 def assert_audit_record(
@@ -55,32 +63,31 @@ def assert_audit_record(
     timeout_s: float = 5.0,
     poll_interval_s: float = 0.1,
 ) -> dict[str, Any]:
-    """Block until a matching audit record appears in `authz_decisions`.
-
-    Tests call this immediately after the gated request so they can wait out
-    any best-effort write latency. Raises on timeout.
-    """
+    """Block until a matching audit record appears in audit-service."""
     if reason not in REQUIRED_REASONS:
         raise AssertionError(f"reason {reason!r} not in canonical enum {REQUIRED_REASONS!r}")
 
     deadline = time.monotonic() + timeout_s
-    db = _db()
     last_seen: dict[str, Any] | None = None
+    action = f"{resource}#{scope}"
+    outcome = "allow" if allowed else "deny"
     while time.monotonic() < deadline:
-        for collection_name in ("authz_decisions", "authorization_decision_records"):
-            doc = db[collection_name].find_one(
-                {
-                    "userId": user_id,
-                    "resource": resource,
-                    "scope": scope,
-                },
-                sort=[("ts", pymongo.DESCENDING)],
-            )
-            if doc is None:
-                continue
-            last_seen = doc
-            if bool(doc.get("allowed")) is allowed and doc.get("reason") == reason:
-                return doc
+        records = _query_audit_records(
+            {
+                "subject_hash": _subject_hash(user_id),
+                "action": action,
+                "outcome": outcome,
+                "reason_code": reason,
+            }
+        )
+        last_seen = records[0] if records else last_seen
+        for record in records:
+            if (
+                (record.get("action") or record.get("capability")) == action
+                and record.get("outcome") == outcome
+                and record.get("reason_code") == reason
+            ):
+                return record
         time.sleep(poll_interval_s)
 
     raise AssertionError(
@@ -92,34 +99,16 @@ def assert_audit_record(
 
 
 def clear_audit_log() -> int:
-    """Drop everything in `authz_decisions` (and the legacy collection).
-
-    Tests call this between scenarios so each scenario has a clean log.
-    Returns the number of documents removed (best-effort).
-    """
-    deleted = 0
-    db = _db()
-    for collection_name in ("authz_decisions", "authorization_decision_records"):
-        try:
-            res = db[collection_name].delete_many({})
-            deleted += res.deleted_count
-        except Exception:  # noqa: BLE001 — best-effort cleanup
-            continue
-    return deleted
+    """Compatibility no-op; audit-service is append-only for tests."""
+    return 0
 
 
 def latest_audit_record_for(user_id: str) -> dict[str, Any] | None:
-    """Return the most-recent audit document for a user, or None."""
-    db = _db()
-    for collection_name in ("authz_decisions", "authorization_decision_records"):
-        doc = db[collection_name].find_one(
-            {"userId": user_id}, sort=[("ts", pymongo.DESCENDING)]
-        )
-        if doc is not None:
-            return doc
-    return None
+    """Return the most-recent audit event for a user, or None."""
+    records = _query_audit_records({"subject_hash": _subject_hash(user_id)}, limit=1)
+    return records[0] if records else None
 
 
 def now_iso() -> str:
     """ISO-8601 UTC timestamp matching the audit schema's `ts` format."""
-    return _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    return _dt.datetime.now(tz=_dt.UTC).isoformat().replace("+00:00", "Z")

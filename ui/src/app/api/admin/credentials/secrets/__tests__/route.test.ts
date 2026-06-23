@@ -6,6 +6,7 @@ const mockListAllSecretsForAdmin = jest.fn();
 const mockUpdateSecretMetadataForAdmin = jest.fn();
 const mockDeleteSecretForAdmin = jest.fn();
 const mockRequireAdminSurfaceManage = jest.fn(async () => undefined);
+const mockUsersToArray = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -31,6 +32,14 @@ jest.mock("@/lib/credentials/secret-service-factory", () => ({
   })),
 }));
 
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: jest.fn(async () => ({
+    find: jest.fn(() => ({
+      toArray: mockUsersToArray,
+    })),
+  })),
+}));
+
 function request(method: string, body?: unknown) {
   return {
     method,
@@ -43,17 +52,49 @@ function request(method: string, body?: unknown) {
 describe("/api/admin/credentials/secrets", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUsersToArray.mockResolvedValue([
+      {
+        email: "alice@example.test",
+        name: "Alice Example",
+        keycloak_sub: "alice",
+        metadata: { keycloak_sub: "alice", sso_id: "alice" },
+      },
+    ]);
   });
 
   it("lists all secret metadata behind the credentials admin surface", async () => {
     mockListAllSecretsForAdmin.mockResolvedValue([
-      { id: "secret-1", owner: { type: "user", id: "alice" }, maskedPreview: "ghp_...abcd" },
+      {
+        id: "secret-1",
+        owner: { type: "user", id: "alice" },
+        createdBy: { type: "user", id: "alice" },
+        maskedPreview: "ghp_...abcd",
+      },
     ]);
     const { GET } = await import("../route");
     const response = await GET(request("GET"));
     await expect(response.json()).resolves.toMatchObject({
       success: true,
-      data: [{ id: "secret-1", maskedPreview: "ghp_...abcd" }],
+      data: [
+        {
+          id: "secret-1",
+          owner: {
+            type: "user",
+            id: "alice",
+            email: "alice@example.test",
+            name: "Alice Example",
+            displayName: "Alice Example",
+          },
+          createdBy: {
+            type: "user",
+            id: "alice",
+            email: "alice@example.test",
+            name: "Alice Example",
+            displayName: "Alice Example",
+          },
+          maskedPreview: "ghp_...abcd",
+        },
+      ],
     });
     expect(mockRequireAdminSurfaceManage).toHaveBeenCalledWith({ sub: "admin-sub" }, "credentials");
   });

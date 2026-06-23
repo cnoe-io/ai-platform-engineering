@@ -43,6 +43,12 @@ spec:
               value: {{ .Values.datastore.maxOpenConns | quote }}
             - name: OPENFGA_PLAYGROUND_ENABLED
               value: {{ .Values.playground.enabled | quote }}
+            {{- if .Values.checkQueryCache.enabled }}
+            - name: OPENFGA_CHECK_QUERY_CACHE_ENABLED
+              value: "true"
+            - name: OPENFGA_CHECK_QUERY_CACHE_TTL
+              value: {{ .Values.checkQueryCache.ttl | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

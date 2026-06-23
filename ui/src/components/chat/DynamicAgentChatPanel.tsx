@@ -246,6 +246,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const isThisConversationStreaming = activeConversationId
     ? isConversationStreaming(activeConversationId)
     : false;
+  const hasAssistantMessageForInterruptCheck = conversation?.messages?.some((message) => message.role === "assistant") ?? false;
 
   // Check if user is near the bottom of the scroll area
   const isNearBottom = useCallback(() => {
@@ -357,7 +358,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // this effect can fire before ChatContainer finishes loading messages
     // from MongoDB, causing lastMsg to be undefined and recovery to fail)
     if (isLoadingMessages) return;
-    
+    if (isThisConversationStreaming) return;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Empty chats have no assistant turn to attach restored HITL state to.
+    if (!hasAssistantMessageForInterruptCheck) return;
+
     // Skip if already checked this conversation
     if (interruptCheckedRef.current.has(conversationId)) return;
     
@@ -366,11 +371,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const checkInterruptState = async () => {
       setCheckingInterrupt(true);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 5000);
       try {
         // Check for pending HITL interrupt state (lightweight call to checkpointer)
         // Messages are already loaded by ChatContainer - we only check interrupt state here
         const interruptResponse = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`
+          `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`,
+          { signal: controller.signal },
         );
         
         if (interruptResponse.ok) {
@@ -439,12 +447,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // Non-fatal: HITL state check failed
         console.warn("[ChatPanel] Failed to check interrupt state:", interruptError);
       } finally {
+        window.clearTimeout(timeoutId);
         setCheckingInterrupt(false);
       }
     };
 
     checkInterruptState();
-  }, [conversationId, agentId, isLoadingMessages]);
+  }, [conversationId, agentId, isLoadingMessages, isThisConversationStreaming, hasAssistantMessageForInterruptCheck]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)

@@ -390,14 +390,17 @@ export function buildConfigDrivenMcpServerRelationshipTupleDiff(
   }
 
   const object = `mcp_server:${input.serverId}`;
+  const orgMember = `organization:${organizationId}#member`;
+  // Org members may list/discover default MCP servers but must not invoke/test
+  // them directly; runtime agent tool calls use agent-scoped tool tuples instead.
+  // Org admins retain invoke via manager → can_manage → can_invoke.
   return {
     writes: uniqueTuples([
-      { user: `organization:${organizationId}#member`, relation: "reader", object },
-      { user: `organization:${organizationId}#member`, relation: "user", object },
-      { user: `organization:${organizationId}#member`, relation: "invoker", object },
+      { user: orgMember, relation: "reader", object },
+      { user: orgMember, relation: "user", object },
       { user: `organization:${organizationId}#admin`, relation: "manager", object },
     ]),
-    deletes: [],
+    deletes: uniqueTuples([{ user: orgMember, relation: "invoker", object }]),
   };
 }
 

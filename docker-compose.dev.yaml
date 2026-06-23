@@ -83,11 +83,8 @@ services:
       # Disable cache so UI edits are reflected immediately in the agent
       - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
 
-      # A2A transport configuration (p2p or slim)
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-
-      # Slim dataplane endpoint configuration
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      # A2A transport configuration
+      - A2A_TRANSPORT=p2p
 
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
@@ -304,33 +301,6 @@ services:
       - caipe-ui-mongo-express
 
   ####################################################################################################
-  #                                      SLIM Transport                                              #
-  ####################################################################################################
-  slim-dataplane:
-    image: ghcr.io/agntcy/slim:0.6.1
-    container_name: slim-dataplane
-    ports: ["46357:46357"]
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
-    profiles:
-      - slim
-
-  slim-control-plane:
-    image: ghcr.io/agntcy/slim/control-plane:0.0.1
-    container_name: slim-control-plane
-    ports: ["50051:50051", "50052:50052"]
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes: ["./slim-config.yaml:/config.yaml"]
-    command: ["/slim", "--config", "/config.yaml"]
-    profiles:
-      - slim
-
-  ####################################################################################################
   #                                         Sub-Agents                                               #
   ####################################################################################################
   # Shared Dockerfile.a2a / Dockerfile.mcp no longer install aws-cli / kubectl /
@@ -360,9 +330,8 @@ services:
     env_file: [.env]
     ports: ["8012:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -417,12 +386,11 @@ services:
     env_file: [.env]
     ports: ["8013:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_PORT=443
       - MCP_HOST=petstore.outshift.io
       - PETSTORE_API_KEY=${PETSTORE_API_KEY}
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -444,22 +412,6 @@ services:
       - petstore
       - all-agents
 
-  # GitHub
-  # Official GitHub MCP server (HTTP mode) — provides full GitHub tool coverage
-  # via the github-mcp-server Go binary served over streamable-http.
-  # agent-github connects to this via GITHUB_MCP_HOST/PORT instead of localhost.
-  github-mcp-server:
-    image: ghcr.io/github/github-mcp-server:latest
-    container_name: github-mcp-server
-    command: ["http", "--port", "8082", "--toolsets", "all"]
-    environment:
-      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
-    ports: ["8082:8082"]
-    profiles:
-      - github
-      - all-agents
-      - mcp-servers
-
   agent-github:
     build:
       context: .
@@ -476,11 +428,7 @@ services:
     env_file: [.env]
     ports: ["8001:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - MCP_MODE=http
-      - GITHUB_MCP_HOST=github-mcp-server
-      - GITHUB_MCP_PORT=8082
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - A2A_TRANSPORT=p2p
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -504,8 +452,6 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
       - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
       - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
-    depends_on:
-      - github-mcp-server
     profiles:
       - github
       - all-agents
@@ -527,11 +473,10 @@ services:
     env_file: [.env]
     ports: ["8014:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=stdio
       - MCP_HOST=mcp-gitlab
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -621,11 +566,10 @@ services:
     env_file: [.env]
     ports: ["8002:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=weather.outshift.io
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     profiles:
       - weather
       - all-agents
@@ -646,11 +590,10 @@ services:
     env_file: [.env]
     ports: ["8003:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-backstage
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-backstage:
         condition: service_healthy
@@ -701,11 +644,10 @@ services:
     env_file: [.env]
     ports: ["8004:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-argocd:
         condition: service_healthy
@@ -756,11 +698,10 @@ services:
     env_file: [.env]
     ports: ["8005:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-confluence
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-confluence:
         condition: service_started
@@ -798,11 +739,10 @@ services:
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports: ["8006:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-jira
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-jira:
         condition: service_healthy
@@ -821,7 +761,7 @@ services:
     env_file: [.env]
     ports: ["18004:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
+      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/ai_platform_engineering/agents/jira/mcp/mcp_jira
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -869,11 +809,10 @@ services:
     env_file: [.env]
     ports: ["8007:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-komodor
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-komodor:
         condition: service_healthy
@@ -921,11 +860,10 @@ services:
     env_file: [.env]
     ports: ["8008:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-pagerduty
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-pagerduty:
         condition: service_healthy
@@ -976,11 +914,10 @@ services:
     env_file: [.env]
     ports: ["8009:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-slack
       - MCP_PORT=3001
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-slack:
         condition: service_healthy
@@ -1031,11 +968,10 @@ services:
     env_file: [.env]
     ports: ["8010:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-splunk
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-splunk:
         condition: service_healthy
@@ -1086,11 +1022,10 @@ services:
     env_file: [.env]
     ports: ["8011:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-webex
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-webex:
         condition: service_healthy
@@ -1142,11 +1077,10 @@ services:
     env_file: [.env]
     ports: ["8016:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-victorops
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-victorops:
         condition: service_healthy
@@ -1200,11 +1134,10 @@ services:
     env_file: [.env]
     ports: ["8015:8000"]
     environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
       - MCP_HOST=mcp-netutils
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-netutils:
         condition: service_healthy
@@ -1361,7 +1294,7 @@ services:
       # OpenFGA ReBAC reconciliation is opt-in so non-RBAC local UI runs do
       # not require the OpenFGA profile. The remote RBAC stack enables it in
       # `.env` and writes Team Resources changes as OpenFGA tuples.
-      - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-false}
+      - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-true}
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       # Keep local .env role defaults from affecting RAG authorization paths.
@@ -1429,6 +1362,7 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - AGENTGATEWAY_TARGETS_TOKEN=${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       # Connections & Secrets. Local OAuth connector bootstrap reads these
       # values from .env; Kubernetes deployments use ESO to inject the same
       # variable names into caipe-ui.
@@ -1500,6 +1434,9 @@ services:
       #   APP_CONFIG_FILE=./config/app-config.local.yaml
       # config/*.local.yaml is gitignored (see .gitignore).
       - APP_CONFIG_PATH=/app/config/app-config.yaml
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     volumes:
       # Override host path with CAIPE_APP_CONFIG_FILE (preferred; matches main's naming) or
       # legacy APP_CONFIG_FILE (kept for back-compat with existing .env files on this branch).
@@ -1534,6 +1471,9 @@ services:
       keycloak:
         condition: service_healthy
         required: false
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - caipe-ui
 
@@ -1557,7 +1497,7 @@ services:
         # Local prod-parity rebuilds skip Next's duplicate typecheck; run
         # `npm run lint` / targeted tests separately when validating changes.
         - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}-prod
+    image: ghcr.io/cnoe-io/caipe-ui-prod:${IMAGE_TAG:-localtag}
     container_name: caipe-ui-prod
     # Same host port as caipe-ui — these two services are mutually exclusive.
     # Keycloak's caipe-ui client only allow-lists http://localhost:3000/*.
@@ -1589,7 +1529,7 @@ services:
       - OIDC_ISSUER=${OIDC_ISSUER:-}
       - OIDC_EXTRA_AUDIENCES=${OIDC_EXTRA_AUDIENCES:-agentgateway}
       - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-caipe-platform}
-      - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-false}
+      - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-true}
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       # Keep local .env role defaults from affecting RAG authorization paths.
@@ -1635,6 +1575,7 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - AGENTGATEWAY_TARGETS_TOKEN=${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_STORE_BACKEND=${CREDENTIAL_STORE_BACKEND:-mongodb-envelope}
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
@@ -1644,6 +1585,7 @@ services:
       # the local key wrapper run despite production. INSECURE — never set true
       # in a real production deployment. See build/Dockerfile.caipe-ui header.
       - CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=${CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP:-false}
+      - CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS=${CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS:-true}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -1684,6 +1626,9 @@ services:
       - WEBEX_BOT_ADMIN_AUDIENCE=${WEBEX_BOT_ADMIN_AUDIENCE:-caipe-webex-bot-admin}
       - WEBEX_BOT_ADMIN_TOKEN_URL=${WEBEX_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       - APP_CONFIG_PATH=/app/config/app-config.yaml
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     volumes:
       # App config only — NO source bind-mounts. The runner stage uses the
       # prebuilt .next/standalone bundle and ignores ./ui/src etc., so any
@@ -1700,8 +1645,64 @@ services:
       keycloak:
         condition: service_healthy
         required: false
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - caipe-ui-prod
+
+  ####################################################################################################
+  #                                      Audit Service                                               #
+  ####################################################################################################
+  # Lightweight audit collector. caipe-ui can use it with AUDIT_LOG_BACKEND=service.
+  # It accepts JSON batches quickly, buffers with asyncio.Queue, flushes gzip
+  # NDJSON to local storage, and serves bounded read queries over the same data.
+  audit-service:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.audit-service
+    image: ghcr.io/cnoe-io/caipe-audit-service:${IMAGE_TAG:-localtag}
+    container_name: audit-service
+    ports:
+      - "127.0.0.1:${AUDIT_SERVICE_PORT:-8010}:8010"
+    environment:
+      AUDIT_SERVICE_BACKEND: ${AUDIT_SERVICE_BACKEND:-local}
+      AUDIT_SERVICE_LOCAL_PATH: /var/lib/caipe-audit-service
+      AUDIT_SERVICE_LOCAL_GZIP: ${AUDIT_SERVICE_LOCAL_GZIP:-true}
+      AUDIT_SERVICE_LOCAL_RETENTION_DAYS: ${AUDIT_SERVICE_LOCAL_RETENTION_DAYS:-1}
+      AUDIT_SERVICE_S3_BUCKET: ${AUDIT_SERVICE_S3_BUCKET:-}
+      AUDIT_SERVICE_S3_PREFIX: ${AUDIT_SERVICE_S3_PREFIX:-audit}
+      AUDIT_SERVICE_S3_REGION: ${AUDIT_SERVICE_S3_REGION:-us-east-2}
+      AUDIT_SERVICE_S3_ENDPOINT_URL: ${AUDIT_SERVICE_S3_ENDPOINT_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AUDIT_SERVICE_QUEUE_MAX_SIZE: ${AUDIT_SERVICE_QUEUE_MAX_SIZE:-10000}
+      AUDIT_SERVICE_FLUSH_BATCH_SIZE: ${AUDIT_SERVICE_FLUSH_BATCH_SIZE:-500}
+      AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS: ${AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS:-1}
+      AUDIT_SERVICE_READ_DEFAULT_LIMIT: ${AUDIT_SERVICE_READ_DEFAULT_LIMIT:-1000}
+      AUDIT_SERVICE_READ_MAX_LIMIT: ${AUDIT_SERVICE_READ_MAX_LIMIT:-10000}
+      AUDIT_SERVICE_READ_MAX_DAYS: ${AUDIT_SERVICE_READ_MAX_DAYS:-31}
+    volumes:
+      - audit_service_data:/var/lib/caipe-audit-service
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8010/readyz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - audit-service
+      - caipe-ui
+      - caipe-ui-prod
+      - rbac
 
   ####################################################################################################
   #                                      Dynamic Agents                                              #
@@ -1775,9 +1776,8 @@ services:
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
       # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
-      # AgentGateway fronts MCP targets with one route/backend per server so one
-      # failing optional MCP does not break unrelated tools.
-      - AGENT_GATEWAY_MCP_SERVER_IDS=${AGENT_GATEWAY_MCP_SERVER_IDS:-all}
+      # AgentGateway fronts every network MCP target with one route/backend per
+      # server so one failing optional MCP does not break unrelated tools.
       # Optional shared secret for signed Dynamic Agent -> AgentGateway agent_id context.
       # Leave unset to keep only the coarse user-level AgentGateway/OpenFGA gate.
       - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
@@ -1786,6 +1786,17 @@ services:
       # server-to-server credential API instead of browser/session cookies.
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
+      # Browser-reachable Grid URL for workflow run links returned by workflow tools.
+      - CAIPE_UI_PUBLIC_URL=${CAIPE_UI_PUBLIC_URL:-${CAIPE_UI_BASE_URL:-${NEXTAUTH_URL:-http://localhost:3000}}}
+      # WorkflowApiClient (builtin start_workflow_run / list / status tools) calls the
+      # BFF /api/workflow-runs* routes. When SSO_ENABLED=true on the UI, those routes
+      # require a Bearer JWT — client_credentials against Keycloak (not the caller's OBO).
+      - OAUTH2_TOKEN_URL=${OAUTH2_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - OAUTH2_CLIENT_ID=${OAUTH2_CLIENT_ID:-caipe-platform}
+      - OAUTH2_CLIENT_SECRET=${OAUTH2_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - OAUTH2_SCOPE=${OAUTH2_SCOPE:-}
+      - OAUTH2_AUDIENCE=${OAUTH2_AUDIENCE:-}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
       # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
@@ -1972,6 +1983,7 @@ services:
     restart: unless-stopped
     profiles:
       - web-ingestor
+      - web_ingestor
 
   backstage_ingestor:
     build:
@@ -2683,7 +2695,7 @@ services:
       - WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=${WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES:-false}
       - WEBEX_DEFAULT_TEAM_SLUG=${WEBEX_DEFAULT_TEAM_SLUG:-}
       - WEBEX_DEFAULT_AGENT_ID=${WEBEX_DEFAULT_AGENT_ID:-}
-      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-false}
+      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-true}
       - WEBEX_ADMIN_API_HOST=${WEBEX_ADMIN_API_HOST:-0.0.0.0}
       - WEBEX_ADMIN_API_PORT=${WEBEX_ADMIN_API_PORT:-3002}
       - WEBEX_ADMIN_JWT_ISSUER=${WEBEX_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}
@@ -2972,6 +2984,8 @@ services:
       OPENFGA_DATASTORE_MAX_OPEN_CONNS: "50"
       OPENFGA_PLAYGROUND_ENABLED: "true"
       OPENFGA_TRACE_ENABLED: "false"
+      OPENFGA_CHECK_QUERY_CACHE_ENABLED: "true"
+      OPENFGA_CHECK_QUERY_CACHE_TTL: "10s"
     command: run
     ports:
       - "127.0.0.1:${OPENFGA_HTTP_PORT:-18080}:8080"
@@ -3033,8 +3047,7 @@ services:
       # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
       # agent+caller tool check for E2E.
       CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
-      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
       TENANT_ID: ${TENANT_ID:-default}
       AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
     ports:
@@ -3053,6 +3066,9 @@ services:
         condition: service_completed_successfully
       openfga:
         condition: service_healthy
+      audit-service:
+        condition: service_healthy
+        required: false
 
   agentgateway-config-bridge:
     build:
@@ -3067,8 +3083,8 @@ services:
     profiles:
       - rbac
     environment:
-      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AGENTGATEWAY_TARGETS_URL: ${AGENTGATEWAY_TARGETS_URL:-http://caipe-ui:3000/api/internal/agentgateway/mcp-targets}
+      AGENTGATEWAY_TARGETS_TOKEN: ${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
       AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
       AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
@@ -3111,8 +3127,9 @@ services:
       retries: 12
       start_period: 5s
     depends_on:
-      caipe-mongodb:
-        condition: service_healthy
+      caipe-ui:
+        condition: service_started
+        required: false
 
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:v1.1.0
@@ -3321,6 +3338,8 @@ volumes:
   openfga_postgres_data:
     driver: local
   agentgateway_config:
+    driver: local
+  audit_service_data:
     driver: local
   # Durable Keycloak state (users, role assignments, per-team client scopes,
   # `team_member:<slug>` realm roles, identity links, token-exchange grants).

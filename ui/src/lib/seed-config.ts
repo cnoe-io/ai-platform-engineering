@@ -15,7 +15,7 @@
 
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { writeOpenFgaTuples, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import {
 reconcileConfigDrivenLlmModelRelationships,
@@ -824,16 +824,19 @@ export function buildAutoCreateTeamsBootstrapRule(now: string) {
 }
 
 /**
- * Provision the bootstrap identity-group-sync rule if and only if:
- * 1. `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true"` (the same opt-in
- *    that gates the planner's allowTeamCreation; if you're not opting in,
- *    we don't pre-create policy on your behalf), AND
- * 2. The `identity_group_sync_rules` collection is empty (any
- *    admin-curated rules — even unrelated to oidc-claims — are treated as
- *    "the operator has taken over policy" and we step out of the way).
+ * Provision (or repair) the bootstrap identity-group-sync rule when
+ * `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true"`.
  *
- * Returns `true` on insert, `false` otherwise. Idempotent. Best-effort —
- * race-conditioned duplicate keys are logged and swallowed.
+ * Strategy: upsert by the well-known bootstrap rule ID rather than gating
+ * on an empty collection. This means:
+ * - Fresh installs: rule is inserted.
+ * - Existing installs where the rule was seeded with an old `provider_id`
+ *   (e.g. "oidc-claims" instead of "*"): the stale row is updated so both
+ *   the OIDC login sync and the Okta directory sync pick it up.
+ * - Admin-curated rules with different IDs are never touched.
+ *
+ * Returns `true` if the rule was inserted or updated, `false` otherwise.
+ * Idempotent.
  */
 export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<boolean> {
   if (process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS !== "true") {
@@ -841,27 +844,48 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
   }
   if (!isMongoDBConfigured) return false;
 
-  const collection = await getCollection<{ id: string }>(
+  const collection = await getCollection<{ id: string; provider_id?: string; name?: string }>(
     "identity_group_sync_rules",
   );
-  const existingCount = await collection.countDocuments({});
-  if (existingCount > 0) return false;
 
-  const rule = buildAutoCreateTeamsBootstrapRule(new Date().toISOString());
-  try {
-    await collection.insertOne(rule as { id: string });
-  } catch (err) {
-    const code = (err as { code?: number } | null)?.code;
-    if (code === 11000) {
+  const now = new Date().toISOString();
+  const rule = buildAutoCreateTeamsBootstrapRule(now);
+
+  const existing = await collection.findOne({ id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID } as { id: string });
+
+  if (!existing) {
+    try {
+      await collection.insertOne(rule as { id: string });
       console.log(
-        "[seed-config] auto-create-teams bootstrap rule already present (race), skipping",
+        `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any IdP group claim, role=member)`,
       );
-      return false;
+      return true;
+    } catch (err) {
+      const code = (err as { code?: number } | null)?.code;
+      if (code === 11000) {
+        console.log(
+          "[seed-config] auto-create-teams bootstrap rule already present (race), skipping",
+        );
+        return false;
+      }
+      throw err;
     }
-    throw err;
   }
+
+  // Rule exists — update fields that may be stale from an older seed (e.g.
+  // provider_id was "oidc-claims" before the wildcard "*" was introduced).
+  const needsUpdate =
+    existing.provider_id !== rule.provider_id ||
+    existing.name !== rule.name;
+
+  if (!needsUpdate) return false;
+
+  await collection.updateOne(
+    { id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID } as { id: string },
+    { $set: { provider_id: rule.provider_id, name: rule.name, updated_at: now, updated_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR } } as object,
+  );
   console.log(
-    `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any OIDC group claim, role=member)`,
+    `[seed-config] Updated identity-group-sync bootstrap rule: provider_id=${rule.provider_id}`,
   );
   return true;
 }
@@ -878,8 +902,8 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
  * This runs automatically on every server startup, so an operator's only
  * "migration" step is rolling out the new image (e.g. `helm upgrade`). It is
  * idempotent and non-destructive:
- *   - Only matches docs where `credential_sources` is absent OR an empty array,
- *     so re-runs are no-ops and an admin's customized sources are never clobbered.
+ *   - Only matches docs where `credential_sources` is absent. An explicit empty
+ *     array means the operator cleared credentials and must not be backfilled.
  *   - Keyed by the same {@link BUILTIN_MCP_CREDENTIAL_SOURCES} map used by fresh
  *     discovery, so the backfill and insert paths cannot drift.
  *
@@ -893,10 +917,7 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
     const result = await collection.updateOne(
       {
         _id: id,
-        $or: [
-          { credential_sources: { $exists: false } },
-          { credential_sources: { $size: 0 } },
-        ],
+        credential_sources: { $exists: false },
       },
       {
         $set: {
@@ -918,13 +939,12 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
 /**
  * First-run / post-wipe safety net for AgentGateway-discovered MCP servers.
  *
- * Discovered servers (`source: "agentgateway"`) are runtime-provisioned by an
- * explicit "Sync with AgentGateway" action — the YAML seed never declares them,
- * and `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once
- * the `mcp_servers` collection loses its discovered rows (e.g. wiped by an
- * older build that lacked the cleanup guard), nothing repopulates them until a
- * human clicks Sync, leaving the MCP Servers tab empty (the recurring
- * "No MCP Servers Yet" / knowledge-base 401 symptom).
+ * Discovered servers (`source: "agentgateway"`) are runtime-provisioned from
+ * AgentGateway's live route table — the YAML seed never declares them, and
+ * `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once the
+ * `mcp_servers` collection loses its discovered rows (e.g. wiped by an older
+ * build that lacked the cleanup guard), nothing repopulates them unless this
+ * repair pass runs, leaving built-in MCP routes absent from the UI.
  *
  * This runs ONE discovery pass at startup, but only when there are zero
  * discovered servers, so it self-heals an empty/wiped collection without
@@ -965,6 +985,94 @@ export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
     );
     return 0;
   }
+}
+
+/**
+ * Reconcile OpenFGA tuples for platform-managed MCP servers already in Mongo.
+ * Applies policy changes (e.g. revoking org-wide invoker) on every UI restart
+ * without requiring a manual AgentGateway sync.
+ */
+export async function reconcileExistingPlatformMcpServerOpenFgaTuples(): Promise<number> {
+  if (!isMongoDBConfigured || !isOpenFgaReconciliationEnabled()) return 0;
+
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  const servers = await collection
+    .find(
+      { $or: [{ config_driven: true }, { source: "agentgateway" }] } as never,
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+
+  const orgId = caipeOrgKey();
+  for (const server of servers) {
+    const serverId = String(server._id ?? "").trim();
+    if (!serverId) continue;
+    await reconcileConfigDrivenMcpServerRelationships({ serverId, organizationId: orgId });
+  }
+
+  if (servers.length > 0) {
+    console.log(
+      `[seed-config] Reconciled OpenFGA tuples for ${servers.length} platform MCP server(s)`,
+    );
+  }
+  return servers.length;
+}
+
+/**
+ * Reconcile OpenFGA tuples for all dynamic agents in Mongo so policy changes
+ * (e.g. revoking team-member writer grants) apply on UI restart.
+ */
+export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
+  if (!isMongoDBConfigured || !isOpenFgaReconciliationEnabled()) return 0;
+
+  const { getPlatformDefaultAgentId } = await import("@/lib/rbac/platform-default");
+  const platformDefaultAgentId = await getPlatformDefaultAgentId();
+
+  const collection = await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const agents = await collection
+    .find({}, {
+      projection: {
+        _id: 1,
+        allowed_tools: 1,
+        owner_subject: 1,
+        owner_id: 1,
+        owner_team_slug: 1,
+        shared_with_teams: 1,
+        visibility: 1,
+      },
+    })
+    .toArray();
+
+  const orgId = caipeOrgKey();
+  for (const agent of agents) {
+    const agentId = String(agent._id ?? "").trim();
+    if (!agentId) continue;
+    const allowedTools = agent.allowed_tools ?? {};
+    const sharedSlugs = agent.shared_with_teams ?? [];
+    const isGlobal = agent.visibility === "global";
+    const retainPlatformDefaultGrant =
+      platformDefaultAgentId !== null && agentId === platformDefaultAgentId;
+    await reconcileAgentRelationships({
+      agentId,
+      previousAllowedTools: allowedTools,
+      nextAllowedTools: allowedTools,
+      ownerSubject: agent.owner_subject ?? agent.owner_id,
+      organizationId: orgId,
+      ownerTeamSlug: agent.owner_team_slug,
+      nextSharedTeamSlugs: sharedSlugs,
+      previousSharedTeamSlugs: sharedSlugs,
+      globalUserAccess: isGlobal,
+      // Sweep stale org-wide chat grants on team agents (including agents
+      // demoted from global before reconcile carried delete flags).
+      previousGlobalUserAccess: !isGlobal && !retainPlatformDefaultGrant,
+      failClosed: false,
+    });
+  }
+
+  if (agents.length > 0) {
+    console.log(`[seed-config] Reconciled OpenFGA tuples for ${agents.length} dynamic agent(s)`);
+  }
+  return agents.length;
 }
 
 /**
@@ -1066,6 +1174,19 @@ export async function applySeedConfig(): Promise<void> {
         "[seed-config] AgentGateway MCP server self-heal threw:",
         err,
       );
+    }
+    try {
+      await reconcileExistingPlatformMcpServerOpenFgaTuples();
+    } catch (err) {
+      console.error(
+        "[seed-config] Platform MCP server OpenFGA reconcile threw:",
+        err,
+      );
+    }
+    try {
+      await reconcileExistingAgentOpenFgaTuples();
+    } catch (err) {
+      console.error("[seed-config] Dynamic agent OpenFGA reconcile threw:", err);
     }
   }
 

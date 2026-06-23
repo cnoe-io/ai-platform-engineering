@@ -8,7 +8,7 @@ Asserts:
   - The JSON payload is a flat object with the required schema fields
     (userId, resource, scope, allowed, reason, source, service, ts).
   - `ts` is serialized as ISO-8601 UTC, not as a Python `datetime` repr.
-  - A failing Mongo write still fires the stdout sink (independence).
+  - A failing audit-service write still fires the stdout sink (independence).
   - The sink is best-effort — even if json.dumps explodes, the function
     must not raise.
 """
@@ -35,16 +35,6 @@ def _capture_stdout():
         yield buf
     finally:
         sys.stdout = saved
-
-
-@pytest.fixture(autouse=True)
-def _no_real_mongo():
-    """Mock pymongo so tests never touch a live database."""
-    fake_client = mock.MagicMock()
-    fake_module = mock.MagicMock()
-    fake_module.MongoClient = mock.MagicMock(return_value=fake_client)
-    with mock.patch.dict(sys.modules, {"pymongo": fake_module}):
-        yield fake_client
 
 
 def _call_log(**overrides):
@@ -122,16 +112,14 @@ class TestStdoutEnabled:
 
 
 class TestSinkIndependence:
-    def test_mongo_failure_does_not_suppress_stdout(self, monkeypatch):
+    def test_service_failure_does_not_suppress_stdout(self, monkeypatch):
         monkeypatch.setenv("AUDIT_STDOUT_ENABLED", "true")
-        # Inject a pymongo stub that raises on any operation.
-        fake_module = mock.MagicMock()
-        fake_module.MongoClient.side_effect = RuntimeError("mongo down")
-        with mock.patch.dict(sys.modules, {"pymongo": fake_module}):
+        monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
+        with mock.patch("httpx.Client", side_effect=RuntimeError("audit down")):
             with _capture_stdout() as buf:
                 _call_log()
         assert buf.getvalue().startswith("AUDIT "), (
-            "stdout sink must fire even when Mongo is unavailable"
+            "stdout sink must fire even when audit-service is unavailable"
         )
 
     def test_invalid_reason_blocks_both_sinks(self, monkeypatch):

@@ -48,7 +48,7 @@ export interface Config {
   mongodbEnabled: boolean;
   /** Whether the credential subsystem (master switch) is enabled */
   credentialsEnabled: boolean;
-  /** Whether the user-facing Connections & Secrets surface (nav + /credentials page) is enabled */
+  /** Whether the user-facing Credentials surface (nav + /credentials page) is enabled */
   userConnectionsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
@@ -132,12 +132,6 @@ export interface Config {
    */
   allowBuiltinSkillMutation: boolean;
   /**
-   * Whether the NPS (Net Promoter Score) feature is enabled.
-   * When false (default), the NPS survey popup, admin NPS tab, and NPS API
-   * endpoints are all disabled. Set NPS_ENABLED=true to enable.
-   */
-  npsEnabled: boolean;
-  /**
    * Whether the admin audit logs feature is enabled.
    * When false (default), the Chat Audit tab is hidden and API routes return 403.
    * Set AUDIT_LOGS_ENABLED=true to enable.
@@ -148,6 +142,8 @@ export interface Config {
    * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
    */
   actionAuditEnabled: boolean;
+  /** Audit log emission backend. UI supports "service"; storage lives in audit-service. */
+  auditLogBackend: string;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -258,9 +254,9 @@ const DEFAULT_CONFIG: Config = {
   taskBuilderEnabled: true,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
-  npsEnabled: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
+  auditLogBackend: 'service',
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -381,12 +377,12 @@ export function getServerConfig(): Config {
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
   // the API will reject.
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
-  const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
+  const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
-  // The user-facing Connections surface is gated independently of the SA token
+  // The user-facing Credentials surface is gated independently of the SA token
   // surface. It defaults to the master flag (backward-compatible) and can be
   // explicitly turned off with CAIPE_USER_CONNECTIONS_ENABLED=false. Mirrors
   // subFeatureEnabled() in feature-flags/credentials.ts (kept inline here so
@@ -464,9 +460,9 @@ export function getServerConfig(): Config {
     taskBuilderEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
-    npsEnabled,
     auditLogsEnabled,
     actionAuditEnabled,
+    auditLogBackend,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),

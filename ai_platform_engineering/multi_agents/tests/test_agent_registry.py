@@ -170,11 +170,11 @@ class TestRegistryInitialization(unittest.TestCase):
             self.assertEqual(registry.transport, 'p2p')
             print(f"✓ Default transport mode: {registry.transport}")
 
-        # Test slim transport
+        # Test retired transport
         with patch.dict(os.environ, {'A2A_TRANSPORT': 'slim'}, clear=True):
-            registry = AgentRegistry()
-            self.assertEqual(registry.transport, 'slim')
-            print("✓ SLIM transport mode can be set")
+            with self.assertRaises(ValueError):
+                AgentRegistry()
+            print("✓ SLIM transport mode is rejected")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
     def test_connectivity_check_config(self, mock_load):
@@ -212,7 +212,7 @@ class TestAgentProperties(unittest.TestCase):
             registry = AgentRegistry()
 
         transport = registry.transport
-        self.assertIn(transport, ['p2p', 'slim'])
+        self.assertEqual(transport, 'p2p')
         print(f"✓ transport property returns valid value: {transport}")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')

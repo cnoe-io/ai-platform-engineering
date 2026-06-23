@@ -55,14 +55,6 @@ class _Collection:
         return _Cursor(rows)
 
 
-class _AuditCollection:
-    def __init__(self) -> None:
-        self.docs: list[dict[str, object]] = []
-
-    def insert_one(self, doc: dict[str, object]) -> None:
-        self.docs.append(doc)
-
-
 class _Response:
     def __init__(self, payload: dict[str, object]) -> None:
         self._payload = payload
@@ -239,9 +231,9 @@ def test_openfga_read_includes_tuple_key_filter_and_pagination(monkeypatch) -> N
     assert post_calls[1]["tuple_key"] == post_calls[0]["tuple_key"]
 
 
-def test_resolver_records_openfga_read_failures_to_audit_events(monkeypatch) -> None:
+def test_resolver_records_openfga_read_failures_to_audit_service(monkeypatch) -> None:
     monkeypatch.setenv("OPENFGA_STORE_ID", "store-1")
-    audit_events = _AuditCollection()
+    audit_records: list[dict[str, object]] = []
 
     def fake_post(_url: str, **_kwargs: object) -> _Response:
         raise requests.RequestException("400 Bad Request")
@@ -252,7 +244,7 @@ def test_resolver_records_openfga_read_failures_to_audit_events(monkeypatch) -> 
     )
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: _Collection([]),
-        audit_collection_factory=lambda: audit_events,
+        audit_event_writer=audit_records.append,
     )
 
     matches = resolver.match_routes(
@@ -264,10 +256,11 @@ def test_resolver_records_openfga_read_failures_to_audit_events(monkeypatch) -> 
     )
 
     assert matches == []
-    assert len(audit_events.docs) == 1
-    assert audit_events.docs[0] | {"ts": "ignored"} == {
+    assert len(audit_records) == 1
+    assert audit_records[0] | {"ts": "ignored"} == {
         "type": "webex_runtime",
         "component": "webex_bot",
+        "source": "webex",
         "outcome": "error",
         "action": "webex.route.openfga_read",
         "reason_code": "OPENFGA_READ_FAILED",

@@ -3,7 +3,7 @@
  */
 
 const mockGetAuthFromBearerOrSession = jest.fn();
-const mockListConnections = jest.fn();
+const mockGetConnection = jest.fn();
 const mockRefreshConnection = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
@@ -20,7 +20,7 @@ jest.mock("@/lib/feature-flags/credentials", () => ({
 
 jest.mock("@/lib/credentials/oauth-service-factory", () => ({
   getProviderConnectionService: jest.fn(async () => ({
-    listConnections: mockListConnections,
+    getConnection: mockGetConnection,
     refreshConnection: mockRefreshConnection,
   })),
 }));
@@ -34,15 +34,13 @@ describe("/api/credentials/connections/[connection_id]/refresh", () => {
     jest.clearAllMocks();
     process.env.CAIPE_CREDENTIALS_ENABLED = "true";
     mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "alice-sub" } });
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "atlassian",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "atlassian",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     mockRefreshConnection.mockResolvedValue({ accessToken: "fresh-token", expiresIn: 3600 });
   });
 
@@ -62,7 +60,13 @@ describe("/api/credentials/connections/[connection_id]/refresh", () => {
   });
 
   it("does not refresh another user's connection", async () => {
-    mockListConnections.mockResolvedValue([]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "atlassian",
+      owner: { type: "user", id: "other-sub" },
+      status: "connected",
+    });
     const { POST } = await import("../route");
 
     await expect(

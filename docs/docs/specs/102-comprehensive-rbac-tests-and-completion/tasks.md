@@ -202,7 +202,7 @@ description: "Task list for spec 102 — Comprehensive RBAC Tests + Completion o
 
 - [ ] T068 [P] [US3] Migrate `ai_platform_engineering/agents/argocd/mcp/mcp_argocd/server.py`: switch `MCP_AUTH_MODE` default to `oauth2_keycloak`, wrap every tool function with `_authz_wrap('argocd_mcp', '<read|write>', ...)`, remove `SharedKeyMiddleware` registration. Add to `realm-config.json` audience for `aud=caipe-platform`
 - [ ] T069 [P] [US3] Migrate `ai_platform_engineering/agents/jira/mcp/mcp_jira/server.py`: same pattern (`jira_mcp`, `read`/`write`)
-- [ ] T070 [P] [US3] Migrate `ai_platform_engineering/agents/github/mcp/mcp_github/__main__.py` (no `server.py` — entry is `__main__.py`): same pattern (`github_mcp`, `read`/`write`)
+- [ ] T070 [P] [US3] Verify GitHub agent RBAC coverage through its gh CLI-backed tools; the local GitHub MCP server has been removed, so there is no GitHub MCP entrypoint to migrate
 - [ ] T071 [P] [US3] Migrate `ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty/server.py` (`pagerduty_mcp`)
 - [ ] T072 [P] [US3] Migrate `ai_platform_engineering/agents/splunk/mcp/mcp_splunk/server.py` (`splunk_mcp` — read-only)
 - [ ] T073 [P] [US3] Migrate `ai_platform_engineering/agents/confluence/mcp/mcp_confluence/server.py` (`confluence_mcp`)

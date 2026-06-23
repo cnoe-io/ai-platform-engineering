@@ -5,6 +5,14 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
+const replaceMock = jest.fn();
+let currentSearchParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/admin",
+  useRouter: () => ({ replace: replaceMock }),
+  useSearchParams: () => currentSearchParams,
+}));
+
 import { SlackChannelRebacPanel } from "../SlackChannelRebacPanel";
 import { pickTeam } from "@/__test-utils__/team-picker";
 import { pickAgent } from "@/__test-utils__/agent-picker";
@@ -13,6 +21,8 @@ const fetchMock = jest.fn();
 
 beforeEach(() => {
   mockToast.mockClear();
+  replaceMock.mockReset();
+  currentSearchParams = new URLSearchParams();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -24,7 +34,9 @@ beforeEach(() => {
               workspace_id: "T123456789",
               channel_id: "C123456789",
               channel_name: "incidents",
-              active_grants: 0,
+              team_slug: "platform-engineering",
+              primary_agent_id: "incident-agent",
+              active_grants: 1,
             },
           ],
         },
@@ -233,6 +245,86 @@ function response(payload: unknown): Response {
     text: async () => JSON.stringify(payload),
   } as Response;
 }
+
+it("shows a loading spinner while self-service channels load", async () => {
+  let resolveChannels: ((value: Response) => void) | undefined;
+  const channelsPromise = new Promise<Response>((resolve) => {
+    resolveChannels = resolve;
+  });
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === "/api/admin/slack/channels" || url === "/api/admin/slack/channels?health=1") {
+      return channelsPromise;
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({ data: { items: [] } });
+    }
+    return response({});
+  });
+
+  render(<SlackChannelRebacPanel selfService />);
+  expect(screen.getByTestId("connector-items-loading")).toBeInTheDocument();
+  expect(screen.getByText("Loading Slack channels…")).toBeInTheDocument();
+  expect(screen.queryByText("No channels shared with your team yet.")).not.toBeInTheDocument();
+
+  resolveChannels?.(
+    response({
+      data: { channels: [] },
+    }),
+  );
+  expect(await screen.findByText("No channels shared with your team yet.")).toBeInTheDocument();
+  expect(screen.queryByTestId("connector-items-loading")).not.toBeInTheDocument();
+});
+
+it("shows discovery loading while Find channels scans Slack", async () => {
+  let resolveDiscovery: ((value: Response) => void) | undefined;
+  const discoveryPromise = new Promise<Response>((resolve) => {
+    resolveDiscovery = resolve;
+  });
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/slack/channels" || url === "/api/admin/slack/channels?health=1") {
+      return response({ data: { channels: [] } });
+    }
+    if (url.startsWith("/api/admin/slack/available-channels")) {
+      return discoveryPromise;
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({ data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] } });
+    }
+    if (url === "/api/admin/teams") {
+      return response({ data: { teams: [{ _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" }] } });
+    }
+    if (url === "/api/admin/slack/channels/defaults") {
+      return response({ data: { defaults: { team_slug: "", agent_id: "" } } });
+    }
+    return response({});
+  });
+
+  render(<SlackChannelRebacPanel />);
+  await switchToTab("Onboard channels");
+  fireEvent.click(screen.getByRole("button", { name: "Find channels" }));
+
+  expect(await screen.findByTestId("discovery-loading")).toBeInTheDocument();
+  expect(screen.getByTestId("discovery-loading")).toHaveTextContent("Finding channels…");
+
+  resolveDiscovery?.(
+    response({
+      data: {
+        channels: [
+          { id: "CNEWMISSING", name: "new-alerts", is_private: false, is_member: true, num_members: 7 },
+        ],
+        total_matches: 1,
+        total_visible: 1,
+        next_cursor: null,
+        has_more: false,
+        cached: true,
+        fetched_at: Date.now(),
+        query: { q: "", member_only: true, limit: 500 },
+      },
+    }),
+  );
+  await waitFor(() => expect(screen.queryByTestId("discovery-loading")).not.toBeInTheDocument());
+  expect(await screen.findByText(/1 bot-member found/i)).toBeInTheDocument();
+});
 
 async function switchToTab(name: "Configured channels" | "Onboard channels" | "Advanced") {
   const tab = await screen.findByRole("tab", { name });
@@ -455,11 +547,20 @@ it("does not show legacy grant counts in the configured channels table", async (
   expect(screen.queryByText(/0 grants/i)).not.toBeInTheDocument();
 });
 
+it("shows configured team and primary agent in the configured channels table", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByText("#incidents")).toBeInTheDocument();
+  expect(screen.getByText("team:platform-engineering")).toBeInTheDocument();
+  expect(screen.getByText("Incident Agent")).toBeInTheDocument();
+  expect(screen.getByText("incident-agent")).toBeInTheDocument();
+});
+
 it("fixes stale Slack runtime diagnostics by deleting orphaned route metadata", async () => {
   render(<SlackChannelRebacPanel />);
   await expandChannelRow("incidents");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:foo-bar routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for foo-bar/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -522,7 +623,7 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   fireEvent.click(deleteButton);
   expect(confirmSpy).not.toHaveBeenCalled();
   expect(await screen.findByRole("dialog", { name: "Remove agent from channel?" })).toBeInTheDocument();
-  expect(screen.getByText(/saved Mongo route metadata/i)).toBeInTheDocument();
+  expect(screen.getByText(/removes agent:incident-agent from the selected Slack channel/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Remove agent" }));
 
   await waitFor(() =>
@@ -560,7 +661,7 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   expect(screen.getByRole("checkbox", { name: /Import #new-alerts/i })).not.toBeChecked();
   expect(
     screen.getByRole("status", {
-      name: /2 bot-member found .* 1 new .* 1 in CAIPE .* 1 missing team/i,
+      name: /2 bot-member found .* 1 new .* 1 in CAIPE .* 0 missing team/i,
     })
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh channels" })).toBeInTheDocument();
@@ -570,11 +671,14 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   fireEvent.click(screen.getByRole("checkbox", { name: /Import #new-alerts/i }));
   await pickTeam("Team for #incidents", "platform-engineering");
   await pickAgent("Dynamic Agent for #incidents", "incident-agent");
-  expect(screen.queryByText("Configured")).not.toBeInTheDocument();
+  // #incidents is already in CAIPE with team + agent; onboard row shows Configured.
+  expect(screen.getAllByText("Configured").length).toBeGreaterThanOrEqual(1);
   // Per-row pickers are TeamPicker / AgentPicker.
   await pickTeam("Team for #new-alerts", "security");
   await pickAgent("Dynamic Agent for #new-alerts", "test-april-2025");
-  expect(screen.getAllByText("Ready to set up").length).toBeGreaterThanOrEqual(2);
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /^Set up 2 channels?$/ })).toBeEnabled();
+  });
 
   fireEvent.click(screen.getByRole("button", { name: /^Set up \d+ channels?$/ }));
 
@@ -807,9 +911,13 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
   // Onboard tab swaps in discovery wizard, hides the configured table.
   await switchToTab("Onboard channels");
   expect(screen.getByRole("button", { name: "Find channels" })).toBeInTheDocument();
-  expect(screen.getByText(/Sharing model:/i)).toBeInTheDocument();
-  expect(screen.getByText(/user:\* can_use agent/i)).toBeInTheDocument();
-  expect(screen.getByText(/platform default/i)).toBeInTheDocument();
+  // assisted-by Codex Codex-sonnet-4-6
+  expect(
+    screen.getByText(/Members of the assigned team can update this Slack channel's bot routing/i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Slack access details" })).toBeInTheDocument();
+  expect(screen.queryByText(/user:\* can_use agent/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Sharing model:/i)).not.toBeInTheDocument();
   expect(
     screen.queryByRole("region", { name: "Configured Slack channels" }),
   ).not.toBeInTheDocument();
@@ -820,6 +928,30 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
     await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Default team and agent for new channels" })).not.toBeInTheDocument();
+});
+
+it("writes the active sub-tab to the subtab URL param", async () => {
+  render(<SlackChannelRebacPanel />);
+  await screen.findByRole("tab", { name: "Configured channels" });
+
+  await switchToTab("Advanced");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", { scroll: false });
+
+  await switchToTab("Onboard channels");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", { scroll: false });
+
+  await switchToTab("Configured channels");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", { scroll: false });
+});
+
+it("opens the sub-tab named by the subtab URL param on load", async () => {
+  currentSearchParams = new URLSearchParams("subtab=advanced");
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByRole("tab", { name: "Advanced" })).toHaveAttribute("aria-selected", "true");
+  expect(
+    await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
+  ).toBeInTheDocument();
 });
 
 it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {
@@ -901,4 +1033,3 @@ it("opens a runtime sync modal with preview progress and apply results", async (
   expect(screen.getByText("1 route upserted")).toBeInTheDocument();
   expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
 });
-

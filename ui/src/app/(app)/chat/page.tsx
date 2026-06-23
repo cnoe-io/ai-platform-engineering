@@ -37,13 +37,14 @@ async function resolveDefaultAgentId(): Promise<string | undefined> {
  */
 function ChatRedirectPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const redirected = useRef(false);
 
   const createConversation = useChatStore((s) => s.createConversation);
   const loadConversationsFromServer = useChatStore((s) => s.loadConversationsFromServer);
 
   useEffect(() => {
+    if (status === "loading") return;
     if (redirected.current) return;
 
     const resolve = async () => {
@@ -69,10 +70,12 @@ function ChatRedirectPage() {
         ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
         : currentConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned
+      // 1. Resume the last active conversation when it still exists in the loaded list.
+      // Prefer owned entries for auto-pick below, but an explicit last-active id from
+      // this browser should win to avoid spawning duplicate empty chats on /chat.
       if (lastActiveConversationId) {
-        const stillOwned = ownedConversations.some((c) => c.id === lastActiveConversationId);
-        if (stillOwned) {
+        const stillExists = currentConversations.some((c) => c.id === lastActiveConversationId);
+        if (stillExists) {
           redirected.current = true;
           router.replace(`/chat/${lastActiveConversationId}`);
           return;
@@ -102,7 +105,7 @@ function ChatRedirectPage() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
 
   return (
     <div className="flex-1 flex items-center justify-center h-full bg-background">

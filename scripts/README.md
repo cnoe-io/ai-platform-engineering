@@ -46,16 +46,6 @@ The `--dev` flag generates a docker-compose file similar to `docker-compose.dev.
 ./scripts/generate-docker-compose.py --persona p2p-basic --dev --output docker-compose/docker-compose.p2p-basic.dev.yaml
 ```
 
-### Environment Variables
-
-- `A2A_TRANSPORT`: Set transport mode (default: `p2p`)
-  - `p2p`: Peer-to-peer transport
-  - `slim`: SLIM dataplane transport
-
-```bash
-A2A_TRANSPORT=slim ./scripts/generate-docker-compose.py --persona devops-engineer
-```
-
 ### Supported Agents
 
 The script includes built-in configuration for existing agents:
@@ -79,6 +69,4 @@ Adapted for existing agent structure by: Sri Aradhyula <sraradhy@cisco.com>
 ### Related Files
 
 - `persona.yaml`: Persona definitions (project root)
-- `slim-config.yaml`: SLIM transport configuration
 - `profiles/`: Directory for generated profiles and documentation
-

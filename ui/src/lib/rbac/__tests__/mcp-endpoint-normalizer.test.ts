@@ -74,6 +74,28 @@ describe("normalizeMcpEndpointForServer", () => {
     );
   });
 
+  it("can append /mcp to direct upstream origin-only HTTP endpoints", () => {
+    expect(
+      normalizeMcpEndpointForServer({
+        endpoint: "http://mcp-argocd:8000",
+        serverId: "mcp-test-argocd",
+        agentGatewayBaseUrl: "http://agentgateway:4000",
+        directEndpointDefaultPath: "/mcp",
+      }),
+    ).toBe("http://mcp-argocd:8000/mcp");
+  });
+
+  it("does not append /mcp to direct upstream endpoints that already have a path", () => {
+    expect(
+      normalizeMcpEndpointForServer({
+        endpoint: "http://mcp-argocd:8000/custom",
+        serverId: "mcp-test-argocd",
+        agentGatewayBaseUrl: "http://agentgateway:4000",
+        directEndpointDefaultPath: "/mcp",
+      }),
+    ).toBe("http://mcp-argocd:8000/custom");
+  });
+
   it("leaves undefined / empty endpoints alone (stdio servers)", () => {
     expect(fix(undefined, "confluence")).toBeUndefined();
     expect(fix("", "confluence")).toBe("");

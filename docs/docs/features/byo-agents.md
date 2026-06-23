@@ -17,7 +17,7 @@ Register external A2A agents with the supervisor via `multiAgentConfig`.
 | Key | Purpose |
 |-----|---------|
 | `multiAgentConfig.agents` | Explicit list of external A2A agent endpoints to register |
-| `multiAgentConfig.protocol` | `a2a` (peer-to-peer) or `slim` (hub-based) transport |
+| `multiAgentConfig.protocol` | `a2a` peer-to-peer transport |
 | `multiAgentConfig.port` | Port advertised to peer agents for inbound connections |
 
 Auto-discovery mode: leave `agents` empty and the supervisor discovers peers on the network. Works with any A2A-compatible agent — CAIPE agents, custom FastAPI services, or third-party implementations.
@@ -31,11 +31,10 @@ Register external MCP server endpoints at chart install time using `seedConfig.m
 - Hot-register new MCP servers from the Skills Gateway UI without redeployment
 - Supports HTTP/SSE MCP transport — compatible with FastMCP and any spec-compliant server
 
-## Docker Compose — A2A Transport
+## Docker Compose — A2A
 
 | Env Var | Purpose |
 |---------|---------|
-| `A2A_TRANSPORT` | `p2p` for peer-to-peer or `slim` for hub-based routing |
 | `NEXT_PUBLIC_A2A_BASE_URL` | Point the UI at your custom supervisor or gateway endpoint |
 
 Add any external A2A agent as a new service in `docker-compose.yaml` with the shared network. Each agent service exposes its A2A endpoint; the supervisor discovers and routes to it automatically.

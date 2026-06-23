@@ -69,11 +69,17 @@ let mockStreamingConversations = new Map<string, any>()
 let mockUnviewedConversations = new Set<string>()
 let mockInputRequiredConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
+  resolveChatNavigationPath: jest.fn(
+    ({ activeConversationId }: { activeConversationId?: string | null }) =>
+      activeConversationId ? `/chat/${activeConversationId}` : '/chat',
+  ),
   useChatStore: jest.fn(() => ({
     isStreaming: mockStreamingConversations.size > 0,
     streamingConversations: mockStreamingConversations,
     unviewedConversations: mockUnviewedConversations,
     inputRequiredConversations: mockInputRequiredConversations,
+    conversations: [],
+    activeConversationId: null,
   })),
 }))
 
@@ -102,6 +108,47 @@ jest.mock('@/hooks/use-rag-health', () => ({
     enabled: mockRagEnabled,
     secondsUntilNextCheck: 30,
     graphRagEnabled: false,
+  }),
+}))
+
+let mockPlatformProbeStatus: 'healthy' | 'degraded' | 'down' | 'checking' = 'healthy'
+type MockPlatformProbe = {
+  id: string
+  label: string
+  group: 'core' | 'identity' | 'storage' | 'rag' | 'bootstrap'
+  status: 'healthy' | 'warning' | 'down'
+  detail: string
+  target: string
+  latency_ms: number
+  remediation?: {
+    label: string
+    href: string
+    description: string
+  }
+}
+let mockPlatformProbes: MockPlatformProbe[] = [
+  {
+    id: 'keycloak',
+    label: 'Keycloak',
+    group: 'identity',
+    status: 'healthy',
+    detail: 'HTTP 200',
+    target: 'http://keycloak:7080',
+    latency_ms: 12,
+  },
+]
+jest.mock('@/hooks/use-platform-health-probes', () => ({
+  usePlatformHealthProbes: () => ({
+    status: mockPlatformProbeStatus,
+    probes: mockPlatformProbes,
+    summary: {
+      total: mockPlatformProbes.length,
+      healthy: mockPlatformProbes.filter((p) => p.status === 'healthy').length,
+      warning: mockPlatformProbes.filter((p) => p.status === 'warning').length,
+      down: mockPlatformProbes.filter((p) => p.status === 'down').length,
+    },
+    secondsUntilNextCheck: 30,
+    checkNow: jest.fn(),
   }),
 }))
 
@@ -464,8 +511,8 @@ describe('AppHeader — nav tabs', () => {
 
       render(<AppHeader />)
 
-      expect(screen.getByText('Agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toHaveTextContent('Agents')
     })
   })
 
@@ -567,6 +614,18 @@ describe('AppHeader — connection status badge', () => {
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    mockPlatformProbeStatus = 'healthy'
+    mockPlatformProbes = [
+      {
+        id: 'keycloak',
+        label: 'Keycloak',
+        group: 'identity',
+        status: 'healthy',
+        detail: 'HTTP 200',
+        target: 'http://keycloak:7080',
+        latency_ms: 12,
+      },
+    ]
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -590,6 +649,37 @@ describe('AppHeader — connection status badge', () => {
       // Popover content reflects healthy state
       expect(screen.getByText('All Systems Live')).toBeInTheDocument()
       expect(screen.getByText('All systems operational')).toBeInTheDocument()
+      expect(screen.getByText('Platform Health')).toBeInTheDocument()
+      expect(screen.getAllByText('Identity & Authz').length).toBeGreaterThan(0)
+    })
+
+    it('links admins to the full platform health dashboard', () => {
+      mockIsAdmin = true
+      mockCaipeStatus = 'connected'
+      render(<AppHeader />)
+
+      fireEvent.click(screen.getByRole('button', { name: /full health report/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+
+      mockRouterPush.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: /all systems live/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+
+      mockRouterPush.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: /1\/1 ready/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+    })
+
+    it('hides the health dashboard link for non-admins', () => {
+      mockIsAdmin = false
+      mockCaipeStatus = 'connected'
+      render(<AppHeader />)
+
+      expect(screen.queryByRole('button', { name: /full health report/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /open health dashboard/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /all systems live/i })).not.toBeInTheDocument()
+      expect(screen.getByText('All Systems Live')).toBeInTheDocument()
+      expect(screen.getByText('1/1 Ready')).toBeInTheDocument()
     })
   })
 
@@ -607,6 +697,15 @@ describe('AppHeader — connection status badge', () => {
       mockCaipeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'checking'
+      render(<AppHeader />)
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+    })
+
+    it('shows "Checking" when platform probes are still checking', () => {
+      mockCaipeStatus = 'connected'
+      mockPlatformProbeStatus = 'checking'
+      mockPlatformProbes = []
       render(<AppHeader />)
       const matches = screen.getAllByText('Checking')
       expect(matches.length).toBeGreaterThan(0)
@@ -711,6 +810,26 @@ describe('AppHeader — connection status badge', () => {
       mockCaipeStatus = 'disconnected'
       render(<AppHeader />)
       expect(screen.getByText('Disconnected')).toBeInTheDocument()
+    })
+
+    it('shows "Disconnected" when a platform dependency probe is down', () => {
+      mockCaipeStatus = 'connected'
+      mockPlatformProbeStatus = 'down'
+      mockPlatformProbes = [
+        {
+          id: 'openfga',
+          label: 'OpenFGA',
+          group: 'identity',
+          status: 'down',
+          detail: 'HTTP 503',
+          target: 'http://openfga:8080/healthz',
+          latency_ms: 20,
+        },
+      ]
+      render(<AppHeader />)
+      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.getAllByText('OpenFGA').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Down').length).toBeGreaterThan(0)
     })
 
     it('Disconnected badge has red styling', () => {

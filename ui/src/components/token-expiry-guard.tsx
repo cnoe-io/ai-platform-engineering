@@ -332,12 +332,12 @@ export function TokenExpiryGuard() {
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold text-foreground mb-2">
-                    {refreshFailed ? "Session Refresh Failed" : "Session Expired"}
+                    {refreshFailed ? "Sign-in Needed" : "Session Expired"}
                   </h2>
                   <p className="text-sm text-muted-foreground mb-4">
                     {refreshFailed
                       ? "We could not refresh your session. Please sign in again to continue."
-                      : "Your session has expired for security reasons. Please log in again to continue using the application."}
+                      : "Please sign in again to continue."}
                   </p>
                   <p className="text-xs text-muted-foreground mb-4">
                     Redirecting to login in {redirectCountdown} seconds...
@@ -349,7 +349,7 @@ export function TokenExpiryGuard() {
                       variant="default"
                     >
                       <LogOut className="h-4 w-4" />
-                      Log In Again
+                      Sign In Again
                     </Button>
                   </div>
                 </div>

@@ -1,15 +1,11 @@
 /**
  * Audit log assertion helpers (TypeScript side) — spec 102 T018.
  *
- * Parity with `tests/rbac/fixtures/audit.py`. See its header for the
- * collection-naming caveat (`authz_decisions` vs legacy
- * `authorization_decision_records`).
- *
- * The MongoClient is created lazily per call so tests don't pay the
- * connection cost when not asserting on the audit log.
+ * Audit storage is owned by audit-service. These helpers query the service
+ * API instead of tailing MongoDB collections.
  */
 
-import { MongoClient } from "mongodb";
+import { createHash } from "crypto";
 
 export const REQUIRED_REASONS = new Set([
   "OK",
@@ -31,37 +27,54 @@ export type AuditReason =
   | "DENY_RESOURCE_UNKNOWN";
 
 export interface AuditRecord {
-  _id?: unknown;
-  userId: string;
+  audit_event_id?: string;
+  userId?: string;
   userEmail?: string;
-  resource: string;
-  scope: string;
-  allowed: boolean;
-  reason: AuditReason;
-  source: "ts" | "py";
-  service: string;
+  user_email?: string;
+  subject_hash?: string;
+  resource?: string;
+  scope?: string;
+  action?: string;
+  capability?: string;
+  allowed?: boolean;
+  outcome?: "allow" | "deny" | "success" | "error";
+  reason?: AuditReason;
+  reason_code?: AuditReason;
+  source: string;
+  service?: string;
   route?: string;
   requestId?: string;
-  pdp?: "keycloak" | "local" | "cache";
+  pdp?: "keycloak" | "local" | "cache" | "openfga";
   ts: Date | string;
 }
 
-function mongoUri(): string {
-  return process.env.AUTHZ_MONGO_URI ?? process.env.MONGO_URI ?? "mongodb://localhost:27017";
+function auditServiceUrl(): string {
+  return (process.env.AUDIT_SERVICE_URL ?? process.env.E2E_AUDIT_SERVICE_URL ?? "http://localhost:8010").replace(
+    /\/$/,
+    "",
+  );
 }
 
-function mongoDbName(): string {
-  return process.env.AUTHZ_MONGO_DB ?? "caipe";
+function subjectHash(sub: string): string {
+  // assisted-by Codex Codex-sonnet-4-6
+  const salt = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
+  return `sha256:${createHash("sha256").update(`${salt}:${sub}`).digest("hex")}`;
 }
 
-async function withClient<T>(fn: (db: ReturnType<MongoClient["db"]>) => Promise<T>): Promise<T> {
-  const client = new MongoClient(mongoUri(), { serverSelectionTimeoutMS: 5000 });
-  try {
-    await client.connect();
-    return await fn(client.db(mongoDbName()));
-  } finally {
-    await client.close().catch(() => {});
+async function queryAuditRecords(params: Record<string, string>, limit = 50): Promise<AuditRecord[]> {
+  const url = new URL(`${auditServiceUrl()}/v1/audit/events`);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("since", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
   }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`audit-service query failed: ${response.status} ${await response.text()}`);
+  }
+  const body = (await response.json()) as { records?: AuditRecord[] };
+  return body.records ?? [];
 }
 
 export interface AssertOptions {
@@ -84,52 +97,40 @@ export async function assertAuditRecord(
   const pollIntervalMs = opts.pollIntervalMs ?? 100;
   const deadline = Date.now() + timeoutMs;
   let lastSeen: AuditRecord | null = null;
+  const action = `${resource}#${scope}`;
+  const outcome = allowed ? "allow" : "deny";
 
-  return withClient(async (db) => {
-    while (Date.now() < deadline) {
-      for (const collectionName of ["authz_decisions", "authorization_decision_records"] as const) {
-        const doc = (await db
-          .collection<AuditRecord>(collectionName)
-          .findOne({ userId, resource, scope }, { sort: { ts: -1 } })) as AuditRecord | null;
-        if (doc === null) continue;
-        lastSeen = doc;
-        if (Boolean(doc.allowed) === allowed && doc.reason === reason) {
-          return doc;
-        }
-      }
-      await new Promise((r) => setTimeout(r, pollIntervalMs));
-    }
-    throw new Error(
-      `no matching audit record within ${timeoutMs}ms — looked for ` +
-        `userId=${userId}, resource=${resource}, scope=${scope}, ` +
-        `allowed=${allowed}, reason=${reason}; last seen=${JSON.stringify(lastSeen)}`,
+  while (Date.now() < deadline) {
+    const records = await queryAuditRecords({
+      subject_hash: subjectHash(userId),
+      action,
+      outcome,
+      reason_code: reason,
+    });
+    lastSeen = records[0] ?? lastSeen;
+    const match = records.find(
+      (record) =>
+        (record.action ?? record.capability) === action &&
+        record.outcome === outcome &&
+        record.reason_code === reason,
     );
-  });
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(
+    `no matching audit record within ${timeoutMs}ms — looked for ` +
+      `userId=${userId}, resource=${resource}, scope=${scope}, ` +
+      `allowed=${allowed}, reason=${reason}; last seen=${JSON.stringify(lastSeen)}`,
+  );
 }
 
 export async function clearAuditLog(): Promise<number> {
-  return withClient(async (db) => {
-    let deleted = 0;
-    for (const collectionName of ["authz_decisions", "authorization_decision_records"] as const) {
-      try {
-        const res = await db.collection(collectionName).deleteMany({});
-        deleted += res.deletedCount ?? 0;
-      } catch {
-        // best-effort
-      }
-    }
-    return deleted;
-  });
+  // Audit-service storage is append-only from the test client's perspective.
+  return 0;
 }
 
 export async function latestAuditRecordFor(userId: string): Promise<AuditRecord | null> {
-  return withClient(async (db) => {
-    for (const collectionName of ["authz_decisions", "authorization_decision_records"] as const) {
-      const doc = (await db
-        .collection<AuditRecord>(collectionName)
-        .findOne({ userId }, { sort: { ts: -1 } })) as AuditRecord | null;
-      if (doc !== null) return doc;
-    }
-    return null;
-  });
+  const records = await queryAuditRecords({ subject_hash: subjectHash(userId) }, 1);
+  return records[0] ?? null;
 }

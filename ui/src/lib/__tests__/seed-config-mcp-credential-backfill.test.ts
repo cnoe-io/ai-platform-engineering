@@ -10,8 +10,8 @@
  * emit an empty Bearer and the upstream 401s.
  *
  * Behaviors under test:
- * 1. Updates each built-in id with a guard that only matches missing/empty
- *    credential_sources (so it never clobbers admin customizations).
+ * 1. Updates each built-in id with a guard that only matches missing
+ *    credential_sources (so it never clobbers admin customizations or clears).
  * 2. Counts only documents actually modified.
  * 3. Returns 0 (no DB access) when MongoDB is not configured.
  *
@@ -44,15 +44,12 @@ describe("backfillBuiltinMcpCredentialSources", () => {
 
     expect(mockCollection.updateOne).toHaveBeenCalledTimes(BUILTIN_IDS.length);
 
-    // Every call must guard on missing OR empty credential_sources so it is
-    // idempotent and never overwrites an admin-customized array.
+    // Every call must guard on missing credential_sources only — an explicit
+    // empty array means the operator cleared credentials and must not be clobbered.
     for (const call of mockCollection.updateOne.mock.calls) {
       const [filter, update] = call;
       expect(BUILTIN_IDS).toContain(filter._id);
-      expect(filter.$or).toEqual([
-        { credential_sources: { $exists: false } },
-        { credential_sources: { $size: 0 } },
-      ]);
+      expect(filter.credential_sources).toEqual({ $exists: false });
       expect(update.$set.credential_sources).toEqual(
         BUILTIN_MCP_CREDENTIAL_SOURCES[filter._id],
       );

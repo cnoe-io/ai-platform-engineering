@@ -1,13 +1,14 @@
 # assisted-by Codex Codex-sonnet-4-6
 
-"""Reconcile Mongo MCP server records into standalone AgentGateway config.
+"""Reconcile BFF-published MCP server targets into standalone AgentGateway config.
 
 AgentGateway's Kubernetes mode should use native Gateway API resources
 (`HTTPRoute` + `AgentgatewayBackend`). Local Docker Compose runs standalone
 AgentGateway from a config file, and AgentGateway hot-reloads route/backend
 changes written to that file. This bridge keeps those local routes in sync
-with the `mcp_servers` collection so runtime-added MCP servers get a matching
-`/mcp/<server_id>` route.
+with the BFF's internal MCP target API so runtime-added MCP servers get a
+matching `/mcp/<server_id>` route without exposing the persistence backend to
+the sidecar.
 """
 
 from __future__ import annotations
@@ -99,6 +100,12 @@ PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
                 "authorization": (
                     '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
                 ),
+                # Jira MCP reads Atlassian OAuth from this header directly; GitHub/GitLab
+                # and sooperset/mcp-atlassian (Confluence) consume Authorization. Forward
+                # the provider token for both patterns.
+                "x-caipe-provider-token": (
+                    'default(request.headers["x-caipe-provider-token"], "")'
+                ),
             },
         },
     },
@@ -109,15 +116,18 @@ PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
 # per-user RAG group RBAC) or a caipe-platform service token (non-user contexts) on
 # X-CAIPE-Provider-Token, which this rewrites into the upstream Authorization header.
 DEFAULT_MCP_ROUTE_POLICY_OVERRIDES: dict[str, dict[str, Any]] = {
+    "confluence": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "github": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "gitlab": PROVIDER_TOKEN_BEARER_TRANSFORM,
+    "jira": PROVIDER_TOKEN_BEARER_TRANSFORM,
+    "pagerduty": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "knowledge-base": PROVIDER_TOKEN_BEARER_TRANSFORM,
 }
 
 
 @dataclass(frozen=True)
 class McpGatewayTarget:
-    """AgentGateway MCP target rendered from an `mcp_servers` document."""
+    """AgentGateway MCP target rendered from the BFF target API."""
 
     id: str
     upstream_url: str
@@ -160,12 +170,26 @@ def _upstream_url(document: dict[str, Any]) -> str | None:
     raw_url = document.get("agentgateway_target_endpoint") or document.get(
         "agentgateway_upstream_url"
     )
+    if raw_url is None and document.get("transport") in {"http", "sse"}:
+        raw_url = document.get("endpoint")
     if not isinstance(raw_url, str):
         return None
     upstream_url = raw_url.strip()
     if not upstream_url.startswith(("http://", "https://")):
         return None
+    if _is_agentgateway_route(upstream_url):
+        return None
     return upstream_url
+
+
+def _is_agentgateway_route(url: str) -> bool:
+    configured = os.environ.get("AGENT_GATEWAY_URL") or os.environ.get(
+        "AGENTGATEWAY_URL", "http://agentgateway:4000"
+    )
+    base = configured.rstrip("/")
+    if not base.endswith("/mcp"):
+        base = f"{base}/mcp"
+    return url.rstrip("/").startswith(base)
 
 
 def _credential_sources(document: dict[str, Any]) -> tuple[dict[str, Any], ...]:
@@ -176,16 +200,14 @@ def _credential_sources(document: dict[str, Any]) -> tuple[dict[str, Any], ...]:
 
 
 def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatewayTarget]:
-    """Select enabled AgentGateway-managed MCP targets from Mongo documents."""
+    """Select enabled network MCP targets that AgentGateway should front."""
 
     targets: list[McpGatewayTarget] = []
     seen: set[str] = set()
     for document in documents:
         if not _as_bool(document.get("enabled"), default=True):
             continue
-        if document.get("source") != "agentgateway" and not document.get(
-            "agentgateway_discovered"
-        ):
+        if document.get("transport") not in {"http", "sse"}:
             continue
         target_id = _server_id(document)
         upstream_url = _upstream_url(document)
@@ -202,6 +224,27 @@ def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatew
         )
         seen.add(target_id)
     return targets
+
+
+def select_gateway_targets_from_bff_payload(payload: dict[str, Any]) -> list[McpGatewayTarget]:
+    """Select bridge targets from the BFF's internal target API response."""
+
+    documents: list[dict[str, Any]] = []
+    for item in payload.get("targets", []):
+        if not isinstance(item, dict):
+            continue
+        document = {
+            "_id": item.get("id"),
+            "enabled": True,
+            "transport": "http",
+            "source": "agentgateway",
+            "agentgateway_target_endpoint": item.get("target_endpoint"),
+            "credential_sources": item.get("credential_sources")
+            if isinstance(item.get("credential_sources"), list)
+            else [],
+        }
+        documents.append(document)
+    return select_gateway_targets(documents)
 
 
 def _first_http_listener(config: dict[str, Any]) -> dict[str, Any]:
@@ -297,13 +340,65 @@ def _mcp_route(
     }
 
 
-def _route_policies_for(target_id: str, base: dict[str, Any]) -> dict[str, Any]:
+def _forward_credentials_through_gateway(target: McpGatewayTarget | None) -> bool:
+    """Return true when AgentGateway should wire resolved credential headers upstream.
+
+  When ``credential_sources`` is empty the MCP server uses its own configured
+  credentials; the gateway must not rewrite ``Authorization`` or provider-token
+  headers (extAuthz/FGA still applies).
+    """
+
+    if target is None:
+        # No BFF target row for this id — preserve bootstrap defaults.
+        return True
+    return len(target.credential_sources) > 0
+
+
+def _strip_credential_forwarding_transforms(policies: dict[str, Any]) -> dict[str, Any]:
+    """Remove provider-token header rewrites from a route policy object."""
+
+    merged = copy.deepcopy(policies)
+    transformations = merged.get("transformations")
+    if not isinstance(transformations, dict):
+        return merged
+    request = transformations.get("request")
+    if not isinstance(request, dict):
+        return merged
+    request_set = request.get("set")
+    if not isinstance(request_set, dict):
+        return merged
+    for key in ("authorization", "x-caipe-provider-token"):
+        request_set.pop(key, None)
+    if not request_set:
+        transformations.pop("request", None)
+    if not transformations:
+        merged.pop("transformations", None)
+    return merged
+
+
+def _strip_route_credential_forwarding(route: dict[str, Any]) -> dict[str, Any]:
+    """Drop credential header transforms from a rendered MCP route."""
+
+    stripped = copy.deepcopy(route)
+    policies = stripped.get("policies")
+    if isinstance(policies, dict):
+        stripped["policies"] = _strip_credential_forwarding_transforms(policies)
+    return stripped
+
+
+def _route_policies_for(
+    target_id: str,
+    base: dict[str, Any],
+    *,
+    forward_credentials: bool,
+) -> dict[str, Any]:
     """Merge any per-server route-policy override onto the base MCP route policy."""
 
     merged = copy.deepcopy(base)
-    override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
-    if override:
-        merged.update(copy.deepcopy(override))
+    if forward_credentials:
+        override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
+        if override:
+            merged.update(copy.deepcopy(override))
     return merged
 
 
@@ -339,10 +434,13 @@ def _credential_source_transformations(
         outgoing_header = incoming_header
         expression = f'default(request.headers["{incoming_header}"], "")'
         if incoming_header == "x-caipe-provider-token":
-            outgoing_header = "authorization"
-            expression = (
+            transformations["authorization"] = (
                 '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
             )
+            transformations["x-caipe-provider-token"] = (
+                'default(request.headers["x-caipe-provider-token"], "")'
+            )
+            continue
         transformations[outgoing_header] = expression
     return transformations
 
@@ -366,12 +464,12 @@ def load_builtin_mcp_routes(bootstrap_path: Path | None) -> dict[str, dict[str, 
     static bootstrap config (``deploy/agentgateway/config.yaml``).
 
     These are the platform's *built-in* MCP servers. Unlike runtime-added servers,
-    they are never written to the ``mcp_servers`` Mongo collection, so the
+    they are not part of the dynamic BFF target payload, so the
     reconciler must treat them as a **protected baseline**: always rendered (from
     their authoritative bootstrap definition, including any per-route
-    transformations) and never pruned just because they are absent from Mongo.
+    transformations) and never pruned just because they are absent from the API.
 
-    Without this, an empty (or freshly reset) ``mcp_servers`` collection makes the
+    Without this, an empty (or freshly reset) dynamic target set makes the
     reconciler classify all built-in ``/mcp/<id>`` routes as "stale managed
     routes" and wipe them — leaving AgentGateway with zero MCP routes.
     """
@@ -418,7 +516,7 @@ def merge_agentgateway_mcp_routes(
 
     ``builtin_routes`` (id -> route) are statically shipped MCP servers that the
     reconciler protects: they are always re-rendered from their bootstrap
-    definition and never pruned. Mongo-backed ``targets`` are layered on top as
+    definition and never pruned. BFF-backed ``targets`` are layered on top as
     *dynamic* routes that may be added or pruned; a dynamic target sharing an id
     with a built-in defers to the built-in definition.
     """
@@ -434,7 +532,8 @@ def merge_agentgateway_mcp_routes(
     builtin_routes = builtin_routes or {}
     builtin_ids = set(builtin_routes)
     builtin_paths = {f"/mcp/{target_id}" for target_id in builtin_ids}
-    # Dynamic (Mongo-managed) targets are everything not shipped as a built-in.
+    targets_by_id = {target.id: target for target in targets}
+    # Dynamic (BFF-managed) targets are everything not shipped as a built-in.
     dynamic_targets = [target for target in targets if target.id not in builtin_ids]
     desired_by_path = {f"/mcp/{target.id}": target for target in dynamic_targets}
     target_policies_by_path = {
@@ -448,9 +547,9 @@ def merge_agentgateway_mcp_routes(
     # The reconciler owns every dynamic ``/mcp/<id>`` route, so drop *all* managed
     # MCP routes from the baseline and re-render the protected built-ins plus the
     # desired dynamic set below. This makes deletion automatic: when an
-    # ``mcp_servers`` row is removed, its route is no longer in ``desired_by_path``
+    # target is removed, its route is no longer in ``desired_by_path``
     # and simply isn't re-added. Built-in routes are exempt — they are restored
-    # from ``builtin_routes`` regardless of Mongo state. Non-MCP routes (and any
+    # from ``builtin_routes`` regardless of dynamic target state. Non-MCP routes (and any
     # malformed entries) are always retained.
     stale_paths = sorted(
         path
@@ -469,14 +568,25 @@ def merge_agentgateway_mcp_routes(
         if not (isinstance(route, dict) and _is_managed_mcp_route_path(_route_path(route)))
     ]
     # Protected built-in routes: always present, rendered from their authoritative
-    # bootstrap definition (preserving per-route transformations/policies).
-    retained_routes.extend(copy.deepcopy(builtin_routes[target_id]) for target_id in sorted(builtin_ids))
+    # bootstrap definition unless the BFF reports empty credential_sources — then
+    # strip credential header transforms so the upstream MCP uses its own config.
+    for target_id in sorted(builtin_ids):
+        route = copy.deepcopy(builtin_routes[target_id])
+        if not _forward_credentials_through_gateway(targets_by_id.get(target_id)):
+            route = _strip_route_credential_forwarding(route)
+        retained_routes.append(route)
     retained_routes.extend(
         _mcp_route(
             target,
             _merge_request_transformations(
-                _route_policies_for(target.id, policies),
-                _credential_source_transformations(target.credential_sources),
+                _route_policies_for(
+                    target.id,
+                    policies,
+                    forward_credentials=_forward_credentials_through_gateway(target),
+                ),
+                _credential_source_transformations(target.credential_sources)
+                if _forward_credentials_through_gateway(target)
+                else {},
             ),
             # Servers handled by a route-level transformation must NOT carry a
             # target-level backendAuth (drop any stale PAT preserved from the
@@ -484,7 +594,8 @@ def merge_agentgateway_mcp_routes(
             # transformation merged in by _route_policies_for above.
             target_policies=(
                 None
-                if target.id in DEFAULT_MCP_ROUTE_POLICY_OVERRIDES
+                if _forward_credentials_through_gateway(target)
+                and target.id in DEFAULT_MCP_ROUTE_POLICY_OVERRIDES
                 else (
                     target_policies_by_path.get(f"/mcp/{target.id}")
                     or DEFAULT_MCP_TARGET_POLICIES.get(target.id)
@@ -643,15 +754,27 @@ def load_baseline_config(
         return _minimal_config()
 
 
-def _load_targets_from_mongo() -> list[McpGatewayTarget]:
-    from pymongo import MongoClient
+def _load_targets_from_bff() -> list[McpGatewayTarget]:
+    targets_url = os.environ["AGENTGATEWAY_TARGETS_URL"]
+    token = os.environ["AGENTGATEWAY_TARGETS_TOKEN"]
+    timeout = float(os.getenv("AGENTGATEWAY_TARGETS_TIMEOUT_SECONDS", "5"))
+    request = urllib.request.Request(
+        targets_url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("AgentGateway targets API returned a non-object payload")
+    return select_gateway_targets_from_bff_payload(payload)
 
-    mongo_uri = os.environ["MONGODB_URI"]
-    database_name = os.getenv("MONGODB_DATABASE", "caipe")
-    collection_name = os.getenv("MCP_SERVERS_COLLECTION", "mcp_servers")
-    with MongoClient(mongo_uri) as client:
-        documents = list(client[database_name][collection_name].find({}))
-    return select_gateway_targets(documents)
+
+def _load_targets() -> list[McpGatewayTarget]:
+    return _load_targets_from_bff()
 
 
 def reconcile_once(
@@ -662,7 +785,7 @@ def reconcile_once(
 ) -> dict[str, Any]:
     """Render and write one AgentGateway config generation."""
 
-    targets = _load_targets_from_mongo()
+    targets = _load_targets()
     try:
         baseline = load_baseline_config(
             admin_config_url,
@@ -709,8 +832,10 @@ def main() -> None:
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    if not os.getenv("MONGODB_URI"):
-        raise RuntimeError("MONGODB_URI is required")
+    if not os.getenv("AGENTGATEWAY_TARGETS_URL"):
+        raise RuntimeError("AGENTGATEWAY_TARGETS_URL is required")
+    if not os.getenv("AGENTGATEWAY_TARGETS_TOKEN"):
+        raise RuntimeError("AGENTGATEWAY_TARGETS_TOKEN is required")
 
     config_path = Path(os.getenv("AGENTGATEWAY_CONFIG_PATH", "/generated/config.yaml"))
     bootstrap_config_path = os.getenv("AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH")

@@ -32,6 +32,11 @@ export interface NormalizeMcpEndpointInput {
    * upstream. Trailing slashes are tolerated.
    */
   agentGatewayBaseUrl: string;
+  /**
+   * Optional path to append when a direct upstream endpoint is entered
+   * as only an origin, for example `http://mcp-argocd:8000`.
+   */
+  directEndpointDefaultPath?: string;
 }
 
 function stripTrailingSlashes(url: string): string {
@@ -54,6 +59,20 @@ function originOf(url: string): string {
   // (which would throw on a few legacy inputs we want to be tolerant of).
   const match = /^([a-z][a-z0-9+.-]*:\/\/[^/]+)/i.exec(url);
   return match ? match[1] : "";
+}
+
+function appendDefaultPathToOriginOnlyEndpoint(
+  endpoint: string,
+  defaultPath: string | undefined,
+): string | null {
+  if (!defaultPath) return null;
+  try {
+    const parsed = new URL(endpoint);
+    if (parsed.pathname !== "/" || parsed.search || parsed.hash) return null;
+    return `${stripTrailingSlashes(endpoint)}${defaultPath.startsWith("/") ? "" : "/"}${defaultPath}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -94,20 +113,22 @@ export function isAgentGatewayBaseEndpoint(
 export function normalizeMcpEndpointForServer(
   input: NormalizeMcpEndpointInput,
 ): string | undefined {
-  const { endpoint, serverId, agentGatewayBaseUrl } = input;
+  const { endpoint, serverId, agentGatewayBaseUrl, directEndpointDefaultPath } = input;
   if (endpoint === undefined) return undefined;
   if (endpoint === "") return "";
   if (!serverId.trim()) return endpoint;
 
   const trimmedEndpoint = stripTrailingSlashes(collapseSlashes(endpoint));
   const trimmedBase = stripTrailingSlashes(collapseSlashes(agentGatewayBaseUrl));
-  if (!trimmedBase) return endpoint;
+  if (!trimmedBase) {
+    return appendDefaultPathToOriginOnlyEndpoint(trimmedEndpoint, directEndpointDefaultPath) ?? endpoint;
+  }
 
   // Only touch endpoints that point at AgentGateway. Direct upstream
   // URLs (e.g. http://mcp-confluence:8000/mcp) are valid and must be
   // left untouched — AgentGateway routing is opt-in per server.
   if (originOf(trimmedEndpoint) !== originOf(trimmedBase)) {
-    return endpoint;
+    return appendDefaultPathToOriginOnlyEndpoint(trimmedEndpoint, directEndpointDefaultPath) ?? endpoint;
   }
 
   // Compute the canonical base, with a single `/mcp` segment.

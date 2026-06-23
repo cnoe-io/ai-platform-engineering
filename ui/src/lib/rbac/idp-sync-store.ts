@@ -31,10 +31,73 @@ export async function upsertIdpSyncSettings(
   );
 }
 
+/** All persisted settings docs. Used by the scheduler to discover what to tick. */
+export async function listIdpSyncSettings(): Promise<IdpSyncSettings[]> {
+  const col = await getRbacCollection<IdpSyncSettings>("idpSyncSettings");
+  return col.find({}).toArray();
+}
+
+/**
+ * Atomically claim a UTC minute for a connector's scheduled fire. Returns true
+ * only for the single caller that wins the compare-and-set; concurrent ticks
+ * (across replicas) for the same minute get false. This is the cross-replica
+ * dedupe guard: the matched document is updated only when its current
+ * `last_fire_minute` differs from `minuteKey`, so the second writer matches
+ * nothing.
+ */
+export async function claimScheduledFire(providerId: string, minuteKey: string): Promise<boolean> {
+  const col = await getRbacCollection<IdpSyncSettings>("idpSyncSettings");
+  const result = await col.updateOne(
+    { provider_id: providerId, last_fire_minute: { $ne: minuteKey } },
+    { $set: { last_fire_minute: minuteKey } }
+  );
+  return (result.modifiedCount ?? 0) > 0;
+}
+
 /** Recent runs for one connector, newest first. */
 export async function listIdpSyncRuns(providerId: string, limit = 20): Promise<IdpSyncRun[]> {
   const col = await getRbacCollection<IdpSyncRun>("idpSyncRuns");
   return col.find({ provider_id: providerId }).sort({ started_at: -1 }).limit(limit).toArray();
+}
+
+export interface IdpSyncRunPage {
+  runs: IdpSyncRun[];
+  total: number;
+}
+
+export interface ListIdpSyncRunsPageOptions {
+  /** 1-based page index. Defaults to 1. */
+  page?: number;
+  /** Rows per page. Clamped to [1, 100]. Defaults to 20. */
+  pageSize?: number;
+}
+
+/**
+ * One page of a connector's run history (newest first) plus the total run
+ * count, for server-side offset pagination of the Sync History table.
+ *
+ * Provider-scoped via `provider_id` exactly like {@link listIdpSyncRuns}, so
+ * any registered connector (Okta today, Duo/etc. later) paginates through the
+ * same path with no per-connector code.
+ */
+export async function listIdpSyncRunsPage(
+  providerId: string,
+  opts?: ListIdpSyncRunsPageOptions
+): Promise<IdpSyncRunPage> {
+  const page = Math.max(1, opts?.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 20));
+  const col = await getRbacCollection<IdpSyncRun>("idpSyncRuns");
+  const query = { provider_id: providerId };
+  const [runs, total] = await Promise.all([
+    col
+      .find(query)
+      .sort({ started_at: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray(),
+    col.countDocuments(query),
+  ]);
+  return { runs, total };
 }
 
 export async function insertIdpSyncRun(run: Omit<IdpSyncRun, "_id">): Promise<void> {

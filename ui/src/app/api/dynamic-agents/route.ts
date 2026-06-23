@@ -19,16 +19,20 @@ allowedToolsFromAgent,
 deleteAllAgentToolTuples,
 reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
+import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { caipeOrgKey } from "@/lib/rbac/organization";
-import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
+import { getPlatformDefaultAgentId,isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
 import {
 filterResourcesByPermission,
 requireAgentPermission,
 requireResourcePermission,
+agentRowPermissionsOrDefault,
+resolveAgentListPermissions,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import type {
 DynamicAgentConfig,
+DynamicAgentConfigWithPermissions,
 LegacyVisibilityType,
 SubAgentRef,
 VisibilityType,
@@ -265,12 +269,35 @@ async function canUseOwnerTeam(
 ): Promise<boolean> {
   const ownerTeamSlug = normalizeString(ownerTeam.slug);
   if (!ownerTeamSlug) return false;
+  return canUseTeamSlug(session, ownerTeamSlug);
+}
+
+async function canUseTeamSlug(
+  session: Parameters<typeof requireResourcePermission>[0],
+  teamSlug: string,
+): Promise<boolean> {
   try {
-    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    await requireResourcePermission(session, { type: "team", id: teamSlug, action: "use" });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Team admins/owners may be represented only by the manage relation in
+    // older projections; they still count as members for owner-team selection.
+    try {
+      await requireResourcePermission(session, { type: "team", id: teamSlug, action: "manage" });
+      return true;
+    } catch {
+      return false;
+    }
   }
+}
+
+async function requireAgentWritePermission(
+  session: Parameters<typeof requireAgentPermission>[0],
+  agentId: string,
+  _agent: DynamicAgentConfig,
+): Promise<void> {
+  await requireAgentPermission(session, agentId, "write");
 }
 
 /**
@@ -345,29 +372,37 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
       : {};
 
-    const [items, total] = await Promise.all([
-      collection
-        .find(query)
-        .sort({ created_at: -1 })
-        .skip(skip)
-        .limit(pageSize)
-        .toArray(),
-      collection.countDocuments(query),
-    ]);
+    const allItems = await collection.find(query).sort({ created_at: -1 }).toArray();
 
     // Normalize legacy documents
-    const normalizedItems = items.map((item) =>
+    const normalizedItems = allItems.map((item) =>
       normalizeAgentDoc(item as unknown as Record<string, unknown>),
+    ) as unknown as DynamicAgentConfig[];
+    const platformDefaultAgentId = await getPlatformDefaultAgentId();
+    const scopedItems = await filterAgentsByOwnershipScopeForSession(
+      session,
+      normalizedItems,
+      platformDefaultAgentId,
     );
-    const visibleItems = await filterResourcesByPermission(session, normalizedItems, {
-      type: "agent",
-      action: enabledOnly ? "use" : "discover",
-      id: (agent) => String(agent._id),
-    });
+    const listTarget = {
+      type: "agent" as const,
+      action: enabledOnly ? ("use" as const) : ("discover" as const),
+      id: (agent: DynamicAgentConfig) => String(agent._id),
+    };
+    const visibleItems = await filterResourcesByPermission(session, scopedItems, listTarget);
+    const pageItems = visibleItems.slice(skip, skip + pageSize);
+    const { rows } = await resolveAgentListPermissions(
+      session,
+      pageItems.map((agent) => String(agent._id)),
+    );
+    const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
+      ...(agent as DynamicAgentConfig),
+      permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
+    }));
 
     return paginatedResponse(
-      visibleItems,
-      visibleItems.length < normalizedItems.length ? visibleItems.length : total,
+      items,
+      visibleItems.length,
       page,
       pageSize,
     );
@@ -570,7 +605,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireAgentPermission(session, id, "write");
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -580,6 +614,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!agent) {
       throw new ApiError("Agent not found", 404);
     }
+    await requireAgentWritePermission(session, id, agent);
 
     // Config-driven guard
     if (agent.config_driven) {

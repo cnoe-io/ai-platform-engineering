@@ -32,8 +32,7 @@ on:
         default: ''
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -75,6 +74,9 @@ jobs:
             server:
               - 'ai_platform_engineering/knowledge_bases/rag/server/**'
               - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.server'
+            ingestors:
+              - 'ai_platform_engineering/knowledge_bases/rag/ingestors/**'
+              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.ingestors'
 
 
       - name: Set matrix based on changes
@@ -82,9 +84,9 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
-          CHANGED_AGENT_RAG: ${{ steps.filter.outputs.agent-rag }}
           CHANGED_AGENT_ONTOLOGY: ${{ steps.filter.outputs.agent-ontology }}
           CHANGED_SERVER: ${{ steps.filter.outputs.server }}
+          CHANGED_INGESTORS: ${{ steps.filter.outputs.ingestors }}
         with:
           script: |
             const allComponents = ['agent-ontology', 'server', 'ingestors'];
@@ -178,10 +180,12 @@ jobs:
       - name: Compute prebuild tag
         id: compute_tag
         shell: bash
+        env:
+          HEAD_REF: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BRANCH="${{ inputs.head_ref || github.head_ref }}"
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
+          BRANCH="$HEAD_REF"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"

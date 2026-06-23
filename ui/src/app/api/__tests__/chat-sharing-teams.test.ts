@@ -563,21 +563,11 @@ describe('GET /api/chat/shared — team sharing', () => {
     GET = mod.GET;
   });
 
-  // Spec 098-enterprise-rbac: `/api/chat/shared` now does
-  //   find({ owner_id: { $ne: user.email } })
-  // and then post-filters with
-  // `filterConversationsByImplicitOrExplicitPermission`. The legacy
-  // `$or` over `sharing.shared_with*` is gone.
-  it('queries only owner_id !== caller and delegates visibility to the ReBAC filter', async () => {
+  // Issue #1979 fix: the query must pre-filter to conversations that carry a
+  // sharing configuration so that private conversations from other users never
+  // enter the OpenFGA pipeline or inflate the total count.
+  it('pre-filters to sharing-configured conversations and scopes to non-owner', async () => {
     mockGetServerSession.mockResolvedValue(userSession(MEMBER_EMAIL));
-
-    const teamsCol = createMockCollection();
-    teamsCol.find.mockReturnValue({
-      project: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([{ _id: TEAM_ID_1 }]),
-      }),
-    });
-    mockCollections['teams'] = teamsCol;
 
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
@@ -589,19 +579,17 @@ describe('GET /api/chat/shared — team sharing', () => {
     const findCall = convsCol.find.mock.calls[0][0];
 
     expect(findCall.owner_id).toEqual({ $ne: MEMBER_EMAIL });
-    expect(JSON.stringify(findCall)).not.toContain('shared_with');
+    // Must include a sharing pre-filter ($or over sharing fields)
+    expect(findCall.$or).toBeDefined();
+    const orStr = JSON.stringify(findCall.$or);
+    expect(orStr).toContain('sharing.is_public');
+    expect(orStr).toContain('sharing.shared_with');
+    expect(orStr).toContain('sharing.share_link_enabled');
+    expect(orStr).toContain('sharing.shared_with_teams');
   });
 
-  it('keeps the same query shape regardless of team membership', async () => {
+  it('uses the same query shape regardless of team membership', async () => {
     mockGetServerSession.mockResolvedValue(userSession(NON_MEMBER_EMAIL));
-
-    const teamsCol = createMockCollection();
-    teamsCol.find.mockReturnValue({
-      project: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['teams'] = teamsCol;
 
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
@@ -612,7 +600,7 @@ describe('GET /api/chat/shared — team sharing', () => {
 
     const findCall = convsCol.find.mock.calls[0][0];
     expect(findCall.owner_id).toEqual({ $ne: NON_MEMBER_EMAIL });
-    expect(JSON.stringify(findCall)).not.toContain('shared_with');
+    expect(findCall.$or).toBeDefined();
   });
 
   it('returns 401 when not authenticated', async () => {

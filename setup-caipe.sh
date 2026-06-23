@@ -3381,6 +3381,12 @@ webex-bot:
     OPENFGA_HTTP: "http://caipe-openfga:8080"
     OPENFGA_STORE_NAME: "caipe-openfga"
     KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+    WEBEX_ADMIN_API_ENABLED: "true"
+    WEBEX_ADMIN_API_PORT: "3002"
+    WEBEX_ADMIN_JWT_ISSUER: "${_issuer}"
+    WEBEX_ADMIN_JWKS_URL: "${_kc}/realms/caipe/protocol/openid-connect/certs"
+    WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
+    WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
 WEBEXEOF
   fi
 
@@ -3644,6 +3650,36 @@ create_namespace_and_secrets() {
       --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
     HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
     log "caipe-ui-secret ready (NextAuth secret + caipe-ui client id/secret; default SSO)"
+  fi
+
+  # Inject AGENTGATEWAY_TARGETS_TOKEN into caipe-ui-secret so the config-bridge
+  # sidecar and the BFF share the same bearer token. Generated once and persisted
+  # (idempotent re-runs). Both code paths above (--ui-env-file and default SSO)
+  # produce caipe-ui-secret before this point.
+  if $ENABLE_AGENTGATEWAY; then
+    local _ag_token
+    _ag_token=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.AGENTGATEWAY_TARGETS_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    [[ -z "$_ag_token" ]] && _ag_token="$(openssl rand -hex 32)"
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/AGENTGATEWAY_TARGETS_TOKEN\",\"value\":\"$(echo -n "$_ag_token" | base64 -w0)\"}]" &>/dev/null
+    log "AGENTGATEWAY_TARGETS_TOKEN patched into caipe-ui-secret"
+
+    # Shared HMAC for signed agent_id context (dynamic-agents + openfga-authz-bridge).
+    # Prefer an existing value in the secret or .env; generate once when missing.
+    local _hmac_secret
+    _hmac_secret=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.CAIPE_AGENT_CONTEXT_HMAC_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    if [[ -z "$_hmac_secret" && -n "${ENV_FILE:-}" ]]; then
+      _hmac_secret=$(_env_get "$ENV_FILE" "CAIPE_AGENT_CONTEXT_HMAC_SECRET" || true)
+    fi
+    if [[ -z "$_hmac_secret" && -n "${UI_ENV_FILE:-}" ]]; then
+      _hmac_secret=$(_env_get "$UI_ENV_FILE" "CAIPE_AGENT_CONTEXT_HMAC_SECRET" || true)
+    fi
+    [[ -z "$_hmac_secret" ]] && _hmac_secret="$(openssl rand -hex 32)"
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/CAIPE_AGENT_CONTEXT_HMAC_SECRET\",\"value\":\"$(echo -n "$_hmac_secret" | base64 -w0)\"}]" &>/dev/null
+    log "CAIPE_AGENT_CONTEXT_HMAC_SECRET patched into caipe-ui-secret"
   fi
 
   # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
@@ -4007,7 +4043,7 @@ patch_deployment_with_ca() {
 # 5.    RAG startup sequencing — waits for Milvus, then restarts RAG server
 #       with SKIP_INIT_TESTS=false so it can run its full initialization checks.
 
-AGENT_DEPLOYMENTS="caipe-supervisor-agent caipe-agent-netutils caipe-agent-weather"
+AGENT_DEPLOYMENTS="caipe-supervisor-agent caipe-agent-netutils"
 
 _create_agent_patches_configmap() {
   # Use apply (idempotent) so re-runs update the ConfigMap with new fixes
@@ -6365,6 +6401,17 @@ deploy_caipe() {
     fi
   fi
 
+  # Wire the config-bridge bearer token secret so the sidecar can authenticate
+  # to the BFF's internal MCP-targets endpoint. caipe-ui-secret holds the same
+  # key (patched in create_namespace_and_secrets), so both sides share the token.
+  if $ENABLE_AGENTGATEWAY; then
+    helm_args+=(
+      --set "global.agentgateway.static.configBridge.bff.existingSecret.name=caipe-ui-secret"
+      --set "openfga-authz-bridge.agentContext.existingSecret.name=caipe-ui-secret"
+      --set "dynamic-agents.agentContext.existingSecret.name=caipe-ui-secret"
+    )
+  fi
+
   # ── Deployment mode ──────────────────────────────────────────────────────
   # all-in-one: supervisor loads all agent integrations in-process via MCP.
   #   - Single pod, lower footprint, task builder tools work via /tools endpoint.
@@ -6564,7 +6611,7 @@ DAEOF
       [github]="GitHub|GitHub repository and workflow management"
     )
     # Always-on agents
-    local _always_on=(netutils weather)
+    local _always_on=(netutils)
     local _seeded=()
     for _a in "${_always_on[@]}"; do
       [[ -n "${_MCP_META[$_a]+_}" ]] || continue
@@ -6942,7 +6989,7 @@ run_validation() {
   fi
 
   # ── Sub-agent registration ──
-  for agent in weather netutils; do
+  for agent in netutils; do
     if echo "$agent_card" | grep -qi "$agent" 2>/dev/null; then
       print_result "$(date '+%H:%M:%S') ✓ ${agent} agent registered"
       pass=$((pass + 1))
@@ -7213,7 +7260,7 @@ run_sanity_tests() {
   if kubectl get configmap caipe-single-node-agent-env -n caipe &>/dev/null; then
     print_result "$(date '+%H:%M:%S') ─ [T4] skipped (single-node mode: agents run in-process)"
   else
-    for agent_svc in caipe-agent-weather caipe-agent-netutils; do
+    for agent_svc in caipe-agent-netutils; do
       local agent_label="${agent_svc#caipe-agent-}"
       local agent_card_resp
       agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
@@ -7890,7 +7937,7 @@ monitor_port_forwards() {
   fi
   echo ""
   echo -e "  ${BOLD}Chart:${NC}   v${CAIPE_CHART_VERSION}"
-  local agent_list="weather, netutils"
+  local agent_list="netutils"
   $ENABLE_RAG && agent_list+=", rag"
   echo -e "  ${BOLD}Agents:${NC}  ${agent_list}"
   $AUTOHEAL_ENABLED && echo -e "  ${BOLD}Auto-heal:${NC} ${GREEN}enabled${NC} (every ${AUTOHEAL_INTERVAL}s)"

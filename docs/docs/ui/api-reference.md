@@ -455,7 +455,6 @@ Skills APIs support the Skills Gateway, local skill configuration, catalog impor
 | `GET` | `/api/users/debug` | User debugging data. |
 | `GET`, `POST` | `/api/llm-models` | List or create LLM model entries. |
 | `PUT`, `DELETE` | `/api/llm-models` | Update or delete LLM model entries by query ID. |
-| `GET`, `POST` | `/api/nps/active`, `/api/nps` | Read active NPS campaign and submit NPS feedback. |
 
 ## Admin APIs
 
@@ -479,8 +478,6 @@ Admin APIs require admin role unless the implementation explicitly uses admin-vi
 | `GET` | `/api/admin/stats` | Admin stats overview. |
 | `GET` | `/api/admin/stats/checkpoints` | Checkpoint stats. |
 | `GET` | `/api/admin/stats/skills` | Skills stats. |
-| `GET` | `/api/admin/nps` | NPS admin overview. |
-| `POST`, `GET`, `PATCH` | `/api/admin/nps/campaigns` | Manage NPS campaigns. |
 | `GET`, `PATCH` | `/api/admin/platform-config` | Read or update platform config. |
 | `POST` | `/api/admin/migrate-conversations` | Run conversation migration. |
 | `POST`, `DELETE` | `/api/admin/skills/:source/:source_id/scan-override` | Manage skill scan overrides. |

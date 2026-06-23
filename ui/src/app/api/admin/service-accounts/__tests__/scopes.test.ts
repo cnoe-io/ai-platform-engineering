@@ -1,6 +1,8 @@
 /**
  * @jest-environment node
  */
+// assisted-by Codex Codex-sonnet-4-6
+
 /**
  * T027 — POST/DELETE /api/admin/service-accounts/[id]/scopes.
  *
@@ -73,7 +75,12 @@ function ctx() {
 function manageableWithHeld(held: Set<string>) {
   mockCheckOpenFgaTuple.mockImplementation(
     async (t: { relation: string; object: string }) => {
-      if (t.relation === "can_manage") return { allowed: true };
+      if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+        return { allowed: true };
+      }
+      if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
+        return { allowed: false };
+      }
       return { allowed: held.has(`${t.relation} ${t.object}`) };
     },
   );
@@ -123,6 +130,37 @@ describe("POST .../[id]/scopes (add)", () => {
     expect(mockUpdateScopesSnapshot).not.toHaveBeenCalled();
   });
 
+  it("allows a platform admin to add an unheld MCP tool scope to a managed service account", async () => {
+    mockCheckOpenFgaTuple.mockImplementation(
+      async (t: { relation: string; object: string }) => {
+        if (t.relation === "can_manage" && t.object === `service_account:${SA_ID}`) {
+          return { allowed: true };
+        }
+        if (t.relation === "can_manage" && t.object === "organization:caipe") {
+          return { allowed: true };
+        }
+        if (t.relation === "can_call" && t.object === "tool:jira/*") {
+          return { allowed: false };
+        }
+        return { allowed: false };
+      },
+    );
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: false,
+      scopes_snapshot: [],
+    });
+
+    const res = await POST(scopeRequest({ type: "tool", ref: "jira/*" }), ctx());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.added).toEqual({ type: "tool", ref: "jira/*" });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/*" }],
+      deletes: [],
+    });
+  });
+
   it("404 for a non-manager (does not reveal existence)", async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
 
@@ -163,8 +201,19 @@ describe("DELETE .../[id]/scopes (remove)", () => {
       { user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/search" },
     ]);
     // The editor's scope-holding was NOT checked — only can_manage.
-    const checkedRelations = mockCheckOpenFgaTuple.mock.calls.map((c) => c[0].relation);
-    expect(checkedRelations).toEqual(["can_manage"]);
+    const checkedTuples = mockCheckOpenFgaTuple.mock.calls.map((c) => c[0]);
+    expect(checkedTuples).toEqual([
+      {
+        user: "user:editor-sub",
+        relation: "can_manage",
+        object: `service_account:${SA_ID}`,
+      },
+      {
+        user: "user:editor-sub",
+        relation: "can_manage",
+        object: "organization:caipe",
+      },
+    ]);
     expect(mockLogAudit).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "service_account.scope_remove" }),
     );
@@ -215,6 +264,37 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
     expect(body.success).toBe(true);
     expect(body.data.added).toEqual({ type: "tool", ref: "jira/search" });
     expect(mockWriteOpenFgaTuples).toHaveBeenCalled();
+  });
+
+  it("POST: org-admin can add an unheld tool scope to the unlinked SA", async () => {
+    mockCheckOpenFgaTuple.mockImplementation(
+      async (t: { relation: string; object: string }) => {
+        if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+          return { allowed: false };
+        }
+        if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
+          return { allowed: true };
+        }
+        if (t.relation === "can_call" && t.object === "tool:jira/*") {
+          return { allowed: false };
+        }
+        return { allowed: true };
+      },
+    );
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: true,
+      scopes_snapshot: [],
+    });
+
+    const res = await POST(scopeRequest({ type: "tool", ref: "jira/*" }), ctx());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.added).toEqual({ type: "tool", ref: "jira/*" });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/*" }],
+      deletes: [],
+    });
   });
 
   it("DELETE: org-admin can remove a scope from the unlinked SA", async () => {

@@ -1,5 +1,9 @@
 replicaCount: 1
 
+checkQueryCache:
+  enabled: false
+  ttl: 10s
+
 image:
   repository: openfga/openfga
   tag: v1.15.1

@@ -150,7 +150,7 @@ sequenceDiagram
     participant DA as Dynamic Agents
     participant Runtime as Agent Runtime
     participant AG as AgentGateway
-    participant MDB as MongoDB audit_events
+    participant Audit as audit-service
 
     Client->>WebUIBackend: POST /api/v1/chat/stream/start
     WebUIBackend->>WebUIBackend: authenticate session or bearer<br/>and attach bearer when cached
@@ -201,7 +201,7 @@ The same sequence applies to `POST /api/v1/chat/invoke`,
 `POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel` (cancel
 does not start runtime work, but it still requires agent use and conversation write authorization). The RBAC Audit tab
 surfaces Web UI backend and Dynamic Agents OpenFGA decisions as `OpenFGA ReBAC` rows with
-`pdp=openfga` and the checked tuple in `resource_ref`. MongoDB `audit_events`
+`pdp=openfga` and the checked tuple in `resource_ref`. audit-service
 is authoritative for compliance and history; Jaeger/OTel can still be enabled
 for request-flow debugging, but the Admin UI does not need it to show authz
 decisions.
@@ -1464,7 +1464,7 @@ Slack channel routing now separates "which team owns this channel?" from "which 
 
 The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association. The OpenFGA Policy Graph overlays `channel_team_mappings` as read-only `assigned_team` routing metadata edges so operators can see channel ownership next to OpenFGA grants without treating that ownership as a mutable tuple.
 
-The Slack Channels admin panel also includes **Slack Runtime Diagnostics** for the selected channel. It calls `/api/admin/slack/channels/{workspaceId}/{channelId}/diagnostics` to perform the same OpenFGA tuple read shape used by the Slack bot, compare tuple-backed agents with `slack_channel_agent_routes`, flag stale Mongo metadata that runtime ignores, flag listen-mode mismatches such as mention-only routes that will ignore plain messages, and show the latest `slack_bot` runtime error from `audit_events`.
+The Slack Channels admin panel also includes **Slack Runtime Diagnostics** for the selected channel. It calls `/api/admin/slack/channels/{workspaceId}/{channelId}/diagnostics` to perform the same OpenFGA tuple read shape used by the Slack bot, compare tuple-backed agents with `slack_channel_agent_routes`, flag stale Mongo metadata that runtime ignores, flag listen-mode mismatches such as mention-only routes that will ignore plain messages, and show the latest `slack_bot` runtime error from audit-service.
 
 Slack route misses fail closed without turning ambient channel chatter into bot noise. For plain channel messages, the bot still records OpenFGA read failures and listen-mode mismatches for Slack Runtime Diagnostics, but it does not post a route-miss notice unless the user explicitly invoked the bot. During initial setup, `SLACK_INTEGRATION_SILENCE_ENV=true` stops Slack handlers before they can send user-visible responses at all. Diagnostics remains the operator-facing path for common errors: stale metadata without an OpenFGA tuple can be removed, and mention-only/message-only routes can be updated to `listen: all`.
 
@@ -1577,7 +1577,7 @@ Workflow authorization is the first end-to-end migration onto the **Centralized 
 * **List filtering** — config lists use batched `authorizeMany` against CAS instead of per-row OpenFGA calls.
 * **Clean errors** — denials return stable reason codes (`WORKFLOW_FORBIDDEN`, `WORKFLOW_RUN_FORBIDDEN`, `AUTHZ_UNAVAILABLE`) without leaking OpenFGA relation strings in response bodies.
 
-The coarse session gate in `ui/src/lib/api-middleware.ts` still maps these paths to Keycloak scopes (`dynamic_agent#view` for `GET`, `dynamic_agent#manage` / `#invoke` for mutations) before the CAS PEP runs.
+The coarse session gate in `ui/src/lib/api-middleware.ts` maps workflow-config routes to **`dynamic_agent#view`** for all methods (`GET`/`POST`/`PUT`/`DELETE`). Create/update/delete ownership and `task#write` checks run in `workflow-configs/route.ts` (`requireWorkflowConfigWriteAccess`). Workflow **runs** still use `dynamic_agent#invoke` for mutations via the same legacy resolver.
 
 ```mermaid
 sequenceDiagram
@@ -1604,7 +1604,7 @@ Dynamic Agents no longer perform in-process OpenFGA checks for agent invocation.
 
 1. Read `sub` from the already-validated bearer (signature verified upstream).
 2. `POST {AUTHZ_SERVICE_URL}/api/authz/v1/decisions` with `{ subject, resource: agent:<id>, action: use }`, forwarding the same OBO bearer so CAS **subject-binding** (`caller == subject`) holds.
-3. **Allow** on `decision: ALLOW`; **403** on deny; **503** when CAS is unreachable or `AUTHZ_SERVICE_URL` is unset (fail closed).
+3. **Allow** on `decision: ALLOW`; **403** on deny; **same 4xx status** when CAS returns a definitive 4xx (e.g. `403` subject-binding mismatch, `400` bad request, `401` — `reason: pdp_rejected`, `action: contact_admin`); **503** when CAS returns a 5xx, is unreachable, or `AUTHZ_SERVICE_URL` is unset (fail closed, `reason: pdp_unavailable`, `action: retry`). This ensures a misconfigured subject binding surfaces as a real denial signal rather than a misleading "temporarily unavailable".
 
 Workflow step execution in the BFF orchestrates agents in-process (`/api/v1/chat/stream/start` per step), so per-step agent-use checks run through the BFF CAS path rather than this DA HTTP client.
 

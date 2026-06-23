@@ -174,9 +174,31 @@ https://grid.rbac.outshift.io/api/credentials/oauth/gitlab/callback
 
 ### 4. Share Agent Context HMAC Secret
 
-The local `.env` includes `CAIPE_AGENT_CONTEXT_HMAC_SECRET`. The OpenFGA authz bridge uses this shared secret to verify signed agent context headers from Dynamic Agents before enforcing per-agent MCP tool access.
+`CAIPE_AGENT_CONTEXT_HMAC_SECRET` lets Dynamic Agents and the caipe-ui BFF sign
+short-lived `agent_id` context on AgentGateway MCP calls; the openfga-authz-bridge
+verifies the signature before enforcing per-agent `allowed_tools`. See
+[Agent context HMAC](./agent-context-hmac.md) for the full flow.
 
-Add the secret to the same Kubernetes Secret consumed by Dynamic Agents:
+Add the secret to the Kubernetes Secret consumed by all three components. For
+the default `setup-caipe.sh` install, `caipe-ui-secret` holds the value and Helm
+wires both subcharts:
+
+```yaml
+dynamic-agents:
+  agentContext:
+    existingSecret:
+      name: caipe-ui-secret
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+
+openfga-authz-bridge:
+  agentContext:
+    existingSecret:
+      name: caipe-ui-secret
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+```
+
+External Secrets / Vault example (store once, reference from the same secret
+name dynamic-agents and the bridge already use):
 
 ```yaml
 caipe-ui:
@@ -188,17 +210,8 @@ caipe-ui:
           property: CAIPE_AGENT_CONTEXT_HMAC_SECRET
 ```
 
-Point the bridge at that key:
-
-```yaml
-openfga-authz-bridge:
-  agentContext:
-    existingSecret:
-      name: a-caipe-rbac-argoapp-caipe-ui-secret
-      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
-```
-
-`dynamic-agents.existingSecret` already points at `a-caipe-rbac-argoapp-caipe-ui-secret`, so Dynamic Agents will receive the same environment variable after ESO reconciles it.
+Local dev: set the variable in root `.env` (documented in `.env.example` next to
+`AGENT_GATEWAY_URL`). Compose passes it to dynamic-agents and openfga-authz-bridge.
 
 ### 5. Make RBAC Bypass and RAG Team Scope Explicit
 

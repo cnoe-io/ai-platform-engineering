@@ -8,6 +8,7 @@ const mockGetCollection = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
+const mockResolveMcpServerListPermissions = jest.fn();
 const mockReconcileMcpServerRelationships = jest.fn();
 const mockDeleteAllMcpServerRelationshipTuples = jest.fn();
 const mockSyncSelectedAgentGatewayMcpServers = jest.fn();
@@ -52,7 +53,10 @@ jest.mock("@/lib/api-middleware", () => {
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
+  mcpServerRowPermissionsOrDefault: (rows: Map<string, { can_manage: boolean; can_invoke: boolean; can_discover: boolean }>, id: string) =>
+    rows.get(id) ?? { can_manage: false, can_invoke: false, can_discover: false },
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  resolveMcpServerListPermissions: (...args: unknown[]) => mockResolveMcpServerListPermissions(...args),
 }));
 
 jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
@@ -78,6 +82,10 @@ describe("MCP server per-resource RBAC", () => {
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) =>
       items.filter((item: { _id: string }) => item._id === "mcp-visible"),
     );
+    mockResolveMcpServerListPermissions.mockImplementation(async (_session, ids: string[]) => ({
+      rows: new Map(ids.map((id) => [id, { can_manage: true, can_invoke: true, can_discover: true }])),
+      capabilities: { repair_agentgateway: false },
+    }));
     mockReconcileMcpServerRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     mockDeleteAllMcpServerRelationshipTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 3 });
     mockSyncSelectedAgentGatewayMcpServers.mockResolvedValue({ summary: { added: 0, migrated: 0 } });
@@ -106,7 +114,19 @@ describe("MCP server per-resource RBAC", () => {
       { type: "mcp_server", action: "read", id: expect.any(Function) },
       { bypassForOrgAdmin: true },
     );
-    expect(body.data.items).toEqual([{ _id: "mcp-visible", name: "Visible" }]);
+    expect(body.data.items).toEqual([
+      {
+        _id: "mcp-visible",
+        name: "Visible",
+        permissions: { can_manage: true, can_invoke: true, can_discover: true },
+      },
+    ]);
+    expect(body.data.capabilities).toEqual({ repair_agentgateway: false });
+    expect(mockResolveMcpServerListPermissions).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub", role: "user" }),
+      ["mcp-visible"],
+      { bypassForOrgAdmin: true },
+    );
   });
 
   it("filters admin MCP server lists through OpenFGA instead of role bypassing", async () => {
@@ -133,7 +153,14 @@ describe("MCP server per-resource RBAC", () => {
       { type: "mcp_server", action: "read", id: expect.any(Function) },
       { bypassForOrgAdmin: true },
     );
-    expect(body.data.items).toEqual([{ _id: "mcp-visible", name: "Visible", endpoint: "http://mcp-visible:8000/mcp" }]);
+    expect(body.data.items).toEqual([
+      {
+        _id: "mcp-visible",
+        name: "Visible",
+        endpoint: "http://mcp-visible:8000/mcp",
+        permissions: { can_manage: true, can_invoke: true, can_discover: true },
+      },
+    ]);
   });
 
   it("authorizes the full catalog before paginating visible MCP servers", async () => {
@@ -169,12 +196,14 @@ describe("MCP server per-resource RBAC", () => {
       { bypassForOrgAdmin: true },
     );
     expect(body.data.items).toHaveLength(5);
-    expect(body.data.items[0]).toEqual({ _id: "mcp-server-10", name: "Server 10" });
-    expect(body.data.pagination).toEqual({
-      total: 15,
-      page: 2,
-      pageSize: 10,
+    expect(body.data.items[0]).toEqual({
+      _id: "mcp-server-10",
+      name: "Server 10",
+      permissions: { can_manage: true, can_invoke: true, can_discover: true },
     });
+    expect(body.data.total).toBe(15);
+    expect(body.data.page).toBe(2);
+    expect(body.data.page_size).toBe(10);
     expect(sort).toHaveBeenCalledWith({ name: 1 });
     expect(toArray).toHaveBeenCalledTimes(1);
   });
@@ -197,7 +226,13 @@ describe("MCP server per-resource RBAC", () => {
     expect(response.status).toBe(200);
     expect(countDocuments).toHaveBeenCalledWith({ source: "agentgateway" });
     expect(mockSyncSelectedAgentGatewayMcpServers).toHaveBeenCalledTimes(1);
-    expect(body.data.items).toEqual(items);
+    expect(body.data.items).toEqual([
+      {
+        _id: "knowledge-base",
+        name: "Knowledge Base",
+        permissions: { can_manage: true, can_invoke: true, can_discover: true },
+      },
+    ]);
   });
 
   it("lets a service account create an MCP server with service_account owner tuples", async () => {

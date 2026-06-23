@@ -1,6 +1,6 @@
 """Append-only authorization decision audit log (spec 102 T024, FR-007).
 
-Writes one document per decision to MongoDB collection `authz_decisions`.
+Writes one document per decision to audit-service.
 Schema is defined by `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/contracts/audit-event.schema.json`.
 This Python implementation MUST stay schema-equivalent to the TypeScript writer in
 `ui/src/lib/rbac/audit.ts`. The matrix-driver tests assert that both runtimes write
@@ -12,7 +12,7 @@ structured fields so operators can detect a degraded audit pipeline.
 
 Sinks (Spec 102 Phase 11.3 — audit log shipping):
 
-  - MongoDB (default; collection name overridable via AUDIT_COLLECTION).
+  - audit-service (default; URL from AUDIT_SERVICE_URL).
   - Stdout JSON line, one per decision, gated on AUDIT_STDOUT_ENABLED=true.
     The line is a single-line JSON object suitable for fluent-bit / loki /
     datadog / vector / cloudwatch logs. The marker prefix `AUDIT ` is
@@ -28,10 +28,15 @@ import json
 import logging
 import os
 import sys
+import hashlib
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
+
 logger = logging.getLogger(__name__)
+SUBJECT_SALT = os.environ.get("AUDIT_SUBJECT_SALT", "caipe-098-audit")
 
 
 def _stdout_enabled() -> bool:
@@ -57,16 +62,42 @@ _REQUIRED_REASONS = frozenset(
 _REQUIRED_PDP = frozenset({"keycloak", "local", "cache"})
 
 
-def _mongo_uri() -> str:
-    return os.environ.get("MONGODB_URI", "mongodb://localhost:27017/")
+def _audit_service_url() -> str | None:
+    backend = os.environ.get("AUDIT_LOG_BACKEND", "service").strip().lower()
+    if backend != "service":
+        return None
+    value = os.environ.get("AUDIT_SERVICE_URL", "").strip()
+    return value.rstrip("/") if value else None
 
 
-def _mongo_db() -> str:
-    return os.environ.get("MONGODB_DB", "caipe")
+def _hash_subject(subject: str) -> str:
+    digest = hashlib.sha256(f"{SUBJECT_SALT}:{subject}".encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
 
 
-def _mongo_collection() -> str:
-    return os.environ.get("AUDIT_COLLECTION", "authz_decisions")
+def _write_service_event(doc: dict[str, Any]) -> None:
+    service_url = _audit_service_url()
+    if not service_url:
+        return
+    event = {
+        **doc,
+        "type": "auth",
+        "tenant_id": os.environ.get("TENANT_ID", "default"),
+        "subject_hash": _hash_subject(str(doc["userId"])),
+        "action": f"{doc['resource']}#{doc['scope']}",
+        "outcome": "allow" if doc["allowed"] else "deny",
+        "correlation_id": doc.get("requestId") or str(uuid.uuid4()),
+        "component": doc["resource"],
+        "source": "supervisor",
+    }
+    if "userEmail" in doc:
+        event["user_email"] = doc["userEmail"]
+    try:
+        with httpx.Client(timeout=1.0) as client:
+            response = client.post(f"{service_url}/v1/audit/events", json={"events": [event]})
+            response.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("audit.log_authz_decision service write failed: %s", exc)
 
 
 def log_authz_decision(
@@ -82,7 +113,7 @@ def log_authz_decision(
     request_id: str | None = None,
     pdp: str | None = None,
 ) -> None:
-    """Append one decision document to MongoDB.
+    """Append one decision document to audit-service.
 
     Best-effort; never raises. The caller MUST already have made the
     authorization decision; this function only persists it.
@@ -116,22 +147,10 @@ def log_authz_decision(
     if pdp:
         doc["pdp"] = pdp
 
-    try:
-        from pymongo import MongoClient
-
-        client: MongoClient[dict[str, Any]] = MongoClient(_mongo_uri(), serverSelectionTimeoutMS=2_000)
-        client[_mongo_db()][_mongo_collection()].insert_one(doc)
-    except Exception as exc:  # noqa: BLE001 — best-effort by design (FR-007)
-        logger.warning(
-            "audit.log_authz_decision write failed: error=%s decision=%s/%s allowed=%s",
-            exc,
-            resource,
-            scope,
-            allowed,
-        )
+    _write_service_event(doc)
 
     # Spec 102 Phase 11.3 — optional stdout JSON sink for centralized log
-    # aggregators. Independent of the Mongo write — Mongo failure must not
+    # aggregators. Independent of the service write — service failure must not
     # suppress this and vice versa.
     if _stdout_enabled():
         try:

@@ -40,9 +40,7 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
             "--set",
             "openfga-authz-bridge.tokenValidation.audiences[1]=caipe-platform",
             "--set",
-            "openfga-authz-bridge.audit.existingSecret.name=caipe-mongodb",
-            "--set",
-            "openfga-authz-bridge.audit.existingSecret.key=MONGODB_URI",
+            "openfga-authz-bridge.audit.serviceUrl=http://audit-service:8010",
         ],
         check=True,
         cwd=_repo_root(),
@@ -56,11 +54,10 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
     assert 'value: "https://idp.example.com/realms/caipe"' in rendered
     assert 'value: "agentgateway,caipe-platform"' in rendered
     assert 'value: "RS256"' in rendered
-    assert "name: MONGODB_DATABASE" in rendered
-    assert 'value: "caipe"' in rendered
-    assert "name: MONGODB_URI" in rendered
-    assert 'name: "caipe-mongodb"' in rendered
-    assert 'key: "MONGODB_URI"' in rendered
+    assert "name: AUDIT_SERVICE_URL" in rendered
+    assert 'value: "http://audit-service:8010"' in rendered
+    assert "name: MONGODB_DATABASE" not in rendered
+    assert "name: MONGODB_URI" not in rendered
 
 
 def test_agentgateway_chart_can_mount_provider_backend_auth_secret_env() -> None:
@@ -133,6 +130,7 @@ def test_umbrella_values_define_webex_bot_section() -> None:
     webex = values["webex-bot"]
     assert webex["existingSecret"] == "webex-bot-secrets"
     assert webex["config"]["WEBEX_ADMIN_JWT_AUDIENCE"] == "caipe-webex-bot-admin"
+    assert webex["config"]["WEBEX_ADMIN_API_ENABLED"] == "true"
     assert webex["config"]["WEBEX_ADMIN_API_PORT"] == "3002"
     assert "ghcr.io/cnoe-io/caipe-webex-bot" in webex["image"]["repository"]
 

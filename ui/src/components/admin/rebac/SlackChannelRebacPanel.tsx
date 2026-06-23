@@ -1,5 +1,8 @@
 "use client";
 
+import { HelpCircle } from "lucide-react";
+
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import type {
 ConnectorAdminAdapter,
 DiagnosticRoute,
@@ -9,10 +12,18 @@ RuntimeSyncSummary,
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { SlackConfiguredChannelDetail } from "./slack/SlackConfiguredChannelDetail";
 import { SlackVictoropsAgentSetting } from "./SlackVictoropsAgentSetting";
+import {
+  planSlackRouteFixes,
+  slackRouteFixesNeeded,
+} from "@/lib/rbac/slack-channel-route-fix";
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
 }
+
+type SlackItemSummary = ItemSummary & {
+  primary_agent_id?: string;
+};
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -24,6 +35,38 @@ function formatSlackChannelName(value: unknown): string {
   return name.startsWith("#") ? name : `#${name}`;
 }
 
+// assisted-by Codex Codex-sonnet-4-6
+function SlackAccessNote() {
+  return (
+    <div className="flex max-w-4xl items-start gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
+      <span>
+        Members of the assigned team can update this Slack channel&apos;s bot routing. Agents added here can answer in this channel.
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Slack access details"
+            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <HelpCircle className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-md whitespace-normal break-words text-xs">
+          <div className="space-y-2">
+            <p>
+              Team assignment controls who can manage this channel&apos;s integration. The channel and the assigned team must both be allowed to use an agent before the bot will call it.
+            </p>
+            <p>
+              Technical details: CAIPE records these access rules in the relationship store. Global or default agents may also be available outside this channel.
+            </p>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 const SLACK_ADAPTER: ConnectorAdminAdapter = {
   connectorName: "Slack",
   itemSingular: "channel",
@@ -31,9 +74,10 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
 
   api: {
     list: "/api/admin/slack/channels",
-    discoveryUrl: (page, cursor) => {
+    discoveryUrl: (page, cursor, q) => {
       const p = new URLSearchParams({ member_only: "1", limit: "500" });
       if (cursor) p.set("cursor", cursor);
+      if (q) p.set("q", q);
       void page;
       return `/api/admin/slack/available-channels?${p.toString()}`;
     },
@@ -58,6 +102,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
       item_id: String(r.channel_id),
       item_name: formatSlackChannelName(r.channel_name ?? r.channel_id),
       team_slug: r.team_slug ? String(r.team_slug) : undefined,
+      primary_agent_id: r.primary_agent_id ? String(r.primary_agent_id) : undefined,
       active_grants: Number(r.active_grants ?? 0),
       can_manage: Boolean(r.can_manage),
       health: r.health as ItemSummary["health"],
@@ -126,7 +171,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     discoveryEmptyLabel: "No bot-member channels were discovered.",
     discoveryDiscoveredLabel: "bot-member channel",
     selfServiceTitle: "My Slack Channel Settings",
-    selfServiceDescription: "Manage bot routing behavior only for Slack channels where OpenFGA grants you channel admin access.",
+    selfServiceDescription: "Manage Slack bot routing for channels shared with your team.",
   },
   ariaLabels: {
     tablist: "Slack admin views",
@@ -145,34 +190,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
   syncDialogueDescription: "Preview reads the Slack bot's loaded static YAML config. Apply upserts matching MongoDB route metadata and channel-agent OpenFGA tuples without deleting UI-managed associations.",
   syncSummaryItemsLabel: "Channels",
 
-  authzDisclaimer: (
-    <>
-      <div>
-        Slack authorization has two checks before dispatch: the channel must have
-        <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
-        team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
-        If either check fails, the Slack bot denies the request before calling the agent.
-      </div>
-      <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-        <span className="font-medium">Sharing model:</span> Adding an agent to a
-        channel that is assigned to a team transitively grants <em>every member of
-        that team</em> permission to invoke the agent in this channel — even members
-        who were never granted the agent directly. If that is not what you want, share
-        the agent with a smaller subgroup (or with individual users) instead of the
-        channel&apos;s team.
-        <p className="mt-2">
-          Agents with <strong>global</strong> visibility or set as the{" "}
-          <strong>platform default</strong> (Admin → Settings) also carry an OpenFGA
-          grant <code className="mx-1">user:* can_use agent:&lt;id&gt;</code>, so every
-          signed-in user can DM the agent and use it in any mapped Slack channel or
-          Webex space. Channel onboarding here still writes{" "}
-          <code className="mx-1">slack_channel:… can_use agent:&lt;id&gt;</code> and{" "}
-          <code className="mx-1">team:&lt;slug&gt;#member can_use agent:&lt;id&gt;</code>{" "}
-          for the channel&apos;s team; the bot&apos;s dispatch checks above still apply.
-        </p>
-      </div>
-    </>
-  ),
+  authzDisclaimer: <SlackAccessNote />,
 
   configuredDetailExtra: (ctx) => (
     <SlackConfiguredChannelDetail
@@ -191,16 +209,68 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     />
   ),
 
-  diagnosticRouteIsFixable: (route: DiagnosticRoute) => route.route_metadata && !route.openfga_tuple,
-  fixDiagnosticRoute: async ({ item, route }) => {
+  diagnosticRouteIsFixable: (route: DiagnosticRoute) =>
+    (route.route_metadata && !route.openfga_tuple) ||
+    (route.openfga_tuple && !route.route_metadata),
+  fixDiagnosticRoute: async ({ item, route, routes }) => {
     const routeUrl = `/api/admin/slack/channels/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes`;
+    if (route.route_metadata && !route.openfga_tuple) {
+      const res = await fetch(routeUrl, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: route.agent_id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return { toast: `Removed inactive routing rules for ${route.agent_id}.` };
+    }
+    const currentRoute = routes.find((entry) => entry.agent_id === route.agent_id);
+    const nextRoutes: typeof routes = [
+      ...routes.filter((entry) => entry.agent_id !== route.agent_id),
+      {
+        agent_id: route.agent_id,
+        enabled: true,
+        priority: currentRoute?.priority ?? 100,
+        users: { enabled: true, listen: currentRoute?.users?.listen ?? "mention" },
+        ...(currentRoute?.bots ? { bots: currentRoute.bots } : {}),
+        ...(currentRoute?.escalation ? { escalation: currentRoute.escalation } : {}),
+        ...(currentRoute?.execution_identity ? { execution_identity: currentRoute.execution_identity } : {}),
+      },
+    ];
     const res = await fetch(routeUrl, {
-      method: "DELETE",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agent_id: route.agent_id }),
+      body: JSON.stringify({ routes: nextRoutes }),
     });
     if (!res.ok) throw new Error(await res.text());
-    return { toast: `Removed stale route metadata for agent:${route.agent_id}.` };
+    const data = apiData<{ routes: typeof routes }>(await res.json());
+    return {
+      toast: `Saved default routing for ${route.agent_id} (@mentions only).`,
+      nextRoutes: data.routes ?? [],
+    };
+  },
+
+  diagnosticIssuesBatchFixable: ({ diagnostics, routes }) =>
+    slackRouteFixesNeeded(diagnostics.routes, routes),
+
+  fixAllDiagnosticIssues: async ({ item, diagnostics, routes }) => {
+    const routeUrl = `/api/admin/slack/channels/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes`;
+    const primaryAgentId = (item as SlackItemSummary).primary_agent_id;
+    const nextRoutes = planSlackRouteFixes(
+      diagnostics.routes,
+      routes,
+      primaryAgentId,
+    );
+    const res = await fetch(routeUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routes: nextRoutes }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = apiData<{ routes: typeof routes }>(await res.json());
+    return {
+      toast: "Routing issues fixed: saved missing rules and set a clear primary agent priority.",
+      nextRoutes: data.routes ?? [],
+    };
   },
 
   applyOnboarding: async ({ rows, defaultTeamSlug, defaultAgentId, createDefaultRoutes, fetchFn }) => {

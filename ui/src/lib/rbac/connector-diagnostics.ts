@@ -1,4 +1,11 @@
-import { getCollection } from "@/lib/mongodb";
+import { getAuditReader } from "@/lib/audit/reader";
+import {
+  ambiguousRoutesMessage,
+  missingRouteMetadataMessage,
+  noTuplesMessage,
+  openFgaReadFailureMessage,
+  staleRouteMetadataMessage,
+} from "@/lib/rbac/connector-diagnostic-messages";
 
 export type ConnectorKind = "slack_channel" | "webex_space";
 
@@ -53,10 +60,10 @@ export interface ConnectorDiagnosticsAdapter {
   botLabel: string;
   runtimeLabel: string;
   tupleNoun: string;
-  // The audit_events.component value to query for
+  // The audit-service component value to query for
   // last_runtime_error. e.g. "slack_bot" / "webex_bot".
   auditComponent: string;
-  // resource_ref the bot writes into audit_events — Slack uses
+  // resource_ref the bot writes into audit-service — Slack uses
   // `slack_channel:<workspace>--<channel>`, Webex uses
   // `webex_space:<workspace>--<space>`.
   auditResourceRef: (workspaceId: string, itemId: string) => string;
@@ -95,15 +102,11 @@ function buildBaseRouteWarnings(
   route: ConnectorRuntimeRouteDiagnostic,
 ): string[] {
   const warnings: string[] = [];
-  if (!route.openfga_tuple) {
-    warnings.push(
-      `agent:${route.agent_id} has Mongo route metadata, but the OpenFGA tuple is missing; runtime ignores it.`,
-    );
+  if (!route.openfga_tuple && route.route_metadata) {
+    warnings.push(staleRouteMetadataMessage(route.agent_id));
   }
-  if (!route.route_metadata) {
-    warnings.push(
-      `agent:${route.agent_id} has an OpenFGA tuple but no Mongo route metadata; runtime uses mention-only defaults.`,
-    );
+  if (route.openfga_tuple && !route.route_metadata) {
+    warnings.push(missingRouteMetadataMessage(route.agent_id));
   }
   return warnings;
 }
@@ -115,20 +118,20 @@ async function latestRuntimeError(
 ): Promise<ConnectorLastRuntimeError | null> {
   const resourceRef = adapter.auditResourceRef(workspaceId, itemId);
   try {
-    const auditEvents = await getCollection("audit_events");
-    const rows = await auditEvents
-      .find({
-        component: adapter.auditComponent,
-        outcome: "error",
-        resource_ref: resourceRef,
-      })
-      .sort({ ts: -1 })
-      .limit(1)
-      .toArray();
+    const until = new Date();
+    const since = new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const rows = await getAuditReader().query({
+      since,
+      until,
+      component: adapter.auditComponent,
+      outcome: "error",
+      resourceRef,
+      limit: 1,
+    });
     const event = rows[0] as Record<string, unknown> | undefined;
     if (!event) return null;
     return {
-      ts: typeof event.ts === "string" ? event.ts : undefined,
+      ts: event.ts instanceof Date ? event.ts.toISOString() : typeof event.ts === "string" ? event.ts : undefined,
       reason_code: typeof event.reason_code === "string" ? event.reason_code : undefined,
       message: typeof event.message === "string" ? event.message : undefined,
       action: typeof event.action === "string" ? event.action : undefined,
@@ -152,7 +155,7 @@ export async function computeConnectorDiagnostics(
     openfgaAgentIds = await adapter.listOpenFgaAgentIds(workspaceId, itemId);
   } catch (error) {
     openfgaError = error instanceof Error ? error.message : "OpenFGA tuple read failed";
-    warnings.push(`${adapter.botLabel} cannot read OpenFGA tuples: ${openfgaError}`);
+    warnings.push(openFgaReadFailureMessage(adapter.botLabel, openfgaError));
   }
 
   const allAgentIds = Array.from(
@@ -188,9 +191,7 @@ export async function computeConnectorDiagnostics(
   }
 
   if (!openfgaError && openfgaAgentIds.length === 0) {
-    warnings.push(
-      `No OpenFGA ${adapter.tupleNoun} tuples found. ${adapter.runtimeLabel} has no agent to dispatch.`,
-    );
+    warnings.push(noTuplesMessage(adapter.tupleNoun, adapter.runtimeLabel));
   }
 
   const lastError = await latestRuntimeError(adapter, workspaceId, itemId);

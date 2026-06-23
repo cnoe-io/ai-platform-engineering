@@ -1,3 +1,1297 @@
+## 0.5.19 (2026-06-22)
+
+### Fix
+
+- **charts**: default AUDIT_SERVICE_URL to release-scoped audit-service (#1974)
+- **identity-sync**: remove proactive Okta credential health check on page load (#1975)
+
+## 0.5.18 (2026-06-22)
+
+### Feat
+
+- **ui**: remove NPS score page, survey, and settings (#1919)
+- **rag**: add S3 document ingestor (#1875)
+- **audit**: add lightweight audit service runtime (#1946)
+- **github**: use gh cli-backed file contents tool (#1721)
+- **audit**: add audit-service read UI (#1948)
+- **credentials**: integrate secrets UX with AgentGateway MCP routing (#1967)
+
+### Fix
+
+- **rbac**: replace unsupported $facet in team members pagination for DocumentDB (#1924)
+- **setup-caipe**: Missing AGENTGATEWAY_TARGETS_TOKEN (#1914)
+- **ui**: handle Kubernetes tcp:// port env vars in platform health probes (#1927)
+- credential team sharing authz (#1943)
+- **ci**: satisfy zizmor security scan (#1954)
+- **deps**: resolve dependabot security alerts (#1872)
+- **helm**: keep MCP servers while disabling A2A agents (#1925)
+- **security**: remove agntcy slim sdk usage (#1955)
+- **deps**: update torch for rag embeddings (#1962)
+- **rbac**: address admin and chat regressions (#1950)
+- **compose**: use canonical caipe-ui image tag (#1966)
+- **mcp**: promote custom servers to agentgateway routes (#1926)
+- **workflows**: allow non-admins to create and save workflows (#1973)
+
+### Perf
+
+- **ui**: cache health and RBAC gate checks (#1949)
+
+### Refactor
+
+- **audit**: route producers through audit service (#1947)
+
+### Docs
+
+- fix typo 'seperate' -> 'separate' in two CHANGELOG files (#1940)
+- document AGENTGATEWAY_TARGETS_TOKEN in .env.example (#1938)
+- **rag**: clarify health proxy auth behavior (#1963)
+- **blog**: What's New in 0.5 — end-user feature overview (#1918)
+- **audit**: document audit performance benchmarks (#1951)
+
+### Chore
+
+- **repo**: remove beads issue tracking (#1945)
+
+### Ci
+
+- **rag**: build only changed RAG components instead of all three (#1970)
+
+## 0.5.17 (2026-06-18)
+
+### Feat
+
+- **rbac**: add background scheduler for IdP directory sync (#1901)
+- **ui**: paginate admin teams/members/IdP-sync history + self-heal OpenFGA drift (#1916)
+- **ui**: add platform health probes (#1909)
+
+### Fix
+
+- **docker-compose**: align docker-compose files (#1886)
+- **slack**: remove ephemeral identity verification error message (#1902)
+- **workflows**: portal visibility dropdown and fix runs-to-workflows nav (#1900)
+- **rbac**: unblock superadmin conversations and tool grants (#1904)
+- **ui**: prefer exact changelog release prompts (#1908)
+
+### Docs
+
+- fix typo 'seperate' -> 'separate' in CHANGELOG (#1898)
+
+### Chore
+
+- **compose**: align oss all-in-one stack (#1887)
+
+### Ci
+
+- **agents**: make a2a image builds opt-in (#1905)
+
+### Other
+
+- add opt-out checkbox to suppress feedback regeneration (#1793)
+
+## 0.5.16 (2026-06-17)
+
+### Feat
+
+- **rbac**: expose policy manifest downloads (#1891)
+- **admin**: scope teams, users, stats, and feedback for non-admin users (#1894)
+
+### Fix
+
+- **slack**: fix loguru format strings and remove noisy oauth cache debug log (#1879)
+- **admin**: allow unlinked service account tool grants (#1880)
+- **dynamic-agents**: surface CAS 4xx as its real status instead of collapsing to 503 (#1878)
+- unlinked service account catalog grants (#1870)
+- **slack**: let team members manage shared integrations (#1883)
+- **rbac**: expand MCP wildcard grants safely (#1889)
+- **rbac**: upsert bootstrap idp-sync rule by ID to fix stale provider_id (#1881)
+- **ci**: harden release workflows and add actions scan (#1851)
+- **chat**: prevent auto-create on login race and unify permanent delete logic (#1896)
+- **rbac**: treat team managers as owner-team members (#1895)
+- **agent-editor**: simplify owner team transfer (#1893)
+
+### Perf
+
+- **admin**: lazy-load tab data on first visit; parallelise stats queries (#1882)
+
+### Test
+
+- **rbac**: add identity sync browser regression (#1892)
+
+## 0.5.15 (2026-06-17)
+
+### Feat
+
+- **admin**: sync admin nested sub-tabs to the subtab URL param (#1867)
+
+### Fix
+
+- **admin**: default to Settings tab and rename Default Agent to General (#1862)
+- **admin**: clarify unlinked access description for admins (#1861)
+- **chart**: duplicate app.kubernetes.io/name (#1845)
+- **ui**: stabilize service account RBAC e2e (#1855)
+- make AgentGateway provider-token passthrough declarative (#1859)
+- **ui**: soften required-field treatment on agent create form (#1865)
+- **rbac**: simplify owner-team ownership UI and drop grant-preview copy (#1873)
+- **ui**: import Button in team ownership fields (#1876)
+- **slack**: send service_account subject to CAS for SA-run channels; clarify route copy (#1877)
+
+### Test
+
+- **service-accounts**: add token passthrough Playwright coverage (#1844)
+- **ui**: add admin settings e2e regression (#1869)
+
+### Chore
+
+- **deps**: Bump the npm_and_yarn group across 2 directories with 4 updates (#1858)
+- **slack-bot**: remove SLACK_INTEGRATION_SILENCE_ENV flag (#1874)
+
+## 0.5.14 (2026-06-16)
+
+### Fix
+
+- **setup**: production-ready setup-caipe.sh — prereqs, domain/TLS, Keycloak, dynamic agents (#1823)
+- **validate**: Remove weather-agent validation (#1790)
+- **jira-mcp**: add assign_issue tool using dedicated assignee endpoint (#1846)
+- **rag**: sync uv lock metadata (#1856)
+
+### Other
+
+- [codex] feat(agentgateway): render config bridge targets from BFF (#1852)
+
+## 0.5.13 (2026-06-15)
+
+### Feat
+
+- **agentgateway**: enable agentgateway and github-mcp-server by default in 0.5.x (#1762)
+- **rbac**: Service Accounts — team-owned bot identities + caller-keyed tool authz (#1780)
+- **rbac**: combine AD group admins with super-admins team access (#1792)
+- **slack**: Run As identity (user / service account) + unlinked-user fallback for Slack routing (#1784)
+- **service-accounts**: credential passthrough (provider tokens) for service accounts (#1796)
+
+### Fix
+
+- **docs**: repair MDX breakage in FGA module-api contract page (#1837)
+- **rbac**: repair MCP OpenFGA drift and local file ingestion (#1838)
+- **webex**: replace static agent route mappings (#1820)
+- **chart**: make GitHub MCP server opt-in (#1839)
+- **ui**: keep service account team picker searchable (#1840)
+- **rbac**: set AFFIRMATIVE on bot's own token-exchange permission during reconciliation (#1787)
+- **dynamic-agents**: bump vulnerable dependencies (#1841)
+- **ui**: prevent unlinked access modal control bleed (#1842)
+- **ui**: refresh mcp server list (#1816)
+
+### Refactor
+
+- **slack**: route all Slack-bot Keycloak access through the BFF; drop direct admin creds (#1800)
+
+## 0.5.12 (2026-06-14)
+
+### Feat
+
+- **authz**: Centralized Authorization Service (CAS) — core, HTTP API, admin UI (#1770)
+- **workflows**: workflow RBAC on CAS (re-implements #1751) (#1772)
+- **ui**: ephemeral file preview in agents and workflows (#1831)
+
+### Fix
+
+- **setup**: auto-install missing prereqs and gate sudo on user consent (#1821)
+- **setup**: auto-install kind during prerequisites check (#1822)
+- **dynamic-agents**: restore workflow settings dropped by 020dc937f (#1766)
+- **supervisor**: eager MCP init via A2A lifespan hook (#1830)
+- **ui**: MCP OpenFGA reconcile, CAS-backed authz, and team sharing (#1819)
+
+### Test
+
+- **rbac**: add admin browser regression (#1829)
+
+### Docs
+
+- **releases**: backfill release notes and published-versions for 0.5.5–0.5.10 (#1815)
+
+### Chore
+
+- **deps**: resolve dependabot alerts (#1818)
+- **agentgateway**: structured authz logging in config bridge (#1825)
+
+## 0.5.11 (2026-06-11)
+
+### Feat
+
+- **slack**: consolidate JIT shell-user provisioning into shared BFF endpoint (#1788)
+- **rbac**: super-admins team → org-admin + AD group admin bootstrap (cherry-pick to main) (#1814)
+
+### Fix
+
+- **setup-caipe**: Ollama as a K8s deployment (#1695)
+- **setup-caipe**: complete Ollama k8s deployment (#1786)
+- **openfga**: add organization#member to skill type restrictions (#1797)
+- **setup-caipe**: Ollama FQDN, RAG ingestor client, dynamic-agents bearer auth (#1803)
+- **rag-rbac**: elevate OpenFGA org-admins to admin on ADMIN-gated endpoints (#1805)
+
+### Refactor
+
+- **ui**: group flat admin components by domain + organize imports + fix all lint errors (#1791)
+
+## 0.5.10 (2026-06-08)
+
+### Feat
+
+- **ui**: make config-driven agent panels expandable for viewing (#1756)
+- **ui**: dynamic nav overflow, compact right cluster, screenshot in report dialog (#1777)
+- **rbac**: Okta directory sync (SDK) with JIT provisioning, IdP-sync admin UI, and admin RBAC fixes (#1783)
+- **slack**: derive slash-command prefix from APP_NAME, enforce DM-only on all commands (#1785)
+
+### Fix
+
+- **docs**: escape MDX JSX in FGA module-api spec (#1759)
+- **slack**: gate channel access on agent assignment, not team membership (#1761)
+
+### Chore
+
+- **deps**: bump astral-sh/setup-uv from 8.1.0 to 8.2.0 (#1774)
+- **deps**: bump github/codeql-action from 4.36.1 to 4.36.2 in the github group (#1773)
+
+### Ci
+
+- **rag**: self-healing retag walk-back + force_build switch (#1758)
+
+## 0.5.9 (2026-06-05)
+
+### Feat
+
+- **rbac**: unify ownership-transfer flow across agents, RAG KBs, and MCP tools (#1726)
+- **slack**: add channel delete and editable agent swap in channel route editor (#1749)
+
+### Fix
+
+- **agentgateway,keycloak**: remove unsupported extAuthz timeout field and add impersonation to caipe-platform desired roles (#1722)
+- **skills**: resolve undefined skill id on create/clone redirect (#1723)
+- **rbac**: reconcile skill team shares via shared shareable-resource module (#1729)
+- **setup-caipe**: preserve deployed RAG embeddings on non-interactive upgrade (#1717)
+- **setup-caipe**: wire OLLAMA_BASE_URL for in-cluster Ollama embeddings (#1719)
+- **admin**: scope migration bootstrap alerts to manifest-backed areas (#1754)
+- **local-dev**: RBAC org-admin bypass, Slack channel admin visibility + import, agentgateway pin, agent/MCP seeding (#1748)
+
+## 0.5.8 (2026-06-04)
+
+### Feat
+
+- **docs**: add open-issues triage dashboard + generator (#1665)
+- **slack-ui**: config parity, channel-admin editing, and admin save UX (#1696)
+- **rbac**: fix RAG datasource access gap, add public datasources, reorg KB admin (#1703)
+- **credentials**: per-user OAuth scope selection at connect time (#1701)
+- **ui**: one-click "Migrate all to latest" for schema migrations (#1658)
+- **rbac**: unify group-based access control across agents, RAG datasources, and MCP tools (#1708)
+- **rbac**: OpenFGA authz, team-invoke + org-wide sharing for custom MCP tools (#1711)
+- **rbac**: org-level ingest/search capabilities + FGA coverage guarantee (#1716)
+
+### Fix
+
+- **rbac**: backfill admin_surface:slack manager grant for org admins (#1513) (#1617)
+- **rag**: migrate ingestors image to Chainguard Wolfi base (#1631)
+- **dynamic-agents**: migrate image to wolfi-base (#1628)
+- **rag**: migrate rag-server image to wolfi-base (#1627)
+- **mcp**: provider-token auth, knowledge-base RAG, and authz resilience (#1702)
+- **ui**: collapse consecutive identical tool chips in timeline (#1692)
+- Markdown editor scroll behaviour and theming (#1685)
+- **rag**: migrate agent-ontology image to wolfi-base (#1625)
+- **agentgateway**: protect built-in MCP routes from config-bridge pruning (#1706)
+- **deps**: bump aiohttp to 3.14.0 and uv to 0.11.18 for security advisories (#1715)
+- **rbac**: harden shareable-resource access control for RAG MCP tools and KB sharing (#1710)
+- **deps**: bump uv 0.11.6 -> 0.11.18 in agent sub-packages (#1718)
+
+### Docs
+
+- **agents**: add spec readability rules (#1698)
+
+### Chore
+
+- **deps**: bump github/codeql-action from 4.36.0 to 4.36.1 in the github group (#1688)
+- **deps**: bump step-security/harden-runner from 2.19.0 to 2.19.4 (#1689)
+- **deps**: bump docker/login-action from 4.1.0 to 4.2.0 (#1690)
+- **deps**: bump docker/setup-qemu-action from 4.0.0 to 4.1.0 (#1691)
+- **ui**: upgrade caipe-ui base image to Node 24 (#1618)
+
+## 0.5.7 (2026-06-02)
+
+### Feat
+
+- **keycloak**: add PostgreSQL database support via database.enabled (#1686)
+- **agentgateway**: wire config-bridge sidecar into Helm for dynamic MCP routes (#1682)
+- **setup-caipe**: consolidate setup-caipe.sh improvements + unified LiteLLM front (#1687)
+- **setup**: reproduce docker-compose.dev defaults in setup-caipe.sh (#1619)
+- **setup**: shared Postgres for Keycloak/OpenFGA + opt-in unified LiteLLM front (#1664)
+
+### Fix
+
+- **keycloak**: use direct role endpoint to look up impersonation role ID in init-token-exchange (#1679)
+- **keycloak**: unset stale error field when migration completes successfully (#1680)
+- **rag**: wire OPENFGA_HTTP default from global.rag.openfga.httpUrl in rag-server (#1681)
+- **skill-builder**: handle wrapped builtin-tools API response shape (#1666)
+- **setup-caipe**: pre-create caipe-platform-secret (#1673)
+- **keycloak**: reconcile bot OBO target on fresh local install (#1630)
+
+## 0.5.6 (2026-06-01)
+
+### Fix
+
+- **keycloak**: restore manage-realm role for caipe-platform service account (#1678)
+
+## 0.5.5 (2026-06-01)
+
+### Fix
+
+- **auth**: remove per-request bootstrap admin log spam (#1670)
+- **keycloak**: add view-realm and manage-realm to caipe-platform service account roles (#1669)
+- **admin**: consolidate Keycloak warnings into amber block above invariants (#1674)
+
+### Docs
+
+- publish 0.5.4 (#1659)
+- **releases**: add release notes for 0.5.3 and 0.5.4 (#1661)
+
+### Ci
+
+- **docs**: push docs version bump straight to main (#1660)
+
+## 0.5.4 (2026-05-29)
+
+### Fix
+
+- **compose**: remove duplicate volumes key in openfga-init service (#1638)
+- **keycloak**: render configured realm name (#1657)
+- **admin**: correct team KB tab link and surface KB/agent/tool counts on team cards (#1643)
+
+### Refactor
+
+- **ui**: DRY up Slack and Webex admin panels into shared ConnectorAdminPanel (#1632)
+
+### Docs
+
+- publish 0.5.3 (#1641)
+
+## 0.5.3 (2026-05-29)
+
+### Feat
+
+- **healthchecking**: add startup probes and adjust probe semantics across all agents (#1468)
+
+### Fix
+
+- **ui**: collapse top bar on narrow screens (#1504)
+- **deps**: bump pyjwt + force uuid override to close Dependabot alerts (#1616)
+- **helm**: compute release-name service URL defaults in deployment templates (#1612)
+- **rag**: bump twisted to 26.4.0 to fix DNS compression DoS (GHSA-grgv-6hw6-v9g4) (#1621)
+- **docs**: repair RBAC broken anchor and unreadable draw.io SVGs (#1626)
+- **ui**: label collapsed nav menu (#1623)
+
+### Docs
+
+- build-time versioned docs + release notes 0.4.10–0.5.2 (#1622)
+- **cursor**: add safe-git-worktree rule to protect the working tree (#1620)
+
+### Chore
+
+- **deps**: bump the uv group across 3 directories with 4 updates (#1533)
+
+### Ci
+
+- **pr-version-bump**: stop double-gating on stale branches (#1634)
+
+### Other
+
+- feat(helm)!: default AgentGateway routing to static (CRD-free) via routingMode (#1629)
+
+## 0.5.2 (2026-05-29)
+
+### Feat
+
+- **ai-review**: overhaul agent and skill rubric criteria and weights (#1608)
+- **rbac**: complete RAG OpenFGA access model (#1591)
+- **openfga**: add route capabilities to canonical model (#1592)
+- **keycloak**: reconcile strict client secrets (#1593)
+- **ui**: map withAuth routes to RBAC capabilities (#1594)
+- **agentgateway**: add MCP route bridge for RBAC runtimes (#1595)
+- **admin**: add Keycloak migration health surfaces (#1597)
+- **auth**: centralize local-dev auth bypass behind a provider (#1613)
+
+### Fix
+
+- **dynamic-agents**: forward user JWT to MCP clients (#1598)
+- **rag-ingestors**: block SSRF and lock TLS dependencies (#1599)
+- **setup-caipe**: use native Anthropic model ID for Claude Haiku 4.5 (#1542)
+- **setup-caipe**: Disable ENABLE_METALLB/ENABLE_INGRESS when user declines (#1587)
+- **credentials**: align OAuth envelope store defaults (#1600)
+- **rbac**: remove legacy RAG group fallback wiring (#1601)
+- **dynamic-agents**: highlight missing owner team inline (#1606)
+
+### Docs
+
+- **rbac**: document CAIPE migration and route coverage (#1602)
+- **rag-stack**: regenerate Helm chart docs (#1603)
+- **spec**: add Docker build cache optimization spec (#1607)
+
+### Chore
+
+- **config**: default Bedrock AI assist to Haiku (#1605)
+
+## 0.5.1 (2026-05-27)
+
+### Feat
+
+- **auth**: add dual auth middleware for shared key + OAuth2 coexistence (#1229)
+- **helm**: allow custom ingress path for supervisor ingress (#1243)
+- **helm**: Enable Vertical Pod Autoscaling across all charts (#1224)
+- **ci**: new release management & versioning strategy (#1272)
+- **doc**: new cicd diagram and details (#1290)
+- **dynamic-agents**: skills integration, subagent fixes, and agent editor UX (#1299)
+- **setup-caipe**: UX improvements — Docker install, back-nav, upgrade detection, agent selection (#1336)
+- **dynamic-agents**: memory management with shared clients and lazy provider loading (#1331)
+- **ui**: warn user about unsaved changes in dynamic agent editor (#1328)
+- **skills**: admin scan override + hub-crawl pagination/caps + live crawl console (#1338)
+- **charts**: configures Helm charts for Kubernetes Pod Security Standards Baseline compliance (#1337)
+- **supervisor**: add ToolCallLimitMiddleware and ModelCallLimitMiddleware with configurable env vars (#1319)
+- **mcp-aws**: add AWS MCP server with aws_cli_execute and eks_kubectl_execute (#1324)
+- **skills**: release-docs skill — release notes + migration guide generator (#1356)
+- **ui**: add search filter and scroll to agent selection dropdown (#1361)
+- **dynamic-agents**: HITL tool approval, GridFS backend, custom themes & bug fixes (#1351)
+- **docs**: redesign site — landing page, community page, teal/cyan theme (#1359)
+- **docs**: release 0.4.9 — blog post, version snapshot, homepage version (#1367)
+- **overthink**: add OVERTHINK_BOILERPLATE as server-side template variable (#1364)
+- **overthink**: rewrite boilerplate as stepwise prompt with explicit precedence (#1389)
+- **ci**: prebuild comment to be merged to one not per img (#1393)
+- **skills**: add HIDE_BUILTIN_SKILLS flag and catalog key bypass for auth middleware (#1383)
+- **victorops**: consolidate to v2 reporting incidents, drop slim projections (#1377)
+- **mcp**: Add Litellm mcp and create FinOps agent (#1402)
+- **dynamic-agents**: expose agent id in self identity (#1403)
+- **ci**: allow manual prebuild trigger + auto chart bump upon PR approval (and not before) (#1406)
+- **dynamic-agents**: add curl builtin tool for PUT/POST/PATCH/DELETE support (#1413)
+- **ui**: add AI Review module for skills and dynamic agents (#1433)
+- **caipe-ui**: configurable default agent (#1378) (#1441)
+- **workflows**: add workflow service with editor, execution engine, and config-driven seeding (#1418)
+- **rag**: anchor slack document fresh_until to message post time (#1435)
+- **jira**: add internal service desk comments (#1445)
+- **curl**: add allow_non_public_urls option to curl builtin tool (#1476)
+- **infra**: introduce Keycloak, OpenFGA, AgentGateway and OpenFGA bridge charts (#1496)
+- **credentials**: introduce envelope-encrypted credential store and OAuth platform (#1497)
+- **dynamic-agents**: add MCP endpoint normalizer, self-heal, and OpenFGA PDP gate (#1499)
+- **bots**: Webex bot integration + Slack ReBAC additions [split 1/5 of #1498] (#1523)
+- **mcp-auth**: shared mcp-agent-auth library + per-agent middleware [split 2/5 of #1498] (#1524)
+- **rag**: RAG ReBAC + per-document ACL + userinfo cache [split 3/5 of #1498] (#1525)
+- **rbac**: OpenFGA ReBAC core + admin BFF + admin UI [split 4/5 of #1498] (#1526)
+- **rbac-wiring**: umbrella chart + compose + Makefile + docs [split 5/5 of #1498] (#1527)
+- **keycloak**: harden client-secret bootstrap with reconcile + strict mode (#1518)
+- **setup-caipe**: expand embeddings menu to all 7 EmbeddingsFactory providers + Voyage AI (#1538)
+- **rbac**: openfga admin-implies-member + auto-provision Super Admins team (#1555)
+- **rbac**: admin-configurable discovery cache TTL for Slack/Webex onboarding (#1556)
+- **rbac**: persisted onboarding defaults in platform_config (UI + BFF) (#1558)
+- **dynamic-agents**: blocker hint on editor + protect platform default agent (#1559)
+- new tool get_file_line_count and ask agent to use that before read_file (#1565)
+- **rbac+ui+infra**: canonical team-membership refactor + operator-visible failure modes + team picker UX (#1583)
+- **ui**: add unsafe RBAC bypass flag (#1581)
+- **rbac**: add fine-grained Knowledge Base access controls (#1584)
+
+### Fix
+
+- **ci**: bump Go 1.25→1.26 and langgraph 1.0.10→1.1.6 (#1222)
+- **middleware**: allow LLM to synthesize after RAG cap exhaustion (#1231)
+- **setup-caipe**: resolve unbound variable errors with set -u (#1232)
+- **checkpointer**: strip ephemeral skills state from MongoDB checkpoint writes (#1234)
+- **supervisor**: add defaults to ResponseFormat required bool fields (#1237)
+- **ui**: don't persist session-expired errors in chat history (#1236)
+- **ui**: pin @testing-library/dom to exact version 10.4.1 (#1239)
+- **a2a**: isolate plan state per request to prevent cross-session leak (#1235)
+- **slack-bot**: remove nonexistent keyword_search param from RAG search prompts (#1247)
+- **slack**: restore v0.2.41 streaming UX and suppress duplicate sub-agent output (#1245)
+- **dockerfile**: Standardise non-root user configuration for Dockerfiles in repo (#1246)
+- **supervisor**: add curl tool for PUT/POST support and web fetching (#1242)
+- **deps**: bump langchain-openai, langchain-core, langchain-text-splitters to fix CVEs (#1248)
+- **deps**: bump pypdf, python-multipart, authlib, langsmith to fix CVEs (#1250)
+- **docker**: upgrade base images, binaries, and patch system CVEs (#1251)
+- **security**: resolve CodeQL source code alerts and update GitHub Actions (#1252)
+- **supervisor**: stream curl tool responses to client (#1255)
+- **helm**: single-node MCP ServiceAccounts and configurable name prefix (#1267)
+- **admin**: resolve stats bugs, add users pagination, channel filter, and loading indicators (#1266)
+- **admin**: correct feedback dedup, user linkage, and top user display (#1273)
+- **slack**: add escalation policy field and fix humble followup prompt (#1277)
+- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
+- **docs**: escape bare < in plan.md to fix MDX build error (#1285)
+- **skills**: fix caipe-skills.py 404, add auth fallback, simplify gateway UI (#1286)
+- **docs**: fix SSR crash, add Releases to sidebar, remove Use Cases (#1292)
+- **ci**: -hotfix blocked by PEP 440 so use +hotfix in pyproject.toml (#1298)
+- **docs**: correct ci/cd for hotfix (#1302)
+- **setup**: guard empty-array expansions for bash 3.2 compat (#1304)
+- **migration**: handle stringified artifact dicts and passthrough event types in 0.4.0 a2a migration (#1306)
+- **ui**: missing asyncs??? (#1308)
+- **ci**: ui/ is outside ai_platform_enginnering/ 🥲 (#1309)
+- **docs**: fix broken link in 0.3.x-to-0.4.0 migration guide (#1316)
+- **ui**: remove $facet aggregation for CosmosDB/DocumentDB compatibility (#1321)
+- **ui**: dynamic agent chat not loading skill slash commands (#1314)
+- **slack-bot**: get first matched agent, wire overthink (#1315)
+- **rag-server**: install chromium_headless_shell and add init container chart support (#1320)
+- **ui**: sync agents tab to URL param, include agent name in editor title (#1325)
+- replace bash 4+ case conversion for POSIX compat (#1340)
+- **mcp**: remove trailing slash from default HTTP MCP path (#1339)
+- **slack-bot**: use correct Slack mention syntax for subteam/usergroup IDs in escalation (#1341)
+- **tracing**: scrub skill/workflow content + cap span attribute size for Langfuse (#1330)
+- **tracing**: update skill_scrubber test to use renamed _strip_known_sections (#1342)
+- **ui**: suppress synthetic "Task <status> (ID: ...)" filler in chat (#1275)
+- **ingestor**: prevent UnboundLocalError in finally block when client.initialize() fails (#1357)
+- **docs**: escape MDX angle bracket in spec plan + add PR docs build check (#1360)
+- **docs**: migrate onBrokenMarkdownLinks to markdown.hooks (#1362)
+- **overthink**: move OVERTHINK_BOILERPLATE to slack-bot, inject via client_context (#1369)
+- **charts**: exclude non-metrics services from ServiceMonitor scraping (#1388)
+- **charts**: exclude caipe-ui from ServiceMonitor scraping (#1394)
+- **skills**: simplify gateway quick install flow (#1399)
+- **auth**: replace brittle new-tab session refresh (#1386)
+- **docs**: update Meeting Recordings link to YouTube in community page and footer (#1408)
+- **ci**: remove invalid description field from docs workflows (#1415)
+- **slack**: skip overthink check for thread @mentions (#1416)
+- **slack-bot**: skip bot thread replies to prevent duplicate responses (#1417)
+- **caipe-ui**: add initContainers support to deployment template (#1420)
+- **docs**: fix confirmed broken links across docs (#1409)
+- **deps**: bump vulnerable packages to resolve Dependabot CVEs (2026-05-13) (#1421)
+- **ci**: replace heredocs with echo blocks in docs workflows (#1422)
+- **ci**: use GITHUB_TOKEN for gh pr create in docs workflows (#1423)
+- **deps**: upgrade cnoe-agent-utils to 0.4.0 and fix langchain-openai CVE (#1426)
+- **ci**: increase Node heap to 8 GB for Docusaurus builds (#1430)
+- **slack**: use is_overthink_message context var to always respond to thread @mentions (#1419)
+- **deps**: refresh vulnerable dependency locks (#1432)
+- **supervisor**: remove litellm mcp __init__.py that shadows PyPI mcp package (#1436)
+- **validate**: fix false-positive failures in setup-caipe.sh validate (#1437)
+- **security**: block SSRF-prone URL fetches (#1431)
+- **setup**: remove invalid :- default from array expansions in setup-caipe.sh (#1439)
+- **ci**: remove caipe-webex-bot from grype scan and delete quick-sanity-on-tag workflow (#1429)
+- **ci**: reduce GitHub API calls to avoid installation rate limits (#1438)
+- **ci**: always run image builds on tag push regardless of actor (#1447)
+- **agent-runtime**: guard delete_by_key_prefix against InMemoryStore (#1450)
+- **chat**: add configurable conversation history persistence to /invoke endpoint (#1449)
+- **escalation**: use last email match for VictorOps on-call lookup (#1459)
+- **ui**: drop stale mongo indexes, fix workflow-engine env var, improve error messages (#1469)
+- **slack-bot**: parse attachment.blocks in extract_message_text (#1467)
+- **slack-bot**: overthink skip logic missing in _route_to_agent; pre-render boilerplate (#1466)
+- **ci**: make grype pr scans retryable (#1472)
+- **security**: resolve dependency and code scanning alerts (#1473)
+- **skill-scanner**: return validation errors for malformed skills (#1410)
+- **security**: close active CodeQL alerts (#1474)
+- **jira**: quiet MCP server logs by default (#1475)
+- **security**: close reopened code scanning alerts (#1478)
+- **ui**: persist ui, features, and interrupt_on fields in seedAgents (#1486)
+- **rag**: handle list[dict] return type in _truncate_output (#1488)
+- **rag**: rename self.start_url to self.origin_url for Scrapy 2.16 compat (#1489)
+- **dynamic-agents**: strip null values from MongoDB docs before pydantic construction (#1503)
+- **jira**: create internal comments via platform API to fix authentication error (#1490)
+- **infra**: isolate dockerignore hardening and litellm runtime fix (#1495)
+- **dynamic-agents**: wire KEYCLOAK_URL/OIDC_ISSUER env, randomize setup-caipe MongoDB/Langfuse passwords (#1520)
+- **rbac**: kill BFF admin/admin fallback, auto-wire Keycloak Admin client, add MongoDB+NEXTAUTH strict-mode gates (#1519)
+- **containers**: remove fixable grype findings (#1483)
+- **ui/slack**: drop stale env-provided Slack default agent/team and surface a warning (#1539)
+- **ui**: use users.conversations for Slack channel discovery to dodge rate limits (#1506) (#1536)
+- **ci**: use org-scoped token for GHCR pushes (#1541)
+- **setup-caipe**: pull Ollama embedding model (#1553)
+- **ci**: use github.token for GHCR login across all workflows (#1552)
+- **deps**: bump fastmcp constraint to 3.3.1 in victorops agent and regenerate lock files (#1561)
+- **deps**: pin aiohttp, websockets, and @aws-sdk/client-kms to exact versions (#1540)
+- **rbac**: scoped team admins can edit/delete/configure their own team (#1509) (#1567)
+- **chart/caipe-ui**: include workflow_configs in app-configmap (#1549)
+
+### Perf
+
+- **rbac-ui**: lazy-load users + drop N+1 role lookup on admin list (#1557)
+
+### Refactor
+
+- **slack-bot**: replace qanda/ai_alerts config with flat agents list (v0.4.0) (#1288)
+- **skills**: end-to-end overhaul — Workspace, scanner microservice, installer rewrite, multi-source hubs, history, ZIP, AI Assist (#1327)
+
+### Test
+
+- **rbac**: add spec 102 RBAC test scaffolding and CI workflows (#1494)
+
+### Docs
+
+- **releases**: add migration guide for 0.2.41 → 0.3.2 (#1223)
+- **integrations**: add backstage-plugin, webex-bot, and CLI docs (#1297)
+- make demo video iframe responsive on landing page (#1301)
+- release notes and migration guides for all 0.4.x versions (#1358)
+- **community**: update Meeting Recordings link to CNOE YouTube channel (#1395)
+- **versioning**: keep 5 hotfix releases + 1 per prior minor in version dropdown (#1405)
+- **ci**: decouple snapshot and release post into two workflows (#1414)
+- backfill version snapshots 0.4.10–0.4.12 and 0.3.11; fix retention policy (#1427)
+- **specs**: adopt npx skills / agent-native installers as primary install path (spec 101) (#1278)
+- add RBAC reference, 0.5.1 specs, release draft, and credential store ADR (#1493)
+- **specs**: port thin bot/PEP specs from release/0.5.1 (#1537)
+- **spec**: add dated skills MCP server specification (#1269)
+- **rbac**: post-Phase-3 touch-ups + drop legacy caipe-rbac-https compose (#1560)
+- fix broken relative links to source files outside docs tree (#1569)
+
+### Chore
+
+- **deps**: bump dompurify from 3.3.3 to 3.4.0 in /docs in the npm_and_yarn group across 1 directory (#1226)
+- **deps**: bump step-security/harden-runner from 2.18.0 to 2.19.0 (#1265)
+- **deps**: bump docker/build-push-action from 7.0.0 to 7.1.0 (#1264)
+- **deps**: bump astral-sh/setup-uv from 8.0.0 to 8.1.0 (#1263)
+- **deps**: bump tj-actions/changed-files from 47.0.5 to 47.0.6 (#1262)
+- **deps**: bump the github group with 2 updates (#1261)
+- **skills**: remove dco-ai-attribution skill, keep simple DCO rule (#1270)
+- **deps**: bump the npm_and_yarn group across 1 directory with 3 updates (#1287)
+- **deps**: bump step-security/harden-runner from 2.16.0 to 2.19.0 (#1296)
+- **deps**: bump astral-sh/setup-uv from 8.0.0 to 8.1.0 (#1295)
+- **deps**: bump webiny/action-conventional-commits from 1.3.1 to 1.4.2 (#1294)
+- **deps**: bump the github group with 2 updates (#1293)
+- **speckit**: switch spec/branch prefix from number to date (YYYY-MM-DD) (#1318)
+- **deps**: bump the npm_and_yarn group across 2 directories with 2 updates (#1326)
+- **deps**: bump github/codeql-action from 4.35.2 to 4.35.3 in the github group (#1334)
+- **deps**: bump step-security/harden-runner from 2.19.0 to 2.19.1 (#1333)
+- **middleware**: demote DeterministicTaskMiddleware idle logs to DEBUG (#1274)
+- **claude**: symlink .claude/skills to ~/.agents/skills (#1355)
+- migrate .claude/commands/ to .claude/skills/ + .agents/skills/ universal discovery (#1368)
+- **migrations**: remove completed 0.3.0 and 0.4.0 migration scripts and startup migrations (#1376)
+- **caipe-ui**: disable built-in skill auto-seeding by default (#1382)
+- **deps**: bump github/codeql-action from 4.35.3 to 4.35.4 in the github group (#1396)
+- **deps**: bump the npm_and_yarn group across 2 directories with 4 updates (#1397)
+- **deps**: bump the github group with 2 updates (#1452)
+- **deps**: bump the npm_and_yarn group across 2 directories with 2 updates (#1451)
+- **deps**: bump step-security/harden-runner from 2.19.1 to 2.19.3 (#1453)
+- **deps**: bump protobuf from 6.32.1 to 6.33.5 in /deploy/openfga/bridge in the pip group across 1 directory (#1521)
+- **deploy**: migrate openfga-authz-bridge to uv, drop dead requirements.txt (#1531)
+- **deps**: bump qs from 6.14.2 to 6.15.2 in /docs in the npm_and_yarn group across 1 directory (#1517)
+- **speckit**: add --no-branch flag to keep spec edits on current branch (#1554)
+- **deps**: bump docker/build-push-action from 7.1.0 to 7.2.0 (#1547)
+- **deps**: bump astral-sh/setup-uv from 6.3.1 to 8.1.0 (#1546)
+- **deps**: bump docker/setup-buildx-action from 4.0.0 to 4.1.0 (#1545)
+- **deps**: bump docker/metadata-action from 6.0.0 to 6.1.0 (#1544)
+- **deps**: bump the github group across 1 directory with 5 updates (#1543)
+
+### Ci
+
+- gate Chart.yaml version bumps behind helm-chart-bump label (#1344)
+- **security**: run gitleaks from pinned binary (#1471)
+- distribute GitHub Actions across 5 dedicated GitHub Apps (#1535)
+
+### Other
+
+- v0.4.0 (#1259)
+- [codex] docs(api): refresh CAIPE API reference (#1484)
+- refactor(rbac)!: demolish active_team JWT claim, replace with channel-derived team binding (#1562)
+
+## 0.5.0 (2026-05-27)
+
+## 0.4.18 (2026-05-22)
+
+### Fix
+
+- **dynamic-agents**: strip null values from MongoDB docs before pydantic construction (#1503)
+- **jira**: create internal comments via platform API to fix authentication error (#1490)
+
+## 0.4.17 (2026-05-22)
+
+### Fix
+
+- **rag**: rename self.start_url to self.origin_url for Scrapy 2.16 compat (#1489)
+
+## 0.4.16 (2026-06-18)
+
+### Fix
+
+- **security**: close reopened code scanning alerts (#1478)
+- **ui**: persist ui, features, and interrupt_on fields in seedAgents (#1486)
+- **rag**: handle list[dict] return type in _truncate_output (#1488)
+
+### Other
+
+- [codex] docs(api): refresh CAIPE API reference (#1484)
+
+## 0.4.15 (2026-05-20)
+
+### Feat
+
+- **curl**: add allow_non_public_urls option to curl builtin tool (#1476)
+
+### Fix
+
+- **security**: close active CodeQL alerts (#1474)
+- **jira**: quiet MCP server logs by default (#1475)
+
+## 0.4.14 (2026-05-20)
+
+### Feat
+
+- **jira**: add internal service desk comments (#1445)
+
+### Fix
+
+- **ci**: always run image builds on tag push regardless of actor (#1447)
+- **agent-runtime**: guard delete_by_key_prefix against InMemoryStore (#1450)
+- **chat**: add configurable conversation history persistence to /invoke endpoint (#1449)
+- **escalation**: use last email match for VictorOps on-call lookup (#1459)
+- **ui**: drop stale mongo indexes, fix workflow-engine env var, improve error messages (#1469)
+- **slack-bot**: parse attachment.blocks in extract_message_text (#1467)
+- **slack-bot**: overthink skip logic missing in _route_to_agent; pre-render boilerplate (#1466)
+- **ci**: make grype pr scans retryable (#1472)
+- **security**: resolve dependency and code scanning alerts (#1473)
+- **skill-scanner**: return validation errors for malformed skills (#1410)
+
+### Chore
+
+- **deps**: bump the github group with 2 updates (#1452)
+- **deps**: bump the npm_and_yarn group across 2 directories with 2 updates (#1451)
+- **deps**: bump step-security/harden-runner from 2.19.1 to 2.19.3 (#1453)
+
+### Ci
+
+- **security**: run gitleaks from pinned binary (#1471)
+
+## 0.4.13 (2026-05-18)
+
+### Feat
+
+- **dynamic-agents**: add curl builtin tool for PUT/POST/PATCH/DELETE support (#1413)
+- **ui**: add AI Review module for skills and dynamic agents (#1433)
+- **caipe-ui**: configurable default agent (#1378) (#1441)
+- **workflows**: add workflow service with editor, execution engine, and config-driven seeding (#1418)
+- **rag**: anchor slack document fresh_until to message post time (#1435)
+
+### Fix
+
+- **ci**: remove invalid description field from docs workflows (#1415)
+- **slack**: skip overthink check for thread @mentions (#1416)
+- **slack-bot**: skip bot thread replies to prevent duplicate responses (#1417)
+- **caipe-ui**: add initContainers support to deployment template (#1420)
+- **docs**: fix confirmed broken links across docs (#1409)
+- **deps**: bump vulnerable packages to resolve Dependabot CVEs (2026-05-13) (#1421)
+- **ci**: replace heredocs with echo blocks in docs workflows (#1422)
+- **ci**: use GITHUB_TOKEN for gh pr create in docs workflows (#1423)
+- **deps**: upgrade cnoe-agent-utils to 0.4.0 and fix langchain-openai CVE (#1426)
+- **ci**: increase Node heap to 8 GB for Docusaurus builds (#1430)
+- **slack**: use is_overthink_message context var to always respond to thread @mentions (#1419)
+- **deps**: refresh vulnerable dependency locks (#1432)
+- **supervisor**: remove litellm mcp __init__.py that shadows PyPI mcp package (#1436)
+- **validate**: fix false-positive failures in setup-caipe.sh validate (#1437)
+- **security**: block SSRF-prone URL fetches (#1431)
+- **setup**: remove invalid :- default from array expansions in setup-caipe.sh (#1439)
+- **ci**: remove caipe-webex-bot from grype scan and delete quick-sanity-on-tag workflow (#1429)
+- **ci**: reduce GitHub API calls to avoid installation rate limits (#1438)
+
+### Docs
+
+- **ci**: decouple snapshot and release post into two workflows (#1414)
+- backfill version snapshots 0.4.10–0.4.12 and 0.3.11; fix retention policy (#1427)
+- **specs**: adopt npx skills / agent-native installers as primary install path (spec 101) (#1278)
+
+## 0.4.12 (2026-05-13)
+
+### Feat
+
+- **mcp**: Add Litellm mcp and create FinOps agent (#1402)
+- **dynamic-agents**: expose agent id in self identity (#1403)
+- **ci**: allow manual prebuild trigger + auto chart bump upon PR approval (and not before) (#1406)
+
+### Fix
+
+- **docs**: update Meeting Recordings link to YouTube in community page and footer (#1408)
+
+### Docs
+
+- **versioning**: keep 5 hotfix releases + 1 per prior minor in version dropdown (#1405)
+
+## 0.4.11 (2026-05-12)
+
+### Feat
+
+- **overthink**: rewrite boilerplate as stepwise prompt with explicit precedence (#1389)
+- **ci**: prebuild comment to be merged to one not per img (#1393)
+- **skills**: add HIDE_BUILTIN_SKILLS flag and catalog key bypass for auth middleware (#1383)
+- **victorops**: consolidate to v2 reporting incidents, drop slim projections (#1377)
+
+### Fix
+
+- **charts**: exclude non-metrics services from ServiceMonitor scraping (#1388)
+- **charts**: exclude caipe-ui from ServiceMonitor scraping (#1394)
+- **skills**: simplify gateway quick install flow (#1399)
+- **auth**: replace brittle new-tab session refresh (#1386)
+
+### Docs
+
+- **community**: update Meeting Recordings link to CNOE YouTube channel (#1395)
+
+### Chore
+
+- **migrations**: remove completed 0.3.0 and 0.4.0 migration scripts and startup migrations (#1376)
+- **caipe-ui**: disable built-in skill auto-seeding by default (#1382)
+- **deps**: bump github/codeql-action from 4.35.3 to 4.35.4 in the github group (#1396)
+- **deps**: bump the npm_and_yarn group across 2 directories with 4 updates (#1397)
+
+## 0.4.10 (2026-05-08)
+
+### Feat
+
+- **docs**: release 0.4.9 — blog post, version snapshot, homepage version (#1367)
+- **overthink**: add OVERTHINK_BOILERPLATE as server-side template variable (#1364)
+
+### Fix
+
+- **docs**: migrate onBrokenMarkdownLinks to markdown.hooks (#1362)
+- **overthink**: move OVERTHINK_BOILERPLATE to slack-bot, inject via client_context (#1369)
+
+### Chore
+
+- migrate .claude/commands/ to .claude/skills/ + .agents/skills/ universal discovery (#1368)
+
+### Ci
+
+- gate Chart.yaml version bumps behind helm-chart-bump label (#1344)
+
+## 0.4.9 (2026-05-07)
+
+### Feat
+
+- **skills**: release-docs skill — release notes + migration guide generator (#1356)
+- **ui**: add search filter and scroll to agent selection dropdown (#1361)
+- **dynamic-agents**: HITL tool approval, GridFS backend, custom themes & bug fixes (#1351)
+- **docs**: redesign site — landing page, community page, teal/cyan theme (#1359)
+
+### Fix
+
+- **ingestor**: prevent UnboundLocalError in finally block when client.initialize() fails (#1357)
+- **docs**: escape MDX angle bracket in spec plan + add PR docs build check (#1360)
+
+### Docs
+
+- release notes and migration guides for all 0.4.x versions (#1358)
+
+### Chore
+
+- **claude**: symlink .claude/skills to ~/.agents/skills (#1355)
+
+## 0.4.8 (2026-05-06)
+
+### Feat
+
+- **skills**: admin scan override + hub-crawl pagination/caps + live crawl console (#1338)
+- **charts**: configures Helm charts for Kubernetes Pod Security Standards Baseline compliance (#1337)
+- **supervisor**: add ToolCallLimitMiddleware and ModelCallLimitMiddleware with configurable env vars (#1319)
+- **mcp-aws**: add AWS MCP server with aws_cli_execute and eks_kubectl_execute (#1324)
+
+### Fix
+
+- replace bash 4+ case conversion for POSIX compat (#1340)
+- **mcp**: remove trailing slash from default HTTP MCP path (#1339)
+- **slack-bot**: use correct Slack mention syntax for subteam/usergroup IDs in escalation (#1341)
+- **tracing**: scrub skill/workflow content + cap span attribute size for Langfuse (#1330)
+- **tracing**: update skill_scrubber test to use renamed _strip_known_sections (#1342)
+- **ui**: suppress synthetic "Task <status> (ID: ...)" filler in chat (#1275)
+
+### Chore
+
+- **middleware**: demote DeterministicTaskMiddleware idle logs to DEBUG (#1274)
+
+## 0.4.7 (2026-05-05)
+
+### Feat
+
+- **ui**: warn user about unsaved changes in dynamic agent editor (#1328)
+
+### Refactor
+
+- **skills**: end-to-end overhaul — Workspace, scanner microservice, installer rewrite, multi-source hubs, history, ZIP, AI Assist (#1327)
+
+### Chore
+
+- **deps**: bump github/codeql-action from 4.35.2 to 4.35.3 in the github group (#1334)
+- **deps**: bump step-security/harden-runner from 2.19.0 to 2.19.1 (#1333)
+
+## 0.4.6 (2026-05-05)
+
+### Feat
+
+- **setup-caipe**: UX improvements — Docker install, back-nav, upgrade detection, agent selection (#1336)
+- **dynamic-agents**: memory management with shared clients and lazy provider loading (#1331)
+
+### Fix
+
+- **ui**: sync agents tab to URL param, include agent name in editor title (#1325)
+
+### Chore
+
+- **speckit**: switch spec/branch prefix from number to date (YYYY-MM-DD) (#1318)
+- **deps**: bump the npm_and_yarn group across 2 directories with 2 updates (#1326)
+
+## 0.4.5 (2026-04-29)
+
+### Fix
+
+- **docs**: fix broken link in 0.3.x-to-0.4.0 migration guide (#1316)
+- **ui**: remove $facet aggregation for CosmosDB/DocumentDB compatibility (#1321)
+- **ui**: dynamic agent chat not loading skill slash commands (#1314)
+- **slack-bot**: get first matched agent, wire overthink (#1315)
+- **rag-server**: install chromium_headless_shell and add init container chart support (#1320)
+
+## 0.4.4 (2026-04-28)
+
+### Feat
+
+- **dynamic-agents**: skills integration, subagent fixes, and agent editor UX (#1299)
+
+### Fix
+
+- **migration**: handle stringified artifact dicts and passthrough event types in 0.4.0 a2a migration (#1306)
+- **ui**: missing asyncs??? (#1308)
+- **ci**: ui/ is outside ai_platform_enginnering/ 🥲 (#1309)
+
+## 0.4.3 (2026-04-28)
+
+### Feat
+
+- **doc**: new cicd diagram and details (#1290)
+
+### Fix
+
+- **docs**: fix SSR crash, add Releases to sidebar, remove Use Cases (#1292)
+- **ci**: -hotfix blocked by PEP 440 so use +hotfix in pyproject.toml (#1298)
+- **docs**: correct ci/cd for hotfix (#1302)
+- **setup**: guard empty-array expansions for bash 3.2 compat (#1304)
+
+### Refactor
+
+- **slack-bot**: replace qanda/ai_alerts config with flat agents list (v0.4.0) (#1288)
+
+### Docs
+
+- **integrations**: add backstage-plugin, webex-bot, and CLI docs (#1297)
+- make demo video iframe responsive on landing page (#1301)
+
+### Chore
+
+- **deps**: bump step-security/harden-runner from 2.16.0 to 2.19.0 (#1296)
+- **deps**: bump astral-sh/setup-uv from 8.0.0 to 8.1.0 (#1295)
+- **deps**: bump webiny/action-conventional-commits from 1.3.1 to 1.4.2 (#1294)
+- **deps**: bump the github group with 2 updates (#1293)
+
+## 0.4.2 (2026-04-27)
+
+### Feat
+
+- **ci**: new release management & versioning strategy (#1272)
+
+### Fix
+
+- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
+- **docs**: escape bare < in plan.md to fix MDX build error (#1285)
+- **skills**: fix caipe-skills.py 404, add auth fallback, simplify gateway UI (#1286)
+
+### Chore
+
+- **deps**: bump the npm_and_yarn group across 1 directory with 3 updates (#1287)
+
+### Other
+
+- v0.4.0 (#1259)
+
+## 0.4.1 (2026-04-27)
+
+### Fix
+
+- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
+
+### Other
+
+- v0.4.0 (#1259)
+
+## 0.4.0 (2026-04-23)
+
+### Fix
+
+- **admin**: correct feedback dedup, user linkage, and top user display (#1273)
+- **slack**: add escalation policy field and fix humble followup prompt (#1277)
+
+### Chore
+
+- **skills**: remove dco-ai-attribution skill, keep simple DCO rule (#1270)
+
+### Other
+
+- v0.4.0 (#1259)
+
+## 0.5.17-dev.11 (2026-06-22)
+
+### Feat
+
+- **credentials**: fail closed on caller-scoped MCP OAuth with chat warnings
+- **credentials**: pin provider connections on custom MCP servers
+- **credentials**: improve provider connection profile and OAuth lifecycle
+- **rbac**: wire agent context HMAC for Helm and document follow-up gaps
+- **workflows**: include run_url in workflow status tool responses
+- **workflows**: poll run status and harden chat workflow UX
+- **workflows**: improve Webex workflow run tool responses and guidance
+- **credentials**: harden secret dialog and add workspace regression e2e
+- **workflows**: delegate workflow BFF calls to invoking user bearer
+- **rbac**: reconcile platform MCP and agent OpenFGA tuples on startup
+- **agents**: scope ownership checks and tighten team member grants
+- **mcp**: add list permissions and gate MCP server actions in UI
+- **agentgateway**: propagate MCP credential headers through bridge
+- **mcp**: add AgentGateway upstream resolver and credential helpers
+- **credentials**: integrate secrets UX with AgentGateway MCP routing
+
+### Fix
+
+- **ci**: address github-code-quality findings on PR #1967
+- **credentials**: guard OAuth callback when auth user metadata is absent
+- **ci**: align UI tests and e2e lint with login and chat nav changes
+- **ui**: satisfy TypeScript checks in dynamic-agents list route
+- **agentgateway**: repair config bridge tests after credential gating
+- **ci**: stabilize workflow e2e probes and agentgateway credential forwarding
+- **ci**: stabilize webex tests and gitleaks for jira JWT fixture
+- **mcp**: revert #1926 AgentGateway routing opt-out
+- **webex**: reduce duplicate pairing prompts and harden identity lookup
+- **jira**: harden MCP API client error handling
+- **webex**: improve WDM reconnection and device registration handling
+- **ui**: flip popovers when viewport space is limited
+- **rbac**: allow team workflow owners to run without team membership
+- **mcp**: promote custom servers to agentgateway routes (#1926)
+- **mcp**: promote custom servers to agentgateway routes
+- **mcp**: cover agentgateway acceptance gaps
+- **mcp**: promote custom servers to agentgateway routes
+- **compose**: use canonical caipe-ui image tag
+- **rbac**: address admin and chat regressions (#1950)
+
+## 0.5.17-dev.10 (2026-06-21)
+
+### Fix
+
+- **deps**: update torch for rag embeddings (#1962)
+
+## 0.5.17-dev.9 (2026-06-21)
+
+### Perf
+
+- **ui**: cache health and RBAC gate checks (#1949)
+
+## 0.5.17-dev.8 (2026-06-20)
+
+### Feat
+
+- **audit**: read connector diagnostics from audit service
+- **audit**: add audit-service read UI
+
+### Fix
+
+- **security**: remove agntcy slim sdk usage (#1955)
+- **helm**: keep MCP servers while disabling A2A agents
+
+## 0.5.17-dev.7 (2026-06-20)
+
+### Fix
+
+- **deps**: resolve dependabot security alerts (#1872)
+
+## 0.5.17-dev.6 (2026-06-20)
+
+### Fix
+
+- **ci**: satisfy zizmor security scan
+
+### Refactor
+
+- **audit**: route producers through audit service
+
+## 0.5.17-dev.5 (2026-06-20)
+
+### Feat
+
+- **github**: use gh cli-backed file contents tool (#1721)
+
+## 0.5.17-dev.4 (2026-06-20)
+
+### Feat
+
+- **audit**: add lightweight audit service runtime (#1946)
+
+## 0.5.17-dev.3 (2026-06-20)
+
+## 0.5.17-dev.2 (2026-06-20)
+
+### Fix
+
+- **credentials**: allow team sharing authz
+- **ui**: address platform health review comments
+
+## 0.5.17-dev.1 (2026-06-19)
+
+### Feat
+
+- **rag**: add S3 document ingestor (#1875)
+- **ui**: add dynamic agents probe; make RAG group non-critical
+- **ui**: remove NPS score page, survey, and settings (#1919)
+
+### Fix
+
+- **setup-caipe**: Missing AGENTGATEWAY_TARGETS_TOKEN (#1914)
+- **rbac**: replace unsupported $facet in team members pagination for DocumentDB (#1924)
+- **ui**: stable health badge — no pulse, no flicker, debounced bad status
+- **ui**: handle Kubernetes tcp:// port env vars in health probes
+- **ci**: drop GitHub App token from release-finalize
+- **ci**: use GITHUB_TOKEN for release publish steps
+
+## 0.5.16-dev.2 (2026-06-18)
+
+### Feat
+
+- **rbac**: add background scheduler for IdP directory sync (#1901)
+
+### Fix
+
+- **ui**: prefer exact changelog release prompts
+- **admin**: align superadmin access surfaces
+- **rbac**: unblock superadmin conversations and tool grants
+- **workflows**: portal visibility dropdown and fix runs-to-workflows nav (#1900)
+
+## 0.5.16-dev.1 (2026-06-17)
+
+### Fix
+
+- **slack**: remove ephemeral identity verification error message (#1902)
+
+## 0.5.15-dev.8 (2026-06-17)
+
+### Fix
+
+- **agent-editor**: simplify owner team transfer (#1893)
+- **rbac**: treat team managers as owner-team members (#1895)
+
+## 0.5.15-dev.7 (2026-06-17)
+
+### Feat
+
+- **admin**: scope teams, users, stats, and feedback for non-admin users (#1894)
+- **rbac**: expose policy manifest downloads
+
+### Fix
+
+- **chat**: prevent auto-create on login race and unify permanent delete logic (#1896)
+- **ci**: harden release workflows and add actions scan (#1851)
+
+### Perf
+
+- **admin**: lazy-load tab data on first visit; parallelise stats queries (#1882)
+
+## 0.5.15-dev.5 (2026-06-17)
+
+### Fix
+
+- **rbac**: upsert bootstrap idp-sync rule by ID to fix stale provider_id (#1881)
+- **rbac**: expand MCP wildcard grants safely (#1889)
+
+## 0.5.15-dev.4 (2026-06-17)
+
+### Fix
+
+- **slack**: let team members manage shared integrations (#1883)
+
+## 0.5.15-dev.3 (2026-06-17)
+
+### Fix
+
+- unlinked service account catalog grants (#1870)
+
+## 0.5.15-dev.2 (2026-06-16)
+
+### Fix
+
+- **dynamic-agents**: surface CAS 4xx as its real status instead of collapsing to 503 (#1878)
+- **admin**: allow unlinked service account tool grants
+
+## 0.5.15-dev.1 (2026-06-16)
+
+### Fix
+
+- **slack**: fix loguru format strings and remove noisy oauth cache debug log (#1879)
+
+## 0.5.14-dev.10 (2026-06-16)
+
+### Fix
+
+- **slack**: send service_account subject to CAS for SA-run channels; clarify route copy (#1877)
+
+## 0.5.14-dev.9 (2026-06-16)
+
+### Fix
+
+- **ui**: import Button in team ownership fields (#1876)
+
+## 0.5.14-dev.8 (2026-06-16)
+
+### Feat
+
+- **admin**: sync admin nested sub-tabs to the subtab URL param (#1867)
+
+## 0.5.14-dev.7 (2026-06-16)
+
+### Fix
+
+- **rbac**: simplify owner-team ownership UI and drop grant-preview copy (#1873)
+
+## 0.5.14-dev.6 (2026-06-16)
+
+### Fix
+
+- **ui**: soften required-field treatment on agent create form (#1865)
+
+## 0.5.14-dev.5 (2026-06-16)
+
+### Fix
+
+- make AgentGateway provider-token passthrough declarative (#1859)
+
+## 0.5.14-dev.4 (2026-06-15)
+
+## 0.5.14-dev.3 (2026-06-15)
+
+### Fix
+
+- **ui**: stabilize service account RBAC e2e (#1855)
+
+## 0.5.14-dev.2 (2026-06-15)
+
+### Feat
+
+- **e2e**: add Playwright tests for AI Review block UX (PR #1866)
+
+### Fix
+
+- **chart**:  duplicate app.kubernetes.io/name (#1845)
+- **admin**: clarify unlinked access description for admins (#1861)
+
+## 0.5.14-dev.1 (2026-06-15)
+
+### Fix
+
+- **admin**: default to Settings tab and rename Default Agent to General (#1862)
+
+## 0.5.13-dev.4 (2026-06-15)
+
+### Fix
+
+- **rag**: sync uv lock metadata
+
+## 0.5.13-dev.3 (2026-06-15)
+
+### Fix
+
+- **jira-mcp**: add assign_issue tool using dedicated assignee endpoint (#1846)
+
+## 0.5.13-dev.2 (2026-06-15)
+
+### Fix
+
+- **validate**: Remove weather-agent validation (#1790)
+
+## 0.5.13-dev.1 (2026-06-15)
+
+### Fix
+
+- **setup**: production-ready setup-caipe.sh — prereqs, domain/TLS, Keycloak, dynamic agents (#1823)
+
 ## 0.5.12-dev.9 (2026-06-15)
 
 ### Feat
@@ -71,8 +1365,6 @@
 - **rbac**: repair MCP tuple drift and gateway credentials
 - **docs**: repair MDX breakage in FGA module-api contract page (#1837)
 
-## 0.5.12 (2026-06-14)
-
 ## 0.5.11-dev.5 (2026-06-14)
 
 ### Feat
@@ -113,17 +1405,6 @@
 - **setup**: auto-install kind during prerequisites check
 - **setup**: auto-install missing prereqs and gate sudo on user consent
 
-## 0.5.11 (2026-06-11)
-
-### Feat
-
-- **rbac**: combine AD group admins with super-admins team access
-
-### Fix
-
-- **test**: add role:'admin' to mock user so requireMigrationSuperAdmin passes
-- **rbac**: write org-admin connector tuple for super-admins team on bootstrap
-
 ## 0.5.10-dev.3 (2026-06-11)
 
 ### Feat
@@ -158,12 +1439,6 @@
 
 - **ui**: group flat admin components by domain + organize imports + fix all lint errors (#1791)
 
-## 0.5.10 (2026-06-08)
-
-### Feat
-
-- **slack**: derive slash-command prefix from APP_NAME, enforce DM-only on all commands (#1785)
-
 ## 0.5.9-dev.4 (2026-06-08)
 
 ### Feat
@@ -194,8 +1469,6 @@
 ### Feat
 
 - **ui**: make config-driven agent panels expandable for viewing
-
-## 0.5.9 (2026-06-05)
 
 ## 0.5.8-dev.4 (2026-06-05)
 
@@ -237,8 +1510,6 @@
 ### Fix
 
 - **agentgateway,keycloak**: remove unsupported extAuthz timeout field and add impersonation to caipe-platform desired roles (#1722)
-
-## 0.5.8 (2026-06-04)
 
 ## 0.5.7-dev.14 (2026-06-04)
 
@@ -334,8 +1605,6 @@
 
 - **triage**: base release breakdown on accurate git commit ranges + per-release drill-down
 
-## 0.5.7 (2026-06-02)
-
 ## 0.5.6-dev.3 (2026-06-02)
 
 ### Feat
@@ -367,15 +1636,11 @@
 - **keycloak**: unset stale error field when migration completes successfully (#1680)
 - **keycloak**: use direct role endpoint to look up impersonation role ID in init-token-exchange (#1679)
 
-## 0.5.6 (2026-06-01)
-
 ## 0.5.5-dev.1 (2026-06-01)
 
 ### Fix
 
 - **keycloak**: restore manage-realm role for caipe-platform service account (#1678)
-
-## 0.5.5 (2026-06-01)
 
 ## 0.5.4-dev.2 (2026-06-01)
 
@@ -392,34 +1657,12 @@
 
 - **auth**: remove per-request bootstrap admin log spam (#1670)
 
-## 0.5.4 (2026-05-29)
-
-### Fix
-
-- **admin**: show KB/agent/tool counts on team cards
-- **admin**: point team KB tab create links to /knowledge-bases
-
-### Refactor
-
-- **ui**: replace native agent/team selects with shared picker components
-- **ui**: DRY up SlackChannelRebacPanel and WebexSpaceRebacPanel into shared ConnectorAdminPanel
-
 ## 0.5.3-dev.1 (2026-05-29)
 
 ### Fix
 
 - **keycloak**: render configured realm name
 - **compose**: remove duplicate volumes key in openfga-init service
-
-## 0.5.3 (2026-05-29)
-
-### Feat
-
-- **cursor**: add git branch-op permission hook and reframe worktree rule
-
-### Fix
-
-- **rbac**: backfill admin_surface:slack manager grant for org admins
 
 ## 0.5.2-dev.5 (2026-05-29)
 
@@ -469,12 +1712,6 @@ CRD/controller-based routing.
 - **ui**: collapse top bar on narrow screens
 
 ## 0.5.2-dev.1 (2026-05-29)
-
-## 0.5.2 (2026-05-29)
-
-### Fix
-
-- **dynamic-agents**: highlight missing owner team inline
 
 ## 0.5.1-dev.12 (2026-05-29)
 
@@ -550,33 +1787,6 @@ CRD/controller-based routing.
 
 - **ai-review**: overhaul agent and skill rubric criteria and weights (#1608)
 
-## 0.5.1 (2026-05-27)
-
-### Feat
-
-- **rbac/ui**: gate Graph tab on any-KB-readable + add follow-up spec
-- **rbac**: add data_source and mcp_tool OpenFGA types + BFF list filter
-- **rbac**: share knowledge bases with teams via OpenFGA reconciler
-- **rbac/ui**: per-tab OpenFGA gates and empty states for Knowledge sidebar
-- **rbac/ui**: gate Graph tab on any-KB-readable + add follow-up spec
-- **rbac**: add data_source and mcp_tool OpenFGA types + BFF list filter
-- **rbac**: share knowledge bases with teams via OpenFGA reconciler
-- **rbac/ui**: per-tab OpenFGA gates and empty states for Knowledge sidebar
-
-### Fix
-
-- **rbac**: complete RAG OpenFGA access model
-- **rbac**: read KB tuples with valid OpenFGA query
-- **rbac**: grant ingestor on shared knowledge bases
-- **rbac**: classify admin_surfaces schema area for registry guardrails
-- **rbac**: explicit org-admin super-grant on KB / Search / Data Sources / Graph / MCP Tools
-- **rag-ui**: show RAG admin status without exposing email
-- **rbac**: complete RAG OpenFGA access model
-- **rbac**: read KB tuples with valid OpenFGA query
-- **rbac**: grant ingestor on shared knowledge bases
-- **rbac**: classify admin_surfaces schema area for registry guardrails
-- **rbac**: explicit org-admin super-grant on KB / Search / Data Sources / Graph / MCP Tools
-
 ## 0.5.0-dev.2 (2026-05-27)
 
 ## 0.5.0-dev.1 (2026-05-27)
@@ -608,69 +1818,6 @@ CRD/controller-based routing.
 - **ui**: consume team.member_count on Admin Teams page
 - **rbac**: migrate read-only API consumers to canonical team-membership store
 - **rbac**: migrate auth gates to canonical team-membership store
-
-## 0.5.0 (2026-05-26)
-
-### BREAKING CHANGE
-
-- The exported helpers `ensureTeamClientScope`,
-`ensurePersonalTeamClientScope`, `deleteOrphanTeamClientScopes`,
-`selectAgentGatewayActiveTeamScope`, `deleteTeamClientScope`, and
-the `PERSONAL_TEAM_*` / `isPersonalTeam*` symbols have been
-removed from `@/lib/rbac/keycloak-admin`. Any out-of-tree
-consumer relying on those imports must migrate to the new
-data-layer derived team model and use
-`scripts/cleanup-team-keycloak-scopes.sh` for one-time legacy
-realm cleanup.
-
-### Feat
-
-- new tool get_file_line_count and ask agent to use that before read_file
-- **dynamic-agents**: blocker hint on editor + protect platform default agent
-- **rbac**: persisted onboarding defaults in `platform_config` (UI + BFF)
-- **rbac**: wire up DM personal commands in Slack + Webex bots
-- **rbac**: phase 2 — team-agnostic OBO + personal DM commands + UI broadening
-- **rbac**: phase 1 — channel-context envelope + RAG team derivation
-- **rbac**: phase 1 — BFF PDP helpers + user DM preference (additive)
-- **rbac**: admin-configurable discovery cache TTL for Slack/Webex onboarding
-- **rbac**: openfga admin-implies-member + auto-provision Super Admins team
-- **setup-caipe**: expand embeddings menu to all 7 EmbeddingsFactory providers + Voyage AI
-
-### Fix
-
-- **chart/caipe-ui**: include workflow_configs in app-configmap
-- **rbac**: scoped team admins can edit/delete/configure their own team (#1509)
-- **docs**: escape pipes inside table-cell code spans (file-map.md)
-- **docs**: unbreak MDX build of file-map.md (nested backtick → bare <slug>)
-- **rbac**: silence github-code-quality findings on bot Protocol bodies
-- **rbac**: detect & heal non-deterministic active_team in OBO tokens
-- **rbac**: drop _id from TeamDoc so insertOne typechecks
-- **deps**: add missing cachetools dep used by keycloak_authz
-- **deps**: refresh stale MCP uv.lock files (jira, aws, litellm)
-- **deps**: pin aiohttp, websockets, and @aws-sdk/client-kms to exact versions
-- **deps**: bump fastmcp constraint to 3.3.1 in victorops agent and regenerate lock files
-- **ci**: use github.token for GHCR login across all workflows
-- **setup-caipe**: pull Ollama embedding model
-- **ci**: use org-scoped token with explicit repo constraint for GHCR pushes
-- **ci**: use org-scoped token for GHCR pushes
-- **ui**: use users.conversations for Slack channel discovery to dodge rate limits
-- **ui/slack**: drop stale env-provided Slack default agent/team and surface a warning
-
-### Refactor
-
-- **rbac**: demolish team-scope diagnostics and legacy cleanup script
-- **rbac**: drop active_team_slug_unset warning explainer
-- **rbac**: tighten stale active_team references in reconciler + slug validator
-- **rbac**: simplify legacy team-scope invariants to manual_keycloak
-- **rbac**: scrub stale active_team comments in BFF non-test code
-- **rbac**: delete team-scope keycloak helpers + refit tests (spec 2026-05-24, T201, T204)
-- **rbac**: remove active-team scope heal UI + dead invariants (spec 2026-05-24, T202, T203, T205)
-- **rbac**: drop production callsites of team-scope keycloak helpers (spec 2026-05-24, T206)
-- **rbac**: demolish active_team JWT claim in bots + RAG (Phase 3 §3.2, §3.3)
-
-### Perf
-
-- **rbac-ui**: lazy-load users + drop N+1 role lookup on admin list
 
 ## 0.4.18-dev.9 (2026-05-23)
 
@@ -753,8 +1900,6 @@ realm cleanup.
 - **infra**: isolate dockerignore hardening and litellm runtime fix
 - **rbac**: raise instead of sys.exit in validate_rbac_docs helpers
 
-## 0.4.18 (2026-05-22)
-
 ## 0.4.17-dev.2 (2026-05-22)
 
 ### Fix
@@ -766,8 +1911,6 @@ realm cleanup.
 - **ui**: default interrupt_on to empty object instead of undefined in seed config
 - **docs**: add missing RBAC/Webex architecture docs and drop dead sidebar entry
 
-## 0.4.17 (2026-05-22)
-
 ## 0.4.16-dev.1 (2026-05-22)
 
 ### Fix
@@ -775,8 +1918,6 @@ realm cleanup.
 - **rag**: pin twisted==26.4.0 stable, fix Scrapy 2.16 TLS bug
 - **rag**: add async start() for Scrapy 2.16 and fix start_urls rename
 - **rag**: rename self.start_url to self.origin_url for Scrapy 2.16 compat
-
-## 0.4.16 (2026-05-21)
 
 ## 0.4.15-dev.3 (2026-05-21)
 
@@ -799,16 +1940,6 @@ realm cleanup.
 
 - **security**: close reopened code scanning alerts
 
-## 0.4.15 (2026-05-20)
-
-### Feat
-
-- **curl**: SDPL-1874 add allow_non_public_urls option to curl builtin tool
-
-### Refactor
-
-- **curl**: SDPL-1874 pass allow_non_public_urls through _validate_fetch_url
-
 ## 0.4.14-dev.2 (2026-05-20)
 
 ### Fix
@@ -816,13 +1947,6 @@ realm cleanup.
 - **jira**: quiet MCP server logs by default
 
 ## 0.4.14-dev.1 (2026-05-20)
-
-## 0.4.14 (2026-05-20)
-
-### Fix
-
-- **security**: avoid logging HTTP error metadata
-- **security**: close active CodeQL alerts
 
 ## 0.4.13-dev.9 (2026-05-20)
 
@@ -899,8 +2023,6 @@ realm cleanup.
 
 - **ci**: always run image builds on tag push regardless of actor
 - **jira**: type MCP client request dispatch
-
-## 0.4.13 (2026-05-18)
 
 ## 0.4.12-dev.13 (2026-05-18)
 
@@ -1049,13 +2171,6 @@ realm cleanup.
 
 - **ci**: remove invalid top-level description field from docs workflows
 
-## 0.4.12 (2026-05-13)
-
-### Fix
-
-- **docs**: update Meeting Recordings link to CNOE YouTube channel
-- security fix
-
 ## 0.4.11-dev.2 (2026-05-12)
 
 ### Feat
@@ -1077,8 +2192,6 @@ realm cleanup.
 
 - **ci**: use local tags for version lookup
 - avoid secret-like litellm examples
-
-## 0.4.11 (2026-05-12)
 
 ## 0.4.10-dev.4 (2026-05-12)
 
@@ -1142,23 +2255,6 @@ realm cleanup.
 - **docs**: escape MDX angle bracket in spec plan + add PR build check
 - **victorops**: drop unused typing imports from chat tool
 
-## 0.4.10 (2026-05-08)
-
-### Feat
-
-- **overthink**: add OVERTHINK_BOILERPLATE as server-side template variable (#1364)
-
-### Fix
-
-- **overthink**: move boilerplate to slack-bot, inject via client_context (#1369)
-- **docs**: migrate onBrokenMarkdownLinks to markdown.hooks (#1362)
-
-## 0.4.9 (2026-05-07)
-
-### Feat
-
-- **docs**: redesign site — landing page, community page, teal/cyan theme (#1359)
-
 ## 0.4.8-dev.3 (2026-05-07)
 
 ### Feat
@@ -1184,8 +2280,6 @@ realm cleanup.
 ### Fix
 
 - **ingestor**: prevent UnboundLocalError in finally block when client.initialize() fails (#1357)
-
-## 0.4.8 (2026-05-06)
 
 ## 0.4.7-dev.9 (2026-05-06)
 
@@ -1240,8 +2334,6 @@ realm cleanup.
 
 - **skills**: admin scan override + hub-crawl pagination/caps + live crawl console (#1338)
 
-## 0.4.7 (2026-05-05)
-
 ## 0.4.6-dev.2 (2026-05-05)
 
 ### Feat
@@ -1259,8 +2351,6 @@ longer include layout/format/fragment fields and the agent catalog has
 ### Refactor
 
 - **skills**: end-to-end overhaul — Workspace, scanner microservice, installer rewrite, multi-source hubs, history, ZIP, AI Assist (#1327)
-
-## 0.4.6 (2026-05-05)
 
 ## 0.4.5-dev.2 (2026-05-05)
 
@@ -1290,8 +2380,6 @@ longer include layout/format/fragment fields and the agent catalog has
 
 - **ui**: sync agents tab to URL param, include agent name in editor title (#1325)
 
-## 0.4.5 (2026-04-29)
-
 ## 0.4.4-dev.3 (2026-04-29)
 
 ### Fix
@@ -1312,8 +2400,6 @@ longer include layout/format/fragment fields and the agent catalog has
 - **ui**: remove $facet aggregation for CosmosDB/DocumentDB compatibility (#1321)
 - **docs**: fix broken link in 0.3.x-to-0.4.0 migration guide (#1316)
 
-## 0.4.4 (2026-04-28)
-
 ## 0.4.3-dev.2 (2026-04-28)
 
 ### Feat
@@ -1328,8 +2414,6 @@ longer include layout/format/fragment fields and the agent catalog has
 - **ui**: missing asyncs???
 - **migration**: handle stringified artifact dicts and passthrough event types in 0.4.0 a2a migration (#1306)
 
-## 0.4.3 (2026-04-27)
-
 ## 0.4.2-dev.1 (2026-04-27)
 
 ### Fix
@@ -1343,8 +2427,6 @@ longer include layout/format/fragment fields and the agent catalog has
 
 - **slack-bot**: replace qanda/ai_alerts config with flat agents list (v0.4.0) (#1288)
 
-## 0.4.2 (2026-04-27)
-
 ## 0.4.1-dev.1 (2026-04-27)
 
 ### Feat
@@ -1355,32 +2437,6 @@ longer include layout/format/fragment fields and the agent catalog has
 
 - **skills**: fix caipe-skills.py 404, add auth fallback, simplify gateway UI (#1286)
 - **docs**: escape bare < in plan.md to fix MDX build error (#1285)
-
-## 0.4.1 (2026-04-24)
-
-### Fix
-
-- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
-
-## 0.4.0 (2026-04-23)
-
-### Feat
-
-- **ci**: auto label PRs
-
-### Fix
-
-- **ci**: auto tag inf commits
-- **ci**: prevent inf loop for release PRs
-- **ci**: bad pipefails
-- **ci**: auto tag infinite loop fix
-- **ci**: fix helm ci to trigger on tag
-- **ci-prebuild**: use correct chart version
-- **ci**: bad syntax and fix prebuild cleanup
-- **ci**: fail ci if base not latest
-- **ci**: need git name and email to commit
-- **ci**: need to prebuild helm correctly and not prebuild img on pyproject change
-- **ci**: prevent infinite ci loop :)
 
 ## 0.3.11 (2026-04-22)
 

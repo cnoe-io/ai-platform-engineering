@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import re
-import threading
 import time
 import uuid
 from datetime import UTC, datetime
@@ -16,23 +15,16 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
-from pymongo import MongoClient
-from pymongo.errors import PyMongoError
 
 from dynamic_agents.auth.token_context import current_traceparent, current_user_token
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STORE_NAME = "caipe-openfga"
-AUDIT_COLLECTION = "audit_events"
 OPENFGA_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 OPENFGA_EMAIL_PRINCIPAL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$")
 SUBJECT_SALT = os.getenv("AUDIT_SUBJECT_SALT", "caipe-098-audit")
 TRACEPARENT_PATTERN = re.compile(r"^00-([a-f0-9]{32})-([a-f0-9]{16})-[a-f0-9]{2}$")
-_audit_mongo_client: MongoClient | None = None
-_audit_indexes_ensured = False
-_audit_client_lock = threading.Lock()
-_audit_indexes_lock = threading.Lock()
 
 
 def _error_detail(error: str, code: str, reason: str, action: str) -> dict[str, Any]:
@@ -61,70 +53,19 @@ def _hash_subject(subject: str) -> str:
     return f"sha256:{digest}"
 
 
-def _get_audit_mongo_client() -> MongoClient | None:
-    """Return a MongoDB client for audit writes when Mongo is configured."""
-    global _audit_mongo_client
-    uri = os.getenv("MONGODB_URI", "").strip()
-    if not uri:
-        return None
-    if _audit_mongo_client is not None:
-        return _audit_mongo_client
-    with _audit_client_lock:
-        if _audit_mongo_client is not None:
-            return _audit_mongo_client
-        try:
-            _audit_mongo_client = MongoClient(
-                uri,
-                serverSelectionTimeoutMS=3000,
-                retryWrites=False,
-                tz_aware=True,
-            )
-            _audit_mongo_client.admin.command("ping")
-        except PyMongoError as exc:
-            logger.warning("MongoDB unavailable for Dynamic Agents authz audit: %s", exc)
-            _audit_mongo_client = None
-    return _audit_mongo_client
-
-
-def _ensure_audit_indexes(client: MongoClient) -> None:
-    """Create lightweight audit indexes once per process."""
-    global _audit_indexes_ensured
-    if _audit_indexes_ensured:
-        return
-    with _audit_indexes_lock:
-        if _audit_indexes_ensured:
-            return
-        database = os.getenv("MONGODB_DATABASE", "caipe")
-        try:
-            coll = client[database][AUDIT_COLLECTION]
-            coll.create_index([("ts", -1)])
-            coll.create_index([("type", 1), ("ts", -1)])
-            coll.create_index([("subject_hash", 1), ("ts", -1)])
-            coll.create_index([("source", 1), ("ts", -1)])
-            coll.create_index([("correlation_id", 1)])
-            _audit_indexes_ensured = True
-        except PyMongoError as exc:
-            logger.warning("Failed to ensure Dynamic Agents authz audit indexes: %s", exc)
-
-
 def _persist_openfga_rebac_audit(event: dict[str, Any]) -> None:
-    """Best-effort insert into the unified audit_events collection."""
-    client = _get_audit_mongo_client()
-    if client is None:
+    """Best-effort submit to audit-service."""
+    if os.getenv("AUDIT_LOG_BACKEND", "service").strip().lower() != "service":
         return
-    document = dict(event)
-    ts = document.get("ts")
-    if isinstance(ts, str):
-        try:
-            document["ts"] = datetime.fromisoformat(ts)
-        except ValueError:
-            document["ts"] = datetime.now(UTC)
+    service_url = os.getenv("AUDIT_SERVICE_URL", "").strip().rstrip("/")
+    if not service_url:
+        return
     try:
-        _ensure_audit_indexes(client)
-        database = os.getenv("MONGODB_DATABASE", "caipe")
-        client[database][AUDIT_COLLECTION].insert_one(document)
-    except PyMongoError as exc:
-        logger.warning("Failed to persist Dynamic Agents authz audit event: %s", exc)
+        with httpx.Client(timeout=1.0) as client:
+            response = client.post(f"{service_url}/v1/audit/events", json={"events": [event]})
+            response.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to submit Dynamic Agents authz audit event: %s", exc)
 
 
 def _parse_traceparent(value: str | None) -> tuple[str, str] | None:

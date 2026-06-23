@@ -29,6 +29,12 @@ export interface Team {
   updated_at: Date;
   members: TeamMember[];
   membership_sources?: TeamMembershipSource[];
+  /**
+   * Distinct active member count, decorated by GET /api/admin/teams from the
+   * canonical `team_membership_sources` store. Optional because locally-built
+   * Team objects (pre server round-trip) won't have it.
+   */
+  member_count?: number;
   keycloak_roles?: string[];
   /**
    * Optional Baseline FGA profile overrides. When present, login and admin
@@ -77,6 +83,14 @@ export interface Team {
     department?: string;
     tags?: string[];
   };
+  /**
+   * Per-row management gate decorated by GET /api/admin/teams. True for
+   * org/super admins on every team and for team admins on teams they own.
+   * Drives the "Manage team" vs "View team" affordance on the admin team
+   * card. Optional because callers may build Team objects locally before
+   * the server round-trip; a missing flag means "no edit privilege".
+   */
+  can_manage?: boolean;
 }
 
 export interface TeamMember {

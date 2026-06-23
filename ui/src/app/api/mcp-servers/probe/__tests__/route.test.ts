@@ -27,6 +27,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockAuthenticateRequest = jest.fn();
 const mockBuildBackendHeaders = jest.fn();
+const mockCacheMcpToolCatalog = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -72,6 +73,10 @@ jest.mock("@/lib/da-proxy", () => ({
   buildBackendHeaders: (...args: unknown[]) => mockBuildBackendHeaders(...args),
 }));
 
+jest.mock("@/lib/rbac/mcp-tool-catalog", () => ({
+  cacheMcpToolCatalog: (...args: unknown[]) => mockCacheMcpToolCatalog(...args),
+}));
+
 function request(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
 }
@@ -100,6 +105,7 @@ describe("POST /api/mcp-servers/probe", () => {
       "Content-Type": "application/json",
       Authorization: "Bearer token",
     });
+    mockCacheMcpToolCatalog.mockResolvedValue(1);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, tools: [{ name: "ls", description: "list" }] }),
@@ -125,6 +131,277 @@ describe("POST /api/mcp-servers/probe", () => {
     for (const call of mockRequireResourcePermission.mock.calls) {
       expect(call[1]).not.toMatchObject({ action: "invoke" });
     }
+  });
+
+  it("caches discovered tools after a successful probe", async () => {
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers/probe?id=argocd", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCacheMcpToolCatalog).toHaveBeenCalledWith({
+      serverId: "argocd",
+      source: "probe",
+      tools: [{ name: "ls", description: "list" }],
+    });
+  });
+
+  it("lists tools directly from HTTP MCP endpoints and caches the propagated tools", async () => {
+    mockGetCollection.mockResolvedValueOnce({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "mcp-argocd",
+        name: "ArgoCD",
+        transport: "http",
+        endpoint: "http://mcp-argocd:8000/mcp",
+        enabled: true,
+      }),
+    });
+    global.fetch = jest.fn().mockResolvedValue(
+      Response.json({
+        jsonrpc: "2.0",
+        id: "tools-list",
+        result: {
+          tools: [
+            {
+              name: "argocd_list_apps",
+              description: "List ArgoCD applications",
+            },
+          ],
+        },
+      }),
+    ) as unknown as typeof fetch;
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers/probe?id=mcp-argocd", { method: "POST" }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://mcp-argocd:8000/mcp",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"method":"tools/list"'),
+      }),
+    );
+    expect(mockBuildBackendHeaders).not.toHaveBeenCalled();
+    expect(mockCacheMcpToolCatalog).toHaveBeenCalledWith({
+      serverId: "mcp-argocd",
+      source: "probe",
+      tools: [
+        expect.objectContaining({
+          name: "argocd_list_apps",
+          namespaced_name: "argocd_list_apps",
+          description: "List ArgoCD applications",
+        }),
+      ],
+    });
+    expect(body.data).toMatchObject({
+      server_id: "mcp-argocd",
+      success: true,
+      source: "direct",
+      tools: [
+        {
+          name: "argocd_list_apps",
+          namespaced_name: "argocd_list_apps",
+        },
+      ],
+    });
+  });
+
+  it("runs a safe no-argument MCP tool after direct tools/list when one is available", async () => {
+    mockGetCollection.mockResolvedValueOnce({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "mcp-netutils",
+        name: "Netutils",
+        transport: "http",
+        endpoint: "http://mcp-netutils:8000/mcp",
+        enabled: true,
+      }),
+    });
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          jsonrpc: "2.0",
+          id: "tools-list",
+          result: {
+            tools: [
+              {
+                name: "version",
+                description: "Return server version",
+                inputSchema: { type: "object", properties: {}, required: [] },
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          jsonrpc: "2.0",
+          id: "tools-call",
+          result: { content: [{ type: "text", text: "1.2.3" }] },
+        }),
+      ) as unknown as typeof fetch;
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers/probe?id=mcp-netutils", { method: "POST" }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://mcp-netutils:8000/mcp",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"method":"tools/call"'),
+      }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://mcp-netutils:8000/mcp",
+      expect.objectContaining({
+        body: expect.stringContaining('"name":"version"'),
+      }),
+    );
+    expect(body.data).toMatchObject({
+      success: true,
+      source: "direct",
+      tool_test: {
+        toolName: "version",
+        success: true,
+      },
+    });
+  });
+
+  it("initializes Streamable HTTP MCP sessions before listing tools when required", async () => {
+    mockGetCollection.mockResolvedValueOnce({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "mcp-argocd",
+        name: "ArgoCD",
+        transport: "http",
+        endpoint: "http://mcp-argocd:8000/mcp",
+        enabled: true,
+      }),
+    });
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          { jsonrpc: "2.0", id: "server-error", error: { code: -32600, message: "Missing session ID" } },
+          { status: 400 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          'event: message\ndata: {"jsonrpc":"2.0","id":"init","result":{"protocolVersion":"2024-11-05"}}\n\n',
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+              "mcp-session-id": "session-123",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          'event: message\ndata: {"jsonrpc":"2.0","id":"tools","result":{"tools":[{"name":"argocd_get_app","description":"Get an app"}]}}\n\n',
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+              "mcp-session-id": "session-123",
+            },
+          },
+        ),
+      ) as unknown as typeof fetch;
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers/probe?id=mcp-argocd", { method: "POST" }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://mcp-argocd:8000/mcp",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"method":"initialize"'),
+      }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://mcp-argocd:8000/mcp",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "mcp-session-id": "session-123" }),
+        body: expect.stringContaining('"method":"tools/list"'),
+      }),
+    );
+    expect(mockBuildBackendHeaders).not.toHaveBeenCalled();
+    expect(body.data).toMatchObject({
+      success: true,
+      source: "direct",
+      tools: [{ name: "argocd_get_app", namespaced_name: "argocd_get_app" }],
+    });
+  });
+
+  it("falls back to dynamic-agents probe when direct HTTP tools/list does not return tools", async () => {
+    mockGetCollection.mockResolvedValueOnce({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "mcp-netutils",
+        name: "Netutils",
+        transport: "http",
+        endpoint: "http://mcp-netutils:8000/mcp",
+        enabled: true,
+      }),
+    });
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", result: {} }))
+      .mockResolvedValueOnce(Response.json({ jsonrpc: "2.0", result: {} }))
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          tools: [{ name: "netutils_ping", description: "Ping a host" }],
+        }),
+      ) as unknown as typeof fetch;
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers/probe?id=mcp-netutils", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://mcp-netutils:8000/mcp",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://mcp-netutils:8000/mcp",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:8100/api/v1/mcp-servers/mcp-netutils/probe",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(mockBuildBackendHeaders).toHaveBeenCalled();
+    expect(mockCacheMcpToolCatalog).toHaveBeenLastCalledWith({
+      serverId: "mcp-netutils",
+      source: "probe",
+      tools: [{ name: "netutils_ping", description: "Ping a host" }],
+    });
   });
 
   it("returns 403 when OpenFGA denies can_discover on the server", async () => {

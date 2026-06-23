@@ -5,6 +5,8 @@
  * the CAIPE Admin UI and Web UI backend API routes.
  */
 
+// assisted-by Codex Codex-sonnet-4-6
+
 /** Protected components from the 098 permission matrix (FR-008, FR-014) */
 export type RbacResource =
   | "ai_assist"
@@ -139,17 +141,22 @@ export type AuditEventSource =
   | "bff"
   | "supervisor"
   | "slack"
+  | "webex"
   | "dynamic_agents"
   | "openfga_authz_bridge"
   | "cas";
 
-/** Unified audit event stored in the audit_events MongoDB collection (FR-037) */
+/** Unified audit event emitted to audit-service (FR-037) */
 export interface UnifiedAuditEvent {
   audit_event_id?: string;
   ts: string;
   type: AuditEventType;
   tenant_id: string;
   subject_hash: string;
+  /** Readable subject ref for display (for example user:<sub>). */
+  subject_ref?: string;
+  /** Canonical subject label for display (for example a user email). */
+  subject_display?: string;
   user_email?: string;
   action: string;
   agent_name?: string;
@@ -172,10 +179,18 @@ export interface UnifiedAuditEvent {
   trace_url?: string;
   /** CAS grant/revoke: hashed caller principal. */
   actor_hash?: string;
+  /** Readable actor ref for display (for example user:<sub>). */
+  actor_ref?: string;
+  /** Canonical actor label for display (for example a user email). */
+  actor_display?: string;
   /** CAS grant/revoke: readable caller ref (e.g. user:sub). */
   caller_ref?: string;
+  /** Canonical caller label for display (for example a user email). */
+  caller_display?: string;
   /** CAS grant/revoke: readable grantee ref (e.g. team:eng). */
   grantee_ref?: string;
+  /** Canonical grantee label for display. */
+  grantee_display?: string;
   /** CAS grant/revoke: grant | revoke. */
   operation?: "grant" | "revoke";
 }
@@ -190,12 +205,12 @@ export type AdminTabKey =
   | "webex"
   | "skills"
   | "feedback"
-  | "nps"
   | "stats"
   | "metrics"
   | "health"
   | "credentials"
   | "audit_logs"
+  | "dynamic_agent_conversations"
   | "action_audit"
   | "openfga"
   | "migrations"
@@ -203,6 +218,14 @@ export type AdminTabKey =
 
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
+
+/** Integrations → Slack/Webex panel mode when the tab gate is open. */
+export type IntegrationPanelMode = "full" | "self_service";
+
+/** Present only for integration tabs the caller may open. */
+export type IntegrationPanelModesMap = Partial<
+  Record<Extract<AdminTabKey, "slack" | "webex">, IntegrationPanelMode>
+>;
 
 /**
  * Knowledge sidebar tab keys for RBAC-based visibility.

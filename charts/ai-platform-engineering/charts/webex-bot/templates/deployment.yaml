@@ -56,6 +56,8 @@ spec:
               value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
             - name: KEYCLOAK_URL
               value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ index .Values.config "AUDIT_SERVICE_URL" | default (printf "http://%s-audit-service:8010" .Release.Name) | quote }}
             - name: OPENFGA_HTTP
               value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
             - name: WEBEX_ADMIN_JWT_ISSUER
@@ -95,7 +97,7 @@ spec:
             - secretRef:
                 name: {{ include "webex-bot.fullname" . }}-secret
             {{- end }}
-          {{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "WEBEX_ADMIN_API_ENABLED"))) "true" }}
+          {{- $adminApiEnabled := eq (toString (default "true" (index .Values.config "WEBEX_ADMIN_API_ENABLED"))) "true" }}
           {{- if $adminApiEnabled }}
           ports:
             - name: admin

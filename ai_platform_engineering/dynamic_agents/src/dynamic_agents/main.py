@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting Dynamic Agents service...")
 
+    from dynamic_agents.services.mcp_client import warn_if_agent_gateway_missing_hmac
+
+    warn_if_agent_gateway_missing_hmac()
+
     # Eagerly initialise tracing + scrubber so the OTel processor
     # is registered before any span fires (FastAPI middleware,
     # MongoDB ping, etc.). The per-AgentRuntime install is kept as

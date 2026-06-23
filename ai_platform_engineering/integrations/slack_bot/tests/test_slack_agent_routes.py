@@ -1,4 +1,4 @@
-"""Tests for optional Mongo-backed Slack agent routes."""
+"""Tests for optional Mongo-backed Slack route metadata."""
 
 from __future__ import annotations
 
@@ -39,14 +39,6 @@ class _Collection:
             and row.get("enabled") is not False
         ]
         return _Cursor(rows)
-
-
-class _AuditCollection:
-    def __init__(self) -> None:
-        self.docs: list[dict[str, object]] = []
-
-    def insert_one(self, doc: dict[str, object]) -> None:
-        self.docs.append(doc)
 
 
 class _Response:
@@ -280,9 +272,9 @@ def test_resolver_defaults_to_internal_openfga_url_when_env_is_unset(monkeypatch
     assert post_calls == [("http://openfga:8080/stores/store-1/read", {"page_size": 100})]
 
 
-def test_resolver_records_openfga_read_failures_to_audit_events(monkeypatch) -> None:
+def test_resolver_records_openfga_read_failures_to_audit_service(monkeypatch) -> None:
     monkeypatch.setenv("OPENFGA_STORE_ID", "store-1")
-    audit_events = _AuditCollection()
+    audit_records: list[dict[str, object]] = []
 
     def fake_post(_url: str, **_kwargs: object) -> _Response:
         raise requests.RequestException("400 Bad Request")
@@ -293,7 +285,7 @@ def test_resolver_records_openfga_read_failures_to_audit_events(monkeypatch) -> 
     )
     resolver = SlackAgentRouteResolver(
         collection_factory=lambda: _Collection([]),
-        audit_collection_factory=lambda: audit_events,
+        audit_event_writer=audit_records.append,
     )
 
     matches = resolver.match_routes(
@@ -305,10 +297,11 @@ def test_resolver_records_openfga_read_failures_to_audit_events(monkeypatch) -> 
     )
 
     assert matches == []
-    assert len(audit_events.docs) == 1
-    assert audit_events.docs[0] | {"ts": "ignored"} == {
+    assert len(audit_records) == 1
+    assert audit_records[0] | {"ts": "ignored"} == {
         "type": "slack_runtime",
         "component": "slack_bot",
+        "source": "slack",
         "outcome": "error",
         "action": "slack.route.openfga_read",
         "reason_code": "OPENFGA_READ_FAILED",

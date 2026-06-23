@@ -192,6 +192,15 @@ export function WorkflowStepTimeline({
             </div>
           )}
 
+          {step.response?.trim() && (
+            <div
+              className="px-3 py-2 mb-2 text-sm text-foreground bg-muted/40 rounded-lg border border-border whitespace-pre-wrap"
+              data-testid="workflow-step-response"
+            >
+              {step.response.trim()}
+            </div>
+          )}
+
           {/* Timeline content */}
           {(events.length > 0 || isStreaming) && (
             <div>

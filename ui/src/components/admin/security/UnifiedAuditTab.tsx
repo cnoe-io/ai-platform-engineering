@@ -16,6 +16,7 @@ ChevronRight,
 ChevronUp,
 CircleHelp,
 Clock,
+Database,
 Download,
   GitBranch,
   KeyRound,
@@ -46,6 +47,31 @@ interface FilterOption {
   value: string;
   label: string;
   description: string;
+}
+
+interface AuditStorageConfig {
+  backend?: string;
+  readsAvailable?: boolean;
+  readsWarning?: string;
+  storageBackend?: string;
+  storageLabel?: string;
+}
+
+const TIME_WINDOW_OPTIONS = [
+  { value: "5m", label: "Last 5 min", resolution: "minute" },
+  { value: "15m", label: "Last 15 min", resolution: "minute" },
+  { value: "30m", label: "Last 30 min", resolution: "minute" },
+  { value: "1h", label: "Last 1 hr", resolution: "minute" },
+  { value: "6h", label: "Last 6 hr", resolution: "hour" },
+  { value: "12h", label: "Last 12 hr", resolution: "hour" },
+  { value: "24h", label: "Last 24 hr", resolution: "hour" },
+  { value: "7d", label: "Last 7 days", resolution: "day" },
+] as const;
+type TimeWindow = (typeof TIME_WINDOW_OPTIONS)[number]["value"] | "custom";
+
+function timeResolutionForWindow(window: TimeWindow): string {
+  if (window === "custom") return "auto";
+  return TIME_WINDOW_OPTIONS.find((option) => option.value === window)?.resolution ?? "auto";
 }
 
 const TYPE_FILTER_GROUPS: {
@@ -352,11 +378,52 @@ function getResourceParts(evt: UnifiedAuditEvent): { type?: string; id?: string;
   return { label: "resource" };
 }
 
+function compactHash(value?: string | null): string | undefined {
+  if (!value) return undefined;
+  if (value.startsWith("sha256:")) return `${value.slice(0, 23)}...`;
+  return value;
+}
+
+function hasReadableActor(evt: UnifiedAuditEvent): boolean {
+  return Boolean(
+    evt.actor_display ||
+      evt.caller_display ||
+      evt.subject_display ||
+      evt.user_email ||
+      evt.caller_ref ||
+      evt.actor_ref ||
+      evt.subject_ref,
+  );
+}
+
+function hasReadableSubject(evt: UnifiedAuditEvent): boolean {
+  return Boolean(evt.subject_display || evt.user_email || evt.subject_ref || evt.caller_ref);
+}
+
 function actorLabel(evt: UnifiedAuditEvent): string {
-  const actor = evt.user_email || evt.caller_ref || evt.subject_hash;
-  if (!actor) return "Actor unknown";
-  if (actor.startsWith("sha256:")) return `Actor ${actor.slice(0, 23)}...`;
-  return `Actor ${actor}`;
+  return (
+    evt.actor_display ||
+    evt.caller_display ||
+    evt.subject_display ||
+    evt.user_email ||
+    evt.caller_ref ||
+    evt.actor_ref ||
+    evt.subject_ref ||
+    compactHash(evt.actor_hash) ||
+    compactHash(evt.subject_hash) ||
+    "unknown"
+  );
+}
+
+function subjectLabel(evt: UnifiedAuditEvent): string {
+  return (
+    evt.subject_display ||
+    evt.user_email ||
+    evt.subject_ref ||
+    evt.caller_ref ||
+    compactHash(evt.subject_hash) ||
+    "unknown"
+  );
 }
 
 function decisionPathLabel(evt: UnifiedAuditEvent): string {
@@ -408,10 +475,7 @@ function formatDownloadTimestamp(iso: string): string {
   return iso.replace(/[:.]/g, "-");
 }
 
-function downloadJsonFile(filename: string, payload: unknown): void {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json;charset=utf-8",
-  });
+function downloadBlobFile(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -420,6 +484,25 @@ function downloadJsonFile(filename: string, payload: unknown): void {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+async function downloadAuditZip({
+  filename,
+  records,
+  manifest,
+}: {
+  filename: string;
+  records: UnifiedAuditEvent[];
+  manifest: Record<string, unknown>;
+}): Promise<void> {
+  const { default: JSZip } = await import("jszip");
+  const zip = new JSZip();
+
+  zip.file("audit-events.json", JSON.stringify(records, null, 2));
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+  downloadBlobFile(filename, blob);
 }
 
 export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
@@ -435,23 +518,32 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   const [agentName, setAgentName] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>("5m");
 
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [auditConfig, setAuditConfig] = useState<AuditStorageConfig | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const auditConfigRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const buildAuditParams = useCallback((p: number, limit: number) => {
     const params = new URLSearchParams();
     params.set("page", String(p));
     params.set("limit", String(limit));
+    if (timeWindow === "custom") {
+      params.set("time_resolution", "auto");
+    } else {
+      params.set("window", timeWindow);
+      params.set("time_resolution", timeResolutionForWindow(timeWindow));
+    }
     if (typeFilter) params.set("type", typeFilter);
     if (outcomeFilter) params.set("outcome", outcomeFilter);
     if (userEmail.trim()) params.set("user_email", userEmail.trim());
     if (agentName.trim()) params.set("agent_name", agentName.trim());
-    if (dateFrom) params.set("from", new Date(dateFrom).toISOString());
-    if (dateTo) params.set("to", new Date(dateTo).toISOString());
+    if (timeWindow === "custom" && dateFrom) params.set("from", new Date(dateFrom).toISOString());
+    if (timeWindow === "custom" && dateTo) params.set("to", new Date(dateTo).toISOString());
     return params;
-  }, [typeFilter, outcomeFilter, userEmail, agentName, dateFrom, dateTo]);
+  }, [timeWindow, typeFilter, outcomeFilter, userEmail, agentName, dateFrom, dateTo]);
 
   const fetchEvents = useCallback(async (p = 1) => {
     setLoading(true);
@@ -473,6 +565,31 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
       setLoading(false);
     }
   }, [buildAuditParams]);
+
+  const fetchAuditConfig = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const response = await fetch("/api/audit/config");
+      const config = (await response.json()) as AuditStorageConfig;
+      setAuditConfig(config);
+      if (config.readsAvailable === false) {
+        if (auditConfigRetryRef.current) clearTimeout(auditConfigRetryRef.current);
+        auditConfigRetryRef.current = setTimeout(() => {
+          fetchAuditConfig().catch(() => undefined);
+        }, 5_000);
+      }
+    } catch (err) {
+      setAuditConfig({
+        readsAvailable: false,
+        storageLabel: "Storage: unknown",
+        readsWarning: err instanceof Error ? err.message : "Failed to load audit storage status",
+      });
+      if (auditConfigRetryRef.current) clearTimeout(auditConfigRetryRef.current);
+      auditConfigRetryRef.current = setTimeout(() => {
+        fetchAuditConfig().catch(() => undefined);
+      }, 5_000);
+    }
+  }, [isAdmin]);
 
   const downloadEvents = useCallback(async () => {
     setExporting(true);
@@ -503,38 +620,56 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
       if (outcomeFilter) filters.outcome = outcomeFilter;
       if (userEmail.trim()) filters.user_email = userEmail.trim();
       if (agentName.trim()) filters.agent_name = agentName.trim();
-      if (dateFrom) filters.from = new Date(dateFrom).toISOString();
-      if (dateTo) filters.to = new Date(dateTo).toISOString();
+      if (timeWindow === "custom") {
+        if (dateFrom) filters.from = new Date(dateFrom).toISOString();
+        if (dateTo) filters.to = new Date(dateTo).toISOString();
+      } else {
+        filters.window = timeWindow;
+      }
 
       const exportedAt = new Date().toISOString();
-      downloadJsonFile(`rbac-audit-log-${formatDownloadTimestamp(exportedAt)}.json`, {
-        exported_at: exportedAt,
-        filters,
-        total,
-        record_count: records.length,
+      await downloadAuditZip({
+        filename: `rbac-audit-log-${formatDownloadTimestamp(exportedAt)}.zip`,
         records,
+        manifest: {
+          exported_at: exportedAt,
+          format: "raw-json-zip",
+          files: ["audit-events.json", "manifest.json"],
+          filters,
+          total,
+          record_count: records.length,
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to download audit events");
     } finally {
       setExporting(false);
     }
-  }, [buildAuditParams, typeFilter, outcomeFilter, userEmail, agentName, dateFrom, dateTo]);
+  }, [buildAuditParams, timeWindow, typeFilter, outcomeFilter, userEmail, agentName, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchEvents(1);
   }, [fetchEvents]);
 
   useEffect(() => {
+    if (!isAdmin) return;
+    fetchAuditConfig().catch(() => undefined);
+    return () => {
+      if (auditConfigRetryRef.current) clearTimeout(auditConfigRetryRef.current);
+    };
+  }, [isAdmin, fetchAuditConfig]);
+
+  useEffect(() => {
     if (autoRefresh) {
       autoRefreshRef.current = setInterval(() => {
         fetchEvents(page);
+        fetchAuditConfig().catch(() => undefined);
       }, 30_000);
     }
     return () => {
       if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
     };
-  }, [autoRefresh, page, fetchEvents]);
+  }, [autoRefresh, page, fetchEvents, fetchAuditConfig]);
 
   const totalPages = result ? Math.ceil(result.total / result.limit) : 0;
 
@@ -544,6 +679,8 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
         ?.description,
     [typeFilter],
   );
+  const auditStorageLabel = auditConfig?.storageLabel ?? "Storage: checking...";
+  const auditStorageWarning = auditConfig?.readsAvailable === false ? auditConfig.readsWarning : undefined;
 
   const handleReset = () => {
     setTypeFilter("");
@@ -552,6 +689,7 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
     setAgentName("");
     setDateFrom("");
     setDateTo("");
+    setTimeWindow("5m");
     setPage(1);
   };
 
@@ -577,6 +715,20 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
             <CardDescription>
               Policy changes, access decisions, ReBAC checks, tool use, and delegations in one timeline
             </CardDescription>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className={`gap-1.5 text-[11px] font-medium ${
+                  auditStorageWarning
+                    ? "border-destructive/40 text-destructive bg-destructive/10"
+                    : "border-border/70 text-muted-foreground bg-background/50"
+                }`}
+                title={auditStorageWarning ?? auditStorageLabel}
+              >
+                <Database className="h-3 w-3" />
+                {auditStorageLabel}
+              </Badge>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -586,13 +738,14 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
               disabled={exporting}
               aria-label="Download audit log"
               className="gap-1.5"
+              title="Download raw JSON audit events as a ZIP file"
             >
               {exporting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Download className="h-3.5 w-3.5" />
               )}
-              Download
+              Download ZIP
             </Button>
             <Button
               variant={autoRefresh ? "default" : "outline"}
@@ -603,7 +756,15 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
               <RefreshCw className={`h-3.5 w-3.5 ${autoRefresh ? "animate-spin" : ""}`} />
               {autoRefresh ? "Auto" : "Auto"}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => fetchEvents(page)} className="gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                fetchEvents(page);
+                fetchAuditConfig().catch(() => undefined);
+              }}
+              className="gap-1.5"
+            >
               <RotateCcw className="h-3.5 w-3.5" />
               Refresh
             </Button>
@@ -613,6 +774,38 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
       <CardContent>
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-0.5">
+            <select
+              value={timeWindow}
+              onChange={(e) => {
+                const next = e.target.value as TimeWindow;
+                setTimeWindow(next);
+                if (next !== "custom") {
+                  setDateFrom("");
+                  setDateTo("");
+                }
+              }}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              title="Choose how much audit history to scan"
+            >
+              {TIME_WINDOW_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+              <option value="custom">Custom range</option>
+            </select>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                Short windows read minute-resolution audit partitions; broader windows read coarser partitions.
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <div className="flex items-center gap-0.5">
             <select
               value={typeFilter}
@@ -677,15 +870,23 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
           <Input
             type="datetime-local"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setTimeWindow("custom");
+            }}
             className="h-9 w-44"
+            disabled={timeWindow !== "custom"}
             title="From"
           />
           <Input
             type="datetime-local"
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setTimeWindow("custom");
+            }}
             className="h-9 w-44"
+            disabled={timeWindow !== "custom"}
             title="To"
           />
           <Button variant="ghost" size="sm" onClick={handleReset} className="gap-1 h-9">
@@ -747,6 +948,7 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                    const resource = getResourceParts(evt);
 	                    const story = requestStory(evt);
 	                    const actor = actorLabel(evt);
+	                    const subject = subjectLabel(evt);
 	                    const path = decisionPathLabel(evt);
 	                    return (
 	                      <React.Fragment key={rowKey}>
@@ -767,7 +969,7 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                          <td className="px-3 py-2">
 	                            <TypeBadge type={evt.type} />
 	                          </td>
-	                          <td className="px-3 py-2 text-xs max-w-[220px] truncate" title={evt.caller_ref || evt.user_email || evt.subject_hash}>
+	                          <td className="px-3 py-2 text-xs max-w-[220px] truncate" title={actor}>
 	                            {actor}
 	                          </td>
 	                          <td className="px-3 py-2 min-w-[260px]" title={`${evt.action} ${evt.resource_ref || ""}`.trim()}>
@@ -806,6 +1008,7 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                              </div>
 	                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
 	                                <DetailField label="Actor" value={actor} />
+	                                <DetailField label="Subject" value={subject} />
 	                                <DetailField label="Request" value={`${humanizeToken(evt.action)} ${resource.label}`} />
 	                                <DetailField label="Decision Path" value={path} />
 	                                <DetailField label="Correlation ID" value={evt.correlation_id} />
@@ -822,10 +1025,10 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                                <DetailField label="Workflow Run ID" value={evt.workflow_run_id} />
 	                                <DetailField label="Raw Decision Path" value={evt.decision_via} />
                                 <DetailField label="Operation" value={evt.operation} />
-                                <DetailField label="Caller" value={evt.caller_ref} />
-                                <DetailField label="Grantee" value={evt.grantee_ref} />
-                                <DetailField label="Actor Hash" value={evt.actor_hash} mono />
-                                <DetailField label="Subject Hash" value={evt.subject_hash} mono />
+                                <DetailField label="Caller" value={evt.caller_display || evt.caller_ref} />
+                                <DetailField label="Grantee" value={evt.grantee_display || evt.grantee_ref} />
+                                <DetailField label="Actor Hash" value={hasReadableActor(evt) ? undefined : evt.actor_hash} mono />
+                                <DetailField label="Subject Hash" value={hasReadableSubject(evt) ? undefined : evt.subject_hash} mono />
                                 <DetailField label="Tenant" value={evt.tenant_id} />
                               </div>
                             </td>

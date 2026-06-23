@@ -37,11 +37,9 @@ def mock_agent_config():
     """
     return {
         "test_agent": {
-            "slim": "test.agents.slim.agent",
             "a2a": "test.agents.a2a.agent"
         },
         "another_agent": {
-            "slim": "test.agents.another.slim.agent",
             "a2a": "test.agents.another.a2a.agent"
         }
     }
@@ -127,4 +125,3 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: mark test as slow running"
     )
-

@@ -1,4 +1,6 @@
 import { redactCredentialDetails } from "./masking";
+import { getAuditBackend } from "@/lib/audit";
+import { createHash, randomUUID } from "crypto";
 
 export type CredentialAuditResult = "denied" | "failure" | "success";
 
@@ -21,21 +23,31 @@ export interface CredentialAuditEventInput {
   correlationId?: string;
 }
 
-interface AuditCollection {
-  insertOne(document: Record<string, unknown>): Promise<unknown>;
+const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
+
+function hashSubject(id: string): string {
+  return "sha256:" + createHash("sha256").update(`${SUBJECT_SALT}:${id}`).digest("hex");
 }
 
-export async function writeCredentialAuditEvent(
-  collection: AuditCollection,
+export function writeCredentialAuditEvent(
   input: CredentialAuditEventInput,
-): Promise<void> {
-  await collection.insertOne({
+): void {
+  const outcome = input.result === "denied" ? "deny" : input.result === "failure" ? "error" : "success";
+  getAuditBackend().write({
+    audit_event_id: randomUUID(),
+    type: "credential_action",
+    ts: new Date().toISOString(),
     action: input.action,
+    component: "credential_vault",
+    source: "webui_backend",
+    tenant_id: process.env.TENANT_ID ?? "default",
+    subject_hash: hashSubject(input.actor.id),
+    outcome,
+    correlation_id: input.correlationId ?? randomUUID(),
+    resource_ref: `${input.resource.type}:${input.resource.id}`,
     actor: input.actor,
     resource: input.resource,
     result: input.result,
-    correlationId: input.correlationId,
     details: input.details ? redactCredentialDetails(input.details) : {},
-    createdAt: new Date(),
   });
 }

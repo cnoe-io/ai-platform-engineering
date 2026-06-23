@@ -75,12 +75,18 @@ async def get_user_by_attribute(
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             url,
-            params={"q": f"{attr}:{value}", "max": 1},
+            params={"q": f"{attr}:{value}", "max": 5},
             headers={"Authorization": f"Bearer {token}"},
         )
         resp.raise_for_status()
         users = resp.json()
-        return users[0] if users else None
+        for user in users:
+            attrs = user.get("attributes") or {}
+            raw = attrs.get(attr)
+            stored = raw[0] if isinstance(raw, list) and raw else raw
+            if isinstance(stored, str) and stored.strip() == value:
+                return user
+        return None
 
 
 def _user_profile_roundtrip(user_repr: dict[str, Any]) -> dict[str, Any]:

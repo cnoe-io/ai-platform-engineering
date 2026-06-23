@@ -29,7 +29,7 @@ spec:
       {{- $cb := $static.configBridge | default dict }}
       {{- /*
       The config-bridge dynamically reconciles runtime-added MCP servers
-      (Mongo `mcp_servers`) into the proxy config. It only applies in static
+      from the BFF internal target API into the proxy config. It only applies in static
       (CRD-free) routing mode; in Gateway-API mode the operator manages routes
       via CRDs. When enabled, the agentgateway reads its config from a shared
       emptyDir that the bridge writes (seeded from the Helm-rendered static
@@ -47,7 +47,7 @@ spec:
       initContainers:
         # Seed the shared config from the Helm-rendered static config so the
         # agentgateway container always starts with a valid file (jwtAuth +
-        # static targets), even before the bridge's first Mongo reconcile.
+        # static targets), even before the bridge's first BFF reconcile.
         - name: config-bridge-seed
           image: "{{ $cbImageRepo }}:{{ $cbImageTag }}"
           imagePullPolicy: {{ $cbImagePull }}
@@ -128,7 +128,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
         {{- if $cbEnabled }}
-        # Sidecar: poll Mongo `mcp_servers` and merge /mcp/<id> routes into the
+        # Sidecar: poll the BFF target API and merge /mcp/<id> routes into the
         # shared config; agentgateway hot-reloads the file on change.
         - name: config-bridge
           image: "{{ $cbImageRepo }}:{{ $cbImageTag }}"
@@ -142,17 +142,14 @@ spec:
               value: {{ printf "http://localhost:%v/config" (.Values.service.adminPort | int) | quote }}
             - name: AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS
               value: {{ $cb.pollSeconds | default 5 | quote }}
-            - name: MONGODB_DATABASE
-              value: {{ (($cb.mongodb).database) | default "caipe" | quote }}
-            {{- if (($cb.mongodb).existingSecret).name }}
-            - name: MONGODB_URI
+            - name: AGENTGATEWAY_TARGETS_URL
+              value: {{ (($cb.bff).url) | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            {{- if (($cb.bff).existingSecret).name }}
+            - name: AGENTGATEWAY_TARGETS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ $cb.mongodb.existingSecret.name | quote }}
-                  key: {{ ($cb.mongodb.existingSecret.key | default "MONGODB_URI") | quote }}
-            {{- else if (($cb.mongodb).uri) }}
-            - name: MONGODB_URI
-              value: {{ $cb.mongodb.uri | quote }}
+                  name: {{ $cb.bff.existingSecret.name | quote }}
+                  key: {{ ($cb.bff.existingSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN") | quote }}
             {{- end }}
             {{- with $cb.extraEnv }}
             {{- toYaml . | nindent 12 }}

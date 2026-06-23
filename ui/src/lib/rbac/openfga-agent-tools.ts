@@ -48,8 +48,8 @@ export interface AgentToolTupleDiffInput {
    * the single owner team). Each entry produces the same two-tuple
    * inheritance pair as the owner team:
    *
-   *   team:<slug>#member user agent:<id>     (can_use → can DM and use in any channel mapped to this team)
-   *   team:<slug>#admin  manager agent:<id>  (can_manage → can edit/disable/delete the agent)
+   *   team:<slug>#member user agent:<id>     (can_use → chat and discover in admin list)
+   *   team:<slug>#admin  manager agent:<id>  (can_manage → edit/disable/delete the agent)
    *
    * Empty array or `undefined` means "no additional shared teams"; the
    * owner-team tuples are still written. Slugs that match the owner team
@@ -159,15 +159,14 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
     });
   }
   // Owner-team + shared-team grants are delegated to the shared
-  // `buildTeamGrantTuples` primitive (spec 2026-06-03, US1 / FR-003). The
-  // agent's member relation is `user` (granting `can_use`), distinct from
-  // the `reader` default used by KB/data_source. The primitive handles the
-  // owner ∪ shared union, the owner-team transition delete via
-  // `previousOwnerTeamSlug`, and the shared-team revoke diff — the same
-  // logic this builder used to inline. A team promoted from shared → owner
-  // is never deleted (it's still in the effective set).
+  // `buildTeamGrantTuples` primitive (spec 2026-06-03, US1 / FR-003). Team
+  // members receive `user` (can_use / discover in the admin list). Config
+  // edits require owner, team admin (`manager`), or org admin — not member
+  // `writer`. The primitive handles the owner ∪ shared union, owner-team
+  // transition deletes, and shared-team revoke diffs.
+  const agentObject = `agent:${input.agentId}`;
   const teamGrants = buildTeamGrantTuples({
-    object: `agent:${input.agentId}`,
+    object: agentObject,
     memberRelations: ["user"],
     ownerTeamSlug: input.ownerTeamSlug,
     previousOwnerTeamSlug: input.previousOwnerTeamSlug,
@@ -176,6 +175,25 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
   });
   writes.push(...teamGrants.writes);
   deletes.push(...teamGrants.deletes);
+
+  // Drop legacy member `writer` grants from older reconciles so team members
+  // cannot mutate agent config (color, prompt, tools) without manage rights.
+  const writerRevokeSlugs = new Set<string>();
+  if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
+    writerRevokeSlugs.add(input.ownerTeamSlug);
+  }
+  for (const slug of input.nextSharedTeamSlugs ?? []) {
+    if (isValidOpenFgaId(slug)) writerRevokeSlugs.add(slug);
+  }
+  for (const slug of input.previousSharedTeamSlugs ?? []) {
+    if (isValidOpenFgaId(slug)) writerRevokeSlugs.add(slug);
+  }
+  if (input.previousOwnerTeamSlug && isValidOpenFgaId(input.previousOwnerTeamSlug)) {
+    writerRevokeSlugs.add(input.previousOwnerTeamSlug);
+  }
+  for (const slug of writerRevokeSlugs) {
+    deletes.push({ user: `team:${slug}#member`, relation: "writer", object: agentObject });
+  }
 
   // `visibility === 'global'` is encoded as a `user:* user agent:<id>`
   // tuple. We write/delete it here so the reconcile pass is the single

@@ -9,6 +9,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
 // per-team Keycloak helpers from Slack channel onboarding —
 // `ensureTeamClientScope` and `selectAgentGatewayActiveTeamScope`
@@ -93,6 +94,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
   isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: (...args: unknown[]) => mockAuditQuery(...args) }),
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -188,6 +193,7 @@ beforeEach(() => {
   process.env.SLACK_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockAuditQuery.mockResolvedValue([]);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
@@ -295,6 +301,93 @@ describe("Slack channel ReBAC APIs", () => {
         can_manage: true,
       }),
     ]);
+  });
+
+  it("repairs stale team-shared Slack channel tuples so team members can edit routes", async () => {
+    // Old assignments may have a readable channel tuple but not the newer
+    // team-member manage tuple. Listing configured channels should converge
+    // that row to the central Slack team-assignment policy so the UI can enable
+    // Edit/Add Agent for team members.
+    // assisted-by Codex Codex-sonnet-4-6
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => {
+      if (tuple.object === "organization:caipe") return { allowed: false };
+      if (tuple.object !== `slack_channel:${workspaceAlias}--${channelId}`) return { allowed: false };
+      if (tuple.relation === "can_read") return { allowed: true };
+      if (tuple.relation === "can_manage") {
+        return { allowed: mockWriteOpenFgaTuples.mock.calls.length > 0 };
+      }
+      return { allowed: false };
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toEqual([
+      expect.objectContaining({
+        channel_id: channelId,
+        channel_name: "incidents",
+        team_slug: "platform-engineering",
+        can_manage: true,
+      }),
+    ]);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: expect.arrayContaining([
+          {
+            user: "team:platform-engineering#member",
+            relation: "manager",
+            object: `slack_channel:${workspaceAlias}--${channelId}`,
+          },
+        ]),
+      }),
+    );
+  });
+
+  it("returns can_manage after a successful stale tuple repair even when OpenFGA read-after-write lags", async () => {
+    // Production OpenFGA can accept the new team-member manager tuple and still
+    // return the old check result for the immediate follow-up read. The list
+    // response should trust the successful repair write for this request so the
+    // configured channel UI does not keep Edit disabled until a later refresh.
+    // assisted-by Codex Codex-sonnet-4-6
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => {
+      if (tuple.object === "organization:caipe") return { allowed: false };
+      if (tuple.object !== `slack_channel:${workspaceAlias}--${channelId}`) return { allowed: false };
+      if (tuple.relation === "can_read") return { allowed: true };
+      if (tuple.relation === "can_manage") return { allowed: false };
+      return { allowed: false };
+    });
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toEqual([
+      expect.objectContaining({
+        channel_id: channelId,
+        team_slug: "platform-engineering",
+        can_manage: true,
+      }),
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_manage",
+      object: `slack_channel:${workspaceAlias}--${channelId}`,
+    });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: expect.arrayContaining([
+          {
+            user: "team:platform-engineering#member",
+            relation: "manager",
+            object: `slack_channel:${workspaceAlias}--${channelId}`,
+          },
+        ]),
+      }),
+    );
   });
 
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
@@ -553,7 +646,7 @@ describe("Slack channel ReBAC APIs", () => {
         users: { enabled: true, listen: "message" },
       },
     ]);
-    mockCollections.audit_events = createMockCollection([
+    mockAuditQuery.mockResolvedValue([
       {
         type: "slack_runtime",
         component: "slack_bot",
@@ -596,7 +689,7 @@ describe("Slack channel ReBAC APIs", () => {
     });
     expect(body.data.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/stale-mongo-agent.*OpenFGA tuple is missing/i),
+        expect.stringMatching(/Stale Mongo Agent has saved routing rules that are inactive/i),
       ])
     );
     expect(body.data.warnings).not.toEqual(
@@ -631,7 +724,7 @@ describe("Slack channel ReBAC APIs", () => {
       error: "OpenFGA tuple read failed: 400",
     });
     expect(body.data.warnings).toEqual(
-      expect.arrayContaining([expect.stringMatching(/Slack bot cannot read OpenFGA tuples/i)])
+      expect.arrayContaining([expect.stringMatching(/Slack bot could not reach the authorization service/i)])
     );
   });
 
@@ -796,6 +889,7 @@ describe("Slack channel ReBAC APIs", () => {
         { user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" },
         { user: `slack_channel:${workspaceAlias}--C987654321`, relation: "user", object: "agent:incident-agent" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+        { user: `team:platform-engineering#member`, relation: "manager", object: `slack_channel:${workspaceAlias}--${channelId}` },
       ]),
       deletes: [],
     });
@@ -914,6 +1008,7 @@ describe("Slack channel ReBAC APIs", () => {
         { user: `slack_channel:${workspaceAlias}--CNEWCONFIG`, relation: "user", object: "agent:incident-agent" },
         { user: `slack_channel:${workspaceAlias}--CNEWMISSING`, relation: "user", object: "agent:incident-agent" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+        { user: "team:platform-engineering#member", relation: "manager", object: `slack_channel:${workspaceAlias}--CNEWMISSING` },
       ]),
       deletes: [],
     });
@@ -1048,6 +1143,7 @@ describe("Slack channel ReBAC APIs", () => {
       writes: expect.arrayContaining([
         { user: `slack_channel:${workspaceAlias}--CNEWMISSING`, relation: "user", object: "agent:test-april-2025" },
         { user: "team:security#member", relation: "user", object: "agent:test-april-2025" },
+        { user: "team:security#member", relation: "manager", object: `slack_channel:${workspaceAlias}--CNEWMISSING` },
       ]),
       deletes: [],
     });
@@ -1149,6 +1245,7 @@ describe("Slack channel ReBAC APIs", () => {
       writes: expect.arrayContaining([
         { user: `slack_channel:${workspaceAlias}--CCHANGED`, relation: "user", object: "agent:foo-bar" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:foo-bar" },
+        { user: "team:platform-engineering#member", relation: "manager", object: `slack_channel:${workspaceAlias}--CCHANGED` },
       ]),
       deletes: [
         {

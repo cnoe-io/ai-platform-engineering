@@ -1,6 +1,7 @@
 "use client";
 
 import { AgentLogo,getAgentLogo } from "@/components/shared/AgentLogos";
+import { MarkdownRenderer } from "@/components/shared/timeline";
 import { StreamEvent } from "@/lib/streaming/types";
 import { cn } from "@/lib/utils";
 import { AnimatePresence,motion } from "framer-motion";
@@ -317,9 +318,12 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
                     <div className="flex-1 space-y-2">
                       <p className="text-sm font-medium text-amber-500">Agent Warning</p>
                       {warningMessages.map((msg, idx) => (
-                        <p key={idx} className="text-sm text-amber-400/90">
-                          {msg}
-                        </p>
+                        <div
+                          key={idx}
+                          className="text-sm text-amber-400/90 [&_.streaming-markdown]:text-inherit [&_.md-link]:font-semibold [&_.md-link]:text-cyan-300 [&_.md-link]:underline [&_.md-link:hover]:text-cyan-200"
+                        >
+                          <MarkdownRenderer content={msg} variant="user" />
+                        </div>
                       ))}
                     </div>
                   </div>

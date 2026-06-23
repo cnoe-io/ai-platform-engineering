@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { cn } from "@/lib/utils";
 import type { BuiltinToolDefinition,BuiltinToolsConfig,DynamicAgentConfig } from "@/types/dynamic-agent";
 import {
@@ -428,13 +430,13 @@ export function StepToolOverridePicker({
 
               {mode === "restrict" && (
                 <div className="space-y-3">
-                  {/* MCP Servers */}
+                  {/* Tool connections */}
                   {activeBaseServers.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-1.5">
                         <Server className="h-3 w-3 text-muted-foreground" />
                         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          MCP Servers
+                          Tool Connections
                         </span>
                       </div>
                       <div className="space-y-1.5">

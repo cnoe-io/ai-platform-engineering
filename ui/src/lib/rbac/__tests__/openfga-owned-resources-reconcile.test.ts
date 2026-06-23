@@ -279,15 +279,34 @@ describe("reconcileMcpServerRelationships", () => {
     });
 
     expect(mockGetCollection).toHaveBeenCalledWith("teams");
-    expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
+    const diff = mockReconcileTupleDiff.mock.calls[0][0];
+    expect(diff).toEqual(
       expect.objectContaining({
         writes: expect.arrayContaining([
+          { user: "organization:caipe#member", relation: "reader", object: "mcp_server:mcp-config-sync" },
+          { user: "organization:caipe#member", relation: "user", object: "mcp_server:mcp-config-sync" },
+          { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:mcp-config-sync" },
           { user: "team:platform#member", relation: "reader", object: "mcp_server:mcp-config-sync" },
           { user: "team:platform#member", relation: "caller", object: "tool:mcp-config-sync/*" },
           { user: "agent:agent-keep", relation: "caller", object: "tool:mcp-config-sync/*" },
         ]),
+        deletes: [
+          {
+            user: "organization:caipe#member",
+            relation: "invoker",
+            object: "mcp_server:mcp-config-sync",
+          },
+        ],
       }),
-      undefined,
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        {
+          user: "organization:caipe#member",
+          relation: "invoker",
+          object: "mcp_server:mcp-config-sync",
+        },
+      ]),
     );
   });
 

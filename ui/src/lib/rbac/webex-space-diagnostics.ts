@@ -59,7 +59,7 @@ const WEBEX_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
   },
   buildExtraRouteWarnings,
   shouldSurfaceLastRuntimeError: (lastError, openfgaError) => {
-    // The Webex bot logs OPENFGA_READ_FAILED into audit_events when
+    // The Webex bot logs OPENFGA_READ_FAILED through audit-service when
     // tuple reads fail. Once OpenFGA is reachable again, the stored
     // error is stale — suppress it so the diagnostics panel doesn't
     // light up red after the underlying issue cleared.
