@@ -100,6 +100,10 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       migrations: true,
     });
     expect(body.gates).not.toHaveProperty("policy");
+    expect(body.integration_panel_modes).toEqual({
+      slack: "full",
+      webex: "full",
+    });
   });
 
   it("does not use organization admin alone for privileged tab visibility", async () => {
@@ -356,6 +360,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       webex: false,
       openfga: false,
     });
+    expect(body.integration_panel_modes).toEqual({ slack: "self_service" });
   });
 
   it("can simulate admin tab gates for a real team userset", async () => {
@@ -404,6 +409,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       openfga: false,
       migrations: false,
     });
+    expect(body.integration_panel_modes).toEqual({ slack: "full" });
   });
 
   it("rejects simulation requests from non-admin actors", async () => {

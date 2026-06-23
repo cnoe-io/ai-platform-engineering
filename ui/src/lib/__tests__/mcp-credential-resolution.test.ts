@@ -73,6 +73,7 @@ describe("mcp-credential-resolution", () => {
         status: "needs_reauth",
         owner: { type: "user", id: "admin-sub" },
       })),
+      listConnections: jest.fn(async () => []),
     });
 
     await expect(
@@ -99,5 +100,54 @@ describe("mcp-credential-resolution", () => {
         },
       }),
     ).rejects.toBeInstanceOf(McpCredentialUnavailableError);
+  });
+
+  it("falls back to the owner's newest connected provider connection when a pinned id was superseded", async () => {
+    getProviderConnectionService.mockResolvedValue({
+      getConnection: jest.fn(async () => ({
+        id: "conn-old",
+        provider: "atlassian",
+        status: "disabled",
+        owner: { type: "user", id: "alice-sub" },
+      })),
+      listConnections: jest.fn(async () => [
+        {
+          id: "conn-new",
+          provider: "atlassian",
+          status: "connected",
+          owner: { type: "user", id: "alice-sub" },
+        },
+      ]),
+      refreshConnection: jest.fn(async () => ({ accessToken: "fresh-token", expiresIn: 3600 })),
+    });
+
+    const token = await resolveProviderConnectionCredential({
+      session: { sub: "alice-sub", user: { email: "alice@caipe.local" } },
+      source: {
+        kind: "provider_connection",
+        target: "header",
+        name: "X-CAIPE-Provider-Token",
+        connection_scope: "pinned",
+        provider_connection_id: "conn-old",
+      },
+      mcpServer: {
+        _id: "confluence",
+        credential_sources: [
+          {
+            kind: "provider_connection",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+            connection_scope: "pinned",
+            provider_connection_id: "conn-old",
+          },
+        ],
+      },
+    });
+
+    expect(token).toEqual({
+      token: "fresh-token",
+      provider: "atlassian",
+      providerConnectionId: "conn-new",
+    });
   });
 });

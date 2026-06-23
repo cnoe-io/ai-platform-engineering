@@ -19,7 +19,11 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from "@/lib/server-response-cache";
-import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
+import type {
+  AdminTabGatesMap,
+  AdminTabKey,
+  IntegrationPanelModesMap,
+} from "@/lib/rbac/types";
 import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
 import { getServerSession } from "next-auth";
 import type { NextRequest } from "next/server";
@@ -105,6 +109,20 @@ const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
 };
 
 const BASELINE_TABS = new Set<AdminTabKey>(BASELINE_ADMIN_SURFACES);
+
+const INTEGRATION_PANEL_TABS = ["slack", "webex"] as const satisfies readonly AdminTabKey[];
+
+function integrationPanelModesFromSurfaceManage(
+  gates: AdminTabGatesMap,
+  hasSurfaceManage: (tab: (typeof INTEGRATION_PANEL_TABS)[number]) => boolean,
+): IntegrationPanelModesMap {
+  const modes: IntegrationPanelModesMap = {};
+  for (const tab of INTEGRATION_PANEL_TABS) {
+    if (!gates[tab]) continue;
+    modes[tab] = hasSurfaceManage(tab) ? "full" : "self_service";
+  }
+  return modes;
+}
 
 const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
   roles: "roles",
@@ -401,7 +419,12 @@ async function getAdminTabGates(request?: NextRequest) {
     }
 
     await Promise.all(secondaryChecks);
-    return NextResponse.json({ gates, simulation });
+
+    const integrationPanelModes = integrationPanelModesFromSurfaceManage(
+      gates,
+      (tab) => bootstrapAdmin || (primaryAllowed.get(tab) ?? false),
+    );
+    return NextResponse.json({ gates, simulation, integration_panel_modes: integrationPanelModes });
   }
 
   // ── Simulated-user path: per-check parallel fan-out (low frequency) ────────
@@ -459,5 +482,18 @@ async function getAdminTabGates(request?: NextRequest) {
   const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
   ALL_TABS.forEach((tab, i) => { gates[tab] = tabResults[i]; });
 
-  return NextResponse.json({ gates, simulation });
+  const actor = simulatedUser ?? currentUser;
+  const integrationPanelModes: IntegrationPanelModesMap = {};
+  if (actor) {
+    await Promise.all(
+      INTEGRATION_PANEL_TABS.map(async (tab) => {
+        if (!gates[tab]) return;
+        const surfaceManage =
+          bootstrapAdmin || (await hasAdminSurfaceManage(actor, tab));
+        integrationPanelModes[tab] = surfaceManage ? "full" : "self_service";
+      }),
+    );
+  }
+
+  return NextResponse.json({ gates, simulation, integration_panel_modes: integrationPanelModes });
 }

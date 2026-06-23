@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle,CheckCircle2,CircleDashed,Search } from "lucide-react";
+import { AlertCircle,CheckCircle2,CircleDashed,Loader2,Search } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -10,6 +10,7 @@ type DiscoveryCacheProvider,
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
 import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { cn } from "@/lib/utils";
@@ -68,6 +69,11 @@ interface ConnectorOnboardingWizardProps {
   disabled: boolean;
   loading: boolean;
   discovering: boolean;
+  /** True after at least one live discovery API fetch (not configured-only seed). */
+  discoveryLiveFetched?: boolean;
+  /** True while configured items are loading into the discovery table (Webex seed). */
+  initialLoading?: boolean;
+  initialLoadingLabel?: string;
   onDiscover: () => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -81,6 +87,13 @@ interface ConnectorOnboardingWizardProps {
    * existing callers (Webex) keep their current behavior unchanged. */
   searchValue?: string;
   onSearchChange?: (value: string) => void;
+  /** When true, search filters via the BFF (`q=`) and rows are not client-filtered. */
+  serverSideSearch?: boolean;
+  searchDisabled?: boolean;
+  discoveryHasMore?: boolean;
+  discoveryLoadingMore?: boolean;
+  onLoadMore?: () => void;
+  discoveryTotalMatches?: number | null;
   /** When provided, render a "Apply to selected rows" toolbar that lets
    * the admin pick a team + agent and stamp them onto every selected
    * row in one click. Bulk values are local to the toolbar; they only
@@ -167,6 +180,9 @@ export function ConnectorOnboardingWizard({
   disabled,
   loading,
   discovering,
+  discoveryLiveFetched = false,
+  initialLoading = false,
+  initialLoadingLabel = "Loading…",
   onDiscover,
   onSelectAll,
   onClearSelection,
@@ -175,14 +191,20 @@ export function ConnectorOnboardingWizard({
   searchValue,
   onSearchChange,
   enableBulkApply = false,
+  serverSideSearch = false,
+  searchDisabled = false,
+  discoveryHasMore = false,
+  discoveryLoadingMore = false,
+  onLoadMore,
+  discoveryTotalMatches = null,
 }: ConnectorOnboardingWizardProps) {
   const search = searchValue ?? "";
   const normalizedSearch = search.trim().toLowerCase();
-  const visibleRows = normalizedSearch
-    ? rows.filter((row) =>
+  const visibleRows = serverSideSearch || !normalizedSearch
+    ? rows
+    : rows.filter((row) =>
         `${row.name} ${row.secondary}`.toLowerCase().includes(normalizedSearch),
-      )
-    : rows;
+      );
   const selectedRows = rows.filter((row) => row.selected);
   const blockedRows = selectedRows.filter((row) => readinessFor(row).state === "blocked");
   // Rows that will actually be set up when the admin clicks Apply: selected
@@ -218,6 +240,10 @@ export function ConnectorOnboardingWizard({
   };
   const bulkApplyDisabled =
     loading || selectedRows.length === 0 || (!bulkTeamSlug && !bulkAgentId);
+  const discoveryBusy = discovering || initialLoading;
+  const discoveryBusyLabel = discovering ? loadingLabel : initialLoadingLabel;
+  const showFullDiscoveryLoading = discoveryBusy && rows.length === 0;
+  const showDiscoveryResults = (error || discoveredCount > 0 || rows.length > 0) && !showFullDiscoveryLoading;
 
   return (
     <div
@@ -238,10 +264,14 @@ export function ConnectorOnboardingWizard({
           type="button"
           variant="outline"
           onClick={onDiscover}
-          disabled={disabled || loading || discovering}
+          disabled={disabled || discovering}
         >
-          <Search className="h-4 w-4" aria-hidden="true" />
-          {discovering ? loadingLabel : discoveredCount > 0 ? refreshLabel : findLabel}
+          {discovering ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Search className="h-4 w-4" aria-hidden="true" />
+          )}
+          {discovering ? loadingLabel : discoveryLiveFetched ? refreshLabel : findLabel}
         </Button>
         {provider && (
           <DiscoveryCacheControls
@@ -262,7 +292,19 @@ export function ConnectorOnboardingWizard({
         </span>
         </div>
 
-        {(error || discoveredCount > 0) && (
+        {showFullDiscoveryLoading && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label={discoveryBusyLabel}
+            data-testid="discovery-loading"
+            className="flex min-h-[10rem] items-center justify-center rounded-md border border-dashed bg-muted/10 px-4 py-8"
+          >
+            <CAIPESpinner size="md" message={discoveryBusyLabel} />
+          </div>
+        )}
+
+        {showDiscoveryResults && (
           <>
           {error ? (
             <div className="text-destructive">{error}</div>
@@ -281,12 +323,14 @@ export function ConnectorOnboardingWizard({
                     placeholder={`Search ${itemPlural} by name…`}
                     value={search}
                     onChange={(event) => onSearchChange(event.target.value)}
-                    disabled={loading}
+                    disabled={searchDisabled}
                     className="max-w-sm"
                   />
                   {normalizedSearch && (
                     <span className="text-xs text-muted-foreground">
-                      {visibleRows.length} of {rows.length} {itemPlural}
+                      {serverSideSearch && discoveryTotalMatches !== null
+                        ? `${visibleRows.length} shown · ${discoveryTotalMatches} match${discoveryTotalMatches === 1 ? "" : "es"} in cache`
+                        : `${visibleRows.length} of ${rows.length} ${itemPlural}`}
                     </span>
                   )}
                 </div>
@@ -352,6 +396,18 @@ export function ConnectorOnboardingWizard({
                   </Button>
                 </div>
               )}
+              <div className="relative">
+                {discovering && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    aria-label={loadingLabel}
+                    data-testid="discovery-loading-overlay"
+                    className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/85 backdrop-blur-[1px]"
+                  >
+                    <CAIPESpinner size="md" message={loadingLabel} />
+                  </div>
+                )}
               <div className="max-h-[460px] overflow-auto rounded-md border bg-background/80">
                 <div className="grid min-w-[860px] grid-cols-[minmax(240px,1fr)_190px_220px_190px] gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
                   <div>{itemSingular[0].toUpperCase() + itemSingular.slice(1)}</div>
@@ -435,6 +491,27 @@ export function ConnectorOnboardingWizard({
                   })
                 )}
               </div>
+              {onLoadMore && discoveryHasMore && (
+                <div className="flex justify-center border-t bg-muted/20 px-3 py-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onLoadMore}
+                    disabled={searchDisabled || discoveryLoadingMore}
+                  >
+                    {discoveryLoadingMore ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                        Loading more…
+                      </>
+                    ) : (
+                      `Load more ${itemPlural}`
+                    )}
+                  </Button>
+                </div>
+              )}
+              </div>
             </>
           )}
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -444,7 +521,7 @@ export function ConnectorOnboardingWizard({
             </p>
             <div className="flex flex-col items-end gap-1">
               <div className="flex flex-wrap justify-end gap-2">
-                <Button type="button" variant="outline" onClick={onDiscover} disabled={disabled || loading || discovering}>
+                <Button type="button" variant="outline" onClick={onDiscover} disabled={disabled || discovering}>
                   <Search className="h-4 w-4" aria-hidden="true" />
                   Refresh
                 </Button>

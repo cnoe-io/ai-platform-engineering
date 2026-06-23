@@ -482,7 +482,7 @@ function AdminPage() {
   const pathname = usePathname();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
-  const { gates, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
+  const { gates, integrationPanelModes, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
   const isSimulationActive = Boolean(simulationTarget);
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
@@ -1499,13 +1499,27 @@ function AdminPage() {
 
               {tabGateValues.slack && (
                 <TabsContent value="slack" className="space-y-4">
-                  <SlackChannelRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
+                  <SlackChannelRebacPanel
+                    disabled={isSimulationActive}
+                    selfService={
+                      integrationPanelModes.slack
+                        ? integrationPanelModes.slack === "self_service"
+                        : !isAdmin
+                    }
+                  />
                 </TabsContent>
               )}
 
               {tabGateValues.webex && (
                 <TabsContent value="webex" className="space-y-4">
-                  <WebexSpaceRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
+                  <WebexSpaceRebacPanel
+                    disabled={isSimulationActive}
+                    selfService={
+                      integrationPanelModes.webex
+                        ? integrationPanelModes.webex === "self_service"
+                        : !isAdmin
+                    }
+                  />
                 </TabsContent>
               )}
 

@@ -33,6 +33,18 @@ interface ChannelListRow {
   source: "team_mapping" | "route_metadata";
 }
 
+function pickPrimaryAgentId(routes: SlackChannelAgentRouteDocument[]): string | undefined {
+  const enabledRoute = routes
+    .filter((route) => route.enabled !== false)
+    .sort(
+      (left, right) =>
+        (left.priority ?? 100) - (right.priority ?? 100) ||
+        left.agent_id.localeCompare(right.agent_id)
+    )[0];
+  const agentId = enabledRoute?.agent_id;
+  return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
+}
+
 async function slackChannelAccess(
   openfgaUser: string,
   workspaceId: string,
@@ -156,6 +168,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           channel_name: row.channel_name ?? row.slack_channel_id,
           team_id: row.team_id,
           team_slug: row.team_slug,
+          primary_agent_id: pickPrimaryAgentId(routesForChannel),
           active_grants: Math.max(grants.length, routesForChannel.length),
           can_manage: access.canManage || canManageSlackSurface,
           ...(health ? { health } : {}),

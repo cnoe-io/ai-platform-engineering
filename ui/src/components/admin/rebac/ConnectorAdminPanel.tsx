@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronRight,FileUp,HelpCircle,RefreshCw,RotateCw,Settings2 } from "lucide-react";
-import React,{ useCallback,useEffect,useMemo,useState } from "react";
+import { ChevronRight,FileUp,HelpCircle,Loader2,RefreshCw,RotateCw,Settings2 } from "lucide-react";
+import React,{ useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
 Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
@@ -114,6 +115,22 @@ function agentLabel(agent: DynamicAgentOption): string {
 }
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+type OnboardingDefaultSelection = { team_slug: string; agent_id: string };
+
+function configuredAgentDisplay(
+  item: ItemSummary,
+  dynamicAgents: DynamicAgentOption[],
+): { agentId: string; displayName: string } | null {
+  const agentId = item.primary_agent_id?.trim();
+  if (!agentId) return null;
+  const match = dynamicAgents.find((agent) => agent._id === agentId);
+  const name = match?.name?.trim();
+  return {
+    agentId,
+    displayName: name && name !== agentId ? name : agentId,
+  };
 }
 
 // ── Sync preview breakdown ────────────────────────────────────────────────────
@@ -459,6 +476,82 @@ function ItemDetail({
   );
 }
 
+type DiscoveredRow = DiscoveredItem & {
+  selected: boolean;
+  team_slug: string;
+  agent_id: string;
+  is_existing: boolean;
+};
+
+function enrichDiscoveredRows(
+  rows: DiscoveredRow[],
+  sources: {
+    configuredItemsById: Map<string, ItemSummary>;
+    globalDefaults: OnboardingDefaultSelection;
+    legacyChannelAgents: Record<string, string>;
+  },
+): DiscoveredRow[] {
+  return rows.map((row) => {
+    const existing = sources.configuredItemsById.get(row.id);
+    const legacyAgent = sources.legacyChannelAgents[row.id];
+    const teamSlug =
+      row.team_slug ||
+      existing?.team_slug ||
+      sources.globalDefaults.team_slug ||
+      "";
+    const agentId =
+      row.agent_id ||
+      existing?.primary_agent_id ||
+      legacyAgent ||
+      sources.globalDefaults.agent_id ||
+      "";
+    const isSetupComplete = Boolean(existing?.team_slug && (existing?.active_grants ?? 0) > 0);
+    return {
+      ...row,
+      team_slug: teamSlug,
+      agent_id: agentId,
+      is_existing: row.is_existing || isSetupComplete,
+    };
+  });
+}
+
+function itemsToDiscovered(items: ItemSummary[]): DiscoveredItem[] {
+  return items.map((item) => ({
+    id: item.item_id,
+    name: item.item_name,
+    secondary: item.item_id,
+  }));
+}
+
+function mergeDiscoveredById(base: DiscoveredItem[], incoming: DiscoveredItem[]): DiscoveredItem[] {
+  const byId = new Map(base.map((item) => [item.id, item]));
+  for (const item of incoming) byId.set(item.id, item);
+  return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+const MIN_LOADING_VISIBLE_MS = process.env.NODE_ENV === "test" ? 0 : 400;
+
+async function holdLoadingIndicator(startedAt: number): Promise<void> {
+  const elapsed = Date.now() - startedAt;
+  if (elapsed < MIN_LOADING_VISIBLE_MS) {
+    await new Promise((resolve) => setTimeout(resolve, MIN_LOADING_VISIBLE_MS - elapsed));
+  }
+}
+
+function ConnectorLoadingState({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+      data-testid="connector-items-loading"
+      className="flex min-h-[12rem] flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-10"
+    >
+      <CAIPESpinner size="lg" message={label} />
+    </div>
+  );
+}
+
 // ── ConnectorAdminPanel ───────────────────────────────────────────────────────
 
 export function ConnectorAdminPanel({
@@ -486,7 +579,22 @@ export function ConnectorAdminPanel({
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>([]);
-  const [discoveredRows, setDiscoveredRows] = useState<Array<DiscoveredItem & { selected: boolean; team_slug: string; agent_id: string; is_existing: boolean }>>([]);
+  const [discoveredRows, setDiscoveredRows] = useState<DiscoveredRow[]>([]);
+  const [discoveryNextCursor, setDiscoveryNextCursor] = useState<string | null>(null);
+  const [discoveryHasMore, setDiscoveryHasMore] = useState(false);
+  const [discoveryLoadingMore, setDiscoveryLoadingMore] = useState(false);
+  const [discoveryTotalMatches, setDiscoveryTotalMatches] = useState<number | null>(null);
+  const [discoveryLiveFetched, setDiscoveryLiveFetched] = useState(false);
+  const discoveryFetchedRef = useRef(false);
+  const [onboardingDefaults, setOnboardingDefaults] = useState<OnboardingDefaultSelection>({
+    team_slug: "",
+    agent_id: "",
+  });
+  const [legacyChannelAgents, setLegacyChannelAgents] = useState<Record<string, string>>({});
+  const paginatedDiscovery = adapter.discoveryPaginated === true;
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [hasLoadedItemsOnce, setHasLoadedItemsOnce] = useState(false);
+  const itemsFetchGenerationRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // Sub-tab (Configured / Onboard / Advanced) is mirrored to the `subtab` URL
@@ -494,6 +602,7 @@ export function ConnectorAdminPanel({
   // self-service mode there is no tab bar — the configured table always shows —
   // so `view` stays local there and the URL is left untouched.
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
+  const panelView: PanelView = selfService ? "channels" : view;
   const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
 
@@ -514,6 +623,7 @@ export function ConnectorAdminPanel({
         item.item_id,
         item.workspace_id,
         item.team_slug ?? "",
+        item.primary_agent_id ?? "",
       ].some((value) => value.toLowerCase().includes(query)),
     );
   }, [configuredSearch, items]);
@@ -533,17 +643,29 @@ export function ConnectorAdminPanel({
   // ── Data loaders ────────────────────────────────────────────────────────────
 
   const loadItems = useCallback(async () => {
-    setLoading(true); setMessage(null);
+    const startedAt = Date.now();
+    const generation = ++itemsFetchGenerationRef.current;
+    setItemsLoading(true); setMessage(null);
     try {
       const res = await fetch(`${adapter.api.list}?health=1`);
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const rows = adapter.parseListResponse(json);
       const parsed = rows.map((r) => adapter.parseListItem(r)).filter((x): x is ItemSummary => x !== null);
-      setItems(parsed);
+      if (generation === itemsFetchGenerationRef.current) {
+        setItems(parsed);
+      }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : `Failed to load ${adapter.itemPlural}`);
-    } finally { setLoading(false); }
+      if (generation === itemsFetchGenerationRef.current) {
+        setMessage(err instanceof Error ? err.message : `Failed to load ${adapter.itemPlural}`);
+      }
+    } finally {
+      if (generation === itemsFetchGenerationRef.current) {
+        await holdLoadingIndicator(startedAt);
+        setItemsLoading(false);
+        setHasLoadedItemsOnce(true);
+      }
+    }
   }, [adapter]);
 
   const loadRoutes = useCallback(async () => {
@@ -575,6 +697,37 @@ export function ConnectorAdminPanel({
     const data = apiData<{ teams: TeamOption[] }>(await res.json());
     setTeams(data.teams ?? []);
   }, []);
+
+  const loadOnboardingDefaults = useCallback(async () => {
+    try {
+      const res = await fetch(adapter.api.defaults);
+      if (!res.ok) return;
+      const data = apiData<{ defaults?: { team_slug?: string; agent_id?: string } }>(await res.json());
+      setOnboardingDefaults({
+        team_slug: String(data.defaults?.team_slug ?? "").trim(),
+        agent_id: String(data.defaults?.agent_id ?? "").trim(),
+      });
+    } catch {
+      // Non-fatal: the wizard still works with per-row picks.
+    }
+  }, [adapter.api.defaults]);
+
+  const loadLegacyChannelHints = useCallback(async () => {
+    if (!adapter.api.legacyConfigDefaults) return;
+    try {
+      const res = await fetch(adapter.api.legacyConfigDefaults);
+      if (!res.ok) return;
+      const data = apiData<{ channels?: Record<string, { suggested_agent_id?: string }> }>(await res.json());
+      const hints: Record<string, string> = {};
+      for (const [channelId, channel] of Object.entries(data.channels ?? {})) {
+        const agentId = String(channel.suggested_agent_id ?? "").trim();
+        if (agentId) hints[channelId] = agentId;
+      }
+      setLegacyChannelAgents(hints);
+    } catch {
+      // Non-fatal: configured rows and saved defaults still apply.
+    }
+  }, [adapter.api.legacyConfigDefaults]);
 
   const loadRuntimeStatus = useCallback(async () => {
     const res = await fetch(adapter.api.runtimeStatus);
@@ -629,7 +782,11 @@ export function ConnectorAdminPanel({
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
-  useEffect(() => { void loadItems(); }, [loadItems]);
+  useLayoutEffect(() => { void loadItems(); }, [loadItems]);
+  useEffect(() => {
+    if (selfService) return;
+    void loadOnboardingDefaults();
+  }, [loadOnboardingDefaults, selfService]);
   useEffect(() => {
     void loadDynamicAgents().catch((e) =>
       setMessage(e instanceof Error ? e.message : "Failed to load Dynamic Agents"));
@@ -705,7 +862,149 @@ export function ConnectorAdminPanel({
 
   // ── Discovery / onboarding ───────────────────────────────────────────────────
 
+  const buildDiscoveredRows = useCallback(
+    (discovered: DiscoveredItem[], previousRows: DiscoveredRow[]): DiscoveredRow[] => {
+      const prevById = new Map(previousRows.map((row) => [row.id, row]));
+      const hasNewItems = discovered.some((item) => !configuredItemIds.has(item.id));
+      const built = discovered.map((item) => {
+        const prev = prevById.get(item.id);
+        const existing = configuredItemsById.get(item.id);
+        const isExisting = configuredItemIds.has(item.id);
+        const isSetupComplete = Boolean(existing?.team_slug && (existing.active_grants ?? 0) > 0);
+        const autoSelect = adapter.discoveryAutoSelectNewItems
+          ? (hasNewItems ? !isExisting : true)
+          : false;
+        if (prev) {
+          return {
+            ...prev,
+            name: item.name,
+            secondary: item.secondary,
+            team_slug: prev.team_slug || existing?.team_slug || "",
+            agent_id: prev.agent_id || existing?.primary_agent_id || "",
+            is_existing: isSetupComplete || prev.is_existing,
+          };
+        }
+        return {
+          ...item,
+          selected: autoSelect,
+          team_slug: existing?.team_slug ?? "",
+          agent_id: existing?.primary_agent_id ?? "",
+          is_existing: isSetupComplete,
+        };
+      });
+      return enrichDiscoveredRows(built, {
+        configuredItemsById,
+        globalDefaults: onboardingDefaults,
+        legacyChannelAgents,
+      });
+    },
+    [
+      adapter.discoveryAutoSelectNewItems,
+      configuredItemIds,
+      configuredItemsById,
+      onboardingDefaults,
+      legacyChannelAgents,
+    ],
+  );
+
+  useEffect(() => {
+    if (panelView !== "onboard" || discoveredRows.length === 0) return;
+    setDiscoveredRows((rows) =>
+      enrichDiscoveredRows(rows, {
+        configuredItemsById,
+        globalDefaults: onboardingDefaults,
+        legacyChannelAgents,
+      }),
+    );
+  }, [configuredItemsById, onboardingDefaults, legacyChannelAgents, panelView, discoveredRows.length]);
+
+  const fetchDiscoveryPage = useCallback(
+    async (opts: { append: boolean; cursor?: string | null; q?: string; toastOnSuccess?: boolean }) => {
+      const startedAt = Date.now();
+      if (opts.append) setDiscoveryLoadingMore(true);
+      else {
+        setDiscoverLoading(true);
+        discoveryFetchedRef.current = true;
+        setDiscoveryLiveFetched(true);
+      }
+      setDiscoverError(null);
+      try {
+        const url = adapter.api.discoveryUrl(0, opts.cursor ?? null, opts.q);
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(await res.text());
+        const pageData = adapter.parseDiscoveryPage(await res.json());
+
+        setDiscoveryNextCursor(pageData.nextCursor);
+        setDiscoveryHasMore(pageData.hasMore);
+        setDiscoveryTotalMatches(pageData.totalMatches ?? null);
+
+        const configuredSeed = itemsToDiscovered(items);
+        if (opts.append) {
+          setDiscoveredItems((prev) => mergeDiscoveredById(prev, pageData.items));
+          setDiscoveredRows((prev) => {
+            const merged = mergeDiscoveredById(
+              prev.map((row) => ({ id: row.id, name: row.name, secondary: row.secondary })),
+              pageData.items,
+            );
+            return buildDiscoveredRows(merged, prev);
+          });
+        } else {
+          const merged = mergeDiscoveredById(configuredSeed, pageData.items);
+          setDiscoveredItems(merged);
+          setDiscoveredRows(buildDiscoveredRows(merged, []));
+        }
+
+        if (opts.toastOnSuccess !== false && !opts.append) {
+          toast(
+            `Loaded ${pluralize(pageData.items.length, adapter.copy.discoveryDiscoveredLabel)}.`,
+            "success",
+          );
+        }
+        await loadLegacyChannelHints();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : `Failed to discover ${adapter.connectorName} ${adapter.itemPlural}`;
+        setDiscoverError(msg);
+        setMessage(msg);
+        if (!opts.append) {
+          setDiscoveredItems([]);
+          setDiscoveredRows([]);
+        }
+      } finally {
+        if (opts.append) setDiscoveryLoadingMore(false);
+        else {
+          await holdLoadingIndicator(startedAt);
+          setDiscoverLoading(false);
+        }
+      }
+    },
+    [adapter, buildDiscoveredRows, items, paginatedDiscovery, toast, loadLegacyChannelHints],
+  );
+
+  useEffect(() => {
+    if (panelView !== "onboard" || !paginatedDiscovery) return;
+    if (discoveredRows.length > 0 || items.length === 0) return;
+    const seeded = itemsToDiscovered(items);
+    setDiscoveredItems(seeded);
+    setDiscoveredRows(buildDiscoveredRows(seeded, []));
+  }, [panelView, paginatedDiscovery, items, discoveredRows.length, buildDiscoveredRows]);
+
+  useEffect(() => {
+    if (!paginatedDiscovery || !adapter.discoveryServerSearch) return;
+    if (panelView !== "onboard") return;
+    if (!discoveryFetchedRef.current) return;
+    const handle = setTimeout(() => {
+      void fetchDiscoveryPage({ append: false, q: discoverySearch.trim(), toastOnSuccess: false });
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-query when the search string changes
+  }, [discoverySearch]);
+
   const discoverItems = async () => {
+    if (paginatedDiscovery) {
+      await fetchDiscoveryPage({ append: false, q: discoverySearch.trim() });
+      return;
+    }
+    const startedAt = Date.now();
     setDiscoverLoading(true); setDiscoverError(null); setMessage(null);
     try {
       const discovered: DiscoveredItem[] = [];
@@ -720,24 +1019,29 @@ export function ConnectorAdminPanel({
         cursor = pageData.hasMore ? pageData.nextCursor : null;
         page++;
       } while (cursor);
-      setDiscoveredItems(discovered);
-      const hasNewItems = discovered.some((item) => !configuredItemIds.has(item.id));
-      setDiscoveredRows(discovered.map((item) => {
-        const existing = configuredItemsById.get(item.id);
-        const isExisting = configuredItemIds.has(item.id);
-        const isSetupComplete = Boolean(existing?.team_slug && (existing.active_grants ?? 0) > 0);
-        // Slack: never auto-select (admin opts in per row).
-        // Webex: auto-select new items when there are new ones to onboard.
-        const autoSelect = adapter.discoveryAutoSelectNewItems
-          ? (hasNewItems ? !isExisting : true)
-          : false;
-        return { ...item, selected: autoSelect, team_slug: "", agent_id: "", is_existing: isSetupComplete };
-      }));
+      const configuredSeed = itemsToDiscovered(items);
+      const merged = mergeDiscoveredById(configuredSeed, discovered);
+      setDiscoveredItems(merged);
+      setDiscoveredRows(buildDiscoveredRows(merged, []));
+      await loadLegacyChannelHints();
       toast(`Found ${pluralize(discovered.length, adapter.copy.discoveryDiscoveredLabel)}.`, "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : `Failed to discover ${adapter.connectorName} ${adapter.itemPlural}`;
       setDiscoverError(msg); setMessage(msg); setDiscoveredRows([]);
-    } finally { setDiscoverLoading(false); }
+    } finally {
+      await holdLoadingIndicator(startedAt);
+      setDiscoverLoading(false);
+    }
+  };
+
+  const loadMoreDiscovery = () => {
+    if (!discoveryHasMore || !discoveryNextCursor) return;
+    void fetchDiscoveryPage({
+      append: true,
+      cursor: discoveryNextCursor,
+      q: discoverySearch.trim(),
+      toastOnSuccess: false,
+    });
   };
 
   const updateDiscoveredRow = (itemId: string, updates: Partial<{ selected: boolean; team_slug: string; agent_id: string }>) => {
@@ -752,7 +1056,10 @@ export function ConnectorAdminPanel({
     try {
       const result = await adapter.applyOnboarding({
         rows: discoveredRows.map((r) => ({ id: r.id, name: r.name, teamSlug: r.team_slug, agentId: r.agent_id, selected: r.selected })),
-        defaultTeamSlug: "", defaultAgentId: "", createDefaultRoutes: true, fetchFn: fetch,
+        defaultTeamSlug: onboardingDefaults.team_slug,
+        defaultAgentId: onboardingDefaults.agent_id,
+        createDefaultRoutes: true,
+        fetchFn: fetch,
       });
       await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
       const appliedIds = new Set(discoveredRows.filter((r) => r.selected).map((r) => r.id));
@@ -772,6 +1079,8 @@ export function ConnectorAdminPanel({
     configuredCount: items.length,
     unassignedCount: unassignedCount,
   });
+  const showConfiguredLoading = itemsLoading || !hasLoadedItemsOnce;
+  const configuredLoadingLabel = `Loading ${adapter.connectorName} ${adapter.itemPlural}…`;
 
   const viewTitle: Record<PanelView, string> = {
     channels: adapter.copy.configuredTabTitle,
@@ -801,8 +1110,8 @@ export function ConnectorAdminPanel({
             className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
             {(Object.keys(viewTitle) as PanelView[]).map((key) => (
               <Button key={key} role="tab" type="button" size="sm"
-                variant={view === key ? "default" : "ghost"}
-                aria-selected={view === key} onClick={() => setView(key)}>
+                variant={panelView === key ? "default" : "ghost"}
+                aria-selected={panelView === key} onClick={() => setView(key)}>
                 {viewTitle[key]}
               </Button>
             ))}
@@ -810,14 +1119,14 @@ export function ConnectorAdminPanel({
         )}
 
         {/* Auth disclaimer */}
-        {(selfService || view === "onboard") && (
+        {(selfService || panelView === "onboard") && (
           <div className="space-y-2 rounded-md border p-3 text-sm text-muted-foreground">
             {adapter.authzDisclaimer}
           </div>
         )}
 
         {/* Advanced tab */}
-        {!selfService && view === "advanced" && (
+        {!selfService && panelView === "advanced" && (
           <div role="region" aria-label={adapter.ariaLabels.advancedRegion} className="space-y-3">
             <div
               data-section-tone="slate"
@@ -923,16 +1232,24 @@ export function ConnectorAdminPanel({
           </DialogContent>
         </Dialog>
 
-        {/* Empty state */}
-        {!selfService && view === "channels" && items.length === 0 && (
-          <div className="rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">No {adapter.itemPlural} configured yet.</p>
-            <p className="mt-1">Switch to <button type="button" className="underline underline-offset-2" onClick={() => setView("onboard")}>Onboard {adapter.itemPlural}</button> to find {adapter.connectorName} {adapter.itemPlural} where the bot is installed and set them up.</p>
-          </div>
-        )}
-
-        {/* Configured items table */}
-        {(selfService || view === "channels") && items.length > 0 && (
+        {/* Configured / self-service channels — one slot: loading, empty, or table */}
+        {(selfService || panelView === "channels") && (
+          <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
+            {showConfiguredLoading ? (
+              <ConnectorLoadingState label={configuredLoadingLabel} />
+            ) : items.length === 0 ? (
+              selfService ? (
+                <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">No {adapter.itemPlural} shared with your team yet.</p>
+                  <p className="mt-1">Ask a platform admin to assign {adapter.connectorName} {adapter.itemPlural} to your team.</p>
+                </div>
+              ) : (
+                <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">No {adapter.itemPlural} configured yet.</p>
+                  <p className="mt-1">Switch to <button type="button" className="underline underline-offset-2" onClick={() => setView("onboard")}>Onboard {adapter.itemPlural}</button> to find {adapter.connectorName} {adapter.itemPlural} where the bot is installed and set them up.</p>
+                </div>
+              )
+            ) : (
           <div role="region" aria-label={adapter.ariaLabels.configuredRegion}
             className="rounded-md border bg-background/60 overflow-hidden">
             <div className="flex flex-col gap-2 border-b bg-background/80 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -962,7 +1279,7 @@ export function ConnectorAdminPanel({
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">{adapter.itemSingular.charAt(0).toUpperCase() + adapter.itemSingular.slice(1)}</th>
                     <th className="px-3 py-2 text-left font-medium">Team</th>
-                    <th className="px-3 py-2 text-left font-medium">Agents</th>
+                    <th className="px-3 py-2 text-left font-medium">Agent</th>
                     <th className="px-3 py-2 text-left font-medium">Health</th>
                   </tr>
                 </thead>
@@ -977,6 +1294,7 @@ export function ConnectorAdminPanel({
                   {filteredConfiguredItems.map((item) => {
                     const key = adapter.itemKey(item);
                     const isSelected = key === selectedKey;
+                    const hasPrimaryAgent = Boolean(item.primary_agent_id?.trim());
                     const grants = item.active_grants ?? 0;
                     const warningsCount = isSelected && diagnostics
                       ? diagnostics.warnings.length : item.health?.warnings_count;
@@ -986,7 +1304,7 @@ export function ConnectorAdminPanel({
                         ? warningsCount > 0
                           ? { label: `${warningsCount} issue${warningsCount === 1 ? "" : "s"}`, className: "border-amber-300 bg-amber-50 text-amber-800" }
                           : { label: "healthy", className: "border-emerald-300 bg-emerald-50 text-emerald-700" }
-                        : grants === 0
+                        : !hasPrimaryAgent && grants === 0
                           ? { label: "no agents", className: "border-amber-300 bg-amber-50 text-amber-800" }
                           : { label: "checking…", className: "border-slate-300 bg-slate-50 text-slate-600" };
                     const toggle = () => setSelectedKey(isSelected ? "" : key);
@@ -1005,7 +1323,24 @@ export function ConnectorAdminPanel({
                             </div>
                           </td>
                           <td className="px-3 py-2">{item.team_slug ? <Badge variant="secondary">team:{item.team_slug}</Badge> : <span className="text-xs text-muted-foreground">—</span>}</td>
-                          <td className="px-3 py-2"><span className={grants === 0 ? "text-muted-foreground" : "font-medium"}>{grants}</span></td>
+                          <td className="px-3 py-2">
+                            {(() => {
+                              const agent = configuredAgentDisplay(item, dynamicAgents);
+                              if (!agent) {
+                                return (item.active_grants ?? 0) === 0
+                                  ? <span className="text-xs text-muted-foreground">—</span>
+                                  : <span className="text-xs text-muted-foreground">No primary agent</span>;
+                              }
+                              return (
+                                <div className="space-y-0.5">
+                                  <Badge variant="secondary">{agent.displayName}</Badge>
+                                  {agent.displayName !== agent.agentId && (
+                                    <div className="text-[11px] font-mono text-muted-foreground">{agent.agentId}</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className="px-3 py-2"><Badge variant="outline" className={health.className}>{health.label}</Badge></td>
                         </tr>
                         {isSelected && (
@@ -1038,10 +1373,12 @@ export function ConnectorAdminPanel({
               </table>
             </div>
           </div>
+            )}
+          </div>
         )}
 
         {/* Onboarding wizard */}
-        {!selfService && view === "onboard" && (
+        {!selfService && panelView === "onboard" && (
           <ConnectorOnboardingWizard
             connectorName={adapter.connectorName}
             provider={adapter.discoveryCacheProvider}
@@ -1076,6 +1413,15 @@ export function ConnectorAdminPanel({
             disabled={disabled}
             loading={loading}
             discovering={discoverLoading}
+            initialLoading={itemsLoading && discoveredRows.length === 0}
+            initialLoadingLabel={`Loading configured ${adapter.itemPlural}…`}
+            discoveryLiveFetched={paginatedDiscovery ? discoveryLiveFetched : discoveredItems.length > 0}
+            discoveryHasMore={paginatedDiscovery ? discoveryHasMore : false}
+            discoveryLoadingMore={discoveryLoadingMore}
+            onLoadMore={paginatedDiscovery ? loadMoreDiscovery : undefined}
+            discoveryTotalMatches={paginatedDiscovery ? discoveryTotalMatches : null}
+            serverSideSearch={adapter.discoveryServerSearch === true}
+            searchDisabled={discoverLoading || discoveryLoadingMore}
             searchValue={discoverySearch}
             onSearchChange={setDiscoverySearch}
             enableBulkApply
