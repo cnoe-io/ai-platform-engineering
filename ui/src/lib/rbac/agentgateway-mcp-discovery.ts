@@ -34,30 +34,9 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       fallback_env: "GITLAB_PERSONAL_ACCESS_TOKEN",
     },
   ],
-  jira: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "atlassian",
-      target: "header",
-    },
-  ],
-  confluence: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "atlassian",
-      target: "header",
-    },
-  ],
-  pagerduty: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "pagerduty",
-      target: "header",
-    },
-  ],
+  jira: [],
+  confluence: [],
+  pagerduty: [],
   "knowledge-base": [
     {
       kind: "caller_token",
