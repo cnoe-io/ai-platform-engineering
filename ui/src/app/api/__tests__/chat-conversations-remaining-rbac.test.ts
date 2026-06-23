@@ -110,7 +110,7 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
     mockRequireConversationResourcePermission.mockResolvedValue(undefined);
   });
 
-  it("shared conversations fetch candidates without Mongo team-membership prefiltering", async () => {
+  it("shared conversations prefilter sharing candidates before OpenFGA authorization", async () => {
     const candidate = conversation();
     const conversations = collectionWithItems([candidate]);
     mockGetCollection.mockResolvedValue(conversations);
@@ -125,7 +125,12 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
         owner_id: { $ne: "alice@example.com" },
       }),
     );
-    expect(conversations.find.mock.calls[0][0]).not.toHaveProperty("$or");
+    expect(conversations.find.mock.calls[0][0].$or).toEqual([
+      { "sharing.is_public": true },
+      { "sharing.shared_with": "alice@example.com" },
+      { "sharing.share_link_enabled": true },
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ]);
     expect(mockFilterConversationsByImplicitOrExplicitPermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",

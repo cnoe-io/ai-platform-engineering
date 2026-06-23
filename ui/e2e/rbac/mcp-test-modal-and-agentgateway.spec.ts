@@ -93,7 +93,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
         serverId: "jira-via-ag",
       });
       await selectAgentGatewayTarget(page, /Jira/i);
-      await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+      await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
       await page.getByRole("button", { name: "Create Server" }).click();
 
       await expect.poll(() => mocks.createRequests.length).toBe(1);
@@ -115,7 +115,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
 
       await gotoMcpServersTab(page);
       await openAddMcpServerEditor(page);
-      await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+      await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
 
       await expect(
         page.getByText(/always go through AgentGateway so tool access can be authorized/i),
@@ -159,7 +159,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await gotoMcpServersTab(page);
       await openAddMcpServerEditor(page);
 
-      await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+      await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
       await page.getByLabel(/Endpoint URL/i).fill("http://custom-mcp:8000");
       await page.getByRole("button", { name: /check url/i }).click();
 
@@ -507,7 +507,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
         serverId: "jira-e2e",
       });
       await selectAgentGatewayTarget(page, /Jira/i);
-      await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+      await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
 
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel(/Credential kind/i).selectOption("provider_connection");

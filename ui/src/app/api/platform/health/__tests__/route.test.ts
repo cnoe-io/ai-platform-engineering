@@ -99,11 +99,12 @@ describe("/api/platform/health", () => {
 
     expect(response.status).toBe(200);
     expect(body.status).toBe("healthy");
-    expect(body.summary).toEqual({ total: 18, healthy: 18, warning: 0, down: 0 });
+    expect(body.summary).toEqual({ total: 19, healthy: 19, warning: 0, down: 0 });
     expect(body.probes.map((probe: { id: string }) => probe.id)).toEqual([
       "keycloak",
       "openfga",
       "openfga-authz-bridge",
+      "dynamic-agents",
       "agentgateway-config-bridge",
       "agentgateway",
       "caipe-mongodb",
