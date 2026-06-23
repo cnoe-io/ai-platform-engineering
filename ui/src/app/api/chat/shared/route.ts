@@ -1,4 +1,14 @@
 // GET /api/chat/shared - Get conversations shared with current user
+//
+// SECURITY INVARIANT (issue #1979): this route must NEVER query all non-owner
+// conversations. Doing so would expose private conversations from other users
+// to the OpenFGA permission pipeline and produce an inflated total count.
+//
+// The MongoDB query MUST include an $or pre-filter that restricts candidates to
+// conversations with at least one sharing signal before passing them to
+// filterConversationsByImplicitOrExplicitPermission. OpenFGA is the
+// authoritative visibility check; the pre-filter is the privacy guard.
+// Both layers are required — removing either breaks the security model.
 
 import {
 getPaginationParams,
