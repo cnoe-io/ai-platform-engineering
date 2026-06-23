@@ -32,7 +32,7 @@ const SPECS: Record<PageKind, Spec> = {
     iconClass: "text-emerald-700 dark:text-emerald-400",
     title: "Stable",
     description:
-      "Human-curated. Written once on greenfield ingest, then preserved across every reingest. Edit freely — your changes stick.",
+      "Human-curated. Written once on greenfield ingest, then preserved across every reingest. Edit freely; your changes stick.",
   },
   dynamic: {
     label: "dynamic",
@@ -42,7 +42,7 @@ const SPECS: Record<PageKind, Spec> = {
     iconClass: "text-sky-700 dark:text-sky-400",
     title: "Dynamic",
     description:
-      "Agent rewrites this page on every reingest. Your edits feed in as prior context — they may or may not survive verbatim.",
+      "Agent rewrites this page on every reingest. Your edits feed in as prior context; they may or may not survive verbatim.",
   },
   hidden: {
     label: "hidden",
@@ -62,7 +62,7 @@ const SPECS: Record<PageKind, Spec> = {
     iconClass: "text-violet-700 dark:text-violet-400",
     title: "Report",
     description:
-      "A focused, structured surface — not a wiki page. Lives above the wiki and renders as its own UI element. Editable, but the agent rewrites it on each ingest like dynamic pages.",
+      "A focused, structured surface, not a wiki page. Lives above the wiki and renders as its own UI element. Editable, but the agent rewrites it on each ingest like dynamic pages.",
   },
 };
 

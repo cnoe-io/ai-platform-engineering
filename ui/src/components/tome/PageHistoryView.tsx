@@ -95,7 +95,7 @@ export function PageHistoryView({
     if (!selected) return "";
     return previous
       ? `Changes in this revision (${previous.author} → ${selected.author})`
-      : "First revision — compared against an empty page.";
+      : "First revision, compared against an empty page.";
   }, [selected, previous]);
 
   return (

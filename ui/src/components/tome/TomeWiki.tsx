@@ -294,7 +294,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     active={navActive.agent}
                     onClick={() => setView({ kind: "agent" })}
                     tipTitle="Agent"
-                    tipDescription="Chat with the editing agent that reads and writes this project's wiki pages — ask it to draft, refine, or reorganize content."
+                    tipDescription="Chat with the editing agent that reads and writes this project's wiki pages. Ask it to draft, refine, or reorganize content."
                   />
                   <NavItem
                     icon={<RefreshCw className="h-4 w-4" />}
@@ -302,7 +302,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     active={navActive.ingest}
                     onClick={() => setView({ kind: "ingest" })}
                     tipTitle="Schedule new ingest"
-                    tipDescription="Start an ingest run that (re)builds the wiki from the project's attached sources — GitHub repos, Confluence spaces, and Webex rooms."
+                    tipDescription="Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
@@ -310,7 +310,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     active={navActive.talk}
                     onClick={() => setView({ kind: "talk" })}
                     tipTitle="Talk"
-                    tipDescription="The project's talk page — discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
+                    tipDescription="The project's talk page: discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
                   />
                 </div>
 

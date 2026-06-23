@@ -311,7 +311,7 @@ function EmptyState({ slug }: { slug: string }) {
       </div>
       <h2 className="text-lg font-semibold">Chat with tome</h2>
       <p className="max-w-md text-sm text-muted-foreground">
-        Ask about <span className="font-medium">{slug}</span> — status, recent
+        Ask about <span className="font-medium">{slug}</span>: status, recent
         changes, what shipped, who&apos;s working on what. The agent reads this
         project&apos;s wiki and sources, and can update pages for you.
       </p>

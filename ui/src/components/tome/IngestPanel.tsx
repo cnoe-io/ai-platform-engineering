@@ -106,7 +106,7 @@ export function IngestPanel({
             Seed instruction <span className="text-muted-foreground">(optional)</span>
           </label>
           <p className="mb-2 text-xs text-muted-foreground">
-            A one-shot nudge for this run — e.g. &ldquo;focus on the auth
+            A one-shot nudge for this run, e.g. &ldquo;focus on the auth
             refactor&rdquo;. Doesn&apos;t override page-kind preservation.
           </p>
           <TextareaAutosize

@@ -167,7 +167,7 @@ export function McpConnectDialog() {
                   <CopyButton value={token} label="Copy API key" copiedLabel="Copied key" />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Copy it now — for security this key is shown only once. Regenerating issues a new one.
+                  Copy it now. For security this key is shown only once; regenerating issues a new one.
                 </p>
               </div>
             )}
@@ -184,7 +184,7 @@ export function McpConnectDialog() {
               </TabsList>
               <TabsContent value="claude-code" className="min-w-0 space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  Run this once — registers the server (user scope) via the native HTTP transport, no
+                  Run this once. Registers the server (user scope) via the native HTTP transport, no
                   bridge needed. Then <code>/mcp</code> shows <code>tome</code>.
                 </p>
                 <ConfigBlock text={claudeCodeCommand(endpoint, shownToken)} />
