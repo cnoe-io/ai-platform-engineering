@@ -430,7 +430,7 @@ export function MCPServersTab() {
           <div>
             <CardTitle>MCP Servers</CardTitle>
             <CardDescription>
-              Configure MCP server connections. HTTP and SSE servers are routed through AgentGateway so each tool call can be authorized before it reaches the server.
+              Configure MCP server connections. Streamable HTTP servers are routed through AgentGateway so each tool call can be authorized before it reaches the server.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">

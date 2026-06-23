@@ -192,7 +192,6 @@ describe("MCPServerEditor credential sources", () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: /http http\/rest endpoint/i }));
     await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "http://mcp-argocd:8000");
     await user.click(screen.getByRole("button", { name: /check url/i }));
 
@@ -317,7 +316,6 @@ describe("MCPServerEditor credential sources", () => {
     await user.type(screen.getByLabelText(/generated name/i), "jira-gu");
     await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
     await user.click(screen.getByRole("option", { name: /^Jira$/i }));
-    await user.click(screen.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }));
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
     await waitFor(() =>
