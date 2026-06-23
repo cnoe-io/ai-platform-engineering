@@ -1,0 +1,336 @@
+"use client";
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowUp, Loader2, MessagesSquare } from "lucide-react";
+import TextareaAutosize from "react-textarea-autosize";
+
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { MarkdownRenderer } from "@/components/shared/timeline";
+
+/**
+ * The project's "Talk page" — the conversation ABOUT the project, backed by a
+ * Mycelium room (one room per project). The wiki holds the context; this holds
+ * the discussion. Messages are attributed to the CAIPE-authenticated user;
+ * agents posting via the MCP show up here under their own identity too.
+ *
+ * Reverse infinite scroll: the newest page loads first (pinned to the bottom);
+ * scrolling up loads older pages and anchors the viewport so it doesn't jump.
+ * A short poll merges newly-arrived messages by id. Mycelium returns messages
+ * newest-first with limit/offset; we hold them ascending for display.
+ */
+
+interface TalkMessage {
+  id: string;
+  sender_handle: string;
+  recipient_handle: string | null;
+  message_type: string;
+  content: string;
+  created_at: string;
+  display_name?: string | null;
+}
+
+const PAGE = 30;
+const POLL_MS = 4000;
+const NEAR_TOP_PX = 80;
+const NEAR_BOTTOM_PX = 80;
+
+/** "jovarney@cisco.com" → "jovarney"; leave non-emails as-is. */
+function displayName(handle: string): string {
+  return handle.includes("@") ? handle.split("@")[0] : handle;
+}
+
+function timeLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+}
+
+/** Up to two initials from a display name or handle: "Julia Valenti" → "JV". */
+function initialsOf(name: string): string {
+  const parts = name.split(/[\s@._-]+/).filter(Boolean);
+  const letters = (parts.length ? parts : [name]).slice(0, 2).map((p) => p[0] ?? "");
+  return letters.join("").toUpperCase() || "?";
+}
+
+export function TalkPanel({ slug }: { slug: string }) {
+  const [messages, setMessages] = useState<TalkMessage[]>([]);
+  // Mycelium's `total` is just the returned-page size, not a grand total, so we
+  // can't use it for hasMore. Instead we stop paging when an older fetch returns
+  // a short page (fewer than PAGE) or yields no new ids.
+  const [reachedStart, setReachedStart] = useState(false);
+  const firstLoadRef = useRef(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [notConfigured, setNotConfigured] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  // Set before a prepend so the layout effect can keep the viewport anchored.
+  const restoreRef = useRef<{ height: number; top: number } | null>(null);
+  // Whether to pin to the bottom after the next render (new message + at bottom).
+  const stickBottomRef = useRef(true);
+
+  const hasMore = !reachedStart;
+
+  const merge = useCallback((batch: TalkMessage[]) => {
+    setMessages((prev) => {
+      const byId = new Map(prev.map((m) => [m.id, m]));
+      for (const m of batch) byId.set(m.id, m);
+      return [...byId.values()].sort(
+        (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+      );
+    });
+  }, []);
+
+  const fetchPage = useCallback(
+    async (offset: number): Promise<{ messages: TalkMessage[]; total: number } | null> => {
+      const res = await fetch(`/api/tome/projects/${slug}/talk?limit=${PAGE}&offset=${offset}`, {
+        cache: "no-store",
+      });
+      if (res.status === 503) {
+        setNotConfigured(true);
+        return null;
+      }
+      if (!res.ok) throw new Error(`Failed to load messages (${res.status})`);
+      const body = await res.json();
+      return {
+        messages: (body?.data?.messages ?? body?.messages ?? []) as TalkMessage[],
+        total: (body?.data?.total ?? body?.total ?? 0) as number,
+      };
+    },
+    [slug],
+  );
+
+  // Live: poll the newest page and merge. Pin to bottom only if already there.
+  const poll = useCallback(async () => {
+    try {
+      const page = await fetchPage(0);
+      if (!page) return;
+      const vp = viewportRef.current;
+      stickBottomRef.current = vp
+        ? vp.scrollHeight - vp.scrollTop - vp.clientHeight < NEAR_BOTTOM_PX
+        : true;
+      // First newest-page fetch: a short page means the whole room fits — no older.
+      if (firstLoadRef.current) {
+        firstLoadRef.current = false;
+        if (page.messages.length < PAGE) setReachedStart(true);
+      }
+      merge(page.messages);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchPage, merge]);
+
+  useEffect(() => {
+    void poll();
+  }, [poll]);
+
+  useEffect(() => {
+    if (notConfigured) return;
+    const t = setInterval(() => void poll(), POLL_MS);
+    return () => clearInterval(t);
+  }, [poll, notConfigured]);
+
+  // Older: fetch the next page past what we hold, prepend, keep viewport anchored.
+  const loadOlder = useCallback(async () => {
+    const vp = viewportRef.current;
+    if (!vp || loadingOlder || reachedStart) return;
+    setLoadingOlder(true);
+    restoreRef.current = { height: vp.scrollHeight, top: vp.scrollTop };
+    try {
+      const page = await fetchPage(messages.length);
+      if (page) {
+        const existing = new Set(messages.map((m) => m.id));
+        const fresh = page.messages.filter((m) => !existing.has(m.id));
+        // Short page or nothing new → we've reached the start.
+        if (page.messages.length < PAGE || fresh.length === 0) setReachedStart(true);
+        if (fresh.length === 0) restoreRef.current = null;
+        merge(page.messages);
+      }
+    } catch (e) {
+      restoreRef.current = null;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [fetchPage, merge, messages, loadingOlder, reachedStart]);
+
+  // Scroll listener: near the top → load older.
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const onScroll = () => {
+      if (vp.scrollTop < NEAR_TOP_PX) void loadOlder();
+    };
+    vp.addEventListener("scroll", onScroll, { passive: true });
+    return () => vp.removeEventListener("scroll", onScroll);
+  }, [loadOlder]);
+
+  // After messages render: restore anchor on prepend, else pin to bottom if sticky.
+  useLayoutEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    if (restoreRef.current) {
+      vp.scrollTop = restoreRef.current.top + (vp.scrollHeight - restoreRef.current.height);
+      restoreRef.current = null;
+    } else if (stickBottomRef.current) {
+      vp.scrollTop = vp.scrollHeight;
+    }
+  }, [messages]);
+
+  const send = useCallback(async () => {
+    const message = draft.trim();
+    if (!message || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/tome/projects/${slug}/talk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b?.error?.message || b?.error || `Send failed (${res.status})`);
+      }
+      setDraft("");
+      stickBottomRef.current = true; // jump to our just-sent message
+      await poll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }, [draft, sending, slug, poll]);
+
+  if (notConfigured) {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <div className="max-w-md text-center text-sm text-muted-foreground">
+          <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-50" />
+          The Talk page isn’t configured on this deployment.
+          <div className="mt-1 text-xs">
+            Set <code>MYCELIUM_URL</code> to enable it.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <ScrollArea viewportRef={viewportRef} className="flex-1">
+        <div className="mx-auto flex max-w-3xl flex-col gap-0 p-4">
+          {loadingOlder && (
+            <div className="flex justify-center py-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            </div>
+          )}
+          {!hasMore && messages.length > 0 && (
+            <p className="py-1 text-center text-[11px] text-muted-foreground/70">
+              Beginning of the conversation
+            </p>
+          )}
+          {loading && messages.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p>
+          ) : messages.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-40" />
+              No messages yet. Start the conversation about this project.
+            </div>
+          ) : (
+            messages.map((m, i) => {
+              const prev = i > 0 ? messages[i - 1] : null;
+              // Discord-style grouping: consecutive messages from the same
+              // sender within 5 minutes share one header.
+              const grouped =
+                prev !== null &&
+                prev.sender_handle === m.sender_handle &&
+                Date.parse(m.created_at) - Date.parse(prev.created_at) < 5 * 60 * 1000;
+              return (
+                <div
+                  key={m.id}
+                  className={`relative pl-12 ${grouped ? "mt-0.5" : "mt-4 first:mt-0"}`}
+                >
+                  {!grouped && (
+                    <>
+                      {/* Avatar sits in the left gutter, out of flow, so grouped
+                          messages align cleanly under the first one. */}
+                      <div className="gradient-primary-br absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white">
+                        {initialsOf(m.display_name || m.sender_handle)}
+                      </div>
+                      <div className="mb-0.5 flex items-baseline gap-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {m.display_name || displayName(m.sender_handle)}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {timeLabel(m.created_at)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  <div className="break-words text-sm text-foreground/90">
+                    <MarkdownRenderer content={m.content} variant="final" />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Composer — matches the agent chat's floating bar aesthetic. */}
+      <div className="pointer-events-none px-4 pb-2 pt-2">
+        {error && (
+          <p className="pointer-events-auto mx-auto mb-1.5 max-w-3xl text-center text-xs text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
+          <TextareaAutosize
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            minRows={1}
+            maxRows={10}
+            placeholder="Message the talk page…"
+            className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
+          />
+          <Button
+            size="icon"
+            className="shrink-0 rounded-full"
+            onClick={() => void send()}
+            disabled={!draft.trim() || sending}
+            title="Send"
+          >
+            {sending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowUp className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        <div className="pointer-events-auto mx-auto mt-1.5 max-w-3xl text-center text-[11px] text-muted-foreground">
+          <a
+            href="https://mycelium-io.github.io/"
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-foreground hover:underline"
+          >
+            Powered by Mycelium
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}

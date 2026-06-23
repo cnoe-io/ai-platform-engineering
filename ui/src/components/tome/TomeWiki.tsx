@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   MessageSquare,
+  MessagesSquare,
   Plus,
   RefreshCw,
   Upload,
@@ -21,8 +22,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ChatPanel } from "@/components/tome/ChatPanel";
+import { TalkPanel } from "@/components/tome/TalkPanel";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
@@ -41,7 +48,8 @@ interface PagesResponse {
 }
 
 type MainView =
-  | { kind: "chat" }
+  | { kind: "agent" }
+  | { kind: "talk" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
   | { kind: "ingest" }
@@ -60,7 +68,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Chat is the landing view; wiki + ingest live below it in the nav.
-  const [view, setView] = useState<MainView>({ kind: "chat" });
+  const [view, setView] = useState<MainView>({ kind: "agent" });
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -159,7 +167,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         if (!res.ok) throw new Error(`delete failed (${res.status})`);
         // Leave any view that was showing the now-deleted page.
         setView((v) =>
-          v.kind === "page" && v.path === path ? { kind: "chat" } : v,
+          v.kind === "page" && v.path === path ? { kind: "agent" } : v,
         );
         setArtifactPath((p) => (p === path ? null : p));
         await load();
@@ -209,8 +217,10 @@ export function TomeWiki({ slug }: { slug: string }) {
 
   const crumbs = useMemo<Crumb[]>(() => {
     switch (view.kind) {
-      case "chat":
-        return [{ label: "Chat" }];
+      case "agent":
+        return [{ label: "Agent" }];
+      case "talk":
+        return [{ label: "Talk" }];
       case "page": {
         const md = data?.pages[view.path] ?? "";
         return [{ label: pageTitleOf(view.path, md) }];
@@ -227,17 +237,18 @@ export function TomeWiki({ slug }: { slug: string }) {
         ];
       }
       case "ingest":
-        return [{ label: "Run ingest agent" }];
+        return [{ label: "Schedule new ingest" }];
       case "ingestRun":
         return [
-          { label: "Run ingest agent", onClick: () => setView({ kind: "ingest" }) },
+          { label: "Schedule new ingest", onClick: () => setView({ kind: "ingest" }) },
           { label: "Run" },
         ];
     }
   }, [view, data]);
 
   const navActive = {
-    chat: view.kind === "chat",
+    agent: view.kind === "agent",
+    talk: view.kind === "talk",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
       view.kind === "page" || view.kind === "pageHistory" ? view.path : null,
@@ -256,7 +267,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <Breadcrumb
             items={[
-              { label: "tome", onClick: () => setView({ kind: "chat" }) },
+              { label: "tome", onClick: () => setView({ kind: "agent" }) },
               ...crumbs,
             ]}
           />
@@ -279,15 +290,27 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <div className="flex flex-col gap-0.5">
                   <NavItem
                     icon={<MessageSquare className="h-4 w-4" />}
-                    label="Chat"
-                    active={navActive.chat}
-                    onClick={() => setView({ kind: "chat" })}
+                    label="Agent"
+                    active={navActive.agent}
+                    onClick={() => setView({ kind: "agent" })}
+                    tipTitle="Agent"
+                    tipDescription="Chat with the editing agent that reads and writes this project's wiki pages — ask it to draft, refine, or reorganize content."
                   />
                   <NavItem
                     icon={<RefreshCw className="h-4 w-4" />}
-                    label="Run ingest agent"
+                    label="Schedule new ingest"
                     active={navActive.ingest}
                     onClick={() => setView({ kind: "ingest" })}
+                    tipTitle="Schedule new ingest"
+                    tipDescription="Start an ingest run that (re)builds the wiki from the project's attached sources — GitHub repos, Confluence spaces, and Webex rooms."
+                  />
+                  <NavItem
+                    icon={<MessagesSquare className="h-4 w-4" />}
+                    label="Talk"
+                    active={navActive.talk}
+                    onClick={() => setView({ kind: "talk" })}
+                    tipTitle="Talk"
+                    tipDescription="The project's talk page — discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
                   />
                 </div>
 
@@ -440,7 +463,7 @@ export function TomeWiki({ slug }: { slug: string }) {
 
           {/* Main pane: replaced wholesale by the active view. */}
           <main className="flex flex-1 overflow-hidden">
-            {view.kind === "chat" ? (
+            {view.kind === "agent" ? (
               <>
                 <div className="min-w-0 flex-1">
                   <ChatPanel slug={slug} onPagesChanged={load} onOpenPage={openArtifact} />
@@ -462,6 +485,10 @@ export function TomeWiki({ slug }: { slug: string }) {
                   </div>
                 )}
               </>
+            ) : view.kind === "talk" ? (
+              <div className="min-w-0 flex-1">
+                <TalkPanel slug={slug} />
+              </div>
             ) : view.kind === "ingest" ? (
               <div className="min-w-0 flex-1">
                 <IngestPanel
@@ -512,24 +539,43 @@ function NavItem({
   label,
   active,
   onClick,
+  tipTitle,
+  tipDescription,
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
+  tipTitle?: string;
+  tipDescription?: React.ReactNode;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium transition-colors hover:bg-muted",
+        "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium transition-colors hover:bg-muted",
         active && "bg-muted text-primary",
       )}
     >
       {icon}
       {label}
     </button>
+  );
+
+  if (!tipTitle) return button;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent
+        side="right"
+        className="flex w-64 flex-col gap-1 whitespace-normal text-[11px] font-normal normal-case leading-relaxed"
+      >
+        <span className="text-xs font-semibold">{tipTitle}</span>
+        <span className="opacity-70">{tipDescription}</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

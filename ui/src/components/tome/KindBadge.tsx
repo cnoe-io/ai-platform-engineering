@@ -83,7 +83,7 @@ export function KindBadge({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
+            className="inline-flex h-4 w-4 items-center justify-center rounded text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
             aria-label={spec.label}
           >
             <Icon className="h-3 w-3" />

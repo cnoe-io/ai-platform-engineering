@@ -560,8 +560,68 @@ services:
       retries: 5
       start_period: 10s
 
+  # ── Tome agent — Claude Agent SDK chat/ingest backend for the wiki ──
+  # The UI runs on the host (:33000); this publishes :9500 to match
+  # TOME_AGENT_URL, and calls back to the host UI for its internal endpoints.
+  tome-agent:
+    build:
+      context: ./ai_platform_engineering/agents/tome
+    image: tome-agent:tome
+    container_name: tome-agent-tome
+    ports:
+      - "9500:8766"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      TTT_CHAT_MODEL: ${TTT_CHAT_MODEL:-claude-sonnet-4-6}
+      TTT_INGEST_MODEL: ${TTT_INGEST_MODEL:-claude-haiku-4-5}
+      TTT_AGENT_TOKEN: ${TOME_AGENT_TOKEN:-dev}
+      TTT_AGENT_ROLE: editor
+      TTT_BACKEND_URL: ${TOME_AGENT_BACKEND_URL:-http://host.docker.internal:33000/api/tome}
+      TTT_PROJECT_ROOT: /project
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ── Mycelium hub (Talk page) — backend + DB only; no IoC/CFN/frontend ──
+  # Backend published on :9510 (MYCELIUM_URL); the DB stays internal.
+  mycelium-db:
+    image: ghcr.io/mycelium-io/mycelium-db:latest
+    platform: linux/amd64
+    container_name: mycelium-db-tome
+    command: postgres -c max_locks_per_transaction=256
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${MYCELIUM_DB_PASSWORD:-password}
+      POSTGRES_DB: mycelium
+    volumes:
+      - mycelium_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mycelium"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  mycelium-backend:
+    image: ghcr.io/mycelium-io/mycelium-backend:latest
+    platform: linux/amd64
+    container_name: mycelium-backend-tome
+    ports:
+      - "9510:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${MYCELIUM_DB_PASSWORD:-password}@mycelium-db:5432/mycelium
+      GRAPH_DB_URL: postgresql://postgres:${MYCELIUM_DB_PASSWORD:-password}@mycelium-db:5432/mycelium
+      API_BASE_URL: http://mycelium-backend:8000
+      MYCELIUM_DATA_DIR: /home/mycelium/.mycelium
+    depends_on:
+      mycelium-db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   keycloak_postgres_data: null
+  mycelium_db_data: null
   openfga_postgres_data: null
   agentgateway_config: null
   audit_service_data: null
