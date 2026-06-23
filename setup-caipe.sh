@@ -3381,6 +3381,12 @@ webex-bot:
     OPENFGA_HTTP: "http://caipe-openfga:8080"
     OPENFGA_STORE_NAME: "caipe-openfga"
     KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+    WEBEX_ADMIN_API_ENABLED: "true"
+    WEBEX_ADMIN_API_PORT: "3002"
+    WEBEX_ADMIN_JWT_ISSUER: "${_issuer}"
+    WEBEX_ADMIN_JWKS_URL: "${_kc}/realms/caipe/protocol/openid-connect/certs"
+    WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
+    WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
 WEBEXEOF
   fi
 
