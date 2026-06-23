@@ -212,6 +212,12 @@ test.describe("mocked Webex workflow agent routing regression", () => {
 
     await expect(page.getByText(/bot-visible spaces discovered/i)).toBeVisible();
     await page.getByRole("checkbox", { name: /Import Incident Bridge/i }).check();
+    await page.getByRole("button", { name: "Bulk team for selected rows" }).click();
+    await page.getByRole("option", { name: /Platform Team.*team:platform/i }).click();
+    await page.getByRole("button", { name: "Bulk Dynamic Agent for selected rows" }).click();
+    await page.getByRole("option", { name: new RegExp(workflowAgent.name, "i") }).click();
+    await page.getByRole("button", { name: /^Apply to 2 selected rows$/i }).click();
+
     await expect(page.getByRole("button", { name: /Team for Incident Bridge/i })).toContainText("Platform Team");
     await expect(page.getByRole("button", { name: /Dynamic Agent for Incident Bridge/i })).toContainText(workflowAgent.name);
     await expect(page.getByRole("checkbox", { name: /Import Workflow Alerts/i })).toBeChecked();
