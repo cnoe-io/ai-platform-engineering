@@ -128,6 +128,40 @@ describe("/api/platform/health", () => {
     );
   });
 
+  it("routes AgentGateway remediation to MCP Servers when probes fail", async () => {
+    (global.fetch as jest.Mock) = jest.fn(async (url: string) => {
+      if (url.endsWith("/stores")) {
+        return new Response(JSON.stringify({ stores: [{ id: "store-1", name: "caipe-openfga" }] }), { status: 200 });
+      }
+      if (url.endsWith("/authorization-models")) {
+        return new Response(JSON.stringify({ authorization_models: [{ id: "model-1" }] }), { status: 200 });
+      }
+      if (url.includes("agentgateway")) {
+        return new Response("unavailable", { status: 503 });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    mockTcpConnect();
+
+    const { GET } = await import("../route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.probes.find((probe: { id: string }) => probe.id === "agentgateway")).toMatchObject({
+      status: "down",
+      remediation: {
+        href: "/dynamic-agents?tab=mcp-servers",
+        label: "MCP Servers",
+      },
+    });
+    expect(body.probes.find((probe: { id: string }) => probe.id === "agentgateway-config-bridge")).toMatchObject({
+      remediation: {
+        href: "/dynamic-agents?tab=mcp-servers",
+        label: "MCP Servers",
+      },
+    });
+  });
+
   it("returns 503 and marks failed probes down", async () => {
     (global.fetch as jest.Mock) = jest.fn((url: string) =>
       Promise.resolve(new Response(JSON.stringify({ stores: [] }), { status: url.includes("healthz") && url.includes("openfga") ? 503 : 200 })),
