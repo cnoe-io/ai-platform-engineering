@@ -7,6 +7,7 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from "@/lib/server-response-cache";
+import { AGENTGATEWAY_HEALTH_REMEDIATION } from "@/lib/platform-health-remediation";
 import { getKeycloakMigrationHealth } from "@/lib/rbac/keycloak-migration-health";
 import { getMigrationBlockingStatus } from "@/lib/rbac/migrations/registry";
 
@@ -476,22 +477,14 @@ async function getPlatformHealth(): Promise<NextResponse> {
       headers: {
         authorization: `Bearer ${agentgatewayTargetsToken}`,
       },
-      remediation: {
-        label: "AgentGateway",
-        href: "/skills/gateway",
-        description: "Check AgentGateway target discovery and bridge token configuration.",
-      },
+      remediation: AGENTGATEWAY_HEALTH_REMEDIATION,
     }),
     probeHttp({
       id: "agentgateway",
       label: "AgentGateway",
       group: "core",
       target: agentgatewayAdminUrl,
-      remediation: {
-        label: "AgentGateway",
-        href: "/skills/gateway",
-        description: "Check AgentGateway admin API and compose service logs.",
-      },
+      remediation: AGENTGATEWAY_HEALTH_REMEDIATION,
     }),
     probeTcp({
       id: "caipe-mongodb",
