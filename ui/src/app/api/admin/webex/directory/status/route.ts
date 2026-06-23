@@ -21,6 +21,51 @@ interface WebexBotRuntimeStatus {
   cache_size?: number;
 }
 
+const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
+
+function envValue(name: string): string | null {
+  const value = process.env[name]?.trim();
+  if (!value || value.startsWith("#")) return null;
+  if (value.startsWith("<") && value.endsWith(">")) return null;
+  if (value.toLowerCase().includes("your-")) return null;
+  return value;
+}
+
+function envEnabled(name: string): boolean {
+  const value = envValue(name)?.toLowerCase();
+  return value ? ENABLED_VALUES.has(value) : false;
+}
+
+function hasComposeProfile(...profileNames: string[]): boolean {
+  const profiles = new Set(
+    (process.env.COMPOSE_PROFILES ?? "")
+      .split(",")
+      .map((profile) => profile.trim())
+      .filter(Boolean),
+  );
+  return profileNames.some((profile) => profiles.has(profile));
+}
+
+function webexIntegrationToken(): string | null {
+  return (
+    envValue("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") ??
+    envValue("WEBEX_ACCESS_TOKEN") ??
+    envValue("WEBEX_TOKEN")
+  );
+}
+
+function webexIntegrationEnabled(): boolean {
+  return (
+    Boolean(
+      envEnabled("WEBEX_INTEGRATION_ENABLED") ||
+        webexIntegrationToken() ||
+        envValue("WEBEX_BOT_ADMIN_CLIENT_SECRET") ||
+        envValue("KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET"),
+    ) ||
+    hasComposeProfile("webex-bot", "all-integrations")
+  );
+}
+
 async function webexPlatformConfigSummary(): Promise<{
   reachable: boolean;
   spaces_onboarded: number;
@@ -76,7 +121,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
 
-  const integrationToken = process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN?.trim();
+  const enabled = webexIntegrationEnabled();
+  const integrationToken = webexIntegrationToken();
   if (integrationToken) {
     warmWebexSpaceDiscovery(integrationToken);
   }
@@ -100,12 +146,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       };
 
   return successResponse({
-    configured: Boolean(
-      integrationToken ||
-        bot_admin.reachable ||
-        platform.spaces_onboarded > 0 ||
-        platform.routes_configured > 0
-    ),
+    configured: enabled,
     bot_admin,
     platform,
     space_discovery,

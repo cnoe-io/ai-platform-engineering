@@ -159,6 +159,10 @@ spec:
             - secretRef:
                 name: {{ include "caipe-ui.fullname" . }}-secret
             {{- end }}
+            # Parent chart integration flags generated from Helm tags.
+            - configMapRef:
+                name: {{ printf "%s-caipe-ui-integration-flags" .Release.Name | trunc 63 | trimSuffix "-" }}
+                optional: true
           {{- with .Values.startupProbe }}
           startupProbe:
             {{- toYaml . | nindent 12 }}

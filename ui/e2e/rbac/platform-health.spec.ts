@@ -1,18 +1,3 @@
-// assisted-by claude code claude-sonnet-4-6
-// assisted-by Codex Codex-sonnet-4-6
-/**
- * E2e tests for the Platform Health widget in the AppHeader.
- *
- * These tests use the mocked-rbac harness so no live services are required.
- * They verify:
- *   - The health badge renders and reflects the /api/platform/health response
- *   - Clicking the badge opens the probes popover
- *   - RAG failures produce "degraded" (amber), not "down" (red)
- *   - Critical service failures produce "down" (red)
- *   - The status dot has no animate-pulse class (no continuous flashing)
- *   - /api/platform/health never returns 500
- */
-
 import { test, expect, type Page } from "@playwright/test";
 import {
   fulfillJson,
@@ -21,140 +6,96 @@ import {
 } from "./_mocked-rbac";
 import { dismissReleaseUpgradeDialog } from "./_helpers";
 
-// ---------------------------------------------------------------------------
-// Shared probe fixtures
-// ---------------------------------------------------------------------------
+type CapabilityStatus = "healthy" | "degraded" | "down" | "disabled";
 
-function makeProbe(
-  id: string,
-  group: "core" | "identity" | "storage" | "rag" | "bootstrap",
-  status: "healthy" | "warning" | "down",
-  label?: string,
-) {
-  return {
-    id,
-    label: label ?? id,
-    group,
-    status,
-    detail: status === "healthy" ? "OK" : "connection refused",
-    target: `http://${id}:8080`,
-    latency_ms: status === "healthy" ? 12 : null,
-  };
-}
+type Capability = {
+  id: string;
+  label: string;
+  group: "runtime" | "knowledge" | "identity" | "observability" | "messaging";
+  status: CapabilityStatus;
+  required: boolean;
+  description: string;
+  detail: string;
+  latency_ms: number | null;
+};
 
-const ALL_HEALTHY_PROBES = [
-  makeProbe("keycloak", "identity", "healthy", "Keycloak"),
-  makeProbe("openfga", "identity", "healthy", "OpenFGA"),
-  makeProbe("openfga-authz-bridge", "identity", "healthy", "OpenFGA AuthZ Bridge"),
-  makeProbe("agentgateway", "core", "healthy", "AgentGateway"),
-  makeProbe("agentgateway-config-bridge", "core", "healthy", "AgentGateway Config Bridge"),
-  makeProbe("dynamic-agents", "core", "healthy", "Dynamic Agents"),
-  makeProbe("caipe-mongodb", "storage", "healthy", "MongoDB"),
-  makeProbe("keycloak-postgres", "storage", "healthy", "Keycloak Postgres"),
-  makeProbe("openfga-postgres", "storage", "healthy", "OpenFGA Postgres"),
-  makeProbe("rag-server", "rag", "healthy", "RAG Server"),
-  makeProbe("rag-redis", "rag", "healthy", "RAG Redis"),
-  makeProbe("milvus", "rag", "healthy", "Milvus"),
-  makeProbe("milvus-minio", "rag", "healthy", "Milvus MinIO"),
-  makeProbe("etcd", "rag", "healthy", "etcd"),
-  makeProbe("openfga-bootstrap", "bootstrap", "healthy", "OpenFGA Bootstrap"),
-  makeProbe("keycloak-bootstrap", "bootstrap", "healthy", "Keycloak Bootstrap"),
-  makeProbe("rebac-migrations", "bootstrap", "healthy", "ReBAC Migrations"),
-  makeProbe("web-ingestor", "rag", "healthy", "Web Ingestor"),
+const HEALTHY_CAPABILITIES: Capability[] = [
+  {
+    id: "chat-runtime",
+    label: "Chat Runtime",
+    group: "runtime",
+    status: "healthy",
+    required: true,
+    description: "Checks the supervisor health endpoint used by the chat experience.",
+    detail: "Supervisor reachable",
+    latency_ms: 12,
+  },
+  {
+    id: "dynamic-agents",
+    label: "Dynamic Agents",
+    group: "runtime",
+    status: "healthy",
+    required: true,
+    description: "Checks Dynamic Agents when custom agent runtime is enabled.",
+    detail: "Runtime reachable",
+    latency_ms: 14,
+  },
+  {
+    id: "knowledge-bases",
+    label: "Knowledge Bases",
+    group: "knowledge",
+    status: "healthy",
+    required: false,
+    description: "Checks the RAG API used by Knowledge Bases.",
+    detail: "RAG API reachable",
+    latency_ms: 18,
+  },
+  {
+    id: "authentication",
+    label: "Authentication",
+    group: "identity",
+    status: "healthy",
+    required: false,
+    description: "Reads the UI SSO configuration.",
+    detail: "SSO enabled",
+    latency_ms: null,
+  },
+  {
+    id: "metrics",
+    label: "Metrics",
+    group: "observability",
+    status: "disabled",
+    required: false,
+    description: "Reads the UI Prometheus configuration.",
+    detail: "Prometheus not configured",
+    latency_ms: null,
+  },
 ];
 
-function healthResponse(
-  overrideProbes: typeof ALL_HEALTHY_PROBES = ALL_HEALTHY_PROBES,
-) {
-  const down = overrideProbes.filter((p) => p.status === "down").length;
-  const warning = overrideProbes.filter((p) => p.status === "warning").length;
-  const healthy = overrideProbes.length - down - warning;
-  const status = down > 0 ? "down" : warning > 0 ? "degraded" : "healthy";
+function healthResponse(capabilities: Capability[] = HEALTHY_CAPABILITIES) {
+  const healthy = capabilities.filter((capability) => capability.status === "healthy").length;
+  const degraded = capabilities.filter((capability) => capability.status === "degraded").length;
+  const down = capabilities.filter((capability) => capability.status === "down").length;
+  const disabled = capabilities.filter((capability) => capability.status === "disabled").length;
+  const requiredDown = capabilities.some(
+    (capability) => capability.required && capability.status === "down",
+  );
+
   return {
-    status,
+    status: requiredDown ? "down" : degraded > 0 ? "degraded" : "healthy",
     checked_at: new Date().toISOString(),
-    summary: { total: overrideProbes.length, healthy, warning, down },
-    probes: overrideProbes,
+    summary: { total: capabilities.length, healthy, degraded, down, disabled },
+    capabilities,
   };
 }
 
-const directoryUpdatedAt = Date.parse("2026-06-22T17:45:00.000Z");
-
-function slackDirectoryStatus() {
-  return {
-    configured: true,
-    bot_admin: { reachable: true },
-    users: {
-      status: "ready",
-      users_indexed: 42,
-      active_users_indexed: 39,
-      pages_scanned: 3,
-      members_seen: 44,
-      fetched_at: directoryUpdatedAt,
-      updated_at: directoryUpdatedAt,
-      started_at: directoryUpdatedAt - 2500,
-    },
-    emoji: {
-      status: "ready",
-      emoji_indexed: 17,
-      fetched_at: directoryUpdatedAt,
-      updated_at: directoryUpdatedAt,
-      started_at: directoryUpdatedAt - 1500,
-    },
-  };
-}
-
-function webexDirectoryStatus() {
-  return {
-    configured: true,
-    bot_admin: {
-      reachable: true,
-      runtime: {
-        route_mode: "dynamic",
-        static_spaces: 2,
-        static_routes: 3,
-        cache_size: 4,
-      },
-    },
-    platform: {
-      reachable: true,
-      spaces_onboarded: 2,
-      routes_configured: 3,
-    },
-    space_discovery: {
-      configured: true,
-      status: "ready",
-      spaces_indexed: 12,
-      fetched_at: directoryUpdatedAt,
-      updated_at: directoryUpdatedAt,
-      started_at: directoryUpdatedAt - 2000,
-      ttl_seconds: 300,
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helper: mount the app and intercept /api/platform/health
-// ---------------------------------------------------------------------------
-
-async function setupWithHealth(
-  page: Page,
-  healthBody: ReturnType<typeof healthResponse>,
-) {
+async function setupWithHealth(page: Page, body = healthResponse()) {
   await installMockedRbacApp(page, {
     isAdmin: true,
     handlers: [
       async ({ route, path }) => {
         if (path === "/api/platform/health") {
-          await fulfillJson(route, healthBody, healthBody.summary.down > 0 ? 503 : 200);
-          return true;
-        }
-        if (path === "/api/admin/slack/directory/status") {
-          await fulfillJson(route, { success: true, data: slackDirectoryStatus() });
-          return true;
-        }
-        if (path === "/api/admin/webex/directory/status") {
-          await fulfillJson(route, { success: true, data: webexDirectoryStatus() });
+          await fulfillJson(route, body, body.status === "down" ? 503 : 200);
           return true;
         }
         if (path === "/api/admin/metrics") {
@@ -188,20 +129,13 @@ async function setupWithHealth(
   await page.waitForLoadState("networkidle");
 }
 
-async function openHealthPopover(
-  page: Page,
-  statusPattern: RegExp = /system status: connected/i,
-) {
+async function openHealthPopover(page: Page, statusPattern: RegExp = /system status: connected/i) {
   await dismissReleaseUpgradeDialog(page);
   const badge = page.getByRole("button", { name: statusPattern });
   await expect(badge).toBeVisible();
   await badge.click({ force: true });
-  await expect(page.getByTestId("platform-health-scroll")).toBeVisible();
+  await expect(page.getByText("System Status")).toBeVisible();
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 test.describe("Platform Health widget", () => {
   test.beforeEach(() => {
@@ -210,137 +144,70 @@ test.describe("Platform Health widget", () => {
     }
   });
 
-  test("status badge is visible in the header", async ({ page }) => {
-    await setupWithHealth(page, healthResponse());
-    await expect(page.getByRole("button", { name: /system status: connected/i })).toBeVisible();
-  });
-
-  test("healthy response → badge shows green dot, no 'Down' label", async ({ page }) => {
-    await setupWithHealth(page, healthResponse());
+  test("healthy response keeps the header compact", async ({ page }) => {
+    await setupWithHealth(page);
 
     const badge = page.getByRole("button", { name: /system status: connected/i });
     await expect(badge).toBeVisible();
-
-    // When healthy the badge shows only a dot (no expanded label text)
-    // The dot should exist and have no animate-pulse class
-    const dot = badge.locator("div.rounded-full").first();
-    await expect(dot).toBeVisible();
-    await expect(dot).not.toHaveClass(/animate-pulse/);
-  });
-
-  test("clicking badge opens the probes popover", async ({ page }) => {
-    await setupWithHealth(page, healthResponse());
+    await expect(badge).not.toContainText("Connected");
 
     await openHealthPopover(page);
-    await expect(page.getByText("System Status")).toBeVisible();
-    const popover = page.getByTestId("platform-health-scroll");
-    await expect(popover.getByText("Keycloak", { exact: true }).first()).toBeVisible();
-    await expect(popover.getByText("OpenFGA", { exact: true }).first()).toBeVisible();
-    await expect(popover.getByText("Dynamic Agents", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Platform")).toBeVisible();
+    await expect(page.getByText("Chat Runtime")).toBeVisible();
+    await expect(page.getByRole("button", { name: /open health dashboard/i })).toHaveCount(0);
   });
 
-  test("RAG failure → overall status is 'degraded' (amber), not 'down' (red)", async ({ page }) => {
-    const probes = ALL_HEALTHY_PROBES.map((p) =>
-      p.group === "rag" ? { ...p, status: "warning" as const } : p,
-    );
-    await setupWithHealth(page, healthResponse(probes));
-
-    const badge = page.getByRole("button", { name: /system status: needs attention/i });
-    await expect(badge).toBeVisible();
-
-    // Badge should not show "Down" text
-    await expect(badge).not.toContainText("Down");
-
-    await openHealthPopover(page, /system status: needs attention/i);
-    const popover = page.getByTestId("platform-health-scroll");
-    await expect(popover.getByText(/issues detected/i)).not.toBeVisible();
-  });
-
-  test("critical service down → badge shows 'Issues Detected'", async ({ page }) => {
-    const probes = ALL_HEALTHY_PROBES.map((p) =>
-      p.id === "openfga" ? { ...p, status: "down" as const } : p,
-    );
-    await setupWithHealth(page, healthResponse(probes));
-
-    await openHealthPopover(page, /system status: disconnected/i);
-
-    await expect(page.getByText("Issues Detected")).toBeVisible();
-  });
-
-  test("status dot has no animate-pulse class (no continuous flashing)", async ({ page }) => {
-    await setupWithHealth(page, healthResponse());
-
-    const badge = page.getByRole("button", { name: /system status: connected/i });
-    await expect(badge).toBeVisible();
-
-    // Assert the specific badge dot class does not contain animate-pulse.
-    const dot = badge.locator("div.h-2.w-2.rounded-full");
-    if (await dot.count() > 0) {
-      await expect(dot.first()).not.toHaveClass(/animate-pulse/);
-    }
-  });
-
-  test("/api/platform/health does not return 500", async ({ page }) => {
-    const responses: number[] = [];
-
-    await installMockedRbacApp(page, {
-      isAdmin: true,
-      handlers: [
-        async ({ route, path }) => {
-          if (path === "/api/platform/health") {
-            // Pass through to the real handler — but intercept the response status
-            await route.continue();
-            return true;
+  test("optional capability failure degrades without marking the platform down", async ({ page }) => {
+    const capabilities = HEALTHY_CAPABILITIES.map((capability) =>
+      capability.id === "knowledge-bases"
+        ? {
+            ...capability,
+            status: "degraded" as const,
+            detail: "Knowledge Bases health check returned HTTP 503",
           }
-          return false;
-        },
-      ],
-    });
+        : capability,
+    );
+    await setupWithHealth(page, healthResponse(capabilities));
 
-    page.on("response", (resp) => {
-      if (resp.url().includes("/api/platform/health")) {
-        responses.push(resp.status());
-      }
-    });
-
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
-
-    // Should not have received a 500
-    expect(responses.every((s) => s !== 500)).toBe(true);
+    await expect(page.getByRole("button", { name: /system status: degraded/i })).toBeVisible();
+    await openHealthPopover(page, /system status: degraded/i);
+    await expect(page.getByText("Degraded")).toBeVisible();
+    await expect(page.getByText("Knowledge Bases")).toBeVisible();
+    await expect(page.getByText("Knowledge Bases health check returned HTTP 503")).toBeVisible();
+    await expect(page.getByText(/need attention/i)).toHaveCount(0);
   });
 
-  test("probes popover lists all expected groups", async ({ page }) => {
-    await setupWithHealth(page, healthResponse());
+  test("required chat runtime failure marks the platform down", async ({ page }) => {
+    const capabilities = HEALTHY_CAPABILITIES.map((capability) =>
+      capability.id === "chat-runtime"
+        ? {
+            ...capability,
+            status: "down" as const,
+            detail: "Supervisor health check returned HTTP 503",
+          }
+        : capability,
+    );
+    await setupWithHealth(page, healthResponse(capabilities));
 
-    await openHealthPopover(page);
-
-    const popover = page.getByTestId("platform-health-scroll");
-    for (const label of ["Keycloak", "OpenFGA", "MongoDB", "RAG Server", "Dynamic Agents"]) {
-      await expect(popover.getByText(label, { exact: true }).first()).toBeVisible();
-    }
+    await expect(page.getByRole("button", { name: /system status: disconnected/i })).toBeVisible();
+    await openHealthPopover(page, /system status: disconnected/i);
+    await expect(page.getByText("Down")).toBeVisible();
+    await expect(page.getByText("Chat Runtime")).toBeVisible();
+    await expect(page.getByText("Supervisor health check returned HTTP 503")).toBeVisible();
   });
 
-  test("admin Health tab shows Slack and Webex directory diagnostics with repair navigation", async ({ page }) => {
-    await setupWithHealth(page, healthResponse());
+  test("admin Health tab shows capabilities, not integration diagnostics", async ({ page }) => {
+    await setupWithHealth(page);
 
-    await page.goto("/admin?cat=metrics&tab=health");
+    await page.goto("/admin?cat=platform&tab=health");
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("tab", { name: "Health", selected: true })).toBeVisible();
-    await expect(page.getByText("Platform Services", { exact: true })).toBeVisible();
-    await expect(page.getByText("All dependency checks are passing.")).toBeVisible();
-
-    await expect(page.getByText("Slack Integration")).toBeVisible();
-    await expect(page.getByText("ready: 39 active / 42 indexed")).toBeVisible();
-    await expect(page.getByText("ready: 17 emoji indexed")).toBeVisible();
-
-    await expect(page.getByText("Webex Integration")).toBeVisible();
-    await expect(page.getByText("dynamic · 2 spaces · 3 routes · cache 4")).toBeVisible();
-    await expect(page.getByText("2 spaces onboarded · 3 routes configured")).toBeVisible();
-    await expect(page.getByText("ready: 12 spaces indexed")).toBeVisible();
-
-    await page.getByRole("button", { name: "Webex Admin" }).click();
-    await expect(page).toHaveURL(/\/admin\?cat=integrations&tab=webex/);
+    await expect(page.getByText("Platform Capabilities")).toBeVisible();
+    await expect(page.getByText("Chat Runtime")).toBeVisible();
+    await expect(page.getByText("Checks the supervisor health endpoint used by the chat experience.")).toBeVisible();
+    await expect(page.getByText("Slack Integration")).toHaveCount(0);
+    await expect(page.getByText("Webex Integration")).toHaveCount(0);
+    await expect(page.getByText("All dependency checks are passing.")).toHaveCount(0);
   });
 });

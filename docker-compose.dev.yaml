@@ -1260,6 +1260,10 @@ services:
       - .env
     environment:
       - NODE_ENV=development
+      # Pass the active Compose profile set through to the UI so product
+      # health can show profile-enabled integrations as degraded/down even
+      # when their container crashes before serving traffic.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
       # Spec 102 — Playwright sets E2E_RUN=true to enable test-only fixtures
       # (see ui/src/lib/test-fixtures.ts). Defaults to false in dev.
       - E2E_RUN=${E2E_RUN:-false}
@@ -1516,6 +1520,10 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+      # Pass the active Compose profile set through to the UI so product
+      # health can show profile-enabled integrations as degraded/down even
+      # when their container crashes before serving traffic.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
       - E2E_RUN=${E2E_RUN:-false}
       - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       - RAG_ENABLED=${RAG_ENABLED:-true}
@@ -2619,7 +2627,7 @@ services:
       - SLACK_DEFAULT_TEAM_SLUG=${SLACK_DEFAULT_TEAM_SLUG:-}
       - SLACK_DEFAULT_AGENT_ID=${SLACK_DEFAULT_AGENT_ID:-}
       # Internal admin API used by the Web UI BFF for route status/reload/config sync.
-      - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-false}
+      - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-true}
       - SLACK_ADMIN_API_HOST=${SLACK_ADMIN_API_HOST:-0.0.0.0}
       - SLACK_ADMIN_API_PORT=${SLACK_ADMIN_API_PORT:-3001}
       - SLACK_ADMIN_DEV_AUTH_ENABLED=${SLACK_ADMIN_DEV_AUTH_ENABLED:-false}
@@ -2699,7 +2707,7 @@ services:
       - WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=${WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES:-false}
       - WEBEX_DEFAULT_TEAM_SLUG=${WEBEX_DEFAULT_TEAM_SLUG:-}
       - WEBEX_DEFAULT_AGENT_ID=${WEBEX_DEFAULT_AGENT_ID:-}
-      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-true}
+      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-false}
       - WEBEX_ADMIN_API_HOST=${WEBEX_ADMIN_API_HOST:-0.0.0.0}
       - WEBEX_ADMIN_API_PORT=${WEBEX_ADMIN_API_PORT:-3002}
       - WEBEX_ADMIN_JWT_ISSUER=${WEBEX_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}

@@ -3,23 +3,23 @@
 import { useCallback,useEffect,useRef,useState } from "react";
 
 export type PlatformProbeStatus = "checking" | "healthy" | "degraded" | "down";
-export type PlatformProbeGroup = "core" | "identity" | "storage" | "rag" | "bootstrap";
+export type PlatformCapabilityGroup =
+  | "runtime"
+  | "knowledge"
+  | "identity"
+  | "observability"
+  | "messaging";
+export type PlatformCapabilityStatus = "healthy" | "degraded" | "down" | "disabled";
 
-export interface PlatformProbeRemediation {
-  label: string;
-  href: string;
-  description: string;
-}
-
-export interface PlatformHealthProbe {
+export interface PlatformHealthCapability {
   id: string;
   label: string;
-  group: PlatformProbeGroup;
-  status: "healthy" | "warning" | "down";
+  group: PlatformCapabilityGroup;
+  status: PlatformCapabilityStatus;
+  required: boolean;
+  description: string;
   detail: string;
-  target: string;
   latency_ms: number | null;
-  remediation?: PlatformProbeRemediation;
 }
 
 interface PlatformHealthResponse {
@@ -28,15 +28,16 @@ interface PlatformHealthResponse {
   summary: {
     total: number;
     healthy: number;
-    warning: number;
+    degraded: number;
     down: number;
+    disabled: number;
   };
-  probes: PlatformHealthProbe[];
+  capabilities: PlatformHealthCapability[];
 }
 
 interface UsePlatformHealthProbesResult {
   status: PlatformProbeStatus;
-  probes: PlatformHealthProbe[];
+  capabilities: PlatformHealthCapability[];
   summary: PlatformHealthResponse["summary"] | null;
   secondsUntilNextCheck: number;
   checkNow: () => void;
@@ -46,13 +47,12 @@ const POLL_INTERVAL_MS = 30000;
 
 export function usePlatformHealthProbes(): UsePlatformHealthProbesResult {
   const [status, setStatus] = useState<PlatformProbeStatus>("checking");
-  const [probes, setProbes] = useState<PlatformHealthProbe[]>([]);
+  const [capabilities, setCapabilities] = useState<PlatformHealthCapability[]>([]);
   const [summary, setSummary] = useState<PlatformHealthResponse["summary"] | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const nextCheckTimeRef = useRef<number>(0);
-  // Stable refs so checkNow has no state in its deps — prevents the re-poll
-  // loop where each successful fetch changes probes.length → new checkNow ref
-  // → useEffect re-runs → immediate re-poll.
+  // Stable refs so checkNow has no state in its deps; this avoids re-polling
+  // immediately after each successful fetch updates capability state.
   const hasLoadedRef = useRef(false);
   // Consecutive bad-result counter. We only promote to a worse visible status
   // after 2 consecutive bad polls so a single blip doesn't flip the badge.
@@ -77,7 +77,7 @@ export function usePlatformHealthProbes(): UsePlatformHealthProbesResult {
 
       const body = (await response.json()) as PlatformHealthResponse;
       hasLoadedRef.current = true;
-      setProbes(Array.isArray(body.probes) ? body.probes : []);
+      setCapabilities(Array.isArray(body.capabilities) ? body.capabilities : []);
       setSummary(body.summary ?? null);
 
       const next: PlatformProbeStatus =
@@ -133,7 +133,7 @@ export function usePlatformHealthProbes(): UsePlatformHealthProbesResult {
 
   return {
     status,
-    probes,
+    capabilities,
     summary,
     secondsUntilNextCheck,
     checkNow,
