@@ -25,6 +25,7 @@ from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.connectors.base import SourceItem
+from tome_agent.agent.mcp_mycelium import build_mycelium_mcp
 
 log = logging.getLogger("tome_agent.agent.loop")
 
@@ -390,6 +391,14 @@ def build_agent_options(
         sources = sources_for_connector(snapshot, connector)
         mcp_servers[connector.slug] = connector.build_mcp(token=token, sources=sources)
         allowed.extend(connector.mcp_tools)
+
+    # Talk page: the project's own Mycelium room (read-only), keyed by slug.
+    # Available to both chat and ingest when the hub is configured, so the agent
+    # can fold recent discussion (decisions, open questions) into its answers and
+    # the wiki. No attached "sources" — it's the project's own conversation.
+    if os.environ.get("MYCELIUM_URL", "").strip() and snapshot.slug:
+        mcp_servers["mycelium"] = build_mycelium_mcp(snapshot.slug)
+        allowed.append("mcp__mycelium__talk_read_messages")
 
     claude_agent_env = {
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",

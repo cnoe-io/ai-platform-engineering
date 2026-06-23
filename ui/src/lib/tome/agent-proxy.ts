@@ -92,6 +92,7 @@ interface WebexRoomSnapshot {
 /** ProjectSnapshot — mirrors contract.ProjectSnapshot. */
 interface ProjectSnapshot {
   project_id: string;
+  slug: string;
   name: string;
   charter: string;
   phase: string | null;
@@ -230,6 +231,7 @@ export function buildSnapshotFromProject(
 ): ProjectSnapshot {
   return {
     project_id: project._id,
+    slug: project.slug,
     name: project.title || project.name,
     charter: project.description ?? "",
     phase: null,

@@ -30,6 +30,7 @@ Pages can nest. Path is the only signal — `architecture/backend.md` becomes a 
 - Edit / create pages (Edit, Write).
 - Call GitHub via the in-process MCP server: `mcp__github__github_list_commits`, `…_list_releases`, `…_list_issues`, `…_get_issue`, `…_list_pulls`, `…_get_pr`, `…_search_issues`, `…_get_codeowners`, `…_get_file`, `…_list_dir`, `…_get_readme`. Prefer these over WebFetch — they return structured data.
 - Call Confluence via `mcp__confluence__confluence_get_pages(space_key=…)` (pages newest-edited-first) and `…_get_page_content(page_id)`. **Use the `key=` shown for each attached space in the WIKI TREE below and call `confluence_get_pages` directly — do NOT rely on `confluence_list_spaces` to find an attached space; it only returns spaces your account has joined, so a viewable-but-not-joined space won't appear there.**
+- Read the project's **Talk page** (the conversation about this project) via `mcp__mycelium__talk_read_messages(limit?, offset?)` when available — useful for "what are people discussing", recent decisions, or open questions. It's discussion, not a source of record.
 - Fetch external context (WebFetch, WebSearch) for things outside GitHub.
 
 You CANNOT run shell commands; there is no Bash tool.

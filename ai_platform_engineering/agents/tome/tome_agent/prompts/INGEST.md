@@ -80,6 +80,12 @@ information, and a stable wiki is a feature, not a failure.
   rooms. Also meeting tools: `webex_meetings_list_meetings()`, transcripts, summaries.
 - Confluence (`mcp__confluence__*`): `confluence_get_pages(space_key)` (newest
   edited first), then `confluence_get_page_content(page_id)` for bodies.
+- Talk page (`mcp__mycelium__talk_read_messages`, when available): the
+  conversation *about* this project — decisions, open questions, what people and
+  agents are saying. Read it to inform the wiki: fold relevant decisions and
+  themes into the right pages. It is discussion, not a source of record — weave
+  it in, don't transcribe it, and let the GitHub/Confluence/Webex evidence win
+  on facts.
 
 ## Wiki tree shape
 

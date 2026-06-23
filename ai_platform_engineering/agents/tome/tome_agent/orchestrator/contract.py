@@ -56,6 +56,7 @@ class ProjectSnapshot(BaseModel):
     look anything up itself."""
 
     project_id: str  # CAIPE project id (ObjectId hex / slug); not a UUID
+    slug: str = ""  # CAIPE project slug; also the project's Mycelium Talk room name
     name: str
     charter: str = ""
     phase: str | None = None
