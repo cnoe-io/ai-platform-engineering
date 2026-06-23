@@ -78,7 +78,7 @@ export interface DiagnosticRoute {
   openfga_tuple: boolean;
   route_metadata: boolean;
   listen: "message" | "mention" | "all" | "unknown";
-  priority?: number;
+  priority: number;
   runtime_matches: { mention: boolean; message: boolean };
   warnings: string[];
 }

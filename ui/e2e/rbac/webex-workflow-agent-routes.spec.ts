@@ -169,6 +169,7 @@ function webexHandler(state: {
               openfga_tuple: true,
               route_metadata: true,
               listen: "mention",
+              priority: 100,
               runtime_matches: { mention: true, message: false },
               warnings: ["Mention-only listen mode blocks plain messages"],
             },
@@ -249,7 +250,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     await expect(page.getByText("Incident Bridge")).toBeVisible();
     await page.getByText("Incident Bridge").click();
     const fixButton = page.getByRole("button", {
-      name: new RegExp(`Fix agent:${workflowAgent.id} routing`),
+      name: new RegExp(`Fix routing for ${workflowAgent.id}`),
     });
     await expect(fixButton).toBeVisible();
     await fixButton.click();
