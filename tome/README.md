@@ -8,6 +8,7 @@ Tome is the wiki/projects feature running as a second dev instance on **port 330
 |---|---|
 | UI dev server | 33000 |
 | Tome agent backend | 9500 |
+| Mycelium hub (Talk page) | 9510 |
 | Keycloak | 17080 |
 | OpenFGA | 28080 |
 | MongoDB | 27117 |
@@ -63,16 +64,28 @@ The server hot-reloads code changes but **does not reload env vars** — restart
 
 Open [http://localhost:33000](http://localhost:33000). Log in with Keycloak local credentials or the bootstrap admin email set in `BOOTSTRAP_ADMIN_EMAILS`.
 
-## 3. Start the Tome agent backend
+## 3. Tome agent + Mycelium (now in the Docker stack)
 
-The Tome agent is a Python/uvicorn service that handles LLM chat and ingest for the wiki feature.
+The **Tome agent** (LLM chat/ingest for the wiki) and the **Mycelium hub**
+(backing the Talk page) come up with the Docker stack in step 1 — no manual
+uvicorn step. The stack builds `tome-agent` from
+`ai_platform_engineering/agents/tome` and publishes:
+
+- `tome-agent` → `TOME_AGENT_URL=http://localhost:9500`
+- `mycelium-backend` → `MYCELIUM_URL=http://localhost:9510`
+
+The agent needs LLM credentials, which Compose reads from your shell or a
+repo-root `.env` (Compose does **not** read `ui/.env.local`):
 
 ```bash
-cd ai_platform_engineering/agents/tome
-uv run uvicorn tome_agent.agent.main:app --host 0.0.0.0 --port 9500
+ANTHROPIC_API_KEY=...                 # required
+ANTHROPIC_BASE_URL=https://...        # optional: proxy/gateway (e.g. litellm)
+TTT_CHAT_MODEL=claude-sonnet-4-6      # optional override
+TTT_INGEST_MODEL=claude-haiku-4-5     # optional override
+TOME_AGENT_TOKEN=dev                  # must match ui/.env.local
 ```
 
-The UI expects it at `TOME_AGENT_URL=http://localhost:9500` (set in `ui/.env.local`).
+Rebuild the agent after changing its code: `docker compose -f docker-compose.tome.yaml up -d --build tome-agent`.
 
 See [`ai_platform_engineering/agents/tome/README.md`](../ai_platform_engineering/agents/tome/README.md) for full agent configuration.
 
@@ -84,6 +97,9 @@ docker compose -f docker-compose.tome.yaml ps
 
 # Tome agent
 curl http://localhost:9500/healthz
+
+# Mycelium hub (Talk page)
+curl http://localhost:9510/health
 
 # UI
 curl -s -o /dev/null -w "%{http_code}" http://localhost:33000/api/config
