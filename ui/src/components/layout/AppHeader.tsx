@@ -542,19 +542,27 @@ export function AppHeader() {
   const [topNavConfig, setTopNavConfig] = React.useState<TopNavConfig | null>(
     null,
   );
-  React.useEffect(() => {
+  const fetchTopNavConfig = React.useCallback(() => {
     let cancelled = false;
     fetch("/api/admin/platform-config")
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
-        if (cancelled || !body?.data?.top_nav) return;
-        setTopNavConfig(normalizeTopNavConfig(body.data.top_nav));
+        if (cancelled) return;
+        setTopNavConfig(normalizeTopNavConfig(body?.data?.top_nav));
       })
       .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
+
+  React.useEffect(() => {
+    const cleanup = fetchTopNavConfig();
+    const handler = () => fetchTopNavConfig();
+    window.addEventListener("caipe:top-nav-config-updated", handler);
+    return () => {
+      cleanup();
+      window.removeEventListener("caipe:top-nav-config-updated", handler);
+    };
+  }, [fetchTopNavConfig]);
   // Collapse into "More" sooner when pinned-app tabs widen the inline nav
   // (~150px each) so it overflows gracefully instead of clipping the last tab.
   const headerNavCollapsed = useHeaderNavCollapsed(
