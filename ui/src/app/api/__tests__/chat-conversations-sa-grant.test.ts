@@ -95,7 +95,8 @@ function makeCollection(existingDoc: Record<string, unknown> | null = null) {
 
 const SA_SUB = "sa-uuid-abc";
 const HUMAN_EMAIL = "human@example.com";
-const CONV_BODY = { title: "Test Conversation", client_type: "slack" };
+const AGENT_ID = "agent-default";
+const CONV_BODY = { title: "Test Conversation", client_type: "slack", agent_id: AGENT_ID };
 
 describe("POST /api/chat/conversations — SA auto-grant", () => {
   beforeEach(() => {

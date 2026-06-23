@@ -43,6 +43,7 @@ function createCollection(rows: Array<Record<string, unknown>> = []) {
     find: jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue(rows),
     }),
+    findOneAndUpdate: jest.fn().mockResolvedValue(rows[0] ?? { _id: "migration-lock" }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1, upsertedCount: 0 }),
   };
 }
