@@ -1,6 +1,6 @@
 // assisted-by Codex Codex-sonnet-4-6
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   fulfillJson,
@@ -11,8 +11,8 @@ import {
 } from "./_mocked-rbac";
 
 const adminSession = {
-  email: "sraradhy@cisco.com",
-  name: "Sri Aradhyula",
+  email: "rbac-admin@example.com",
+  name: "RBAC Admin",
   role: "admin" as const,
   canViewAdmin: true,
 };
@@ -30,11 +30,40 @@ type ServiceAccountItem = {
 
 type ScopeRef = { type: "agent" | "tool"; ref: string };
 
+type GrantableItem = { ref: string; name: string };
+
+type ServiceAccountCredential = {
+  id: string;
+  provider: string;
+  status: "connected" | "revoked";
+  connectedAt?: string;
+  requestedScopes?: string[];
+};
+
 function counts(scopes: ScopeRef[]) {
   return {
     agents: scopes.filter((scope) => scope.type === "agent").length,
     tools: scopes.filter((scope) => scope.type === "tool").length,
   };
+}
+
+async function forceCredentialClientConfig(page: Page) {
+  await page.addInitScript(() => {
+    let appConfig: Record<string, unknown> | undefined;
+    Object.defineProperty(window, "__APP_CONFIG__", {
+      configurable: true,
+      get() {
+        return appConfig;
+      },
+      set(next) {
+        appConfig = {
+          ...(typeof next === "object" && next !== null ? next : {}),
+          credentialsEnabled: true,
+          userConnectionsEnabled: true,
+        };
+      },
+    });
+  });
 }
 
 test.describe("mocked service accounts browser regression", () => {
@@ -78,6 +107,25 @@ test.describe("mocked service accounts browser regression", () => {
               { ref: "jira/*", name: "jira: all tools" },
             ],
           },
+        });
+        return true;
+      }
+
+      if (
+        path === "/api/admin/service-accounts/sa-sub-playwright/credentials" &&
+        method === "GET"
+      ) {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { provider: "jira", name: "Jira" },
+            { provider: "github", name: "GitHub" },
+          ],
         });
         return true;
       }
@@ -240,10 +288,10 @@ test.describe("mocked service accounts browser regression", () => {
     await page.getByRole("button", { name: "Manage" }).click();
 
     const manageDialog = page.getByRole("dialog", { name: "incident-bot" });
-    await expect(manageDialog.getByText("jira/search")).toBeVisible();
-    await manageDialog.getByRole("button", { name: "Add agents you hold..." }).click();
+    await expect(manageDialog.getByRole("button", { name: "Remove tool jira/search" })).toBeVisible();
+    await manageDialog.getByRole("button", { name: /Add agents/ }).click();
     await page.getByRole("button", { name: "Runbook Agent" }).first().click({ force: true });
-    await manageDialog.getByRole("button", { name: "Add", exact: true }).click({ force: true });
+    await manageDialog.getByRole("button", { name: "Add", exact: true }).first().click({ force: true });
     await expect.poll(() => requests.some((request) => request.method === "POST" && request.path.endsWith("/scopes"))).toBe(true);
     expect(
       requests.find((request) => request.method === "POST" && request.path.endsWith("/scopes"))?.body,
@@ -256,7 +304,7 @@ test.describe("mocked service accounts browser regression", () => {
     expect(
       requests.find((request) => request.method === "DELETE" && request.path.endsWith("/scopes"))?.body,
     ).toEqual({ type: "tool", ref: "jira/search" });
-    await expect(manageDialog.getByText("jira/search")).toHaveCount(0);
+    await expect(manageDialog.getByRole("button", { name: "Remove tool jira/search" })).toHaveCount(0);
 
     await manageDialog.getByRole("button", { name: "Rotate credential" }).click();
     await manageDialog.getByRole("button", { name: "Confirm rotate" }).click();
@@ -276,5 +324,737 @@ test.describe("mocked service accounts browser regression", () => {
     await page.getByRole("button", { name: "Confirm delete" }).click();
     await expect.poll(() => requests.some((request) => request.method === "DELETE" && request.path === "/api/admin/service-accounts/sa-sub-playwright")).toBe(true);
     await expect(page.getByText("No service accounts yet")).toBeVisible();
+  });
+
+  test("super admin picker shows individual MCP tools, filters search, hides granted scopes, and posts exact refs", async ({
+    page,
+  }) => {
+    const requests: Array<{ method: string; path: string; body: unknown }> = [];
+    const scopes: ScopeRef[] = [
+      { type: "agent", ref: "private-agent" },
+      { type: "tool", ref: "argocd/*" },
+    ];
+    const grantableTools: GrantableItem[] = [
+      { ref: "argocd/*", name: "argocd: all tools" },
+      { ref: "backstage/catalog", name: "backstage: catalog" },
+      { ref: "github/*", name: "github: all tools" },
+      { ref: "jira/create_issue", name: "jira: create issue" },
+      { ref: "jira/search", name: "jira: search" },
+      { ref: "knowledge-base/query", name: "knowledge-base: query" },
+    ];
+
+    const handler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-platform", name: "Platform Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            items: [
+              {
+                id: "sa-sub-full-catalog",
+                name: "catalog-bot",
+                description: "Platform catalog test",
+                owning_team_id: "team-platform",
+                created_by: "user-admin",
+                created_at: "2026-06-17T12:00:00.000Z",
+                status: "active",
+                scope_counts: counts(scopes),
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-full-catalog" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-sub-full-catalog",
+            name: "catalog-bot",
+            description: "Platform catalog test",
+            owning_team_id: "team-platform",
+            created_by: "user-admin",
+            created_at: "2026-06-17T12:00:00.000Z",
+            status: "active",
+            scopes,
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            agents: [{ ref: "private-agent", name: "Private Agent" }],
+            tools: grantableTools,
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-full-catalog/credentials" && method === "GET") {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-full-catalog/scopes" && method === "POST") {
+        const body = (await postJson(route)) as ScopeRef;
+        requests.push({ method, path, body });
+        if (body.ref === "github/*") {
+          await fulfillJson(route, { success: false, error: "Backend rejected github wildcard" }, 403);
+          return true;
+        }
+        scopes.push(body);
+        await fulfillJson(route, { success: true, data: { added: body } });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [handler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("row", { name: /catalog-bot/ }).getByRole("button", { name: "Manage" }).click();
+    const dialog = page.getByRole("dialog", { name: "catalog-bot" });
+    await expect(dialog.getByText("argocd/*")).toBeVisible();
+
+    await dialog.getByRole("button", { name: /Add tools/ }).click();
+    await expect(page.getByRole("button", { name: "argocd: all tools" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "jira: search" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "jira: create issue" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "github: all tools" })).toBeVisible();
+
+    const search = page.getByTestId("multi-select-search");
+    await search.click();
+    await page.keyboard.type("jira");
+    await expect(search).toHaveValue("jira");
+    await expect(page.getByRole("button", { name: "jira: search" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "jira: create issue" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "backstage: catalog" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "github: all tools" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "jira: search" }).click({ force: true });
+    await dialog.getByRole("button", { name: "Add", exact: true }).first().click({ force: true });
+    await expect.poll(() => requests.some((request) => request.method === "POST")).toBe(true);
+    expect(requests.at(-1)?.body).toEqual({ type: "tool", ref: "jira/search" });
+    await expect(dialog.getByText("jira/search")).toBeVisible();
+
+    await dialog.getByRole("button", { name: /Add tools/ }).click();
+    await expect(page.getByRole("button", { name: "jira: search" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "github: all tools" })).toBeVisible();
+    await page.getByRole("button", { name: "github: all tools" }).click({ force: true });
+    await expect(dialog.getByRole("button", { name: "github: all tools" }).first()).toBeVisible();
+
+    const requestCount = requests.length;
+    const scopeAdd = dialog.getByRole("button", { name: "Add", exact: true }).first();
+    await expect(scopeAdd).toBeEnabled();
+    await scopeAdd.click({ force: true });
+    await expect.poll(() => requests.length).toBe(requestCount + 1);
+    expect(requests.at(-1)?.body).toEqual({ type: "tool", ref: "github/*" });
+    await expect(dialog.getByText("Backend rejected github wildcard")).toBeVisible();
+    await expect(dialog.getByText("github/*")).toHaveCount(0);
+  });
+
+  test("non-super-admin picker only renders caller-held service account tools", async ({
+    page,
+  }) => {
+    const scopes: ScopeRef[] = [{ type: "agent", ref: "agent-private" }];
+
+    const heldOnlyHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-dev", name: "Dev Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            items: [
+              {
+                id: "sa-sub-held-only",
+                name: "held-only-bot",
+                owning_team_id: "team-dev",
+                created_by: "user-dev",
+                created_at: "2026-06-17T12:00:00.000Z",
+                status: "active",
+                scope_counts: counts(scopes),
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-held-only" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-sub-held-only",
+            name: "held-only-bot",
+            owning_team_id: "team-dev",
+            created_by: "user-dev",
+            created_at: "2026-06-17T12:00:00.000Z",
+            status: "active",
+            scopes,
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            agents: [{ ref: "agent-private", name: "Private Agent" }],
+            tools: [{ ref: "mcp-meraki/*", name: "mcp-meraki: all tools" }],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-held-only/credentials" && method === "GET") {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: false,
+      session: {
+        email: "dev-user@example.com",
+        name: "Dev User",
+        role: "user",
+        canViewAdmin: true,
+      },
+      handlers: [heldOnlyHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("row", { name: /held-only-bot/ }).getByRole("button", { name: "Manage" }).click();
+    const dialog = page.getByRole("dialog", { name: "held-only-bot" });
+    await dialog.getByRole("button", { name: /Add tools/ }).click();
+
+    await expect(page.getByRole("button", { name: "mcp-meraki: all tools" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "jira: search" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "github: all tools" })).toHaveCount(0);
+  });
+
+  test("adds, validates, lists, de-duplicates, and removes service account provider tokens", async ({
+    page,
+  }) => {
+    const requests: Array<{ method: string; path: string; body: unknown }> = [];
+    const items: ServiceAccountItem[] = [
+      {
+        id: "sa-sub-token-bot",
+        name: "token-bot",
+        description: "Uses provider tokens",
+        owning_team_id: "team-sre",
+        created_by: "user-admin",
+        created_at: "2026-06-15T12:00:00.000Z",
+        status: "active",
+        scope_counts: { agents: 1, tools: 1 },
+      },
+    ];
+    const credentials: ServiceAccountCredential[] = [];
+    let failNextAdd = true;
+
+    const tokenHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-sre", name: "SRE Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+            tools: [{ ref: "gitlab/projects", name: "gitlab: projects" }],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        await fulfillJson(route, { success: true, data: { items } });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-token-bot" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-sub-token-bot",
+            name: "token-bot",
+            description: "Uses provider tokens",
+            owning_team_id: "team-sre",
+            created_by: "user-admin",
+            created_at: "2026-06-15T12:00:00.000Z",
+            status: "active",
+            scopes: [
+              { type: "agent", ref: "incident-resolver" },
+              { type: "tool", ref: "gitlab/projects" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { provider: "github", name: "GitHub" },
+            { provider: "gitlab", name: "GitLab" },
+          ],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-token-bot/credentials") {
+        if (method === "GET") {
+          await fulfillJson(route, { success: true, data: credentials });
+          return true;
+        }
+
+        if (method === "POST") {
+          const body = await postJson(route);
+          requests.push({ method, path, body });
+          if (failNextAdd) {
+            failNextAdd = false;
+            await fulfillJson(route, { success: false, error: "Token already exists" }, 409);
+            return true;
+          }
+          credentials.push({
+            id: "conn-gitlab",
+            provider: "gitlab",
+            status: "connected",
+            connectedAt: "2026-06-15T12:34:00.000Z",
+            requestedScopes: ["api"],
+          });
+          await fulfillJson(
+            route,
+            {
+              success: true,
+              data: {
+                id: "conn-gitlab",
+                provider: "gitlab",
+                status: "connected",
+                connectedAt: "2026-06-15T12:34:00.000Z",
+                requestedScopes: ["api"],
+              },
+            },
+            201,
+          );
+          return true;
+        }
+
+        if (method === "DELETE") {
+          const body = (await postJson(route)) as { connection_id?: string } | null;
+          requests.push({ method, path, body });
+          const index = credentials.findIndex((credential) => credential.id === body?.connection_id);
+          if (index >= 0) credentials.splice(index, 1);
+          await fulfillJson(route, { success: true, data: { deleted: body?.connection_id } });
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      gates: { credentials: true },
+      handlers: [tokenHandler],
+    });
+    await forceCredentialClientConfig(page);
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByRole("heading", { name: "Service Accounts", exact: true })).toBeVisible();
+    await page.getByRole("row", { name: /token-bot/ }).getByRole("button", { name: "Manage" }).click();
+
+    const manageDialog = page.getByRole("dialog", { name: "token-bot" });
+    await expect(manageDialog.getByText("Tokens", { exact: true })).toBeVisible();
+    await expect(manageDialog.getByText(/No tokens added/)).toBeVisible();
+    await expect(manageDialog.getByText("Add a token")).toBeVisible();
+
+    await manageDialog.getByRole("button", { name: "Token provider" }).click();
+    await page.getByRole("option", { name: "GitLab" }).click();
+    const tokenInput = manageDialog.getByLabel("Access token");
+    await expect(tokenInput).toHaveAttribute("autocomplete", "off");
+    await expect(tokenInput).toHaveAttribute("data-1p-ignore", "true");
+    await expect(tokenInput).toHaveAttribute("data-lpignore", "true");
+    await tokenInput.fill("glpat-playwright-secret");
+
+    await manageDialog.getByRole("button", { name: "Add", exact: true }).last().click();
+    await expect(manageDialog.getByText("Token already exists")).toBeVisible();
+    await expect(tokenInput).toHaveValue("glpat-playwright-secret");
+
+    await tokenInput.press("Enter");
+    await expect.poll(() => credentials.length).toBe(1);
+    const addRequests = requests.filter(
+      (request) => request.method === "POST" && request.path.endsWith("/credentials"),
+    );
+    expect(addRequests).toHaveLength(2);
+    expect(addRequests[0].body).toEqual({
+      provider: "gitlab",
+      token: "glpat-playwright-secret",
+    });
+    expect(addRequests[1].body).toEqual({
+      provider: "gitlab",
+      token: "glpat-playwright-secret",
+    });
+
+    await expect(manageDialog.getByText("Token already exists")).toHaveCount(0);
+    await expect(tokenInput).toHaveValue("");
+    await expect(manageDialog.getByText("GitLab", { exact: true })).toBeVisible();
+    await expect(manageDialog.getByText("connected")).toBeVisible();
+    await expect(manageDialog.getByText("glpat-playwright-secret")).toHaveCount(0);
+
+    await manageDialog.getByRole("button", { name: "Token provider" }).click();
+    await expect(page.getByRole("option", { name: "GitLab" })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: "GitHub" })).toBeVisible();
+    await page.getByRole("option", { name: "GitHub" }).click();
+
+    await manageDialog.getByRole("button", { name: "Remove GitLab credential" }).click();
+    await expect(manageDialog.getByText("Remove?")).toBeVisible();
+    await manageDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(manageDialog.getByText("GitLab", { exact: true })).toBeVisible();
+    await expect.poll(() => credentials.length).toBe(1);
+
+    await manageDialog.getByRole("button", { name: "Remove GitLab credential" }).click();
+    await manageDialog.getByRole("button", { name: "Confirm" }).click();
+    await expect.poll(() => credentials.length).toBe(0);
+    expect(
+      requests.find((request) => request.method === "DELETE" && request.path.endsWith("/credentials"))?.body,
+    ).toEqual({ connection_id: "conn-gitlab" });
+    await expect(manageDialog.getByText(/No tokens added/)).toBeVisible();
+
+    await manageDialog.getByRole("button", { name: "Token provider" }).click();
+    await expect(page.getByRole("option", { name: "GitLab" })).toBeVisible();
+    await page.getByRole("option", { name: "GitLab" }).click();
+  });
+
+  test("hides the Tokens section when service account token passthrough is disabled", async ({
+    page,
+  }) => {
+    const items: ServiceAccountItem[] = [
+      {
+        id: "sa-sub-no-tokens",
+        name: "no-tokens-bot",
+        owning_team_id: "team-sre",
+        created_by: "user-admin",
+        created_at: "2026-06-15T12:00:00.000Z",
+        status: "active",
+        scope_counts: { agents: 0, tools: 0 },
+      },
+    ];
+
+    const disabledTokensHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-sre", name: "SRE Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        await fulfillJson(route, { success: true, data: { items } });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-no-tokens" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-sub-no-tokens",
+            name: "no-tokens-bot",
+            owning_team_id: "team-sre",
+            created_by: "user-admin",
+            created_at: "2026-06-15T12:00:00.000Z",
+            status: "active",
+            scopes: [],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        await fulfillJson(route, { success: true, data: { agents: [], tools: [] } });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
+        await fulfillJson(route, { success: false, code: "CREDENTIALS_DISABLED" }, 404);
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-sub-no-tokens/credentials" && method === "GET") {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [disabledTokensHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("row", { name: /no-tokens-bot/ }).getByRole("button", { name: "Manage" }).click();
+    const manageDialog = page.getByRole("dialog", { name: "no-tokens-bot" });
+    await expect(manageDialog.getByText("Current scopes")).toBeVisible();
+    await expect(manageDialog.getByText("Tokens", { exact: true })).toHaveCount(0);
+    await expect(manageDialog.getByText("Add a token", { exact: true })).toHaveCount(0);
+    await expect(manageDialog.getByLabel("Access token")).toHaveCount(0);
+  });
+
+  test("grants full-catalog tool scopes to the unlinked service account", async ({ page }) => {
+    const requests: Array<{ method: string; path: string; search: string; body: unknown }> = [];
+    const scopes: ScopeRef[] = [];
+
+    const unlinkedHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/admin/platform-config" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            default_agent_id: "incident-resolver",
+            release_notes: { enabled: false },
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: [{ _id: "incident-resolver", name: "Incident Resolver", enabled: true }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/unlinked" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-unlinked-platform",
+            name: "platform-unlinked",
+            scopes,
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        requests.push({ method, path, search: url.search, body: null });
+        if (url.searchParams.get("context") === "unlinked") {
+          await fulfillJson(route, {
+            success: true,
+            data: {
+              agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+              tools: [
+                { ref: "jira/search", name: "jira: search" },
+                { ref: "jira/create_issue", name: "jira: create issue" },
+                { ref: "github/*", name: "github: all tools" },
+              ],
+            },
+          });
+          return true;
+        }
+        await fulfillJson(route, { success: true, data: { agents: [], tools: [] } });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-unlinked-platform/scopes" && method === "POST") {
+        const body = (await postJson(route)) as ScopeRef;
+        requests.push({ method, path, search: url.search, body });
+        scopes.push(body);
+        await fulfillJson(route, { success: true, data: { added: body } });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [unlinkedHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel("Scope type").selectOption("tool");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("jira: search");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("github: all tools");
+    await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveCount(0);
+
+    await dialog.getByLabel("Scope ref").selectOption("jira/search");
+    await dialog.getByRole("button", { name: "Add" }).click();
+
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "GET" &&
+            request.path === "/api/admin/service-accounts/grantable" &&
+            request.search === "?context=unlinked",
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
+        ),
+      )
+      .toBe(true);
+    expect(
+      requests.find(
+        (request) =>
+          request.method === "POST" &&
+          request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
+      )?.body,
+    ).toEqual({ type: "tool", ref: "jira/search" });
+    await expect(dialog.getByText("tool/jira/search")).toBeVisible();
+  });
+
+  test("shows no tool choices for unlinked access when catalog discovery found no tools", async ({
+    page,
+  }) => {
+    const requests: Array<{ method: string; path: string; search: string; body: unknown }> = [];
+
+    const unlinkedEmptyToolsHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/admin/platform-config" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            default_agent_id: "incident-resolver",
+            release_notes: { enabled: false },
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: [{ _id: "incident-resolver", name: "Incident Resolver", enabled: true }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/unlinked" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-unlinked-platform",
+            name: "platform-unlinked",
+            scopes: [],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        requests.push({ method, path, search: url.search, body: null });
+        if (url.searchParams.get("context") === "unlinked") {
+          await fulfillJson(route, {
+            success: true,
+            data: {
+              agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+              tools: [],
+            },
+          });
+          return true;
+        }
+        await fulfillJson(route, { success: true, data: { agents: [], tools: [] } });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [unlinkedEmptyToolsHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel("Scope type").selectOption("tool");
+    await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveText(
+      /No tools available to grant/i,
+    );
+    await expect(dialog.getByLabel("Scope ref")).toContainText("No more tools available");
+    await expect(dialog.getByLabel("Scope ref")).not.toContainText("jira: all tools");
+    await expect(dialog.getByRole("button", { name: "Add" })).toBeDisabled();
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "GET" &&
+            request.path === "/api/admin/service-accounts/grantable" &&
+            request.search === "?context=unlinked",
+        ),
+      )
+      .toBe(true);
   });
 });

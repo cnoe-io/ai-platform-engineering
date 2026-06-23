@@ -20,8 +20,13 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
 }));
 
+let mockSessionStatus: "loading" | "authenticated" | "unauthenticated" = "authenticated";
+
 jest.mock("next-auth/react", () => ({
-  useSession: () => ({ data: { user: { email: "test@example.com" } }, status: "authenticated" }),
+  useSession: () => ({
+    data: mockSessionStatus === "authenticated" ? { user: { email: "test@example.com" } } : null,
+    status: mockSessionStatus,
+  }),
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -95,6 +100,7 @@ describe("Chat Redirect Page", () => {
     mockConversations = [];
     mockActiveConversationId = null;
     mockGetLastActiveConversationId.mockReturnValue(null);
+    mockSessionStatus = "authenticated";
   });
 
   it("renders CAIPESpinner with branded loading message", () => {
@@ -125,7 +131,7 @@ describe("Chat Redirect Page", () => {
       },
       {
         id: "conv-2",
-        owner_id: "test@example.com",
+        owner_id: "other@example.com",
         updatedAt: new Date("2026-05-18T08:00:00Z"),
       },
     ];
@@ -153,5 +159,33 @@ describe("Chat Redirect Page", () => {
 
     await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(undefined));
     expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
+  });
+
+  it("does not create a conversation while the session is still loading", async () => {
+    mockSessionStatus = "loading";
+
+    render(<Chat />);
+
+    // Give the effect time to run if it were going to
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockLoadConversationsFromServer).not.toHaveBeenCalled();
+  });
+
+  it("does not create a new conversation when owned conversations already exist", async () => {
+    mockConversations = [
+      {
+        id: "existing-conv",
+        owner_id: "test@example.com",
+        updatedAt: new Date("2026-05-18T10:00:00Z"),
+      },
+    ];
+
+    render(<Chat />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/chat/existing-conv"));
+    expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 });

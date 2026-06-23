@@ -21,21 +21,17 @@ describe("slack-channel-rebac helpers", () => {
   });
 
   describe("slackChannelTeamVisibilityRelationships", () => {
-    it("emits a team#admin -> manage and team#member -> use pair", () => {
-      // We use action `use` (not `read`) for the member tuple because that's what
-      // the team-channels PUT endpoint at
-      // `ui/src/app/api/admin/teams/[id]/slack-channels/route.ts` writes
-      // (`team:<slug>#member relation user slack_channel:...`). Keeping the same
-      // shape means the admin PUT path and the onboarding-defaults backfill path
-      // converge on identical OpenFGA tuple sets. `can_use` resolves through to
-      // `can_read` in the slack_channel type model.
+    it("emits team member use/manage and team admin manage tuples", () => {
+      // Team selection for Slack integrations intentionally lets every team
+      // member view/use the channel and manage its route configuration.
+      // assisted-by Codex Codex-sonnet-4-6
       const rels = slackChannelTeamVisibilityRelationships(
         "CAIPE",
         "C0B4QFN4Q21",
         "platform",
       );
 
-      expect(rels).toHaveLength(2);
+      expect(rels).toHaveLength(3);
       expect(rels).toEqual(
         expect.arrayContaining([
           {
@@ -46,6 +42,11 @@ describe("slack-channel-rebac helpers", () => {
           {
             subject: { type: "team", id: "platform", relation: "member" },
             action: "use",
+            resource: { type: "slack_channel", id: "CAIPE--C0B4QFN4Q21" },
+          },
+          {
+            subject: { type: "team", id: "platform", relation: "member" },
+            action: "manage",
             resource: { type: "slack_channel", id: "CAIPE--C0B4QFN4Q21" },
           },
         ]),

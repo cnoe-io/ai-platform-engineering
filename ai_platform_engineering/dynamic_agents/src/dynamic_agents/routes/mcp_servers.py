@@ -21,7 +21,7 @@ router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
 @router.post("/{server_id}/probe", response_model=MCPServerProbeResult)
 async def probe_server(
     server_id: str,
-    user: UserContext = Depends(get_user_context),
+    _user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> MCPServerProbeResult:
     """Probe an MCP server to discover available tools.
@@ -29,11 +29,11 @@ async def probe_server(
     Connects to the server and retrieves its tool manifest.
     This is an on-demand operation - tool manifests are NOT stored.
 
-    Requires admin role (checked via X-User-Context from gateway).
+    Authorization is enforced by the Next.js BFF before this endpoint is
+    called (``mcp_server:<id>#can_discover``). DA trusts the gateway's
+    ``X-User-Context`` header and forwards the caller's Bearer token for
+    AgentGateway-routed MCP servers.
     """
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     server = mongo.get_server(server_id)
 
     if not server:

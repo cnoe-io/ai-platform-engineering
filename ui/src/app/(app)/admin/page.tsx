@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import {
 CategoryBreakdown,
 RunStatsTable,
@@ -60,7 +62,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Bot,Bug,Calendar,CheckCircle2,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,Plus,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,Star,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Bot,Bug,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -158,43 +160,6 @@ interface FeedbackData {
   };
 }
 
-interface NPSCampaign {
-  _id: string;
-  name: string;
-  starts_at: string;
-  ends_at: string;
-  created_by: string;
-  created_at: string;
-  response_count: number;
-  status: 'active' | 'ended' | 'scheduled';
-}
-
-interface NPSData {
-  nps_score: number;
-  total_responses: number;
-  campaigns?: NPSCampaign[];
-  breakdown: {
-    promoters: number;
-    passives: number;
-    detractors: number;
-    promoter_pct: number;
-    passive_pct: number;
-    detractor_pct: number;
-  };
-  trend: Array<{
-    date: string;
-    avg_score: number | null;
-    count: number;
-    nps: number | null;
-  }>;
-  recent_responses: Array<{
-    user_email: string;
-    score: number;
-    comment?: string;
-    created_at: string;
-  }>;
-}
-
 interface Team {
   _id: string;
   name: string;
@@ -220,6 +185,11 @@ interface Team {
   // the team, server-decorated from team_membership_sources. Drives the
   // "synced from <IdP>" badge so synced teams are distinguishable from manual.
   idp_source_types?: string[];
+  // Per-row management gate, server-decorated from OpenFGA. True for org/super
+  // admins on every team and for team admins on the teams they own. Drives
+  // the "Manage team" vs "View team" affordance on the team card so that team
+  // admins (without admin_ui#view) still get the manage entry-point.
+  can_manage?: boolean;
   members?: Array<{
     user_id: string;
     role: string;
@@ -257,7 +227,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'scheduler', 'pod-owner-migration', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'scheduler', 'pod-owner-migration', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -269,8 +239,8 @@ const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'security';
-const DEFAULT_ADMIN_TAB = 'cas-permissions-tool';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
+const DEFAULT_ADMIN_TAB = 'settings';
 const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
@@ -291,7 +261,7 @@ const CATEGORIES: Category[] = [
     label: 'Settings',
     icon: Settings,
     tabs: [
-      { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
+      { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
@@ -326,7 +296,6 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
       { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
-      { value: 'nps', label: 'NPS', icon: Star, gateKey: 'nps' },
     ],
   },
   {
@@ -363,6 +332,11 @@ function categoryForTab(tab: string): CategoryKey {
   return DEFAULT_ADMIN_CATEGORY;
 }
 
+// Admin Teams grid page size. The grid is server-paginated (`?page=`) so the
+// browser only ever holds one page of teams regardless of directory size.
+// 12 fills the 3-column layout in 4 clean rows.
+const TEAMS_PAGE_SIZE = 12;
+
 // IdP membership source types (okta / oidc_claim / active_directory) → display
 // label + optional logo asset, for the "synced from <IdP>" team badge.
 const IDP_SOURCE_META: Record<string, { label: string; logo?: string }> = {
@@ -371,29 +345,39 @@ const IDP_SOURCE_META: Record<string, { label: string; logo?: string }> = {
   active_directory: { label: 'Active Directory' },
 };
 
-// Badge shown on a team card when its membership was synced from an IdP. Renders
-// the provider logo (e.g. Okta) when available, falling back to a label, with a
+// Badges shown on a team card when its membership was synced from an IdP. A
+// team can be synced from more than one source (e.g. some members from Okta,
+// others from a raw OIDC claim), so we render one pill PER source type rather
+// than collapsing them into a single combined label. Each pill shows the
+// provider logo (e.g. Okta) when available plus its label, with a
 // "Synced with <IdP>" tooltip.
 function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
-  const metas = sourceTypes.map((t) => IDP_SOURCE_META[t] ?? { label: t });
-  const labels = metas.map((m) => m.label).join(', ');
-  const title = `Synced with ${labels}`;
+  // Dedupe defensively — the backend $addToSet already returns distinct types,
+  // but a stray duplicate would otherwise render two identical pills.
+  const seen = new Set<string>();
+  const types = sourceTypes.filter((t) => (seen.has(t) ? false : (seen.add(t), true)));
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
-      title={title}
-      aria-label={title}
-    >
-      {metas.map((m, i) =>
-        m.logo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={m.logo} alt={m.label} className="h-3.5 w-3.5" />
-        ) : (
-          <span key={i} className="text-[10px] font-medium text-muted-foreground">
-            {m.label}
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {types.map((t) => {
+        const meta = IDP_SOURCE_META[t] ?? { label: t };
+        const title = `Synced with ${meta.label}`;
+        return (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
+            title={title}
+            aria-label={title}
+          >
+            {meta.logo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={meta.logo} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
+            )}
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {meta.label}
+            </span>
           </span>
-        )
-      )}
+        );
+      })}
     </span>
   );
 }
@@ -506,15 +490,25 @@ function AdminPage() {
   const isSimulationActive = Boolean(simulationTarget);
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
-  const npsEnabled = getConfig('npsEnabled');
   const podOwnerMigrationEnabled = getConfig('podOwnerMigrationEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
+  // `teams` is the FULL team list, used only by the shared Stats/Feedback
+  // team-filter dropdowns and the access-simulation team picker (which need
+  // every team available for selection). The Teams grid below does NOT read
+  // from this — it has its own server-paginated state (`gridTeams`) so the
+  // grid only ever renders one page of cards.
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamSearch, setTeamSearch] = useState("");
-  const [teamsRefreshing, setTeamsRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Server-paginated Teams grid state. `gridTeams` holds only the current
+  // page; `gridSearch` is the debounced query sent to the server.
+  const [gridTeams, setGridTeams] = useState<Team[]>([]);
+  const [gridTotal, setGridTotal] = useState(0);
+  const [gridPage, setGridPage] = useState(1);
+  const [gridLoading, setGridLoading] = useState(false);
+  const [gridLoaded, setGridLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
@@ -545,7 +539,6 @@ function AdminPage() {
     () => ({
       ...gates,
       feedback: Boolean(gates.feedback && feedbackEnabled),
-      nps: Boolean(gates.nps && npsEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
       settings: !isSimulationActive,
@@ -556,7 +549,7 @@ function AdminPage() {
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
     }),
-    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled, podOwnerMigrationEnabled]
+    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, podOwnerMigrationEnabled]
   );
 
   const visibleCategories = useMemo(
@@ -831,28 +824,25 @@ function AdminPage() {
     }
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
-  const [npsData, setNpsData] = useState<NPSData | null>(null);
-  const [showCampaignForm, setShowCampaignForm] = useState(false);
-  const [campaignName, setCampaignName] = useState("");
-  const [campaignStartDate, setCampaignStartDate] = useState("");
-  const [campaignEndDate, setCampaignEndDate] = useState("");
-  const [creatingCampaign, setCreatingCampaign] = useState(false);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
-  const [npsLoading, setNpsLoading] = useState(false);
-  const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
-  const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
   const [statsRefreshing, setStatsRefreshing] = useState(false);
   const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
   const [statsChannels, setStatsChannels] = useState<string[]>([]);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
+  const visitedTabsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    // Fetch admin data when authenticated or when SSO is disabled (local dev)
     if (status === "authenticated" || !getConfig('ssoEnabled')) {
-      loadAdminData();
+      loadTabData(activeTab);
     }
   }, [status]);
+
+  // Load data for newly-visited tabs
+  useEffect(() => {
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    loadTabData(activeTab);
+  }, [activeTab, status]);
 
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
@@ -867,40 +857,78 @@ function AdminPage() {
     return result.data?.teams || [];
   };
 
+  // Refresh the FULL team list backing the shared filter dropdowns. The Teams
+  // grid has its own paginated loader (`fetchTeamsGridPage`) and does not use
+  // this. Runs quietly in the background — no visible spinner.
   const loadTeams = async () => {
-    setTeamsRefreshing(true);
     try {
       setTeams(await fetchTeamsFromDb());
     } catch (err: any) {
       console.error('[Admin] Failed to refresh teams:', err);
-      alert(`Failed to refresh teams: ${err.message || 'Unknown error'}`);
-    } finally {
-      setTeamsRefreshing(false);
     }
   };
 
-  const filteredTeams = useMemo(() => {
-    const query = teamSearch.trim().toLowerCase();
-    if (!query) return teams;
+  // Fetch one page of the Teams grid from the server. Search is applied
+  // server-side so the browser never holds more than a page of rows. The
+  // request is the source of truth for `gridTotal`, which drives the pager.
+  const fetchTeamsGridPage = useCallback(async (page: number, search: string) => {
+    setGridLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(TEAMS_PAGE_SIZE),
+        fresh: String(Date.now()),
+      });
+      if (search.trim()) params.set('search', search.trim());
+      const response = await fetch(`/api/admin/teams?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to load teams');
+      }
+      setGridTeams(result.data?.teams ?? []);
+      setGridTotal(result.data?.total ?? 0);
+      setGridPage(result.data?.page ?? page);
+      setGridLoaded(true);
+    } catch (err: any) {
+      console.error('[Admin] Failed to load teams page:', err);
+    } finally {
+      setGridLoading(false);
+    }
+  }, []);
 
-    return teams.filter((team) => {
-      const searchableValues = [
-        team.name,
-        team.slug,
-        team.description,
-        team.owner_id,
-        // Defensive read: post Commit 6/8 of the canonical-team-membership
-        // refactor the embedded `members[]` array goes away. Until the
-        // search-by-member-email UX is reworked to lazily fetch rosters
-        // via `/api/admin/teams/[id]` we still consult the embedded list
-        // when it's present, but never crash if it's absent.
-        ...(team.members ?? []).map((member) => member.user_id),
-      ];
-      return searchableValues
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query));
-    });
-  }, [teams, teamSearch]);
+  // Debounced server-side search for the Teams grid. Typing resets to page 1
+  // and re-queries the server (~250ms after the last keystroke), matching the
+  // discovery-search pattern used elsewhere in the admin dialogs. We only run
+  // this while the Teams tab is active so other tabs don't trigger team
+  // queries on every keystroke.
+  useEffect(() => {
+    if (activeTab !== 'teams') return;
+    const handle = setTimeout(() => {
+      void fetchTeamsGridPage(1, teamSearch);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [teamSearch, activeTab, fetchTeamsGridPage]);
+
+  const gridTotalPages = Math.max(1, Math.ceil(gridTotal / TEAMS_PAGE_SIZE));
+  const gridHasMore = gridPage * TEAMS_PAGE_SIZE < gridTotal;
+
+  const goToTeamsPage = (page: number) => {
+    const clamped = Math.min(Math.max(1, page), gridTotalPages);
+    void fetchTeamsGridPage(clamped, teamSearch);
+  };
+
+  // Refresh after a team mutation (create/edit/delete/member change). Always
+  // re-fetches the visible grid page. Also refreshes the full team list — but
+  // only when it has already been loaded — so the shared filter dropdowns stay
+  // current without forcing a full fetch for users who never opened those tabs.
+  const refreshAfterTeamMutation = (page?: number) => {
+    void fetchTeamsGridPage(page ?? gridPage, teamSearch);
+    if (visitedTabsRef.current.has('_teams-loaded')) {
+      void loadTeams();
+    }
+  };
 
   // Expand team: prefixed selections to member emails
   // See `filteredTeams` above for the canonical-team-membership refactor note —
@@ -956,43 +984,27 @@ function AdminPage() {
     fetchStatsWithFilters();
   }, [dateRange, sourceFilter, userFilter, status]);
 
-  const loadAdminData = async () => {
+  const loadStats = async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const feedbackOn = getConfig('feedbackEnabled');
-      const npsOn = getConfig('npsEnabled');
-      // Fetch stats, teams, skill metrics, feedback, and NPS in parallel.
-      // The user list is intentionally NOT fetched here — UserManagementTab
-      // lazy-loads it when the Users tab is selected. Fetching it eagerly
-      // burned a Keycloak list+count round-trip on every admin page load
-      // and the result was discarded.
       const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
-      const [statsRes, globalStatsRes, teamsData, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
-        (() => {
-          const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
-          if (sourceFilter !== 'all') p.set('source', sourceFilter);
-          if (userFilter.length > 0) p.set('user', userFilter.join(','));
-          return fetch(`/api/admin/stats?${p}`);
-        })(),
+      const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
+      if (sourceFilter !== 'all') p.set('source', sourceFilter);
+      if (userFilter.length > 0) p.set('user', userFilter.join(','));
+      const [statsRes, globalStatsRes] = await Promise.all([
+        fetch(`/api/admin/stats?${p}`),
         hasStatsFilters ? fetch('/api/admin/stats') : null,
-        fetchTeamsFromDb().catch(() => []),
-        fetch('/api/admin/stats/skills').catch(() => null),
-        feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
-        npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
       if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
-        setLoading(false);
         return;
       }
 
       const statsForbidden = statsRes.status === 403;
       if (statsForbidden && !tabGateValues.settings) {
         setError('Access denied. Try signing out and back in to refresh your session.');
-        setLoading(false);
         return;
       }
 
@@ -1004,43 +1016,92 @@ function AdminPage() {
       if (statsResponse.success) {
         setStats(statsResponse.data);
         if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
-        // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
       } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
-
-      setTeams(teamsData);
-
-      if (skillStatsRes?.ok) {
-        const skillStatsResponse = await skillStatsRes.json().catch(() => ({ success: false }));
-        if (skillStatsResponse.success) {
-          setSkillStats(skillStatsResponse.data);
-        }
-      }
-
-      if (feedbackRes?.ok) {
-        const feedbackResponse = await feedbackRes.json().catch(() => ({ success: false }));
-        if (feedbackResponse.success) {
-          setFeedbackData(feedbackResponse.data);
-          if (feedbackResponse.data.channels) setFeedbackChannels(feedbackResponse.data.channels);
-          if (feedbackResponse.data.users) setFeedbackUsers(feedbackResponse.data.users);
-        }
-      }
-
-      if (npsRes?.ok) {
-        const npsResponse = await npsRes.json().catch(() => ({ success: false }));
-        if (npsResponse.success) {
-          setNpsData(npsResponse.data);
-        }
-      }
     } catch (err: any) {
-      console.error('[Admin] Failed to load data:', err);
-      setError(err.message || 'Failed to load admin data');
+      console.error('[Admin] Failed to load stats:', err);
+      setError(err.message || 'Failed to load stats');
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadTeamsData = async () => {
+    try {
+      setTeams(await fetchTeamsFromDb());
+    } catch (err: any) {
+      console.error('[Admin] Failed to load teams:', err);
+    }
+  };
+
+  const loadSkillStats = async () => {
+    try {
+      const res = await fetch('/api/admin/stats/skills');
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ success: false }));
+        if (data.success) setSkillStats(data.data);
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load skill stats:', err);
+    }
+  };
+
+  const loadFeedbackOnce = async () => {
+    if (!getConfig('feedbackEnabled')) return;
+    try {
+      const res = await fetch('/api/admin/feedback');
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ success: false }));
+        if (data.success) {
+          setFeedbackData(data.data);
+          if (data.data.channels) setFeedbackChannels(data.data.channels);
+          if (data.data.users) setFeedbackUsers(data.data.users);
+        }
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load feedback:', err);
+    }
+  };
+
+  const loadTabData = async (tab: string) => {
+    if (visitedTabsRef.current.has(tab)) return;
+    visitedTabsRef.current.add(tab);
+
+    // Teams data is shared across stats/slack/feedback filter dropdowns.
+    // Use a data-level key (not the tab name) so it isn't confused with the
+    // tab-visit guard that loadTabData adds before invoking the loader.
+    const loadTeamsIfNeeded = () => {
+      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
+      visitedTabsRef.current.add('_teams-loaded');
+      return loadTeamsData();
+    };
+
+    // Stats data is shared between the stats and slack tabs. Use a separate
+    // key so visiting one doesn't cause the other to re-fetch it.
+    const loadStatsIfNeeded = () => {
+      if (visitedTabsRef.current.has('_stats-loaded')) return Promise.resolve();
+      visitedTabsRef.current.add('_stats-loaded');
+      return loadStats();
+    };
+
+    // Map of tab key → loader. Tabs not listed here have no upfront data to
+    // load and should not block render (loading is initialized to false).
+    // The Teams tab is NOT listed here: its grid is server-paginated and
+    // self-loads via a debounced effect, so it must not pull the full team
+    // list. The full list (`loadTeamsIfNeeded`) is only needed by tabs whose
+    // dropdowns offer every team for selection (stats/slack/feedback).
+    const loaders: Record<string, () => Promise<void>> = {
+      stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
+      slack: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
+      skills: loadSkillStats,
+      feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
+    };
+
+    const loader = loaders[tab];
+    if (loader) await loader();
   };
 
   const loadFeedback = async (
@@ -1100,86 +1161,6 @@ function AdminPage() {
   };
 
 
-  const loadNpsData = async (campaignId?: string | null) => {
-    setNpsLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (campaignId) params.set('campaign_id', campaignId);
-      const res = await fetch(`/api/admin/nps?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) setNpsData(data.data);
-      }
-    } catch (err) {
-      console.error('[Admin] Failed to load NPS data:', err);
-    } finally {
-      setNpsLoading(false);
-    }
-  };
-
-  const handleCampaignSelect = (campaignId: string) => {
-    if (selectedCampaignId === campaignId) {
-      setSelectedCampaignId(null);
-      loadNpsData();
-    } else {
-      setSelectedCampaignId(campaignId);
-      loadNpsData(campaignId);
-    }
-  };
-
-  const handleCreateCampaign = async () => {
-    if (!campaignName.trim() || !campaignStartDate || !campaignEndDate) return;
-    setCreatingCampaign(true);
-    try {
-      const res = await fetch('/api/admin/nps/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: campaignName.trim(),
-          starts_at: new Date(campaignStartDate).toISOString(),
-          ends_at: new Date(campaignEndDate).toISOString(),
-        }),
-      });
-      const result = await res.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to create campaign');
-      }
-      setCampaignName("");
-      setCampaignStartDate("");
-      setCampaignEndDate("");
-      setShowCampaignForm(false);
-      setSelectedCampaignId(null);
-      await loadNpsData();
-    } catch (err: any) {
-      console.error('[Admin] Failed to create campaign:', err);
-      alert(`Failed to create campaign: ${err.message}`);
-    } finally {
-      setCreatingCampaign(false);
-    }
-  };
-
-  const handleStopCampaign = async (campaignId: string) => {
-    setStoppingCampaign(campaignId);
-    setConfirmStopCampaign(null);
-    try {
-      const res = await fetch('/api/admin/nps/campaigns', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ campaign_id: campaignId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to stop campaign');
-      }
-      await loadNpsData(selectedCampaignId);
-    } catch (err: any) {
-      console.error('[Admin] Failed to stop campaign:', err);
-      alert(`Failed to stop campaign: ${err.message}`);
-    } finally {
-      setStoppingCampaign(null);
-    }
-  };
-
   const handleDeleteTeam = async (team: Team) => {
     setDeletingTeam(team._id);
     try {
@@ -1192,8 +1173,13 @@ function AdminPage() {
         throw new Error(result.error || 'Failed to delete team');
       }
 
-      // Remove from local state
-      setTeams(teams.filter(t => t._id !== team._id));
+      // Drop from both local lists, then re-fetch the grid page so a team
+      // from the next page backfills the now-empty slot (and the pager total
+      // stays correct). If the deletion emptied the current page, step back.
+      setTeams((prev) => prev.filter((t) => t._id !== team._id));
+      setGridTeams((prev) => prev.filter((t) => t._id !== team._id));
+      const nextPage = gridTeams.length === 1 && gridPage > 1 ? gridPage - 1 : gridPage;
+      refreshAfterTeamMutation(nextPage);
       setTeamPendingDelete(null);
       console.log(`[Admin] Team deleted: ${team.name}`);
     } catch (err: any) {
@@ -1224,7 +1210,7 @@ function AdminPage() {
         <div className="text-center">
           <p className="text-sm text-destructive mb-2">{error}</p>
           <button
-            onClick={loadAdminData}
+            onClick={() => { visitedTabsRef.current.delete(activeTab); loadTabData(activeTab); }}
             className="text-sm text-primary hover:underline"
           >
             Retry
@@ -1246,7 +1232,7 @@ function AdminPage() {
             {/* Header */}
             <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+                <h1 className="text-3xl font-bold">Admin</h1>
                 {!isAdmin && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                     <Eye className="h-3.5 w-3.5" />
@@ -1262,8 +1248,8 @@ function AdminPage() {
               </div>
               <p className="text-muted-foreground">
                 {isAdmin
-                  ? 'Manage users, teams, monitor usage, and track platform metrics'
-                  : 'View platform usage, users, teams, and metrics (read-only access)'}
+                  ? 'Manage access, teams, health, and platform settings'
+                  : 'View access, teams, health, and platform settings'}
               </p>
             </div>
 
@@ -1572,10 +1558,10 @@ function AdminPage() {
                       type="button"
                       variant="outline"
                       className="gap-2"
-                      onClick={loadTeams}
-                      disabled={teamsRefreshing}
+                      onClick={() => fetchTeamsGridPage(gridPage, teamSearch)}
+                      disabled={gridLoading}
                     >
-                      {teamsRefreshing ? (
+                      {gridLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
@@ -1590,7 +1576,11 @@ function AdminPage() {
                     )}
                   </div>
                 </div>
-                {teams.length === 0 ? (
+                {(!gridLoaded && gridLoading) || (gridLoading && gridTeams.length === 0) ? (
+                  <div className="flex justify-center py-12">
+                    <CAIPESpinner />
+                  </div>
+                ) : gridTeams.length === 0 && !teamSearch.trim() ? (
                   <div className="text-center py-12">
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
@@ -1606,12 +1596,12 @@ function AdminPage() {
                       </Button>
                     )}
                   </div>
-                ) : filteredTeams.length === 0 ? (
+                ) : gridTeams.length === 0 ? (
                   <div className="rounded-lg border border-dashed py-12 text-center">
                     <Search className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No teams match &quot;{teamSearch}&quot;</h3>
                     <p className="text-muted-foreground mb-4">
-                      Try a team name, owner email, member email, or description.
+                      Try a team name, owner email, or description.
                     </p>
                     <Button type="button" variant="outline" onClick={() => setTeamSearch("")}>
                       Clear team search
@@ -1619,7 +1609,7 @@ function AdminPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredTeams.map((team) => {
+                    {gridTeams.map((team) => {
                       const chatIntegrationCount =
                         (team.slack_channels?.length ?? 0) + (team.webex_spaces?.length ?? 0);
 
@@ -1724,20 +1714,48 @@ function AdminPage() {
                           <div className="mt-4">
                             <Button
                               size="sm"
-                              variant={isAdmin ? "default" : "outline"}
+                              variant={(isAdmin || team.can_manage) ? "default" : "outline"}
                               className="w-full gap-1.5"
-                              onClick={() =>
-                                openTeamDialog(team, isAdmin ? "details" : "details")
-                              }
+                              onClick={() => openTeamDialog(team, "details")}
                             >
                               <Settings className="h-3.5 w-3.5" />
-                              {isAdmin ? "Manage team" : "View team"}
+                              {(isAdmin || team.can_manage) ? "Manage team" : "View team"}
                             </Button>
                           </div>
                         </CardContent>
                       </Card>
                       );
                     })}
+                  </div>
+                )}
+                {/* Pager — shown whenever the result set spans more than one
+                    page. Prev/Next drive a server fetch; the page indicator
+                    reflects server-reported totals. */}
+                {gridTotal > TEAMS_PAGE_SIZE && (
+                  <div className="flex items-center justify-between pt-2 text-sm">
+                    <span className="text-muted-foreground">
+                      Page {gridPage} of {gridTotalPages} · {gridTotal} team{gridTotal === 1 ? "" : "s"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToTeamsPage(gridPage - 1)}
+                        disabled={gridPage <= 1 || gridLoading}
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToTeamsPage(gridPage + 1)}
+                        disabled={!gridHasMore || gridLoading}
+                        aria-label="Next page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 )}
               </TabsContent>
@@ -2114,413 +2132,6 @@ function AdminPage() {
                       User feedback will appear here once users start rating assistant responses.
                     </p>
                   </div>
-                )}
-              </TabsContent>}
-
-              {/* NPS Tab */}
-              {tabGateValues.nps && <TabsContent value="nps" className="space-y-4">
-                {/* Campaign Management */}
-                {isAdmin && (
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <CardTitle className="flex items-center gap-2">
-                            <Calendar className="h-5 w-5" />
-                            NPS Campaigns
-                          </CardTitle>
-                          <CardDescription>Create and manage NPS survey campaigns</CardDescription>
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={() => setShowCampaignForm(!showCampaignForm)}
-                          className="gap-1"
-                        >
-                          <Plus className="h-4 w-4" />
-                          Launch Campaign
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {/* Create Campaign Form */}
-                      {showCampaignForm && (
-                        <div className="mb-4 p-4 border border-border rounded-lg bg-muted/30 space-y-3">
-                          <div>
-                            <label className="text-xs font-medium text-muted-foreground">Campaign Name</label>
-                            <input
-                              type="text"
-                              value={campaignName}
-                              onChange={(e) => setCampaignName(e.target.value)}
-                              placeholder="e.g. Q1 2026 NPS"
-                              className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-                              maxLength={100}
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-xs font-medium text-muted-foreground">Start Date</label>
-                              <input
-                                type="datetime-local"
-                                value={campaignStartDate}
-                                onChange={(e) => setCampaignStartDate(e.target.value)}
-                                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs font-medium text-muted-foreground">End Date</label>
-                              <input
-                                type="datetime-local"
-                                value={campaignEndDate}
-                                onChange={(e) => setCampaignEndDate(e.target.value)}
-                                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex gap-2 pt-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setShowCampaignForm(false)}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={handleCreateCampaign}
-                              disabled={!campaignName.trim() || !campaignStartDate || !campaignEndDate || creatingCampaign}
-                              className="gap-1"
-                            >
-                              {creatingCampaign && <Loader2 className="h-3 w-3 animate-spin" />}
-                              Create Campaign
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Campaign List */}
-                      {npsData?.campaigns && npsData.campaigns.length > 0 ? (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-6 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
-                            <div>Campaign</div>
-                            <div>Start</div>
-                            <div>End</div>
-                            <div>Responses</div>
-                            <div>Status</div>
-                            {isAdmin && <div></div>}
-                          </div>
-                          {npsData.campaigns.map((c) => (
-                            <div
-                              key={c._id}
-                              className={`grid grid-cols-6 gap-4 py-2 text-sm rounded px-2 items-center w-full transition-colors ${
-                                selectedCampaignId === c._id
-                                  ? 'bg-primary/10 ring-1 ring-primary/30'
-                                  : 'hover:bg-muted/50'
-                              }`}
-                            >
-                              <button
-                                onClick={() => handleCampaignSelect(c._id)}
-                                className="font-medium truncate text-left"
-                              >
-                                {c.name}
-                              </button>
-                              <button onClick={() => handleCampaignSelect(c._id)} className="text-xs text-muted-foreground text-left">
-                                {new Date(c.starts_at).toLocaleDateString()}
-                              </button>
-                              <button onClick={() => handleCampaignSelect(c._id)} className="text-xs text-muted-foreground text-left">
-                                {new Date(c.ends_at).toLocaleDateString()}
-                              </button>
-                              <button onClick={() => handleCampaignSelect(c._id)} className="text-xs text-left">
-                                {c.response_count}
-                              </button>
-                              <div>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                  c.status === 'active'
-                                    ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                                    : c.status === 'scheduled'
-                                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                                    : 'bg-muted text-muted-foreground'
-                                }`}>
-                                  {c.status === 'active' ? 'Active' : c.status === 'scheduled' ? 'Scheduled' : 'Ended'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                {isAdmin && c.status !== 'ended' && (
-                                  stoppingCampaign === c._id ? (
-                                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      Stopping…
-                                    </span>
-                                  ) : confirmStopCampaign === c._id ? (
-                                    <>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                                        onClick={(e) => { e.stopPropagation(); handleStopCampaign(c._id); }}
-                                      >
-                                        Confirm
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={(e) => { e.stopPropagation(); setConfirmStopCampaign(null); }}
-                                      >
-                                        Cancel
-                                      </Button>
-                                    </>
-                                  ) : (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                                      onClick={(e) => { e.stopPropagation(); setConfirmStopCampaign(c._id); }}
-                                    >
-                                      <X className="h-3 w-3 mr-1" />
-                                      Stop
-                                    </Button>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          No campaigns created yet. Launch your first NPS campaign to start collecting feedback.
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Campaign filter indicator */}
-                {selectedCampaignId && npsData?.campaigns && (
-                  <div className="flex items-center gap-2 px-1">
-                    <span className="text-sm text-muted-foreground">
-                      Viewing results for:
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                      {npsData.campaigns.find((c) => c._id === selectedCampaignId)?.name || 'Campaign'}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs text-muted-foreground"
-                      onClick={() => { setSelectedCampaignId(null); loadNpsData(); }}
-                    >
-                      <X className="h-3 w-3 mr-1" />
-                      Clear filter
-                    </Button>
-                  </div>
-                )}
-
-                {npsLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : npsData && npsData.total_responses > 0 ? (
-                  <>
-                    {/* NPS Score + Breakdown */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                      {/* NPS Score Card */}
-                      <Card className="lg:col-span-1">
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Star className="h-5 w-5" />
-                            NPS Score
-                          </CardTitle>
-                          <CardDescription>Net Promoter Score (-100 to +100)</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-center">
-                            <p className={`text-6xl font-bold ${
-                              npsData.nps_score >= 50 ? 'text-green-500' :
-                              npsData.nps_score >= 0 ? 'text-amber-500' :
-                              'text-red-500'
-                            }`}>
-                              {npsData.nps_score > 0 ? '+' : ''}{npsData.nps_score}
-                            </p>
-                            <p className="text-sm text-muted-foreground mt-2">
-                              Based on {npsData.total_responses} response{npsData.total_responses !== 1 ? 's' : ''}
-                            </p>
-                            <p className={`text-xs mt-1 ${
-                              npsData.nps_score >= 50 ? 'text-green-500' :
-                              npsData.nps_score >= 0 ? 'text-amber-500' :
-                              'text-red-500'
-                            }`}>
-                              {npsData.nps_score >= 70 ? 'Excellent' :
-                               npsData.nps_score >= 50 ? 'Great' :
-                               npsData.nps_score >= 0 ? 'Good' :
-                               npsData.nps_score >= -50 ? 'Needs Improvement' :
-                               'Critical'}
-                            </p>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Breakdown Card */}
-                      <Card className="lg:col-span-2">
-                        <CardHeader>
-                          <CardTitle>Response Breakdown</CardTitle>
-                          <CardDescription>Promoters (9-10), Passives (7-8), Detractors (0-6)</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            {/* Stacked bar */}
-                            <div className="h-8 flex rounded-full overflow-hidden">
-                              {npsData.breakdown.promoter_pct > 0 && (
-                                <div
-                                  className="bg-green-500 flex items-center justify-center text-white text-xs font-medium"
-                                  style={{ width: `${npsData.breakdown.promoter_pct}%` }}
-                                >
-                                  {npsData.breakdown.promoter_pct}%
-                                </div>
-                              )}
-                              {npsData.breakdown.passive_pct > 0 && (
-                                <div
-                                  className="bg-amber-500 flex items-center justify-center text-white text-xs font-medium"
-                                  style={{ width: `${npsData.breakdown.passive_pct}%` }}
-                                >
-                                  {npsData.breakdown.passive_pct}%
-                                </div>
-                              )}
-                              {npsData.breakdown.detractor_pct > 0 && (
-                                <div
-                                  className="bg-red-500 flex items-center justify-center text-white text-xs font-medium"
-                                  style={{ width: `${npsData.breakdown.detractor_pct}%` }}
-                                >
-                                  {npsData.breakdown.detractor_pct}%
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-4 text-center">
-                              <div className="p-3 rounded-lg bg-green-500/10">
-                                <p className="text-2xl font-bold text-green-500">{npsData.breakdown.promoters}</p>
-                                <p className="text-xs text-muted-foreground">Promoters (9-10)</p>
-                              </div>
-                              <div className="p-3 rounded-lg bg-amber-500/10">
-                                <p className="text-2xl font-bold text-amber-500">{npsData.breakdown.passives}</p>
-                                <p className="text-xs text-muted-foreground">Passives (7-8)</p>
-                              </div>
-                              <div className="p-3 rounded-lg bg-red-500/10">
-                                <p className="text-2xl font-bold text-red-500">{npsData.breakdown.detractors}</p>
-                                <p className="text-xs text-muted-foreground">Detractors (0-6)</p>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {/* NPS Trend Chart */}
-                    {(() => {
-                      const trendWithData = npsData.trend.filter((d) => d.count > 0);
-                      return trendWithData.length > 0 ? (
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>NPS Trend (Last 30 Days)</CardTitle>
-                            <CardDescription>Daily average score and response count</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <SimpleLineChart
-                              data={npsData.trend
-                                .filter((d) => d.avg_score !== null)
-                                .map((d) => ({
-                                  label: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                                  value: d.avg_score!,
-                                }))}
-                              height={200}
-                              color="rgb(234, 179, 8)"
-                            />
-                            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-                              <div>
-                                <p className="text-lg font-bold">
-                                  {(trendWithData.reduce((sum, d) => sum + (d.avg_score || 0), 0) / trendWithData.length).toFixed(1)}
-                                </p>
-                                <p className="text-xs text-muted-foreground">Avg Score (30d)</p>
-                              </div>
-                              <div>
-                                <p className="text-lg font-bold">
-                                  {trendWithData.reduce((sum, d) => sum + d.count, 0)}
-                                </p>
-                                <p className="text-xs text-muted-foreground">Responses (30d)</p>
-                              </div>
-                              <div>
-                                <p className="text-lg font-bold">
-                                  {(trendWithData.reduce((sum, d) => sum + d.count, 0) / 30).toFixed(1)}
-                                </p>
-                                <p className="text-xs text-muted-foreground">Avg/Day</p>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ) : null;
-                    })()}
-
-                    {/* Recent NPS Responses */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Recent Responses</CardTitle>
-                        <CardDescription>Latest NPS survey submissions</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-4 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
-                            <div>User</div>
-                            <div>Score</div>
-                            <div>Comment</div>
-                            <div>Date</div>
-                          </div>
-                          {npsData.recent_responses.map((resp, i) => (
-                            <div key={`${resp.user_email}-${i}`} className="grid grid-cols-4 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
-                              <div className="truncate text-xs text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(resp.user_email)}>{resp.user_email}</div>
-                              <div>
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                  resp.score >= 9 ? 'bg-green-500/10 text-green-600 dark:text-green-400' :
-                                  resp.score >= 7 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-                                  'bg-red-500/10 text-red-600 dark:text-red-400'
-                                }`}>
-                                  {resp.score}/10
-                                </span>
-                              </div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                {resp.comment || '—'}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {new Date(resp.created_at).toLocaleDateString()}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </>
-                ) : (
-                  <Card>
-                    <CardContent className="pt-6 text-center py-12">
-                      <Star className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">
-                        {selectedCampaignId ? 'No Responses for This Campaign' : 'No NPS Data'}
-                      </h3>
-                      <p className="text-muted-foreground">
-                        {selectedCampaignId
-                          ? 'This campaign has not received any NPS responses yet.'
-                          : 'NPS survey responses will appear here once users start submitting them.'}
-                      </p>
-                      {selectedCampaignId && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="mt-4"
-                          onClick={() => { setSelectedCampaignId(null); loadNpsData(); }}
-                        >
-                          View All Results
-                        </Button>
-                      )}
-                    </CardContent>
-                  </Card>
                 )}
               </TabsContent>}
 
@@ -3225,7 +2836,9 @@ function AdminPage() {
       <CreateTeamDialog
         open={createTeamDialogOpen}
         onOpenChange={setCreateTeamDialogOpen}
-        onSuccess={loadAdminData}
+        // New teams sort to the top (newest-first), so jump to page 1 to
+        // reveal the just-created team.
+        onSuccess={() => refreshAfterTeamMutation(1)}
       />
 
       {/* Team Details / Member Management Dialog */}
@@ -3234,25 +2847,23 @@ function AdminPage() {
         mode={teamDialogMode}
         open={teamDetailsOpen}
         onOpenChange={setTeamDetailsOpen}
-        onTeamUpdated={loadAdminData}
+        onTeamUpdated={() => refreshAfterTeamMutation()}
         onTeamMutated={(updatedTeam) => {
-          // In-place patch of the teams[] state so the row in the
-          // background list re-renders with the new member count /
-          // attributes — without triggering loadAdminData() (which
-          // sets loading=true and re-fetches the entire dashboard).
+          // In-place patch of the grid + full team lists so the row in the
+          // background re-renders with the new member count / attributes —
+          // without triggering a full dashboard reload.
           //
           // The Team shape used by this page is a structural superset
           // of the one returned by /api/admin/teams/[id]/* mutation
           // endpoints; we merge so any locally-known fields the API
           // doesn't echo back (e.g. denormalised StatChip counters)
           // survive the patch.
-          setTeams((prev) =>
-            prev.map((t) =>
-              t._id === updatedTeam._id
-                ? ({ ...t, ...(updatedTeam as Partial<Team>) } as Team)
-                : t,
-            ),
-          );
+          const patch = (t: Team) =>
+            t._id === updatedTeam._id
+              ? ({ ...t, ...(updatedTeam as Partial<Team>) } as Team)
+              : t;
+          setGridTeams((prev) => prev.map(patch));
+          setTeams((prev) => prev.map(patch));
           // Also keep `selectedTeam` (the prop the dialog reads from)
           // in sync so its `useEffect(() => setCurrentTeam(team), [team])`
           // can pick up the patched payload if the dialog re-opens

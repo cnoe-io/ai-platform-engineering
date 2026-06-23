@@ -77,56 +77,6 @@ Determine if ingress is enabled - global takes precedence
 {{- end }}
 
 {{/*
-Determine if slim transport is enabled - global takes precedence
-*/}}
-{{- define "supervisorAgent.slim.enabled" -}}
-    {{- if hasKey .Values "global" }}
-        {{- if hasKey .Values.global "slim" }}
-            {{- if hasKey .Values.global.slim "enabled" }}
-                {{- .Values.global.slim.enabled }}
-            {{- else }}
-                {{- .Values.slim.enabled | default false }}
-            {{- end }}
-        {{- else }}
-            {{- .Values.slim.enabled | default false }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.slim.enabled | default false }}
-    {{- end }}
-{{- end }}
-
-{{/*
-Get slim endpoint - global takes precedence
-*/}}
-{{- define "supervisorAgent.slim.endpoint" -}}
-    {{- $defaultEndpoint := printf "http://%s-slim:46357" .Release.Name -}}
-    {{- if and (hasKey .Values "global") (hasKey .Values.global "slim") (hasKey .Values.global.slim "endpoint") -}}
-        {{- .Values.global.slim.endpoint | default $defaultEndpoint -}}
-    {{- else -}}
-        {{- .Values.slim.endpoint | default $defaultEndpoint -}}
-    {{- end -}}
-{{- end }}
-
-{{/*
-Get slim transport - global takes precedence
-*/}}
-{{- define "supervisorAgent.slim.transport" -}}
-    {{- if hasKey .Values "global" }}
-        {{- if hasKey .Values.global "slim" }}
-            {{- if hasKey .Values.global.slim "transport" }}
-                {{- .Values.global.slim.transport }}
-            {{- else }}
-                {{- .Values.slim.transport | default "slim" }}
-            {{- end }}
-        {{- else }}
-            {{- .Values.slim.transport | default "slim" }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.slim.transport | default "slim" }}
-    {{- end }}
-{{- end }}
-
-{{/*
 Determine if external secrets are enabled for llmSecrets - prioritize global
 */}}
 {{- define "supervisorAgent.llmSecrets.externalSecrets.enabled" -}}
@@ -252,4 +202,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-

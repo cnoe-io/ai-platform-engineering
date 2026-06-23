@@ -331,3 +331,4 @@ COMMIT_BODY.md
 *.drawio
 # GitHub App credentials (never commit)
 .github-apps-credentials/
+reports/

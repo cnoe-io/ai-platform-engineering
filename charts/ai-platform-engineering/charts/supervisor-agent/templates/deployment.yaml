@@ -90,17 +90,18 @@ spec:
               value: {{ .Values.multiAgentConfig.protocol | quote }}
             - name: METRICS_ENABLED
               value: {{ include "supervisorAgent.metrics.enabled" . | quote }}
+            {{- /* Release-name-derived default for the audit-service singleton.
+                   Skipped when an operator supplies it via .Values.env so the
+                   explicit override wins and no duplicate env key is emitted. */}}
+            {{- if not (hasKey (.Values.env | default dict) "AUDIT_SERVICE_URL") }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ printf "http://%s-audit-service:8010" .Release.Name | quote }}
+            {{- end }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-            {{- end }}
-            {{- if eq (include "supervisorAgent.slim.enabled" .) "true" }}
-            - name: A2A_TRANSPORT
-              value: {{ include "supervisorAgent.slim.transport" . | quote }}
-            - name: SLIM_ENDPOINT
-              value: {{ include "supervisorAgent.slim.endpoint" . | quote }}
             {{- end }}
             {{- with .Values.memoryPersistence }}
             - name: LANGGRAPH_STORE_TYPE
@@ -233,7 +234,6 @@ spec:
             - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES
               value: {{ .ttlMinutes | default 0 | quote }}
             {{- end }}
-          {{- if not (eq (include "supervisorAgent.slim.enabled" .) "true") }}
           {{- with .Values.startupProbe }}
           startupProbe:
             {{- toYaml . | nindent 12 }}
@@ -245,7 +245,6 @@ spec:
           {{- with .Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
           {{- end }}
           {{- with .Values.resources }}
           resources:

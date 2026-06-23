@@ -85,16 +85,27 @@ export function reconcileTeamMembershipSources(
     })
     .map((source) => ({ ...source, status: "removed" as const, removed_at: input.now }));
 
-  const remainingAccess = new Set(
-    existingActive
-      .filter((source) => !sourcesToRemove.some((removed) => sourceKey(removed) === sourceKey(source)))
-      .map(accessKey)
-  );
-
+  // Tuple writes cover EVERY membership that should hold a live tuple after
+  // this reconcile — the retained existing sources plus the newly-added ones —
+  // not just the adds. This is what makes the sync self-healing: if a prior
+  // run upserted the Mongo source row but its OpenFGA write never landed (e.g.
+  // the pod was SIGKILLed mid-reconcile, so the catchable rollback never ran),
+  // that row is "existing" on every later run and the old add-only diff would
+  // never revisit it — its tuple would stay missing forever. By re-deriving
+  // the full desired tuple set each run we converge to the correct state.
+  //
+  // Re-emitting an already-present tuple is safe and cheap: writeOpenFgaTuples()
+  // reads each candidate back (see filterTupleDiff) and drops the ones already
+  // stored, so a steady-state sync performs zero actual writes. uniqueTuples
+  // collapses multiple sources that map to the same (user, relation, team).
+  const removedKeys = new Set(sourcesToRemove.map((source) => sourceKey(source)));
+  const activeAfterReconcile = [
+    ...existingActive.filter((source) => !removedKeys.has(sourceKey(source))),
+    ...sourcesToAdd,
+  ];
   const tupleWrites = uniqueTuples(
-    sourcesToAdd
+    activeAfterReconcile
       .filter((source) => source.status === "active" && source.user_subject)
-      .filter((source) => !remainingAccess.has(accessKey(source)))
       .map(memberTuple)
   );
 

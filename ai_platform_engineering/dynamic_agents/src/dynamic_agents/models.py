@@ -143,6 +143,13 @@ class MCPCredentialSource(BaseModel):
     secret_ref: str | None = Field(None, description="Credential secret_ref id")
     provider_connection_id: str | None = Field(None, description="Provider connection id")
     provider: str | None = Field(None, description="Provider key for JWT subject-owned provider connection")
+    connection_scope: Literal["caller", "pinned"] | None = Field(
+        None,
+        description=(
+            "Custom MCP servers: pinned always uses provider_connection_id for every caller; "
+            "caller resolves provider for the JWT subject. Built-in servers default to caller."
+        ),
+    )
     fallback_env: str | None = Field(
         None,
         description=(

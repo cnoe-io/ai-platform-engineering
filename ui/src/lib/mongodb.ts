@@ -22,6 +22,15 @@ interface MongoDBConnection {
 }
 
 let cachedConnection: MongoDBConnection | null = null;
+let connectionPromise: Promise<MongoDBConnection> | null = null;
+let indexesPromise: Promise<void> | null = null;
+
+function mongoPoolSize(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /**
  * Connect to MongoDB and return db instance
@@ -39,27 +48,45 @@ export async function connectToDatabase(): Promise<MongoDBConnection> {
     return cachedConnection;
   }
 
-  // Create new connection
-  const client = new MongoClient(uri!, {
-    maxPoolSize: 10,
-    minPoolSize: 2,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  });
+  if (connectionPromise) {
+    return connectionPromise;
+  }
 
-  await client.connect();
+  // assisted-by Codex Codex-sonnet-4-6
+  // Concurrent route cold-starts share one Mongo connection and one index
+  // warmup; otherwise load tests can fan out dozens of duplicate createIndex calls.
+  connectionPromise = (async () => {
+    // Create new connection
+    const client = new MongoClient(uri!, {
+      maxPoolSize: mongoPoolSize('MONGODB_MAX_POOL_SIZE', 50),
+      minPoolSize: mongoPoolSize('MONGODB_MIN_POOL_SIZE', 2),
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
 
-  const db = client.db(dbName);
+    await client.connect();
 
-  // Cache the connection
-  cachedConnection = { client, db };
+    const db = client.db(dbName);
 
-  // Create indexes on first connection
-  await createIndexes(db);
+    // Cache the connection
+    cachedConnection = { client, db };
 
-  console.log(`✅ Connected to MongoDB database: ${dbName}`);
+    // Create indexes on first connection
+    indexesPromise ??= createIndexes(db);
+    await indexesPromise;
 
-  return cachedConnection;
+    console.log(`✅ Connected to MongoDB database: ${dbName}`);
+
+    return cachedConnection;
+  })();
+
+  try {
+    return await connectionPromise;
+  } catch (error) {
+    connectionPromise = null;
+    indexesPromise = null;
+    throw error;
+  }
 }
 
 /**
@@ -193,11 +220,18 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { is_archived: 1, owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { deleted_at: 1, owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { source: 1 }),
+    safeCreateIndex(db, 'conversations', { deleted_at: 1, client_type: 1, is_archived: 1, is_pinned: -1, updated_at: -1 }),
+    safeCreateIndex(db, 'conversations', { deleted_at: 1, source: 1, is_archived: 1, is_pinned: -1, updated_at: -1 }),
+    safeCreateIndex(db, 'conversations', { owner_id: 1, client_type: 1, is_archived: 1, deleted_at: 1, updated_at: -1 }),
 
     // Messages collection
     safeCreateIndex(db, 'messages', { conversation_id: 1, created_at: 1 }),
     safeCreateIndex(db, 'messages', { 'metadata.turn_id': 1 }),
     safeCreateIndex(db, 'messages', { role: 1 }),
+    safeCreateIndex(db, 'messages', { 'metadata.source': 1, created_at: -1 }),
+    safeCreateIndex(db, 'messages', { owner_id: 1, created_at: -1 }),
+    safeCreateIndex(db, 'messages', { role: 1, created_at: -1 }),
+    safeCreateIndex(db, 'messages', { role: 1, 'metadata.agent_name': 1, created_at: -1 }),
 
     // User settings collection
     safeCreateIndex(db, 'user_settings', { user_id: 1 }, { unique: true }),
@@ -268,6 +302,9 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'agent_skills', { created_at: -1 }),
     safeCreateIndex(db, 'agent_skills', { 'metadata.tags': 1 }),
 
+    // Dynamic agents list endpoint
+    safeCreateIndex(db, 'dynamic_agents', { enabled: 1, name: 1 }),
+
     // Skill revisions collection (per-skill content history; pruned to
     // SKILL_REVISIONS_RETENTION on every write — see lib/skill-revisions.ts)
     safeCreateIndex(db, 'skill_revisions', { id: 1 }, { unique: true }),
@@ -324,13 +361,6 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'team_rag_tools', { created_by: 1 }),
     safeCreateIndex(db, 'team_rag_tools', { updated_at: -1 }),
 
-    // 098 RBAC: Authorization decision audit records (FR-005, data-model.md)
-    safeCreateIndex(db, 'authorization_decision_records', { tenant_id: 1, ts: -1 }),
-    safeCreateIndex(db, 'authorization_decision_records', { subject_hash: 1, ts: -1 }),
-    safeCreateIndex(db, 'authorization_decision_records', { capability: 1 }),
-    safeCreateIndex(db, 'authorization_decision_records', { outcome: 1, ts: -1 }),
-    safeCreateIndex(db, 'authorization_decision_records', { correlation_id: 1 }),
-
     // 098 US9: Slack channel ↔ team mappings + admin Slack dashboard
     safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
@@ -370,6 +400,8 @@ export async function closeConnection() {
   if (cachedConnection) {
     await cachedConnection.client.close();
     cachedConnection = null;
+    connectionPromise = null;
+    indexesPromise = null;
     console.log('MongoDB connection closed');
   }
 }

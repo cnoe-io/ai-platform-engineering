@@ -14,23 +14,6 @@ from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
 )
 
 
-class TestSilenceEnv:
-  def test_silence_env_true(self, monkeypatch):
-    monkeypatch.setenv("SLACK_INTEGRATION_SILENCE_ENV", "true")
-    cfg = Config.from_env()
-    assert cfg.silence_env is True
-
-  def test_silence_env_false(self, monkeypatch):
-    monkeypatch.setenv("SLACK_INTEGRATION_SILENCE_ENV", "false")
-    cfg = Config.from_env()
-    assert cfg.silence_env is False
-
-  def test_silence_env_default(self, monkeypatch):
-    monkeypatch.delenv("SLACK_INTEGRATION_SILENCE_ENV", raising=False)
-    cfg = Config.from_env()
-    assert cfg.silence_env is False  # Default is false
-
-
 class TestChannelWithAgentsList:
   def test_channel_with_agents_parses(self):
     # Uses default from conftest

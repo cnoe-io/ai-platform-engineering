@@ -134,7 +134,19 @@ async function defaultCanUseOwnerTeam(
     });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Treat team admins/owners as members for owner-team writes even when an
+    // older OpenFGA projection lacks the derived can_use edge.
+    try {
+      await requireResourcePermission(session, {
+        type: "team",
+        id: slug,
+        action: "manage",
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

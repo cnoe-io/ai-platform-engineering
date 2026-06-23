@@ -15,7 +15,6 @@ if str(_APP_DIR) not in sys.path:
 
 _POLICY = importlib.import_module("utils.slack_runtime_policy")
 should_post_route_miss_notice = _POLICY.should_post_route_miss_notice
-should_process_slack_payload = _POLICY.should_process_slack_payload
 
 
 class _Logger:
@@ -56,7 +55,6 @@ class _Client:
 def _load_slack_app(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    silence_env: bool = False,
     rbac_enabled: bool = False,
 ):
     monkeypatch.syspath_prepend(str(_APP_DIR))
@@ -65,7 +63,6 @@ def _load_slack_app(
     monkeypatch.setenv("CAIPE_CONNECT_RETRIES", "1")
     monkeypatch.setenv("SLACK_RBAC_ENABLED", "true" if rbac_enabled else "false")
     monkeypatch.setenv("SLACK_INTEGRATION_ENABLE_AUTH", "false")
-    monkeypatch.setenv("SLACK_INTEGRATION_SILENCE_ENV", "true" if silence_env else "false")
     monkeypatch.setattr(
         "slack_sdk.web.client.WebClient.auth_test",
         lambda _self, **_kwargs: {"ok": True, "user_id": "UBOT"},
@@ -78,58 +75,9 @@ def _load_slack_app(
     return importlib.import_module("app")
 
 
-def test_silence_env_stops_slack_payload_processing() -> None:
-    assert should_process_slack_payload(silence_env=False) is True
-    assert should_process_slack_payload(silence_env=True) is False
-
-
 def test_route_miss_notice_requires_explicit_invocation() -> None:
-    assert (
-        should_post_route_miss_notice(
-            silence_env=False,
-            explicit_invocation=True,
-        )
-        is True
-    )
-    assert (
-        should_post_route_miss_notice(
-            silence_env=False,
-            explicit_invocation=False,
-        )
-        is False
-    )
-
-
-def test_setup_mode_middleware_stops_handlers_before_they_can_respond(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app_module = _load_slack_app(monkeypatch, silence_env=True)
-    next_called = False
-
-    def next_handler() -> None:
-        nonlocal next_called
-        next_called = True
-
-    result = app_module.rbac_global_middleware(
-        {
-            "event_id": "E-silenced",
-            "event": {"type": "message", "channel": "C123", "user": "U123"},
-        },
-        {},
-        next_handler,
-        _Logger(),
-    )
-
-    # Downstream handlers must not run while silence_env is true.
-    assert next_called is False
-    # And we must return a BoltResponse(200) so Slack stops retrying the
-    # envelope — otherwise Socket Mode delivers the same event up to 4
-    # times and we see "skipped calling next()" warnings on every retry.
-    # See: https://github.com/slackapi/bolt-python/issues/235
-    from slack_bolt.response import BoltResponse
-
-    assert isinstance(result, BoltResponse)
-    assert result.status == 200
+    assert should_post_route_miss_notice(explicit_invocation=True) is True
+    assert should_post_route_miss_notice(explicit_invocation=False) is False
 
 
 def test_deduplicated_event_returns_200(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,7 +86,7 @@ def test_deduplicated_event_returns_200(monkeypatch: pytest.MonkeyPatch) -> None
     Without the 200, Slack keeps retrying the envelope which produces the
     "middleware skipped calling next()" warning storm we hit in dev.
     """
-    app_module = _load_slack_app(monkeypatch, silence_env=False)
+    app_module = _load_slack_app(monkeypatch)
     from slack_bolt.response import BoltResponse
 
     payload = {
@@ -185,9 +133,7 @@ def test_rbac_deny_logs_warning_and_returns_200(
          to 4 times (which also produced bolt-python's "middleware skipped
          calling next()" warning).
     """
-    app_module = _load_slack_app(
-        monkeypatch, silence_env=False, rbac_enabled=True
-    )
+    app_module = _load_slack_app(monkeypatch, rbac_enabled=True)
     from slack_bolt.response import BoltResponse
 
     async def _fake_enrich(body, slack_user_id, context, *, require_mapping=True):
@@ -264,7 +210,7 @@ def test_rbac_deny_logs_warning_and_returns_200(
 def test_route_miss_notice_does_not_call_slack_for_ambient_messages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app_module = _load_slack_app(monkeypatch, silence_env=False)
+    app_module = _load_slack_app(monkeypatch)
     client = _Client()
 
     app_module._post_route_miss_notice(
@@ -282,7 +228,7 @@ def test_route_miss_notice_does_not_call_slack_for_ambient_messages(
 def test_route_miss_notice_posts_for_explicit_invocations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app_module = _load_slack_app(monkeypatch, silence_env=False)
+    app_module = _load_slack_app(monkeypatch)
     client = _Client()
 
     app_module._post_route_miss_notice(
@@ -297,31 +243,3 @@ def test_route_miss_notice_posts_for_explicit_invocations(
         {"channel": "C123", "user": "U123", "text": "route miss diagnostic"}
     ]
     assert client.channel_posts == []
-
-
-def test_route_miss_notice_setup_mode_suppresses_explicit_invocations(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app_module = _load_slack_app(monkeypatch, silence_env=True)
-    client = _Client()
-
-    app_module._post_route_miss_notice(
-        client,
-        "C123",
-        "U123",
-        "route miss diagnostic",
-        explicit_invocation=True,
-    )
-
-    assert client.ephemeral_posts == []
-    assert client.channel_posts == []
-
-
-def test_route_miss_notice_is_suppressed_in_setup_mode() -> None:
-    assert (
-        should_post_route_miss_notice(
-            silence_env=True,
-            explicit_invocation=True,
-        )
-        is False
-    )

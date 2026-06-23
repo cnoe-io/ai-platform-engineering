@@ -26,8 +26,11 @@ runs:
 
     - name: 📋 Generate changelog
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
+        set -euo pipefail
+
         echo "🔄 Generating changelog for $VERSION using commitizen..."
         cz changelog --unreleased-version "$VERSION"
         echo "✅ Generated changelog entry for $VERSION"

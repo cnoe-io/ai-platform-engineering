@@ -70,47 +70,17 @@ binds:
           targets:
           - name: confluence
             mcp: { host: http://mcp-confluence:8000/mcp }
-    # GitHub/GitLab upstreams expect `Authorization: Bearer <token>`. Dynamic
-    # Agents resolves the caller's own OAuth token (or, when the caller has not
-    # connected, the static org PAT via MCPCredentialSource.fallback_env) and
-    # forwards it on X-CAIPE-Provider-Token. This transformation rewrites that
-    # header into Authorization so connected users act as themselves while
-    # unconnected callers transparently fall back to the org token. No static
-    # backendAuth PAT is configured here anymore — the org PAT lives on
-    # dynamic-agents (GITHUB_PERSONAL_ACCESS_TOKEN/GITLAB_PERSONAL_ACCESS_TOKEN).
+    # GitLab upstreams expect `Authorization: Bearer <token>`. Dynamic Agents
+    # forwards the caller's OAuth token (or the static org PAT fallback) on
+    # X-CAIPE-Provider-Token. This transformation rewrites that header into
+    # Authorization so connected users act as themselves. GitHub is handled by
+    # the GitHub agent's gh CLI-backed tools, so no static /mcp/github bootstrap
+    # route is configured here.
     # Keep in sync with deploy/agentgateway/config_bridge.py.
-    # NOTE: policies are inlined (not the *mcpAuthzPolicy alias) because these
-    # routes add a `transformations` policy on top of the shared extAuthz +
+    # NOTE: policies are inlined (not the *mcpAuthzPolicy alias) because this
+    # route adds a `transformations` policy on top of the shared extAuthz +
     # authorization. AgentGateway's YAML parser supports anchors/aliases but not
     # YAML merge keys (<<), so we repeat the shared ext_authz block here.
-    - matches: [{ path: { pathPrefix: /mcp/github } }]
-      policies:
-        extAuthz:
-          host: openfga-authz-bridge:9100
-          failureMode: { denyWithStatus: 403 }
-          # Forward the request body for the caller-keyed per-tool check (#36).
-          # Inlined (not the *mcpAuthzPolicy anchor) because this route adds a
-          # `transformations` policy; keep includeRequestBody in sync with the anchor.
-          includeRequestBody:
-            maxRequestBytes: 65536
-            allowPartialMessage: false
-            packAsBytes: true
-          protocol:
-            grpc:
-              metadata:
-                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
-        authorization:
-          rules:
-          - allow: 'true'
-        transformations:
-          request:
-            set:
-              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
-      backends:
-      - mcp:
-          targets:
-          - name: github
-            mcp: { host: http://github-mcp-server:8082/mcp }
     - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
       policies:
         extAuthz:
@@ -134,13 +104,33 @@ binds:
           request:
             set:
               authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
       backends:
       - mcp:
           targets:
           - name: gitlab
             mcp: { host: http://mcp-gitlab:8000/mcp }
     - matches: [{ path: { pathPrefix: /mcp/jira } }]
-      policies: *mcpAuthzPolicy
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
       backends:
       - mcp:
           targets:

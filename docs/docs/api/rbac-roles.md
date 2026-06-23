@@ -794,12 +794,12 @@ Paginated query across **all** audit event types (auth decisions, tool actions, 
 Admin UI tabs are gated by deterministic BFF logic, not editable CEL. Baseline
 tabs (`users`, `teams`, `skills`, `metrics`, `health`) are visible to signed-in
 users; administrative tabs require the admin session/realm role or bootstrap
-admin email. Feature flags (`feedbackEnabled`, `npsEnabled`,
+admin email. Feature flags (`feedbackEnabled`,
 `auditLogsEnabled`, `actionAuditEnabled`) are still ANDed with the matching tab.
 
 ### `GET /api/rbac/admin-tab-gates`
 
-**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `identity_group_sync`, `slack`, `skills`, `feedback`, `nps`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `openfga`).
+**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `identity_group_sync`, `slack`, `skills`, `feedback`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `openfga`).
 
 **Authorization:** Valid NextAuth session with `user.email`. Unauthenticated → `401`.
 

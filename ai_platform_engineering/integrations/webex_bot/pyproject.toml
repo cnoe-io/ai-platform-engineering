@@ -14,9 +14,9 @@ dependencies = [
   "pydantic==2.12.5",
   "pyyaml==6.0.3",
   "pymongo==4.10.1",
-  "pyjwt[crypto]==2.12.1",
+  "pyjwt[crypto]==2.13.0",
   "loguru==0.7.3",
-  "aiohttp==3.14.0",
+  "aiohttp==3.14.1",
   "websockets==16.0",
 ]
 

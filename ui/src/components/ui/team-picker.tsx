@@ -100,6 +100,9 @@ interface CommonPickerProps {
    *  Use inside modal dialogs so focus traps keep the search input usable.
    */
   portalled?: boolean;
+  /** Popover placement relative to the trigger. Prefer `top` when the trigger
+   *  sits low on the page (e.g. MCP server editor) so the list is not clipped. */
+  contentSide?: "top" | "bottom";
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +137,7 @@ export function TeamPicker({
   ariaDescribedBy,
   hideSlugSuffix = false,
   portalled = true,
+  contentSide = "bottom",
   toggleOnReselect = false,
   helperText,
 }: TeamPickerProps) {
@@ -186,6 +190,7 @@ export function TeamPicker({
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
+      <div className="w-full min-w-0">
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -226,8 +231,10 @@ export function TeamPicker({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
+      </div>
       <PopoverContent
         align="start"
+        side={contentSide}
         className={cn("w-[min(360px,90vw)] p-0", contentClassName)}
         portalled={portalled}
       >

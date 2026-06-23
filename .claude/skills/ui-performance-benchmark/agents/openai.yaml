@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Performance Benchmark"
+  short_description: "Run and record CAIPE UI/BFF Locust benchmarks."
+  default_prompt: "Use $ui-performance-benchmark to run the local CAIPE UI benchmark and summarize the results."

@@ -10,6 +10,7 @@ skills/
 ├── integration-testing/  # End-to-end multi-agent integration testing
 ├── quality-gates/        # Pre-commit validation (lint, test, UI tests)
 ├── streaming-testing/    # A2A streaming comparison across supervisor versions
+├── ui-performance-benchmark/ # Locust UI/BFF load testing and benchmark docs
 ├── debugging/            # (future) Debugging and troubleshooting tools
 ├── monitoring/           # (future) Observability and metrics tools
 └── deployment/           # (future) Deployment and infrastructure helpers
@@ -74,6 +75,19 @@ python3 scripts/compare_a2a_events.py /tmp/cap-030.json /tmp/cap-041.json
 ```
 
 See [streaming-testing/SKILL.md](./streaming-testing/SKILL.md) for the full workflow and script reference.
+
+### [ui-performance-benchmark](./ui-performance-benchmark/)
+Run Locust against the Docker Compose UI/BFF and record benchmark results.
+
+**Quick Start:**
+```bash
+docker compose -f docker-compose.dev.yaml --profile caipe-ui-prod up -d
+locust -f scripts/locustfile.py --host http://localhost:3000 \
+  --users 300 --spawn-rate 20 --run-time 10m --headless \
+  --html reports/300u-ui-benchmark.html --csv reports/300u-ui-benchmark
+```
+
+See [ui-performance-benchmark/SKILL.md](./ui-performance-benchmark/SKILL.md) for the full workflow and reporting checklist.
 
 ### 🚦 [quality-gates](./quality-gates/)
 Run all pre-commit quality gates (lint, Python tests, UI tests) in one command.

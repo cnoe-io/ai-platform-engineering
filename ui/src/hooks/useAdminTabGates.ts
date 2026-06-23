@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { allAdminTabGates,isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
 import { useSession } from "next-auth/react";
@@ -14,12 +16,12 @@ const EMPTY_GATES: AdminTabGatesMap = {
   webex: false,
   skills: false,
   feedback: false,
-  nps: false,
   stats: false,
   metrics: false,
   health: false,
   credentials: false,
   audit_logs: false,
+  dynamic_agent_conversations: false,
   action_audit: false,
   openfga: false,
   migrations: false,

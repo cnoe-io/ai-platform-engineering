@@ -520,9 +520,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const [ownerTeamSlug, setOwnerTeamSlug] = useState(initial?.owner_team_slug ?? "");
   const [sharedTeamSlugs, setSharedTeamSlugs] = useState<string[]>(initial?.shared_with_teams ?? []);
   const [sharedWithOrg, setSharedWithOrg] = useState(initial?.shared_with_org ?? false);
-  // Ownership transfer (US3): on edit the owner picker is read-only until the
-  // user invokes the transfer affordance; these track the pending transfer so
-  // the PUT carries owner_team_slug + confirm_not_member.
+  // Ownership transfer (US3): on edit, changing the owner picker marks a
+  // pending transfer so the PUT carries owner_team_slug + confirm_not_member.
   const [transferRequested, setTransferRequested] = useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = useState(false);
   const [availableTeams, setAvailableTeams] = useState<Array<{ _id?: string; slug?: string; name?: string }>>([]);
@@ -588,9 +587,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       shared_with_teams: sharedTeamSlugs,
       shared_with_org: sharedWithOrg,
       creator_subject: initial?.creator_subject ?? null,
-      // Transfer confirmation (US3): only send when the user actually invoked
-      // the transfer affordance, so a normal edit never trips the BFF's
-      // not-a-member transfer gate.
+      // Transfer confirmation (US3): only send when the owner picker changed,
+      // so a normal edit never trips the BFF's not-a-member transfer gate.
       ...(transferRequested
         ? { confirm_not_member: transferConfirmedNotMember }
         : {}),

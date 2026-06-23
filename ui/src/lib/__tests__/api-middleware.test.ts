@@ -45,6 +45,11 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: jest.fn().mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' }),
 }));
 
+const mockAuditWrite = jest.fn();
+jest.mock('@/lib/audit', () => ({
+  getAuditBackend: () => ({ write: mockAuditWrite }),
+}));
+
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
@@ -52,6 +57,7 @@ const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkP
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
+  mockAuditWrite.mockClear();
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
 });
 
@@ -975,15 +981,9 @@ describe('withAuth', () => {
     }
 
     function loggedCapabilities(): string[] {
-      return (console.log as jest.Mock).mock.calls
-        .map((call) => {
-          try {
-            return JSON.parse(String(call[0])) as { capability?: string };
-          } catch {
-            return {};
-          }
-        })
-        .map((event) => event.capability)
+      return mockAuditWrite.mock.calls
+        .map((call) => call[0] as { action?: string })
+        .map((event) => event.action)
         .filter((capability): capability is string => typeof capability === 'string');
     }
 
@@ -1022,7 +1022,6 @@ describe('withAuth', () => {
       ['/api/auth/slack-link', 'POST', 'can_manage_self'],
       ['/api/settings/preferences', 'GET', 'can_manage_self'],
       ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
-      ['/api/nps/active', 'GET', 'can_submit_feedback'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
       ['/api/a2a/tasks', 'POST', 'can_chat'],
@@ -1171,7 +1170,8 @@ describe('withAuth', () => {
 
     it.each([
       ['/api/workflow-configs', 'GET', 'can_use', 'dynamic_agent#view'],
-      ['/api/workflow-configs', 'POST', 'can_manage', 'dynamic_agent#manage'],
+      ['/api/workflow-configs', 'POST', 'can_use', 'dynamic_agent#view'],
+      ['/api/workflow-configs', 'PUT', 'can_use', 'dynamic_agent#view'],
       ['/api/workflow-runs', 'GET', 'can_use', 'dynamic_agent#view'],
       ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
       ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],

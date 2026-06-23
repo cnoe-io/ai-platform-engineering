@@ -1,16 +1,16 @@
 // assisted-by Codex Codex-sonnet-4-6
 //
-// CAS decision audit. Writes ONE event per decision to the shared
-// `audit_events` collection, conforming to the UnifiedAuditEvent contract
-// that the admin audit tab (`UnifiedAuditTab`) renders — so CAS decisions
-// appear, typed and filterable, alongside existing auth/openfga_rebac events.
+// CAS decision audit. Writes ONE event per decision through audit-service,
+// conforming to the UnifiedAuditEvent contract that the admin audit tab
+// (`UnifiedAuditTab`) renders, so CAS decisions appear typed and filterable
+// alongside existing auth/openfga_rebac events.
 //
-// Best-effort + fire-and-forget: a Mongo failure is logged but never blocks
+// Best-effort + fire-and-forget: an audit-service failure is logged but never blocks
 // or changes the decision (the decision is the authoritative output).
 
 import { createHash, randomUUID } from "crypto";
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getAuditBackend } from "@/lib/audit";
 
 import type {
   Action,
@@ -22,7 +22,6 @@ import type {
   TrustedAuthorizeContext,
 } from "./contract";
 
-const AUDIT_EVENTS = "audit_events";
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
 
 /**
@@ -37,6 +36,7 @@ export interface CasDecisionEvent {
   type: "cas_decision";
   tenant_id: string;
   subject_hash: string;
+  subject_ref: string;
   action: Action;
   outcome: "allow" | "deny";
   reason_code: AuthorizeResult["reason"];
@@ -57,6 +57,14 @@ function hashSubject(id: string): string {
   return "sha256:" + createHash("sha256").update(`${SUBJECT_SALT}:${id}`).digest("hex");
 }
 
+function writeAuditEvent(event: Record<string, unknown>): void {
+  try {
+    getAuditBackend().write(event);
+  } catch (err) {
+    console.warn("[cas/audit] Failed to enqueue audit event:", err);
+  }
+}
+
 export function buildDecisionEvent(
   subject: Subject,
   resource: Resource,
@@ -71,6 +79,7 @@ export function buildDecisionEvent(
     type: "cas_decision",
     tenant_id: ctx.tenantId ?? process.env.TENANT_ID ?? "default",
     subject_hash: hashSubject(subject.id),
+    subject_ref: principalRef(subject.type, subject.id),
     action,
     outcome: result.decision === "ALLOW" ? "allow" : "deny",
     reason_code: result.reason,
@@ -96,18 +105,8 @@ export function emitDecisionAudit(
   ctx: DecisionContext = {},
   trustedContext: TrustedAuthorizeContext = {},
 ): void {
-  if (!isMongoDBConfigured) return;
-
   const event = buildDecisionEvent(subject, resource, action, result, ctx, trustedContext);
-
-  void (async () => {
-    try {
-      const coll = await getCollection<CasDecisionEvent>(AUDIT_EVENTS);
-      await coll.insertOne(event);
-    } catch (err) {
-      console.warn("[cas/audit] Failed to persist decision event:", err);
-    }
-  })();
+  writeAuditEvent(event as unknown as Record<string, unknown>);
 }
 
 export type GrantOperation = "grant" | "revoke";
@@ -140,7 +139,9 @@ export interface CasGrantEvent {
   tenant_id: string;
   /** Hashed caller — who performed the policy change. */
   subject_hash: string;
+  subject_ref: string;
   actor_hash: string;
+  actor_ref: string;
   caller_ref: string;
   grantee_ref: string;
   action: Action;
@@ -175,7 +176,9 @@ export function buildGrantEvent(
     type: "cas_grant",
     tenant_id: ctx.tenantId ?? process.env.TENANT_ID ?? "default",
     subject_hash: hashSubject(ctx.caller.id),
+    subject_ref: callerRef,
     actor_hash: hashSubject(ctx.caller.id),
+    actor_ref: callerRef,
     caller_ref: callerRef,
     grantee_ref: granteeLabel(intent.grantee),
     action: intent.capability,
@@ -208,7 +211,9 @@ export interface CasReconcileEvent {
   type: "cas_reconcile";
   tenant_id: string;
   subject_hash?: string;
+  subject_ref?: string;
   actor_hash?: string;
+  actor_ref?: string;
   caller_ref?: string;
   source?: string;
   writes: number;
@@ -229,8 +234,6 @@ export function emitReconcileAudit(
   ctx: DecisionContext & { caller?: Subject; source?: string } = {},
   options: ReconcileAuditOptions = {},
 ): void {
-  if (!isMongoDBConfigured) return;
-
   const outcome = options.outcome ?? "success";
   const callerRef = ctx.caller ? principalRef(ctx.caller.type, ctx.caller.id) : undefined;
   const event: CasReconcileEvent = {
@@ -241,7 +244,9 @@ export function emitReconcileAudit(
     ...(ctx.caller
       ? {
           subject_hash: hashSubject(ctx.caller.id),
+          subject_ref: callerRef,
           actor_hash: hashSubject(ctx.caller.id),
+          actor_ref: callerRef,
           caller_ref: callerRef,
         }
       : {}),
@@ -258,31 +263,18 @@ export function emitReconcileAudit(
     ...(ctx.spanId ? { span_id: ctx.spanId } : {}),
   };
 
-  void (async () => {
-    try {
-      const coll = await getCollection<CasReconcileEvent>(AUDIT_EVENTS);
-      await coll.insertOne(event);
-    } catch (err) {
-      console.warn("[cas/audit] Failed to persist reconcile event:", err);
-    }
-  })();
+  writeAuditEvent(event as unknown as Record<string, unknown>);
 }
 
-/** One audit event per grant/revoke attempt → unified `audit_events`. */
+/** One audit event per grant/revoke attempt through audit-service. */
 export async function emitGrantAudit(
   operation: GrantOperation,
   intent: GrantIntent,
   ctx: DecisionContext = {},
   options: GrantAuditOptions = {},
 ): Promise<void> {
-  if (!isMongoDBConfigured || !ctx.caller) return;
+  if (!ctx.caller) return;
 
   const event = buildGrantEvent(operation, intent, ctx, options);
-
-  try {
-    const coll = await getCollection<CasGrantEvent>(AUDIT_EVENTS);
-    await coll.insertOne(event);
-  } catch (err) {
-    console.warn("[cas/audit] Failed to persist grant event:", err);
-  }
+  writeAuditEvent(event as unknown as Record<string, unknown>);
 }

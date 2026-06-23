@@ -143,7 +143,6 @@ def get_escalation_config(agent_match: AgentBinding) -> EscalationConfig | None:
 class Config(BaseModel):
   defaults: GlobalDefaults = Field(default_factory=GlobalDefaults)
   channels: dict[str, ChannelConfig]
-  silence_env: bool = False
 
   @classmethod
   def from_env(cls) -> "Config":
@@ -185,12 +184,10 @@ class Config(BaseModel):
     for channel_id, channel_data in raw_config.items():
       channels[channel_id] = ChannelConfig(**channel_data)
 
-    silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"
-
     defaults = GlobalDefaults(
       default_agent_id=os.environ.get("SLACK_INTEGRATION_DEFAULT_AGENT_ID"),
       dm_agent_id=os.environ.get("SLACK_INTEGRATION_DM_AGENT_ID"),
       victorops_agent_id=os.environ.get("SLACK_INTEGRATION_VICTOROPS_AGENT_ID"),
     )
 
-    return cls(channels=channels, defaults=defaults, silence_env=silence_env)
+    return cls(channels=channels, defaults=defaults)

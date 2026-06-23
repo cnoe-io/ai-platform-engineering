@@ -12,6 +12,7 @@
 
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { useSubtabParam } from "@/hooks/use-subtab-param";
 import { BookOpen,Bot,ShieldCheck } from "lucide-react";
 import * as React from "react";
 import { ReviewConfigEditor,type ReviewConfigEditorHandle } from "./ReviewConfigEditor";
@@ -41,8 +42,12 @@ const TARGETS: TargetTab[] = [
   },
 ];
 
+const TARGET_VALUES: readonly string[] = TARGETS.map((t) => t.target);
+
 export function ReviewConfigsTab() {
-  const [activeTarget, setActiveTarget] = React.useState(TARGETS[0].target);
+  // Active target is mirrored to the `subtab` URL param so the chosen review
+  // config (Agents / Skills) is deep-linkable and survives refresh.
+  const [activeTarget, setActiveTarget] = useSubtabParam(TARGET_VALUES, TARGETS[0].target);
   const [savingByTarget, setSavingByTarget] = React.useState<Record<string, boolean>>({});
   const [readyByTarget, setReadyByTarget] = React.useState<Record<string, boolean>>({});
   const [dirtyByTarget, setDirtyByTarget] = React.useState<Record<string, boolean>>({});
@@ -97,7 +102,12 @@ export function ReviewConfigsTab() {
       <Tabs value={activeTarget} onValueChange={setActiveTarget} className="w-full">
         <TabsList>
           {TARGETS.map(({ target, label, icon: Icon }) => (
-            <TabsTrigger key={target} value={target} className="gap-2">
+            <TabsTrigger
+              key={target}
+              value={target}
+              className="gap-2"
+              onClick={() => setActiveTarget(target)}
+            >
               <Icon className="h-4 w-4" />
               {label}
             </TabsTrigger>

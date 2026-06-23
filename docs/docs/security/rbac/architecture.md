@@ -83,6 +83,15 @@ Keycloak realm roles are **not created for CAIPE permissions**. New deployments 
 
 Rule of thumb: **Keycloak owns identity and JWT claims; OpenFGA owns who is related to which organization, team, or resource.**
 
+### Web UI BFF RBAC Caches
+
+The Web UI backend uses short-lived in-process caches to keep repeated navigation from turning into repeated OpenFGA, MongoDB, and platform-health probes:
+
+- OpenFGA store discovery is cached per BFF process. `OPENFGA_STORE_ID` still wins when set; otherwise the process discovers `OPENFGA_STORE_NAME` once and reuses that store id for tuple reads, tuple writes, and checks.
+- Selected JSON API responses such as admin tab gates, platform health, authorization stats, dynamic-agent availability, and platform config are cached by request URL plus caller headers. This keeps one browser refresh or a 1000-user benchmark from fanning out identical backend probes.
+- Cache entries are short-lived, bounded, and process-local. They are an availability/performance optimization only; Keycloak JWT validation, OpenFGA relationship data, MongoDB records, and the downstream services remain the sources of truth.
+- Endpoints that need fresh data can bypass the cache with `refresh=true`, and mutating routes still perform live authorization and persistence work.
+
 The user-facing Connections & Secrets surface is hidden unless credential
 features are enabled and the signed-in Keycloak subject has
 `can_use_credentials organization:<org_key>` in OpenFGA (granted by organization
@@ -166,6 +175,8 @@ Two backfills register in the `0.5.8` manifest (`registry.ts`), runnable from th
 **KB tab-gate composition — capability-driven tabs are decoupled from `has_any_kb` (2026-06-04 fix).** The original PR 2 sidebar derived *every* tab from the readable-KB count (`has_any_kb`), so an org admin who granted a team the explicit Search/Ingest capability but had **not yet assigned any KB** left members with all tabs greyed out — the capability was unreachable, contradicting the toggle's own copy ("results are still limited to the data sources each member can read"). `kb-tab-gates` now composes the non-admin gates as: `search = can_search`; `data_sources = has_any_kb OR can_ingest`; `mcp_tools = has_any_kb OR can_search`; `graph = has_any_kb` (graph stays purely read-driven — it needs readable content). A capability alone is therefore enough to reach its feature even before the first KB is assigned (Data Sources resolves the author-first chicken-and-egg; Search/MCP Tools render with an empty, server-scoped result set). This changes **UI tab visibility only** — the server-side data paths (`requireSearchCapability` + `authorize_search`, `authorize_datasource_create`) re-check the same capabilities and the per-datasource ACL still narrows results, so an enabled-but-empty tab never leaks data. The `KnowledgeSidebar` "ask an admin to share a KB" banner is likewise suppressed when the user holds any explicit capability, so it no longer contradicts the now-enabled tabs.
 
 Slack and Webex bot channel/space team resolution uses Mongo mappings (`channel_team_mappings`, `webex_space_team_mappings`) to find the owning CAIPE team. Membership prechecks are OpenFGA-first: the bot checks `user:<sub> member team:<slug>` and only falls back to legacy `teams.members` when the PDP is not configured or unavailable. A negative OpenFGA decision denies the bot interaction before OBO so users get the friendly "not a member" response. (Phase 3 of spec 2026-05-24-derive-team-from-channel removed the per-team OBO scope mint — the bot now mints a team-agnostic OBO token and the channel→team mapping is the sole source of team identity downstream.)
+
+When a Slack channel route runs **as a service account** (the route's `execution_identity.mode = service_account`), the bot mints a service-account OBO token (`preferred_username = service-account-<clientId>`) and dispatches the agent under it. Dynamic Agents' CAS agent-use check (`require_agent_use_permission`) must namespace that caller as `service_account:<sub>` — not `user:<sub>` — when it POSTs to `/api/authz/v1/decisions`, because the BFF's subject-binding compares the decision `subject` against its own caller resolution (`service-account-` prefix ⇒ `service_account`). Sending `user` for a service-account token fails the bind, returning a meta `403` that the PEP fails closed into a `503`. The subject type is therefore derived from the token's `preferred_username` consistently across the BFF (`jwt-validation.ts`), the bridge, `openfga_authz.py`, and the DA CAS client (`auth/authz.py`).
 
 RAG accepts both browser user tokens and ingestor client-credentials tokens from Keycloak. For local Docker Compose, `OIDC_DISCOVERY_URL` and `INGESTOR_OIDC_DISCOVERY_URL` may be either the realm base URL (`http://keycloak:7080/realms/caipe`) or the full `.well-known/openid-configuration` URL; the server normalizes both forms before fetching metadata. Keycloak service-account tokens use `preferred_username=service-account-<client>`, so RAG treats that token shape as machine-to-machine and assigns `RBAC_CLIENT_CREDENTIALS_ROLE`; human tokens are identity-only and use OpenFGA for authorization.
 
@@ -419,7 +430,7 @@ Two authorization paths:
 2. **Role-based fallback:** `hasRoleFallback()` checks `realm_access.roles` from the session JWT when the PDP is unavailable or not configured.
 3. **Bootstrap admin path:** `isBootstrapAdmin(email)` still provides a temporary break-glass fallback from `BOOTSTRAP_ADMIN_EMAILS`, but the same email list is also reconciled by the BFF into durable OpenFGA tuples. Prefer the durable tuple state shown in Admin → Security & Policy → Keycloak, and remove the email fallback once group/team-admin relationships are configured. `requireMigrationSuperAdmin` (the guard on privileged ReBAC migration endpoints) gates on `user.role === 'admin'` rather than bootstrap email — AD group admins and super-admins team members both satisfy this check once their login bootstrap has run.
 
-Routes that have not yet been rewritten inline no longer remain session-only: the deprecated `withAuth()` compatibility wrapper now uses `getAuthFromBearerOrSession()`, resolves the route family to a least-privilege RBAC policy, and calls `requireRbacPermission()` before invoking the handler. The old generic supervisor umbrella is now split for basic user surfaces: profile and identity-link routes use `self_profile#read/write`, user search uses `user_directory#read`, chat/A2A/model discovery uses `chat_supervisor#invoke`, settings use `user_settings#read/write`, feedback/NPS uses `feedback#submit`, session files use `user_files#read/write`, AI assist uses `ai_assist#invoke`, credentials use `credential_vault#use`, and platform settings reads use `system_config#read`. Unmatched compatibility routes fall back to `admin_ui#view` for `GET` and `admin_ui#manage` for writes instead of a generic baseline-use capability. These user-surface capabilities map to organization-level OpenFGA relations (`can_read_self`, `can_manage_self`, `can_search_directory`, `can_chat`, `can_submit_feedback`, `can_use_files`, `can_use_ai_assist`, `can_use_credentials`) that derive from existing organization membership/admin relationships so upgrades preserve current access automatically.
+Routes that have not yet been rewritten inline no longer remain session-only: the deprecated `withAuth()` compatibility wrapper now uses `getAuthFromBearerOrSession()`, resolves the route family to a least-privilege RBAC policy, and calls `requireRbacPermission()` before invoking the handler. The old generic supervisor umbrella is now split for basic user surfaces: profile and identity-link routes use `self_profile#read/write`, user search uses `user_directory#read`, chat/A2A/model discovery uses `chat_supervisor#invoke`, settings use `user_settings#read/write`, feedback uses `feedback#submit`, session files use `user_files#read/write`, AI assist uses `ai_assist#invoke`, credentials use `credential_vault#use`, and platform settings reads use `system_config#read`. Unmatched compatibility routes fall back to `admin_ui#view` for `GET` and `admin_ui#manage` for writes instead of a generic baseline-use capability. These user-surface capabilities map to organization-level OpenFGA relations (`can_read_self`, `can_manage_self`, `can_search_directory`, `can_chat`, `can_submit_feedback`, `can_use_files`, `can_use_ai_assist`, `can_use_credentials`) that derive from existing organization membership/admin relationships so upgrades preserve current access automatically.
 
 **Skill authoring is a member self-service surface (2026-06-04 fix).** The coarse `withAuth` gate for the Skill Builder CRUD (`/api/skills/configs` POST/PUT/DELETE) and for minting the caller's own read-only catalog API keys (`/api/catalog-api-keys`) maps every `skill` capability — `skill#view`, `skill#invoke`, `skill#configure`, and `skill#delete` — to the member-level organization relation **`can_use`** (`member or admin`), not the admin-only `can_manage`. Per-skill mutation and deletion of an *existing* skill are still constrained per-resource by ownership inside the route handlers via `requireResourcePermission({ type: "skill", action: "write" | "delete" })`; the org gate only asserts "the Skill Builder exists for you at all." Before this fix `skill#configure`/`skill#delete` fell through `organizationRelationFor` to `can_manage`, so generic members hit `403 "You do not have permission to perform this action."` when creating a skill. Sharing a skill with a team in the builder uses the same member-accessible `GET /api/dynamic-agents/teams` "teams available for sharing" endpoint as the RAG KB / MCP / Dynamic-Agent editors; members pick from their own teams (org admins from all teams) and the save writes `team:<slug>#member user skill:<id>` grants.
 
@@ -465,11 +476,16 @@ explicit OpenFGA relationship. The older plain SSE proxy at
 the supervisor backend and applies the same implicit-or-explicit conversation
 write check before proxying.
 
-The Web UI backend emits a unified RBAC Audit event for every OpenFGA agent-use decision,
-and the Dynamic Agents runtime persists the same structured `openfga_rebac`
-event to MongoDB `audit_events` for direct bearer-token calls. Both use
-`pdp=openfga`; the Web UI backend stores the checked tuple in a resource reference shaped
-like:
+The Web UI backend emits a unified RBAC Audit event for every OpenFGA
+agent-use decision, and Python producers such as Dynamic Agents emit the same
+structured `openfga_rebac` event for direct bearer-token calls. These producers
+do not write audit storage directly. They buffer JSON events and submit batches
+to the lightweight `audit-service` (`AUDIT_LOG_BACKEND=service`, default),
+which owns the durable local/S3 storage backend and the read API used by the
+Admin UI. If `audit-service` is unavailable or audit is intentionally disabled,
+producers log a warning and drop the audit batch; authorization itself remains
+non-breaking. Both paths use `pdp=openfga`; the checked tuple is stored in a
+resource reference shaped like:
 
 ```text
 user:<sub> can_use agent:<agent_id>
@@ -478,12 +494,13 @@ user:<sub> can_use agent:<agent_id>
 This gives operators a single RBAC Audit view for runtime OpenFGA allows,
 denies, and PDP-unavailable failures alongside admin ReBAC graph/check actions.
 The Admin UI's RBAC Audit type filter uses `All` as a literal unfiltered view
-over MongoDB `audit_events`; selecting a specific type narrows the result to
+over audit-service events; selecting a specific type narrows the result to
 `auth`, `openfga_rebac`, `tool_action`, or `agent_delegation`. The AgentGateway
-`openfga-authz-bridge` also writes each external `ext_authz` decision into the
-same `audit_events` collection with `source=openfga_authz_bridge`, so
+`openfga-authz-bridge` also posts each external `ext_authz` decision through the
+same audit-service write path with `source=openfga_authz_bridge`, so
 gateway-level OpenFGA allow/deny/error decisions appear without a trace backend.
-MongoDB is the durable audit record and the Admin UI reads it directly.
+`audit-service` is the audit owner; UI, Dynamic Agents, and bridge processes are
+producers only.
 
 ### Personal DM Experience — Phase 2 (spec 2026-05-24)
 
@@ -1016,7 +1033,8 @@ Legacy Keycloak realm roles may still appear in old local data, but they are not
 | `CREDENTIAL_SERVICE_AUDIENCE` / `CREDENTIAL_API_URL`           | Audience and service URL used by Dynamic Agents and other internal services when retrieving secret refs or exchanging provider connections                         | Must match the issued service/OBO token audience. Browser-origin, session-only, and wrong-audience retrieval/exchange requests are denied before credential lookup.                                                                               |
 | `USE_IMPERSONATION_TOKENS`                                    | When `true`, Dynamic Agents resolves MCP `credential_sources` through the server-to-server credential exchange (per-user OAuth tokens) instead of session cookies   | Required for the per-user Jira/PagerDuty/GitHub/GitLab provider-token flows. Leave `false` to keep only the coarse user-level AgentGateway/OpenFGA gate.                                                                                          |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` / `GITLAB_PERSONAL_ACCESS_TOKEN` (on **Dynamic Agents**) | Static org-PAT fallback read via `MCPCredentialSource.fallback_env` when a caller has not connected their personal GitHub/GitLab account                            | Keeps GitHub/GitLab tools backward compatible for unconnected callers. The PAT now lives only on Dynamic Agents (no longer a gateway `backendAuth` key); connected users always get their own OAuth token instead. Source from runtime secrets.   |
-| `MONGODB_URI` / `MONGODB_DATABASE`                            | Enables Python OpenFGA audit writers, including Dynamic Agents and `openfga-authz-bridge`, to persist durable `openfga_rebac` rows into `audit_events`             | Store `MONGODB_URI` in runtime secrets for Helm/production; dev compose uses the local MongoDB service.                                                                                                                                          |
+| `AUDIT_SERVICE_URL`                                           | Enables Python and TypeScript audit writers, including Dynamic Agents and `openfga-authz-bridge`, to emit durable `openfga_rebac` rows to audit-service             | Point services at the in-cluster or compose `audit-service`; configure local/S3 storage on audit-service itself.                                                                                                                                |
+| `AUDIT_SERVICE_BACKEND` / `AUDIT_SERVICE_LOCAL_RETENTION_DAYS` | Selects the audit-service storage backend (`local` or `s3`) and controls local-disk retention                                                                       | `local` is the default backend. Local storage keeps `1` day by default and purges expired files on startup and periodically; S3 retention should be managed with bucket lifecycle policy.                                                        |
 | `SLACK_AGENT_ROUTES_MODE`                                     | Slack bot route source: `db_prefer` (default; prefer OpenFGA-backed UI-managed channel-agent routes, fall back to static config), `config`, or `db_only`             | `db_prefer` and `db_only` require OpenFGA access; MongoDB is used only to enrich tuple-backed routes with listen/priority metadata. Use `config` only for static-only environments that should ignore UI-managed channel routes.                  |
 | `SLACK_INTEGRATION_SILENCE_ENV`                               | Initial setup switch that makes the Slack bot ignore inbound payloads before handlers can send user-visible Slack responses                                           | Use only during bootstrap or broken-route setup windows. Admin/runtime diagnostics remain the place to inspect OpenFGA route health while end-user channel noise is suppressed.                                                                  |
 | `SLACK_WORKSPACE_ALIAS`                                       | Canonical Slack workspace namespace used by the Web UI backend, Slack bot, Mongo route/grant rows, and OpenFGA `slack_channel:<alias>--<channel_id>` subjects      | Configure per deployment (for example, `CAIPE` or `Splunk`). The Slack bot maps incoming Slack `team_id` values to this alias before route and ReBAC lookups.                                                                                       |
@@ -1033,7 +1051,7 @@ Legacy Keycloak realm roles may still appear in old local data, but they are not
 | `WEBEX_THREAD_CONTEXT_MAX_CHARS`                              | Caps formatted Webex thread context sent to Dynamic Agents; defaults to `4000`                                                                                     | Prevents unbounded prompt growth and avoids sending entire long conversations to downstream agents.                                                                                                                                              |
 | `TENANT_ID` / `AUDIT_SUBJECT_SALT`                            | Controls tenant scoping and privacy-preserving subject hashing for Python OpenFGA audit events                                                                     | Keep the salt stable per environment so subject hashes remain correlatable without storing raw tokens.                                                                                                                                           |
 | `AUTHZ_TRACING_ENABLED`                                       | Enables optional Web UI backend OpenFGA/ReBAC OTLP span export                                                                                                     | Defaults off in dev compose. Trace spans are observational only; do not put raw tokens, request bodies, or PII in span attributes.                                                                                                               |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                          | Optional OTLP HTTP endpoint for Web UI backend authz spans                                                                                                         | Leave unset unless an external collector is explicitly configured. RBAC Audit uses MongoDB `audit_events` and does not need a trace backend.                                                                                                     |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                          | Optional OTLP HTTP endpoint for Web UI backend authz spans                                                                                                         | Leave unset unless an external collector is explicitly configured. RBAC Audit uses audit-service and does not need a trace backend.                                                                                                              |
 | `KEYCLOAK_ADMIN_CLIENT_ID`                                    | Confidential Keycloak client used by Web UI backend admin APIs for Keycloak Admin REST calls such as user listing, role assignment, client inspection, and Keycloak RBAC OBO permission repair | Use a service-account client with only the required `realm-management` roles: user roles (`view-users`, `query-users`, `manage-users`), client roles (`query-clients`, `view-clients`, `manage-clients`), and authorization roles (`view-authorization`, `manage-authorization`). Production should not rely on the dev `admin-cli` password-grant fallback. |
 | `KEYCLOAK_ADMIN_CLIENT_SECRET`                                | Matching client secret for `KEYCLOAK_ADMIN_CLIENT_ID`                                                                                                              | Store in Vault/ExternalSecret/Kubernetes Secret only; never commit the secret value.                                                                                                                                                             |
 | `KEYCLOAK_ACCESS_TOKEN_LIFESPAN`                              | Keycloak init/reconcile job override for realm access-token lifetime; chart default is `3600` seconds                                                              | Keep access tokens short and rely on refresh tokens for active sessions.                                                                                                                                                                         |
@@ -1141,8 +1159,14 @@ AgentGateway uses `jwtAuth` for authentication and `extAuthz` for authorization.
 The `openfga-authz-bridge` adapts Envoy's gRPC authorization check into an
 OpenFGA `Check`, so gateway authorization is maintained through ReBAC tuples
 rather than CEL policy authoring.
+
+On MCP `tools/call`, when `CAIPE_AGENT_CONTEXT_HMAC_SECRET` is configured, the
+bridge also requires a signed `X-CAIPE-Agent-Context` header so it can enforce
+per-agent tool allowlists (`agent:<id> can_call tool:<server>/<tool>`). See
+[Agent context HMAC](./agent-context-hmac.md).
+
 For observability and compliance, the bridge also writes a best-effort
-`openfga_rebac` document to MongoDB `audit_events` for every terminal
+`openfga_rebac` event to audit-service for every terminal
 authorization result: missing subject, OpenFGA allow, OpenFGA deny, and
 OpenFGA unavailable. These writes never affect the allow/deny response returned
 to AgentGateway.
@@ -1517,6 +1541,9 @@ both relationships before allowing the call:
 user:<sub> can_use agent:<agent_id>
 agent:<agent_id> can_call tool:<server_id>/<tool_name>
 ```
+
+See [Agent context HMAC](./agent-context-hmac.md) for what the secret does, which
+components must share it, and Helm/Compose wiring (including G1/G2 from PR #1967).
 
 The Web UI backend reconciles the second tuple family from each agent's
 `allowed_tools` whenever an agent is created, updated, or deleted. Empty

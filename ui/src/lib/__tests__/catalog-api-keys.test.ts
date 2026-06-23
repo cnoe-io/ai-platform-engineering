@@ -2,8 +2,6 @@
  * @jest-environment node
  */
 
-import { createHmac } from "crypto";
-
 const mockInsertOne = jest.fn();
 const mockFind = jest.fn();
 const mockFindOne = jest.fn();
@@ -45,28 +43,28 @@ describe("catalog-api-keys", () => {
     expect(doc.owner_user_id).toBe("user-sub-1");
     expect(doc.scopes).toEqual(["catalog:read"]);
     const secret = key.slice(key_id.length + 1);
-    const expectedHash = createHmac("sha256", "test-pepper")
-      .update(secret, "utf8")
-      .digest("hex");
-    expect(doc.key_hash).toBe(expectedHash);
+    expect(doc.key_hash).toMatch(/^scrypt:v1:[A-Za-z0-9_-]+$/);
+    expect(doc.key_hash).not.toBe(secret);
   });
 
   it("verifyCatalogApiKey returns owner when hash matches", async () => {
-    const secret = "abc123SECRET"; // gitleaks:allow
-    const keyId = "sk_testkey1234";
-    const keyHash = createHmac("sha256", "test-pepper")
-      .update(secret, "utf8")
-      .digest("hex");
+    mockInsertOne.mockResolvedValue({ insertedId: "x" });
+    const { createCatalogApiKey, verifyCatalogApiKey } = await import(
+      "@/lib/catalog-api-keys"
+    );
+    const { key, key_id } = await createCatalogApiKey("owner-a");
+    const doc = mockInsertOne.mock.calls[0]![0] as {
+      key_hash: string;
+    };
     mockFindOne.mockResolvedValue({
-      key_id: keyId,
-      key_hash: keyHash,
+      key_id,
+      key_hash: doc.key_hash,
       owner_user_id: "owner-a",
       revoked_at: null,
     });
     mockUpdateOne.mockResolvedValue({ modifiedCount: 1 });
 
-    const { verifyCatalogApiKey } = await import("@/lib/catalog-api-keys");
-    const owner = await verifyCatalogApiKey(`${keyId}.${secret}`);
+    const owner = await verifyCatalogApiKey(key);
     expect(owner).toBe("owner-a");
   });
 

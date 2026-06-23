@@ -53,7 +53,25 @@ def validate_prerequisites(
 ) -> Tuple[bool, Dict[str, Any]]:
     """Validate required Jira credentials and reject placeholder URLs."""
     provider_header_token = get_provider_header_token()
-    resolved_token = token or provider_header_token or get_env()
+    caipe_gateway_caller = _caipe_provider_oauth_required() and not token
+
+    if caipe_gateway_caller:
+        logger.error(
+            "Caller-scoped Atlassian OAuth required but X-CAIPE-Provider-Token is missing."
+        )
+        return (
+            False,
+            {
+                "error": (
+                    "Atlassian account not connected. Connect Atlassian in CAIPE Credentials, "
+                    "then start a new chat."
+                )
+            },
+        )
+
+    resolved_token = token or provider_header_token
+    if not resolved_token:
+        resolved_token = get_env()
     resolved_email = str(
         email or os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or ""
     )
@@ -115,21 +133,72 @@ def get_provider_header_token() -> Optional[str]:
         req = get_http_request()
         token = req.headers.get("x-caipe-provider-token", "").strip()
         return token or None
-    except Exception:
+    except RuntimeError:
+        # No active HTTP request (STDIO mode).
         return None
+
+
+def _request_has_caipe_provider_header() -> bool:
+    """True when AgentGateway forwarded the provider-token route (value may be empty)."""
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        return "x-caipe-provider-token" in req.headers
+    except RuntimeError:
+        return False
+
+
+def _caipe_provider_oauth_required() -> bool:
+    """Caller OAuth is required but no exchanged token was forwarded."""
+    if get_provider_header_token():
+        return False
+    return _request_has_caipe_provider_header()
+
+
+def _request_has_caipe_mcp_auth_jwt() -> bool:
+    """True when AgentGateway forwarded a Keycloak JWT on Authorization (caller context)."""
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        auth = req.headers.get("authorization", "").strip()
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+            return bool(token) and _looks_like_jwt(token)
+        return False
+    except RuntimeError:
+        return False
+
+
+def _looks_like_jwt(value: str) -> bool:
+    parts = value.split(".")
+    return len(parts) == 3 and all(part.strip() for part in parts)
 
 
 def get_env() -> Optional[str]:
     """Retrieve the Atlassian API token from request header or environment."""
-    token = (
+    header_token = (
         get_request_token("ATLASSIAN_TOKEN")
         or get_request_token("ATLASSIAN_API_TOKEN")
         or get_request_token("JIRA_API_TOKEN")
         or get_request_token("JIRA_TOKEN")
     )
-    if not token:
-        logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
-    return token
+    if header_token:
+        if _looks_like_jwt(header_token):
+            logger.debug(
+                "Skipping JWT-shaped Authorization header when resolving Atlassian API token"
+            )
+        else:
+            return header_token
+
+    for env_name in ("ATLASSIAN_TOKEN", "ATLASSIAN_API_TOKEN", "JIRA_API_TOKEN", "JIRA_TOKEN"):
+        env_token = os.getenv(env_name)
+        if env_token:
+            return env_token
+
+    logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
+    return None
 
 
 def _is_atlassian_gateway_url(url: str) -> bool:

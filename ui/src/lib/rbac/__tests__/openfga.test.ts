@@ -29,6 +29,7 @@ import {
   checkUniversalRebacRelationship,
   isOpenFgaReconciliationEnabled,
   readOpenFgaTuples,
+  resetOpenFgaStoreIdCacheForTests,
   writeOpenFgaTupleDiff,
   writeUniversalRebacTupleDiff,
 } from "../openfga";
@@ -95,6 +96,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    resetOpenFgaStoreIdCacheForTests();
     mockGetCollection.mockClear();
     mockTeamsCollection.find.mockClear();
     delete process.env.OPENFGA_RECONCILE_ENABLED;
@@ -133,6 +135,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         { user: "agent:agent-1", relation: "caller", object: "tool:jira/*" },
         { user: "agent:agent-1", relation: "caller", object: "tool:github/*" },
         { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
+      ]),
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
         { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
       ]),
     );
@@ -155,6 +161,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_tool:github_*" },
         { user: "agent:agent-old", relation: "caller", object: "tool:jira/*" },
         { user: "agent:agent-old", relation: "caller", object: "tool:github/*" },
+      ]),
+    );
+    expect(diff.deletes).not.toEqual(
+      expect.arrayContaining([
         { user: "agent:agent-old", relation: "caller", object: "tool:*" },
       ]),
     );
@@ -274,6 +284,9 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       expect(resourceRelationNames(modelPath, "llm_model")).toEqual(
         expect.arrayContaining(["owner", "can_read", "can_write", "can_delete"]),
       );
+      expect(resourceRelationNames(modelPath, "secret_ref")).toEqual(
+        expect.arrayContaining(["can_read_metadata", "can_use", "can_manage", "can_share", "can_audit"]),
+      );
       expect(resourceRelationNames(modelPath, "slack_channel")).toContain("owner");
       expect(resourceRelationNames(modelPath, "webex_space")).toContain("owner");
     }
@@ -312,6 +325,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         type: "team",
         relation: "admin",
       });
+      expect(directlyRelatedUserTypes(modelPath, "slack_channel", "manager")).toContainEqual({
+        type: "team",
+        relation: "member",
+      });
       expect(directlyRelatedUserTypes(modelPath, "mcp_server", "manager")).toContainEqual({
         type: "team",
         relation: "admin",
@@ -339,6 +356,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       expect(directlyRelatedUserTypes(modelPath, "admin_surface", "manager")).toContainEqual({
         type: "organization",
         relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "secret_ref", "metadata_reader")).toContainEqual({
+        type: "team",
+        relation: "member",
       });
     }
   });
@@ -373,13 +394,17 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       buildConfigDrivenMcpServerRelationshipTupleDiff({
         serverId: "argocd",
         organizationId: "grid",
-      }).writes,
-    ).toEqual([
-      { user: "organization:grid#member", relation: "reader", object: "mcp_server:argocd" },
-      { user: "organization:grid#member", relation: "user", object: "mcp_server:argocd" },
-      { user: "organization:grid#member", relation: "invoker", object: "mcp_server:argocd" },
-      { user: "organization:grid#admin", relation: "manager", object: "mcp_server:argocd" },
-    ]);
+      }),
+    ).toEqual({
+      writes: [
+        { user: "organization:grid#member", relation: "reader", object: "mcp_server:argocd" },
+        { user: "organization:grid#member", relation: "user", object: "mcp_server:argocd" },
+        { user: "organization:grid#admin", relation: "manager", object: "mcp_server:argocd" },
+      ],
+      deletes: [
+        { user: "organization:grid#member", relation: "invoker", object: "mcp_server:argocd" },
+      ],
+    });
     expect(
       buildLlmModelRelationshipTupleDiff({
         modelId: "anthropic/claude-sonnet",
@@ -422,12 +447,15 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     ]);
   });
 
-  it("requires explicit opt-in and an OpenFGA URL", () => {
+  it("defaults reconcile on when OpenFGA is configured unless explicitly disabled", () => {
     const previousEnabled = process.env.OPENFGA_RECONCILE_ENABLED;
     const previousUrl = process.env.OPENFGA_HTTP;
     try {
       delete process.env.OPENFGA_RECONCILE_ENABLED;
       process.env.OPENFGA_HTTP = "http://openfga:8080";
+      expect(isOpenFgaReconciliationEnabled()).toBe(true);
+
+      process.env.OPENFGA_RECONCILE_ENABLED = "false";
       expect(isOpenFgaReconciliationEnabled()).toBe(false);
 
       process.env.OPENFGA_RECONCILE_ENABLED = "true";
@@ -753,7 +781,9 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
     ]);
-    expect(diff.deletes).toEqual([]);
+    expect(diff.deletes).toEqual([
+      { user: "team:platform#member", relation: "writer", object: "agent:agent-platform-helper" },
+    ]);
   });
 
   it("deletes all agent relationships across paginated OpenFGA tuple reads", async () => {

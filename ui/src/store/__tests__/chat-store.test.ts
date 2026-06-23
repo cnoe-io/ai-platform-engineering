@@ -50,7 +50,7 @@ jest.mock('@/lib/timeline-manager', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { getLastActiveConversationId, useChatStore } from '../chat-store';
+import { getLastActiveConversationId, resolveChatNavigationPath, useChatStore } from '../chat-store';
 import { apiClient } from '@/lib/api-client';
 import { getAgentId, type Conversation, type ChatMessage } from '@/types/a2a';
 
@@ -134,6 +134,34 @@ describe('chat-store', () => {
       useChatStore.getState().clearAllConversations();
 
       expect(getLastActiveConversationId()).toBeNull();
+    });
+  });
+
+  describe('resolveChatNavigationPath', () => {
+    it('returns the persisted last-active id before the conversation list hydrates', () => {
+      window.localStorage.setItem('caipe-chat-last-active-conversation', 'conv-persisted');
+
+      expect(
+        resolveChatNavigationPath({
+          conversations: [],
+          activeConversationId: null,
+        }),
+      ).toBe('/chat/conv-persisted');
+    });
+
+    it('prefers the active conversation when it is still in the list', () => {
+      const conv = makeConversation({ id: 'conv-active' });
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'conv-active',
+      });
+
+      expect(
+        resolveChatNavigationPath({
+          conversations: [conv],
+          activeConversationId: 'conv-active',
+        }),
+      ).toBe('/chat/conv-active');
     });
   });
 
@@ -780,6 +808,49 @@ describe('chat-store', () => {
   // --------------------------------------------------------------------------
 
   describe('loadConversationsFromServer — deletion sync', () => {
+    it('coalesces concurrent loadConversationsFromServer calls', async () => {
+      let resolveGet: (value: {
+        items: Array<{ _id: string; title: string; created_at: string; updated_at: string }>;
+        total: number;
+        page: number;
+        page_size: number;
+        has_more: boolean;
+      }) => void;
+      const getPromise = new Promise<{
+        items: Array<{ _id: string; title: string; created_at: string; updated_at: string }>;
+        total: number;
+        page: number;
+        page_size: number;
+        has_more: boolean;
+      }>((resolve) => {
+        resolveGet = resolve;
+      });
+      mockApiClient.getConversations.mockReturnValue(getPromise);
+
+      const first = useChatStore.getState().loadConversationsFromServer();
+      const second = useChatStore.getState().loadConversationsFromServer();
+
+      expect(mockApiClient.getConversations).toHaveBeenCalledTimes(1);
+
+      resolveGet!({
+        items: [
+          {
+            _id: 'shared-load',
+            title: 'Shared load',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await Promise.all([first, second]);
+      expect(useChatStore.getState().conversations.map((c) => c.id)).toContain('shared-load');
+    });
+
     it('removes conversations that exist locally but not on server', async () => {
       // Local state has 3 conversations
       const conv1 = makeConversation({ id: 'keep-1', title: 'Keep Me' });

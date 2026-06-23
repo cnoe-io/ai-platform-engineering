@@ -22,17 +22,24 @@ type TestCredentials = {
 type ChatBootMocksOptions = {
   conversationId?: string;
   ownerEmail?: string;
+  /** When true (default), GET /api/chat/conversations returns the fixture conversation. */
+  seedExistingConversation?: boolean;
+  /** Artificial delay for the conversation list GET (simulates Sidebar + /chat racing). */
+  conversationListDelayMs?: number;
+  /** When set, seeds an agent participant on the conversation fixture. */
+  agentId?: string;
   onConversationListRequest?: (url: URL) => void;
+  onConversationCreate?: () => void;
 };
 
-function chatConversationFixture(id: string, ownerEmail: string) {
+function chatConversationFixture(id: string, ownerEmail: string, agentId?: string) {
   const now = new Date().toISOString();
   return {
     _id: id,
     title: "RBAC E2E Conversation",
     client_type: "webui",
     owner_id: ownerEmail,
-    participants: [],
+    participants: agentId ? [{ type: "agent", id: agentId }] : [],
     created_at: now,
     updated_at: now,
     metadata: { client_type: "webui", total_messages: 0 },
@@ -56,8 +63,10 @@ export async function installChatBootMocks(
 ): Promise<void> {
   const conversationId = options.conversationId ?? "rbac-e2e-conversation";
   const ownerEmail = options.ownerEmail ?? env.user.email;
-  const conversation = chatConversationFixture(conversationId, ownerEmail);
-  let created = false;
+  const conversation = chatConversationFixture(conversationId, ownerEmail, options.agentId);
+  const seedExistingConversation = options.seedExistingConversation !== false;
+  const conversationListDelayMs = options.conversationListDelayMs ?? 0;
+  let created = seedExistingConversation;
 
   await page.route("**/api/admin/platform-config", async (route) => {
     await route.fulfill({
@@ -75,7 +84,10 @@ export async function installChatBootMocks(
 
     if (path === "/api/chat/conversations" && method === "GET") {
       options.onConversationListRequest?.(requestUrl);
-      const items = created ? [conversation] : [];
+      if (conversationListDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, conversationListDelayMs));
+      }
+      const items = created || seedExistingConversation ? [conversation] : [];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -94,6 +106,7 @@ export async function installChatBootMocks(
     }
 
     if (path === "/api/chat/conversations" && method === "POST") {
+      options.onConversationCreate?.();
       created = true;
       await route.fulfill({
         status: 201,
@@ -136,23 +149,43 @@ export async function installChatBootMocks(
 }
 
 export async function dismissReleaseUpgradeDialog(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: /what's new/i });
-  if (!(await dialog.isVisible({ timeout: 3_000 }).catch(() => false))) return;
+  const dialog = page.getByRole("dialog", { name: /what'?s new/i });
 
-  await page.keyboard.press("Escape").catch(() => undefined);
-  if (await dialog.isHidden({ timeout: 1_000 }).catch(() => false)) return;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (!(await dialog.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      return;
+    }
 
-  const closeButton = dialog.getByRole("button", { name: /^close$/i });
-  if (await closeButton.isVisible().catch(() => false)) {
-    await closeButton.click({ force: true });
-    await expect(dialog).toBeHidden({ timeout: 5_000 });
-    return;
-  }
+    const skipButton = dialog.getByRole("button", { name: /skip until next login/i });
+    if (await skipButton.isVisible().catch(() => false)) {
+      await skipButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 3_000 }).catch(() => false)) {
+        return;
+      }
+    }
 
-  const skipButton = dialog.getByRole("button", { name: /skip until next login|do not show again/i });
-  if (await skipButton.isVisible().catch(() => false)) {
-    await skipButton.click({ force: true });
-    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    const dismissButton = dialog.getByRole("button", { name: /do not show again/i });
+    if (await dismissButton.isVisible().catch(() => false)) {
+      await dismissButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 5_000 }).catch(() => false)) {
+        return;
+      }
+    }
+
+    const closeButton = dialog.getByRole("button", { name: /^close$/i });
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 3_000 }).catch(() => false)) {
+        return;
+      }
+    }
+
+    await page.keyboard.press("Escape").catch(() => undefined);
+    if (await dialog.isHidden({ timeout: 1_000 }).catch(() => false)) {
+      return;
+    }
+
+    await page.waitForTimeout(250);
   }
 }
 
@@ -160,20 +193,27 @@ export async function expectChatComposerReady(
   page: Page,
   timeoutMs = 30_000,
 ): Promise<void> {
-  const textbox = page.getByRole("textbox");
+  const composer = page.locator("textarea").first();
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     await dismissReleaseUpgradeDialog(page);
-    if (await textbox.isVisible({ timeout: 500 }).catch(() => false)) {
-      await expect(textbox).toBeVisible();
+
+    const pathname = new URL(page.url()).pathname;
+    if (pathname === "/chat") {
+      await page.waitForURL(/\/chat\/[^/]+/, { timeout: 2_000 }).catch(() => undefined);
+    }
+
+    if (await composer.isVisible({ timeout: 500 }).catch(() => false)) {
+      await expect(composer).toBeVisible();
       return;
     }
+
     await page.waitForTimeout(250);
   }
 
   await dismissReleaseUpgradeDialog(page);
-  await expect(textbox).toBeVisible({ timeout: 1_000 });
+  await expect(composer).toBeVisible({ timeout: 1_000 });
 }
 
 export function isDuoSecurityHost(hostname: string): boolean {

@@ -71,7 +71,7 @@ describe('getServerConfig', () => {
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
         'ACTION_AUDIT_ENABLED',
         'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
         'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
@@ -95,7 +95,6 @@ describe('getServerConfig', () => {
       expect(cfg.ssoEnabled).toBe(false);
       expect(cfg.ragEnabled).toBe(true); // default true
       expect(cfg.feedbackEnabled).toBe(true); // default true
-      expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
       expect(cfg.credentialsEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
@@ -115,6 +114,7 @@ describe('getServerConfig', () => {
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.podOwnerMigrationEnabled).toBe(true);
+      expect(cfg.auditLogBackend).toBe('service');
       expect(cfg.defaultNewChatAgentId).toBeNull();
       expect(cfg.scheduleEditorAgentId).toBeNull();
       expect(cfg.actionAuditEnabled).toBe(true);
@@ -154,8 +154,10 @@ describe('getServerConfig', () => {
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
-        'npsEnabled', 'auditLogsEnabled',
-        'actionAuditEnabled', 'podOwnerMigrationEnabled',
+        'auditLogsEnabled',
+        'actionAuditEnabled',
+        'podOwnerMigrationEnabled',
+        'auditLogBackend',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
         'scheduleEditorAgentId',
@@ -991,8 +993,10 @@ describe('getClientConfigScript (XSS safety)', () => {
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
-      'npsEnabled', 'auditLogsEnabled',
-      'actionAuditEnabled', 'podOwnerMigrationEnabled',
+      'auditLogsEnabled',
+      'actionAuditEnabled',
+      'podOwnerMigrationEnabled',
+      'auditLogBackend',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
       'defaultNewChatAgentId', 'scheduleEditorAgentId',

@@ -1,5 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+// assisted-by Codex Codex-sonnet-4-6
 
 import { CredentialsWorkspace } from "../CredentialsWorkspace";
 
@@ -13,15 +15,11 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("../SecretsManager", () => ({
-  SecretsManager: () => <div>My Secrets content</div>,
+  SecretsManager: () => <div>Saved Secrets content</div>,
 }));
 
 jest.mock("../ProviderConnections", () => ({
-  ProviderConnections: () => <div>My Connections content</div>,
-}));
-
-jest.mock("../CredentialAuditPanel", () => ({
-  CredentialAuditPanel: () => <div>Credential Audit content</div>,
+  ProviderConnections: () => <div>Connected Apps content</div>,
 }));
 
 describe("CredentialsWorkspace", () => {
@@ -35,12 +33,12 @@ describe("CredentialsWorkspace", () => {
     render(<CredentialsWorkspace />);
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["My Connections", "My Secrets"]);
-    expect(screen.getByText("My Connections content")).toBeInTheDocument();
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Saved Secrets", "Connected Apps"]);
+    expect(screen.getByText("Saved Secrets content")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: /my secrets/i }));
-    expect(replace).toHaveBeenCalledWith("/credentials?tab=secrets", { scroll: false });
-    expect(screen.getByText("My Secrets content")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /connected apps/i }));
+    expect(replace).toHaveBeenCalledWith("/credentials?tab=connections", { scroll: false });
+    expect(screen.getByText("Connected Apps content")).toBeInTheDocument();
   });
 
   it("opens the deep-linked secrets tab", () => {
@@ -48,7 +46,52 @@ describe("CredentialsWorkspace", () => {
 
     render(<CredentialsWorkspace />);
 
-    expect(screen.getByText("My Secrets content")).toBeInTheDocument();
-    expect(screen.queryByText("Credential Audit content")).not.toBeInTheDocument();
+    expect(screen.getByText("Saved Secrets content")).toBeInTheDocument();
+  });
+
+  it("returns to Connected Apps after a successful OAuth relink", () => {
+    render(<CredentialsWorkspace />);
+
+    expect(screen.getByText("Saved Secrets content")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          data: { type: "caipe.oauth.connection", status: "success", provider: "atlassian" },
+        }),
+      );
+    });
+
+    expect(replace).toHaveBeenCalledWith("/credentials?tab=connections", { scroll: false });
+    expect(screen.getByText("Connected Apps content")).toBeInTheDocument();
+  });
+
+  it("ignores failed or cross-origin OAuth completion events", () => {
+    render(<CredentialsWorkspace />);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          data: { type: "caipe.oauth.connection", status: "error", provider: "atlassian" },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://auth.atlassian.com",
+          data: { type: "caipe.oauth.connection", status: "success", provider: "atlassian" },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          data: { type: "something.else", status: "success" },
+        }),
+      );
+    });
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText("Saved Secrets content")).toBeInTheDocument();
   });
 });

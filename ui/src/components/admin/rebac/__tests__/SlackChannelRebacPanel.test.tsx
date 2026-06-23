@@ -5,6 +5,14 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
+const replaceMock = jest.fn();
+let currentSearchParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/admin",
+  useRouter: () => ({ replace: replaceMock }),
+  useSearchParams: () => currentSearchParams,
+}));
+
 import { SlackChannelRebacPanel } from "../SlackChannelRebacPanel";
 import { pickTeam } from "@/__test-utils__/team-picker";
 import { pickAgent } from "@/__test-utils__/agent-picker";
@@ -13,6 +21,8 @@ const fetchMock = jest.fn();
 
 beforeEach(() => {
   mockToast.mockClear();
+  replaceMock.mockReset();
+  currentSearchParams = new URLSearchParams();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -522,7 +532,7 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   fireEvent.click(deleteButton);
   expect(confirmSpy).not.toHaveBeenCalled();
   expect(await screen.findByRole("dialog", { name: "Remove agent from channel?" })).toBeInTheDocument();
-  expect(screen.getByText(/saved Mongo route metadata/i)).toBeInTheDocument();
+  expect(screen.getByText(/removes agent:incident-agent from the selected Slack channel/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Remove agent" }));
 
   await waitFor(() =>
@@ -807,9 +817,13 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
   // Onboard tab swaps in discovery wizard, hides the configured table.
   await switchToTab("Onboard channels");
   expect(screen.getByRole("button", { name: "Find channels" })).toBeInTheDocument();
-  expect(screen.getByText(/Sharing model:/i)).toBeInTheDocument();
-  expect(screen.getByText(/user:\* can_use agent/i)).toBeInTheDocument();
-  expect(screen.getByText(/platform default/i)).toBeInTheDocument();
+  // assisted-by Codex Codex-sonnet-4-6
+  expect(
+    screen.getByText(/Members of the assigned team can update this Slack channel's bot routing/i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Slack access details" })).toBeInTheDocument();
+  expect(screen.queryByText(/user:\* can_use agent/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Sharing model:/i)).not.toBeInTheDocument();
   expect(
     screen.queryByRole("region", { name: "Configured Slack channels" }),
   ).not.toBeInTheDocument();
@@ -820,6 +834,30 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
     await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Default team and agent for new channels" })).not.toBeInTheDocument();
+});
+
+it("writes the active sub-tab to the subtab URL param", async () => {
+  render(<SlackChannelRebacPanel />);
+  await screen.findByRole("tab", { name: "Configured channels" });
+
+  await switchToTab("Advanced");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", { scroll: false });
+
+  await switchToTab("Onboard channels");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", { scroll: false });
+
+  await switchToTab("Configured channels");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", { scroll: false });
+});
+
+it("opens the sub-tab named by the subtab URL param on load", async () => {
+  currentSearchParams = new URLSearchParams("subtab=advanced");
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByRole("tab", { name: "Advanced" })).toHaveAttribute("aria-selected", "true");
+  expect(
+    await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
+  ).toBeInTheDocument();
 });
 
 it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {
@@ -901,4 +939,3 @@ it("opens a runtime sync modal with preview progress and apply results", async (
   expect(screen.getByText("1 route upserted")).toBeInTheDocument();
   expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
 });
-

@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 /**
  * ToolsTab — manage the skill's `allowed-tools` list.
  *
@@ -781,8 +783,8 @@ function PhantomMcpServerRow({
         <span className="font-mono text-muted-foreground">{serverId}</span>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        These tools reference an MCP server that isn’t registered here.
-        Remove or re-add the server in “MCP Servers”.
+        These tools reference a connection that is not registered here.
+        Remove or re-add the connection in Tools.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {tools.map((t) => (

@@ -97,6 +97,10 @@
               },
               {
                 "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
                 "relation": "admin"
               },
               {
@@ -960,6 +964,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",
@@ -4404,6 +4412,11 @@
               }
             ]
           }
+        },
+        "can_share": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
         }
       },
       "metadata": {
@@ -4415,6 +4428,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",

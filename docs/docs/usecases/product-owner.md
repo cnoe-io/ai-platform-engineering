@@ -28,9 +28,6 @@ Run the Product Owner persona with both Jira and Confluence agents:
 cd docker-compose
 docker compose -f docker-compose.product-owner.yaml --profile a2a-p2p up
 
-# Or with SLIM transport
-docker compose -f docker-compose.product-owner.yaml --profile a2a-over-slim up
-
 # Generate fresh compose file
 make generate-docker-compose PERSONAS="product-owner"
 

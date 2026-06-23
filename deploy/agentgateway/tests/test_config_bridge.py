@@ -72,12 +72,13 @@ def _baseline_config() -> dict:
     }
 
 
-def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
+def test_select_gateway_targets_uses_enabled_network_rows() -> None:
     targets = bridge.select_gateway_targets(
         [
             {
                 "_id": "knowledge-base",
                 "enabled": True,
+                "transport": "http",
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://rag-server:9446/mcp",
                 "credential_sources": [
@@ -91,24 +92,42 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
             {
                 "_id": "disabled-target",
                 "enabled": False,
+                "transport": "http",
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://disabled:8000/mcp",
             },
             {
                 "_id": "manual-target",
                 "enabled": True,
+                "transport": "http",
                 "source": "manual",
                 "endpoint": "http://mcp-manual:8000/mcp",
             },
             {
+                "_id": "gateway-loop",
+                "enabled": True,
+                "transport": "http",
+                "source": "manual",
+                "endpoint": "http://agentgateway:4000/mcp/gateway-loop",
+            },
+            {
+                "_id": "stdio-target",
+                "enabled": True,
+                "transport": "stdio",
+                "source": "manual",
+                "command": "node",
+            },
+            {
                 "_id": "bad target",
                 "enabled": True,
+                "transport": "http",
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://bad:8000/mcp",
             },
             {
                 "_id": "missing-upstream",
                 "enabled": True,
+                "transport": "http",
                 "source": "agentgateway",
             },
         ]
@@ -125,7 +144,12 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
                     "name": "X-CAIPE-Provider-Token",
                 },
             ),
-        )
+        ),
+        bridge.McpGatewayTarget(
+            id="manual-target",
+            upstream_url="http://mcp-manual:8000/mcp",
+            credential_sources=(),
+        ),
     ]
 
 
@@ -199,6 +223,14 @@ def test_merge_agentgateway_mcp_routes_adds_missing_route_without_mutating_basel
             bridge.McpGatewayTarget(
                 id="knowledge-base",
                 upstream_url="http://rag-server:9446/mcp",
+                credential_sources=(
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "fallback_client_credentials": True,
+                    },
+                ),
             )
         ],
     )
@@ -327,10 +359,17 @@ def test_merge_agentgateway_mcp_routes_drops_stale_backend_auth_for_transform_se
             bridge.McpGatewayTarget(
                 id="github",
                 upstream_url="http://github-mcp-server:8082/mcp",
+                credential_sources=(
+                    {
+                        "kind": "provider_connection",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "provider": "github",
+                    },
+                ),
             )
         ],
     )
-
     route = next(
         route
         for route in rendered["binds"][0]["listeners"][0]["routes"]
@@ -356,6 +395,14 @@ def test_merge_agentgateway_mcp_routes_applies_provider_token_transform() -> Non
             bridge.McpGatewayTarget(
                 id="gitlab",
                 upstream_url="http://mcp-gitlab:8000/mcp",
+                credential_sources=(
+                    {
+                        "kind": "provider_connection",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "provider": "gitlab",
+                    },
+                ),
             )
         ],
     )
@@ -370,6 +417,9 @@ def test_merge_agentgateway_mcp_routes_applies_provider_token_transform() -> Non
     transform = route["policies"]["transformations"]["request"]["set"]
     assert transform["authorization"] == (
         '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    assert transform["x-caipe-provider-token"] == (
+        'default(request.headers["x-caipe-provider-token"], "")'
     )
     # The per-route transform override must NOT drop the base extAuthz body
     # forwarding (#36) — it's only shallow-merged on top, so includeRequestBody
@@ -405,6 +455,14 @@ def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> Non
             bridge.McpGatewayTarget(
                 id="knowledge-base",
                 upstream_url="http://rag-server:9446/mcp",
+                credential_sources=(
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "fallback_client_credentials": True,
+                    },
+                ),
             )
         ],
     )
@@ -450,6 +508,54 @@ def test_merge_agentgateway_mcp_routes_uses_header_credential_sources() -> None:
     assert transform["x-api-key"] == 'default(request.headers["x-api-key"], "")'
     assert "secret_ref" not in str(route)
     assert "cred-custom-docs" not in str(route)
+
+
+def test_merge_agentgateway_mcp_routes_skips_credential_transforms_when_cleared() -> None:
+    baseline = _baseline_config()
+    builtins = {
+        "jira": {
+            "matches": [{"path": {"pathPrefix": "/mcp/jira"}}],
+            "policies": copy.deepcopy(bridge.DEFAULT_MCP_ROUTE_POLICY_OVERRIDES["jira"])
+            | copy.deepcopy(bridge.DEFAULT_MCP_ROUTE_POLICIES),
+            "backends": [{"mcp": {"targets": [{"name": "jira", "mcp": {"host": "http://mcp-jira:8000/mcp"}}]}}],
+        }
+    }
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [bridge.McpGatewayTarget(id="jira", upstream_url="http://mcp-jira:8000/mcp")],
+        builtin_routes=builtins,
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/jira"
+    )
+    assert "transformations" not in route["policies"]
+    assert "extAuthz" in route["policies"]
+
+
+def test_merge_agentgateway_mcp_routes_skips_dynamic_credential_transforms_when_cleared() -> None:
+    baseline = _baseline_config()
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="custom-jira",
+                upstream_url="http://custom-jira:8000/mcp",
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/custom-jira"
+    )
+    assert "transformations" not in route.get("policies", {})
+    assert "extAuthz" in route["policies"]
 
 
 def test_merge_agentgateway_mcp_routes_uses_provider_token_source_for_authorization() -> None:
@@ -549,12 +655,21 @@ def test_load_builtin_mcp_routes_parses_shipped_config() -> None:
     builtins = bridge.load_builtin_mcp_routes(SHIPPED_CONFIG_PATH)
 
     # Every shipped /mcp/<id> route must be recognised as a protected built-in.
-    assert {"argocd", "github", "jira", "knowledge-base", "slack"} <= set(builtins)
-    # github carries its per-request provider-token transform straight from the
+    assert {"argocd", "gitlab", "jira", "knowledge-base", "slack"} <= set(builtins)
+    assert "github" not in builtins
+    # gitlab carries its per-request provider-token transform straight from the
     # bootstrap definition (YAML anchors/aliases resolved by the parser).
-    github = builtins["github"]
-    assert github["policies"]["transformations"]["request"]["set"]["authorization"] == (
+    gitlab = builtins["gitlab"]
+    assert gitlab["policies"]["transformations"]["request"]["set"]["authorization"] == (
         '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    jira = builtins["jira"]
+    jira_transform = jira["policies"]["transformations"]["request"]["set"]
+    assert jira_transform["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    assert jira_transform["x-caipe-provider-token"] == (
+        'default(request.headers["x-caipe-provider-token"], "")'
     )
 
 

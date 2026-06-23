@@ -120,7 +120,7 @@ type slack_channel
     define reader: [user, service_account, team#member, team#admin, external_group#member]
     define user: [user, service_account, team#member, team#admin, external_group#member]
     define writer: [user, service_account, team#member, team#admin, external_group#member]
-    define manager: [user, service_account, team#admin]
+    define manager: [user, service_account, team#member, team#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
     define can_read: reader or can_use or can_manage or owner
@@ -418,7 +418,7 @@ type audit_log
 
 type secret_ref
   relations
-    define metadata_reader: [user, service_account, team#admin]
+    define metadata_reader: [user, service_account, team#member, team#admin]
     define user: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]
@@ -426,6 +426,7 @@ type secret_ref
     define can_read_metadata: metadata_reader or can_manage
     define can_use: user or can_manage
     define can_manage: manager
+    define can_share: can_manage
     define can_audit: auditor or can_manage
 
 type system_config

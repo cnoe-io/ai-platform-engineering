@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import JSZip from 'jszip';
 import { UnifiedAuditTab } from '../UnifiedAuditTab';
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -57,13 +58,125 @@ describe('UnifiedAuditTab', () => {
       expect(global.fetch).toHaveBeenCalled();
     });
 
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("window=5m"),
+    );
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("time_resolution=minute"),
+    );
     expect(await screen.findByText(/RBAC Audit Log/i)).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^Last 5 min$/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /^All event types$/i })).toBeInTheDocument();
     expect(screen.queryByText(/Default view hides routine admin page-view checks/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /^All types$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/admin_ui#view/i)).toBeInTheDocument();
     expect(screen.getByText(/webui_backend/i)).toBeInTheDocument();
     expect(screen.queryByText(/^bff$/i)).not.toBeInTheDocument();
+  });
+
+  it('shows where audit log storage is coming from', async () => {
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;
+      if (url.includes('/api/audit/config')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            backend: 'service',
+            readsAvailable: true,
+            storageBackend: 's3',
+            storageLabel: 'Storage: audit-service -> S3',
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          records: [],
+          total: 0,
+          page: 1,
+          limit: 30,
+        }),
+      });
+    });
+
+    render(<UnifiedAuditTab isAdmin />);
+
+    expect(await screen.findByText(/Storage: audit-service -> S3/i)).toBeInTheDocument();
+  });
+
+  it('shows degraded audit storage status when reads are unavailable', async () => {
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;
+      if (url.includes('/api/audit/config')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            backend: 'service',
+            readsAvailable: false,
+            storageLabel: 'Storage: audit-service unavailable',
+            readsWarning: 'audit-service returned HTTP 503',
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          records: [],
+          total: 0,
+          page: 1,
+          limit: 30,
+        }),
+      });
+    });
+
+    render(<UnifiedAuditTab isAdmin />);
+
+    const badge = await screen.findByText(/Storage: audit-service unavailable/i);
+    expect(badge).toBeInTheDocument();
+    expect(badge.closest('[title]')).toHaveAttribute('title', 'audit-service returned HTTP 503');
+  });
+
+  it('refreshes audit storage status with the event refresh button', async () => {
+    let configCalls = 0;
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;
+      if (url.includes('/api/audit/config')) {
+        configCalls += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            configCalls === 1
+              ? {
+                  backend: 'service',
+                  readsAvailable: false,
+                  storageLabel: 'Storage: audit-service unavailable',
+                  readsWarning: 'This operation was aborted',
+                }
+              : {
+                  backend: 'service',
+                  readsAvailable: true,
+                  storageBackend: 's3',
+                  storageLabel: 'Storage: audit-service -> S3',
+                },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          records: [],
+          total: 0,
+          page: 1,
+          limit: 30,
+        }),
+      });
+    });
+
+    render(<UnifiedAuditTab isAdmin />);
+
+    expect(await screen.findByText(/Storage: audit-service unavailable/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
+    expect(await screen.findByText(/Storage: audit-service -> S3/i)).toBeInTheDocument();
+    expect(configCalls).toBeGreaterThanOrEqual(2);
   });
 
   it('renders OpenFGA ReBAC audit events as their own type', async () => {
@@ -238,7 +351,7 @@ describe('UnifiedAuditTab', () => {
     render(<UnifiedAuditTab isAdmin />);
 
     expect(await screen.findByText(/Allowed to manage organization caipe/i)).toBeInTheDocument();
-    expect(screen.getByText(/Actor sraradhy@cisco.com/i)).toBeInTheDocument();
+    expect(screen.getByText(/sraradhy@cisco.com/i)).toBeInTheDocument();
     expect(screen.getByText(/OpenFGA tuple/i)).toBeInTheDocument();
     const headers = screen.getAllByRole('columnheader').map((header) => header.textContent?.trim());
     expect(headers.indexOf('Actor')).toBeLessThan(headers.indexOf('Request'));
@@ -248,7 +361,51 @@ describe('UnifiedAuditTab', () => {
     expect(screen.getByText(/CAS allowed this request because OpenFGA returned OK/i)).toBeInTheDocument();
   });
 
-  it('downloads all filtered audit events as JSON', async () => {
+  it('renders canonical principal display names instead of hashes or raw refs when available', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        records: [
+          {
+            ts: new Date('2026-06-20T13:47:23.000Z').toISOString(),
+            type: 'cas_decision',
+            outcome: 'deny',
+            action: 'discover',
+            tenant_id: 'default',
+            subject_hash: 'sha256:b66560fb57cd7d14c2ca3e9ec4220b868c94b5395120c46efaa34a1f142895f0',
+            subject_ref: 'user:cc0fac46-262e-4131-9925-324f482ec403',
+            actor_ref: 'user:cc0fac46-262e-4131-9925-324f482ec403',
+            subject_display: 'alice@example.com',
+            actor_display: 'alice@example.com',
+            correlation_id: 'fa5856b3-78b7-4dc1-bd84-5fd9ac654718',
+            source: 'cas',
+            component: 'cas',
+            pdp: 'openfga',
+            reason_code: 'NO_CAPABILITY',
+            resource_ref: 'conversation:adbf4d53-cdd2-493c-b613-06f7c25f4709',
+            resource_type: 'conversation',
+            resource_id: 'adbf4d53-cdd2-493c-b613-06f7c25f4709',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 30,
+      }),
+    });
+
+    render(<UnifiedAuditTab isAdmin />);
+
+    expect(await screen.findByText(/alice@example.com/i)).toBeInTheDocument();
+    expect(screen.queryByText(/sha256:b66560/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/user:cc0fac46/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Denied to discover conversation/i));
+    expect(await screen.findByText(/Subject:/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/alice@example.com/i).length).toBeGreaterThan(1);
+    expect(screen.queryByText(/Subject Hash:/i)).not.toBeInTheDocument();
+  });
+
+  it('downloads all filtered audit events as a ZIP with raw JSON', async () => {
     const exportedUrls: string[] = [];
     const createObjectURL = jest.fn(() => {
       exportedUrls.push(`blob:mock-${exportedUrls.length}`);
@@ -289,8 +446,9 @@ describe('UnifiedAuditTab', () => {
       workflow_run_id: 'wfrun-20260611200000-def',
     };
 
-    (global.fetch as jest.Mock)
-      .mockResolvedValueOnce({
+    const auditEventUrls: string[] = [];
+    const auditResponses = [
+      {
         ok: true,
         json: async () => ({
           records: [],
@@ -298,8 +456,8 @@ describe('UnifiedAuditTab', () => {
           page: 1,
           limit: 30,
         }),
-      })
-      .mockResolvedValueOnce({
+      },
+      {
         ok: true,
         json: async () => ({
           records: [],
@@ -307,8 +465,8 @@ describe('UnifiedAuditTab', () => {
           page: 1,
           limit: 30,
         }),
-      })
-      .mockResolvedValueOnce({
+      },
+      {
         ok: true,
         json: async () => ({
           records: [pageOneRecord],
@@ -316,8 +474,8 @@ describe('UnifiedAuditTab', () => {
           page: 1,
           limit: 200,
         }),
-      })
-      .mockResolvedValueOnce({
+      },
+      {
         ok: true,
         json: async () => ({
           records: [pageTwoRecord],
@@ -325,16 +483,44 @@ describe('UnifiedAuditTab', () => {
           page: 2,
           limit: 200,
         }),
-      });
+      },
+    ];
+
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;
+      if (url.includes('/api/audit/config')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            backend: 'service',
+            readsAvailable: true,
+            storageBackend: 's3',
+            storageLabel: 'Storage: audit-service -> S3',
+          }),
+        });
+      }
+      auditEventUrls.push(url);
+      return Promise.resolve(
+        auditResponses.shift() ?? {
+          ok: true,
+          json: async () => ({
+            records: [],
+            total: 0,
+            page: 1,
+            limit: 30,
+          }),
+        },
+      );
+    });
 
     render(<UnifiedAuditTab isAdmin />);
 
     await screen.findByText(/RBAC Audit Log/i);
-    fireEvent.change(screen.getAllByRole('combobox')[0], {
+    fireEvent.change(screen.getAllByRole('combobox')[1], {
       target: { value: 'cas_decision' },
     });
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(auditEventUrls).toHaveLength(2);
     });
 
     fireEvent.click(screen.getByRole('button', { name: /download audit log/i }));
@@ -343,35 +529,29 @@ describe('UnifiedAuditTab', () => {
       expect(createObjectURL).toHaveBeenCalledTimes(1);
     });
 
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      3,
-      expect.stringContaining('type=cas_decision'),
-    );
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      3,
-      expect.stringContaining('limit=200'),
-    );
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      4,
-      expect.stringContaining('page=2'),
-    );
+    expect(auditEventUrls[2]).toContain('type=cas_decision');
+    expect(auditEventUrls[2]).toContain('limit=200');
+    expect(auditEventUrls[3]).toContain('page=2');
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-0');
 
     const blob = createObjectURL.mock.calls[0][0] as Blob;
-    const payloadText = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(blob);
-    });
-    const payload = JSON.parse(payloadText);
-    expect(payload).toMatchObject({
+    const zip = await JSZip.loadAsync(blob);
+    const manifestText = await zip.file('manifest.json')?.async('string');
+    const recordsText = await zip.file('audit-events.json')?.async('string');
+    expect(manifestText).toBeTruthy();
+    expect(recordsText).toBeTruthy();
+
+    const manifest = JSON.parse(manifestText ?? '{}');
+    const records = JSON.parse(recordsText ?? '[]');
+    expect(manifest).toMatchObject({
+      format: 'raw-json-zip',
       filters: { type: 'cas_decision' },
       total: 2,
       record_count: 2,
     });
-    expect(payload.records).toEqual([pageOneRecord, pageTwoRecord]);
+    expect(manifest.files).toEqual(['audit-events.json', 'manifest.json']);
+    expect(records).toEqual([pageOneRecord, pageTwoRecord]);
 
     click.mockRestore();
   });

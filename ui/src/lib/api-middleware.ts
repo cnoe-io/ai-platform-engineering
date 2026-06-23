@@ -314,7 +314,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'user_settings', scope: 'read' }
       : { resource: 'user_settings', scope: 'write' };
   }
-  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+  if (pathname.startsWith('/api/feedback')) {
     return { resource: 'feedback', scope: 'submit' };
   }
   if (
@@ -343,9 +343,10 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       : { resource: 'dynamic_agent', scope: 'manage' };
   }
   if (pathname.startsWith('/api/workflow-configs')) {
-    return method === 'GET'
-      ? { resource: 'dynamic_agent', scope: 'view' }
-      : { resource: 'dynamic_agent', scope: 'manage' };
+    // Workflow CRUD is gated in route handlers (owner / task#write). The legacy
+    // gate only requires workflow discovery access so non-admin users can create
+    // and edit their own private workflows without dynamic_agent#manage.
+    return { resource: 'dynamic_agent', scope: 'view' };
   }
   if (pathname.startsWith('/api/workflow-runs')) {
     return method === 'GET'
@@ -948,7 +949,17 @@ export async function requireRbacPermission(
  * Handle API errors and return appropriate response
  */
 export function handleApiError(error: unknown): NextResponse {
-  console.error('API Error:', error);
+  const statusCode =
+    error !== null &&
+    typeof error === 'object' &&
+    typeof (error as { statusCode?: unknown }).statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : error instanceof CredentialError
+        ? error.status
+        : 500;
+  if (statusCode >= 500 || process.env.API_ERROR_LOG_4XX === 'true') {
+    console.error('API Error:', error);
+  }
 
   if (
     error instanceof ApiError ||

@@ -36,7 +36,9 @@ const sharedMarkedOptions = {
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
-      return `<a href="${href}"${titleAttr} class="md-link" target="_blank" rel="noopener noreferrer">${text}</a>`;
+      const isRelative = href.startsWith("/") || href.startsWith("#");
+      const targetAttr = isRelative ? "" : ' target="_blank" rel="noopener noreferrer"';
+      return `<a href="${href}"${titleAttr} class="md-link"${targetAttr}>${text}</a>`;
     },
   },
 };

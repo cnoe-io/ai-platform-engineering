@@ -131,9 +131,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
 | serviceAccount.automount | bool | `true` | Automount the service account API token |
 | serviceAccount.create | bool | `true` | Create a service account |
 | serviceAccount.name | string | `""` | Override the service account name. Generated from fullname template when empty |
-| slim.enabled | bool | `false` | Enable SLIM transport (standalone fallback; in production provided by global.slim) |
-| slim.endpoint | string | `""` | SLIM endpoint URL |
-| slim.transport | string | `"slim"` | Transport label passed to agents |
 | tolerations | list | `[]` | Pod tolerations |
 | volumeMounts | list | `[]` | Extra volume mounts |
 | volumes | list | `[]` | Extra volumes |
@@ -143,4 +140,3 @@ helm show values oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
 | vpa.maxAllowed | object | `{}` | Maximum bounds VPA will recommend (empty = no cap) |
 | vpa.minAllowed | object | `{"cpu":"50m","memory":"128Mi"}` | Minimum bounds VPA will recommend |
 | vpa.updateMode | string | `"InPlaceOrRecreate"` | Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters. |
-

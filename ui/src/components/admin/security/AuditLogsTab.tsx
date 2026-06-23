@@ -59,6 +59,10 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [auditBackend, setAuditBackend] = useState<string | null>(null);
+  const [auditReadsAvailable, setAuditReadsAvailable] = useState<boolean>(true);
+  const [auditStorageLabel, setAuditStorageLabel] = useState<string | null>(null);
+  const [auditReadsWarning, setAuditReadsWarning] = useState<string | null>(null);
 
   const [ownerQuery, setOwnerQuery] = useState("");
   const [ownerSuggestions, setOwnerSuggestions] = useState<string[]>([]);
@@ -87,6 +91,18 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
       if (ownerDebounceRef.current) clearTimeout(ownerDebounceRef.current);
     };
   }, [ownerQuery]);
+
+  useEffect(() => {
+    fetch("/api/audit/config")
+      .then((r) => r.json())
+      .then((d: { backend?: string; readsAvailable?: boolean; readsWarning?: string; storageLabel?: string }) => {
+        setAuditBackend(d.backend ?? null);
+        setAuditReadsAvailable(d.readsAvailable ?? true);
+        setAuditStorageLabel(d.storageLabel ?? null);
+        setAuditReadsWarning(d.readsWarning ?? null);
+      })
+      .catch(() => {});
+  }, []);
 
   // Auto-load audit logs on mount so the user sees results immediately
   useEffect(() => {
@@ -237,6 +253,15 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
             Chat Audit
+            {auditBackend && (
+              <Badge
+                variant={auditReadsAvailable ? "outline" : "destructive"}
+                className="text-xs font-normal"
+                title={auditReadsAvailable ? undefined : auditReadsWarning ?? "Audit reads unavailable — check server logs"}
+              >
+                {auditStorageLabel ?? `storage: ${auditBackend}`}{!auditReadsAvailable && " (degraded)"}
+              </Badge>
+            )}
           </CardTitle>
           <CardDescription>
             Browse all conversations and messages across all users for compliance and auditing.

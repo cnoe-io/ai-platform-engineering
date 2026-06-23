@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { NewChatButton } from "@/components/chat/NewChatButton";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
@@ -806,28 +808,28 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="h-4 w-4 text-red-500" />
-                  <p className="text-sm font-semibold">Admin Dashboard</p>
+                  <p className="text-sm font-semibold">Admin</p>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Use tabs to navigate between Users, Teams, Statistics, and System Health
+                  Manage access, teams, usage, and system health.
                 </p>
               </div>
 
               <div className="space-y-2 text-xs">
                 <div className="p-2 rounded bg-muted/50 border border-primary/20">
-                  <p className="text-muted-foreground mb-2">Features</p>
+                  <p className="text-muted-foreground mb-2">Go to</p>
                   <div className="space-y-1 text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Users className="h-3 w-3" />
-                      <span>User & Role Management</span>
+                      <span>Users and roles</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="h-3 w-3" />
-                      <span>Team Collaboration</span>
+                      <span>Teams</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <TrendingUp className="h-3 w-3" />
-                      <span>Usage Analytics</span>
+                      <span>Usage</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Database className="h-3 w-3" />

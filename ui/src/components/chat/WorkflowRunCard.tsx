@@ -17,7 +17,30 @@ interface RunStatus {
   started_at?: string;
   completed_at?: string;
   current_step_index?: number;
-  steps?: unknown[];
+  steps?: Array<{
+    status?: string;
+    display_text?: string;
+    response?: string;
+  }>;
+}
+
+function summarizeStepOutputs(steps: RunStatus["steps"]): string | null {
+  if (!steps?.length) return null;
+  const parts: string[] = [];
+  for (const step of steps) {
+    if (step.status === "completed" && step.response?.trim()) {
+      const label = step.display_text?.trim();
+      parts.push(label ? `${label}: ${step.response.trim()}` : step.response.trim());
+    }
+  }
+  if (parts.length === 0) return null;
+  const joined = parts.join("\n\n");
+  return joined.length > 500 ? `${joined.slice(0, 497)}...` : joined;
+}
+
+function completedStepCount(steps: RunStatus["steps"]): number {
+  if (!steps?.length) return 0;
+  return steps.filter((step) => step.status === "completed").length;
 }
 
 interface WorkflowConfigInfo {
@@ -85,7 +108,7 @@ function RunCard({ runId }: { runId: string }) {
       setStopped(true);
       return;
     }
-    const interval = setInterval(fetchStatus, 10000);
+    const interval = setInterval(fetchStatus, status?.status === "running" ? 5000 : 10000);
     return () => clearInterval(interval);
   }, [status, stopped, hidden, fetchStatus]);
 
@@ -93,6 +116,14 @@ function RunCard({ runId }: { runId: string }) {
 
   const cfg = status ? STATUS_CONFIG[status.status] || STATUS_CONFIG.running : null;
   const StatusIcon = cfg?.icon || Clock;
+  const outputSummary =
+    status && (status.status === "completed" || status.status === "failed")
+      ? summarizeStepOutputs(status.steps)
+      : null;
+  const stepProgress =
+    status?.steps && status.steps.length > 0
+      ? `${completedStepCount(status.steps)}/${status.steps.length} steps`
+      : null;
 
   return (
     <div
@@ -120,10 +151,13 @@ function RunCard({ runId }: { runId: string }) {
           {status?.started_at && (
             <span>{new Date(status.started_at).toLocaleString()}</span>
           )}
-          {status?.current_step_index != null && status?.steps && (
-            <span>Step {status.current_step_index + 1}/{status.steps.length}</span>
-          )}
+          {stepProgress && <span>{stepProgress}</span>}
         </div>
+        {outputSummary && (
+          <p className="text-xs text-foreground/90 mt-1.5 line-clamp-4 whitespace-pre-wrap">
+            {outputSummary}
+          </p>
+        )}
       </div>
       <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     </div>

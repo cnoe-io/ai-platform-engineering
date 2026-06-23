@@ -124,6 +124,8 @@ spec:
               value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
             - name: SKILL_SCANNER_URL
               value: {{ index .Values.config "SKILL_SCANNER_URL" | default (printf "http://%s-skill-scanner:8000" .Release.Name) | quote }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ index .Values.config "AUDIT_SERVICE_URL" | default (printf "http://%s-audit-service:8010" .Release.Name) | quote }}
             {{- if (.Values.global.agentgateway).enabled }}
             {{- /*
             AgentGateway MCP discovery/sync reads the standalone proxy admin

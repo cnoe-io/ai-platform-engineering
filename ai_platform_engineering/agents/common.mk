@@ -165,7 +165,11 @@ build-docker-a2a:            ## Build A2A Docker image
 		echo "Using common agent Dockerfile"; \
 		dockerfile_path="$(REPO_ROOT)/build/agents/Dockerfile.a2a"; \
 	fi; \
-	docker build -t $(AGENT_DIR_NAME):latest --build-arg AGENT_NAME=$(AGENT_NAME) -f $${dockerfile_path} $(REPO_ROOT)
+	build_args="--build-arg AGENT_NAME=$(AGENT_NAME)"; \
+	if [ "$(AGENT_NAME)" = "github" ]; then \
+		build_args="$${build_args} --build-arg INSTALL_GH_CLI=true"; \
+	fi; \
+	docker build -t $(AGENT_DIR_NAME):latest $${build_args} -f $${dockerfile_path} $(REPO_ROOT)
 
 build-docker-a2a-tag:        ## Tag A2A Docker image
 	docker tag $(AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest

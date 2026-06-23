@@ -86,7 +86,7 @@ ai_platform_engineering/agents/
 ├── jira/mcp/mcp_jira/                    # OAuth bearer mode for impersonation
 └── confluence/mcp/mcp_confluence/        # OAuth bearer mode for impersonation
 
-ai_platform_engineering/mcp/mcp_github/   # per-request bearer token path verification
+ai_platform_engineering/agents/github/    # gh CLI-backed GitHub tools; no local GitHub MCP server
 
 charts/ai-platform-engineering/
 ├── charts/caipe-ui/

@@ -140,10 +140,48 @@ def test_unlinked_user_gets_private_card_and_generic_thread_notice(monkeypatch: 
     assert "webex-link" not in group_notice["markdown"]
 
 
+def test_unlinked_user_does_not_get_duplicate_linking_cards_within_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_platform_engineering.integrations.webex_bot import webex_responder as responder_module
+
+    monkeypatch.setenv("APP_NAME", "Grid")
+    responder_module._recent_linking_cards_sent.clear()
+    api = FakeWebexApi()
+    responder = WebexResponder(webex_api=api)
+    event = {
+        "data": {
+            "id": "message-public-id",
+            "webexRoomId": "room-public-id",
+            "personId": "person-public-id",
+        }
+    }
+    result = WebexMessageResult(
+        allowed=False,
+        dispatched=False,
+        ignored=False,
+        reason_code="WEBEX_USER_NOT_LINKED",
+        deny_message="Your Webex account is not linked.",
+        linking_url="http://localhost:3000/api/auth/webex-link?x=1",
+    )
+
+    asyncio.run(responder.reply_to_result(event, result))
+    asyncio.run(responder.reply_to_result(event, result))
+
+    direct_messages = [msg for msg in api.created if msg.get("person_id")]
+    thread_messages = [msg for msg in api.created if msg.get("room_id")]
+    assert len(direct_messages) == 1
+    assert len(thread_messages) == 2
+    assert "card I sent earlier" in thread_messages[1]["markdown"]
+
+
 def test_unlinked_user_dm_failure_does_not_post_signed_link_publicly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from ai_platform_engineering.integrations.webex_bot import webex_responder as responder_module
+
     monkeypatch.setenv("APP_NAME", "Grid")
+    responder_module._recent_linking_cards_sent.clear()
 
     class FailingDirectMessageApi(FakeWebexApi):
         def create_message(self, **kwargs: Any) -> str:

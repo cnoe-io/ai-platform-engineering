@@ -8,10 +8,28 @@ kind: ConfigMap
 metadata:
   name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
 data:
-  DISTRIBUTED_AGENTS: "all"
   {{- $port := (index .Values "supervisor-agent" "multiAgentConfig" "port" | default "8000") -}}
+  {{- $a2aAgents := list "argocd" "aws" "backstage" "confluence" "github" "gitlab" "jira" "komodor" "pagerduty" "slack" "splunk" "victorops" "webex" "netutils" "weather" "petstore" -}}
+  {{- $globalA2aEnabled := dig "a2aAgents" "enabled" true .Values.global -}}
+  {{- $distributedAgents := list -}}
   {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
-  {{- if $enabled }}
+  {{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict -}}
+  {{- $agentA2aEnabled := $globalA2aEnabled -}}
+  {{- if and (hasKey $agentValues "a2a") (hasKey $agentValues.a2a "enabled") -}}
+  {{- $agentA2aEnabled = $agentValues.a2a.enabled -}}
+  {{- end -}}
+  {{- if and $enabled $agentA2aEnabled (has $name $a2aAgents) }}
+  {{- $distributedAgents = append $distributedAgents $name -}}
+  {{- end }}
+  {{- end }}
+  DISTRIBUTED_AGENTS: {{ join "," $distributedAgents | quote }}
+  {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+  {{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict -}}
+  {{- $agentA2aEnabled := $globalA2aEnabled -}}
+  {{- if and (hasKey $agentValues "a2a") (hasKey $agentValues.a2a "enabled") -}}
+  {{- $agentA2aEnabled = $agentValues.a2a.enabled -}}
+  {{- end -}}
+  {{- if and $enabled $agentA2aEnabled (has $name $a2aAgents) }}
   {{- $ENV := upper $name }}
   {{ $ENV }}_AGENT_HOST: {{ printf "%s-agent-%s" $.Release.Name $name | quote }}
   {{ $ENV }}_AGENT_PORT: {{ printf "%v" $port | quote }}
