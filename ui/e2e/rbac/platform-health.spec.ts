@@ -58,7 +58,7 @@ const ALL_HEALTHY_PROBES = [
   makeProbe("milvus-minio", "rag", "healthy", "Milvus MinIO"),
   makeProbe("etcd", "rag", "healthy", "etcd"),
   makeProbe("openfga-bootstrap", "bootstrap", "healthy", "OpenFGA Bootstrap"),
-  makeProbe("keycloak-bootstrap", "bootstrap", "healthy", "Keycloak Bootstrap"),
+  { ...makeProbe("keycloak-bootstrap", "bootstrap", "healthy", "Keycloak Bootstrap"), detail: "completed by caipe-ui-0 · 07:31 UTC" },
   makeProbe("rebac-migrations", "bootstrap", "healthy", "ReBAC Migrations"),
   makeProbe("web-ingestor", "rag", "healthy", "Web Ingestor"),
 ];
