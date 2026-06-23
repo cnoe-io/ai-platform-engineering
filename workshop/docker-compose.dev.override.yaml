@@ -1,74 +1,69 @@
-version: '3.8'
+name: caipe-workshop-dev-overrides
 
 services:
-  agent-petstore-p2p:
-    profiles: ["mission2-dev", "mission3-dev"]
+  # Local workshop development override for the current stack. Use together
+  # with ../docker-compose.dev.yaml when you want hot reload.
+  caipe-ui:
+    profiles: ["workshop-dev", "mission3-dev", "mission4-dev", "mission7-dev"]
     build:
-      context: ../ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
-    image: local/agent-petstore:latest
+      context: ..
+      dockerfile: build//Dockerfile.caipe-ui
+      target: dev
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}-dev
     volumes:
-      - ../.env:/app/.env
-      # Mount only code that changes during development
-      - ../ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
-      - ../ai_platform_engineering/agents/template/clients:/app/clients
+      - ../ui/src:/app/src
+      - ../ui/next.config.ts:/app/next.config.ts
+      - ../ui/tsconfig.json:/app/tsconfig.json
+      - ../ui/postcss.config.mjs:/app/postcss.config.mjs
+      - ../ui/eslint.config.mjs:/app/eslint.config.mjs
+      - ../config/app-config.yaml:/app/config/app-config.yaml:ro
+    environment:
+      - NODE_ENV=development
+      - DYNAMIC_AGENTS_ENABLED=true
+      - DYNAMIC_AGENTS_URL=http://dynamic-agents:8001
+    command: npm run dev
 
-  agent-petstore-slim:
-    profiles: ["mission3-dev"]
+  dynamic-agents:
+    profiles: ["workshop-dev", "mission3-dev", "mission4-dev", "mission7-dev"]
     build:
-      context: ../ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
-    image: local/agent-petstore:latest
+      context: ../ai_platform_engineering/dynamic_agents
+      dockerfile: build//Dockerfile
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
     volumes:
-      - ../.env:/app/.env
-      # Mount only code that changes during development
-      - ../ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
-      - ../ai_platform_engineering/agents/template/clients:/app/clients
+      - ../ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+    environment:
+      - DEBUG=${DEV_HOT_RELOAD:-true}
+      - AUTH_ENABLED=false
+      - DA_REQUIRE_BEARER=false
+      - LLM_PROVIDER=${LLM_PROVIDER:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
+      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AWS_REGION=${AWS_REGION:-}
+      - AWS_PROFILE=${AWS_PROFILE:-}
 
-  platform-engineer-p2p:
-    profiles: ["mission3-dev"]
+  mcp-netutils:
+    profiles: ["workshop-dev", "mission2-dev", "mission3-dev", "mission4-dev", "mission7-dev"]
     build:
-      context: ../
-      dockerfile: build/Dockerfile
-    image: local/platform-engineer:latest
+      context: ..
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=netutils
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     volumes:
-      - ../.env:/app/.env
-      - ../prompt_config.yaml:/app/prompt_config.yaml
-      # Mount only code that changes during development
-      - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
-      - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+      - ../ai_platform_engineering/mcp/netutils:/app/ai_platform_engineering/mcp/netutils
 
-  platform-engineer-slim:
-    profiles: ["mission3-dev"]
+  rag-server:
+    profiles: ["workshop-dev", "mission4-dev"]
     build:
-      context: ../
-      dockerfile: build/Dockerfile
-    image: local/platform-engineer:latest
+      context: ../ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build//Dockerfile.server
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-localtag}
     volumes:
-      - ../.env:/app/.env
-      - ../prompt_config.yaml:/app/prompt_config.yaml
-      # Mount only code that changes during development
-      - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
-      - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-
-  agent-weather-slim:
-    profiles: ["mission3-dev"]
-    build:
-      context: ../ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
-    image: local/agent-weather:latest
-    volumes:
-      - ../.env:/app/.env
-      - ../ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ../ai_platform_engineering/agents/weather/clients:/app/clients
-
-  agent-weather-p2p:
-    profiles: ["mission3-dev"]
-    build:
-      context: ../ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
-    image: local/agent-weather:latest
-    volumes:
-      - ../.env:/app/.env
-      - ../ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ../ai_platform_engineering/agents/weather/clients:/app/clients
+      - ../ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
+      - ../ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common

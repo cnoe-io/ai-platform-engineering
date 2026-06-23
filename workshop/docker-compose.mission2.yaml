@@ -1,23 +1,26 @@
-version: '3.8'
+name: caipe-workshop-mission2
 
 services:
-  ####################################################################################################
-  #                                         PETSTORE AGENT                                           #
-  ####################################################################################################
-  agent-petstore-p2p:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
-    container_name: petstore-agent-mission2
+  # Mission 2 uses a current MCP server directly. MCP servers live under
+  # ai_platform_engineering/mcp and share build/agents/Dockerfile.mcp.
+  mcp-netutils:
+    build:
+      context: ..
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=netutils
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     ports:
-      - "8000:8000"
+      - "18011:8000"
     volumes:
-      - ../.env:/app/.env
+      - ../ai_platform_engineering/mcp/netutils:/app/ai_platform_engineering/mcp/netutils
     environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - PETSTORE_MCP_API_URL=https://petstore.outshift.io/mcp
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/.well-known/agent-card.json"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 15s

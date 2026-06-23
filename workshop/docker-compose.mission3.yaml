@@ -1,59 +1,125 @@
+name: caipe-workshop-mission3
+
+x-mongo-env: &mongo-env
+  MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-admin}
+  MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-changeme}
+  MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-caipe}
+
+x-dynamic-agents-env: &dynamic-agents-env
+  AUTH_ENABLED: "false"
+  DA_REQUIRE_BEARER: "false"
+  DEFAULT_RUNTIME_BACKEND: store
+  MONGODB_URI: mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+  MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+  LOG_LEVEL: ${DYNAMIC_AGENTS_LOG_LEVEL:-INFO}
+  CORS_ORIGINS: '["*"]'
+  LLM_PROVIDER: ${LLM_PROVIDER:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_ENDPOINT: ${OPENAI_ENDPOINT:-}
+  OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-}
+  AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+  AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+  AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+  AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  AWS_REGION: ${AWS_REGION:-}
+  AWS_PROFILE: ${AWS_PROFILE:-}
+
+x-ui-env: &ui-env
+  NODE_ENV: production
+  SSO_ENABLED: "false"
+  DYNAMIC_AGENTS_ENABLED: "true"
+  DYNAMIC_AGENTS_URL: http://dynamic-agents:8001
+  RAG_ENABLED: "false"
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+  MONGODB_URI: mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+  MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+  OPENFGA_RECONCILE_ENABLED: "false"
+  AUDIT_LOG_BACKEND: stdout
+
 services:
-  ####################################################################################################
-  #                                    AI Platform Engineer A2A P2P                                  #
-  ####################################################################################################
-  platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
-    container_name: platform-engineer-p2p
+  caipe-mongodb:
+    image: mongo:7.0
+    ports:
+      - "${MONGODB_HOST_PORT:-27017}:27017"
+    environment: *mongo-env
     volumes:
-      - ../.env:/app/.env
-      - ../prompt_config.yaml:/app/prompt_config.yaml
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    command: ["mongod", "--quiet", "--logpath", "/dev/null"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  dynamic-agents:
+    build:
+      context: ../ai_platform_engineering/dynamic_agents
+      dockerfile: build//Dockerfile
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
+    ports:
+      - "8100:8001"
+    volumes:
+      - ../ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+    environment: *dynamic-agents-env
     depends_on:
-      - agent-weather-p2p
-      - agent-petstore-p2p
-    profiles:
-      - p2p
-    env_file:
-      - ../.env
-    ports:
-      # Expose the AI Platform Engineer agent on port 8000
-      - "8000:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - WEATHER_AGENT_HOST=agent-weather-p2p
-      - PETSTORE_AGENT_HOST=agent-petstore-p2p
-    command: platform-engineer
+      caipe-mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import json,urllib.request,sys; r=urllib.request.urlopen('http://localhost:8001/healthz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='healthy' else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
-  ####################################################################################################
-  #                                      AGENT WEATHER A2A P2P                                       #
-  ####################################################################################################
-  agent-weather-p2p:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
-    container_name: agent-weather-p2p
-    profiles:
-      - p2p
-    volumes:
-      - ../.env:/app/.env
+  caipe-ui:
+    build:
+      context: ..
+      dockerfile: build//Dockerfile.caipe-ui
+      target: runner
+      args:
+        - IMAGE_TAG=${IMAGE_TAG:-localtag}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+        - BUILD_DATE=${BUILD_DATE:-}
+        - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
+    image: ghcr.io/cnoe-io/caipe-ui-prod:${IMAGE_TAG:-localtag}
     ports:
-      - "8009:8000"
+      - "3000:3000"
+    environment: *ui-env
+    volumes:
+      - ../config/app-config.yaml:/app/config/app-config.yaml:ro
+    command: /app/entrypoint.sh
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+      dynamic-agents:
+        condition: service_healthy
+
+  mcp-netutils:
+    build:
+      context: ..
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=netutils
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
+    ports:
+      - "18011:8000"
+    volumes:
+      - ../ai_platform_engineering/mcp/netutils:/app/ai_platform_engineering/mcp/netutils
     environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - MCP_HOST=mcp-weather
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  ####################################################################################################
-  #                                      AGENT PETSTORE A2A P2P                                      #
-  ####################################################################################################
-  agent-petstore-p2p:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
-    container_name: agent-petstore-p2p
-    profiles:
-      - p2p
-    volumes:
-      - ../.env:/app/.env
-    ports:
-      - "8010:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
+volumes:
+  mongodb_data:
+  mongodb_config:

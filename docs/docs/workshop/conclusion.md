@@ -4,80 +4,86 @@ sidebar_position: 6
 
 # CAIPE Labs Conclusion
 
-You've completed the CAIPE Labs series. This page summarizes what you learned and gives you a single set of prompts and checks to verify your setup end-to-end.
+You completed the CAIPE Labs series using the current local architecture: CAIPE UI, Dynamic Agents, MCP servers, RAG services, and optional Langfuse tracing.
 
 ## What You Covered
 
 | Part | Module | What you did |
-|------|--------|----------------|
-| 1 | [Introduction to AI Agents](/docs/workshop/agent) | Built a ReAct agent with LangChain and MCP tools |
-| 2 | [Multi-Agent Systems](/docs/workshop/mas) | Deployed CAIPE on Kubernetes and coordinated weather and NetUtils agents |
-| 3 | [RAG and Git Agents](/docs/workshop/rag) | Added a RAG stack, ingested docs, and queried the knowledge base |
-| 4 | [Tracing](/docs/workshop/tracing) | Deployed Langfuse and traced multi-agent requests |
+|------|--------|--------------|
+| 1 | [Introduction to AI Agents](/docs/workshop/agent) | Built a ReAct agent and exposed tools through MCP |
+| 2 | [Multi-Agent Systems](/docs/workshop/mas) | Ran CAIPE UI, Dynamic Agents, MongoDB, and NetUtils MCP |
+| 3 | [RAG and Git Tools](/docs/workshop/rag) | Added RAG, Milvus, and GitHub MCP tooling |
+| 4 | [Tracing](/docs/workshop/tracing) | Added Langfuse and traced Dynamic Agent execution |
 
-Together, these modules gave you hands-on experience with the ReAct pattern, MCP, A2A, RAG, and observability—the core building blocks of production agent systems.
+## Compose Reference
 
-## One Setup, One Script
-
-For a full environment (Kind, CAIPE, optional RAG and tracing) from a single flow, use the setup script at the repository root:
+From the repository root:
 
 ```bash
-./setup-caipe.sh
+docker compose -f workshop/docker-compose.mission2.yaml up -d --build
+docker compose -f workshop/docker-compose.mission3.yaml up -d --build
+docker compose -f workshop/docker-compose.mission4.yaml up -d --build
+docker compose -f workshop/docker-compose.mission7.yaml up -d --build
 ```
 
-It guides you through cluster choice, LLM provider, credentials, and optional RAG and tracing. Non-interactive usage:
-
-```bash
-./setup-caipe.sh --non-interactive --create-cluster --rag --tracing
-```
-
-See [Run with KinD](/docs/getting-started/kind/setup) for full options and reference.
+Use one mission stack at a time unless you intentionally change host ports.
 
 ## Canonical Test Prompts
 
-Use these same prompts across CAIPE Labs to verify behavior and to compare UI output with traces in Langfuse.
+Use these after configuring the matching MCP servers and Dynamic Agent in the UI.
 
-**1. Discover agents**
+**Discover capabilities**
+
 ```text
-What agents are available?
+What tools can you use?
 ```
 
-**2. Weather**
-```text
-What's the current weather in San Francisco?
-```
+**Network**
 
-**3. Network**
 ```text
 Check if google.com is reachable.
 ```
 
-**4. Cross-agent (weather + network)**
+**DNS**
+
 ```text
-Get me today's weather for New York, and also test if api.github.com is reachable. Summarize both results.
+Resolve api.github.com and summarize the result.
 ```
 
-**5. RAG (if enabled)**  
-In the CAIPE UI, ask about whatever you ingested (e.g. CAIPE or AGNTCY docs), for example:
+**RAG**
+
 ```text
-What is CAIPE and how do I deploy it?
+Tell me more about SLIM in AGNTCY and cite the retrieved source material.
 ```
 
-Run 1–4 in the CAIPE UI (and optionally in the agent-chat CLI). In Langfuse you should see the supervisor routing to the weather and NetUtils agents and synthesizing the answer. Use the same prompts in Part 2 (MAS) and Part 4 (Tracing) for a consistent experience.
+**GitHub**
 
-## Quick Verification Checklist
+```text
+Use GitHub tools to summarize open issues in my configured repository.
+```
 
-- [ ] Supervisor and UI are reachable (port-forwards or ingress).
-- [ ] "What agents are available?" returns weather and NetUtils (and RAG if enabled).
-- [ ] Weather and network prompts return sensible answers.
-- [ ] Cross-agent prompt returns a combined summary.
-- [ ] If RAG is enabled: KB search and chat use the ingested docs.
-- [ ] If tracing is enabled: Langfuse shows traces for the same prompts with spans for supervisor and sub-agents.
+## Verification Checklist
+
+- [ ] `docker compose ... config --quiet` passes for each workshop compose file.
+- [ ] CAIPE UI opens at `http://localhost:3000`.
+- [ ] Dynamic Agents health is reachable at `http://localhost:8100/healthz`.
+- [ ] The configured Dynamic Agent can call the NetUtils MCP server.
+- [ ] If RAG is enabled, `http://localhost:9446/healthz` is reachable and knowledge-base search works.
+- [ ] If tracing is enabled, Langfuse opens at `http://localhost:3001` and receives traces after keys are configured.
+
+## Clean Up
+
+```bash
+docker compose -f workshop/docker-compose.mission3.yaml down
+docker compose -f workshop/docker-compose.mission4.yaml down
+docker compose -f workshop/docker-compose.mission7.yaml down
+```
+
+Add `-v` only when you intentionally want to remove local data volumes.
 
 ## Next Steps
 
-- Explore more agents and MCP servers in the [CAIPE repo](https://github.com/cnoe-io/ai-platform-engineering).
-- Read the [KinD setup](/docs/getting-started/kind/setup) and [LLM configuration](/docs/getting-started/kind/configure-llms) docs for production-like options.
-- Join the [CNOE community](https://github.com/cnoe-io/ai-platform-engineering#community) for support and roadmap updates.
-
-Thank you for completing CAIPE Labs.
+- Explore MCP servers under `ai_platform_engineering/mcp`.
+- Create a custom Dynamic Agent in the CAIPE UI.
+- Add a knowledge base and connect it through the Knowledge Base MCP server.
+- Read the production deployment docs under [Getting Started](/docs/getting-started/quick-start).

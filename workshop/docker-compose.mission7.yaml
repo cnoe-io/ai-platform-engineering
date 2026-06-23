@@ -1,127 +1,163 @@
+name: caipe-workshop-mission7
+
+x-mongo-env: &mongo-env
+  MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-admin}
+  MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-changeme}
+  MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-caipe}
+
+x-dynamic-agents-env: &dynamic-agents-env
+  AUTH_ENABLED: "false"
+  DA_REQUIRE_BEARER: "false"
+  DEFAULT_RUNTIME_BACKEND: store
+  MONGODB_URI: mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+  MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+  LOG_LEVEL: ${DYNAMIC_AGENTS_LOG_LEVEL:-INFO}
+  CORS_ORIGINS: '["*"]'
+  ENABLE_TRACING: ${ENABLE_TRACING:-true}
+  LANGFUSE_HOST: http://langfuse-web:3000
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+  LLM_PROVIDER: ${LLM_PROVIDER:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_ENDPOINT: ${OPENAI_ENDPOINT:-}
+  OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-}
+  AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+  AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+  AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+  AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  AWS_REGION: ${AWS_REGION:-}
+  AWS_PROFILE: ${AWS_PROFILE:-}
+
+x-ui-env: &ui-env
+  NODE_ENV: production
+  SSO_ENABLED: "false"
+  DYNAMIC_AGENTS_ENABLED: "true"
+  DYNAMIC_AGENTS_URL: http://dynamic-agents:8001
+  RAG_ENABLED: "false"
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+  MONGODB_URI: mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+  MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+  OPENFGA_RECONCILE_ENABLED: "false"
+  AUDIT_LOG_BACKEND: stdout
+
+x-langfuse-object-store-env: &langfuse-object-store-env
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
+  SALT: mysalt
+  ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+  CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: clickhouse
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: langfuse-redis
+  REDIS_AUTH: myredissecret
+  <<: *langfuse-object-store-env
+
 services:
-  ####################################################################################################
-  #                                    AI Platform Engineer A2A P2P                                  #
-  ####################################################################################################
-  platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
-    container_name: platform-engineer-p2p
-    volumes:
-      - ../.env:/app/.env
-      - ../prompt_config.yaml:/app/prompt_config.yaml
-    depends_on:
-      - agent-weather-p2p
-      - agent-petstore-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - ../.env
+  caipe-mongodb:
+    image: mongo:7.0
     ports:
-      # Expose the AI Platform Engineer agent on port 8000
-      - "8000:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - ENABLE_TRACING=${ENABLE_TRACING:-true}
-      - WEATHER_AGENT_HOST=agent-weather-p2p
-      - PETSTORE_AGENT_HOST=agent-petstore-p2p
-    command: platform-engineer
+      - "${MONGODB_HOST_PORT:-27017}:27017"
+    environment: *mongo-env
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    command: ["mongod", "--quiet", "--logpath", "/dev/null"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
-  ####################################################################################################
-  #                                      AGENT WEATHER A2A P2P                                       #
-  ####################################################################################################
-  agent-weather-p2p:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
-    container_name: agent-weather-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    volumes:
-      - ../.env:/app/.env
+  dynamic-agents:
+    build:
+      context: ../ai_platform_engineering/dynamic_agents
+      dockerfile: build//Dockerfile
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
     ports:
-      - "8009:8000"
+      - "8100:8001"
+    volumes:
+      - ../ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+    environment: *dynamic-agents-env
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+      langfuse-web:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import json,urllib.request,sys; r=urllib.request.urlopen('http://localhost:8001/healthz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='healthy' else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  caipe-ui:
+    build:
+      context: ..
+      dockerfile: build//Dockerfile.caipe-ui
+      target: runner
+      args:
+        - IMAGE_TAG=${IMAGE_TAG:-localtag}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+        - BUILD_DATE=${BUILD_DATE:-}
+        - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
+    image: ghcr.io/cnoe-io/caipe-ui-prod:${IMAGE_TAG:-localtag}
+    ports:
+      - "3000:3000"
+    environment: *ui-env
+    volumes:
+      - ../config/app-config.yaml:/app/config/app-config.yaml:ro
+    command: /app/entrypoint.sh
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+      dynamic-agents:
+        condition: service_healthy
+
+  mcp-netutils:
+    build:
+      context: ..
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=netutils
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
+    ports:
+      - "18011:8000"
+    volumes:
+      - ../ai_platform_engineering/mcp/netutils:/app/ai_platform_engineering/mcp/netutils
     environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-true}
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - MCP_HOST=mcp-weather
-
-  ####################################################################################################
-  #                                      AGENT PETSTORE A2A P2P                                      #
-  ####################################################################################################
-  agent-petstore-p2p:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
-    container_name: agent-petstore-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    volumes:
-      - ../.env:/app/.env
-    ports:
-      - "8010:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-true}
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-
-  ####################################################################################################
-  #                                      LANGFUSE TRACING SERVICES                                   #
-  ####################################################################################################
-  # Langfuse Tracing Services (use ENABLE_TRACING=true and --profile=tracing to enable)
-  # Reference: https://github.com/langfuse/langfuse/blob/main/docker-compose.yml
-  langfuse-worker:
-    image: langfuse/langfuse-worker:3
-    container_name: langfuse-worker
-    restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-    depends_on:
-      langfuse-postgres:
-        condition: service_healthy
-      langfuse-minio:
-        condition: service_healthy
-      langfuse-redis:
-        condition: service_healthy
-      langfuse-clickhouse:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:3030:3030"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
-      SALT: "mysalt"
-      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
-      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      # S3 Event Upload Configuration (Required for tracing)
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
-      # S3 Media Upload Configuration
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
-      REDIS_HOST: langfuse-redis
-      REDIS_AUTH: myredissecret
 
   langfuse-web:
     image: langfuse/langfuse:3
-    container_name: langfuse-web
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
+    ports:
+      - "3001:3000"
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: mysecret
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -131,45 +167,26 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: always
     ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
-      SALT: "mysalt"
-      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
-      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      # S3 Event Upload Configuration (Required for tracing)
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
-      # S3 Media Upload Configuration
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
-      REDIS_HOST: langfuse-redis
-      REDIS_AUTH: myredissecret
-      NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: mysecret
+      - "127.0.0.1:3030:3030"
+    environment: *langfuse-env
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
 
   langfuse-clickhouse:
     image: clickhouse/clickhouse-server
-    container_name: langfuse-clickhouse
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -182,7 +199,7 @@ services:
       - "127.0.0.1:8123:8123"
       - "127.0.0.1:9000:9000"
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -190,11 +207,7 @@ services:
 
   langfuse-minio:
     image: minio/minio
-    container_name: langfuse-minio
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -214,33 +227,19 @@ services:
 
   langfuse-redis:
     image: redis:7
-    container_name: langfuse-redis
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-    command: >
-      --requirepass ${REDIS_AUTH:-myredissecret}
+    command: ["redis-server", "--requirepass", "myredissecret"]
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "myredissecret", "ping"]
       interval: 3s
       timeout: 10s
       retries: 10
 
   langfuse-postgres:
     image: postgres:15
-    container_name: langfuse-postgres
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -249,13 +248,16 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
 volumes:
+  mongodb_data:
+  mongodb_config:
   langfuse_postgres_data:
-    driver: local
   langfuse_clickhouse_data:
-    driver: local
   langfuse_clickhouse_logs:
-    driver: local
   langfuse_minio_data:
-    driver: local
