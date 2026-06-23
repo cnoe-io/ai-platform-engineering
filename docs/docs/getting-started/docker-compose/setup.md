@@ -27,7 +27,7 @@ Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
 
    ```bash
    IMAGE_TAG=0.5.16
-   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor
 
    # All-in-one mode: agents run in-process and use MCP server containers.
    DISTRIBUTED_AGENTS=
@@ -105,8 +105,30 @@ docker compose up
 
 Open the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
 
-Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or
-`webex-bot` only when you want those bot integrations.
+To update your local `.env` to the latest published CAIPE release before
+starting Compose, run:
+
+```bash
+./setup-caipe.sh update-compose-release
+```
+
+The helper uses the GitHub CLI to resolve the latest release and rewrites
+`IMAGE_TAG` in `.env`, leaving a `.env.bak` backup.
+
+You can also have the setup helper update `.env` and start the
+`docker-compose.yaml` stack in one step:
+
+```bash
+./setup-caipe.sh --docker-compose
+```
+
+Running `./setup-caipe.sh` interactively asks whether to use Kind/Kubernetes or
+Docker Compose. Kind/Kubernetes remains the default, and any saved setup
+configuration applies only to that Kind/Kubernetes path.
+
+The default profile set includes `web_ingestor` so the Knowledge Bases ingest
+page can submit web datasource jobs. Add `slack-bot` or `webex-bot` only when
+you want those bot integrations.
 
 **Primary profiles:**
 
@@ -171,6 +193,56 @@ DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-a
 # Hybrid example
 DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile argocd --profile github up --build
 ```
+
+---
+
+## Troubleshooting first install
+
+If the first launch reports Keycloak reconciliation errors, failed migrations
+with `OPENFGA_HTTP is not set`, or missing Keycloak admin credentials, make
+sure your local `.env` has the first-install RBAC defaults from `.env.example`:
+
+```bash
+KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform
+KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret
+OPENFGA_HTTP=http://openfga:8080
+OPENFGA_STORE_NAME=caipe-openfga
+AUTHZ_SERVICE_URL=http://caipe-ui:3000
+```
+
+You can add any missing values without overwriting your existing `.env`:
+
+```bash
+grep -q '^KEYCLOAK_ADMIN_CLIENT_ID=' .env || echo 'KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform' >> .env
+grep -q '^KEYCLOAK_ADMIN_CLIENT_SECRET=' .env || echo 'KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret' >> .env
+grep -q '^OPENFGA_HTTP=' .env || echo 'OPENFGA_HTTP=http://openfga:8080' >> .env
+grep -q '^OPENFGA_STORE_NAME=' .env || echo 'OPENFGA_STORE_NAME=caipe-openfga' >> .env
+grep -q '^AUTHZ_SERVICE_URL=' .env || echo 'AUTHZ_SERVICE_URL=http://caipe-ui:3000' >> .env
+```
+
+Then rerun the UI, Dynamic Agents, Web Ingestor, and Keycloak seed job:
+
+```bash
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor" \
+docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui dynamic-agents web_ingestor keycloak-init
+```
+
+If Keycloak or OpenFGA were already initialized with bad settings, reset only
+the local auth/RBAC volumes. This keeps MongoDB and CAIPE application data:
+
+```bash
+docker compose --env-file .env -f docker-compose.yaml down
+
+docker volume ls | grep -E 'keycloak_postgres_data|openfga_postgres_data'
+docker volume rm <keycloak_postgres_data_volume> <openfga_postgres_data_volume>
+
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor" \
+docker compose --env-file .env -f docker-compose.yaml up -d
+```
+
+Use the exact volume names printed by `docker volume ls`. Avoid
+`docker compose down -v` unless you also want to delete MongoDB and other local
+CAIPE data.
 
 ---
 
