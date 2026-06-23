@@ -156,6 +156,31 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /**
+   * Whether the host shell exposes the Agentic Apps Hub.
+   * Controlled by AGENTIC_APPS_INSTALL_ENABLED.
+   */
+  agenticAppsEnabled: boolean;
+  /**
+   * Whether the Agentic SDLC (ship loop) UI is available.
+   * Set SHIP_LOOP_ENABLED=true to enable.
+   */
+  shipLoopEnabled: boolean;
+  /**
+   * Whether the Agentic SDLC assistant chat bubble is enabled.
+   * Set SHIP_LOOP_ASSISTANT_ENABLED=true (default false) to enable.
+   */
+  shipLoopAssistantEnabled: boolean;
+  /**
+   * Hours that recently resolved Agentic SDLC artifacts stay visible.
+   * Override with SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS (default 24).
+   */
+  shipLoopResolvedArtifactLookbackHours: number;
+  /**
+   * Whether the Tome wiki app is available.
+   * Set TOME_ENABLED=true to enable.
+   */
+  tomeEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -263,6 +288,11 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  agenticAppsEnabled: false,
+  shipLoopEnabled: false,
+  shipLoopAssistantEnabled: false,
+  shipLoopResolvedArtifactLookbackHours: 24,
+  tomeEnabled: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -323,6 +353,13 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
   return _serverOnlyConfig;
 }
 
+const DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 24;
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const n = parseInt(value ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 /** Return value if it's in the allowed list, otherwise return fallback. */
 function validated(value: string | undefined, allowed: string[], fallback: string): string {
   return value && allowed.includes(value) ? value : fallback;
@@ -381,6 +418,14 @@ export function getServerConfig(): Config {
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const agenticAppsEnabled = process.env.AGENTIC_APPS_INSTALL_ENABLED === 'true';
+  const shipLoopEnabled = env('SHIP_LOOP_ENABLED') === 'true';
+  const shipLoopAssistantEnabled = env('SHIP_LOOP_ASSISTANT_ENABLED') === 'true';
+  const shipLoopResolvedArtifactLookbackHours = positiveInteger(
+    env('SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS'),
+    DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
+  );
+  const tomeEnabled = env('TOME_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   // The user-facing Credentials surface is gated independently of the SA token
   // surface. It defaults to the master flag (backward-compatible) and can be
@@ -469,6 +514,11 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    agenticAppsEnabled,
+    shipLoopEnabled,
+    shipLoopAssistantEnabled,
+    shipLoopResolvedArtifactLookbackHours,
+    tomeEnabled,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,
