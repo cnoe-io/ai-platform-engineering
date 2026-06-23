@@ -79,15 +79,12 @@ class WebexAgent(BaseLangGraphAgent):
 
         # Default server path if not provided
         if not server_path:
-            # Compute path relative to this file
-            # This file is at: agents/webex/agent_webex/protocol_bindings/a2a_server/agent.py
-            # MCP server is at: agents/webex/mcp/mcp_webex/__main__.py
-            # Go up 3 levels to agent_webex, then up 1 more to webex
+            # assisted-by Codex Codex-sonnet-4-6
             webex_agent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            server_path = os.path.join(webex_agent_dir, "mcp", "mcp_webex", "__main__.py")
+            platform_root = os.path.dirname(os.path.dirname(webex_agent_dir))
+            server_path = os.path.join(platform_root, "mcp", "webex", "server.py")
 
-        # Get project path (2 levels up from server file)
-        project_path = os.path.dirname(os.path.dirname(server_path))
+        project_path = os.path.dirname(server_path)
 
         return {
             "command": "uv",

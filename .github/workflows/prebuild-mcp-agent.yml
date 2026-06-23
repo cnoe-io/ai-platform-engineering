@@ -5,7 +5,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/mcp/**'
       - '.github/**'
       - 'build/agents/Dockerfile.mcp'
   workflow_call:
@@ -32,8 +32,7 @@ on:
         type: string
         default: ''
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -96,8 +95,8 @@ jobs:
             filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/**'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/build/Dockerfile.mcp'\n`;
             });
             core.setOutput('filters', filters);
 
@@ -149,7 +148,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/prebuild/mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/mcp/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner
@@ -175,10 +174,14 @@ jobs:
       - name: Compute prebuild tag
         id: compute_tag
         shell: bash
+        env:
+          HEAD_REF_INPUT: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF_INPUT: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA_INPUT: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BRANCH="${{ inputs.head_ref || github.head_ref }}"
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
+          BRANCH="$HEAD_REF_INPUT"
+          BASE_REF="$BASE_REF_INPUT"
+          BASE_SHA="$BASE_SHA_INPUT"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
@@ -221,8 +224,8 @@ jobs:
       - name: Determine Dockerfile path
         id: dockerfile
         run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          if [ -f "$AGENT_DIR/build/Dockerfile.mcp" ]; then
+            echo "path=$AGENT_DIR/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
           else
             echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi

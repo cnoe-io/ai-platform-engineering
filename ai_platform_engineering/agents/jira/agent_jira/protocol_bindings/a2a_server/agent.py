@@ -60,8 +60,8 @@ class JiraAgent(BaseLangGraphAgent):
         if not atlassian_email:
             raise ValueError("ATLASSIAN_EMAIL must be set as an environment variable.")
 
-        # Project path is the mcp/ directory (parent of mcp_jira/) where pyproject.toml lives
-        project_path = os.path.dirname(os.path.dirname(server_path))
+        # assisted-by Codex Codex-sonnet-4-6
+        project_path = os.path.dirname(server_path)
         
         return {
             "command": "uv",

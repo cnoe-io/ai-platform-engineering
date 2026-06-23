@@ -612,7 +612,7 @@ services:
     env_file: [.env]
     ports: ["18001:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/backstage/mcp/mcp_backstage:/app/mcp_backstage
+      - ./ai_platform_engineering/mcp/backstage:/app/ai_platform_engineering/mcp/backstage
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -666,7 +666,7 @@ services:
     env_file: [.env]
     ports: ["18002:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
+      - ./ai_platform_engineering/mcp/argocd:/app/ai_platform_engineering/mcp/argocd
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -761,7 +761,7 @@ services:
     env_file: [.env]
     ports: ["18004:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/ai_platform_engineering/agents/jira/mcp/mcp_jira
+      - ./ai_platform_engineering/mcp/jira:/app/ai_platform_engineering/mcp/jira
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -829,7 +829,7 @@ services:
     env_file: [.env]
     ports: ["18005:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/komodor/mcp/mcp_komodor:/app/mcp_komodor
+      - ./ai_platform_engineering/mcp/komodor:/app/ai_platform_engineering/mcp/komodor
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -882,7 +882,7 @@ services:
     env_file: [.env]
     ports: ["18006:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty:/app/mcp_pagerduty
+      - ./ai_platform_engineering/mcp/pagerduty:/app/ai_platform_engineering/mcp/pagerduty
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -990,7 +990,7 @@ services:
     env_file: [.env]
     ports: ["18008:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
+      - ./ai_platform_engineering/mcp/splunk:/app/ai_platform_engineering/mcp/splunk
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1044,7 +1044,7 @@ services:
     env_file: [.env]
     ports: ["18009:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/webex/mcp/mcp_webex:/app/mcp_webex
+      - ./ai_platform_engineering/mcp/webex:/app/ai_platform_engineering/mcp/webex
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1072,7 +1072,6 @@ services:
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.victorops_agent.yaml:/app/prompt_config.victorops_agent.yaml
       - ./ai_platform_engineering/agents/victorops/agent_victorops:/app/ai_platform_engineering/agents/agent/agent_victorops
-      - ./ai_platform_engineering/agents/victorops/mcp/mcp_victorops:/app/ai_platform_engineering/agents/agent/mcp/mcp_victorops
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8016:8000"]
@@ -1098,7 +1097,7 @@ services:
     env_file: [.env]
     ports: ["18012:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/victorops/mcp/mcp_victorops:/app/mcp_victorops
+      - ./ai_platform_engineering/mcp/victorops:/app/ai_platform_engineering/mcp/victorops
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1156,7 +1155,7 @@ services:
     env_file: [.env]
     ports: ["18011:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/netutils/mcp/mcp_netutils:/app/mcp_netutils
+      - ./ai_platform_engineering/mcp/netutils:/app/ai_platform_engineering/mcp/netutils
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0

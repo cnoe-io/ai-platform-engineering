@@ -71,10 +71,8 @@ class BackstageAgent(BaseLangGraphAgent):
         if not backstage_url.startswith(("http://", "https://")):
             raise ValueError(f"BACKSTAGE_URL must start with http:// or https://, got: {backstage_url}")
 
-        # Project path is the mcp/ directory (parent of mcp_backstage/) where pyproject.toml lives
-        # server_path is .../mcp/mcp_backstage/__main__.py
-        # We need .../mcp/ for the project
-        project_path = os.path.dirname(os.path.dirname(server_path))
+        # assisted-by Codex Codex-sonnet-4-6
+        project_path = os.path.dirname(server_path)
         logger.info(f"[BackstageAgent] MCP project path: {project_path}")
 
         return {

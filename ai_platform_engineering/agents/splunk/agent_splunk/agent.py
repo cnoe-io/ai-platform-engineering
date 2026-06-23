@@ -5,7 +5,6 @@
 """LangGraph React-agent wrapper for the generated MCP server."""
 
 import asyncio
-import importlib.util
 import logging
 import os
 from pathlib import Path
@@ -17,11 +16,8 @@ from cnoe_agent_utils import LLMFactory
 
 logger = logging.getLogger(__name__)
 
-# Locate the generated MCP server module
-spec = importlib.util.find_spec("mcp_splunk.server")
-if not spec or not spec.origin:
-    raise ImportError("Cannot find mcp_splunk.server module")
-server_path = str(Path(spec.origin).resolve())
+# assisted-by Codex Codex-sonnet-4-6
+server_path = str(Path(__file__).resolve().parents[3] / "mcp" / "splunk" / "server.py")
 
 
 async def create_agent(prompt: str | None = None, response_format=None):
@@ -40,7 +36,7 @@ async def create_agent(prompt: str | None = None, response_format=None):
         {
             "splunk": {
                 "command": "uv",
-                "args": ["run", server_path],
+                "args": ["run", "--project", str(Path(server_path).parent), server_path],
                 "env": {
                     "SPLUNK_API_URL": api_url,
                     "SPLUNK_TOKEN": api_token,

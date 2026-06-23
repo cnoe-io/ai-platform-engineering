@@ -7,7 +7,7 @@ on:
       - '**'
   pull_request:
     paths:
-      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/mcp/**'
       - 'build/agents/Dockerfile.mcp'
   workflow_dispatch:
     inputs:
@@ -23,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -73,6 +72,7 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: read
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -100,8 +100,8 @@ jobs:
             filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/**'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/build/Dockerfile.mcp'\n`;
             });
             core.setOutput('filters', filters);
 
@@ -192,22 +192,13 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/mcp/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
         with:
           egress-policy: audit
-
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_MCP_APP_ID }}
-          private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -236,8 +227,8 @@ jobs:
       - name: Determine Dockerfile path
         id: dockerfile
         run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          if [ -f "$AGENT_DIR/build/Dockerfile.mcp" ]; then
+            echo "path=$AGENT_DIR/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
           else
             echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi
@@ -274,7 +265,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/mcp/${{ matrix.agent }}
 
     steps:
       - name: 🔒 Harden runner
@@ -290,6 +281,7 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: 📦 Install crane
         run: |
@@ -300,8 +292,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GH_ACTOR" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -380,8 +373,8 @@ jobs:
         if: steps.retag-or-build.outputs.needs_build == 'true'
         id: dockerfile
         run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          if [ -f "$AGENT_DIR/build/Dockerfile.mcp" ]; then
+            echo "path=$AGENT_DIR/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
           else
             echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi
@@ -420,11 +413,14 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: 🔔 Notify release finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-agents.outputs.tag_version }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           # Determine overall conclusion
           BUILD_RESULT="${{ needs.build-and-push.result }}"
@@ -442,13 +438,9 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
-          {
-            "event_type": "ci-completed",
-            "client_payload": {
-              "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
-              "conclusion": "$CONCLUSION"
-            }
-          }
-          EOF
+          jq -n \
+            --arg tag "$TAG_VERSION" \
+            --arg workflow "$WORKFLOW_NAME" \
+            --arg conclusion "$CONCLUSION" \
+            '{event_type: "ci-completed", client_payload: {tag: $tag, workflow: $workflow, conclusion: $conclusion}}' \
+            | gh api --method POST "/repos/${REPOSITORY}/dispatches" --input -

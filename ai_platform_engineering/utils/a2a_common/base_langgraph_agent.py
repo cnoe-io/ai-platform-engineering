@@ -296,6 +296,41 @@ Use this as the reference point for all date calculations. When users say "today
         """
         return []
 
+    def _default_mcp_server_path(self, agent_name: str) -> str | None:
+        """Return the default local MCP entrypoint for the top-level MCP tree."""
+        # assisted-by Codex Codex-sonnet-4-6
+        agent_module = self.__class__.__module__
+        if not agent_module:
+            return None
+
+        import importlib
+
+        try:
+            module = importlib.import_module(agent_module)
+            agent_file = getattr(module, "__file__", None)
+            if not agent_file:
+                return None
+
+            current_dir = os.path.dirname(os.path.abspath(agent_file))
+            while current_dir and os.path.basename(current_dir) != "ai_platform_engineering":
+                parent_dir = os.path.dirname(current_dir)
+                if parent_dir == current_dir:
+                    return None
+                current_dir = parent_dir
+
+            if os.path.basename(current_dir) != "ai_platform_engineering":
+                return None
+
+            mcp_dir = os.path.join(current_dir, "mcp", agent_name)
+            for entrypoint in ("__main__.py", "server.py"):
+                candidate = os.path.join(mcp_dir, entrypoint)
+                if os.path.exists(candidate):
+                    return candidate
+            return os.path.join(mcp_dir, "server.py")
+        except Exception as e:
+            logger.debug(f"{agent_name}: Could not determine MCP server path from module: {e}")
+            return None
+
     async def _load_mcp_tools(self, args: dict, include_fallback: bool = True) -> list:
         """
         Load MCP tools for this agent.
@@ -319,29 +354,7 @@ Use this as the reference point for all date calculations. When users say "today
                 return self.get_additional_tools() or []
             return []
 
-        # Compute default server path based on agent's module location
-        # This finds the MCP server relative to the agent's protocol_bindings/a2a_server/agent.py
-        agent_module = self.__class__.__module__
-        if agent_module:
-            import importlib
-            try:
-                module = importlib.import_module(agent_module)
-                if hasattr(module, '__file__') and module.__file__:
-                    # Navigate from protocol_bindings/a2a_server/agent.py up to mcp/
-                    agent_file = module.__file__
-                    # Go up: protocol_bindings/a2a_server/ -> protocol_bindings/ -> agent_X/ -> agent/ -> mcp/
-                    agent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(agent_file))))
-                    server_path = os.path.join(agent_dir, "mcp", f"mcp_{agent_name}", "__main__.py")
-                    if not os.path.exists(server_path):
-                        # Try alternate path
-                        server_path = os.path.join(agent_dir, "mcp", f"mcp_{agent_name}", "server.py")
-                else:
-                    server_path = None
-            except Exception as e:
-                logger.debug(f"{agent_name}: Could not determine MCP server path from module: {e}")
-                server_path = None
-        else:
-            server_path = None
+        server_path = self._default_mcp_server_path(agent_name)
 
         # Override with environment variable if set
         env_server_path = os.getenv(f"{agent_name.upper()}_MCP_SERVER_PATH")
@@ -973,9 +986,13 @@ Use this as the reference point for all date calculations. When users say "today
                 "Please install langchain_mcp_adapters or use an agent that doesn't require MCP."
             )
 
-        args = config.get("configurable", {})
-        server_path = args.get("server_path", f"./mcp/mcp_{self.get_agent_name()}/server.py")
         agent_name = self.get_agent_name()
+        args = config.get("configurable", {})
+        server_path = (
+            args.get("server_path")
+            or self._default_mcp_server_path(agent_name)
+            or f"./ai_platform_engineering/mcp/{agent_name}/server.py"
+        )
 
         # Display initialization banner
         logger.info("=" * 50)

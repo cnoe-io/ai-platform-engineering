@@ -368,7 +368,7 @@ test-supervisor: setup-venv ## Run tests for supervisor/main workspace only
 
 test-mcp-argocd: ## Run ArgoCD MCP tests
 	@echo "Running ArgoCD MCP tests..."
-	@cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/argocd && $(MAKE) test
 
 test-agent-argocd: setup-venv ## Run ArgoCD agent unit tests
 	@echo "Running ArgoCD agent unit tests..."
@@ -378,34 +378,34 @@ test-agent-argocd: setup-venv ## Run ArgoCD agent unit tests
 
 test-mcp-backstage: ## Run Backstage MCP tests
 	@echo "Running Backstage MCP tests..."
-	@cd ai_platform_engineering/agents/backstage/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/backstage && $(MAKE) test
 
 test-mcp-confluence: ## Run Confluence MCP tests
 	@echo "Running Confluence MCP tests..."
-	@cd ai_platform_engineering/agents/confluence/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/confluence && $(MAKE) test
 
 test-mcp-jira: ## Run Jira MCP tests
 	@echo "Running Jira MCP tests..."
-	@cd ai_platform_engineering/agents/jira/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/jira && $(MAKE) test
 
 test-mcp-komodor: ## Run Komodor MCP tests
 	@echo "Running Komodor MCP tests..."
-	@cd ai_platform_engineering/agents/komodor/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/komodor && $(MAKE) test
 
 test-mcp-litellm: ## Run LiteLLM MCP tests
 	@echo "Running LiteLLM MCP tests..."
-	@cd ai_platform_engineering/agents/litellm/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/litellm && $(MAKE) test
 
 test-mcp-pagerduty: ## Run PagerDuty MCP tests
 	@echo "Running PagerDuty MCP tests..."
-	@cd ai_platform_engineering/agents/pagerduty/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/pagerduty && $(MAKE) test
 
 test-mcp-slack: ## Slack MCP is external (korotovsky/slack-mcp-server) - no local tests
 	@echo "Slack uses the external OSS korotovsky/slack-mcp-server. No local MCP tests."
 
 test-mcp-splunk: ## Run Splunk MCP tests
 	@echo "Running Splunk MCP tests..."
-	@cd ai_platform_engineering/agents/splunk/mcp && $(MAKE) test
+	@cd ai_platform_engineering/mcp/splunk && $(MAKE) test
 
 test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their own environments)
 	@echo ""
