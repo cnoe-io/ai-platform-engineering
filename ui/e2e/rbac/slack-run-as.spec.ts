@@ -890,4 +890,157 @@ test.describe("mocked Slack Run as browser regression", () => {
     await expect.poll(() => routeWrites.length).toBe(1);
     await expect(page.getByText(/channel manage denied by policy/)).toBeVisible();
   });
+
+  test("fixes duplicate Slack route priorities from runtime diagnostics", async ({ page }) => {
+    const routeWrites: unknown[] = [];
+    let routes: unknown[] = [
+      {
+        agent_id: "incident-agent",
+        enabled: true,
+        priority: 100,
+        users: { enabled: true, listen: "mention" },
+      },
+      {
+        agent_id: "support-agent",
+        enabled: true,
+        priority: 100,
+        users: { enabled: true, listen: "mention" },
+      },
+    ];
+
+    const slackHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/admin/slack/channels" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            channels: [
+              {
+                workspace_id: "CAIPE",
+                channel_id: "C0DUPES",
+                channel_name: "routing-conflict",
+                team_slug: "platform-engineering",
+                primary_agent_id: "incident-agent",
+                active_grants: 2,
+                can_manage: true,
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            items: [
+              { _id: "incident-agent", name: "Incident Agent" },
+              { _id: "support-agent", name: "Support Agent" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/teams" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            teams: [
+              { _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/runtime/status" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            route_mode: "db_prefer",
+            static_config: { channels: 1, routes: 2 },
+            route_cache: { ttl_seconds: 60, cache_size: 1 },
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0DUPES/routes") {
+        if (method === "GET") {
+          await fulfillJson(route, { data: { routes } });
+          return true;
+        }
+
+        if (method === "PUT") {
+          const body = (await postJson(route)) as { routes?: unknown[] } | null;
+          routeWrites.push(body);
+          routes = Array.isArray(body?.routes) ? body.routes : [];
+          await fulfillJson(route, { data: { routes } });
+          return true;
+        }
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0DUPES/diagnostics" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            openfga: { reachable: true, tuple_count: 2 },
+            routes: [
+              {
+                agent_id: "incident-agent",
+                openfga_tuple: true,
+                route_metadata: true,
+                listen: "mention",
+                priority: 100,
+                runtime_matches: { mention: true, message: false },
+                warnings: ["duplicate priority"],
+              },
+              {
+                agent_id: "support-agent",
+                openfga_tuple: true,
+                route_metadata: true,
+                listen: "mention",
+                priority: 100,
+                runtime_matches: { mention: true, message: false },
+                warnings: ["duplicate priority"],
+              },
+            ],
+            warnings: [
+              "Multiple agents can answer mentions at priority 100. Fix routing issues to set a deterministic order.",
+            ],
+          },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      gates: { slack: true },
+      handlers: [slackHandler],
+    });
+
+    await page.goto("/admin?cat=integrations&tab=slack", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: /#routing-conflict/ }).click();
+    await expect(page.getByText("Multiple agents can answer mentions at priority 100")).toBeVisible();
+    await page.getByRole("button", { name: "Fix routing issues" }).click();
+
+    await expect.poll(() => routeWrites.length).toBe(1);
+    expect(routeWrites[0]).toMatchObject({
+      routes: [
+        {
+          agent_id: "incident-agent",
+          priority: 100,
+          users: { enabled: true, listen: "mention" },
+        },
+        {
+          agent_id: "support-agent",
+          priority: 110,
+          users: { enabled: true, listen: "mention" },
+        },
+      ],
+    });
+  });
 });
