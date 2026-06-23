@@ -78,7 +78,7 @@ export interface DiagnosticRoute {
   openfga_tuple: boolean;
   route_metadata: boolean;
   listen: "message" | "mention" | "all" | "unknown";
-  priority?: number;
+  priority: number;
   runtime_matches: { mention: boolean; message: boolean };
   warnings: string[];
 }
@@ -300,6 +300,19 @@ export interface ConnectorAdminAdapter {
   fixDiagnosticRoute: (input: {
     item: ItemSummary;
     route: DiagnosticRoute;
+    routes: ItemAgentRoute[];
+  }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
+
+  /** When true, show a batch Fix routing issues action for this channel/space. */
+  diagnosticIssuesBatchFixable?: (input: {
+    diagnostics: ItemDiagnostics;
+    routes: ItemAgentRoute[];
+  }) => boolean;
+
+  /** Apply safe automatic fixes for common routing diagnostics issues. */
+  fixAllDiagnosticIssues?: (input: {
+    item: ItemSummary;
+    diagnostics: ItemDiagnostics;
     routes: ItemAgentRoute[];
   }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
 

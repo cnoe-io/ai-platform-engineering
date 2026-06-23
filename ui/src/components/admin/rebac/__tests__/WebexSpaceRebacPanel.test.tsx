@@ -136,8 +136,8 @@ function setupFetchMock() {
             "agent:foo-bar has Mongo route metadata, but the OpenFGA tuple is missing; runtime ignores it.",
           ],
           routes: [
-            { agent_id: "foo-bar", openfga_tuple: false, route_metadata: true, listen: "message", runtime_matches: { mention: false, message: true }, warnings: [] },
-            { agent_id: "incident-agent", openfga_tuple: true, route_metadata: true, listen: "mention", runtime_matches: { mention: true, message: false }, warnings: [] },
+            { agent_id: "foo-bar", openfga_tuple: false, route_metadata: true, listen: "message", priority: 90, runtime_matches: { mention: false, message: true }, warnings: [] },
+            { agent_id: "incident-agent", openfga_tuple: true, route_metadata: true, listen: "mention", priority: 100, runtime_matches: { mention: true, message: false }, warnings: [] },
           ],
           last_runtime_error: { ts: "2026-05-18T07:50:00.000Z", reason_code: "OPENFGA_READ_FAILED", message: "OpenFGA tuple read failed" },
         },
@@ -267,7 +267,7 @@ it("fixes stale diagnostic route metadata (orphan) by issuing DELETE", async () 
   render(<WebexSpaceRebacPanel />);
   await expandSpaceRow("Platform Alerts");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:foo-bar routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for foo-bar/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -281,7 +281,7 @@ it("fixes mention-only diagnostic route by lifting listen mode to all", async ()
   render(<WebexSpaceRebacPanel />);
   await expandSpaceRow("Platform Alerts");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:incident-agent routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for incident-agent/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(

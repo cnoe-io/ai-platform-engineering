@@ -1,4 +1,11 @@
 import { getAuditReader } from "@/lib/audit/reader";
+import {
+  ambiguousRoutesMessage,
+  missingRouteMetadataMessage,
+  noTuplesMessage,
+  openFgaReadFailureMessage,
+  staleRouteMetadataMessage,
+} from "@/lib/rbac/connector-diagnostic-messages";
 
 export type ConnectorKind = "slack_channel" | "webex_space";
 
@@ -95,15 +102,11 @@ function buildBaseRouteWarnings(
   route: ConnectorRuntimeRouteDiagnostic,
 ): string[] {
   const warnings: string[] = [];
-  if (!route.openfga_tuple) {
-    warnings.push(
-      `agent:${route.agent_id} has Mongo route metadata, but the OpenFGA tuple is missing; runtime ignores it.`,
-    );
+  if (!route.openfga_tuple && route.route_metadata) {
+    warnings.push(staleRouteMetadataMessage(route.agent_id));
   }
-  if (!route.route_metadata) {
-    warnings.push(
-      `agent:${route.agent_id} has an OpenFGA tuple but no Mongo route metadata; runtime uses mention-only defaults.`,
-    );
+  if (route.openfga_tuple && !route.route_metadata) {
+    warnings.push(missingRouteMetadataMessage(route.agent_id));
   }
   return warnings;
 }
@@ -152,7 +155,7 @@ export async function computeConnectorDiagnostics(
     openfgaAgentIds = await adapter.listOpenFgaAgentIds(workspaceId, itemId);
   } catch (error) {
     openfgaError = error instanceof Error ? error.message : "OpenFGA tuple read failed";
-    warnings.push(`${adapter.botLabel} cannot read OpenFGA tuples: ${openfgaError}`);
+    warnings.push(openFgaReadFailureMessage(adapter.botLabel, openfgaError));
   }
 
   const allAgentIds = Array.from(
@@ -188,9 +191,7 @@ export async function computeConnectorDiagnostics(
   }
 
   if (!openfgaError && openfgaAgentIds.length === 0) {
-    warnings.push(
-      `No OpenFGA ${adapter.tupleNoun} tuples found. ${adapter.runtimeLabel} has no agent to dispatch.`,
-    );
+    warnings.push(noTuplesMessage(adapter.tupleNoun, adapter.runtimeLabel));
   }
 
   const lastError = await latestRuntimeError(adapter, workspaceId, itemId);

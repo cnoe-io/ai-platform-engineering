@@ -560,7 +560,7 @@ it("fixes stale Slack runtime diagnostics by deleting orphaned route metadata", 
   render(<SlackChannelRebacPanel />);
   await expandChannelRow("incidents");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:foo-bar routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for foo-bar/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
