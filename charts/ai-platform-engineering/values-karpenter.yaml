@@ -1,0 +1,298 @@
+# Karpenter values overlay for ai-platform-engineering
+#
+# Apply on top of your base values to route agent workloads to Karpenter-managed nodes:
+#
+#   helm upgrade --install ai-platform-engineering \
+#     oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+#     -f charts/ai-platform-engineering/values.yaml \
+#     -f charts/ai-platform-engineering/values-karpenter.yaml
+#
+# Prerequisites: deploy/eks/karpenter/ manifests must be applied first.
+# See deploy/eks/karpenter/README.md for full setup steps.
+
+# ---------------------------------------------------------------------------
+# Agent tier: Karpenter `agents` NodePool (spot-preferred, compute-optimised)
+# Taint: workload-type=agent:NoSchedule
+# ---------------------------------------------------------------------------
+
+agent-argocd:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-aws:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-backstage:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-confluence:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-github:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-gitlab:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-jira:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-komodor:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-pagerduty:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-slack:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-splunk:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-victorops:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-webex:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-netutils:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-weather:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+agent-petstore:
+  nodeSelector:
+    workload-type: agent
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: agent
+      effect: NoSchedule
+  podDisruptionBudget:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# RAG tier: Karpenter `rag` NodePool (on-demand, memory-optimised)
+# Taint: workload-type=rag:NoSchedule
+# ---------------------------------------------------------------------------
+
+rag-stack:
+  rag-server:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    podDisruptionBudget:
+      enabled: true
+
+  agent-ontology:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    podDisruptionBudget:
+      enabled: true
+
+  rag-redis:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    podDisruptionBudget:
+      enabled: true
+
+  neo4j:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+
+# ---------------------------------------------------------------------------
+# System tier: no nodeSelector/tolerations needed, lands on Auto Mode
+# general-purpose pool by default. PDBs are still enabled because Auto Mode
+# consolidates nodes and will evict pods without a PDB in place.
+# ---------------------------------------------------------------------------
+
+supervisor-agent:
+  podDisruptionBudget:
+    enabled: true
+
+caipe-ui:
+  podDisruptionBudget:
+    enabled: true
+
+caipe-ui-mongodb:
+  podDisruptionBudget:
+    enabled: true
+
+langgraph-redis:
+  podDisruptionBudget:
+    enabled: true
+
+slack-bot:
+  podDisruptionBudget:
+    enabled: true
+
+dynamic-agents:
+  podDisruptionBudget:
+    enabled: true
+
+skill-scanner:
+  podDisruptionBudget:
+    enabled: true
+
+webex-bot:
+  podDisruptionBudget:
+    enabled: true
+
+agentgateway:
+  podDisruptionBudget:
+    enabled: true
+
+audit-service:
+  podDisruptionBudget:
+    enabled: true
+
+keycloak:
+  podDisruptionBudget:
+    enabled: true
+
+openfga:
+  podDisruptionBudget:
+    enabled: true
+
+openfga-authz-bridge:
+  podDisruptionBudget:
+    enabled: true

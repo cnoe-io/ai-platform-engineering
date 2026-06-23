@@ -61,15 +61,34 @@ Use the same region in the next step when you create the cluster.
 
 ## Step 4: Create the EKS cluster
 
-The repo includes an example cluster config. Copy it and adjust the region or other settings if needed.
+The repo includes a cluster config using EKS Auto Mode, which manages node provisioning via the built-in Karpenter controller. No additional autoscaler setup is required.
+
+### Create a KMS key for secrets encryption
+
+The cluster config encrypts Kubernetes secrets at rest using a customer-managed KMS key. Run this block in full each time you create the cluster. It always starts from the example file (with a fresh placeholder), and creates a new key, so it is safe to re-run after a previous cluster has been torn down:
 
 ```bash
-# From the repo root
+# Always start from the example so the ARN placeholder is fresh
 cp deploy/eks/dev-eks-cluster-config.yaml.example dev-eks-cluster-config.yaml
 
-# Edit if you need to change region, node type, or node count
-# (optional) cat dev-eks-cluster-config.yaml
+# Create a new key and capture its ARN
+KEY_ARN=$(aws kms create-key \
+  --description "dev-eks-cluster secrets encryption" \
+  --query KeyMetadata.Arn --output text)
+
+# Recreate the alias (delete first in case it exists from a previous run)
+aws kms delete-alias --alias-name alias/dev-eks-cluster-secrets 2>/dev/null || true
+aws kms create-alias \
+  --alias-name alias/dev-eks-cluster-secrets \
+  --target-key-id "$KEY_ARN"
+
+# Write the new ARN into the config
+sed -i "s|arn:aws:kms:us-east-2:ACCOUNT_ID:key/KEY_ID|$KEY_ARN|" dev-eks-cluster-config.yaml
 ```
+
+**Required:** update `publicAccessCIDRs` in the config to your VPN or office egress CIDR before continuing. It ships with a non-routable placeholder (`203.0.113.0/24`) that blocks public API access until you replace it, so the example fails closed rather than exposing the control plane. Never set it to `0.0.0.0/0`.
+
+### Run eksctl
 
 Create the cluster. This usually takes **10–15 minutes**:
 
@@ -77,13 +96,13 @@ Create the cluster. This usually takes **10–15 minutes**:
 eksctl create cluster -f dev-eks-cluster-config.yaml
 ```
 
+If you see a "CloudFormation stack already exists" error, see [Troubleshooting](#cloudformation-stack-already-exists).
+
 eksctl will:
 
 - Create a VPC and subnets
 - Set up the EKS control plane
-- Launch EC2 worker nodes
-- Configure your `kubectl` context to use the new cluster
-- Install common add-ons
+- Run `aws eks update-kubeconfig --region us-east-2 --name dev-eks-cluster` to configure your `kubectl` context to use the new cluster
 
 ### Verify the cluster
 
@@ -102,11 +121,58 @@ eksctl get addons --cluster dev-eks-cluster
 kubectl get pods -n kube-system
 ```
 
-Once `kubectl get nodes` shows nodes in `Ready` state, you can deploy CAIPE.
+Once `kubectl get nodes` shows nodes in `Ready` state, continue to the next step.
+
+### Grant additional IAM access
+
+The cluster config uses `authenticationMode: API`, meaning cluster access is managed via **IAM access entries**, not the `aws-auth` ConfigMap. To grant another IAM user or role admin access, use `eksctl create accessentry`:
+
+```bash
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Grant an IAM user cluster-admin access
+IAM_USER=USERNAME
+eksctl create accessentry \
+  --cluster dev-eks-cluster \
+  --principal-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:user/${IAM_USER}" \
+  --kubernetes-group system:masters
+
+# Grant an IAM role cluster-admin access (e.g. a CI/CD role)
+IAM_ROLE=ROLE_NAME
+eksctl create accessentry \
+  --cluster dev-eks-cluster \
+  --principal-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${IAM_ROLE}" \
+  --kubernetes-group system:masters
+```
+
+Do not edit the `aws-auth` ConfigMap directly, as it has no effect in API auth mode.
 
 ---
 
-## Step 5: Deploy CAIPE on EKS
+## Step 5 (Optional): Configure node tiers with NodePools
+
+By default, Auto Mode places all workloads on its built-in `general-purpose` pool. Apply the custom NodePools to right-size nodes per workload tier (Spot compute-optimised instances for agents, on-demand memory-optimised instances for RAG), and allow idle agent and RAG nodes to scale to zero.
+
+| NodePool | Workloads | Instance strategy |
+| -------- | --------- | ----------------- |
+| `agents` | All `agent-*` subcharts | Spot-preferred, compute-optimised (`c5`/`m5`/`m6i`) |
+| `rag` | `rag-server`, `agent-ontology`, `rag-redis`, `neo4j` | On-demand, memory-optimised (`r5`/`r6i`) |
+
+```bash
+kubectl apply -f deploy/eks/karpenter/
+```
+
+Verify the NodePools are created and the built-in Auto Mode pools are present:
+
+```bash
+kubectl get nodepool
+```
+
+When deploying CAIPE in the next step, append `-f charts/ai-platform-engineering/values-karpenter.yaml` to the Helm install command to route workloads to the correct node tier.
+
+---
+
+## Step 6: Deploy CAIPE on EKS
 
 You have two main options:
 
@@ -150,7 +216,7 @@ Open http://localhost:8080. Then deploy CAIPE via the Helm chart (as in Option A
 
 ---
 
-## Step 6 (Recommended): Install AWS Load Balancer Controller
+## Step 7 (Recommended): Install AWS Load Balancer Controller
 
 For production-style ingress (e.g. LoadBalancer services), install the AWS Load Balancer Controller:
 
@@ -221,6 +287,27 @@ aws configure get region
 - Check EC2 limits:  
   `aws ec2 describe-account-attributes --attribute-names supported-platforms`
 
+### CloudFormation stack already exists
+
+A previous cluster creation attempt failed and left a partial stack behind. Delete it before retrying:
+
+```bash
+aws cloudformation delete-stack --stack-name eksctl-dev-eks-cluster-cluster
+aws cloudformation wait stack-delete-complete --stack-name eksctl-dev-eks-cluster-cluster
+```
+
+### TerminationProtection is enabled
+
+eksctl enables CloudFormation termination protection on successfully created clusters. Disable it before deleting:
+
+```bash
+aws cloudformation update-termination-protection \
+  --no-enable-termination-protection \
+  --stack-name eksctl-dev-eks-cluster-cluster
+```
+
+Then retry the delete command.
+
 ### kubectl can’t reach the cluster
 
 ```bash
@@ -235,9 +322,13 @@ kubectl config current-context
 
 ## Cleanup
 
-When you’re done, delete the cluster to avoid ongoing AWS charges:
+When you’re done, delete the cluster to avoid ongoing AWS charges. eksctl enables CloudFormation termination protection on successfully created clusters, so disable it first:
 
 ```bash
+aws cloudformation update-termination-protection \
+  --no-enable-termination-protection \
+  --stack-name eksctl-dev-eks-cluster-cluster
+
 eksctl delete cluster -f dev-eks-cluster-config.yaml
 ```
 
@@ -248,6 +339,33 @@ aws cloudformation list-stacks --query 'StackSummaries[?contains(StackName, `eks
 ```
 
 **Important:** Always tear down the cluster when you’re not using it to prevent unexpected charges.
+
+### Clean up CloudWatch logs
+
+EKS does not delete the control plane log group when the cluster is deleted. Remove it manually:
+
+```bash
+aws logs delete-log-group --log-group-name /aws/eks/dev-eks-cluster/cluster
+```
+
+### Clean up the KMS key
+
+KMS keys cannot be deleted immediately; They must be scheduled for deletion with a minimum 7-day waiting period. Delete the alias first, then schedule the key:
+
+```bash
+# Look up the key ARN via the alias
+KEY_ARN=$(aws kms describe-key \
+  --key-id alias/dev-eks-cluster-secrets \
+  --query KeyMetadata.Arn --output text)
+
+aws kms delete-alias --alias-name alias/dev-eks-cluster-secrets
+
+aws kms schedule-key-deletion \
+  --key-id "$KEY_ARN" \
+  --pending-window-in-days 7
+```
+
+The key will be permanently deleted after the pending window. You can cancel before then with `aws kms cancel-key-deletion --key-id "$KEY_ARN"`.
 
 ---
 
