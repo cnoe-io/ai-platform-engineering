@@ -689,7 +689,7 @@ describe("Slack channel ReBAC APIs", () => {
     });
     expect(body.data.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/stale-mongo-agent.*OpenFGA tuple is missing/i),
+        expect.stringMatching(/Stale Mongo Agent.*channel authorization entry is missing/i),
       ])
     );
     expect(body.data.warnings).not.toEqual(
@@ -724,7 +724,7 @@ describe("Slack channel ReBAC APIs", () => {
       error: "OpenFGA tuple read failed: 400",
     });
     expect(body.data.warnings).toEqual(
-      expect.arrayContaining([expect.stringMatching(/Slack bot cannot read OpenFGA tuples/i)])
+      expect.arrayContaining([expect.stringMatching(/Cannot verify channel permissions.*authorization service/i)])
     );
   });
 
