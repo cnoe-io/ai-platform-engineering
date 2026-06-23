@@ -1184,7 +1184,7 @@ describe('chat-store', () => {
 
   describe('createConversation', () => {
     it('creates conversation on server in MongoDB mode', async () => {
-      const id = await useChatStore.getState().createConversation();
+      const id = await useChatStore.getState().createConversation('agent-1');
 
       expect(id).toBe('server-generated-id');
       expect(useChatStore.getState().conversations).toHaveLength(1);
@@ -1194,6 +1194,7 @@ describe('chat-store', () => {
         expect.objectContaining({
           title: 'New Conversation',
           client_type: 'webui',
+          agent_id: 'agent-1',
         })
       );
     });
@@ -1203,12 +1204,18 @@ describe('chat-store', () => {
 
       // The store is already created, but createConversation checks
       // getStorageMode() internally on each call
-      const id = await useChatStore.getState().createConversation();
+      const id = await useChatStore.getState().createConversation('agent-1');
 
       expect(id).toBeDefined();
       expect(useChatStore.getState().conversations).toHaveLength(1);
       // In localStorage mode, should not call server
       expect(mockApiClient.createConversation).not.toHaveBeenCalled();
+    });
+
+    it('rejects missing agent id', async () => {
+      await expect(useChatStore.getState().createConversation('')).rejects.toThrow(
+        'agentId is required',
+      );
     });
   });
 

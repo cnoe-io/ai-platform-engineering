@@ -5,8 +5,8 @@
  * -----
  * The Playwright suite owns ONLY the `surface: ui_bff` rows that need a
  * real browser session (login flow, SSO redirect, cookie-set, audit-log
- * tail). Every other surface (supervisor / mcp / dynamic_agents / rag /
- * slack_bot) is exercised by the pytest matrix-driver
+ * tail). Every other surface (mcp / dynamic_agents / rag / slack_bot) is
+ * exercised by the pytest matrix-driver
  * (`tests/rbac/unit/py/test_matrix_driver.py`).
  *
  * Why a separate config (vs. the dev `next` test runner)?
@@ -16,9 +16,9 @@
  *    activated by `make test-rbac-up` (see Makefile E2E_COMPOSE_ENV).
  *  - Port band: caipe-ui MUST stay on host :3000 (Keycloak's caipe-ui
  *    client only allow-lists http://localhost:3000/* as a redirect URI,
- *    see deploy/keycloak/realm-config.json). Mongo + supervisor move to
- *    the 28xxx band (28017, 28000) to avoid collisions with a host-side
- *    Mongo on 27017 and an in-stack agent-splunk that publishes 8010.
+ *    see deploy/keycloak/realm-config.json). Mongo and test stubs move
+ *    to the 28xxx band (28017, 28000) to avoid collisions with a
+ *    host-side Mongo on 27017 and an in-stack service that publishes 8010.
  *  - Each persona is a Playwright "project" — Playwright runs the same
  *    spec set once per project, mints a real Keycloak token via the
  *    fixture in `tests/rbac/fixtures/keycloak.ts`, and stores it in the
@@ -34,7 +34,7 @@
  *   E2E_UI_URL          default http://localhost:3000   (IdP-pinned; not remapped)
  *   E2E_KC_URL          default http://localhost:7080   (dev publishes this; not remapped)
  *   E2E_KC_REALM        default cnoe
- *   E2E_AUDIT_API       default http://localhost:28000/_test/audit (supervisor stub)
+ *   E2E_AUDIT_API       default http://localhost:28000/_test/audit (audit stub)
  *
  * Artifacts
  * ---------

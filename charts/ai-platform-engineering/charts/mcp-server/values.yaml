@@ -1,6 +1,6 @@
 # Default values for the mcp-server subchart.
 # Deploys one agent's MCP server (Deployment + Service). Instantiated once per
-# agent via aliases (agent-argocd, agent-jira, …) from the parent Chart.yaml.
+# MCP server via aliases (mcp-argocd, mcp-jira, ...) from the parent Chart.yaml.
 agentExports:
   data:
     enabled: true

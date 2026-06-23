@@ -20,7 +20,7 @@ TooltipTrigger,
 import { useToast } from "@/components/ui/toast";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
@@ -207,11 +207,11 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for the CAIPE API path (polls every 30 seconds)
+  // Health check for the Dynamic Agents runtime API path (polls every 30 seconds)
   const {
-    status: caipeStatus,
-    storageMode
-  } = useCAIPEHealth();
+    status: runtimeStatus,
+  } = useAgentRuntimeHealth();
+  const storageMode = config.storageMode;
 
   // Health check for RAG server (polls every 30 seconds)
   const {
@@ -257,10 +257,10 @@ export function AppHeader() {
   // dependencies mark the system as disconnected; optional RAG failures are
   // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
-    if (caipeStatus === "checking") return "checking";
+    if (runtimeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
     if (platformProbeStatus === "checking") return "checking";
-    if (caipeStatus === "disconnected") return "disconnected";
+    if (runtimeStatus === "disconnected") return "disconnected";
     if (platformProbeStatus === "down") return "disconnected";
     if (platformProbeStatus === "degraded") return "degraded";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
@@ -347,9 +347,8 @@ export function AppHeader() {
   //   - the title / aria-label lists alerts in the same order so the
   //     hover-text is stable.
   //
-  // Counts use the same numbers each individual source previously
-  // displayed in its own chip, so the total in the unified pill is
-  // a simple sum across the visible sources.
+  // Counts are source-owned and additive, so the total in the unified
+  // pill is a simple sum across the visible sources.
   type AdminAlertSource = {
     id: string;
     label: string;
@@ -436,7 +435,7 @@ export function AppHeader() {
       Icon: Database,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+    storageMode === "mongodb" && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
@@ -1101,20 +1100,14 @@ export function AppHeader() {
             </Popover>
           )}
           {/*
-            Unified admin alerts pill. Replaces four previously separate
-            chips (Migrations required, Version metadata needed,
-            Migration override active, Keycloak unreachable / failing
-            invariants) with a single labelled `Alerts: <total>` trigger
-            so the header stays compact when multiple subsystems flag
-            issues simultaneously. Trigger severity is the worst across
-            all visible sources (red wins over amber).
+            Unified admin alerts pill. A single labelled `Alerts: <total>`
+            trigger keeps the header compact when multiple subsystems flag
+            issues simultaneously. Trigger severity is the worst across all
+            visible sources (red wins over amber).
 
-            Clicking the pill opens a popover that lists EVERY active
-            alert as its own row, each with its own GuardedLink to the
-            relevant admin tab. This replaces the previous "single
-            deep-link to the highest-severity source" behavior which
-            silently hid lower-severity items and produced confusing
-            no-ops when the user was already on the destination tab.
+            Clicking the pill opens a popover that lists every active alert
+            as its own row, each with its own GuardedLink to the relevant
+            admin tab so lower-severity items remain actionable.
 
             Per-row navigation uses GuardedLink so unsaved-changes
             guards still fire. The popover closes itself on row click

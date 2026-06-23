@@ -30,9 +30,8 @@ NC='\033[0m'
 CLUSTER_NAME=""
 ENABLE_RAG=false
 ENABLE_TRACING=false
-# Redis persistence: default ON. Conversation checkpoints + cross-thread
-# memory survive pod restarts in baseline CAIPE. Set ENABLE_PERSISTENCE=false
-# or pass --no-persistence to skip.
+# Dynamic-agent runtime persistence is backed by MongoDB in the baseline stack.
+# The persistence flags are accepted below for CLI compatibility.
 ENABLE_PERSISTENCE="${ENABLE_PERSISTENCE:-true}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 OPENAI_ENDPOINT="https://api.openai.com/v1"
@@ -55,7 +54,6 @@ LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; 
 # (detect_deployed_features) uses these flags to decide whether to inherit the
 # *deployed* RAG embeddings provider/model — mirroring LLM_PROVIDER, which is
 # empty by default and inherited from llm-secret.
-# assisted-by claude code claude-opus-4-8
 _EMBEDDINGS_MODEL_EXPLICIT="${EMBEDDINGS_MODEL:+set}"
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
 _EMBEDDINGS_PROVIDER_EXPLICIT="${EMBEDDINGS_PROVIDER:+set}"
@@ -157,7 +155,6 @@ OLLAMA_PORT=11434
 # default (http://localhost:11434) is the pod's own loopback and cannot reach
 # Ollama, so on a k8s/kind deploy this must point at an in-cluster Ollama
 # (see deploy/kind/ollama.yaml). Resolved per-use in create_namespace_and_secrets.
-# assisted-by claude code claude-opus-4-8
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
@@ -196,12 +193,8 @@ TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
 COMPOSE_ENV_FILE=""
-COMPOSE_PROFILES_DEFAULT="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor"
+COMPOSE_PROFILES_DEFAULT="mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb,web_ingestor"
 USE_DOCKER_COMPOSE=false
-# Dynamic agents: default ON (custom agent builder UI is part of the
-# baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
-# --no-dynamic-agents to skip.
-ENABLE_DYNAMIC_AGENTS="${ENABLE_DYNAMIC_AGENTS:-true}"
 # Chat-bot surfaces (the slack-bot / webex-bot deployments — distinct from the
 # slack/webex MCP agents). Default OFF; enabled via --slack-bot / --webex-bot,
 # the ENABLE_SLACK_BOT / ENABLE_WEBEX_BOT env vars, or (for parity with
@@ -216,7 +209,6 @@ _SLACK_BOT_FORCED=""
 _WEBEX_BOT_FORCED=""
 # Agents selected interactively or via CAIPE_SELECTED_AGENTS; empty means all
 # defaults are used (non-interactive path).
-# assisted-by Codex Codex-sonnet-4-6
 SELECTED_AGENTS=()
 CAIPE_SELECTED_AGENTS="${CAIPE_SELECTED_AGENTS:-}"
 if [[ -n "$CAIPE_SELECTED_AGENTS" ]]; then
@@ -233,7 +225,6 @@ fi
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
 # would stop bash from reading the rest of the script.  Instead, open
 # /dev/tty on fd 3 and redirect all interactive `read` calls to <&3.
-# assisted-by Codex Codex-sonnet-4-6
 for _arg in "$@"; do
   case "$_arg" in
     --non-interactive) NON_INTERACTIVE=true ;;
@@ -257,9 +248,11 @@ fi
 
 cleanup_on_exit() {
   # Kill tracked PIDs
-  for pid in "${PF_PIDS[@]}"; do
-    kill "$pid" 2>/dev/null || true
-  done
+  if ((${#PF_PIDS[@]} > 0)); then
+    for pid in "${PF_PIDS[@]}"; do
+      kill "$pid" 2>/dev/null || true
+    done
+  fi
   # Fallback: kill any kubectl port-forward processes started for our services
   pkill -f "kubectl port-forward.*caipe-dynamic-agents.*${DYNAMIC_AGENTS_PORT:-8001}:8001" 2>/dev/null || true
   pkill -f "kubectl port-forward.*caipe-caipe-ui.*${UI_PORT:-3000}:3000" 2>/dev/null || true
@@ -848,7 +841,6 @@ choose_cluster() {
       [[ -n "$c" ]] && kind_clusters+=("$c")
     done < <(kind get clusters 2>/dev/null)
 
-    # assisted-by claude code claude-sonnet-4-6
     # bash 3.2 (macOS default) treats ${empty_array[@]} as unbound with set -u
     if [[ ${#kind_clusters[@]} -gt 0 ]]; then
       for c in "${kind_clusters[@]}"; do
@@ -2209,8 +2201,8 @@ choose_features() {
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     log "AgentGateway enabled (required)"
     log "RBAC runtime enabled (required — Keycloak + OpenFGA)"
-    $ENABLE_PERSISTENCE && log "Redis persistence enabled (default; pass --no-persistence to skip)" || log "Persistence disabled (--no-persistence)"
-    $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (default; pass --no-dynamic-agents to skip)" || log "Dynamic agents disabled (--no-dynamic-agents)"
+    log "Dynamic-agent persistence uses caipe-mongodb"
+    log "Dynamic Agents runtime included"
     $ENABLE_METALLB && log "MetalLB enabled (default; pass --no-metallb to skip)" || log "MetalLB disabled (--no-metallb)"
     if $ENABLE_INGRESS; then
       if [[ -z "$CAIPE_DOMAIN" ]]; then
@@ -2700,8 +2692,8 @@ choose_features() {
       log "Secret '${_secret_name}' already exists in cluster"
       if ask_yn "Keep existing ${_agent} credentials?" "y"; then
         HELM_AGENT_ARGS+=(
-          --set "tags.agent-${_agent}=true"
-          --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
+          --set "tags.mcp-${_agent}=true"
+          --set "mcp-${_agent}.agentSecrets.secretName=${_secret_name}"
         )
         continue
       fi
@@ -2785,12 +2777,12 @@ choose_features() {
         -n caipe "${_secret_args[@]}" \
         --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
       HELM_AGENT_ARGS+=(
-        --set "tags.agent-${_agent}=true"
-        --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
+        --set "tags.mcp-${_agent}=true"
+        --set "mcp-${_agent}.agentSecrets.secretName=${_secret_name}"
       )
       log "${_agent}: secret created"
     else
-      $_skip && HELM_AGENT_ARGS+=(--set "tags.agent-${_agent}=false")
+      $_skip && HELM_AGENT_ARGS+=(--set "tags.mcp-${_agent}=false")
     fi
   done
 
@@ -2799,20 +2791,11 @@ choose_features() {
   for _agent in "${_all_agents[@]}"; do
     local _selected=false
     for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_agent" == "$_s" ]] && { _selected=true; break; }; done
-    $_selected || HELM_AGENT_ARGS+=(--set "tags.agent-${_agent}=false")
+    $_selected || HELM_AGENT_ARGS+=(--set "tags.mcp-${_agent}=false")
   done
 
   echo ""
-  if $ENABLE_DYNAMIC_AGENTS; then
-    log "Dynamic agents enabled (custom agent builder)"
-  else
-    if ask_yn "Enable dynamic agents (custom agent builder)?" "y"; then
-      ENABLE_DYNAMIC_AGENTS=true
-      log "Dynamic agents enabled"
-    else
-      log "Dynamic agents skipped"
-    fi
-  fi
+  log "Dynamic Agents runtime included (chat and custom agent builder)"
 
   if $ENABLE_TRACING; then
     log "Langfuse tracing already enabled (detected from cluster)"
@@ -2834,22 +2817,7 @@ choose_features() {
   log "RBAC runtime enabled (required — Keycloak + OpenFGA + ext_authz)"
 
   echo ""
-  echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
-  echo -e "  ${DIM}in a dedicated Redis Stack pod, surviving pod restarts.${NC}"
-  if $ENABLE_PERSISTENCE; then
-    log "Redis persistence enabled by default (checkpoints + cross-thread memory)"
-    if ! ask_yn "Keep Redis persistence?" "y"; then
-      ENABLE_PERSISTENCE=false
-      log "Redis persistence disabled"
-    fi
-  else
-    if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "y"; then
-      ENABLE_PERSISTENCE=true
-      log "Redis persistence enabled"
-    else
-      log "Persistence skipped"
-    fi
-  fi
+  echo -e "  ${DIM}Dynamic-agent checkpoints use the caipe-mongodb service in the baseline stack.${NC}"
 
   echo ""
   echo -e "  ${DIM}MetalLB provides real LoadBalancer IPs for kind clusters. Required for ingress.${NC}"
@@ -3158,10 +3126,10 @@ provision_agent_secrets() {
     _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
     log "Agent ${agent}: secret '${secret_name}' ready"
 
-    # tags.agent-* deploys the agent's MCP server as its own service.
+    # tags.mcp-* deploys the MCP server as its own service.
     HELM_AGENT_ARGS+=(
-      --set "tags.agent-${agent}=true"
-      --set "agent-${agent}.agentSecrets.secretName=${secret_name}"
+      --set "tags.mcp-${agent}=true"
+      --set "mcp-${agent}.agentSecrets.secretName=${secret_name}"
     )
   done
 }
@@ -3229,7 +3197,7 @@ provision_ui_secret() {
     NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS NEXT_PUBLIC_RAG_ENABLED
     NEXT_PUBLIC_RAG_URL NEXT_PUBLIC_RAG_WEBUI_URL NEXT_PUBLIC_MONGODB_ENABLED
     AUDIT_LOGS_ENABLED WORKFLOW_RUNNER_ENABLED FEEDBACK_ENABLED NPS_ENABLED
-    DYNAMIC_AGENTS_ENABLED DYNAMIC_AGENTS_URL
+    DYNAMIC_AGENTS_URL
   )
   for key in "${next_public_keys[@]}"; do
     local val
@@ -3633,7 +3601,7 @@ create_namespace_and_secrets() {
   # provision_ui_secret; here we synthesize them so a vanilla install can do SSO.
   # NEXTAUTH_SECRET is generated once and persisted (idempotent re-runs). These
   # MUST live in the Secret (not config) so the chart's envFrom secretRef wins
-  # over the empty config defaults. assisted-by Claude:claude-opus-4-8
+  # over the empty config defaults.
   if $ENABLE_RBAC_RUNTIME && [[ -z "$UI_ENV_FILE" ]]; then
     local _ui_nextauth
     _ui_nextauth=$(kubectl get secret caipe-ui-secret -n caipe \
@@ -4037,7 +4005,7 @@ patch_deployment_with_ca() {
 # 3. RAG startup sequencing — waits for Milvus, then restarts RAG server
 #    with SKIP_INIT_TESTS=false so it can run its full initialization checks.
 
-AGENT_DEPLOYMENTS="caipe-dynamic-agents caipe-agent-netutils"
+AGENT_DEPLOYMENTS="caipe-dynamic-agents caipe-mcp-netutils-mcp"
 
 # Resolve script dir (used for bundled kind manifests).
 if [[ -f "$0" ]]; then
@@ -4150,52 +4118,9 @@ post_deploy_patches() {
 
   # ── 7. MongoDB for dynamic-agents ──
   # The dynamic-agents chart defaults MONGODB_URI to localhost:27017 (no-op
-  # default). When --dynamic-agents is set we deploy a bitnami/mongodb instance
-  # (if none exists) and patch the ConfigMap with the real cluster URI.
-  if $ENABLE_DYNAMIC_AGENTS; then
-    _ensure_dynamic_agents_mongodb
-  fi
-
-  # ── 8. Remove caipe-agent-aws-mcp ──
-  # The agent-aws subchart always deploys an aws-mcp sidecar deployment even
-  # though the AWS agent does not use MCP. The image (ghcr.io/cnoe-io/mcp-aws)
-  # does not exist, so the pod stays in ImagePullBackOff. Delete it so it does
-  # not pollute the namespace. This is safe to re-run; kubectl delete is a no-op
-  # when the deployment is already gone.
-  if kubectl get deployment caipe-agent-aws-mcp -n caipe &>/dev/null; then
-    kubectl delete deployment caipe-agent-aws-mcp -n caipe &>/dev/null \
-      && log "Deleted caipe-agent-aws-mcp (AWS agent does not use MCP)"
-  fi
-
-  # ── 8b. Set MCP_MODE=http on all agents that have a separate MCP sidecar pod ──
-  # By default MCP_MODE is unset (= "stdio"), which causes agents to try to spawn
-  # the MCP server as a local subprocess. Each agent's MCP server runs as a
-  # separate pod (caipe-agent-<name>-mcp), so each agent must use HTTP mode to
-  # reach it over the cluster network.
-  # Without this fix agents only have fallback tools (tool_result_to_file, wait)
-  # and cannot perform any real operations (e.g. Webex post_message, Jira create_issue).
-  # We patch MCP_MODE into each agent's secret (preferred) so it survives pod restarts.
-  local mcp_agents=(argocd backstage confluence jira komodor pagerduty slack splunk webex)
-  for _agent in "${mcp_agents[@]}"; do
-    local _secret="caipe-${_agent}-secret"
-    local _deploy="caipe-agent-${_agent}"
-    if kubectl get deployment "$_deploy" -n caipe &>/dev/null; then
-      if kubectl get secret "$_secret" -n caipe &>/dev/null; then
-        kubectl patch secret "$_secret" -n caipe --type=merge \
-          -p '{"stringData":{"MCP_MODE":"http"}}' &>/dev/null \
-          && log "${_agent} agent: MCP_MODE=http patched into secret"
-      else
-        # netutils and others without a dedicated secret: use kubectl set env
-        kubectl set env deployment/"$_deploy" -n caipe MCP_MODE=http &>/dev/null \
-          && log "${_agent} agent: MCP_MODE=http set via deployment env"
-      fi
-    fi
-  done
-  # netutils has no dedicated secret
-  if kubectl get deployment caipe-agent-netutils -n caipe &>/dev/null; then
-    kubectl set env deployment/caipe-agent-netutils -n caipe MCP_MODE=http &>/dev/null \
-      && log "netutils agent: MCP_MODE=http set via deployment env"
-  fi
+  # default). Setup deploys a bitnami/mongodb instance (if none exists) and
+  # patches the ConfigMap with the real cluster URI.
+  _ensure_dynamic_agents_mongodb
 
   # ── 9. Domain-scoped Keycloak SSO setup ──
   if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
@@ -4246,7 +4171,6 @@ post_deploy_patches() {
 # public DNS domain. Non-interactive runs honour ENABLE_GITHUB_SOCIAL + the
 # GITHUB_SOCIAL_CLIENT_ID/SECRET env vars and never prompt. If declined or
 # unconfigured, the deployment falls back to local Keycloak username/password.
-# assisted-by Claude:claude-opus-4-8
 prompt_github_social() {
   $ENABLE_RBAC_RUNTIME || return 0
   [[ -n "$CAIPE_DOMAIN" ]] || return 0
@@ -4282,7 +4206,7 @@ prompt_github_social() {
 # Runs only when GitHub social login was requested. The admin API is NOT exposed
 # publicly, so we reach it over a temporary port-forward and authenticate with
 # the caipe-platform service account (client_credentials). Idempotent: updates
-# the broker in place when it already exists. assisted-by Claude:claude-opus-4-8
+# the broker in place when it already exists.
 configure_github_idp() {
   $ENABLE_GITHUB_SOCIAL || return 0
   $ENABLE_RBAC_RUNTIME || { warn "GitHub social login requires the in-chart Keycloak (RBAC runtime); skipping"; return 0; }
@@ -4340,7 +4264,6 @@ JSON
 # web-ingestor sidecar (token acquisition) read their INGESTOR_OIDC_* vars from
 # that secret via envFrom, so no credentials appear in Helm values.
 # Must be called after Keycloak is Ready and before helm install/upgrade.
-# assisted-by claude code claude-sonnet-4-6
 provision_rag_ingestor_client() {
   $ENABLE_RAG || return 0
 
@@ -4492,7 +4415,6 @@ JSON
 # install; the imported URIs are never updated by helm upgrade, so a domain
 # change (e.g. caipe.local.me → caipe.example.com) leaves stale URIs
 # that cause "Invalid parameter: redirect_uri" on login.
-# assisted-by claude code claude-sonnet-4-6
 update_keycloak_client_urls() {
   $ENABLE_RBAC_RUNTIME || return 0
   [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
@@ -4557,7 +4479,6 @@ update_keycloak_client_urls() {
 # tokens against OIDC_CLIENT_ID=caipe-ui; without this mapper the token has
 # aud=["account"] only and the dynamic-agents streaming endpoint returns 401
 # BEARER_AUDIENCE_MISMATCH.
-# assisted-by claude code claude-sonnet-4-6
 provision_caipe_ui_audience_mapper() {
   $ENABLE_RBAC_RUNTIME || return 0
   [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
@@ -4631,7 +4552,6 @@ provision_caipe_ui_audience_mapper() {
 # RBAC runtime + a DNS domain (SSO needs a browser-reachable issuer) and is
 # skipped when an upstream IdP is brokered (IDP_ISSUER set in an env file) —
 # in that case identity comes from the broker, not a local password user.
-# assisted-by Claude:claude-opus-4-8
 _local_admin_active() {
   $ENABLE_RBAC_RUNTIME || return 1
   [[ "$ENABLE_LOCAL_ADMIN" != "false" ]] || return 1
@@ -4658,7 +4578,7 @@ _local_admin_active() {
 # temporary port-forward and authenticate with the master-realm bootstrap admin.
 # Idempotent: resets passwords in place when users exist, and persists each
 # credential in its own Secret (caipe-local-admin / caipe-local-user) so re-runs
-# reuse them. assisted-by Claude:claude-opus-4-8
+# reuse them.
 provision_local_users() {
   _local_admin_active || return 0
   step "Provisioning local Keycloak logins (no upstream IdP)"
@@ -4779,22 +4699,9 @@ _patch_rag_server_envfrom() {
   log "Patched rag-server: added rag-azure-openai-secret to envFrom"
 }
 
-# R2 (May 2026): The bitnami/mongodb install used to ship with the
-# literal password "changeme" baked into four sites in this script
-# (helm upgrade auth.rootPassword + auth.passwords[0], plus the
-# MONGODB_URI written into the dynamic-agents/ui ConfigMaps).
-# Any operator who ran the workshop on-ramp inherited the same admin
-# password — and the same cluster-internal `mongodb://admin:changeme@…`
-# URI made it into the BFF's session-store Secret.
-#
-# This helper produces a per-install random password and persists it
-# in the `caipe-mongodb-credentials` Secret so:
-#   (a) re-runs of setup-caipe.sh reuse the password (idempotent),
-#   (b) the password is recoverable via `kubectl get secret …` for
-#       anyone doing post-hoc debugging or backup/restore.
-#
-# Mirrors the Langfuse `existing_pw` pattern already in this script
-# (see lines ~2671-2685). assisted-by Claude:claude-opus-4-7
+# MongoDB credentials are random per install and persisted in the
+# `caipe-mongodb-credentials` Secret so reruns reuse the same password and
+# operators can recover it for debugging, backup, or restore.
 # True when a shared Postgres should be deployed: opt-in via ENABLE_SHARED_POSTGRES
 # AND at least one consumer that needs persistence (RBAC runtime or LiteLLM DB).
 _shared_postgres_active() {
@@ -5036,7 +4943,6 @@ _resolve_mongodb_password() {
 # — it refuses to auto-generate because Keycloak stores the bootstrap admin in
 # its database, so a regenerated value on upgrade would silently drift from the
 # already-bootstrapped admin. Mirrors _resolve_mongodb_password.
-# assisted-by Claude:claude-opus-4-8
 _resolve_keycloak_admin_password() {
   # The keycloak subchart owns the caipe-keycloak-admin Secret (keys
   # username/password) and marks it helm.sh/resource-policy: keep, so it
@@ -5835,7 +5741,7 @@ RBACEOF
 # CAIPE Helm install when the RBAC runtime is enabled, because the chart renders
 # Gateway / HTTPRoute / AgentgatewayBackend / AgentgatewayPolicy objects that
 # Helm validates against installed CRDs at render time. Also reused by the
-# legacy deploy_agentgateway path. assisted-by Claude:claude-opus-4-8
+# legacy deploy_agentgateway path.
 _install_agentgateway_crds() {
   log "Installing Gateway API CRDs..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml 2>&1 \
@@ -5919,9 +5825,9 @@ _create_agentgateway_mcp_routes() {
   while IFS= read -r svc_name; do
     [[ -z "$svc_name" ]] && continue
 
-    # Derive a short agent name (e.g. "caipe-agent-argocd-mcp" -> "argocd")
+    # Derive a short server name (e.g. "caipe-mcp-argocd-mcp" -> "argocd")
     local agent_name
-    agent_name=$(echo "$svc_name" | sed 's/^caipe-//' | sed 's/^agent-//' | sed 's/-mcp$//')
+    agent_name=$(echo "$svc_name" | sed 's/^caipe-//' | sed 's/^mcp-//' | sed 's/^agent-//' | sed 's/-mcp$//')
 
     local svc_port
     svc_port=$(kubectl get svc "$svc_name" -n caipe -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8000")
@@ -5987,8 +5893,7 @@ deploy_caipe() {
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
     --set tags.caipe-ui=true
-    --set tags.agent-weather=false
-    --set tags.agent-netutils=true
+    --set tags.mcp-netutils=true
     # The UI reaches the dynamic-agents runtime server-side via DYNAMIC_AGENTS_URL.
     # The caipe-ui chart already defaults that to http://<release>-dynamic-agents:8001
     # (the internal k8s service), so no override is needed here. The browser never
@@ -6013,7 +5918,6 @@ deploy_caipe() {
   # NEXTAUTH_SECRET + caipe-ui client secret are created in
   # create_namespace_and_secrets (caipe-ui-secret). Skipped for IP domains (no
   # browser-reachable issuer) and when a ui-env-file already provides OIDC.
-  # assisted-by Claude:claude-opus-4-8
   if $ENABLE_RBAC_RUNTIME && [[ -z "$UI_ENV_FILE" \
       && -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     helm_args+=(
@@ -6043,16 +5947,14 @@ deploy_caipe() {
     log "Wiring ${#HELM_AGENT_ARGS[@]} agent Helm flags from interactive selection"
   fi
 
-  # Dynamic agents (custom agent builder)
-  if $ENABLE_DYNAMIC_AGENTS; then
-    # Service name: <release>-dynamic-agents (chart nameOverride="dynamic-agents")
-    local release_name="caipe"
-    local da_svc="${release_name}-dynamic-agents"
-    local ns="caipe"
+  # Dynamic Agents runtime (chat and custom agent builder).
+  # Service name: <release>-dynamic-agents (chart nameOverride="dynamic-agents")
+  local release_name="caipe"
+  local da_svc="${release_name}-dynamic-agents"
+  local ns="caipe"
 
     helm_args+=(
       --set "tags.dynamic-agents=true"
-      --set "caipe-ui.config.DYNAMIC_AGENTS_ENABLED=true"
       --set "caipe-ui.config.DYNAMIC_AGENTS_URL=http://${da_svc}:8001"
       # Inject the shared LLM secret (ANTHROPIC_API_KEY / AWS_* / AZURE_*) so
       # dynamic-agents can call the LLM backend.
@@ -6086,7 +5988,7 @@ deploy_caipe() {
     # Build models list from llm-secret LLM_PROVIDER
     local _provider="${LLM_PROVIDER:-anthropic-claude}"
 
-    # Write auth/OIDC config into the values file. R2 (May 2026):
+    # Write auth/OIDC config into the values file.
     # MONGODB_ROOT_PASSWORD comes from _resolve_mongodb_password() which
     # is called by _ensure_dynamic_agents_mongodb() — guaranteed to run
     # before deploy_caipe() per the orchestration at line ~6060.
@@ -6229,7 +6131,7 @@ DAEOF
         name: "${_name}"
         description: "${_desc}"
         transport: "http"
-        endpoint: "http://caipe-agent-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
+        endpoint: "http://caipe-mcp-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
         enabled: true
 DAEOF
       _seeded+=("$_a")
@@ -6252,7 +6154,7 @@ DAEOF
         name: "${_name}"
         description: "${_desc}"
         transport: "http"
-        endpoint: "http://caipe-agent-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
+        endpoint: "http://caipe-mcp-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
         enabled: true
 DAEOF
     done
@@ -6269,9 +6171,8 @@ DAEOF
 DAEOF
     fi
 
-    helm_args+=(--values "$_da_values_file")
-    log "caipe-ui appConfig + dynamic-agents auth: models + MCP servers written to ${_da_values_file}"
-  fi
+  helm_args+=(--values "$_da_values_file")
+  log "caipe-ui appConfig + dynamic-agents auth: models + MCP servers written to ${_da_values_file}"
 
   # When a domain is set, push non-sensitive config values from the ui-env-file
   # into the chart ConfigMap (caipe-ui.config.*). The ConfigMap takes precedence
@@ -6486,7 +6387,7 @@ DAEOF
   # dynamic-agents pod must be cycled so it picks up the new issuer from the ConfigMap.
   # Without this it keeps using the internal http://keycloak:8080 issuer URL and rejects
   # every token with "Invalid issuer", blocking all chat in the Custom Agents UI.
-  if $ENABLE_DYNAMIC_AGENTS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+  if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
     if kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
       kubectl rollout status deploy/caipe-dynamic-agents -n caipe --timeout=120s &>/dev/null 2>&1 || true
       log "dynamic-agents: restarted to apply OIDC issuer config"
@@ -6571,7 +6472,7 @@ run_validation() {
 
   # ── MCP agent servers ──
   for agent in netutils; do
-    if kubectl get deployment "caipe-agent-${agent}-mcp" -n caipe &>/dev/null 2>&1; then
+    if kubectl get deployment "caipe-mcp-${agent}-mcp" -n caipe &>/dev/null 2>&1; then
       print_result "$(date '+%H:%M:%S') ✓ ${agent} MCP server deployed"
       pass=$((pass + 1))
     else
@@ -6787,8 +6688,8 @@ run_sanity_tests() {
   fi
 
   # ── Test 4: Sub-agent MCP deployments exist ──
-  for agent_svc in caipe-agent-netutils-mcp; do
-    local agent_label="${agent_svc#caipe-agent-}"
+  for agent_svc in caipe-mcp-netutils-mcp; do
+    local agent_label="${agent_svc#caipe-mcp-}"
     if kubectl get deployment "$agent_svc" -n caipe &>/dev/null; then
       print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} deployment present"
       pass=$((pass + 1))
@@ -7406,11 +7307,9 @@ monitor_port_forwards() {
     echo -e "    ${DIM}kubectl get secret langfuse-credentials -n langfuse -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
     echo ""
   fi
-  if $ENABLE_DYNAMIC_AGENTS; then
-    echo -e "  ${BOLD}Retrieve MongoDB credentials${NC} ${DIM}(R2: random per-install, persisted in caipe-mongodb-credentials):${NC}"
-    echo -e "    ${DIM}kubectl get secret caipe-mongodb-credentials -n caipe -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
-    echo ""
-  fi
+  echo -e "  ${BOLD}Retrieve MongoDB credentials${NC} ${DIM}(R2: random per-install, persisted in caipe-mongodb-credentials):${NC}"
+  echo -e "    ${DIM}kubectl get secret caipe-mongodb-credentials -n caipe -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
+  echo ""
   echo -e "  ${BOLD}Chat:${NC} open the CAIPE UI at ${CYAN}http://localhost:${UI_PORT}${NC}"
   echo ""
   echo -e "  ${YELLOW}${BOLD}Keep this script running to maintain port-forwarding.${NC}"
@@ -7771,10 +7670,6 @@ detect_deployed_features() {
        || kubectl get deployment caipe-keycloak -n caipe &>/dev/null 2>&1; then
     ENABLE_RBAC_RUNTIME=true
   fi
-  if kubectl get deployment caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
-    ENABLE_DYNAMIC_AGENTS=true
-  fi
-
   # Detect chart version from Helm; ignore "unknown" (local chart installs)
   if [[ -z "$CAIPE_CHART_VERSION" ]]; then
     local _detected_version
@@ -7825,7 +7720,6 @@ detect_deployed_features() {
   # EMBEDDINGS_PROVIDER default (openai), dropping the deployed provider's
   # config. Read them here (the upgrade path always runs detect_deployed_features
   # first) so the non-interactive flow reaches parity with the interactive one.
-  # assisted-by claude code claude-opus-4-8
   if $ENABLE_RAG; then
     local _rag_vals
     _rag_vals=$(helm get values caipe -n caipe -o json 2>/dev/null || true)
@@ -7895,14 +7789,14 @@ detect_deployed_features() {
       local _on=false
       for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_a" == "$_s" ]] && { _on=true; break; }; done
       if $_on; then
-        HELM_AGENT_ARGS+=(--set "tags.agent-${_a}=true")
+        HELM_AGENT_ARGS+=(--set "tags.mcp-${_a}=true")
         # Wire existing agent secret if present
         local _sec="caipe-${_a}-secret"
         if kubectl get secret "$_sec" -n caipe &>/dev/null 2>&1; then
-          HELM_AGENT_ARGS+=(--set "agent-${_a}.agentSecrets.secretName=${_sec}")
+          HELM_AGENT_ARGS+=(--set "mcp-${_a}.agentSecrets.secretName=${_sec}")
         fi
       else
-        HELM_AGENT_ARGS+=(--set "tags.agent-${_a}=false")
+        HELM_AGENT_ARGS+=(--set "tags.mcp-${_a}=false")
       fi
     done
   fi
@@ -8015,7 +7909,6 @@ embeddings_provider: "${EMBEDDINGS_PROVIDER:-}"
 embeddings_model: "${EMBEDDINGS_MODEL:-}"
 enable_rag: "${ENABLE_RAG:-false}"
 enable_graph_rag: "${ENABLE_GRAPH_RAG:-false}"
-enable_dynamic_agents: "${ENABLE_DYNAMIC_AGENTS:-true}"
 enable_tracing: "${ENABLE_TRACING:-false}"
 enable_metallb: "${ENABLE_METALLB:-false}"
 enable_ingress: "${ENABLE_INGRESS:-false}"
@@ -8033,7 +7926,7 @@ _load_caipe_config() {
   echo -e "  ${DIM}Saved configuration found: ${CAIPE_CONFIG_FILE}${NC}"
   echo ""
 
-  local _ctx _chart _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _metallb _ingress _domain _agents
+  local _ctx _chart _llm _ollama _omodel _eprov _emodel _rag _grag _tracing _metallb _ingress _domain _agents
   _ctx=$(_cfg_get cluster_context)
   _chart=$(_cfg_get chart_version)
   _llm=$(_cfg_get llm_provider)
@@ -8043,7 +7936,6 @@ _load_caipe_config() {
   _emodel=$(_cfg_get embeddings_model)
   _rag=$(_cfg_get enable_rag)
   _grag=$(_cfg_get enable_graph_rag)
-  _dynagents=$(_cfg_get enable_dynamic_agents)
   _tracing=$(_cfg_get enable_tracing)
   _metallb=$(_cfg_get enable_metallb)
   _ingress=$(_cfg_get enable_ingress)
@@ -8059,7 +7951,6 @@ _load_caipe_config() {
   fi
   [[ -n "$_eprov" ]]      && echo -e "    ${DIM}embeddings:      ${NC}${_eprov} (${_emodel})"
   [[ -n "$_rag" ]]        && echo -e "    ${DIM}RAG:             ${NC}${_rag}  graph-RAG: ${_grag:-false}"
-  [[ -n "$_dynagents" ]]  && echo -e "    ${DIM}dynamic agents:  ${NC}${_dynagents}"
   [[ -n "$_tracing" ]]    && echo -e "    ${DIM}tracing:         ${NC}${_tracing}"
   [[ -n "$_metallb" ]]    && echo -e "    ${DIM}metallb:         ${NC}${_metallb}  ingress: ${_ingress:-false}"
   [[ -n "$_domain" ]]     && echo -e "    ${DIM}domain:          ${NC}${_domain}"
@@ -8082,7 +7973,6 @@ _load_caipe_config() {
   [[ -n "$_emodel"     && -z "${_EMBEDDINGS_MODEL_EXPLICIT:-}" ]] && EMBEDDINGS_MODEL="$_emodel"
   [[ "$_rag"      == "true" ]] && ENABLE_RAG=true
   [[ "$_grag"     == "true" ]] && ENABLE_GRAPH_RAG=true && ENABLE_RAG=true
-  [[ "$_dynagents" == "false" ]] && ENABLE_DYNAMIC_AGENTS=false
   [[ "$_tracing"  == "true"  ]] && ENABLE_TRACING=true
   [[ "$_metallb"  == "true"  ]] && ENABLE_METALLB=true
   [[ "$_metallb"  == "false" ]] && ENABLE_METALLB=false
@@ -8384,9 +8274,7 @@ BANNER
   # webex-bot surfaces) can resolve the hostname on first start (avoiding
   # crash-loop during the pod readiness wait) and so MONGODB_ROOT_PASSWORD is
   # resolved before _write_bot_values builds the bot MONGODB_URI.
-  if $ENABLE_DYNAMIC_AGENTS || $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
-    _ensure_dynamic_agents_mongodb
-  fi
+  _ensure_dynamic_agents_mongodb
 
   # When the RBAC runtime is enabled, the CAIPE chart itself renders the
   # AgentGateway proxy (Gateway, HTTPRoute, AgentgatewayBackend,
@@ -8504,11 +8392,8 @@ Options:
                         Agents talk to one OpenAI-compatible endpoint; upstream provider creds live
                         only in the proxy. Supports anthropic/openai/aws-bedrock/azure-openai. Default OFF.
   --litellm-db          Like --litellm, plus persist LiteLLM virtual keys/spend in the shared Postgres
-  --persistence      Enable Redis persistence for checkpoints and cross-thread memory — default ON
-                     (deploys langgraph-redis subchart; enables fact extraction)
-  --no-persistence   Skip Redis persistence (in-memory checkpointer only)
-  --dynamic-agents    Enable the dynamic agents service (custom agent builder UI) — default ON
-  --no-dynamic-agents Skip the dynamic agents service (opt out of the default)
+  --persistence      Accepted for compatibility; dynamic-agent persistence uses MongoDB
+  --no-persistence   Accepted for compatibility; dynamic-agent persistence uses MongoDB
   --slack-bot        Deploy the Slack bot surface (slack-bot subchart). Auto-enabled when
                      --env-file sets ENABLE_SLACK_BOT/ENABLE_SLACK; needs SLACK_BOT_TOKEN etc.
   --no-slack-bot     Skip the Slack bot surface (overrides the env-file value)
@@ -8665,8 +8550,8 @@ Examples:
   $(basename "$0") --non-interactive --agentgateway                     # deploy with AgentGateway for MCP access
   $(basename "$0") --non-interactive --rbac-runtime                     # deploy Keycloak + OpenFGA + bridge + AgentGateway
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
-  $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
-  $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
+  $(basename "$0") --non-interactive --persistence                      # accepted compatibility flag
+  $(basename "$0") --non-interactive --rag --persistence                # RAG + compatibility flag
   $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com                   # kind + MetalLB + ingress + self-signed TLS
   $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com \
     --tls-cert=/path/to/cert.pem --tls-key=/path/to/key.pem            # kind + MetalLB + ingress + custom TLS
@@ -8724,8 +8609,6 @@ for arg in "$@"; do
     --compose-env-file=*) COMPOSE_ENV_FILE="${arg#--compose-env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --load-config=*)   CAIPE_CONFIG_FILE="${arg#--load-config=}" ;;
-    --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
-    --no-dynamic-agents) ENABLE_DYNAMIC_AGENTS=false ;;
     --slack-bot)       ENABLE_SLACK_BOT=true;  _SLACK_BOT_FORCED=on ;;
     --no-slack-bot)    ENABLE_SLACK_BOT=false; _SLACK_BOT_FORCED=off ;;
     --webex-bot)       ENABLE_WEBEX_BOT=true;  _WEBEX_BOT_FORCED=on ;;

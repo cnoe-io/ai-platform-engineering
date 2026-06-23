@@ -187,7 +187,6 @@ config:
   # "none" (default) disables auto-seeding entirely — use "Import template skills"
   # in the Skills UI to load templates explicitly. Set to a comma-separated list
   # of template IDs to seed only those; leave empty to seed all built-in templates.
-  # assisted-by claude code claude-sonnet-4-6
   BUILTIN_SKILL_IDS: "none"
   # NextAuth URL (non-sensitive)
   NEXTAUTH_URL: "http://localhost:3000"
@@ -215,7 +214,6 @@ config:
   # Leave empty in production. Set to `"true"` only in throwaway clusters
   # where the Keycloak bootstrap admin password is known not to be the
   # default (or has already been rotated).
-  # assisted-by Claude:claude-opus-4-7
   ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK: ""
   # MongoDB configuration
   MONGODB_DATABASE: "caipe"
@@ -264,10 +262,7 @@ config:
   ENV_BADGE: ""
   # Workflow runner: set to "true" to show Run Workflow button and Multi-Step Workflows section
   WORKFLOW_RUNNER_ENABLED: "false"
-  # Dynamic Agents: set to "true" to enable custom agent creation and management
-  # Requires admin role and MongoDB storage mode
-  DYNAMIC_AGENTS_ENABLED: "false"
-  # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
+  # Dynamic Agents service URL. Leave empty to use the chart default.
   DYNAMIC_AGENTS_URL: ""
   # Connections & Secrets credential store. Disabled by default. Use local-cmk
   # only for non-production testing; production must use aws-kms.
@@ -353,26 +348,15 @@ config:
 # admin sync/reload still requires WEBEX_BOT_ADMIN_CLIENT_SECRET when enabled.
 existingSecret: ""
 
-# ---------- Keycloak Admin REST client wiring (R1 upstream fix, May 2026) ----------
+# ---------- Keycloak Admin REST client wiring ----------
 #
 # The BFF's `fetchFreshAdminToken` (ui/src/lib/rbac/keycloak-admin.ts) needs
 # `KEYCLOAK_ADMIN_CLIENT_ID` + `KEYCLOAK_ADMIN_CLIENT_SECRET` in the pod's
 # environment to call the Keycloak Admin REST API via the confidential
-# `caipe-platform` client. Before this block was added, the
-# operator had two flavors of half-fix:
-#
-#   - Set `caipe-ui.existingSecret=<same-secret>` which mounts the Secret
-#     into the pod under the WRONG env-var name (`OIDC_CLIENT_SECRET`).
-#   - Hand-roll an `extraDeploy:` Secret keyed under
-#     `KEYCLOAK_ADMIN_CLIENT_SECRET` and mount it via `existingSecret`.
-#
-# Now: setting `keycloakAdminClient.secretName` to the same Secret the
+# `caipe-platform` client. Set `keycloakAdminClient.secretName` to the same Secret the
 # keycloak chart's `platformClient.secretRef`/`externalSecret` writes
-# auto-injects both env vars correctly. The umbrella chart's
-# `values.yaml` defaults this to `caipe-platform-secret` — the
-# conventional Secret name used across the rest of the chart — so
-# operators who follow the standard naming convention get the wiring
-# for free.
+# so both the BFF and the Keycloak reconciliation Jobs use the same
+# client_secret value.
 #
 # For non-default Secret names (rare): override BOTH
 # `keycloak.platformClient.secretRef` AND `caipe-ui.keycloakAdminClient.secretName`
@@ -384,7 +368,6 @@ existingSecret: ""
 # Leave `secretName` empty in standalone caipe-ui dev installs (where
 # the BFF talks to an external Keycloak via its own credentials in
 # `existingSecret` or `OIDC_CLIENT_SECRET`).
-# assisted-by Claude:claude-opus-4-7
 keycloakAdminClient:
   # Name of the K8s Secret holding the Keycloak Admin REST client_secret.
   # Defaults to "" in the standalone subchart; the umbrella sets this to
@@ -524,7 +507,7 @@ appConfig:
   #   name: "ArgoCD"
   #   description: "ArgoCD operations via MCP"
   #   transport: "http"
-  #   endpoint: "http://agent-argocd-mcp:8000/mcp"
+  #   endpoint: "http://mcp-argocd-mcp:8000/mcp"
   #   enabled: true
   #
   # Example for stdio MCP server:
@@ -562,6 +545,6 @@ appConfig:
   #   steps:
   #     - type: "step"
   #       display_text: "Step description"
-  #       agent_id: "agent-sre"
+  #       agent_id: "mcp-sre"
   #       prompt: "Do something"
   #       on_error: "abort"

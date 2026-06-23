@@ -76,7 +76,7 @@ To remove the environment and free resources:
 
 ### What the script does
 
-- Deploys CAIPE (supervisor, agents, UI) on your Kind cluster
+- Deploys CAIPE (UI, Dynamic Agents, MCP servers) on your Kind cluster
 - Configures your chosen LLM provider and stores credentials in Kubernetes secrets
 - Optionally deploys RAG (knowledge base) and Langfuse (tracing)
 - Can create the Kind cluster for you and run health checks
@@ -222,7 +222,7 @@ You can monitor progress in the CAIPE UI under the Knowledge Base tab.
 
 | Service | Local port |
 |---------|------------|
-| Supervisor (A2A API) | 8000 |
+| Dynamic Agents API | 8001 |
 | CAIPE UI | 3000 |
 | Langfuse (tracing) | 3100 |
 | RAG Server | 9446 |

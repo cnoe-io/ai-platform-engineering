@@ -42,14 +42,11 @@ CAIPE is empowered by a set of specialized sub-agents that integrate seamlessly 
 Together, these sub-agents enable users to perform complex operations using agentic workflows by invoking relavant APIs using MCP tools. The system also includes:
 
 * **A curated prompt library**: A carefully evaluated collection of prompts designed for high accuracy and optimal workflow performance in multi-agent systems. These prompts guide persona agents (such as "Platform Engineer" or "Incident Engineer") using standardized instructions and questions, ensuring effective collaboration, incident response, platform operations, and knowledge sharing.
-* **Multiple End-user interfaces**: Easily invoke agentic workflows programmatically using standard A2A protocol or through intuitive UIs, enabling seamless integration with existing systems like Backstage (Internal Developer Portals).
+* **Multiple End-user interfaces**: Invoke agentic workflows programmatically through Dynamic Agents APIs or through intuitive UIs, enabling seamless integration with existing systems like Backstage (Internal Developer Portals).
 * **End-to-end security**: Secure agentic communication and task execution across all agents, ensuring API RBACs to meet enterprise requirements.
 * **Enterprise-ready cloud deployment architecture**: Reference deployment patterns for scalable, secure, and resilient multi-agent systems in cloud and hybrid environments
 
 *For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
-
-![](docs/docs/architecture/images/5_caipe-architecture-a2a-over-gateway.svg)
-
 
 ![](docs/docs/architecture/images/6_solution_architecture.svg)
 
@@ -121,7 +118,7 @@ CAIPE runs a **dynamic-agents** runtime that drives user-defined agents, each
 backed by tools served from **per-tool MCP server** containers. The UI reaches
 the runtime server-side; chat streams (AG-UI/SSE) are proxied through the
 Next.js BFF. Enable the integrations you need via Docker Compose profiles (or
-the matching Helm `tags.agent-*`); each enabled integration starts its own MCP
+the matching Helm `tags.mcp-*`); each enabled integration starts its own MCP
 server.
 
 ```bash
@@ -171,14 +168,14 @@ Agents automatically use the knowledge base when answering questions about inges
 ### Kubernetes Deployment
 
 For Kubernetes, use the Helm chart. Enable the UI, the dynamic-agents runtime,
-and one `tags.agent-*` flag per integration you want (each deploys its own MCP
+and one `tags.mcp-*` flag per integration you want (each deploys its own MCP
 server):
 
 ```bash
 helm install caipe charts/ai-platform-engineering \
   --set tags.caipe-ui=true \
   --set tags.dynamic-agents=true \
-  --set tags.agent-netutils=true
+  --set tags.mcp-netutils=true
 ```
 
 #### Pod Security Standards

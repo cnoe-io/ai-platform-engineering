@@ -264,7 +264,7 @@ jobs:
           - \`ci-webex-bot\`
           - \`ci-skill-scanner\`
           - \`ci-mcp-sub-agent\`
-          - \`ci-a2a-rag\`
+          - \`ci-rag\`
           - \`ci-helm\` (also dispatched explicitly with \`force_build=true\`)
 
           > To force-rebuild every image fresh (bypass retag for unchanged components),

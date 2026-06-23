@@ -31,14 +31,10 @@ dashboard areas but cannot save administrative changes.
 
 `System` → `Default Agent` controls which agent opens when a user starts a new
 chat. This setting is useful when an installation wants new conversations to
-start with a specialized dynamic agent instead of the supervisor.
+start with a specific dynamic agent.
 
-The selector always includes `Default CAIPE Supervisor`. Choosing this option
-means new chats use the built-in supervisor flow rather than a dynamic agent.
-
-When dynamic agents are available, each registered agent appears in the same
-selector. Choosing one and clicking `Save` stores that agent as the runtime
-default for new chats.
+Each registered dynamic agent appears in the selector. Choosing one and clicking
+`Save` stores that agent as the runtime default for new chats.
 
 ## Precedence
 
@@ -47,7 +43,7 @@ The runtime admin setting takes precedence over bootstrap configuration:
 1. If an admin saves a default agent in the UI, CAIPE uses that persisted value.
 2. If no UI value has been saved, CAIPE can fall back to the `DEFAULT_AGENT_ID`
    deployment value.
-3. If neither is configured, new chats use `Default CAIPE Supervisor`.
+3. If neither is configured, new chats use the first available dynamic agent.
 
 When CAIPE is currently using `DEFAULT_AGENT_ID`, the UI displays a note that
 saving from the Admin Dashboard will override the bootstrap default at runtime.
@@ -55,9 +51,9 @@ saving from the Admin Dashboard will override the bootstrap default at runtime.
 ## Missing Agents
 
 If a previously saved default dynamic agent is no longer available, the
-Default Agent panel warns administrators and new chats fall back to the
-supervisor. Pick another available agent or choose `Default CAIPE Supervisor`
-and save to clear the stale runtime setting.
+Default Agent panel warns administrators and new chats fall back to another
+available dynamic agent. Pick an available agent and save to clear the stale
+runtime setting.
 
 ## Access Control
 

@@ -57,7 +57,7 @@ A casual query that triggers no tools. Tests that the streaming pipeline works e
 
 **Query**: `"how is the weather in San Francisco?"`
 
-An out-of-scope query where the supervisor politely declines. Tests that non-RAG, non-tool responses still reach the user.
+An out-of-scope query where the assistant declines. Tests that non-RAG, non-tool responses still reach the user.
 
 | Check | Rule |
 |-------|------|

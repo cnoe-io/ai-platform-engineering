@@ -21,7 +21,6 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
 	uv-prep \
-	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
@@ -66,48 +65,6 @@ clean:             ## Clean all build artifacts and cache
 	@$(MAKE) clean-venv
 	@$(MAKE) clean-build-artifacts
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
-
-## ========== Generate Docker Compose ==========
-
-PERSONAS ?= p2p-basic
-OUTPUT_DIR ?= docker-compose
-A2A_TRANSPORT ?= p2p
-DEV ?= false
-
-generate-docker-compose:  ## Generate docker-compose files from personas (make generate-docker-compose PERSONAS="p2p-basic argocd" DEV=true)
-	@echo "Generating docker-compose files for personas: $(PERSONAS)..."
-	@mkdir -p $(OUTPUT_DIR)
-	@chmod +x scripts/generate-docker-compose.py
-	@for persona in $(PERSONAS); do \
-		if [ "$(DEV)" = "true" ]; then \
-			OUTPUT_FILE="$(OUTPUT_DIR)/docker-compose.$$persona.dev.yaml"; \
-		else \
-			OUTPUT_FILE="$(OUTPUT_DIR)/docker-compose.$$persona.yaml"; \
-		fi; \
-		A2A_TRANSPORT=$(A2A_TRANSPORT) ./scripts/generate-docker-compose.py \
-			--persona $$persona \
-			--output $$OUTPUT_FILE \
-			$(if $(filter true,$(DEV)),--dev,); \
-		echo "✓ Generated: $$(realpath $$OUTPUT_FILE)"; \
-	done
-	@echo "✓ Generated compose files in $(OUTPUT_DIR)/"
-
-generate-docker-compose-dev:  ## Generate dev docker-compose files with local code mounts (make generate-docker-compose-dev PERSONAS="p2p-basic")
-	@$(MAKE) generate-docker-compose DEV=true
-
-generate-docker-compose-all:  ## Generate docker-compose files for all personas
-	@echo "Generating docker-compose files for all personas..."
-	@mkdir -p $(OUTPUT_DIR)
-	@chmod +x scripts/generate-docker-compose.py
-	@A2A_TRANSPORT=$(A2A_TRANSPORT) ./scripts/generate-docker-compose.py \
-		--output $(OUTPUT_DIR)/docker-compose.all-personas.yaml \
-		$(if $(filter true,$(DEV)),--dev,)
-	@echo "✓ Generated docker-compose.all-personas.yaml"
-
-clean-docker-compose:  ## Remove all generated docker-compose files
-	@echo "Cleaning generated docker-compose files..."
-	@rm -rf $(OUTPUT_DIR)
-	@echo "✓ Removed $(OUTPUT_DIR)/"
 
 ## ========== Dependencies ==========
 

@@ -207,7 +207,6 @@ global:
     # the official GitHub MCP server needs a GitHub PAT secret at startup.
     # When enabled, GITHUB_PERSONAL_ACCESS_TOKEN is injected from
     # existingSecret; Helm fails early if the secret name is omitted.
-    # assisted-by Codex Codex-sonnet-4-6
     githubMcpServer:
       enabled: false
       image:
@@ -235,8 +234,7 @@ global:
     #     pathPrefix: /mcp/knowledge-base
     #     # Optional: set providerTokenAuth directly, or declare header-targeted
     #     # credential_sources and the chart derives the AgentGateway transform.
-    #     # assisted-by Codex Codex-sonnet-4-6
-    #     providerTokenAuth: false
+    #    #     providerTokenAuth: false
     #     # credential_sources:
     #     #   - kind: caller_token
     #     #     name: X-CAIPE-Provider-Token
@@ -345,7 +343,7 @@ skillsLiveSkills: ""           # Inline custom live-skills skill (overrides ever
 mcp-argocd:
   nameOverride: "mcp-argocd"
   image:
-    repository: "ghcr.io/cnoe-io/agent-argocd"
+    repository: "ghcr.io/cnoe-io/mcp-argocd"
     pullPolicy: "IfNotPresent"
   mcp:
     image:
@@ -400,7 +398,7 @@ mcp-confluence:
 mcp-github:
   nameOverride: "mcp-github"
   image:
-    repository: "ghcr.io/cnoe-io/agent-github"
+    repository: "ghcr.io/cnoe-io/mcp-github"
     pullPolicy: "IfNotPresent"
   mcp:
     mode: "stdio"
@@ -644,21 +642,13 @@ caipe-ui:
   skills:
     enabled: true
   nameOverride: "caipe-ui"
-  # R1 upstream fix (May 2026): default the Keycloak Admin REST client
-  # secret name to "caipe-platform-secret" — the conventional name an
-  # operator passes via `keycloak.platformClient.secretRef` AND the
-  # default target of the keycloak chart's ExternalSecret (see below
-  # where we also default `keycloak.platformClient.secretRef` itself).
-  #
-  # Helm does not support cross-subchart value substitution at template
-  # time, so we have to hardcode the conventional name in both places.
+  # The CAIPE UI BFF uses the caipe-platform confidential client for
+  # Keycloak Admin REST calls. Helm does not support cross-subchart value
+  # substitution at template time, so the conventional Secret name is
+  # declared in both the keycloak and caipe-ui values.
   # Operators using a non-default Secret name must override BOTH:
   #     keycloak.platformClient.secretRef: my-custom-platform-secret
   #     caipe-ui.keycloakAdminClient.secretName: my-custom-platform-secret
-  #
-  # See docs/docs/security/rbac/secrets-bootstrap.md section "R1: BFF
-  # Keycloak Admin token — production-safety gate".
-  # assisted-by Claude:claude-opus-4-7
   keycloakAdminClient:
     secretName: "caipe-platform-secret"
     secretKey: "OIDC_CLIENT_SECRET"
@@ -727,10 +717,7 @@ caipe-ui:
     # When set, only listed templates are seeded; unlisted ones are removed on deploy.
     # When unset or empty, all built-in templates are seeded automatically.
     # BUILTIN_SKILL_IDS: "qs-deploy-status,qs-pr-review"
-    # Dynamic Agents: set to "true" to enable custom agent creation and management
-    # Requires admin role and MongoDB storage mode
-    DYNAMIC_AGENTS_ENABLED: "false"
-    # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
+    # Dynamic Agents service URL. Leave empty to use the chart default.
     # DYNAMIC_AGENTS_URL: ""
     # Connections & Secrets credential store. Disabled by default. Use local-cmk
     # only for non-production testing; production must use aws-kms.
@@ -883,7 +870,6 @@ caipe-ui:
     # known placeholder ("changeme", "admin", "password", "mongo",
     # "root", "test", etc.). Mirrors `keycloak.strictClientSecrets`.
     # Default false so docker-compose dev + CI matrix keep working.
-    # assisted-by Claude:claude-opus-4-7
     strictPasswords: false
     # External Secrets for MongoDB credentials
     externalSecrets:
@@ -1242,23 +1228,10 @@ keycloak:
     enabled: true
     botClientId: "caipe-webex-bot"
 
-  # CAIPE platform OIDC client (the platform confidential client).
-  #
-  # R1 upstream fix (May 2026): the umbrella defaults `secretRef` to
-  # `caipe-platform-secret` so the keycloak chart's
-  # `platformClientSecretName` helper and the caipe-ui Deployment's
-  # `KEYCLOAK_ADMIN_CLIENT_SECRET` valueFrom.secretKeyRef both resolve
-  # to the same Secret name. An operator who:
-  #   - pre-creates a K8s Secret called `caipe-platform-secret` with
-  #     key `OIDC_CLIENT_SECRET`, OR
-  #   - enables `externalSecret.enabled=true` (ESO emits a Secret of
-  #     this same name as its target),
-  # gets the full BFF → Keycloak Admin REST wiring out of the box.
-  #
-  # Migration for existing ESO installs that used the OLD default name
-  # `<release>-keycloak-platform-client`: see
-  # docs/docs/security/rbac/secrets-bootstrap.md → R1 upstream fix.
-  # assisted-by Claude:claude-opus-4-7
+  # CAIPE platform OIDC client. Keep this Secret name aligned with
+  # `caipe-ui.keycloakAdminClient.secretName`; the BFF reads it as
+  # KEYCLOAK_ADMIN_CLIENT_SECRET, and the Keycloak init/reconcile Jobs
+  # read the same value as KEYCLOAK_PLATFORM_CLIENT_SECRET.
   platformClient:
     secretRef: "caipe-platform-secret"
 

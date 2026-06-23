@@ -28,7 +28,7 @@ describe("isOrphanedCheckpointCollection", () => {
     }
   });
 
-  it("flags per-agent supervisor/sub-agent checkpoint collections", () => {
+  it("flags orphaned per-agent checkpoint collections", () => {
     expect(isOrphanedCheckpointCollection("checkpoints_caipe_supervisor")).toBe(true);
     expect(isOrphanedCheckpointCollection("checkpoint_writes_caipe_supervisor")).toBe(true);
     expect(isOrphanedCheckpointCollection("checkpoints_aws")).toBe(true);

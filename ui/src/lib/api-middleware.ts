@@ -265,8 +265,7 @@ interface RouteRbacPolicy {
 // `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
 // helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
 // capability mappings here while older routes are migrated off the wrapper.
-// Unknown routes fail toward admin UI capabilities instead of the old generic
-// supervisor umbrella so audit rows stay explicit.
+// Unknown routes fail toward admin UI capabilities so audit rows stay explicit.
 //
 // See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
 // for the migration plan that replaces this resolver with a per-route
@@ -426,7 +425,7 @@ export async function getAuthFromBearerOrSession(
   const authHeader = request.headers.get('Authorization');
   const catalogKey = request.headers.get('X-Caipe-Catalog-Key');
 
-  // Path 0: Catalog API key (supervisor-minted, read-only skills access)
+  // Path 0: Catalog API key (BFF-minted, read-only skills access)
   if (catalogKey) {
     return {
       user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },

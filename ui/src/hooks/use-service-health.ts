@@ -29,8 +29,7 @@ export interface UseServiceHealthReturn {
 // Queries
 //
 // Health is derived from the `da_*` metrics emitted by the Dynamic Agents
-// service. The legacy supervisor/sub-agent series (up{job=~".*supervisor.*"},
-// enabled_subagents, agent_requests_total) were removed with the supervisor.
+// service.
 // `da_up` matches the dynamic-agents scrape target by service name.
 // ────────────────────────────────────────────────────────────────
 

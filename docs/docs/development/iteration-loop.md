@@ -55,7 +55,6 @@ docker logs -f slack-bot
 
 | Service | How `DEV_HOT_RELOAD=true` works |
 |---------|----------------------------------|
-| `caipe-supervisor` | `uvicorn --reload --reload-dir /app/ai_platform_engineering` |
 | `dynamic-agents` | Sets `DEBUG=true`, which the existing `main.py` already maps to `uvicorn(reload=True)` |
 | `rag_server` | `uvicorn --reload --reload-dir /app/server/src/server,/app/common/src/common` |
 | `slack-bot` | `uv sync` (incl. `dev` group) + `watchfiles --filter python 'python -m app' /app` (Bolt is not ASGI, so uvicorn `--reload` doesn't apply) |

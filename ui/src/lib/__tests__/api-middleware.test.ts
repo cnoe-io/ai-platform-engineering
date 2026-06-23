@@ -960,14 +960,11 @@ describe('withAuth', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  // Regression: read-only admin endpoints that handle their own resource-level
-  // RBAC must NOT have an `admin_ui#view` blanket gate slapped on by the BFF
-  // — otherwise a non-admin user with the resource-level grant (e.g. a viewer
-  // with `system_config:platform_settings#read`) gets a misleading
-  // `admin_ui#view` 403 long before the route handler runs and the Settings
-  // tab silently falls back to the placeholder ("Default CAIPE Supervisor")
-  // instead of showing the configured value.
-  describe('legacy RBAC policy resolution', () => {
+  // Read-only admin endpoints that handle their own resource-level RBAC must
+  // not also require the broader `admin_ui#view` gate. Otherwise a viewer with
+  // `system_config:platform_settings#read` cannot load the configured platform
+  // defaults even though the route-level permission allows that read.
+  describe('route RBAC policy resolution', () => {
     function viewerSession() {
       mockGetServerSession.mockResolvedValue({
         user: { email: 'viewer@test.com', name: 'Read-Only Viewer' },
@@ -1011,7 +1008,7 @@ describe('withAuth', () => {
       expect(relations).toContain('can_use');
       expect(relations).not.toContain('can_audit'); // admin_ui#view → can_audit
       expect(loggedCapabilities()).toContain('system_config#read');
-      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
+      expect(loggedCapabilities()).not.toContain('admin_ui#view');
     });
 
     it.each([
@@ -1196,7 +1193,6 @@ describe('withAuth', () => {
       const relations = calls.map((c) => c[0]?.relation);
       expect(relations).toContain(expectedRelation);
       expect(loggedCapabilities()).toContain(expectedCapability);
-      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
     });
   });
 });

@@ -2,7 +2,7 @@
 
 Per-tool **MCP (Model Context Protocol) servers**. Each subdirectory is one
 self-contained server (ArgoCD, AWS, Jira, …) consumed by the dynamic agents
-runtime. There are no standalone A2A agents here anymore.
+runtime.
 
 ## Layout
 

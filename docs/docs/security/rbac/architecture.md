@@ -375,8 +375,7 @@ actually hits; for SA subjects it also skips the human-only email-principal and 
 The bridge additionally enforces the **caller-keyed tool check** (see
 [Workflows › Caller-Keyed Tool Authorization](./workflows.md#caller-keyed-tool-authorization-service-accounts-fr-012a)),
 which only receives the data to run because the gateway's `extAuthz` policy forwards the request body
-(`includeRequestBody`). Note: SAs invoke via the **dynamic-agent** path and never traverse the deprecated
-`supervisor#invoke` org gate, so they hold **no** organization-membership grant (keeps them least-privilege
+(`includeRequestBody`). Note: SAs invoke via the **dynamic-agent** path and hold **no** organization-membership grant (keeps them least-privilege
 per FR-004 — their reach is exactly their agent/tool scopes).
 
 **Coarse-gate baseline:** SAs also hold `service_account:<sub> caller mcp_gateway:list` (written at create,
@@ -1065,11 +1064,9 @@ The `deploy/keycloak/init-idp.sh` bootstrap keeps the IdP group importer on per-
 
 ---
 
-## Component 3: ~~Supervisor A2A Server~~ (removed)
+## Component 3: Dynamic Agents Path
 
-> **Removed.** The legacy LangGraph "platform-engineer" supervisor + its A2A server were removed once Dynamic Agents + workflows + RBAC covered the orchestration role. Slack/Webex bots and the CAIPE UI now talk **directly** to the CAIPE UI BFF (`/api/chat/*`) and the Dynamic Agents runtime (`/api/v1/chat/*`) over SSE — there is no separate dispatcher hop.
->
-> The "carry the original, unmodified JWT all the way to the MCP server" guarantee that this component used to provide is now provided by **Component 5: Dynamic Agents** — the agent runtime validates the JWT per-request and forwards the same bearer token (or OBO token) to AgentGateway, so per-user enforcement at the PEP is unchanged. See [Component 5: Dynamic Agents](#component-5-dynamic-agents--the-workshop-floor).
+Slack/Webex bots and the CAIPE UI talk to the CAIPE UI BFF (`/api/chat/*`) and the Dynamic Agents runtime (`/api/v1/chat/*`) over SSE. The agent runtime validates the JWT per request and forwards the same bearer token, service token, or OBO token to AgentGateway so per-user enforcement happens at the MCP PEP. See [Component 5: Dynamic Agents](#component-5-dynamic-agents--the-workshop-floor).
 
 ---
 

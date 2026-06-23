@@ -71,7 +71,7 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: (agentId?: string) => Promise<string>;
+  createConversation: (agentId: string) => Promise<string>;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
@@ -170,8 +170,12 @@ const storeImplementation = (set: any, get: any) => ({
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: async (agentId?: string) => {
+      createConversation: async (agentId: string) => {
         const storageMode = getStorageMode();
+        const normalizedAgentId = agentId.trim();
+        if (!normalizedAgentId) {
+          throw new Error("agentId is required to create a chat conversation");
+        }
 
         let id: string;
 
@@ -180,7 +184,7 @@ const storeImplementation = (set: any, get: any) => ({
           const result = await apiClient.createConversation({
             title: 'New Conversation',
             client_type: 'webui',
-            agent_id: agentId,
+            agent_id: normalizedAgentId,
           });
           id = result.conversation._id;
         } else {
@@ -195,7 +199,7 @@ const storeImplementation = (set: any, get: any) => ({
           updatedAt: new Date(),
           messages: [],
           streamEvents: [],
-          participants: buildParticipants(agentId),
+          participants: buildParticipants(normalizedAgentId),
         };
 
         // Update local state

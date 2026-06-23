@@ -61,10 +61,9 @@ type CatalogSkillLite = {
 /**
  * Defense-in-depth filter for flagged skills.
  *
- * The supervisor's ``scan_gate.py`` already refuses to *execute* any
- * flagged skill (every loader -- ``loaders/default.py``,
- * ``loaders/agent_skill.py``, ``dynamic_agents/services/skills.py`` --
- * funnels through ``is_skill_blocked`` / ``mongo_scan_filter``). But
+ * The skill scanner and dynamic-agent runtime refuse to execute any
+ * flagged skill (loaders and ``dynamic_agents/services/skills.py`` funnel
+ * through ``is_skill_blocked`` / ``mongo_scan_filter``). But
  * surfacing the skill in the slash-command menu means a user can pick
  * something the runtime will then refuse, which is a confusing UX and
  * leaks the skill's existence + metadata to the model. Per product
@@ -96,7 +95,7 @@ function isFlaggedSkill(skill: CatalogSkillLite): boolean {
  * @param agentSkillIds - Skill IDs configured on the current dynamic agent.
  *   When provided with items: fetches GET /api/skills (merged catalog), filters to those IDs.
  *   When provided as empty array: no skills shown.
- *   When undefined (supervisor): fetches full global catalog from /api/skills.
+ *   When undefined: fetches full global catalog from /api/skills.
  */
 export function useSlashCommands(agentSkillIds?: string[]): SlashCommand[] {
   const [skillCommands, setSkillCommands] = useState<SlashCommand[]>([]);

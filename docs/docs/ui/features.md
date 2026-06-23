@@ -4,412 +4,54 @@ sidebar_position: 2
 
 # Features and Components
 
-The CAIPE UI provides a rich set of features designed to make interacting with AI agents intuitive, powerful, and efficient.
-
-## Core Features
-
-### 1. 3-Panel Layout
-
-The UI features an innovative 3-panel design that provides simultaneous views of different aspects of agent interaction:
-
-```
-┌──────────────┬─────────────────────┬──────────────────┐
-│   Sidebar    │    Chat Panel       │  Context Panel   │
-│              │                     │                  │
-│  Use Cases   │  Chat History       │  A2A Messages    │
-│  Gallery     │  Message Input      │  Event Stream    │
-│  Navigation  │  Final Output       │  Inspection      │
-│              │                     │                  │
-└──────────────┴─────────────────────┴──────────────────┘
-```
-
-**Benefits**:
-- **Context Awareness**: See agent reasoning while chatting
-- **Transparency**: Full visibility into A2A protocol events
-- **Efficiency**: Quick access to use cases without leaving the conversation
-
-### 2. Use Cases Gallery
-
-A curated collection of pre-built scenarios for common platform engineering tasks.
-
-#### Categories
-
-**Deployment Management**
-- Check ArgoCD application status
-- Sync deployment across environments
-- Rollback failed deployments
-- Monitor deployment pipelines
-
-**Incident Response**
-- Investigate active incidents (PagerDuty)
-- Root cause analysis (multi-agent)
-- Post-incident reports
-- On-call handoff automation
-
-**Development Workflows**
-- Review open pull requests (GitHub)
-- Code review automation
-- Security vulnerability scanning
-- Sprint progress tracking (Jira)
-
-**Cloud Operations**
-- AWS cost analysis and optimization
-- Cluster resource health checks
-- Infrastructure drift detection
-- Compliance auditing
-
-**Knowledge Management**
-- Documentation search (RAG)
-- Technical knowledge queries
-- Runbook automation
-- Training material generation
-
-#### Creating Custom Use Cases
-
-```typescript
-interface UseCase {
-  id: string;
-  title: string;
-  description: string;
-  category: 'deployment' | 'incident' | 'development' | 'cloud' | 'other';
-  tags: string[];
-  prompt: string;
-  expectedAgents: string[];
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-}
-```
-
-**Example**:
-
-```json
-{
-  "title": "Check Deployment Status",
-  "description": "Quickly check the sync status and health of ArgoCD applications",
-  "category": "deployment",
-  "tags": ["argocd", "kubernetes", "deployment"],
-  "prompt": "Check the status of all ArgoCD applications in the production namespace",
-  "expectedAgents": ["argocd"],
-  "difficulty": "beginner"
-}
-```
-
-### 3. Interactive Chat Interface
-
-The chat panel provides a natural language interface for communicating with AI agents.
-
-#### Features
-
-- **Markdown Rendering**: Rich text formatting for responses
-- **Code Highlighting**: Syntax highlighting for code blocks
-- **Message History**: Persistent conversation history
-- **Copy to Clipboard**: Easy code/text copying
-- **Message Reactions**: React to agent responses
-- **Streaming Output**: Real-time response streaming
-
-#### Message Types
-
-| Type | Description | Icon |
-|------|-------------|------|
-| User Message | User input/queries | 👤 |
-| Assistant Message | Agent responses | 🤖 |
-| System Message | Status updates | ⚙️ |
-| Error Message | Error notifications | ❌ |
-| Tool Output | Tool execution results | 🔧 |
-
-### 4. A2A Protocol Visualization
-
-Real-time visualization of Agent-to-Agent protocol messages provides transparency into multi-agent workflows.
-
-#### Event Types
-
-**Task Events** (`event.kind: "task"`)
-```json
-{
-  "kind": "task",
-  "data": {
-    "state": "running",
-    "session_id": "...",
-    "task_id": "..."
-  }
-}
-```
-
-**Artifact Updates** (`event.kind: "artifact-update"`)
-```json
-{
-  "kind": "artifact-update",
-  "data": {
-    "artifact": {
-      "name": "streaming_result",
-      "text": "Checking ArgoCD applications...",
-      "append": true
-    }
-  }
-}
-```
-
-**Status Updates** (`event.kind: "status-update"`)
-```json
-{
-  "kind": "status-update",
-  "data": {
-    "final": true,
-    "state": "completed",
-    "result": { ... }
-  }
-}
-```
-
-#### Artifact Types
-
-| Artifact Name | Purpose | Visual Treatment |
-|---------------|---------|------------------|
-| `streaming_result` | Incremental text output | 📡 Radio icon, appends to existing |
-| `partial_result` | Complete chunk | 📄 FileText icon, replaces content |
-| `final_result` | Final response | ✅ CheckCircle icon, final output |
-| `tool_notification_start` | Tool execution begins | 🔧 Wrench icon, blue highlight |
-| `tool_notification_end` | Tool completes | ☑️ CheckSquare icon, green highlight |
-| `execution_plan_update` | TODO plan changes | 📋 ListTodo icon, plan view |
-| `execution_plan_status_update` | TODO status changes | 📊 Progress update |
-
-### 5. Message Inspection
-
-Deep-dive into any A2A message for debugging and understanding.
-
-#### Inspection Features
-
-- **JSON Pretty Print**: Formatted JSON with syntax highlighting
-- **Expandable Sections**: Collapse/expand nested objects
-- **Copy to Clipboard**: Copy individual fields or entire messages
-- **Timestamp Display**: Precise timing information
-- **Event Filtering**: Filter by event kind, artifact name, or agent
-- **Search**: Search within message payloads
-
-#### Inspection Panel
-
-```
-┌────────────────────────────────────────┐
-│ Event Details                          │
-├────────────────────────────────────────┤
-│ Kind: artifact-update                  │
-│ Timestamp: 2026-01-27T10:30:45.123Z   │
-│ Session ID: abc123...                  │
-│ Task ID: task_456...                   │
-├────────────────────────────────────────┤
-│ Artifact                               │
-│ ├─ name: tool_notification_start       │
-│ ├─ description: Calling ArgoCD API     │
-│ └─ data: { ... }                       │
-└────────────────────────────────────────┘
-```
-
-### 6. Real-time Streaming
-
-Server-Sent Events (SSE) provide real-time updates without polling.
-
-#### Stream Features
-
-- **Auto-reconnect**: Automatically reconnects on connection loss
-- **Buffering**: Handles rapid message bursts
-- **Filtering**: Client-side filtering of event types
-- **Performance**: Efficient rendering of high-frequency updates
-- **Backpressure**: Graceful handling of slow consumers
-
-#### Stream Status Indicators
-
-| Status | Indicator | Meaning |
-|--------|-----------|---------|
-| Connected | 🟢 Green dot | Active stream connection |
-| Connecting | 🟡 Yellow pulse | Attempting connection |
-| Disconnected | 🔴 Red dot | No connection |
-| Error | ⚠️ Warning | Stream error occurred |
-
-### 7. Authentication and Authorization
-
-Secure access control with OAuth 2.0 integration.
-
-#### Authentication Flow
-
-```
-User → Login Page → OAuth Provider → Token Exchange → Authenticated Session
-```
-
-#### Features
-
-- **OAuth 2.0**: Industry-standard authentication
-- **Token Management**: Automatic refresh and rotation
-- **Secure Storage**: HttpOnly cookies for tokens
-- **Session Persistence**: Resume sessions across browser restarts
-- **Role-based Access**: Fine-grained permissions (coming soon)
-
-#### Development Mode
-
-For local development without OAuth:
-
-```bash
-# Skip authentication
-export SKIP_AUTH=true
-npm run dev
-```
-
-### 8. Theme and Customization
-
-Modern, customizable UI with dark mode support.
-
-#### Themes
-
-- **Light Mode**: Clean, professional light theme
-- **Dark Mode**: Eye-friendly dark theme
-- **System**: Automatically matches OS preference
-- **Custom**: Define your own color schemes (coming soon)
-
-#### Customization
-
-```typescript
-// Tailwind theme configuration
-{
-  colors: {
-    primary: 'hsl(var(--primary))',
-    secondary: 'hsl(var(--secondary))',
-    accent: 'hsl(var(--accent))',
-    // ...
-  }
-}
-```
-
-### 9. Performance Optimizations
-
-Built for speed and efficiency.
-
-#### Optimizations
-
-- **Code Splitting**: Lazy-load components
-- **Memoization**: React.memo for expensive components
-- **Virtual Scrolling**: Efficient rendering of large message lists
-- **Debouncing**: Throttle rapid user inputs
-- **Caching**: Cache API responses and static assets
-- **Bundle Size**: Optimized production builds
-
-#### Performance Metrics
-
-| Metric | Target | Actual |
-|--------|--------|--------|
-| First Contentful Paint | < 1.5s | ~1.2s |
-| Time to Interactive | < 3.0s | ~2.5s |
-| Largest Contentful Paint | < 2.5s | ~2.0s |
-| Bundle Size | < 500kb | ~450kb |
-
-## Component Library
-
-### Shared UI Components
-
-Built with Radix UI primitives and styled with Tailwind CSS.
-
-- **Button**: Multiple variants (default, destructive, outline, ghost)
-- **Card**: Content containers with header, body, footer
-- **Dialog**: Modal dialogs and popups
-- **Dropdown**: Context menus and dropdowns
-- **Input**: Text inputs with validation
-- **Select**: Dropdown selectors
-- **Switch**: Toggle switches
-- **Textarea**: Multi-line text inputs
-- **Toast**: Notification toasts
-- **Tooltip**: Hover tooltips
-
-### Layout Components
-
-- **Sidebar**: Collapsible navigation sidebar
-- **Header**: Top navigation bar
-- **Footer**: Page footer
-- **Container**: Responsive content containers
-- **Grid**: Responsive grid layouts
-
-### Custom Components
-
-- **ChatPanel**: Main chat interface
-- **MessageList**: Scrollable message history
-- **ChatInput**: Message input with send button
-- **UseCasesGallery**: Grid of use case cards
-- **A2AStreamPanel**: Real-time event stream
-- **A2UIRenderer**: Widget renderer
-- **ContextPanel**: Collapsible right panel
-- **AgentStreamBox**: Agent-specific streaming display
-
-## Keyboard Shortcuts
-
-Power-user features for efficiency.
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl/Cmd + Enter` | Send message |
-| `Ctrl/Cmd + K` | Open command palette |
-| `Ctrl/Cmd + B` | Toggle sidebar |
-| `Ctrl/Cmd + /` | Toggle context panel |
-| `Ctrl/Cmd + T` | Toggle theme |
-| `Escape` | Close dialogs/modals |
-| `↑` / `↓` | Navigate message history |
-| `Tab` | Cycle focus |
-
-## Accessibility
-
-WCAG 2.1 AA compliant features:
-
-- **Keyboard Navigation**: Full keyboard support
-- **Screen Reader**: ARIA labels and roles
-- **Focus Indicators**: Visible focus states
-- **Color Contrast**: Meets contrast requirements
-- **Alt Text**: Descriptive image alternatives
-- **Semantic HTML**: Proper heading hierarchy
-
-## Technology Choices & Implementation
-
-### Protocol Implementation Approach
-
-The CAIPE UI talks to the **dynamic-agents runtime** over Server-Sent Events:
-
-#### Dynamic-agent streaming (SSE)
-- **Transport**: Server-Sent Events via the BFF proxy routes (`/api/v1/chat/*`, `/api/dynamic-agents/chat`)
-- **Implementation**: `DynamicAgentClient` + the streaming adapter in `ui/src/lib/streaming/`
-- **Events**: `StreamEvent` objects (content, tool_start/tool_end, input_required, error) drive the chat timeline
-- **AG-UI Compatible**: Aligned with AG-UI interaction patterns (CopilotKit) without library lock-in
-
-#### Benefits of this approach
-1. **Performance**: No unnecessary abstractions or unused features
-2. **Flexibility**: Easy to extend and customize for CAIPE-specific needs
-3. **Maintainability**: Full understanding and control of the codebase
-4. **Bundle Size**: Smaller production builds
-
-### Architecture Decisions
-
-**State Management**: Zustand chosen over Redux/Context for:
-- Simpler API with less boilerplate
-- Better TypeScript support
-- Smaller bundle size
-- Easier testing
-
-**Styling**: Tailwind CSS chosen for:
-- Utility-first approach speeds development
-- Consistent design system
-- Excellent dark mode support
-- Tree-shaking for production
-
-**Components**: Radix UI primitives for:
-- Accessibility out-of-the-box
-- Unstyled (full control over appearance)
-- Composable and flexible
-- Well-maintained and documented
-
-## Browser Support
-
-- **Chrome**: 90+ ✅
-- **Firefox**: 88+ ✅
-- **Safari**: 14+ ✅
-- **Edge**: 90+ ✅
-- **Mobile**: iOS Safari 14+, Chrome Android 90+ ✅
-
-## Next Steps
-
-- [Configuration Guide](configuration.md)
-- [Development Guide](development.md)
-- [API Reference](api-reference.md)
-- [Troubleshooting](troubleshooting.md)
+The CAIPE UI is an operational interface for chat, Dynamic Agents, skills,
+knowledge bases, credentials, RBAC, audit logs, and platform health.
+
+## Main Surfaces
+
+| Surface | Purpose |
+|---|---|
+| Chat | Conversation history, streaming responses, feedback, and file/tool timelines |
+| Agents | Create and manage Dynamic Agents, models, MCP servers, subagents, and workflows |
+| Skills | Browse, import, run, scan, and revise reusable skill templates |
+| Knowledge Bases | Ingest sources, run search, and inspect graph data when RAG is enabled |
+| Credentials | Connect user and service credentials for MCP-backed tools |
+| Admin | Platform settings, users, teams, RBAC, audit, metrics, and health |
+
+## Chat
+
+- Conversations are stored in MongoDB when `MONGODB_URI` is configured.
+- Each conversation targets a Dynamic Agent through `agent_id`.
+- The BFF streams AG-UI/SSE events from Dynamic Agents through
+  `/api/v1/chat/stream/*`.
+- Runtime events render as content, tool calls, warnings, subagents, and status
+  updates in the chat timeline.
+
+## Dynamic Agents
+
+- Agents define prompts, model choice, MCP server access, built-in tools,
+  subagents, visibility, and team sharing.
+- Admin users can seed config-driven agents and models through Helm app config.
+- Agent runs persist checkpoint and file state in MongoDB through the Dynamic
+  Agents backend.
+
+## MCP Servers
+
+- MCP server rows can use direct endpoints or AgentGateway-routed endpoints.
+- The UI can discover AgentGateway targets and normalize endpoint paths.
+- Probe actions verify connectivity and credentials before an agent uses a tool.
+
+## Skills
+
+- Built-in templates are read-only by default.
+- Users can clone templates into editable copies.
+- Skill scan history and safety results are stored in MongoDB.
+- Runnable skills launch chat conversations against a resolved Dynamic Agent.
+
+## Admin and Health
+
+- Health probes cover the UI/BFF, Dynamic Agents, MongoDB, Keycloak, OpenFGA,
+  AgentGateway, RAG, web ingestor, and migrations when configured.
+- Audit surfaces read from the audit service and MongoDB-backed RBAC records.
+- Platform settings include default agent/model choices and runtime feature
+  controls.

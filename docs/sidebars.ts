@@ -366,12 +366,8 @@ const sidebars: SidebarsConfig = {
           label: 'Tracing & Evaluations',
           items: [
             { type: 'doc', id: 'evaluations/index', label: 'Overview' },
-            { type: 'doc', id: 'evaluations/distributed-tracing-info', label: 'Distributed Tracing' },
-            { type: 'doc', id: 'evaluations/tracing-implementation-guide', label: 'Tracing Implementation Guide' },
-            { type: 'doc', id: 'evaluations/slack-streaming-conformance', label: 'Slack Streaming Conformance' },
             // assisted-by Codex Codex-sonnet-4-6
             { type: 'doc', id: 'evaluations/ui-performance-benchmark-results', label: 'UI Performance Benchmarks' },
-            { type: 'doc', id: 'evaluations/persistence-backend-benchmark', label: 'Persistence Backend Benchmark' },
           ],
         },
         { type: 'doc', id: 'agent-ops/index', label: 'AgentOps' },
@@ -379,73 +375,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Agents & MCP Servers',
+      label: 'MCP Servers',
       items: [
         {
           type: 'doc',
           id: 'agents/README',
           label: 'Overview',
         },
-        {
-          type: 'doc',
-          id: 'agents/argocd',
-        },
-        {
-          type: 'doc',
-          id: 'agents/aws',
-        },
-        {
-          type: 'doc',
-          id: 'agents/backstage',
-        },
-        {
-          type: 'doc',
-          id: 'agents/confluence',
-        },
-        {
-          type: 'doc',
-          id: 'agents/github',
-        },
-        {
-          type: 'doc',
-          id: 'agents/gitlab',
-        },
-        {
-          type: 'doc',
-          id: 'agents/jira',
-        },
-        {
-          type: 'doc',
-          id: 'agents/komodor',
-        },
-        {
-          type: 'doc',
-          id: 'agents/pagerduty',
-        },
-        {
-          type: 'doc',
-          id: 'agents/slack',
-        },
-        {
-          type: 'doc',
-          id: 'agents/splunk',
-        },
-        {
-          type: 'doc',
-          id: 'agents/template',
-        },
-        {
-          type: 'doc',
-          id: 'agents/weather',
-        },
-        {
-          type: 'doc',
-          id: 'agents/victorops',
-        },
-        {
-          type: 'doc',
-          id: 'agents/webex',
-        }
       ],
     },
     {

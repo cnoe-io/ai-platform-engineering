@@ -107,8 +107,8 @@ export interface CatalogSkill {
    * disabled card with a "Disabled — flagged" badge so admins can
    * still see and re-scan it. Defaults to `true` when omitted.
    *
-   * The supervisor + dynamic agents enforce the same rule
-   * independently (Python ``scan_gate`` module) so a stale UI badge
+   * The dynamic-agent runtime enforces the same rule independently
+   * (``scan_gate`` module) so a stale UI badge
    * cannot make a flagged skill executable. A flagged skill with an
    * active ``scan_override`` is runnable on both sides (UI here,
    * Python there) when the admin-override feature is enabled.
@@ -643,8 +643,8 @@ export function isAdminOverrideEnabled(): boolean {
  * This is the single UI-facing enforcement point so the gallery,
  * runner, and downstream consumers (Skills API gateway, install.sh)
  * all agree without each having to re-derive the rule. The Python
- * supervisor and dynamic agents enforce the same policy via
- * ``scan_gate.py``; this stamp is for UI affordances + defense in
+ * dynamic agents enforce the same policy via ``scan_gate.py``; this stamp
+ * is for UI affordances + defense in
  * depth against a backend that hasn't yet been updated.
  */
 export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {

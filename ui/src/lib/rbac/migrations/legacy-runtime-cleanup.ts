@@ -1,19 +1,18 @@
 import type { MigrationApplyResult, MigrationPlanResult } from "./types";
 
-// 0.6.0 cleanup of artifacts left behind by the supervisor + A2A
-// standalone-agent removal (branch feat/remove-supervisor-and-a2a-agents).
+// 0.6.0 cleanup of runtime storage that is not read by Dynamic Agents.
 //
 // Three side effects, all idempotent:
 //   1. Drop orphaned per-agent LangGraph checkpoint collections. The unified
 //      dynamic-agents runtime writes only to `checkpoints_conversation` /
 //      `checkpoint_writes_conversation`; the workflow engine uses
 //      `workflow_checkpoints` / `workflow_checkpoints_writes`. Every other
-//      `checkpoints_*` / `checkpoint_writes_*` collection was created by a
-//      now-deleted supervisor or standalone sub-agent and is dead state.
-//   2. `$unset` the deprecated A2A-era `metadata.agent_version` /
+//      `checkpoints_*` / `checkpoint_writes_*` collection is outside the
+//      current runtime contract.
+//   2. `$unset` the deprecated `metadata.agent_version` /
 //      `metadata.model_used` fields on conversations.
-//   3. `$unset` the dead `a2a_events` array on messages (the A2A client that
-//      produced it was removed; the live flow persists `stream_events`).
+//   3. `$unset` the runtime-ignored `a2a_events` array on messages; the live flow
+//      persists `stream_events`.
 //
 // Conversation/message STAT data (counts, tokens, feedback, agent_name) lives
 // in the `conversations` / `messages` / `feedback` collections and is NOT
@@ -50,7 +49,7 @@ interface DeriveLegacyRuntimeCleanupPlanInput {
   collectionNames: string[];
   /** Count of conversations still carrying deprecated metadata fields. */
   conversationsWithDeprecatedFields: number;
-  /** Count of messages still carrying a dead `a2a_events` array. */
+  /** Count of messages still carrying a runtime-ignored `a2a_events` array. */
   messagesWithA2aEvents: number;
 }
 
@@ -87,7 +86,7 @@ export const DEPRECATED_CONVERSATION_FIELDS_FILTER: Record<string, unknown> = {
   ],
 };
 
-/** Filter matching messages that still carry a dead a2a_events array. */
+/** Filter matching messages that still carry a runtime-ignored a2a_events array. */
 export const A2A_EVENTS_FILTER: Record<string, unknown> = { a2a_events: { $exists: true } };
 
 export function deriveLegacyRuntimeCleanupPlan(
@@ -127,7 +126,7 @@ export function deriveLegacyRuntimeCleanupPlan(
   const warnings: string[] = [];
   if (orphanedCollections.length > 0) {
     warnings.push(
-      `Dropping ${orphanedCollections.length} orphaned checkpoint collection(s) left by removed supervisor/sub-agents. This is irreversible — back up MongoDB first if you want to retain that runtime state.`,
+      `Dropping ${orphanedCollections.length} checkpoint collection(s) outside the current runtime contract. This is irreversible — back up MongoDB first if you want to retain that state.`,
     );
   }
 

@@ -25,7 +25,7 @@ on:
           - skill-scanner
           - dynamic-agents
           - slack-bot
-          - a2a-rag
+          - rag
 
 permissions:
   actions: read
@@ -49,7 +49,7 @@ jobs:
       skill_scanner_changed: ${{ steps.pr.outputs.skill_scanner_changed }}
       dynamic_agents_changed: ${{ steps.pr.outputs.dynamic_agents_changed }}
       slack_bot_changed: ${{ steps.pr.outputs.slack_bot_changed }}
-      a2a_rag_changed: ${{ steps.pr.outputs.a2a_rag_changed }}
+      rag_changed: ${{ steps.pr.outputs.rag_changed }}
       helm_changed: ${{ steps.pr.outputs.helm_changed }}
     steps:
       - name: Resolve PR metadata
@@ -150,7 +150,7 @@ jobs:
               slack_bot: [
                 'ai_platform_engineering/integrations/slack_bot/**',
               ],
-              a2a_rag: [
+              rag: [
                 'ai_platform_engineering/knowledge_bases/rag/**',
               ],
               helm: [
@@ -271,15 +271,15 @@ jobs:
       base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
     secrets: inherit
 
-  prebuild-a2a-rag:
-    name: A2A RAG Images
+  prebuild-rag:
+    name: RAG Images
     needs: resolve-pr
-    if: ${{ needs.resolve-pr.outputs.target == 'a2a-rag' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_rag_changed == 'true') }}
+    if: ${{ needs.resolve-pr.outputs.target == 'rag' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.rag_changed == 'true') }}
     permissions:
       contents: write
       packages: write
       pull-requests: write
-    uses: ./.github/workflows/prebuild-a2a-rag.yml
+    uses: ./.github/workflows/prebuild-rag.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
       head_ref: ${{ needs.resolve-pr.outputs.head_ref }}

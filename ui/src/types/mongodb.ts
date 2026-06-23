@@ -281,7 +281,7 @@ export interface SharingAccess {
 export interface CreateConversationRequest {
   title: string;
   client_type: ClientType; // Required: 'webui' | 'slack'
-  agent_id?: string; // Optional: builds participants with this agent
+  agent_id: string; // Required: every conversation targets a dynamic agent
   owner_id?: string; // Optional: trusted callers (e.g. Slack bot) can set on behalf of user
   idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
   metadata?: Record<string, unknown>; // Optional: arbitrary key/values from client

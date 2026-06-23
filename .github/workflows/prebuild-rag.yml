@@ -1,4 +1,4 @@
-name: "[Prebuild][A2A] CAIPE RAG Build and Push"
+name: "[Prebuild] CAIPE RAG Build and Push"
 description: "Build and push CAIPE RAG Docker image"
 
 on:
@@ -206,7 +206,7 @@ jobs:
           pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
           head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           head_ref: ${{ inputs.head_ref || github.head_ref }}
-          source: a2a-rag
+          source: rag
           type: docker
           name: caipe-rag-${{ matrix.component }}
           repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -252,7 +252,7 @@ jobs:
           pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
           head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           head_ref: ${{ inputs.head_ref || github.head_ref }}
-          source: a2a-rag
+          source: rag
           type: docker
           name: caipe-rag-${{ matrix.component }}
           repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}

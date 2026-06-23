@@ -1,9 +1,8 @@
 // GET /api/chat/conversations/[id]/messages - Get all messages in conversation
-//   Kept for reading legacy `messages` data during migration (Phase 3).
+//   Reads persisted message rows for conversation history and audit views.
 // POST /api/chat/conversations/[id]/messages - Add message to conversation
-//   Kept for migration tooling. The UI no longer calls this — the A2A server
-//   persists all streaming data directly (Phase 1/3). Future cleanup: remove
-//   POST once all conversations have been migrated to server-side persistence.
+//   Used by integrations and maintenance tooling that write message rows through
+//   the BFF instead of the chat turn endpoint.
 
 import {
 ApiError,

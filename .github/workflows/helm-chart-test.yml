@@ -135,7 +135,7 @@ jobs:
           --set global.deploymentMode=single-node \
           --set global.agentgateway.enabled=true \
           --set agentgateway.enabled=true \
-          --set agent-argocd.mcp.agentgateway.enabled=true)
+          --set mcp-argocd.mcp.agentgateway.enabled=true)
         if echo "$rendered" | grep -Eq 'kind:[[:space:]]*(Gateway|HTTPRoute|AgentgatewayBackend|AgentgatewayPolicy)'; then
           echo "ERROR: default routingMode rendered Gateway API / AgentGateway custom resources" >&2
           echo "$rendered" | grep -E 'kind:[[:space:]]*(Gateway|HTTPRoute|AgentgatewayBackend|AgentgatewayPolicy)' >&2
@@ -159,7 +159,7 @@ jobs:
           --set global.agentgateway.enabled=true \
           --set agentgateway.enabled=true \
           --set global.agentgateway.routingMode=gateway-api \
-          --set agent-argocd.mcp.agentgateway.enabled=true)
+          --set mcp-argocd.mcp.agentgateway.enabled=true)
         echo "$rendered" | grep -Eq 'kind:[[:space:]]*Gateway$' \
           || { echo "ERROR: gateway-api mode did not render a Gateway custom resource" >&2; exit 1; }
         echo "OK: opt-in gateway-api routing mode rendered Gateway API CRs"
@@ -169,7 +169,7 @@ jobs:
         cd charts/ai-platform-engineering
         helm template test-minimal . \
           --debug \
-          --set tags.agent-argocd=true \
+          --set tags.mcp-argocd=true \
           --set tags.rag-stack=false
 
     - name: Validate ai-platform-engineering image channels
@@ -256,10 +256,10 @@ jobs:
         helm template test-agents . \
           --set tags.complete=true \
           --set tags.rag-stack=false \
-          --set agent-argocd.enabled=true \
-          --set agent-github.enabled=true \
-          --set agent-slack.enabled=true \
-          --set agent-jira.enabled=true
+          --set mcp-argocd.enabled=true \
+          --set mcp-github.enabled=true \
+          --set mcp-slack.enabled=true \
+          --set mcp-jira.enabled=true
 
     - name: Validate chart packages
       run: |

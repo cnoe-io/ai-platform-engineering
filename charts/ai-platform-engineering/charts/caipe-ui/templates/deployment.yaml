@@ -172,13 +172,6 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: policy-config
-              mountPath: /app/policy.lp
-              subPath: policy.lp
-              readOnly: true
-            - name: task-config
-              mountPath: /app/config/task-config
-              readOnly: true
             {{- if $hasAppConfig }}
             - name: app-config
               mountPath: /etc/caipe-ui
@@ -188,14 +181,6 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        - name: policy-config
-          configMap:
-            name: policy-config
-            optional: true
-        - name: task-config
-          configMap:
-            name: task-config
-            optional: true
         {{- if $hasAppConfig }}
         - name: app-config
           configMap:

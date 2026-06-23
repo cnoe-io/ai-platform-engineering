@@ -51,7 +51,6 @@ const FEATURES = [
       'Rich/Contextual Home Page',
       'Rich Chat Interface with live agent/tool status via streaming',
       'Share chat with teams · Archive/Delete chats',
-      'Task Builder',
       'Custom Agent Builder',
       'Skills Gateway — AI Assist, API access, security scanner, GitHub crawling',
     ],
@@ -80,8 +79,8 @@ const FEATURES = [
     icon: '🔗',
     color: '#d97706',
     items: [
-      'A2A (Agent-to-Agent) protocol',
       'MCP (Model Context Protocol)',
+      'Dynamic Agents API',
       'AG-UI / SSE streaming — real-time event handling across all agent types',
       'CLI access',
     ],

@@ -34,11 +34,8 @@ RAG_EXPECTED_IMAGE_NAMES = (
 )
 
 
-# mcp-argocd is rendered by `tags.basic=true` (the agent-argocd mcp-server
-# subchart alias is in the basic tag set), so it is covered by PARENT_HELM_ARGS
-# and validated under PARENT_EXPECTED_IMAGE_NAMES. The legacy A2A-only branch
-# (`agent-argocd.a2a.enabled=true`) was removed when standalone A2A images and
-# the supervisor were dropped from the chart.
+# mcp-argocd is rendered by `tags.basic=true`, so it is covered by
+# PARENT_HELM_ARGS and validated under PARENT_EXPECTED_IMAGE_NAMES.
 PARENT_HELM_ARGS = (
     "--set",
     "tags.basic=true",

@@ -4,270 +4,111 @@ sidebar_position: 1
 
 # Deploy CAIPE with Helm
 
-This guide helps you deploy **CAIPE** (Community AI Platform Engineering) on any Kubernetes cluster using **Helm**. No prior experience with CAIPE is required.
+Use the Helm chart when you already have a Kubernetes cluster and want to run
+CAIPE from released images or from a checked-out chart.
 
-**What is CAIPE?** CAIPE is an open-source platform for building and running **AI agents** that use tools, LLMs (e.g. Claude or GPT), and multi-agent orchestration. The Helm chart deploys the supervisor, UI, and optional agents (ArgoCD, GitHub, Backstage, RAG, etc.) on your cluster.
+## Prerequisites
 
-**When to use Helm:** Use this path when you already have a Kubernetes cluster (EKS, GKE, AKS, KinD, etc.) and want to install CAIPE from the official chart. For a one-command local setup, see [Run CAIPE with KinD](/docs/getting-started/kind/setup) instead.
+- Kubernetes 1.28+
+- `kubectl`
+- Helm 3
+- LLM credentials
+- Credentials for any MCP servers you enable
 
----
+## Install From OCI
 
-## Quickstart
-
-No clone required. Run this in your terminal and follow the prompts:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh | bash
-```
-
-The interactive script will ask for your LLM provider, API key, optional components (RAG, tracing, persistence), and whether to create a Kind cluster or use an existing one. That's it.
-
-> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
-
-<iframe src="https://asciinema.org/a/845278/iframe" width="100%" height="600" style={{border: 'none', borderRadius: '8px', overflow: 'hidden'}} scrolling="no" allowFullScreen />
-
-> [View full screen recording on asciinema](https://asciinema.org/a/845278)
-
----
-
-## Step 1: Clone the repository (optional but recommended)
-
-Cloning the repo gives you the chart source, examples, and EKS/config references:
+Set the chart version you want to install:
 
 ```bash
-git clone https://github.com/cnoe-io/ai-platform-engineering.git
-cd ai-platform-engineering
+export CAIPE_VERSION=<release-version>
 ```
 
-You can install the chart **directly from the OCI registry** (no clone required). Cloning is useful for customising values or using a values file from the repo.
-
----
-
-## Step 2: Prerequisites
-
-Before installing the chart, ensure you have:
-
-| Requirement | Purpose |
-|-------------|---------|
-| **Kubernetes cluster** | Version 1.28 or higher (EKS, GKE, AKS, KinD, etc.) |
-| **kubectl** | Configured to access your cluster (`kubectl get nodes` should work) |
-| **Helm 3.x** | To install and upgrade the chart |
-| **Credentials** | API keys and secrets for the agents you enable (see [Configure Agent Secrets](../eks/configure-agent-secrets)) |
-
-You must **configure secrets before or right after** installing the chart so that agents can authenticate to external services. See [Configure Agent Secrets](../eks/configure-agent-secrets) for details.
-
----
-
-## Step 3: Install the chart
-
-The chart is published to **GitHub Container Registry (GHCR)**. You can install without cloning the repo.
-
-**Chart version in this guide:** 0.2.32. For the **latest** chart version, see [GitHub Releases](https://github.com/cnoe-io/ai-platform-engineering/releases)—then replace `0.2.32` with the release tag (e.g. `0.2.33`) in the commands below.
-
-### Basic installation (ArgoCD, Backstage, GitHub agents)
+Install the UI, Dynamic Agents, MongoDB, RBAC runtime, and a starter MCP server:
 
 ```bash
 helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
+  --version "${CAIPE_VERSION}" \
   --namespace ai-platform-engineering \
   --create-namespace \
-  --set-string tags.basic=true
+  --set-string tags.caipe-ui=true \
+  --set-string tags.dynamic-agents=true \
+  --set-string tags.mcp-netutils=true
 ```
 
-### Complete profile (all agents)
+Add RAG or more MCP servers with tags:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
+helm upgrade --install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version "${CAIPE_VERSION}" \
   --namespace ai-platform-engineering \
   --create-namespace \
-  --set-string tags.complete=true
-```
-
-After installation, configure your [agent secrets](../eks/configure-agent-secrets) and LLM provider if you haven’t already. Then use `kubectl get pods -n ai-platform-engineering` to confirm pods are running.
-
----
-
-## Step 4: Verify the deployment
-
-```bash
-# List Helm releases in the namespace
-helm list -n ai-platform-engineering
-
-# Check pod status
-kubectl get pods -n ai-platform-engineering
-
-# View logs for a specific agent (example: GitHub agent)
-kubectl logs -n ai-platform-engineering -l app=agent-github
-```
-
----
-
-## Customising the deployment
-
-The chart uses **tags** to enable or disable components. Two built-in profiles:
-
-| Profile | Tag | What’s included |
-|---------|-----|------------------|
-| **Basic** | `tags.basic=true` | ArgoCD, Backstage, GitHub agents |
-| **Complete** | `tags.complete=true` | All agents and RAG stack |
-
-### Add specific agents
-
-Combine the basic profile with extra agents:
-
-```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.basic=true \
-  --set-string tags.mcp-pagerduty=true \
-  --set-string tags.mcp-aws=true
-```
-
-### Pick only the agents you need
-
-Enable only the components you want (no basic/complete profile):
-
-```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.mcp-backstage=true \
-  --set-string tags.mcp-slack=true \
+  --set-string tags.caipe-ui=true \
+  --set-string tags.dynamic-agents=true \
+  --set-string tags.mcp-github=true \
+  --set-string tags.mcp-argocd=true \
   --set-string tags.rag-stack=true
 ```
 
-**Note:** For the RAG stack use `tags.rag-stack=true`. For other MCP servers use `tags.mcp-<name>=true` (e.g. `tags.mcp-github=true`). See [Chart components](#chart-components) for the full list.
-
-### Use a values file
-
-If you cloned the repo, you can create a `values.yaml` and install from it:
+## Values File
 
 ```yaml
-# values.yaml
 tags:
-  basic: true
-  agent-aws: true
+  caipe-ui: true
+  dynamic-agents: true
+  mcp-github: true
+  rag-stack: true
+
+global:
+  llmSecrets:
+    secretName: llm-secret
+
+mcp-github:
+  agentSecrets:
+    secretName: github-secret
 ```
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
+helm upgrade --install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version "${CAIPE_VERSION}" \
   --namespace ai-platform-engineering \
   --create-namespace \
   --values values.yaml
 ```
 
----
-
-## Chart components
-
-### Core components
-
-| Component | Version | Description |
-|-----------|---------|-------------|
-| **supervisor-agent** | 0.1.1 | Multi-agent orchestration and coordination |
-| **rag-stack** | 0.0.1 | RAG (Retrieval-Augmented Generation) stack |
-### Agent components
-
-All MCP server subcharts use version **0.2.2**. Enable with `tags.mcp-<name>=true` (or `tags.rag-stack=true` for RAG).
-
-| MCP Server | Tag | Profiles | Description |
-|------------|-----|----------|-------------|
-| **mcp-argocd** | `mcp-argocd` | basic, complete | ArgoCD GitOps integration |
-| **mcp-aws** | `mcp-aws` | complete | AWS cloud resource management |
-| **mcp-backstage** | `mcp-backstage` | basic, complete | Backstage developer portal |
-| **mcp-confluence** | `mcp-confluence` | complete | Confluence documentation |
-| **mcp-github** | `mcp-github` | basic, complete | GitHub repos and workflows |
-| **mcp-jira** | `mcp-jira` | complete | Jira issue tracking |
-| **mcp-komodor** | `mcp-komodor` | complete | Komodor Kubernetes troubleshooting |
-| **mcp-pagerduty** | `mcp-pagerduty` | complete | PagerDuty incidents |
-| **mcp-slack** | `mcp-slack` | complete | Slack messaging |
-| **mcp-splunk** | `mcp-splunk` | complete | Splunk log analytics |
-| **mcp-webex** | `mcp-webex` | complete | Webex collaboration |
-| **rag-stack** | `rag-stack` | complete | RAG knowledge base and embeddings |
-
----
-
-## Other installation options
-
-### Install from a local chart (after clone)
+## Verify
 
 ```bash
-# From repo root
-helm pull oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.2.32
-
-helm install ai-platform-engineering ai-platform-engineering-0.2.32.tgz \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.basic=true
+helm list -n ai-platform-engineering
+kubectl get pods -n ai-platform-engineering
+kubectl logs -n ai-platform-engineering -l app.kubernetes.io/name=dynamic-agents
+kubectl logs -n ai-platform-engineering -l app.kubernetes.io/name=mcp-server
 ```
 
-### ArgoCD
+## Chart Components
 
-To deploy the chart via ArgoCD, use an Application manifest. Example:
+| Component | Enable with | Purpose |
+|-----------|-------------|---------|
+| CAIPE UI | `tags.caipe-ui=true` | Web UI and BFF API |
+| Dynamic Agents | `tags.dynamic-agents=true` | Chat, custom agents, workflows, and checkpointed agent state |
+| MCP servers | `tags.mcp-<name>=true` | Tool integrations exposed to Dynamic Agents |
+| RAG stack | `tags.rag-stack=true` | Knowledge base and embeddings services |
+| Slack bot | `tags.slack-bot=true` | Slack integration surface |
+| Webex bot | `tags.webex-bot=true` | Webex integration surface |
 
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: ai-platform-engineering
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  sources:
-    - chart: ai-platform-engineering
-      repoURL: ghcr.io/cnoe-io/charts
-      targetRevision: 0.2.32
-      helm:
-        parameters:
-          - name: tags.basic
-            value: "true"
-          - name: tags.mcp-aws
-            value: "true"
-```
+Common MCP tags include `mcp-argocd`, `mcp-aws`, `mcp-backstage`,
+`mcp-confluence`, `mcp-github`, `mcp-gitlab`, `mcp-jira`, `mcp-komodor`,
+`mcp-pagerduty`, `mcp-slack`, `mcp-splunk`, `mcp-victorops`, `mcp-webex`, and
+`mcp-netutils`.
 
-### Enable RAG stack only
+## Secrets
 
-```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version 0.2.32 \
-  --namespace ai-platform-engineering \
-  --create-namespace \
-  --set-string tags.rag-stack=true
-```
-
----
+Create the LLM secret and any MCP credentials before enabling dependent
+workloads. See [Configure Agent Secrets](../eks/configure-agent-secrets.md) and
+[Configure LLMs](../eks/configure-llms.md).
 
 ## Troubleshooting
 
-### Pods not starting
-
-- Check resources: `kubectl describe pod <pod-name> -n ai-platform-engineering`
-- Verify [secrets](../eks/configure-agent-secrets) are created and correct
-- Confirm image pull permissions and cluster resource quotas
-
-### Agent authentication failures
-
-- Ensure required [agent secrets](../eks/configure-agent-secrets) exist for the agents you enabled
-- Verify credentials are valid and have the right permissions
-
-### Chart install or upgrade fails
-
-- Ensure Kubernetes version is 1.28+
-- Confirm namespace and RBAC allow the chart to create resources
-- For local development, run `helm dependency update` in the chart directory if you are building from source
-
----
-
-## Next steps
-
-- [Configure Agent Secrets](../eks/configure-agent-secrets) — Create secrets for GitHub, ArgoCD, LLMs, etc.
-- [Configure LLMs for EKS](../eks/configure-llms) — LLM provider and API keys
-- [Run with KinD](/docs/getting-started/kind/setup) — One-command local setup with `setup-caipe.sh`
-- [Run with EKS](/docs/getting-started/eks/setup) — Create an EKS cluster and deploy CAIPE
+- Check pod events: `kubectl describe pod <pod> -n ai-platform-engineering`
+- Check generated manifests: `helm template ai-platform-engineering charts/ai-platform-engineering --values values.yaml`
+- Confirm tags use `mcp-*` names and `tags.dynamic-agents=true`
+- Confirm `tags.dynamic-agents=true` when Dynamic Agents should run in the cluster

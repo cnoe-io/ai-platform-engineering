@@ -40,9 +40,7 @@ function toolWithAgent(metric: Record<string, string>): string {
 }
 
 // All charts below query the `da_*` metrics emitted by the Dynamic Agents
-// service (ai_platform_engineering/dynamic_agents/.../metrics). The legacy
-// supervisor/A2A series (agent_requests_total, subagent_invocations_total,
-// mcp_tool_calls_observed_total, …) were removed with the supervisor.
+// service (ai_platform_engineering/dynamic_agents/.../metrics).
 export function MetricsTab() {
   const [rangePreset, setRangePreset] = useState<DateRangePreset>("1h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();

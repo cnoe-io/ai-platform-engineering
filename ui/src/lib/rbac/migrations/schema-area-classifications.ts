@@ -59,7 +59,7 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   legacy_runtime_cleanup: {
     classification: "migration",
     description:
-      "0.6.0 post supervisor/A2A removal cleanup: drops orphaned checkpoint collections and strips dead agent_version/model_used/a2a_events fields. Not backed by a single collection — a virtual schema area tracked only by the migration framework.",
+      "Drops checkpoint collections and message metadata fields outside the current Dynamic Agents runtime contract. Not backed by a single collection — a virtual schema area tracked only by the migration framework.",
   },
   llm_models: {
     classification: "baseline_v1",

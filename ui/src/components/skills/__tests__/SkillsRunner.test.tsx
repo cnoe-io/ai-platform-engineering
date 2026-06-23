@@ -64,9 +64,34 @@ jest.mock("@/components/ui/caipe-spinner", () => ({
   CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
 }));
 
-jest.mock("@/lib/sse-streaming-client", () => ({
-  SSEClient: jest.fn().mockImplementation(() => ({
-    sendMessage: jest.fn().mockResolvedValue(undefined),
+jest.mock("@/lib/chat-agent-selection", () => ({
+  resolveUsableChatAgent: jest.fn().mockResolvedValue({
+    id: "agent-1",
+    name: "Platform Engineer",
+    source: "platform-default",
+  }),
+}));
+
+jest.mock("@/lib/api-client", () => ({
+  apiClient: {
+    createConversation: jest.fn().mockResolvedValue({
+      conversation: { _id: "conv-1" },
+      created: true,
+    }),
+  },
+}));
+
+jest.mock("@/lib/streaming", () => ({
+  createStreamAdapter: jest.fn().mockImplementation(() => ({
+    streamMessage: jest.fn(async (_params: any, callbacks: any) => {
+      callbacks.onContent?.("Workflow completed", []);
+      callbacks.onDone?.();
+    }),
+    resumeStream: jest.fn(async (_params: any, callbacks: any) => {
+      callbacks.onContent?.("Workflow resumed", []);
+      callbacks.onDone?.();
+    }),
+    cancelStream: jest.fn().mockResolvedValue(true),
     abort: jest.fn(),
   })),
 }));

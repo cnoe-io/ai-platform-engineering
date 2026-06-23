@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
@@ -220,11 +221,17 @@ export function AgentBuilderGallery({
 
   const handleTrySkill = async () => {
     if (!activeFormConfig) return;
-    const conversationId = await createConversation();
-    const skillId = activeFormConfig.id || activeFormConfig.name;
-    setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
-    setActiveFormConfig(null);
-    router.push(`/chat/${conversationId}`);
+    try {
+      const conversationId = await createConversation(await resolveUsableChatAgentId());
+      const skillId = activeFormConfig.id || activeFormConfig.name;
+      setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
+      setActiveFormConfig(null);
+      router.push(`/chat/${conversationId}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create a chat conversation";
+      alert(message);
+    }
   };
 
   if (error) {

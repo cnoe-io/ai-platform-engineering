@@ -178,18 +178,6 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
       </svg>
     )
   },
-  supervisor: {
-    name: "supervisor",
-    displayName: "Supervisor",
-    color: "#10B981",
-    // Supervisor checkmark icon
-    icon: (
-      <svg viewBox="0 0 128 128" className="w-full h-full">
-        <circle fill="#10B981" cx="64" cy="64" r="58"/>
-        <path fill="#fff" d="M54 86L32 64l5.66-5.66L54 74.69l36.34-36.35L96 44z"/>
-      </svg>
-    )
-  },
   rag: {
     name: "rag",
     displayName: "RAG",
@@ -236,7 +224,6 @@ export function normalizeAgentName(name: string): string {
   if (normalized === "confluence") return "confluence";
   if (normalized === "kubernetes" || normalized === "k8s") return "kubernetes";
   if (normalized === "user_input" || normalized.includes("platform")) return "user_input";
-  if (normalized === "supervisor") return "supervisor";
   if (normalized === "rag" || normalized === "knowledge" || normalized.includes("knowledge")) return "rag";
 
   return normalized;

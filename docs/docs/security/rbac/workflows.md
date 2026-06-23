@@ -306,11 +306,10 @@ sequenceDiagram
 
 **Implementation notes (what makes the diagram hold in code):**
 
-- **Agent-use gate = the dynamic-agent path, not the supervisor.** External SAs call `/api/v1/chat/*`
+- **Agent-use gate = the dynamic-agent path.** External SAs call `/api/v1/chat/*`
   (and browser dynamic-agent conversations call `POST /api/chat/conversations` with an `agent_id`); both
-  gate on `requireAgentUsePermission` (`ui/src/lib/rbac/openfga-agent-authz.ts`), NOT the legacy
-  `supervisor#invoke` org gate. The supervisor is deprecated for SAs; an SA never traverses that gate, so
-  **no organization-membership grant is written for SAs** (that would be dead code and would over-grant
+  gate on `requireAgentUsePermission` (`ui/src/lib/rbac/openfga-agent-authz.ts`). **No
+  organization-membership grant is written for SAs** (that would over-grant
   coarse member surfaces — credentials/files/directory — violating FR-004). The SA's reachability is
   exactly its explicit agent/tool grants.
 - **Canonical subject namespacing is applied at FOUR layers**, all using the same T002 rule

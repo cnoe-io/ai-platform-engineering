@@ -79,13 +79,13 @@ const HOME_FEATURES = [
   {
     icon: '🤖',
     title: 'Multi-Agent Orchestration',
-    description: '10+ agents and MCP servers with a deterministic task builder.',
+    description: 'Dynamic agents connected to first-party and external MCP servers.',
     to: '/features',
   },
   {
     icon: '🎨',
     title: 'Rich Web UI',
-    description: 'Streaming chat, agent builder, task builder, and skills gateway.',
+    description: 'Streaming chat, agent builder, skills gateway, and admin controls.',
     to: '/features',
   },
   {
@@ -126,8 +126,8 @@ const HOME_FEATURES = [
   },
   {
     icon: '🔌',
-    title: 'BYO A2A & MCP',
-    description: 'Plug in your own A2A agents or MCP servers as first-class participants.',
+    title: 'BYO MCP Servers',
+    description: 'Plug in external MCP servers and custom Dynamic Agents as first-class participants.',
     to: '/features',
   },
   {
@@ -383,7 +383,7 @@ function AgentsSection() {
   return (
     <section className={styles.integrations}>
       <p className={styles.integrationsTitle}>
-        Pre-built agents for your platform stack — or bring your own A2A agent, MCP server, and build custom agents
+        Pre-built integrations for your platform stack — or bring your own MCP server and build custom agents
       </p>
       <div className={styles.integrationsList}>
         {AGENTS.map((a) => (

@@ -6,65 +6,65 @@ global:
       # kubernetes.io/ingress.class: "nginx"
       # kubernetes.io/tls-acme: "true"
 
-agent-argocd:
+mcp-argocd:
   ingress:
     hosts: []
-      #  - agent-argocd.local
+      #  - mcp-argocd.local
     tls: []
-      # - secretName: agent-argocd-tls
+      # - secretName: mcp-argocd-tls
       #   hosts:
-      #     - agent-argocd.local
+      #     - mcp-argocd.local
 
-agent-pagerduty:
+mcp-pagerduty:
   ingress:
     hosts: []
-      #  - agent-pagerduty.local
+      #  - mcp-pagerduty.local
     tls: []
-      # - secretName: agent-pagerduty-tls
+      # - secretName: mcp-pagerduty-tls
       #   hosts:
-      #     - agent-pagerduty.local
+      #     - mcp-pagerduty.local
 
-agent-github:
+mcp-github:
   ingress:
     hosts: []
-      #  - agent-github.local
+      #  - mcp-github.local
     tls: []
-      # - secretName: agent-github-tls
+      # - secretName: mcp-github-tls
       #   hosts:
-      #     - agent-github.local
+      #     - mcp-github.local
 
-agent-backstage:
+mcp-backstage:
   ingress:
     hosts: []
-      #  - agent-backstage.local
+      #  - mcp-backstage.local
     tls: []
-      # - secretName: agent-backstage-tls
+      # - secretName: mcp-backstage-tls
       #   hosts:
-      #     - agent-backstage.local
+      #     - mcp-backstage.local
 
-agent-slack:
+mcp-slack:
   ingress:
     hosts: []
-      #  - agent-slack.local
+      #  - mcp-slack.local
     tls: []
-      # - secretName: agent-slack-tls
+      # - secretName: mcp-slack-tls
       #   hosts:
-      #     - agent-slack.local
+      #     - mcp-slack.local
 
-agent-confluence:
+mcp-confluence:
   ingress:
     hosts: []
-      #  - agent-confluence.local
+      #  - mcp-confluence.local
     tls: []
-      # - secretName: agent-confluence-tls
+      # - secretName: mcp-confluence-tls
       #   hosts:
-      #     - agent-confluence.local
+      #     - mcp-confluence.local
 
-agent-jira:
+mcp-jira:
   ingress:
     hosts: []
-      #  - agent-jira.local
+      #  - mcp-jira.local
     tls: []
-      # - secretName: agent-jira-tls
+      # - secretName: mcp-jira-tls
       #   hosts:
-      #     - agent-jira.local
+      #     - mcp-jira.local

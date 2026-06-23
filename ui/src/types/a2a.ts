@@ -3,10 +3,8 @@ import type { Participant } from "@/types/mongodb";
 
 // Chat conversation types for the Dynamic Agents UI.
 //
-// NOTE: This module is named `a2a.ts` for historical reasons (the legacy
-// supervisor used the A2A protocol). The supervisor and its A2A event types
-// were removed; what remains here are the conversation/message shapes shared
-// across the chat UI, which stream via `StreamEvent` (see `@/lib/streaming`).
+// Conversation/message shapes shared across the chat UI. Streaming event data
+// lives in `StreamEvent`.
 
 // Turn status for Dynamic Agents (shown in timeline)
 export type TurnStatus = "done" | "interrupted" | "waiting_for_input";
@@ -84,7 +82,7 @@ export interface ChatMessage {
   /**
    * Sender identity — who actually typed this message.
    * Required for shared conversations where multiple users participate.
-   * All fields are optional for backward compatibility with legacy messages.
+   * Optional because stored messages may not include sender metadata.
    */
   senderEmail?: string;
   senderName?: string;

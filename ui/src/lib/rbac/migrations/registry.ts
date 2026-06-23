@@ -71,10 +71,9 @@ export const RELEASE_051 = "0.5.1";
 // `ACTIVE_RELEASES` (the runs query, override scope, and runtime label all
 // span every active release).
 export const RELEASE_058 = "0.5.8";
-// 0.6.0 manifest — post supervisor + A2A removal cleanup. The
-// `legacy_runtime_cleanup_v1` migration drops orphaned checkpoint
-// collections and strips the dead `agent_version` / `model_used` /
-// `a2a_events` fields left by the removed runtimes.
+// 0.6.0 manifest — runtime storage cleanup. The
+// `legacy_runtime_cleanup_v1` migration keeps only checkpoint collections and
+// message metadata used by the current Dynamic Agents runtime.
 export const RELEASE_060 = "0.6.0";
 // All release manifests the runtime surfaces. The newest is the reported
 // `migration_release`; the runs query spans every entry so completed-state is
@@ -238,7 +237,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Organization membership backfill",
     description:
-      "Grant existing linked users organization membership so baseline supervisor, RAG, and chat access survive the OpenFGA cutover.",
+      "Grant existing linked users organization membership so baseline RAG and chat access survive the OpenFGA cutover.",
     confirmation: "MIGRATE organization_membership TO v2",
     required: true,
     implemented: true,
@@ -530,9 +529,9 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     from_version: 1,
     to_version: 2,
     kind: "explicit",
-    title: "Supervisor / A2A runtime cleanup",
+    title: "Legacy runtime storage cleanup",
     description:
-      "Drop orphaned per-agent LangGraph checkpoint collections and strip the dead metadata.agent_version, metadata.model_used, and a2a_events fields left by the removed supervisor and standalone A2A agents. Conversation/message stat data is preserved.",
+      "Drop checkpoint collections not used by Dynamic Agents and strip message metadata fields that the current runtime does not read. Conversation/message stat data is preserved.",
     confirmation: LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
     required: false,
     implemented: true,
