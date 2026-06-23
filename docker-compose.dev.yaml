@@ -1799,6 +1799,10 @@ services:
       - OAUTH2_AUDIENCE=${OAUTH2_AUDIENCE:-}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
+      # Persist conversation history across /invoke calls (ephemeral by default).
+      # Required for the chat-as-sa.sh script and any non-streaming caller that
+      # expects multi-turn context.
+      - INVOKE_PERSIST_HISTORY=${INVOKE_PERSIST_HISTORY:-false}
       # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
       # When a caller has NOT connected their personal provider account, DA injects
       # these org PATs on X-CAIPE-Provider-Token so those tools stay backward
