@@ -1,3 +1,19 @@
+## 0.5.21 (2026-06-23)
+
+### Feat
+
+- **dynamic-agents**: add INVOKE_PERSIST_HISTORY env var to compose
+
+### Fix
+
+- **tests**: update tests to match new fallback and wildcard behaviour
+- **rbac**: add findOneAndUpdate to migration lock test mock
+- **mcp**: allow fallback_env when provider connection is unavailable
+- **service-accounts**: always show wildcard in SA tool picker
+- **rbac**: atomically acquire migration lock to prevent multi-replica race
+
+## 0.5.20 (2026-06-23)
+
 ## 0.5.19-dev.3 (2026-06-23)
 
 ### Feat
