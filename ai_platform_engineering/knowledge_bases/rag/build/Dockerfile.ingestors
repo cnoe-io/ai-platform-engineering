@@ -10,7 +10,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 # for an example.
 ENV UV_PYTHON_DOWNLOADS=0
 
-# Build variant: "default" (with Playwright/Chromium for JS rendering) or "slim" (no Playwright, smaller image)
+# Build variant: "default" or "slim" (browserless) or "browser" (with Playwright/Chromium for JS rendering)
 ARG VARIANT=default
 
 # Copy over the local dependencies (excluding .venv directories)
@@ -19,23 +19,23 @@ COPY common /app/common
 RUN rm -rf /app/common/.venv
 
 WORKDIR /app/ingestors
-# Install dependencies based on variant
-# Default includes Playwright for JS rendering; slim variant excludes it for smaller image
+# Install dependencies based on variant.
+# Default is browserless so the published image does not ship Chromium CVEs.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=ingestors/uv.lock,target=uv.lock \
     --mount=type=bind,source=ingestors/pyproject.toml,target=pyproject.toml \
-    if [ "$VARIANT" = "slim" ]; then \
-        UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev; \
-    else \
+    if [ "$VARIANT" = "browser" ]; then \
         UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev --extra playwright; \
+    else \
+        UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev; \
     fi
 
 COPY ingestors .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ "$VARIANT" = "slim" ]; then \
-        UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev; \
-    else \
+    if [ "$VARIANT" = "browser" ]; then \
         UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev --extra playwright; \
+    else \
+        UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev; \
     fi
 
 # Clean up .venv to reduce image size (remove ~100MB of unnecessary files)
@@ -55,14 +55,14 @@ FROM cgr.dev/chainguard/wolfi-base
 
 # Re-declare ARG after FROM to make it available in this stage
 ARG VARIANT=default
+ARG INSTALL_AWS_CLI=false
 
 # Install system dependencies from the Wolfi package repository:
 # - python-3.13            : system CPython matching the builder
 # - ca-certificates-bundle : TLS trust store
-# - curl / unzip           : AWS CLI v2 download + extraction
 # - bash                   : login shell for the non-root user
 # - shadow                 : provides groupadd/useradd for non-root user creation
-# - chromium (default var) : distro browser for Playwright full-browser launches.
+# - chromium (browser var) : distro browser for Playwright full-browser launches.
 #                            Wolfi's chromium apk resolves its own runtime libs,
 #                            so the long manual Debian lib list is no longer needed.
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
@@ -70,29 +70,38 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
     apk add --no-cache \
         python-3.13 \
         ca-certificates-bundle \
-        curl \
-        unzip \
         bash \
         shadow && \
-    if [ "$VARIANT" != "slim" ]; then \
+    if [ "$VARIANT" = "browser" ]; then \
         apk add --no-cache chromium; \
     fi && \
-    # Ensure /usr/local/bin/python3 (the path baked into the builder venv) exists
+    if [ "$INSTALL_AWS_CLI" = "true" ]; then \
+        apk add --no-cache curl unzip; \
+    fi
+
+# Ensure /usr/local/bin/python3 (the path baked into the builder venv) exists.
+RUN \
     if [ ! -e /usr/local/bin/python3 ]; then \
         mkdir -p /usr/local/bin && \
         ln -sf "$(command -v python3.13 || command -v python3)" /usr/local/bin/python3; \
     fi && \
     ln -sf /usr/local/bin/python3 /usr/local/bin/python && \
-    # Install AWS CLI v2 (detect architecture) for EKS authentication (k8s ingestor)
-    ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-    else \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    apk upgrade --no-cache
+
+# AWS CLI v2 is opt-in for EKS kubeconfigs that shell out to `aws eks get-token`.
+RUN \
+    if [ "$INSTALL_AWS_CLI" = "true" ]; then \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "aarch64" ]; then \
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+        else \
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+        fi && \
+        unzip -q awscliv2.zip && \
+        ./aws/install && \
+        rm -rf awscliv2.zip aws; \
     fi && \
-    unzip -q awscliv2.zip && \
-    ./aws/install && \
-    rm -rf awscliv2.zip aws
+    true
 
 # Create a non-root user
 RUN groupadd --gid 1001 app && \
@@ -111,7 +120,7 @@ ENV PATH="/app/ingestors/.venv/bin:$PATH"
 # use the distro browser. A fixed symlink /opt/chrome/chrome makes the ENV path
 # arch-independent and decoupled from the exact Wolfi chromium install location.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
-RUN if [ "$VARIANT" != "slim" ]; then \
+RUN if [ "$VARIANT" = "browser" ]; then \
         mkdir -p /opt/chrome && \
         ln -sf "$(command -v chromium || echo /usr/bin/chromium)" /opt/chrome/chrome && \
         playwright install chromium && \
@@ -123,5 +132,5 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/chrome/chrome
 # Use a non-root user to run the application
 USER app
 
-# Run the application by default - use shell form to enable variable expansion
-CMD python3 src/ingestors/${INGESTOR_TYPE}/ingestor.py
+# Run the application by default through sh so INGESTOR_TYPE expands at runtime.
+CMD ["sh", "-c", "exec python3 src/ingestors/${INGESTOR_TYPE}/ingestor.py"]

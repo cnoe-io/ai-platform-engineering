@@ -90,6 +90,15 @@ In addition to `ScrapySettings`, the URL ingestion request supports:
 - Enable `render_javascript: true` for JavaScript-heavy sites (SPAs)
 - Uses Playwright for headless browser rendering
 - Supports waiting for specific selectors before extraction
+- The default published ingestors image is browserless. Build a browser-enabled image when JavaScript rendering is required:
+
+```bash
+docker build \
+  -f build/Dockerfile.ingestors \
+  --build-arg VARIANT=browser \
+  -t caipe-rag-ingestors:browser \
+  .
+```
 
 ### 4. Specialized Parsers
 - **Docusaurus**: Optimized for Docusaurus documentation sites
@@ -206,4 +215,3 @@ INFO: Completed URL ingestion for https://example.com
 - Failed URLs are logged and can be retried via reload commands
 - The ingestor automatically manages task concurrency to prevent resource exhaustion
 - Periodic reloads ensure documentation stays current without manual intervention
-
