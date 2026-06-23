@@ -2,17 +2,235 @@
 
 ### Fix
 
+- **charts**: default AUDIT_SERVICE_URL to release-scoped audit-service (#1974)
 - **identity-sync**: remove proactive Okta credential health check on page load (#1975)
-
-## 0.5.18-dev.1 (2026-06-22)
 
 ## 0.5.18 (2026-06-22)
 
+### Feat
+
+- **ui**: remove NPS score page, survey, and settings (#1919)
+- **rag**: add S3 document ingestor (#1875)
+- **audit**: add lightweight audit service runtime (#1946)
+- **github**: use gh cli-backed file contents tool (#1721)
+- **audit**: add audit-service read UI (#1948)
+- **credentials**: integrate secrets UX with AgentGateway MCP routing (#1967)
+
 ### Fix
 
-- **charts**: default AUDIT_SERVICE_URL to release-scoped audit-service
-- **workflows**: allow workflow CRUD with view permission at BFF gate
-- **workflows**: let non-admins save workflows without global agent grants
+- **rbac**: replace unsupported $facet in team members pagination for DocumentDB (#1924)
+- **setup-caipe**: Missing AGENTGATEWAY_TARGETS_TOKEN (#1914)
+- **ui**: handle Kubernetes tcp:// port env vars in platform health probes (#1927)
+- credential team sharing authz (#1943)
+- **ci**: satisfy zizmor security scan (#1954)
+- **deps**: resolve dependabot security alerts (#1872)
+- **helm**: keep MCP servers while disabling A2A agents (#1925)
+- **security**: remove agntcy slim sdk usage (#1955)
+- **deps**: update torch for rag embeddings (#1962)
+- **rbac**: address admin and chat regressions (#1950)
+- **compose**: use canonical caipe-ui image tag (#1966)
+- **mcp**: promote custom servers to agentgateway routes (#1926)
+- **workflows**: allow non-admins to create and save workflows (#1973)
+
+### Perf
+
+- **ui**: cache health and RBAC gate checks (#1949)
+
+### Refactor
+
+- **audit**: route producers through audit service (#1947)
+
+### Docs
+
+- fix typo 'seperate' -> 'separate' in two CHANGELOG files (#1940)
+- document AGENTGATEWAY_TARGETS_TOKEN in .env.example (#1938)
+- **rag**: clarify health proxy auth behavior (#1963)
+- **blog**: What's New in 0.5 — end-user feature overview (#1918)
+- **audit**: document audit performance benchmarks (#1951)
+
+### Chore
+
+- **repo**: remove beads issue tracking (#1945)
+
+### Ci
+
+- **rag**: build only changed RAG components instead of all three (#1970)
+
+## 0.5.17 (2026-06-18)
+
+### Feat
+
+- **rbac**: add background scheduler for IdP directory sync (#1901)
+- **ui**: paginate admin teams/members/IdP-sync history + self-heal OpenFGA drift (#1916)
+- **ui**: add platform health probes (#1909)
+
+### Fix
+
+- **docker-compose**: align docker-compose files (#1886)
+- **slack**: remove ephemeral identity verification error message (#1902)
+- **workflows**: portal visibility dropdown and fix runs-to-workflows nav (#1900)
+- **rbac**: unblock superadmin conversations and tool grants (#1904)
+- **ui**: prefer exact changelog release prompts (#1908)
+
+### Docs
+
+- fix typo 'seperate' -> 'separate' in CHANGELOG (#1898)
+
+### Chore
+
+- **compose**: align oss all-in-one stack (#1887)
+
+### Ci
+
+- **agents**: make a2a image builds opt-in (#1905)
+
+### Other
+
+- add opt-out checkbox to suppress feedback regeneration (#1793)
+
+## 0.5.16 (2026-06-17)
+
+### Feat
+
+- **rbac**: expose policy manifest downloads (#1891)
+- **admin**: scope teams, users, stats, and feedback for non-admin users (#1894)
+
+### Fix
+
+- **slack**: fix loguru format strings and remove noisy oauth cache debug log (#1879)
+- **admin**: allow unlinked service account tool grants (#1880)
+- **dynamic-agents**: surface CAS 4xx as its real status instead of collapsing to 503 (#1878)
+- unlinked service account catalog grants (#1870)
+- **slack**: let team members manage shared integrations (#1883)
+- **rbac**: expand MCP wildcard grants safely (#1889)
+- **rbac**: upsert bootstrap idp-sync rule by ID to fix stale provider_id (#1881)
+- **ci**: harden release workflows and add actions scan (#1851)
+- **chat**: prevent auto-create on login race and unify permanent delete logic (#1896)
+- **rbac**: treat team managers as owner-team members (#1895)
+- **agent-editor**: simplify owner team transfer (#1893)
+
+### Perf
+
+- **admin**: lazy-load tab data on first visit; parallelise stats queries (#1882)
+
+### Test
+
+- **rbac**: add identity sync browser regression (#1892)
+
+## 0.5.15 (2026-06-17)
+
+### Feat
+
+- **admin**: sync admin nested sub-tabs to the subtab URL param (#1867)
+
+### Fix
+
+- **admin**: default to Settings tab and rename Default Agent to General (#1862)
+- **admin**: clarify unlinked access description for admins (#1861)
+- **chart**: duplicate app.kubernetes.io/name (#1845)
+- **ui**: stabilize service account RBAC e2e (#1855)
+- make AgentGateway provider-token passthrough declarative (#1859)
+- **ui**: soften required-field treatment on agent create form (#1865)
+- **rbac**: simplify owner-team ownership UI and drop grant-preview copy (#1873)
+- **ui**: import Button in team ownership fields (#1876)
+- **slack**: send service_account subject to CAS for SA-run channels; clarify route copy (#1877)
+
+### Test
+
+- **service-accounts**: add token passthrough Playwright coverage (#1844)
+- **ui**: add admin settings e2e regression (#1869)
+
+### Chore
+
+- **deps**: Bump the npm_and_yarn group across 2 directories with 4 updates (#1858)
+- **slack-bot**: remove SLACK_INTEGRATION_SILENCE_ENV flag (#1874)
+
+## 0.5.14 (2026-06-16)
+
+### Fix
+
+- **setup**: production-ready setup-caipe.sh — prereqs, domain/TLS, Keycloak, dynamic agents (#1823)
+- **validate**: Remove weather-agent validation (#1790)
+- **jira-mcp**: add assign_issue tool using dedicated assignee endpoint (#1846)
+- **rag**: sync uv lock metadata (#1856)
+
+### Other
+
+- [codex] feat(agentgateway): render config bridge targets from BFF (#1852)
+
+## 0.5.13 (2026-06-15)
+
+### Feat
+
+- **agentgateway**: enable agentgateway and github-mcp-server by default in 0.5.x (#1762)
+- **rbac**: Service Accounts — team-owned bot identities + caller-keyed tool authz (#1780)
+- **rbac**: combine AD group admins with super-admins team access (#1792)
+- **slack**: Run As identity (user / service account) + unlinked-user fallback for Slack routing (#1784)
+- **service-accounts**: credential passthrough (provider tokens) for service accounts (#1796)
+
+### Fix
+
+- **docs**: repair MDX breakage in FGA module-api contract page (#1837)
+- **rbac**: repair MCP OpenFGA drift and local file ingestion (#1838)
+- **webex**: replace static agent route mappings (#1820)
+- **chart**: make GitHub MCP server opt-in (#1839)
+- **ui**: keep service account team picker searchable (#1840)
+- **rbac**: set AFFIRMATIVE on bot's own token-exchange permission during reconciliation (#1787)
+- **dynamic-agents**: bump vulnerable dependencies (#1841)
+- **ui**: prevent unlinked access modal control bleed (#1842)
+- **ui**: refresh mcp server list (#1816)
+
+### Refactor
+
+- **slack**: route all Slack-bot Keycloak access through the BFF; drop direct admin creds (#1800)
+
+## 0.5.12 (2026-06-14)
+
+### Feat
+
+- **authz**: Centralized Authorization Service (CAS) — core, HTTP API, admin UI (#1770)
+- **workflows**: workflow RBAC on CAS (re-implements #1751) (#1772)
+- **ui**: ephemeral file preview in agents and workflows (#1831)
+
+### Fix
+
+- **setup**: auto-install missing prereqs and gate sudo on user consent (#1821)
+- **setup**: auto-install kind during prerequisites check (#1822)
+- **dynamic-agents**: restore workflow settings dropped by 020dc937f (#1766)
+- **supervisor**: eager MCP init via A2A lifespan hook (#1830)
+- **ui**: MCP OpenFGA reconcile, CAS-backed authz, and team sharing (#1819)
+
+### Test
+
+- **rbac**: add admin browser regression (#1829)
+
+### Docs
+
+- **releases**: backfill release notes and published-versions for 0.5.5–0.5.10 (#1815)
+
+### Chore
+
+- **deps**: resolve dependabot alerts (#1818)
+- **agentgateway**: structured authz logging in config bridge (#1825)
+
+## 0.5.11 (2026-06-11)
+
+### Feat
+
+- **slack**: consolidate JIT shell-user provisioning into shared BFF endpoint (#1788)
+- **rbac**: super-admins team → org-admin + AD group admin bootstrap (cherry-pick to main) (#1814)
+
+### Fix
+
+- **setup-caipe**: Ollama as a K8s deployment (#1695)
+- **setup-caipe**: complete Ollama k8s deployment (#1786)
+- **openfga**: add organization#member to skill type restrictions (#1797)
+- **setup-caipe**: Ollama FQDN, RAG ingestor client, dynamic-agents bearer auth (#1803)
+- **rag-rbac**: elevate OpenFGA org-admins to admin on ADMIN-gated endpoints (#1805)
+
+### Refactor
+
+- **ui**: group flat admin components by domain + organize imports + fix all lint errors (#1791)
 
 ## 0.5.17-dev.11 (2026-06-22)
 
@@ -134,13 +352,6 @@
 - **ci**: drop GitHub App token from release-finalize
 - **ci**: use GITHUB_TOKEN for release publish steps
 
-## 0.5.17 (2026-06-18)
-
-### Feat
-
-- **ui**: add platform health probes (#1909)
-- **ui**: paginate admin teams/members/IdP-sync history + self-heal OpenFGA drift (#1916)
-
 ## 0.5.16-dev.2 (2026-06-18)
 
 ### Feat
@@ -159,8 +370,6 @@
 ### Fix
 
 - **slack**: remove ephemeral identity verification error message (#1902)
-
-## 0.5.16 (2026-06-17)
 
 ## 0.5.15-dev.8 (2026-06-17)
 
@@ -216,8 +425,6 @@
 ### Fix
 
 - **slack**: fix loguru format strings and remove noisy oauth cache debug log (#1879)
-
-## 0.5.15 (2026-06-16)
 
 ## 0.5.14-dev.10 (2026-06-16)
 
@@ -280,8 +487,6 @@
 
 - **admin**: default to Settings tab and rename Default Agent to General (#1862)
 
-## 0.5.14 (2026-06-15)
-
 ## 0.5.13-dev.4 (2026-06-15)
 
 ### Fix
@@ -305,8 +510,6 @@
 ### Fix
 
 - **setup**: production-ready setup-caipe.sh — prereqs, domain/TLS, Keycloak, dynamic agents (#1823)
-
-## 0.5.13 (2026-06-15)
 
 ## 0.5.12-dev.9 (2026-06-15)
 
@@ -381,8 +584,6 @@
 - **rbac**: repair MCP tuple drift and gateway credentials
 - **docs**: repair MDX breakage in FGA module-api contract page (#1837)
 
-## 0.5.12 (2026-06-14)
-
 ## 0.5.11-dev.5 (2026-06-14)
 
 ### Feat
@@ -422,17 +623,6 @@
 
 - **setup**: auto-install kind during prerequisites check
 - **setup**: auto-install missing prereqs and gate sudo on user consent
-
-## 0.5.11 (2026-06-11)
-
-### Feat
-
-- **rbac**: combine AD group admins with super-admins team access
-
-### Fix
-
-- **test**: add role:'admin' to mock user so requireMigrationSuperAdmin passes
-- **rbac**: write org-admin connector tuple for super-admins team on bootstrap
 
 ## 0.5.10-dev.3 (2026-06-11)
 
