@@ -78,6 +78,36 @@ async function installHomePageMocks(
 ) {
   const sharedItems = options.items ?? [];
 
+  // Force MongoDB storage mode so the SharedConversations section renders.
+  // The server injects __APP_CONFIG__ via an inline <script> in <head> based
+  // on process.env.MONGODB_URI; test servers lack that env var, so we
+  // intercept the HTML page response and rewrite storageMode before the
+  // browser sees it. This avoids a React SSR/hydration mismatch because both
+  // the server-rendered HTML and the client-side hydration see the same value.
+  await page.route("**/*", async (route) => {
+    const req = route.request();
+    const accept = req.headers()["accept"] ?? "";
+    if (
+      req.method() !== "GET" ||
+      !accept.includes("text/html") ||
+      req.url().includes("/api/")
+    ) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const ct = response.headers()["content-type"] ?? "";
+    if (!ct.includes("text/html")) {
+      await route.fulfill({ response });
+      return;
+    }
+    const body = (await response.text()).replace(
+      /"storageMode"\s*:\s*"localStorage"/g,
+      '"storageMode":"mongodb"',
+    );
+    await route.fulfill({ response, body });
+  });
+
   await installMockedRbacApp(page, {
     session: { email: CALLER_EMAIL, name: "Caller User" },
     handlers: [
