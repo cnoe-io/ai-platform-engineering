@@ -197,7 +197,7 @@ test.describe("RBAC e2e — MCP upstream-only credentials (mocked)", () => {
     await page.getByRole("button", { name: /Edit generated name/i }).click();
     await page.getByLabel(/Generated name/i).fill("upstream-only");
     await page.getByLabel(/Endpoint URL/i).fill("http://mcp-jira:8000/mcp");
-    await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+    await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
     await page.getByRole("button", { name: "Create Server" }).click();
 
     await expect.poll(() => mocks.createRequests.length).toBe(1);
