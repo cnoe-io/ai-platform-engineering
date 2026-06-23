@@ -34,6 +34,7 @@ import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDi
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
+import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
 import { useVersion } from "@/hooks/use-version";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
@@ -299,6 +300,13 @@ export function AppHeader() {
   // Health check for Agent Runtime (polls every 30 seconds)
   const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
 
+  // Platform health probes (polls all platform services: dynamic agents, auth, storage, RAG, migrations)
+  const {
+    status: platformProbeStatus,
+    summary: platformProbeSummary,
+    secondsUntilNextCheck: platformProbeNextCheck,
+  } = usePlatformHealthProbes();
+
   // Check if RAG is enabled in config
   const ragEnabled = config.ragEnabled;
 
@@ -328,13 +336,16 @@ export function AppHeader() {
     releasePrompt.markToastShown();
   }, [releasePrompt, session, toast]);
 
-  // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
-  // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
-  // Note: Only include RAG in status if it's enabled
+  // Combined status: hard failures from the API path or platform
+  // dependencies mark the system as disconnected; optional RAG failures are
+  // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
     if (caipeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
+    if (platformProbeStatus === "checking") return "checking";
     if (caipeStatus === "disconnected") return "disconnected";
+    if (platformProbeStatus === "down") return "disconnected";
+    if (platformProbeStatus === "degraded") return "degraded";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
     return "connected";
   };
@@ -343,8 +354,28 @@ export function AppHeader() {
   const combinedStatusLabel =
     combinedStatus === "connected" ? "Connected" :
     combinedStatus === "checking" ? "Checking" :
+    combinedStatus === "degraded" ? "Needs Attention" :
     combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
     "Disconnected";
+
+  const platformHealthLabel =
+    platformProbeStatus === "healthy" ? "Ready" :
+    platformProbeStatus === "degraded" ? "Attention" :
+    platformProbeStatus === "down" ? "Down" :
+    "Checking";
+  const platformHealthTone: "green" | "amber" | "red" | "muted" =
+    platformProbeStatus === "healthy" ? "green" :
+    platformProbeStatus === "down" ? "red" :
+    platformProbeStatus === "checking" ? "muted" :
+    "amber";
+  const statusBadgeClassName = (tone: "green" | "amber" | "red" | "muted") =>
+    cn(
+      "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+      tone === "green" && "border-green-500/25 bg-green-500/10 text-green-500 dark:text-green-400",
+      tone === "amber" && "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+      tone === "red" && "border-red-500/25 bg-red-500/10 text-red-500 dark:text-red-400",
+      tone === "muted" && "border-border bg-muted/40 text-muted-foreground",
+    );
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
