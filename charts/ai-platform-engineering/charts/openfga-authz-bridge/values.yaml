@@ -55,10 +55,6 @@ callerToolCheck:
   enabled: false
 
 slack:
-  # Set enabled=true when the Slack MCP integration is active.  Controls
-  # CAIPE_RESOURCE_SCOPED_TOOL_CHECK_ENABLED and SLACK_WORKSPACE_ALIAS so the
-  # bridge only enforces channel-write gating when Slack is wired in.
-  enabled: false
   # Workspace alias used to construct the FGA slack_channel subject
   # (e.g. "T0123ABCD").  Mirrors SLACK_WORKSPACE_ALIAS / SLACK_WORKSPACE_ID
   # in the BFF.  Leave empty to fall back to the bridge's "workspace-default".

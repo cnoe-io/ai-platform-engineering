@@ -63,9 +63,7 @@ spec:
               value: {{ join "," .Values.tokenValidation.algorithms | quote }}
             - name: CAIPE_CALLER_TOOL_CHECK_ENABLED
               value: {{ .Values.callerToolCheck.enabled | toString | quote }}
-            - name: CAIPE_RESOURCE_SCOPED_TOOL_CHECK_ENABLED
-              value: {{ .Values.slack.enabled | toString | quote }}
-            {{- if and .Values.slack.enabled .Values.slack.workspaceAlias }}
+            {{- if .Values.slack.workspaceAlias }}
             - name: SLACK_WORKSPACE_ALIAS
               value: {{ .Values.slack.workspaceAlias | quote }}
             {{- end }}

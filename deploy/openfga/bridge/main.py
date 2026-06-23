@@ -67,15 +67,6 @@ AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_
 CALLER_TOOL_CHECK_ENABLED = os.environ.get(
     "CAIPE_CALLER_TOOL_CHECK_ENABLED", ""
 ).strip().lower() in ("1", "true", "yes", "on")
-# Resource-scoped tool write authorization (Slack channel write gating).
-# When ON, any tool call that maps to a resource-scoped tool (see
-# RESOURCE_SCOPED_TOOLS below) is additionally checked against the FGA
-# relation for that resource. Gated so operators can enable after the
-# slack_channel FGA tuples (team-assignment policy v1) are backfilled.
-# Set CAIPE_RESOURCE_SCOPED_TOOL_CHECK_ENABLED=true to enable.
-RESOURCE_SCOPED_TOOL_CHECK_ENABLED = os.environ.get(
-    "CAIPE_RESOURCE_SCOPED_TOOL_CHECK_ENABLED", ""
-).strip().lower() in ("1", "true", "yes", "on")
 # Workspace alias used to construct the FGA slack_channel subject
 # (mirrors SLACK_WORKSPACE_ALIAS / SLACK_WORKSPACE_ID in the BFF).
 SLACK_WORKSPACE_ID = (
@@ -877,7 +868,7 @@ class OpenFgaAuthorizationService:
             # channel-write gate — team members get `can_write` on channels
             # owned by their team via the slack_channel_team_assignment_v1 policy.
             # Only active when CAIPE_RESOURCE_SCOPED_TOOL_CHECK_ENABLED=true.
-            if allowed and RESOURCE_SCOPED_TOOL_CHECK_ENABLED:
+            if allowed:
                 resource_check = mcp_resource_arg_from_request(request)
                 if resource_check is not None:
                     res_type, res_id, res_relation = resource_check

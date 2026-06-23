@@ -660,7 +660,6 @@ def test_channel_write_check_denies_caller_without_channel_write(monkeypatch: py
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **e: events.append(e), raising=False)
     monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "")
-    monkeypatch.setattr(bridge, "RESOURCE_SCOPED_TOOL_CHECK_ENABLED", True)
 
     request = _slack_write_request(bridge, tool_name="conversations_add_message", channel_id="C0123ABCD")
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
@@ -688,7 +687,6 @@ def test_channel_write_check_allows_caller_with_channel_write(monkeypatch: pytes
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **e: events.append(e), raising=False)
     monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "")
-    monkeypatch.setattr(bridge, "RESOURCE_SCOPED_TOOL_CHECK_ENABLED", True)
 
     request = _slack_write_request(bridge, tool_name="conversations_add_message", channel_id="C0123ABCD")
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
@@ -719,7 +717,6 @@ def test_channel_write_check_allows_service_account_with_channel_write(monkeypat
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_e: None, raising=False)
     monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "")
-    monkeypatch.setattr(bridge, "RESOURCE_SCOPED_TOOL_CHECK_ENABLED", True)
 
     request = _slack_write_request(bridge, tool_name="reactions_add", channel_id="C0123ABCD")
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
@@ -727,12 +724,14 @@ def test_channel_write_check_allows_service_account_with_channel_write(monkeypat
     assert response.status.code == bridge.OK
 
 
-def test_channel_write_check_skipped_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With the flag disabled, write tools pass through without a channel check."""
+def test_channel_write_check_skipped_for_non_slack_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-Slack targets exit fast — mcp_resource_arg_from_request returns None
+    immediately on a dict miss, so no extra OpenFGA call is made."""
     bridge = _load_bridge_module()
+    checks: list[tuple] = []
 
     def _fake_check(user: str, relation: str, obj: str) -> bool:
-        # Only the coarse gate is granted — no channel write tuple.
+        checks.append((user, relation, obj))
         return (user, relation, obj) == ("user:user-sub-123", "can_call", "mcp_gateway:list")
 
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _: "user-sub-123")
@@ -740,12 +739,18 @@ def test_channel_write_check_skipped_when_flag_off(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_e: None, raising=False)
     monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "")
-    monkeypatch.setattr(bridge, "RESOURCE_SCOPED_TOOL_CHECK_ENABLED", False)
 
-    request = _slack_write_request(bridge, tool_name="conversations_add_message", channel_id="C0123ABCD")
+    # jira/search is not in RESOURCE_SCOPED_TOOLS → no channel check, no extra call
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/jira",
+        method="POST",
+        body='{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search","arguments":{"query":"test"}}}',
+    )
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
 
     assert response.status.code == bridge.OK
+    assert checks == [("user:user-sub-123", "can_call", "mcp_gateway:list")]
 
 
 def test_channel_write_check_passthrough_when_no_channel_arg(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -761,7 +766,6 @@ def test_channel_write_check_passthrough_when_no_channel_arg(monkeypatch: pytest
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_e: None, raising=False)
     monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "")
-    monkeypatch.setattr(bridge, "RESOURCE_SCOPED_TOOL_CHECK_ENABLED", True)
 
     request = bridge.build_check_request(
         headers={"authorization": "Bearer valid-token"},
