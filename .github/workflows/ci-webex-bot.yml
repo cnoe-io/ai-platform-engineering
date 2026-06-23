@@ -233,8 +233,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -334,6 +335,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           BUILD_RESULT="${{ needs.build-and-push.result }}"
           RETAG_RESULT="${{ needs.retag-unchanged.result }}"
@@ -352,7 +354,7 @@ jobs:
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$WORKFLOW_NAME",
               "conclusion": "$CONCLUSION"
             }
           }

@@ -58,11 +58,12 @@ jobs:
         id: image-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           # workflow_dispatch with explicit tag overrides everything
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
-            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
-            echo "Using explicit override: ${{ inputs.image_tag }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$IMAGE_TAG" ]; then
+            echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+            echo "Using explicit override: $IMAGE_TAG"
             exit 0
           fi
 

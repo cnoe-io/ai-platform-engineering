@@ -340,6 +340,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           CONCLUSION="${{ needs.build-and-push.result }}"
           if [[ "$CONCLUSION" == "skipped" ]]; then CONCLUSION="success"; fi
@@ -349,7 +350,7 @@ jobs:
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$WORKFLOW_NAME",
               "conclusion": "$CONCLUSION"
             }
           }

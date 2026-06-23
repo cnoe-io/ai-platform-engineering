@@ -133,16 +133,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          BUILD_PUSH_RESULT: ${{ needs.build-and-push.result }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_WORKFLOW: ${{ github.workflow }}
         run: |
-          CONCLUSION="${{ needs.build-and-push.result }}"
+          CONCLUSION="$BUILD_PUSH_RESULT"
           if [[ "$CONCLUSION" == "skipped" ]]; then CONCLUSION="success"; fi
 
-          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api "/repos/${GH_REPOSITORY}/dispatches" --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$GH_WORKFLOW",
               "conclusion": "$CONCLUSION"
             }
           }

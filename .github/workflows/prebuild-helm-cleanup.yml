@@ -44,15 +44,16 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
 
       - name: 🗑️ Delete Prebuild Chart Versions
+        env:
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+          OWNER: ${{ github.repository_owner }}
+          OWNER_TYPE: ${{ github.event.repository.owner.type }}
         run: |
           # Get branch name and remove 'prebuild/' prefix if present
-          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           echo "🧹 Cleaning up prebuild versions for branch: $CLEAN_BRANCH"
 
-          OWNER="${{ github.repository_owner }}"
-          OWNER_TYPE="${{ github.event.repository.owner.type }}"
           if [ "$OWNER_TYPE" = "User" ]; then
             PACKAGE_OWNER_PATH="users/${OWNER}"
           else

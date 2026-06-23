@@ -39,11 +39,12 @@ jobs:
           fetch-depth: 0
 
       - name: 🔍 Check for chart changes and version bumps
+        env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
           echo "Checking for chart changes..."
 
           # Get the base branch (usually main or master)
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
 
           # Check if there are any changes in the charts directory
           CHART_CHANGES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^charts/" || true)
@@ -165,14 +166,18 @@ jobs:
           version: v3.14.0
 
       - name: 🔐 Login to GHCR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
-          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: 🔍 Detect Changed Charts
         id: detect
+        env:
+          PUBLISH_ALL: ${{ github.event.inputs.publish_all }}
         run: |
           # Check if publish_all is set (workflow_dispatch)
-          PUBLISH_ALL="${{ github.event.inputs.publish_all }}"
 
           if [[ "$PUBLISH_ALL" == "true" ]]; then
             echo "📦 publish_all=true, will publish all charts"

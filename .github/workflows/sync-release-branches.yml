@@ -83,6 +83,7 @@ jobs:
       - name: 🔄 Create or update sync PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           RELEASE_BRANCH="${{ matrix.branch }}"
           SAFE_NAME="${RELEASE_BRANCH//\//-}"
@@ -141,7 +142,7 @@ jobs:
               echo ""
               echo "| Field | Value |"
               echo "|---|---|"
-              echo "| **Triggered by** | @${{ github.actor }} |"
+              echo "| **Triggered by** | @${GITHUB_ACTOR} |"
               echo "| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |"
               echo "| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
               echo ""
