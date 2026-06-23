@@ -57,13 +57,6 @@ MigrationSchemaVersionStatus,
 SchemaVersionBootstrapApplyResult,
 SchemaVersionBootstrapPlanResult,
 } from "./types";
-export {
-getUnclassifiedSchemaAreas,
-SCHEMA_AREA_CLASSIFICATIONS,
-type SchemaAreaClassification,
-type SchemaAreaClassificationEntry
-} from "./schema-area-classifications";
-
 export const RELEASE_051 = "0.5.1";
 // 0.5.8 manifest — the unified shareable-resource RBAC backfills
 // (spec 2026-06-03). The migration framework tracks completed runs and the
