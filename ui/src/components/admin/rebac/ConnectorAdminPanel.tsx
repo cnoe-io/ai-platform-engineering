@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 import { cn } from "@/lib/utils";
+import { routeStatusLabel } from "@/lib/rbac/connector-diagnostic-messages";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
 ConnectorAdminAdapter,
@@ -240,6 +241,8 @@ function DiagnosticsPanel({
   missingRouteableAgent,
   autoFixAgentId,
   fixDiagnosticRoute,
+  fixAllDiagnosticIssues,
+  batchFixAvailable,
   fixMissingRouteableAgent,
   disabled,
   loading,
@@ -251,6 +254,8 @@ function DiagnosticsPanel({
   missingRouteableAgent: boolean;
   autoFixAgentId: string;
   fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
+  fixAllDiagnosticIssues?: () => Promise<void> | void;
+  batchFixAvailable?: boolean;
   fixMissingRouteableAgent: () => Promise<void> | void;
   disabled: boolean;
   loading: boolean;
@@ -265,7 +270,7 @@ function DiagnosticsPanel({
     ? "Loading diagnostics..."
     : hasIssues
       ? `${diagnostics.warnings.length || diagnostics.routes.filter((route) => route.warnings.length > 0 || !route.openfga_tuple).length || 1} issue${diagnostics.warnings.length === 1 ? "" : "s"}`
-      : `${diagnostics.openfga.tuple_count} tuple${diagnostics.openfga.tuple_count === 1 ? "" : "s"} · ${diagnostics.routes.length} route${diagnostics.routes.length === 1 ? "" : "s"} · healthy`;
+      : `${diagnostics.openfga.tuple_count} authorized agent${diagnostics.openfga.tuple_count === 1 ? "" : "s"} · ${diagnostics.routes.length} route${diagnostics.routes.length === 1 ? "" : "s"} · healthy`;
 
   return (
     <div className="rounded-md border bg-background/60">
@@ -291,14 +296,14 @@ function DiagnosticsPanel({
             <>
               <div className="grid gap-2 text-sm md:grid-cols-3">
                 <div className="rounded-md border bg-background/60 p-3">
-                  <div className="text-xs text-muted-foreground">OpenFGA</div>
+                  <div className="text-xs text-muted-foreground">Authorization</div>
                   <div className="font-medium">{diagnostics.openfga.reachable ? "reachable" : "unreachable"}</div>
-                  <div className="text-xs text-muted-foreground">{diagnostics.openfga.tuple_count} {adapter.itemSingular}-agent tuples</div>
+                  <div className="text-xs text-muted-foreground">{diagnostics.openfga.tuple_count} authorized agent{diagnostics.openfga.tuple_count === 1 ? "" : "s"}</div>
                 </div>
                 <div className="rounded-md border bg-background/60 p-3">
                   <div className="text-xs text-muted-foreground">Runtime routes</div>
                   <div className="font-medium">{diagnostics.routes.length}</div>
-                  <div className="text-xs text-muted-foreground">OpenFGA-backed candidates</div>
+                  <div className="text-xs text-muted-foreground">Agents eligible to respond</div>
                 </div>
                 <div className="rounded-md border bg-background/60 p-3">
                   <div className="text-xs text-muted-foreground">Last error</div>
@@ -307,8 +312,21 @@ function DiagnosticsPanel({
                 </div>
               </div>
               {diagnostics.warnings.length > 0 && (
-                <div className="space-y-1 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-                  <div className="text-xs font-medium uppercase tracking-wide">Issues found</div>
+                <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-medium uppercase tracking-wide">Issues found</div>
+                    {batchFixAvailable && fixAllDiagnosticIssues && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void fixAllDiagnosticIssues()}
+                        disabled={disabled || !selectedCanManage || loading}
+                      >
+                        Fix routing issues
+                      </Button>
+                    )}
+                  </div>
                   {diagnostics.warnings.map((warning) => <div key={warning}>{warning}</div>)}
                 </div>
               )}
@@ -337,30 +355,33 @@ function DiagnosticsPanel({
               )}
               {diagnostics.routes.length > 0 && (
                 <div className="space-y-2">
-                  {diagnostics.routes.map((route) => (
+                  {diagnostics.routes.map((route) => {
+                    const labels = routeStatusLabel(route);
+                    return (
                     <div key={route.agent_id} className="flex flex-wrap items-center gap-2 rounded-md border bg-background/60 p-3 text-sm">
-                      <span className="font-medium">agent:{route.agent_id}</span>
+                      <span className="font-medium">{route.agent_id}</span>
                       <Badge variant={route.openfga_tuple ? "default" : "outline"}>
-                        {route.openfga_tuple ? "OpenFGA tuple" : "missing tuple"}
+                        {labels.authBadge}
                       </Badge>
                       <Badge variant={route.route_metadata ? "secondary" : "outline"}>
-                        {route.route_metadata ? `listen:${route.listen}` : "default metadata"}
+                        {labels.routingBadge}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        mention {route.runtime_matches.mention ? "yes" : "no"} / message {route.runtime_matches.message ? "yes" : "no"}
+                        {labels.matchSummary}
                       </span>
                       {adapter.diagnosticRouteIsFixable(route) && (
                         <Button
                           type="button" variant="outline" size="sm" className="ml-auto"
                           onClick={() => void fixDiagnosticRoute(route)}
                           disabled={disabled || !selectedCanManage || loading}
-                          aria-label={`Fix agent:${route.agent_id} routing`}
+                          aria-label={`Fix routing for ${route.agent_id}`}
                         >
                           Fix it
                         </Button>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -385,6 +406,8 @@ interface ItemDetailProps {
   setLoading: (loading: boolean) => void;
   setMessage: (message: string | null) => void;
   fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
+  fixAllDiagnosticIssues?: () => Promise<void> | void;
+  batchFixAvailable?: boolean;
   fixMissingRouteableAgent: () => Promise<void> | void;
   disabled: boolean; loading: boolean; selectedCanManage: boolean; message: string | null;
 }
@@ -392,7 +415,7 @@ interface ItemDetailProps {
 function ItemDetail({
   adapter, selected, diagnostics, routes,
   dynamicAgents, teams, onRefresh, onDeselect, setLoading, setMessage,
-  fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage,
+  fixDiagnosticRoute, fixAllDiagnosticIssues, batchFixAvailable, fixMissingRouteableAgent, disabled, loading, selectedCanManage,
 }: ItemDetailProps) {
   const diagnosticsMissingRouteableAgent =
     adapter.missingRouteableAgentAutoFix?.isApplicable(selected, diagnostics ?? {
@@ -409,6 +432,8 @@ function ItemDetail({
         missingRouteableAgent={diagnosticsMissingRouteableAgent}
         autoFixAgentId={autoFixAgentId}
         fixDiagnosticRoute={fixDiagnosticRoute}
+        fixAllDiagnosticIssues={fixAllDiagnosticIssues}
+        batchFixAvailable={batchFixAvailable}
         fixMissingRouteableAgent={fixMissingRouteableAgent}
         disabled={disabled}
         loading={loading}
@@ -649,6 +674,34 @@ export function ConnectorAdminPanel({
     if (!selected) return;
     toast(`Add an agent manually for this ${adapter.itemSingular}.`, "warning");
   };
+
+  const batchFixAvailable = Boolean(
+    selected &&
+      diagnostics &&
+      adapter.diagnosticIssuesBatchFixable?.({ diagnostics, routes }),
+  );
+
+  const fixAllDiagnosticIssues = adapter.fixAllDiagnosticIssues
+    ? async () => {
+        if (!selected || !diagnostics) return;
+        setLoading(true);
+        setMessage(null);
+        try {
+          const result = await adapter.fixAllDiagnosticIssues!({
+            item: selected,
+            diagnostics,
+            routes,
+          });
+          if (result.nextRoutes) setRoutes(result.nextRoutes);
+          await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
+          toast(result.toast, "success");
+        } catch (err) {
+          setMessage(err instanceof Error ? err.message : "Failed to fix routing issues");
+        } finally {
+          setLoading(false);
+        }
+      }
+    : undefined;
 
   // ── Discovery / onboarding ───────────────────────────────────────────────────
 
@@ -969,7 +1022,10 @@ export function ConnectorAdminPanel({
                                   await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
                                 }}
                                 onDeselect={() => setSelectedKey("")}
-                                fixDiagnosticRoute={fixDiagnosticRoute} fixMissingRouteableAgent={fixMissingRouteableAgent}
+                                fixDiagnosticRoute={fixDiagnosticRoute}
+                                fixAllDiagnosticIssues={fixAllDiagnosticIssues}
+                                batchFixAvailable={batchFixAvailable}
+                                fixMissingRouteableAgent={fixMissingRouteableAgent}
                                 disabled={disabled} loading={loading} selectedCanManage={selectedCanManage} message={message}
                               />
                             </td>

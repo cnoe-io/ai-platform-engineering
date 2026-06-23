@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 const CHANGELOG_URL =
   "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/CHANGELOG.md";
+const STABLE_RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
 export interface ChangelogItem {
   text: string;
@@ -26,9 +27,20 @@ function extractScope(text: string): { scope: string | null; text: string } {
   return { scope: null, text };
 }
 
-function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scopes: string[] } {
-  const releases: ChangelogRelease[] = [];
+function collectScopes(releases: ChangelogRelease[]): string[] {
   const scopeSet = new Set<string>();
+  for (const release of releases) {
+    for (const section of release.sections) {
+      for (const item of section.items) {
+        if (item.scope) scopeSet.add(item.scope);
+      }
+    }
+  }
+  return Array.from(scopeSet).sort();
+}
+
+function parseChangelog(markdown: string): ChangelogRelease[] {
+  const releases: ChangelogRelease[] = [];
   const lines = markdown.split("\n");
 
   let currentRelease: ChangelogRelease | null = null;
@@ -36,7 +48,7 @@ function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scope
 
   for (const line of lines) {
     const versionMatch = line.match(
-      /^## (\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)\s*\((\d{4}-\d{2}-\d{2})\)/
+      /^## v?(\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.]+)*)\s*\((\d{4}-\d{2}-\d{2})\)/
     );
     if (versionMatch) {
       const [, version, date] = versionMatch;
@@ -65,7 +77,6 @@ function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scope
     const itemMatch = line.match(/^- (.+)/);
     if (itemMatch && currentSection) {
       const { scope, text } = extractScope(itemMatch[1].trim());
-      if (scope) scopeSet.add(scope);
       currentSection.items.push({ text, scope });
     }
   }
@@ -77,8 +88,7 @@ function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scope
     releases.push(currentRelease);
   }
 
-  const scopes = Array.from(scopeSet).sort();
-  return { releases, scopes };
+  return releases;
 }
 
 async function fetchChangelogContent(): Promise<string | null> {
@@ -123,11 +133,11 @@ export async function GET() {
       );
     }
 
-    const { releases: allReleases, scopes } = parseChangelog(markdown);
+    const allReleases = parseChangelog(markdown);
 
-    const stableReleases = allReleases.filter(
-      (r) => !r.version.includes("rc") && !r.version.includes("alpha") && !r.version.includes("beta")
-    );
+    // assisted-by Codex Codex-sonnet-4-6
+    const stableReleases = allReleases.filter((r) => STABLE_RELEASE_VERSION_PATTERN.test(r.version));
+    const scopes = collectScopes(stableReleases);
 
     return NextResponse.json({ releases: stableReleases, scopes });
   } catch (error) {
