@@ -12,6 +12,7 @@ import {
   MessagesSquare,
   Plus,
   RefreshCw,
+  Settings,
   Upload,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ChatPanel } from "@/components/tome/ChatPanel";
 import { TalkPanel } from "@/components/tome/TalkPanel";
+import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
@@ -51,6 +53,7 @@ interface PagesResponse {
 type MainView =
   | { kind: "agent" }
   | { kind: "talk" }
+  | { kind: "settings" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
   | { kind: "ingest" }
@@ -70,6 +73,8 @@ function viewToPath(slug: string, view: MainView): string {
       return base;
     case "talk":
       return `${base}/talk`;
+    case "settings":
+      return `${base}/settings`;
     case "ingest":
       return `${base}/ingest`;
     case "ingestRun":
@@ -89,6 +94,8 @@ function pathToView(segments: string[]): MainView {
       return { kind: "agent" };
     case "talk":
       return { kind: "talk" };
+    case "settings":
+      return { kind: "settings" };
     case "ingest":
       return rest[0]
         ? { kind: "ingestRun", runId: rest[0] }
@@ -137,8 +144,6 @@ export function TomeWiki({ slug }: { slug: string }) {
   );
 
   const [data, setData] = useState<PagesResponse | null>(null);
-  // The project's display name for the breadcrumb (falls back to the slug).
-  const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
@@ -164,22 +169,6 @@ export function TomeWiki({ slug }: { slug: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  // Project display name for the breadcrumb root.
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/projects/${slug}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled) return;
-        const t = body?.data?.project?.title;
-        if (typeof t === "string" && t) setTitle(t);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
 
   const openPage = useCallback(
     (path: string) => navigate({ kind: "page", path }),
@@ -296,6 +285,8 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Agent" }];
       case "talk":
         return [{ label: "Talk" }];
+      case "settings":
+        return [{ label: "Settings" }];
       case "page": {
         const md = data?.pages[view.path] ?? "";
         return [{ label: pageTitleOf(view.path, md) }];
@@ -327,6 +318,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const navActive = {
     agent: view.kind === "agent",
     talk: view.kind === "talk",
+    settings: view.kind === "settings",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
       view.kind === "page" || view.kind === "pageHistory" ? view.path : null,
@@ -336,10 +328,12 @@ export function TomeWiki({ slug }: { slug: string }) {
     <TooltipProvider>
       <div className="flex h-full min-h-[calc(100vh-4rem)] flex-col">
         <header className="flex items-center gap-1 border-b px-4 py-3 text-sm">
-          <Link href={`/projects/${slug}`}>
+          {/* Back to the projects list. The project's own detail/apps page is
+              skipped (it redirects into Tome); reach it via `?apps=1` if needed. */}
+          <Link href="/projects">
             <Button variant="ghost" size="sm" className="h-auto gap-1.5 px-2 py-1">
               <ArrowLeft className="h-4 w-4" />
-              {title ?? slug}
+              Projects
             </Button>
           </Link>
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -372,7 +366,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     active={navActive.agent}
                     onClick={() => navigate({ kind: "agent" })}
                     tipTitle="Agent"
-                    tipDescription="Chat with the editing agent that reads and writes this project's wiki pages. Ask it to draft, refine, or reorganize content."
+                    tipDescription="Chat with the project's agent: ask it questions about the project, or have it draft, refine, and reorganize the wiki pages it reads and writes."
                   />
                   <NavItem
                     icon={<RefreshCw className="h-4 w-4" />}
@@ -389,6 +383,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "talk" })}
                     tipTitle="Talk"
                     tipDescription="The project's talk page: discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
+                  />
+                  <NavItem
+                    icon={<Settings className="h-4 w-4" />}
+                    label="Settings"
+                    active={navActive.settings}
+                    onClick={() => navigate({ kind: "settings" })}
+                    tipTitle="Settings"
+                    tipDescription="Reconfigure this project: its title, description, and sources (GitHub repos, Confluence spaces, Webex rooms). Changes apply to future ingests."
                   />
                 </div>
 
@@ -566,6 +568,10 @@ export function TomeWiki({ slug }: { slug: string }) {
             ) : view.kind === "talk" ? (
               <div className="min-w-0 flex-1">
                 <TalkPanel slug={slug} />
+              </div>
+            ) : view.kind === "settings" ? (
+              <div className="min-w-0 flex-1">
+                <ProjectSettingsPanel slug={slug} />
               </div>
             ) : view.kind === "ingest" ? (
               <div className="min-w-0 flex-1">
