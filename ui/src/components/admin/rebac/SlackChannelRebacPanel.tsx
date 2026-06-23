@@ -12,6 +12,10 @@ RuntimeSyncSummary,
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { SlackConfiguredChannelDetail } from "./slack/SlackConfiguredChannelDetail";
 import { SlackVictoropsAgentSetting } from "./SlackVictoropsAgentSetting";
+import {
+  planSlackRouteFixes,
+  slackRouteFixesNeeded,
+} from "@/lib/rbac/slack-channel-route-fix";
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
@@ -201,16 +205,67 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     />
   ),
 
-  diagnosticRouteIsFixable: (route: DiagnosticRoute) => route.route_metadata && !route.openfga_tuple,
-  fixDiagnosticRoute: async ({ item, route }) => {
+  diagnosticRouteIsFixable: (route: DiagnosticRoute) =>
+    (route.route_metadata && !route.openfga_tuple) ||
+    (route.openfga_tuple && !route.route_metadata),
+  fixDiagnosticRoute: async ({ item, route, routes }) => {
     const routeUrl = `/api/admin/slack/channels/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes`;
+    if (route.route_metadata && !route.openfga_tuple) {
+      const res = await fetch(routeUrl, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: route.agent_id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return { toast: `Removed inactive routing rules for ${route.agent_id}.` };
+    }
+    const currentRoute = routes.find((entry) => entry.agent_id === route.agent_id);
+    const nextRoutes: typeof routes = [
+      ...routes.filter((entry) => entry.agent_id !== route.agent_id),
+      {
+        agent_id: route.agent_id,
+        enabled: true,
+        priority: currentRoute?.priority ?? 100,
+        users: { enabled: true, listen: currentRoute?.users?.listen ?? "mention" },
+        ...(currentRoute?.bots ? { bots: currentRoute.bots } : {}),
+        ...(currentRoute?.escalation ? { escalation: currentRoute.escalation } : {}),
+        ...(currentRoute?.execution_identity ? { execution_identity: currentRoute.execution_identity } : {}),
+      },
+    ];
     const res = await fetch(routeUrl, {
-      method: "DELETE",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agent_id: route.agent_id }),
+      body: JSON.stringify({ routes: nextRoutes }),
     });
     if (!res.ok) throw new Error(await res.text());
-    return { toast: `Removed stale route metadata for agent:${route.agent_id}.` };
+    const data = apiData<{ routes: typeof routes }>(await res.json());
+    return {
+      toast: `Saved default routing for ${route.agent_id} (@mentions only).`,
+      nextRoutes: data.routes ?? [],
+    };
+  },
+
+  diagnosticIssuesBatchFixable: ({ diagnostics, routes }) =>
+    slackRouteFixesNeeded(diagnostics.routes, routes),
+
+  fixAllDiagnosticIssues: async ({ item, diagnostics, routes }) => {
+    const routeUrl = `/api/admin/slack/channels/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes`;
+    const nextRoutes = planSlackRouteFixes(
+      diagnostics.routes,
+      routes,
+      item.primary_agent_id,
+    );
+    const res = await fetch(routeUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routes: nextRoutes }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = apiData<{ routes: typeof routes }>(await res.json());
+    return {
+      toast: "Routing issues fixed: saved missing rules and set a clear primary agent priority.",
+      nextRoutes: data.routes ?? [],
+    };
   },
 
   applyOnboarding: async ({ rows, defaultTeamSlug, defaultAgentId, createDefaultRoutes, fetchFn }) => {
