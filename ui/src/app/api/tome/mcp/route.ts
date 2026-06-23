@@ -393,6 +393,40 @@ const TOOLS: ToolDef[] = [
       return toolText(`Set Confluence space to ${confluence_url}.`);
     },
   },
+  {
+    name: "tome_talk_read",
+    description:
+      "Read a project's Talk page — the conversation ABOUT the project (Mycelium room messages), as opposed to the wiki which holds the context itself. Returns newest-first messages with sender, type, content, and timestamp, plus `total` for paging. `project_slug` is required; `limit` (default 50) and `offset` (default 0, for older pages) are optional.",
+    inputSchema: schema(
+      { project_slug: STR, limit: { type: "integer" }, offset: { type: "integer" } },
+      ["project_slug"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const p = new URLSearchParams();
+      if (args.limit) p.set("limit", String(args.limit));
+      if (args.offset) p.set("offset", String(args.offset));
+      const qs = p.toString() ? `?${p}` : "";
+      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/talk${qs}`), "read talk");
+      return toolText(
+        JSON.stringify({ messages: data?.messages ?? [], total: data?.total ?? 0 }, null, 2),
+      );
+    },
+  },
+  {
+    name: "tome_talk_send",
+    description:
+      "Post a message to a project's Talk page (its Mycelium room). Use for commentary/discussion about the project's context. `project_slug` and `message` are required.",
+    inputSchema: schema({ project_slug: STR, message: STR }, ["project_slug", "message"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const r = await fwd("POST", `/api/tome/projects/${slug}/talk`, {
+        message: String(args.message),
+      });
+      const data = ensureOk(r, "send talk");
+      return toolText(`Posted to the Talk page (id=${data?.message?.id}).`);
+    },
+  },
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
