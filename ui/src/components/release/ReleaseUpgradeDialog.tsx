@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight,CheckCircle2,Clock3,Sparkles } from "lucide-react";
+import { CheckCircle2,Clock3,Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -21,10 +21,8 @@ interface ReleaseUpgradeDialogProps {
   releaseVersion: string;
   release: ReleaseNote | null;
   releaseMarkdown?: ReleaseMarkdown | null;
-  onOpenMigrationAssistant: () => void;
   onSkipUntilNextLogin: () => void;
   onDismissPermanently: () => void | Promise<void>;
-  showMigrationCta?: boolean;
   isDismissing?: boolean;
 }
 
@@ -200,10 +198,8 @@ export function ReleaseUpgradeDialog({
   releaseVersion,
   release,
   releaseMarkdown = null,
-  onOpenMigrationAssistant,
   onSkipUntilNextLogin,
   onDismissPermanently,
-  showMigrationCta = true,
   isDismissing = false,
 }: ReleaseUpgradeDialogProps) {
   const markdownBody = releaseMarkdown?.body
@@ -230,9 +226,7 @@ export function ReleaseUpgradeDialog({
           </div>
           <DialogTitle>What&apos;s new in {releaseVersion}</DialogTitle>
           <DialogDescription>
-            {isAdmin && showMigrationCta
-              ? "This deployment includes new release updates and schema migrations. Review the notes, then open the migration assistant when you are ready."
-              : "This deployment includes CAIPE updates from the active release. Review the notes when you are ready."}
+            This deployment includes CAIPE updates from the active release. Review the notes when you are ready.
           </DialogDescription>
         </DialogHeader>
 
@@ -273,15 +267,6 @@ export function ReleaseUpgradeDialog({
           </a>
         </div>
 
-        {isAdmin && showMigrationCta && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
-            <div className="font-medium">Admin migration reminder</div>
-            <div className="mt-1 text-xs">
-              Run dry-runs before applying {releaseVersion} schema migrations, especially RBAC and messaging ReBAC backfills.
-            </div>
-          </div>
-        )}
-
         <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
           {isAdmin ? (
             <>
@@ -289,17 +274,9 @@ export function ReleaseUpgradeDialog({
                 <Clock3 className="h-4 w-4" />
                 Skip until next login
               </Button>
-              <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                <Button variant="outline" onClick={onDismissPermanently} disabled={isDismissing}>
-                  Do not show again
-                </Button>
-                {showMigrationCta && (
-                  <Button onClick={onOpenMigrationAssistant} className="gap-2">
-                    Open Migration Assistant
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
+              <Button variant="outline" onClick={onDismissPermanently} disabled={isDismissing}>
+                Do not show again
+              </Button>
             </>
           ) : (
             <Button onClick={onDismissPermanently} disabled={isDismissing}>

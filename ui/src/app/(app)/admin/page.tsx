@@ -224,7 +224,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -259,7 +259,6 @@ const CATEGORIES: Category[] = [
     icon: Settings,
     tabs: [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
-      { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
@@ -1463,11 +1462,6 @@ function AdminPage() {
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
                   <PlatformSettingsTab isAdmin={isAdmin} />
-                </TabsContent>
-              )}
-
-              {tabGateValues.settings && (
-                <TabsContent value="release-notes" className="space-y-4">
                   <ReleaseNotesSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
               )}

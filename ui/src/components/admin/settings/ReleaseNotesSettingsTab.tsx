@@ -14,47 +14,122 @@ interface ReleaseNotesSettingsTabProps {
 
 interface ReleaseNotesSettings {
   enabled: boolean;
-  release_version: string | null;
-  announcement_revision: number;
-  announcement_id: string;
-  show_toast: boolean;
-  toast_duration_ms: number;
-  show_migration_cta: boolean;
-}
-
-function announcementIdFor(releaseVersion: string | null, revision: number): string {
-  return `${releaseVersion || "release"}:revision-${revision}`;
 }
 
 function normalizeReleaseNotesSettings(
   value: Partial<ReleaseNotesSettings> | null | undefined,
 ): ReleaseNotesSettings {
-  const releaseVersion =
-    typeof value?.release_version === "string" && value.release_version.trim()
-      ? value.release_version.trim().replace(/^v/, "")
-      : null;
-  const revision = Number.isFinite(Number(value?.announcement_revision))
-    ? Math.max(1, Math.floor(Number(value?.announcement_revision)))
-    : 1;
-  const toastDuration = Number.isFinite(Number(value?.toast_duration_ms))
-    ? Math.max(0, Math.floor(Number(value?.toast_duration_ms)))
-    : 5000;
-
   return {
     enabled: value?.enabled !== false,
-    release_version: releaseVersion,
-    announcement_revision: revision,
-    announcement_id:
-      typeof value?.announcement_id === "string" && value.announcement_id.trim()
-        ? value.announcement_id.trim()
-        : announcementIdFor(releaseVersion, revision),
-    show_toast: value?.show_toast === true,
-    toast_duration_ms: toastDuration,
-    show_migration_cta: value?.show_migration_cta !== false,
   };
 }
 
-export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProps) {
+// ── Per-user release notes notification preference ──────────────────────────
+// Every user (admin or not) can turn the post-login release notes
+// notification on/off for THEIR OWN account. This persists to
+// /api/settings/preferences (user_settings) and never touches the
+// platform-wide admin configuration.
+function UserReleaseNotesPreferenceCard() {
+  const [enabled, setEnabled] = useState(true);
+  const [savedEnabled, setSavedEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<"success" | "error" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings")
+      .then((response) => response.json())
+      .then((settingsRes) => {
+        if (cancelled) return;
+        // Defaults to enabled unless the user has explicitly opted out.
+        const next = settingsRes?.data?.preferences?.releaseNotesNotificationsEnabled !== false;
+        setEnabled(next);
+        setSavedEnabled(next);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const savePreference = async () => {
+    setSaving(true);
+    setSaveResult(null);
+    try {
+      const res = await fetch("/api/settings/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ releaseNotesNotificationsEnabled: enabled }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSavedEnabled(enabled);
+        setSaveResult("success");
+        setTimeout(() => setSaveResult(null), 3000);
+      } else {
+        setSaveResult("error");
+      }
+    } catch {
+      setSaveResult("error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="h-5 w-5 text-primary" />
+          Release notes
+        </CardTitle>
+        <CardDescription>
+          Choose whether to see the release notes notification after you sign in. This
+          preference applies to your account only.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+                data-testid="release-notes-user-pref-toggle"
+              />
+              Notify me about release notes
+            </label>
+            <p className="text-xs text-muted-foreground">
+              When off, you won&apos;t see the release notes dialog on login.
+            </p>
+            <div className="pt-1">
+              <SaveButton
+                onSave={savePreference}
+                saving={saving}
+                dirty={enabled !== savedEnabled}
+                result={saveResult}
+                ariaLabel="Save release notes preference"
+                testId="release-notes-user-pref-save"
+              />
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Platform-wide release notes configuration (admin only) ──────────────────
+function AdminReleaseNotesConfigCard() {
   const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesSettings>(
     normalizeReleaseNotesSettings(null),
   );
@@ -86,7 +161,6 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
   }, []);
 
   const saveReleaseNotes = async (nextSettings: ReleaseNotesSettings = releaseNotes) => {
-    if (!isAdmin) return;
     const normalized = normalizeReleaseNotesSettings(nextSettings);
     setSavingReleaseNotes(true);
     setReleaseNotesSaveResult(null);
@@ -117,16 +191,6 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
     setReleaseNotes((current) => normalizeReleaseNotesSettings({ ...current, ...patch }));
   };
 
-  const showOnNextLoginForEveryone = async () => {
-    const nextRevision = releaseNotes.announcement_revision + 1;
-    const nextSettings = normalizeReleaseNotesSettings({
-      ...releaseNotes,
-      announcement_revision: nextRevision,
-      announcement_id: announcementIdFor(releaseNotes.release_version, nextRevision),
-    });
-    await saveReleaseNotes(nextSettings);
-  };
-
   if (loadingConfig) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -136,16 +200,17 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
   }
 
   return (
-    <div className="space-y-6">
+    <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-primary" />
-            Release notes
+            <Bell className="h-5 w-5 text-muted-foreground" />
+            Release notes configuration
           </CardTitle>
           <CardDescription>
-            Manage the release notes notification shown after login. Bump the announcement
-            revision when you want every user to see it again until they dismiss it.
+            Platform-wide switch for the release notes notification shown to every user
+            after login. The announcement always targets the currently deployed version,
+            and each user can dismiss it for good.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -154,146 +219,52 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
               type="checkbox"
               checked={releaseNotes.enabled}
               onChange={(event) => updateReleaseNotes({ enabled: event.target.checked })}
-              disabled={!isAdmin}
             />
             Enable release notes notification
           </label>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="release-notes-version" className="text-sm font-medium">
-                Active release version
-              </label>
-              <input
-                id="release-notes-version"
-                value={releaseNotes.release_version ?? ""}
-                onChange={(event) =>
-                  updateReleaseNotes({
-                    release_version: event.target.value || null,
-                    announcement_id: announcementIdFor(
-                      event.target.value || null,
-                      releaseNotes.announcement_revision,
-                    ),
-                  })
-                }
-                placeholder="0.5.1"
-                disabled={!isAdmin}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="release-notes-revision" className="text-sm font-medium">
-                Announcement revision
-              </label>
-              <input
-                id="release-notes-revision"
-                type="number"
-                min={1}
-                value={releaseNotes.announcement_revision}
-                onChange={(event) => {
-                  const revision = Math.max(1, Number(event.target.value) || 1);
-                  updateReleaseNotes({
-                    announcement_revision: revision,
-                    announcement_id: announcementIdFor(releaseNotes.release_version, revision),
-                  });
-                }}
-                disabled={!isAdmin}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={releaseNotes.show_toast}
-                onChange={(event) => updateReleaseNotes({ show_toast: event.target.checked })}
-                disabled={!isAdmin}
-              />
-              Show toast reminder
-            </label>
-
-            <div className="space-y-2">
-              <label htmlFor="release-notes-toast-duration" className="text-sm font-medium">
-                Toast duration
-              </label>
-              <input
-                id="release-notes-toast-duration"
-                type="number"
-                min={0}
-                step={1000}
-                value={releaseNotes.toast_duration_ms}
-                onChange={(event) =>
-                  updateReleaseNotes({
-                    toast_duration_ms: Math.max(0, Number(event.target.value) || 0),
-                  })
-                }
-                disabled={!isAdmin || !releaseNotes.show_toast}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-              />
-              <p className="text-xs text-muted-foreground">Use 0 for a sticky toast.</p>
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              checked={releaseNotes.show_migration_cta}
-              onChange={(event) => updateReleaseNotes({ show_migration_cta: event.target.checked })}
-              disabled={!isAdmin}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <SaveButton
+              onSave={() => saveReleaseNotes()}
+              saving={savingReleaseNotes}
+              dirty={releaseNotesDirty}
+              result={releaseNotesSaveResult}
+              ariaLabel="Save release notes settings"
             />
-            Show admin migration assistant CTA
-          </label>
-
-          <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-            Current announcement ID: <code>{releaseNotes.announcement_id}</code>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => setPreviewOpen(true)}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Show preview
+            </Button>
           </div>
-
-          {isAdmin && (
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <SaveButton
-                onSave={() => saveReleaseNotes()}
-                saving={savingReleaseNotes}
-                dirty={releaseNotesDirty}
-                result={releaseNotesSaveResult}
-                ariaLabel="Save release notes settings"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => setPreviewOpen(true)}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Show preview
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void showOnNextLoginForEveryone()}
-                disabled={savingReleaseNotes}
-              >
-                Show this on next login for every user
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
 
       <ReleaseUpgradeDialog
         open={previewOpen}
         isAdmin
-        releaseVersion={releaseNotes.release_version || "current release"}
+        releaseVersion="current release"
         release={null}
-        onOpenMigrationAssistant={() => setPreviewOpen(false)}
         onSkipUntilNextLogin={() => setPreviewOpen(false)}
         onDismissPermanently={() => setPreviewOpen(false)}
-        showMigrationCta={releaseNotes.show_migration_cta}
       />
+    </>
+  );
+}
+
+export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProps) {
+  return (
+    <div className="space-y-6">
+      {/* Per-user preference — visible to every user. */}
+      <UserReleaseNotesPreferenceCard />
+
+      {/* Platform-wide configuration — admin only. */}
+      {isAdmin && <AdminReleaseNotesConfigCard />}
     </div>
   );
 }

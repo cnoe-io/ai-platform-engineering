@@ -74,8 +74,7 @@ const release = {
 };
 
 describe("ReleaseUpgradeDialog", () => {
-  it("shows admin release notes with migration assistant and skip actions", () => {
-    const onOpenMigrationAssistant = jest.fn();
+  it("shows admin release notes with skip and dismiss actions", () => {
     const onSkipUntilNextLogin = jest.fn();
     const onDismissPermanently = jest.fn();
 
@@ -85,7 +84,6 @@ describe("ReleaseUpgradeDialog", () => {
         isAdmin
         releaseVersion="0.5.1"
         release={release}
-        onOpenMigrationAssistant={onOpenMigrationAssistant}
         onSkipUntilNextLogin={onSkipUntilNextLogin}
         onDismissPermanently={onDismissPermanently}
       />,
@@ -98,14 +96,12 @@ describe("ReleaseUpgradeDialog", () => {
       "href",
       "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md",
     );
-    expect(screen.getByRole("button", { name: "Open Migration Assistant" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Migration Assistant" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Skip until next login" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Migration Assistant" }));
     fireEvent.click(screen.getByRole("button", { name: "Skip until next login" }));
     fireEvent.click(screen.getByRole("button", { name: "Do not show again" }));
 
-    expect(onOpenMigrationAssistant).toHaveBeenCalledTimes(1);
     expect(onSkipUntilNextLogin).toHaveBeenCalledTimes(1);
     expect(onDismissPermanently).toHaveBeenCalledTimes(1);
   });
@@ -126,7 +122,6 @@ describe("ReleaseUpgradeDialog", () => {
             },
           ],
         }}
-        onOpenMigrationAssistant={jest.fn()}
         onSkipUntilNextLogin={jest.fn()}
         onDismissPermanently={jest.fn()}
       />,
@@ -137,7 +132,7 @@ describe("ReleaseUpgradeDialog", () => {
     expect(screen.getByText(/gate Graph tab on any-KB-readable/)).toBeInTheDocument();
   });
 
-  it("shows non-admin feature notes without migration assistant language", () => {
+  it("shows non-admin feature notes without skip action", () => {
     const onDismissPermanently = jest.fn();
 
     render(
@@ -146,30 +141,25 @@ describe("ReleaseUpgradeDialog", () => {
         isAdmin={false}
         releaseVersion="0.5.1"
         release={release}
-        onOpenMigrationAssistant={jest.fn()}
         onSkipUntilNextLogin={jest.fn()}
         onDismissPermanently={onDismissPermanently}
       />,
     );
 
     expect(screen.getByText("What's new in 0.5.1")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open Migration Assistant" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Skip until next login" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Do not show again" }));
     expect(screen.queryByText("Added Slack and Webex ReBAC migration assistant")).not.toBeInTheDocument();
-    expect(screen.queryByText(/schema migrations/i)).not.toBeInTheDocument();
     expect(onDismissPermanently).toHaveBeenCalledTimes(1);
   });
 
-  it("does not mention migrations to admins when the migration CTA is hidden", () => {
+  it("never renders the migration assistant CTA or reminder for admins", () => {
     render(
       <ReleaseUpgradeDialog
         open
         isAdmin
         releaseVersion="0.5.1"
         release={release}
-        showMigrationCta={false}
-        onOpenMigrationAssistant={jest.fn()}
         onSkipUntilNextLogin={jest.fn()}
         onDismissPermanently={jest.fn()}
       />,
@@ -201,7 +191,6 @@ describe("ReleaseUpgradeDialog", () => {
         releaseVersion="0.5.7"
         release={release}
         releaseMarkdown={markdownNotes}
-        onOpenMigrationAssistant={jest.fn()}
         onSkipUntilNextLogin={jest.fn()}
         onDismissPermanently={jest.fn()}
       />,
@@ -223,7 +212,6 @@ describe("ReleaseUpgradeDialog", () => {
         releaseVersion="0.5.7"
         release={release}
         releaseMarkdown={markdownNotes}
-        onOpenMigrationAssistant={jest.fn()}
         onSkipUntilNextLogin={jest.fn()}
         onDismissPermanently={jest.fn()}
       />,
@@ -241,7 +229,6 @@ describe("ReleaseUpgradeDialog", () => {
         isAdmin={false}
         releaseVersion="dev"
         release={null}
-        onOpenMigrationAssistant={jest.fn()}
         onSkipUntilNextLogin={jest.fn()}
         onDismissPermanently={jest.fn()}
       />,

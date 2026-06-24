@@ -26,22 +26,33 @@ function mockFetch({
     data: {
       release_notes: {
         enabled: true,
-        release_version: '0.5.1',
-        announcement_revision: 2,
-        announcement_id: '0.5.1:revision-2',
-        show_toast: true,
-        toast_duration_ms: 8000,
-        show_migration_cta: true,
       },
     },
   },
+  settings = {
+    success: true,
+    data: { preferences: { releaseNotesNotificationsEnabled: true } },
+  },
   patch = { success: true },
+  preferencesPatch = { success: true },
 }: {
   config?: { success: boolean; data?: { release_notes?: any } };
+  settings?: { success: boolean; data?: { preferences?: any } };
   patch?: { success: boolean };
+  preferencesPatch?: { success: boolean };
 } = {}) {
   global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
     const href = String(url);
+    if (href.includes('/api/settings/preferences') && init?.method === 'PATCH') {
+      return Promise.resolve({
+        json: () => Promise.resolve(preferencesPatch),
+      } as Response);
+    }
+    if (href.includes('/api/settings')) {
+      return Promise.resolve({
+        json: () => Promise.resolve(settings),
+      } as Response);
+    }
     if (href.includes('/api/admin/platform-config') && init?.method === 'PATCH') {
       return Promise.resolve({
         json: () => Promise.resolve(patch),
@@ -62,26 +73,76 @@ describe('ReleaseNotesSettingsTab', () => {
     mockFetch();
   });
 
-  it('renders release notes notification controls from platform config', async () => {
-    render(<ReleaseNotesSettingsTab isAdmin />);
+  // ── Per-user preference (visible to everyone) ─────────────────────────────
+  it('renders the per-user release notes preference toggle for non-admins', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin={false} />);
 
-    expect(await screen.findByText('Release notes')).toBeInTheDocument();
-    expect(screen.getByLabelText('Active release version')).toHaveValue('0.5.1');
-    expect(screen.getByLabelText('Show toast reminder')).toBeChecked();
-    expect(screen.getByLabelText('Toast duration')).toHaveValue(8000);
-    expect(screen.getByRole('button', { name: 'Show preview' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show this on next login for every user' })).toBeInTheDocument();
+    expect(await screen.findByTestId('release-notes-user-pref-toggle')).toBeChecked();
+    expect(screen.getByText(/Notify me about release notes/i)).toBeInTheDocument();
   });
 
-  it('saves release notes notification settings without changing the default agent', async () => {
+  it('reflects an opted-out user preference', async () => {
+    mockFetch({
+      settings: { success: true, data: { preferences: { releaseNotesNotificationsEnabled: false } } },
+    });
+
+    render(<ReleaseNotesSettingsTab isAdmin={false} />);
+
+    expect(await screen.findByTestId('release-notes-user-pref-toggle')).not.toBeChecked();
+  });
+
+  it('saves the per-user preference to /api/settings/preferences only', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin={false} />);
+
+    fireEvent.click(await screen.findByTestId('release-notes-user-pref-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save release notes preference' }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/settings/preferences',
+        expect.objectContaining({ method: 'PATCH' }),
+      );
+    });
+    const patchCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([url, init]) => String(url).includes('/api/settings/preferences') && init?.method === 'PATCH',
+    );
+    expect(JSON.parse(patchCall[1].body)).toEqual({ releaseNotesNotificationsEnabled: false });
+    // Non-admins never PATCH the platform-wide admin config.
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/admin/platform-config',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+  });
+
+  // ── Admin-only platform configuration ─────────────────────────────────────
+  it('does NOT render the admin platform configuration for non-admins', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin={false} />);
+
+    await screen.findByTestId('release-notes-user-pref-toggle');
+    expect(screen.queryByText('Release notes configuration')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Enable release notes notification'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders admin platform configuration controls for admins', async () => {
     render(<ReleaseNotesSettingsTab isAdmin />);
 
-    fireEvent.change(await screen.findByLabelText('Active release version'), {
-      target: { value: '0.6.0' },
-    });
-    fireEvent.change(screen.getByLabelText('Toast duration'), {
-      target: { value: '12000' },
-    });
+    expect(await screen.findByText('Release notes configuration')).toBeInTheDocument();
+    expect(screen.getByLabelText('Enable release notes notification')).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Show preview' })).toBeInTheDocument();
+    // Removed controls: version/revision/toast/CTA/next-login are gone.
+    expect(screen.queryByLabelText('Active release version')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Show toast reminder')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Show this on next login for every user' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('saves only the enabled flag without changing the default agent', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin />);
+
+    fireEvent.click(await screen.findByLabelText('Enable release notes notification'));
     fireEvent.click(screen.getByRole('button', { name: 'Save release notes settings' }));
 
     await waitFor(() => {
@@ -96,40 +157,9 @@ describe('ReleaseNotesSettingsTab', () => {
       ([url, init]) => url === '/api/admin/platform-config' && init?.method === 'PATCH',
     );
     expect(JSON.parse(patchCall[1].body)).toEqual({
-      release_notes: expect.objectContaining({
-        enabled: true,
-        release_version: '0.6.0',
-        announcement_revision: 2,
-        show_toast: true,
-        toast_duration_ms: 12000,
-        show_migration_cta: true,
-      }),
+      release_notes: { enabled: false },
     });
     expect(JSON.parse(patchCall[1].body)).not.toHaveProperty('default_agent_id');
-  });
-
-  it('increments announcement revision to show release notes on next login for every user', async () => {
-    render(<ReleaseNotesSettingsTab isAdmin />);
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Show this on next login for every user' }));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/admin/platform-config',
-        expect.objectContaining({
-          method: 'PATCH',
-        })
-      );
-    });
-    const patchCall = (global.fetch as jest.Mock).mock.calls.find(
-      ([url, init]) => url === '/api/admin/platform-config' && init?.method === 'PATCH',
-    );
-    expect(JSON.parse(patchCall[1].body)).toEqual({
-      release_notes: expect.objectContaining({
-        announcement_revision: 3,
-        announcement_id: '0.5.1:revision-3',
-      }),
-    });
   });
 
   it('opens a release notes preview without saving dismissal state', async () => {
@@ -137,7 +167,7 @@ describe('ReleaseNotesSettingsTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Show preview' }));
 
-    expect(screen.getByText("What's new in 0.5.1")).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Open Migration Assistant' })).toBeInTheDocument();
+    expect(screen.getByText("What's new in current release")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open Migration Assistant' })).not.toBeInTheDocument();
   });
 });
