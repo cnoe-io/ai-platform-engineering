@@ -378,7 +378,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <Breadcrumb
             items={[
-              { label: "tome", onClick: () => navigate({ kind: "agent" }) },
+              { label: projectTitle ?? slug, onClick: () => navigate({ kind: "agent" }) },
               ...crumbs,
             ]}
           />
