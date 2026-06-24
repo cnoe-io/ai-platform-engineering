@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plug, Loader2, KeyRound } from "lucide-react";
+import { Plug, Loader2, KeyRound, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -16,11 +16,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /**
- * "Connect via MCP" — surfaced from the Tome header. Shows the MCP endpoint,
+ * "Connect via MCP" - surfaced from the Tome header. Shows the MCP endpoint,
  * mints a personal API key (a local skills token via POST /api/skills/token),
  * and renders ready-to-paste client configs for Claude Desktop and Cursor.
  *
- * The key is a JWT — it can't be recovered later, only regenerated — so we show
+ * The key is a JWT, it can't be recovered later, only regenerated, so we show
  * it once on generation and let the user copy it then.
  */
 
@@ -123,6 +123,18 @@ export function McpConnectDialog() {
         </DialogHeader>
 
         <div className="min-w-0 space-y-5">
+          {/* Teaser: a one-command Claude Code plugin is in the works. */}
+          <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div>
+              <span className="font-medium text-foreground">Claude plugin coming soon.</span>
+              <span className="text-muted-foreground">
+                {" "}One-command setup with a <code>/tome</code> command and a
+                project-aware skill. For now, use the manual config below.
+              </span>
+            </div>
+          </div>
+
           {/* Endpoint */}
           <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium">MCP endpoint</label>
