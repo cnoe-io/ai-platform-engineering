@@ -21,7 +21,7 @@ type FeatureFlagCategory,
 type FeatureFlagIcon,
 } from "@/store/feature-flag-store";
 import { AnimatePresence,motion } from "framer-motion";
-import { ArrowDownToLine,Brain,Bug,Check,ChevronDown,ChevronRight,ChevronUp,Clock,Code,Copy,ExternalLink,Eye,FileText,Hash,Info,KeyRound,Layers,Lightbulb,LogIn,LogOut,RefreshCw,Search,Settings,Shield,SlidersHorizontal,Sparkles,Tag,Users,Wrench,X } from "lucide-react";
+import { ArrowDownToLine,Brain,Bug,Check,ChevronDown,ChevronRight,ChevronUp,Clock,Code,Copy,ExternalLink,Eye,FileText,Hash,Info,KeyRound,Layers,Lightbulb,LogIn,LogOut,MessagesSquare,RefreshCw,Search,Settings,Shield,Ship,SlidersHorizontal,Sparkles,Tag,Users,Wrench,X } from "lucide-react";
 import { signIn,signOut,useSession } from "next-auth/react";
 import React,{ useCallback,useEffect,useRef,useState } from "react";
 
@@ -228,6 +228,9 @@ const FLAG_ICONS: Record<FeatureFlagIcon, React.ReactNode> = {
   Eye: <Eye className="h-4 w-4" />,
   ArrowDownToLine: <ArrowDownToLine className="h-4 w-4" />,
   Clock: <Clock className="h-4 w-4" />,
+  Ship: <Ship className="h-4 w-4" />,
+  MessagesSquare: <MessagesSquare className="h-4 w-4" />,
+  Sparkles: <Sparkles className="h-4 w-4" />,
 };
 
 const CATEGORY_ORDER: FeatureFlagCategory[] = ["ai", "chat", "developer"];
@@ -302,7 +305,7 @@ function FlagRow({ flag }: { flag: FeatureFlag }) {
   );
 }
 
-export function UserMenu() {
+export function UserMenu(_props?: { compact?: boolean }) {
   const { data: session, status, update } = useSession();
   const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);

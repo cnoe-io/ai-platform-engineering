@@ -132,29 +132,30 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
   const stepsRaw = Array.isArray(record.steps) ? record.steps : [];
 
   const steps: ProjectOnboardingStepConfig[] = stepsRaw
-    .map((step) => {
+    .map((step): ProjectOnboardingStepConfig | null => {
       if (!step || typeof step !== "object") return null;
       const s = step as Record<string, unknown>;
       const id = typeof s.id === "string" ? s.id.trim() : "";
       const title = typeof s.title === "string" ? s.title.trim() : "";
       const subtitle = typeof s.subtitle === "string" ? s.subtitle.trim() : "";
       if (!id || !title) return null;
+      const provider: ProjectOnboardingStepConfig["provider"] =
+        s.provider === "mock"
+          ? "mock"
+          : s.provider === "http"
+            ? "http"
+            : s.provider === "link"
+              ? "link"
+              : s.provider === "source"
+                ? "source"
+                : "none";
       return {
         id,
         title,
         subtitle,
         icon: typeof s.icon === "string" ? s.icon : undefined,
         gradient: typeof s.gradient === "string" ? s.gradient : undefined,
-        provider:
-          s.provider === "mock"
-            ? "mock"
-            : s.provider === "http"
-              ? "http"
-              : s.provider === "link"
-                ? "link"
-                : s.provider === "source"
-                  ? "source"
-                  : "none",
+        provider,
         source:
           s.source === "github" || s.source === "confluence" || s.source === "webex"
             ? s.source
