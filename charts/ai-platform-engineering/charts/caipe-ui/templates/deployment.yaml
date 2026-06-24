@@ -140,21 +140,18 @@ spec:
               value: {{ index .Values.config "AGENTGATEWAY_TARGETS_URL" | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
             {{- /*
             Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets can
-            authenticate config-bridge poll requests. Prefer the operator-provided secret;
-            fall back to the well-known dev-mode default so the health probe and config-bridge
-            sidecar (which uses the same fallback) can both authenticate without a secret.
+            authenticate config-bridge poll requests. Use the operator-provided Secret when
+            supplied; otherwise reference the auto-generated Secret created by the parent chart
+            (charts/ai-platform-engineering/templates/agentgateway-config-bridge-secret.yaml).
             */ -}}
             {{- $cbBffSecret := ((((.Values.global.agentgateway).static).configBridge).bff).existingSecret | default dict }}
-            {{- if $cbBffSecret.name }}
+            {{- $cbTokenSecretName := $cbBffSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := $cbBffSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ $cbBffSecret.name | quote }}
-                  key: {{ ($cbBffSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN") | quote }}
-            {{- else }}
-            - name: AGENTGATEWAY_TARGETS_TOKEN
-              value: {{ index .Values.config "AGENTGATEWAY_TARGETS_TOKEN" | default "agentgateway-config-bridge-dev-token" | quote }}
-            {{- end }}
+                  name: {{ $cbTokenSecretName | quote }}
+                  key: {{ $cbTokenSecretKey | quote }}
             - name: OPENFGA_AUTHZ_BRIDGE_HOST
               value: {{ index .Values.config "OPENFGA_AUTHZ_BRIDGE_HOST" | default (printf "%s-openfga-authz-bridge" .Release.Name) | quote }}
             - name: ETCD_HOST

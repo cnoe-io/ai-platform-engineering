@@ -144,16 +144,13 @@ spec:
               value: {{ $cb.pollSeconds | default 5 | quote }}
             - name: AGENTGATEWAY_TARGETS_URL
               value: {{ (($cb.bff).url) | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
-            {{- if (($cb.bff).existingSecret).name }}
+            {{- $cbTokenSecretName := (($cb.bff).existingSecret).name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := (($cb.bff).existingSecret).key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ $cb.bff.existingSecret.name | quote }}
-                  key: {{ ($cb.bff.existingSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN") | quote }}
-            {{- else }}
-            - name: AGENTGATEWAY_TARGETS_TOKEN
-              value: "agentgateway-config-bridge-dev-token"
-            {{- end }}
+                  name: {{ $cbTokenSecretName | quote }}
+                  key: {{ $cbTokenSecretKey | quote }}
             {{- with $cb.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
