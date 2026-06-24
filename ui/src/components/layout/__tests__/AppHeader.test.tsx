@@ -47,11 +47,22 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-// Controls the simulated container width in the ResizeObserver mock (jest.setup.js).
-// Pass true to simulate a narrow container (triggers nav overflow / More button).
-// Pass false to restore the default wide container (all items visible).
+// Controls whether useHeaderNavCollapsed returns true (narrow) or false (wide).
+// The hook uses window.matchMedia, so we mock it to return the desired matches value.
 function setHeaderNavConstrained(constrained: boolean) {
-  ;(global as any).__mockContainerWidth = constrained ? 0 : 2000
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches: constrained,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
 }
 
 // Mock admin role hook
@@ -473,9 +484,9 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
-      // Right cluster: status stays icon-only circle, Report a Problem keeps its label
+      // Right cluster: status badge collapses to icon-only, Report a Problem is icon-only button
       expect(screen.getByRole('button', { name: /system status: connected/i })).toHaveClass('w-8')
-      expect(screen.getByText('Report a Problem')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /report a problem/i })).toBeInTheDocument()
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
     })
@@ -644,13 +655,13 @@ describe('AppHeader — connection status badge', () => {
       // Icon-only: no visible "Connected" label text (AnimatePresence hides it)
       expect(btn).toBeInTheDocument()
       expect(btn.className).toContain('green')
-      expect(btn.className).toContain('w-8') // fixed-size circle, not pill
-      expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+      expect(btn.className).toContain('rounded-full') // pill badge
+      expect(screen.getByText('Connected')).toBeInTheDocument()
       // Popover content reflects healthy state
       expect(screen.getByText('All Systems Live')).toBeInTheDocument()
       expect(screen.getByText('All systems operational')).toBeInTheDocument()
       expect(screen.getByText('Platform Health')).toBeInTheDocument()
-      expect(screen.getAllByText('Identity & Authz').length).toBeGreaterThan(0)
+      expect(screen.getByText('1/1 Ready')).toBeInTheDocument()
     })
 
     it('links admins to the full platform health dashboard', () => {
@@ -828,8 +839,9 @@ describe('AppHeader — connection status badge', () => {
       ]
       render(<AppHeader />)
       expect(screen.getByText('Disconnected')).toBeInTheDocument()
-      expect(screen.getAllByText('OpenFGA').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('Down').length).toBeGreaterThan(0)
+      // Platform Health section shows the probe summary count
+      expect(screen.getByText('Platform Health')).toBeInTheDocument()
+      expect(screen.getByText('0/1 Down')).toBeInTheDocument()
     })
 
     it('Disconnected badge has red styling', () => {
