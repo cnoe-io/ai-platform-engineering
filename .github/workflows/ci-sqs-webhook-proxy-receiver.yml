@@ -1,0 +1,134 @@
+name: "[CI] SQS Webhook Proxy Receiver Build and Push"
+
+on:
+  push:
+    tags:
+      - "**"
+  pull_request:
+    paths:
+      - "integrations/sqs-webhook-proxy-receiver/**"
+      - ".github/workflows/ci-sqs-webhook-proxy-receiver.yml"
+  workflow_dispatch:
+    inputs:
+      tag_version:
+        description: "Version tag to apply (e.g., 0.6.0-dev.1)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-sqs-webhook-proxy-receiver
+  DOCKERFILE: integrations/sqs-webhook-proxy-receiver/Dockerfile
+  LOCAL_IMAGE: caipe-sqs-webhook-proxy-receiver:ci
+
+jobs:
+  smoke-test:
+    name: Smoke test sqs-webhook-proxy-receiver
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build local sqs-webhook-proxy-receiver image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: integrations/sqs-webhook-proxy-receiver
+          file: ${{ env.DOCKERFILE }}
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          provenance: false
+          sbom: false
+
+      - name: Start sqs-webhook-proxy-receiver
+        run: |
+          docker run -d \
+            --name sqs-receiver-smoke \
+            -e AWS_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=smoke-test-placeholder \
+            -e AWS_SECRET_ACCESS_KEY=smoke-test-placeholder \
+            -e SQS_QUEUE_NAME=smoke-test-queue \
+            -e CAIPE_WEBHOOK_URL=http://127.0.0.1:9999/api/agentic-sdlc/webhooks/github \
+            "${LOCAL_IMAGE}"
+
+      - name: Verify process starts and stays alive
+        run: |
+          sleep 5
+          status=$(docker inspect --format='{{.State.Status}}' sqs-receiver-smoke)
+          if [ "${status}" != "running" ]; then
+            echo "Container exited unexpectedly (status: ${status})"
+            docker logs sqs-receiver-smoke || true
+            exit 1
+          fi
+          echo "sqs-webhook-proxy-receiver is running (status: ${status})"
+
+      - name: Stop sqs-webhook-proxy-receiver
+        if: always()
+        run: docker rm -f sqs-receiver-smoke || true
+
+  publish:
+    name: Publish sqs-webhook-proxy-receiver image
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=${{ inputs.tag_version }},enable=${{ inputs.tag_version != '' }}
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
+
+      - name: Build and push sqs-webhook-proxy-receiver image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: integrations/sqs-webhook-proxy-receiver
+          file: ${{ env.DOCKERFILE }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          provenance: false
+          sbom: false
