@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  HelpCircle,
   MessageSquare,
   MessagesSquare,
   Plus,
@@ -33,6 +34,7 @@ import {
 import { ChatPanel } from "@/components/tome/ChatPanel";
 import { TalkPanel } from "@/components/tome/TalkPanel";
 import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
+import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
@@ -49,6 +51,9 @@ interface PagesResponse {
   tree: PageTreeNode[];
   pages: Record<string, string>;
 }
+
+/** Browser-local flag so the first-run walkthrough only auto-opens once. */
+const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
 type MainView =
   | { kind: "agent" }
@@ -148,6 +153,9 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  // First-run onboarding: project title (for the modal copy) + open state.
+  const [projectTitle, setProjectTitle] = useState<string | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
   const [newPageName, setNewPageName] = useState("");
@@ -169,6 +177,37 @@ export function TomeWiki({ slug }: { slug: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Project title for the onboarding modal copy (falls back to a generic line).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projects/${slug}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const t = body?.data?.project?.title;
+        if (typeof t === "string" && t) setProjectTitle(t);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  // Show the first-run walkthrough once per browser. The Help button reopens it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.localStorage.getItem(ONBOARDING_SEEN_KEY)) {
+      setOnboardingOpen(true);
+    }
+  }, []);
+
+  const handleOnboardingChange = useCallback((open: boolean) => {
+    setOnboardingOpen(open);
+    if (!open && typeof window !== "undefined") {
+      window.localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+    }
+  }, []);
 
   const openPage = useCallback(
     (path: string) => navigate({ kind: "page", path }),
@@ -343,8 +382,22 @@ export function TomeWiki({ slug }: { slug: string }) {
               ...crumbs,
             ]}
           />
-          <div className="ml-auto shrink-0">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <McpConnectDialog />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground"
+                  onClick={() => setOnboardingOpen(true)}
+                  aria-label="What is Tome?"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">What is Tome?</TooltipContent>
+            </Tooltip>
           </div>
         </header>
 
@@ -614,6 +667,12 @@ export function TomeWiki({ slug }: { slug: string }) {
           </main>
         </div>
       </div>
+
+      <OnboardingModal
+        open={onboardingOpen}
+        onOpenChange={handleOnboardingChange}
+        projectName={projectTitle ?? undefined}
+      />
     </TooltipProvider>
   );
 }
