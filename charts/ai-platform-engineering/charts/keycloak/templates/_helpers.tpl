@@ -85,7 +85,7 @@ CAIPE UI client-secret K8s Secret name.
 {{- end }}
 
 {{/*
-CAIPE platform (supervisor) client-secret K8s Secret name.
+CAIPE platform client-secret K8s Secret name.
 - explicit user-provided existing Secret wins
 - else if ESO is enabled for platformClient, the chart owns a Secret named
   <fullname>-platform-client
@@ -228,4 +228,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-

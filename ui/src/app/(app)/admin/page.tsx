@@ -15,9 +15,7 @@ import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
-import { SupervisorSkillsStatusSection } from "@/components/admin/platform/SupervisorSkillsStatusSection";
 import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
-import { PermissionsToolTab } from "@/components/admin/PermissionsToolTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
@@ -60,7 +58,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Bot,Bug,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -225,7 +223,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -311,9 +309,8 @@ const CATEGORIES: Category[] = [
     label: 'Security & Policy',
     icon: Shield,
     tabs: [
-      { value: 'cas-permissions-tool', label: 'Permissions Tool', icon: Bug, gateKey: 'openfga' },
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
-      { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
+      { value: 'openfga', label: 'Policy Graph', icon: Shield, gateKey: 'openfga' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
       { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
       { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
@@ -1902,8 +1899,7 @@ function AdminPage() {
                   </Card>
                 )}
 
-                {/* Supervisor skills + Skill Hubs */}
-                <SupervisorSkillsStatusSection isAdmin={isAdmin} />
+                {/* Skill Hubs */}
                 <SkillHubsSection isAdmin={isAdmin} />
               </TabsContent>
 
@@ -2789,13 +2785,6 @@ function AdminPage() {
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
                   <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
-                </TabsContent>
-              )}
-
-              {/* Permission Debugger — interactive OpenFGA /explain */}
-              {tabGateValues.openfga && (
-                <TabsContent value="cas-permissions-tool" className="space-y-4">
-                  <PermissionsToolTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

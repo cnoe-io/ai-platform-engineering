@@ -53,9 +53,8 @@ jobs:
             --ignore=integration \
             --ignore=evals \
             --ignore=ai_platform_engineering/knowledge_bases/rag/tests \
-            --ignore=ai_platform_engineering/agents/argocd/mcp/tests \
-            --ignore=ai_platform_engineering/agents/argocd/tests \
-            --ignore=ai_platform_engineering/agents/komodor/tests \
+            --ignore=ai_platform_engineering/mcp/argocd/tests \
+            --ignore=ai_platform_engineering/mcp/komodor/tests \
             --ignore=volumes \
             --ignore=docker-compose \
             --cov=ai_platform_engineering \
@@ -87,7 +86,7 @@ jobs:
         run: |
           uv venv
           source .venv/bin/activate && uv sync --no-dev
-          cd ai_platform_engineering/agents/argocd/mcp && make test
+          cd ai_platform_engineering/mcp/argocd && make test
 
   # run-rag-tests:
   #   runs-on: ubuntu-latest

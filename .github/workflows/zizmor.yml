@@ -56,7 +56,7 @@ jobs:
             BASE_SHA="$PUSH_BEFORE_SHA"
           fi
 
-          git diff --name-only "$BASE_SHA" "$CURRENT_SHA" \
+          git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$CURRENT_SHA" \
             | grep -E '^\.github/(workflows/.*\.ya?ml|actions/.*/action\.ya?ml)$' \
             | sort > changed-actions-files.txt || true
 

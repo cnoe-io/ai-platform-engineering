@@ -32,8 +32,8 @@ AuditReasonCode = Literal[
     "DENY_PDP_UNAVAILABLE",
 ]
 RbacResource = Literal[
-    "admin_ui", "slack", "supervisor", "rag",
-    "sub_agent", "tool", "skill", "a2a", "mcp",
+    "admin_ui", "slack", "dynamic_agents", "rag",
+    "sub_agent", "tool", "skill", "mcp",
 ]
 
 

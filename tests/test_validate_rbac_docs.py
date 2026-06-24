@@ -46,7 +46,7 @@ def test_is_rbac_code_matches_known_rbac_paths(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "ai_platform_engineering/multi_agents/supervisor/router.py",
+        "ai_platform_engineering/legacy/runtime/router.py",
         "ui/src/components/Toast.tsx",
         "README.md",
         "docs/docs/index.md",

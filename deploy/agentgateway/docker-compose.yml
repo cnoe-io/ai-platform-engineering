@@ -1,4 +1,4 @@
-# Agent Gateway is the data-plane proxy for MCP, A2A, and agent traffic. It validates
+# Agent Gateway is the data-plane proxy for MCP and runtime protocol traffic. It validates
 # JWTs against Keycloak (JWKS URL + issuer in config.yaml) and enforces CEL authorization
 # rules before forwarding to configured backends. Start Keycloak first on network
 # keycloak_default so the gateway can resolve http://keycloak:7080.

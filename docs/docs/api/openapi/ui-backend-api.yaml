@@ -2850,7 +2850,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-        a2a_events:
+        stream_events:
           type: array
           items: {}
         artifacts:
@@ -3188,7 +3188,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-        a2a_events:
+        stream_events:
           type: array
           items: {}
         artifacts:
@@ -3215,7 +3215,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
-        a2a_events:
+        stream_events:
           type: array
           items: {}
 

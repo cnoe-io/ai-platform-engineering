@@ -50,7 +50,7 @@ class HealthCheckFilter(logging.Filter):
 def configure_logging():
     """
     Configure logging to suppress health check endpoint logs at INFO level
-    and suppress noisy A2A SDK warnings.
+    and quiet noisy streaming/SSE loggers.
 
     Call this early in your application startup (after basic logging setup).
     """
@@ -66,11 +66,11 @@ def configure_logging():
     starlette_logger = logging.getLogger("starlette.access")
     starlette_logger.addFilter(HealthCheckFilter())
 
-    # Reduce noise from A2A SDK loggers while keeping important warnings visible
-    # These loggers can be verbose during normal operation
-    # Set to WARNING instead of ERROR to still see important warnings
-    for log_name in ["sse_starlette.sse", "a2a.server.events.event_queue", "a2a.utils.helpers"]:
-        a2a_logger = logging.getLogger(log_name)
-        a2a_logger.setLevel(logging.WARNING)
+    # Reduce noise from SSE streaming loggers while keeping important warnings
+    # visible. These loggers can be verbose during normal operation; set to
+    # WARNING instead of ERROR to still see important warnings.
+    for log_name in ["sse_starlette.sse"]:
+        sse_logger = logging.getLogger(log_name)
+        sse_logger.setLevel(logging.WARNING)
         # Keep propagate=True to allow parent loggers to handle these messages
 

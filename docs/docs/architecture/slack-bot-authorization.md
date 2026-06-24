@@ -1,6 +1,6 @@
 # Slack Bot Authorization Architecture
 
-This document provides a visual reference for the end-to-end authorization flow when a user interacts with CAIPE through Slack. It covers the trust chain from Okta enterprise SSO through Slack, Keycloak token exchange, CAIPE orchestration, and user scope validation at every boundary.
+This document provides a visual reference for the end-to-end authorization flow when a user interacts with CAIPE through Slack. It covers the trust chain from Okta enterprise SSO through Slack, Keycloak token exchange, Dynamic Agents execution, and user scope validation at every boundary.
 
 For the full design rationale and implementation details, see [Enterprise Identity Federation](./enterprise-identity-federation.md).
 
@@ -29,8 +29,8 @@ graph LR
     end
 
     subgraph CAIPE["CAIPE Agent Platform"]
-        ORCH["Orchestrator<br/>(A2A Server)<br/>─────────────<br/>• Parses intent & routes<br/>• OBO exchange per agent<br/>• Scope narrowing"]
-        AGENTS["Domain Agents<br/>─────────────<br/>• GitHub / Jira / ArgoCD<br/>• Retrieves service token<br/>• Calls downstream APIs"]
+        ORCH["CAIPE UI BFF + Dynamic Agents<br/>─────────────<br/>• Validates route & agent access<br/>• Runs selected Dynamic Agent<br/>• Forwards scoped user context"]
+        AGENTS["MCP Tool Runtime<br/>─────────────<br/>• GitHub / Jira / ArgoCD tools<br/>• Retrieves service token<br/>• Calls downstream APIs"]
     end
 
     subgraph DS_SVC["Downstream Services"]
@@ -42,10 +42,10 @@ graph LR
     SLACK_APP ==>|"③ WebSocket<br/>(Slack Socket Mode)<br/>user_id, message"| BOT
     BOT ==>|"④ Token Exchange<br/>(RFC 8693 / HTTPS)"| KC
     KC ==>|"⑤ Scoped User Token<br/>(JWT + groups)"| BOT
-    BOT ==>|"⑥ A2A Protocol<br/>(message/stream)<br/>user token + request"| ORCH
+    BOT ==>|"⑥ Dynamic Agents stream<br/>(HTTPS/SSE)<br/>user token + request"| ORCH
     ORCH ==>|"⑦ OBO Exchange<br/>(HTTPS)"| KC
-    KC ==>|"⑧ Agent Token<br/>(min scope, short TTL)"| ORCH
-    ORCH ==>|"⑨ A2A / direct<br/>narrowed token + task"| AGENTS
+    KC ==>|"⑧ Runtime Token<br/>(min scope, short TTL)"| ORCH
+    ORCH ==>|"⑨ MCP / runtime dispatch<br/>scoped token + task"| AGENTS
     AGENTS ==>|"⑩ Token Exchange<br/>(HTTPS)"| KC
     KC ==>|"⑪ External Token<br/>(e.g. ghp_xxx)"| AGENTS
     AGENTS ==>|"⑫ API Call<br/>(as user)"| DS
@@ -68,11 +68,11 @@ graph LR
 | Slack App → Bot Backend | **WebSocket** (Socket Mode) | Slack-signed payloads (HMAC-SHA256) | `user_id`, `team_id`, message |
 | Bot Backend → Keycloak | HTTPS | Client credentials + signed JWT assertion | `slack_user_id` claim |
 | Keycloak → Bot Backend | HTTPS | Signed Keycloak access token | `sub`, `groups`, `scope`, `act` |
-| Bot Backend → Orchestrator | **A2A Protocol** (`message/stream`) | Bearer token (user JWT) | User token + request payload |
-| Orchestrator → Keycloak | HTTPS | OBO token exchange | Parent token + requested scope |
-| Orchestrator → Agents | A2A / internal | Narrowed token + task payload | Scoped JWT + task context |
-| Agent → Keycloak | HTTPS | Token exchange (`requested_issuer`) | Narrowed token → external token |
-| Agent → Downstream | HTTPS | Provider-specific auth (OAuth, API key, JWT) | User's own credentials |
+| Bot Backend → CAIPE Runtime | **Dynamic Agents stream** (HTTPS/SSE) | Bearer token (user JWT) | User token + request payload |
+| CAIPE Runtime → Keycloak | HTTPS | OBO token exchange | Parent token + requested scope |
+| CAIPE Runtime → MCP Tools | MCP / internal runtime dispatch | Scoped token + task payload | Scoped JWT + task context |
+| MCP Tool → Keycloak | HTTPS | Token exchange (`requested_issuer`) | Narrowed token → external token |
+| MCP Tool → Downstream | HTTPS | Provider-specific auth (OAuth, API key, JWT) | User's own credentials |
 
 ---
 
@@ -186,8 +186,8 @@ sequenceDiagram
     participant SA as Slack App<br/>(Workspace)
     participant SB as Slack Bot Backend<br/>(caipe-slack-bot)
     participant KC as Keycloak<br/>(Identity Broker)
-    participant OR as CAIPE Orchestrator<br/>(A2A Server)
-    participant AG as Domain Agent<br/>(e.g. GitHub Agent)
+    participant OR as CAIPE UI BFF +<br/>Dynamic Agents Runtime
+    participant AG as MCP Tool Runtime<br/>(e.g. GitHub tools)
     participant DS as Downstream API<br/>(e.g. GitHub)
 
     Note over U,DS: ── Phase 1: Slack → Bot Backend (WebSocket / Socket Mode) ──
@@ -212,25 +212,25 @@ sequenceDiagram
 
     KC->>SB: Access Token (JWT)<br/>{sub: "user@example.com",<br/> groups: ["sre-team"],<br/> scope: "github jira argocd",<br/> act: {sub: "caipe-slack-bot"},<br/> exp: +30min}
 
-    Note over U,DS: ── Phase 3: Bot Backend → CAIPE (A2A Protocol) ──
+    Note over U,DS: ── Phase 3: Bot Backend → CAIPE Runtime (Dynamic Agents Stream) ──
 
-    SB->>OR: A2A message/stream (HTTP)<br/>Authorization: Bearer <user_jwt><br/>{"message": "Review PR #42"}
+    SB->>OR: Dynamic Agents stream (HTTP SSE)<br/>Authorization: Bearer <user_jwt><br/>{"message": "Review PR #42"}
 
-    Note over OR: Parse intent → requires:<br/>• github-pr-reader (github:repo:read)<br/>• github-pr-commenter (github:pr:write)
+    Note over OR: Select agent/tools → requires:<br/>• github:repo:read<br/>• github:pr:write
 
-    OR->>KC: POST /token (OBO)<br/>subject_token=user_token<br/>client_id=caipe-github-agent<br/>scope=github:repo:read github:pr:write<br/>audience=caipe-github-agent
+    OR->>KC: POST /token (OBO)<br/>subject_token=user_token<br/>client_id=dynamic-agents<br/>scope=github:repo:read github:pr:write<br/>audience=caipe-platform
 
-    Note over KC: ✅ Scope Validation Gate 2:<br/>• Verify agent client credentials<br/>• Validate parent token (not expired)<br/>• Check: requested ⊆ parent scope<br/>  (github:repo:read ⊆ "github")? ✅<br/>• Check: agent allowed these scopes? ✅<br/>• Narrow scope (never widen)<br/>• Set short TTL (5 min)<br/>• Chain delegation: act.act.sub
+    Note over KC: ✅ Scope Validation Gate 2:<br/>• Verify runtime client credentials<br/>• Validate parent token (not expired)<br/>• Check: requested ⊆ parent scope<br/>  (github:repo:read ⊆ "github")? ✅<br/>• Check: runtime allowed these scopes? ✅<br/>• Narrow scope (never widen)<br/>• Set short TTL (5 min)<br/>• Chain delegation: act.act.sub
 
-    KC->>OR: Narrowed Agent Token (JWT)<br/>{sub: "user@example.com",<br/> scope: "github:repo:read github:pr:write",<br/> act: {sub: "caipe-github-agent",<br/>       act: {sub: "caipe-slack-bot"}},<br/> exp: +5min}
+    KC->>OR: Narrowed Runtime Token (JWT)<br/>{sub: "user@example.com",<br/> scope: "github:repo:read github:pr:write",<br/> act: {sub: "dynamic-agents",<br/>       act: {sub: "caipe-slack-bot"}},<br/> exp: +5min}
 
     Note over U,DS: ── Phase 4: Agent Execution & Service Token Retrieval ──
 
-    OR->>AG: Execute task + narrowed token
+    OR->>AG: Execute MCP tool + narrowed token
 
     AG->>KC: POST /token<br/>subject_token=narrowed_token<br/>requested_issuer=github
 
-    Note over KC: ✅ Scope Validation Gate 3:<br/>• Validate narrowed token<br/>• Check: agent authorized for github?<br/>• Retrieve pre-authorized GitHub OAuth<br/>  token for user@example.com<br/>• Verify: stored token not revoked
+    Note over KC: ✅ Scope Validation Gate 3:<br/>• Validate narrowed token<br/>• Check: runtime authorized for github?<br/>• Retrieve pre-authorized GitHub OAuth<br/>  token for user@example.com<br/>• Verify: stored token not revoked
 
     KC->>AG: GitHub OAuth Token (ghp_xxx)
 
@@ -241,9 +241,9 @@ sequenceDiagram
     DS->>AG: PR #42 data (as user)
     AG->>OR: Results
 
-    Note over U,DS: ── Phase 5: Response Delivery (A2A → WebSocket) ──
+    Note over U,DS: ── Phase 5: Response Delivery (Dynamic Agents Stream → WebSocket) ──
 
-    OR-->>SB: A2A streaming response (HTTP SSE)
+    OR-->>SB: Dynamic Agents streaming response (HTTP SSE)
     SB->>SA: Post message via Slack API<br/>(formatted blocks + feedback buttons)
     SA->>U: "PR #42: 3 files changed, LGTM"
 ```
@@ -278,30 +278,30 @@ flowchart LR
 
     G1_5 --> G2
 
-    subgraph G2["Gate 2: Orchestrator → Keycloak<br/>(OBO / Scope Narrowing)"]
+    subgraph G2["Gate 2: CAIPE Runtime → Keycloak<br/>(OBO / Scope Narrowing)"]
         direction TB
-        G2_1{Agent client<br/>credentials valid?}
+        G2_1{Runtime client<br/>credentials valid?}
         G2_2{Parent token<br/>valid & not<br/>expired?}
         G2_3{Requested scope<br/>⊆ parent scope?}
-        G2_4{Agent allowed<br/>these scopes<br/>in KC policy?}
+        G2_4{Runtime allowed<br/>these scopes<br/>in KC policy?}
         G2_5[Mint narrowed token<br/>TTL ≤ 5 min]
 
         G2_1 -->|Yes| G2_2
-        G2_1 -->|No| G2_F1[/"401: Invalid<br/>agent client"/]
+        G2_1 -->|No| G2_F1[/"401: Invalid<br/>runtime client"/]
         G2_2 -->|Yes| G2_3
         G2_2 -->|No| G2_F2[/"401: Token expired,<br/>re-exchange needed"/]
         G2_3 -->|Yes| G2_4
         G2_3 -->|No| G2_F3[/"403: Scope escalation<br/>denied (never widen)"/]
         G2_4 -->|Yes| G2_5
-        G2_4 -->|No| G2_F4[/"403: Agent not<br/>authorized for scope"/]
+        G2_4 -->|No| G2_F4[/"403: Runtime not<br/>authorized for scope"/]
     end
 
     G2_5 --> G3
 
-    subgraph G3["Gate 3: Agent → Keycloak<br/>(External Token Retrieval)"]
+    subgraph G3["Gate 3: MCP Tool → Keycloak<br/>(External Token Retrieval)"]
         direction TB
         G3_1{Narrowed token<br/>valid?}
-        G3_2{Agent authorized<br/>for requested_issuer?}
+        G3_2{Runtime authorized<br/>for requested_issuer?}
         G3_3{User has stored<br/>token for service?}
         G3_4{Stored token<br/>valid / refreshable?}
         G3_5[Return external<br/>service token]
@@ -309,7 +309,7 @@ flowchart LR
         G3_1 -->|Yes| G3_2
         G3_1 -->|No| G3_F1[/"401: Token<br/>invalid"/]
         G3_2 -->|Yes| G3_3
-        G3_2 -->|No| G3_F2[/"403: Agent cannot<br/>access this issuer"/]
+        G3_2 -->|No| G3_F2[/"403: Runtime cannot<br/>access this issuer"/]
         G3_3 -->|Yes| G3_4
         G3_3 -->|No| G3_F3[/"Prompt user to<br/>connect service"/]
         G3_4 -->|Yes| G3_5
@@ -356,8 +356,8 @@ graph LR
         S2["Full-scope JWT<br/>─────────────<br/>sub: user@example.com<br/>scope: github jira argocd pagerduty<br/>groups: [sre-team, caipe-admins]<br/>act: {sub: caipe-slack-bot}<br/>TTL: 30 min"]
     end
 
-    subgraph T3["③ Agent Token (OBO)"]
-        S3["Narrowed JWT<br/>─────────────<br/>sub: user@example.com<br/>scope: github:repo:read github:pr:write<br/>groups: [sre-team]<br/>act: {sub: caipe-github-agent,<br/>      act: {sub: caipe-slack-bot}}<br/>TTL: 5 min"]
+    subgraph T3["③ Runtime Token (OBO)"]
+        S3["Narrowed JWT<br/>─────────────<br/>sub: user@example.com<br/>scope: github:repo:read github:pr:write<br/>groups: [sre-team]<br/>act: {sub: dynamic-agents,<br/>      act: {sub: caipe-slack-bot}}<br/>TTL: 5 min"]
     end
 
     subgraph T4["④ Service Token"]
@@ -377,20 +377,20 @@ graph LR
 ### Scope Reduction Guarantee
 
 ```
-User Token scope:     github  jira  argocd  pagerduty    (4 services)
+User Token scope:       github  jira  argocd  pagerduty    (4 services)
                          ↓
-GitHub Agent scope:   github:repo:read  github:pr:write   (2 fine-grained)
+Runtime token scope:    github:repo:read  github:pr:write   (2 fine-grained)
                          ↓
-Service Token:        repo  read:org                       (GitHub-native scopes)
+Service Token:          repo  read:org                       (GitHub-native scopes)
 ```
 
-At every exchange, Keycloak enforces: **requested scope ⊆ parent scope**. Scope can only narrow, never widen. An agent that holds `github:repo:read` cannot request `github:repo:write` — the exchange fails with 403.
+At every exchange, Keycloak enforces: **requested scope ⊆ parent scope**. Scope can only narrow, never widen. A runtime token that holds `github:repo:read` cannot request `github:repo:write` — the exchange fails with 403.
 
 ---
 
-## Multi-Agent Scope Isolation
+## Tool Scope Isolation
 
-When the orchestrator routes a user request to multiple agents, each agent receives an independently scoped token. A compromised agent token cannot access services beyond its granted scope.
+When the runtime executes multiple tool families for one user request, each tool family receives an independently scoped token. A compromised token cannot access services beyond its granted scope.
 
 ```mermaid
 graph LR
@@ -402,16 +402,16 @@ graph LR
         BOT_SVC["Slack Bot Backend<br/>──────────<br/>Token Exchange<br/>→ User Token"]
     end
 
-    ORCH["Orchestrator<br/>──────────<br/>A2A Server<br/>OBO per agent"]
+    ORCH["Dynamic Agents Runtime<br/>──────────<br/>OBO + tool authz"]
 
-    subgraph AGENTS["Isolated Agent Tokens"]
-        GH_TOKEN["GitHub Agent<br/>──────────<br/>scope: github:repo:read<br/>         github:pr:write<br/>TTL: 5 min<br/>Cannot access: Jira ✗ ArgoCD ✗"]
+    subgraph AGENTS["Isolated Tool Tokens"]
+        GH_TOKEN["GitHub Tools<br/>──────────<br/>scope: github:repo:read<br/>         github:pr:write<br/>TTL: 5 min<br/>Cannot access: Jira ✗ ArgoCD ✗"]
 
-        JIRA_TOKEN["Jira Agent<br/>──────────<br/>scope: jira:comment:write<br/>TTL: 5 min<br/>Cannot access: GitHub ✗ ArgoCD ✗"]
+        JIRA_TOKEN["Jira Tools<br/>──────────<br/>scope: jira:comment:write<br/>TTL: 5 min<br/>Cannot access: GitHub ✗ ArgoCD ✗"]
 
-        ARGO_TOKEN["ArgoCD Agent<br/>──────────<br/>scope: argocd:app:get<br/>TTL: 5 min<br/>Cannot access: GitHub ✗ Jira ✗"]
+        ARGO_TOKEN["ArgoCD Tools<br/>──────────<br/>scope: argocd:app:get<br/>TTL: 5 min<br/>Cannot access: GitHub ✗ Jira ✗"]
 
-        PD_TOKEN["PagerDuty Agent<br/>──────────<br/>scope: pagerduty:incidents:read<br/>TTL: 3 min<br/>Cannot access: GitHub ✗ Jira ✗"]
+        PD_TOKEN["PagerDuty Tools<br/>──────────<br/>scope: pagerduty:incidents:read<br/>TTL: 3 min<br/>Cannot access: GitHub ✗ Jira ✗"]
     end
 
     subgraph DS["Downstream Services"]
@@ -422,7 +422,7 @@ graph LR
     end
 
     USER -->|"WebSocket<br/>(Socket Mode)"| BOT_SVC
-    BOT_SVC -->|"A2A Protocol<br/>(message/stream)"| ORCH
+    BOT_SVC -->|"Dynamic Agents stream<br/>(HTTPS/SSE)"| ORCH
     ORCH -->|"OBO: scope=github:*"| GH_TOKEN
     ORCH -->|"OBO: scope=jira:*"| JIRA_TOKEN
     ORCH -->|"OBO: scope=argocd:*"| ARGO_TOKEN
@@ -458,12 +458,12 @@ graph LR
         J1["act: {<br/>  sub: caipe-slack-bot<br/>}"]
     end
 
-    subgraph "Agent Token (issued at Gate 2)"
-        J2["act: {<br/>  sub: caipe-github-agent,<br/>  act: {<br/>    sub: caipe-slack-bot<br/>  }<br/>}"]
+    subgraph "Runtime Token (issued at Gate 2)"
+        J2["act: {<br/>  sub: dynamic-agents,<br/>  act: {<br/>    sub: caipe-slack-bot<br/>  }<br/>}"]
     end
 
     subgraph "Audit Log Entry"
-        J3["who: user@example.com<br/>what: GET /repos/.../pulls/42<br/>via: caipe-github-agent<br/>  → caipe-slack-bot<br/>  → user@example.com<br/>when: 2026-03-16T10:30:00Z<br/>scope: github:repo:read"]
+        J3["who: user@example.com<br/>what: GET /repos/.../pulls/42<br/>via: dynamic-agents<br/>  → caipe-slack-bot<br/>  → user@example.com<br/>when: 2026-03-16T10:30:00Z<br/>scope: github:repo:read"]
     end
 
     J1 -->|"OBO exchange<br/>adds layer"| J2
@@ -518,6 +518,5 @@ flowchart LR
 ## Related Documentation
 
 - [Enterprise Identity Federation](./enterprise-identity-federation.md) — full design, Keycloak configuration, CRD definitions, and implementation code
-- [A2A Authentication](../security/a2a-auth.md) — bot-to-supervisor OAuth2 client credentials setup
 - [Slack Bot Integration](../integrations/slack-bot.md) — deployment, configuration, and channel setup
 - [CAIPE UI Auth Flow](../ui/auth-flow.md) — browser-based OIDC authentication for the web UI

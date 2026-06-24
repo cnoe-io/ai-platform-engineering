@@ -104,7 +104,7 @@
   --font-size-base: 1rem;
   --font-size-scale: 1;
 
-  /* A2A Protocol Event Colors - consistent across themes */
+  /* Stream event colors - consistent across themes */
   --a2a-task: 199 89% 48%;
   --a2a-artifact: 270 75% 60%;
   --a2a-status: 142 71% 45%;
@@ -461,7 +461,7 @@
     box-shadow: 0 0 15px hsl(var(--primary) / 0.2);
   }
 
-  /* A2A Event badges with subtle glow */
+  /* Stream event badges with subtle glow */
   .a2a-badge-task {
     @apply bg-sky-500/15 text-sky-400 border border-sky-500/30;
     box-shadow: 0 0 10px hsl(199 89% 48% / 0.15);
@@ -633,7 +633,7 @@
   animation: shimmer 1.5s infinite;
 }
 
-/* A2A Stream item animation */
+/* Stream item animation */
 .a2a-stream-item {
   animation: slideInFromBottom 0.2s ease-out;
 }

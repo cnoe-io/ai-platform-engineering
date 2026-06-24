@@ -90,7 +90,7 @@ def test_apply_noop_when_flag_off():
 def test_apply_noop_for_client_credentials_principal():
     mod = _reload_with_flag("true")
     qr = _qr()
-    mod.apply_doc_acl_filter(qr, _user(email="client:caipe-supervisor"))
+    mod.apply_doc_acl_filter(qr, _user(email="client:caipe-platform"))
     assert qr.filters == {}
 
 

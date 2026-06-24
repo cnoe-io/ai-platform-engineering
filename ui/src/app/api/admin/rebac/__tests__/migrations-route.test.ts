@@ -4,6 +4,13 @@
 
 import { NextRequest } from "next/server";
 
+import { ACTIVE_RELEASES } from "@/lib/rbac/migrations/registry";
+
+// The runtime always reports the newest active release (the tail of
+// ACTIVE_RELEASES). Derive it from the source of truth so adding a future
+// migration release never breaks these assertions.
+const LATEST_RELEASE = ACTIVE_RELEASES[ACTIVE_RELEASES.length - 1];
+
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
@@ -323,9 +330,8 @@ describe("admin ReBAC migrations API", () => {
     expect(statusBody.data.is_blocking).toBe(true);
     expect(statusBody.data.runtime).toEqual(
       expect.objectContaining({
-        // The runtime reports the latest active release; the 0.5.8 manifest
-        // adds the unified shareable-resource RBAC backfills.
-        migration_release: "0.5.8",
+        // The runtime reports the latest active release (tail of ACTIVE_RELEASES).
+        migration_release: LATEST_RELEASE,
       }),
     );
 
@@ -340,10 +346,10 @@ describe("admin ReBAC migrations API", () => {
     expect(overrideResponse.status).toBe(200);
     expect(overrideBody.data.override_active).toBe(true);
     expect(collections.migration_overrides.updateOne).toHaveBeenCalledWith(
-      { _id: "0.5.8:admin@example.com" },
+      { _id: `${LATEST_RELEASE}:admin@example.com` },
       expect.objectContaining({
         $set: expect.objectContaining({
-          release: "0.5.8",
+          release: LATEST_RELEASE,
           reason: "Emergency production verification",
           status: "active",
           created_by: "admin@example.com",
@@ -480,9 +486,9 @@ describe("admin ReBAC migrations API", () => {
 
     expect(response.status).toBe(200);
     expect(mockRequireResourcePermission).not.toHaveBeenCalled();
-    // Latest active release (the 0.5.8 manifest adds the shareable-resource
-    // RBAC backfills on top of the 0.5.1 entries).
-    expect(body.data.release).toBe("0.5.8");
+    // Latest active release (tail of ACTIVE_RELEASES) — derived so new
+    // migration releases don't require editing this assertion.
+    expect(body.data.release).toBe(LATEST_RELEASE);
     expect(body.data.migrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

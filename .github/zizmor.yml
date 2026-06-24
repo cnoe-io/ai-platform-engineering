@@ -4,6 +4,3 @@ rules:
       # Intentional privileged follow-up workflow: reads coverage artifacts from
       # the completed unit-test run and posts a PR comment with a GitHub App token.
       - coverage-comment.yml
-      # Intentional post-build integration workflow: runs on the project's
-      # self-hosted integration runner after the main supervisor image build.
-      - tests-quick-sanity-integration-dev.yml

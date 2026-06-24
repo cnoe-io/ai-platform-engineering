@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getStorageMode } from "@/lib/storage-config";
 import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
-import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
+import { getAgentId } from "@/types/a2a";
 import { AnimatePresence,motion } from "framer-motion";
 import {
 Archive,
@@ -58,7 +59,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     deleteConversation,
     loadConversationsFromServer,
     loadMessagesFromServer,
-    loadTurnsFromServer,
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
@@ -152,16 +152,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.log('[Sidebar] Manual reload triggered');
       await loadConversationsFromServer();
       // Also force-reload the active conversation's messages to pick up
-      // follow-up messages from other devices and refresh A2A events
+      // follow-up messages from other devices and refresh stream events
       if (activeConversationId) {
-        const activeConv = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
-        if (activeConv && isDynamicAgentConversation(activeConv)) {
-          // Dynamic Agent — use old messages path
-          await loadMessagesFromServer(activeConversationId, { force: true });
-        } else {
-          // Platform Engineer — use turns path
-          await loadTurnsFromServer(activeConversationId);
-        }
+        await loadMessagesFromServer(activeConversationId, { force: true });
       }
     } catch (error) {
       console.error('[Sidebar] Failed to reload conversations:', error);
@@ -171,14 +164,17 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   };
 
   const handleNewChat = async (agentId?: string) => {
+    let resolvedAgentId: string | null = null;
     try {
+      resolvedAgentId = agentId?.trim() || await resolveUsableChatAgentId();
+
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
         const { apiClient } = await import('@/lib/api-client');
         const result = await apiClient.createConversation({
           title: "New Conversation",
           client_type: 'webui',
-          agent_id: agentId,
+          agent_id: resolvedAgentId,
         });
         const conversation = result.conversation;
 
@@ -190,7 +186,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
-          a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
         };
 
@@ -209,7 +204,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         });
       } else {
         // Create conversation in localStorage
-        const conversationId = await createConversation(agentId);
+        const conversationId = await createConversation(resolvedAgentId);
 
         // Use React transition for smooth navigation
         startTransition(() => {
@@ -218,12 +213,16 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       }
     } catch (error) {
       console.error('[Sidebar] Failed to create conversation:', error);
+      const message =
+        error instanceof Error ? error.message : "Failed to create a chat conversation";
+      toast(message, "error");
 
-      // Fallback to localStorage
-      const conversationId = await createConversation(agentId);
-      startTransition(() => {
-        router.push(`/chat/${conversationId}`);
-      });
+      if (storageMode !== 'mongodb' && resolvedAgentId) {
+        const conversationId = await createConversation(resolvedAgentId);
+        startTransition(() => {
+          router.push(`/chat/${conversationId}`);
+        });
+      }
     }
   };
 
@@ -531,7 +530,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               // so the user always has somewhere to land
                               let navigateToId: string | null = null;
                               if (isLastConversation) {
-                                navigateToId = await createConversation();
+                                navigateToId = await createConversation(await resolveUsableChatAgentId());
                                 console.log('[Sidebar] Created replacement conversation:', navigateToId);
                               }
 

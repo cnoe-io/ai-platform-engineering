@@ -2,7 +2,7 @@
  * Unit tests for ticket-client.ts
  *
  * Tests:
- * - createTicketViaAgent calls SSEClient with correct prompt
+ * - createTicketViaAgent creates a conversation and streams through dynamic agents
  * - Jira ticket result extraction from agent response
  * - GitHub issue result extraction from agent response
  * - Error handling when agent fails
@@ -41,15 +41,43 @@ jest.mock("@/lib/config", () => ({
   },
 }));
 
-let mockOnEvent: ((event: any) => void) | null = null;
-const mockSendMessage = jest.fn().mockResolvedValue(undefined);
+let mockStreamEvents: Array<{ type: string; text?: string; message?: string }> = [];
+const mockStreamMessage = jest.fn(async (_params: any, callbacks: any) => {
+  for (const event of mockStreamEvents) {
+    if (event.type === "content") {
+      callbacks.onContent?.(event.text ?? "", []);
+    } else if (event.type === "done") {
+      callbacks.onDone?.();
+    } else if (event.type === "error") {
+      callbacks.onError?.(event.message ?? "stream failed");
+    }
+  }
+});
 const mockAbort = jest.fn();
 
-jest.mock("@/lib/sse-streaming-client", () => ({
-  SSEClient: jest.fn().mockImplementation((config: any) => {
-    mockOnEvent = config.onEvent ?? null;
+jest.mock("@/lib/chat-agent-selection", () => ({
+  resolveUsableChatAgent: jest.fn().mockResolvedValue({
+    id: "agent-1",
+    name: "Platform Engineer",
+    source: "platform-default",
+  }),
+}));
+
+const mockCreateConversation = jest.fn().mockResolvedValue({
+  conversation: { _id: "conv-1" },
+  created: true,
+});
+
+jest.mock("@/lib/api-client", () => ({
+  apiClient: {
+    createConversation: (...args: any[]) => mockCreateConversation(...args),
+  },
+}));
+
+jest.mock("@/lib/streaming", () => ({
+  createStreamAdapter: jest.fn().mockImplementation(() => {
     return {
-      sendMessage: mockSendMessage,
+      streamMessage: mockStreamMessage,
       abort: mockAbort,
     };
   }),
@@ -60,16 +88,10 @@ jest.mock("@/lib/sse-streaming-client", () => ({
 // ============================================================================
 
 /**
- * Set up mockSendMessage to fire SSE events synchronously then resolve.
+ * Set up the mock stream adapter to fire events synchronously then resolve.
  */
 function mockSSEEvents(events: Array<{ type: string; text?: string; turn_id?: string; message?: string }>) {
-  mockSendMessage.mockImplementation(async () => {
-    if (mockOnEvent) {
-      for (const ev of events) {
-        mockOnEvent(ev);
-      }
-    }
-  });
+  mockStreamEvents = events;
 }
 
 // ============================================================================
@@ -77,7 +99,7 @@ function mockSSEEvents(events: Array<{ type: string; text?: string; turn_id?: st
 // ============================================================================
 
 import { createTicketViaAgent } from "../ticket-client";
-import { SSEClient } from "@/lib/sse-streaming-client";
+import { createStreamAdapter } from "@/lib/streaming";
 
 // ============================================================================
 // Tests
@@ -86,7 +108,10 @@ import { SSEClient } from "@/lib/sse-streaming-client";
 describe("createTicketViaAgent", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockOnEvent = null;
+    mockCreateConversation.mockResolvedValue({
+      conversation: { _id: "conv-1" },
+      created: true,
+    });
     mockProvider = "jira";
     mockProject = "OPENSD";
     mockLabel = "caipe-reported";
@@ -125,7 +150,7 @@ describe("createTicketViaAgent", () => {
     ).rejects.toThrow("Ticket provider is not configured");
   });
 
-  it("creates SSEClient with correct endpoint and accessToken", async () => {
+  it("creates stream adapter with correct protocol and accessToken", async () => {
     await createTicketViaAgent({
       request: {
         description: "something broke",
@@ -135,15 +160,15 @@ describe("createTicketViaAgent", () => {
       accessToken: "tok-123",
     });
 
-    expect(SSEClient).toHaveBeenCalledWith(
+    expect(createStreamAdapter).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "/api/chat/stream",
+        protocol: "custom",
         accessToken: "tok-123",
       })
     );
   });
 
-  it("calls sendMessage with prompt containing user description", async () => {
+  it("creates conversation and streams prompt with agent context", async () => {
     await createTicketViaAgent({
       request: {
         description: "something broke",
@@ -153,12 +178,21 @@ describe("createTicketViaAgent", () => {
       accessToken: "tok-123",
     });
 
-    expect(mockSendMessage).toHaveBeenCalledWith(
+    expect(mockCreateConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Support Ticket Request",
+        client_type: "webui",
+        agent_id: "agent-1",
+      })
+    );
+    expect(mockStreamMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.stringContaining("something broke"),
-        user_email: "user@test.com",
+        conversationId: "conv-1",
+        agentId: "agent-1",
         source: "web",
-      })
+      }),
+      expect.any(Object),
     );
   });
 
@@ -279,7 +313,7 @@ describe("createTicketViaAgent", () => {
       },
     });
 
-    const callArg = mockSendMessage.mock.calls[0][0];
+    const callArg = mockStreamMessage.mock.calls[0][0];
     expect(callArg.message).toContain("Jira issue in project OPENSD");
     expect(callArg.message).toContain("Feedback Type: dislike");
     expect(callArg.message).toContain("Feedback Reason: Inaccurate");
@@ -298,7 +332,7 @@ describe("createTicketViaAgent", () => {
       },
     });
 
-    const callArg = mockSendMessage.mock.calls[0][0];
+    const callArg = mockStreamMessage.mock.calls[0][0];
     expect(callArg.message).toContain(`"my-custom-label"`);
   });
 
@@ -313,7 +347,7 @@ describe("createTicketViaAgent", () => {
       },
     });
 
-    const callArg = mockSendMessage.mock.calls[0][0];
+    const callArg = mockStreamMessage.mock.calls[0][0];
     expect(callArg.message).toContain("GitHub issue in repository org/repo");
   });
 

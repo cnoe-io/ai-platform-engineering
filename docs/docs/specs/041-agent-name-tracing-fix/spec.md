@@ -180,7 +180,7 @@ curl -X POST http://localhost:8000/chat \
 
 ### Backend ADRs
 - [Agent Refactoring Summary](../agent-refactoring-summary/spec) - Base agent architecture
-- [Tracing Implementation Guide](../../evaluations/tracing-implementation-guide) - Langfuse integration
+- [Evaluations](../../evaluations/) - Observability and benchmark notes
 
 ### cnoe-agent-utils
 - TracingManager Documentation - See `cnoe-agent-utils/TRACING.md` in repository

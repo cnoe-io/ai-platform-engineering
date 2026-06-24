@@ -3,7 +3,7 @@
 """Tests for the vendored ``dynamic_agents.services.scan_gate`` module.
 
 The vendored copy exists because the dynamic-agents Docker image
-ships only the ``dynamic_agents`` package — not its supervisor-side
+ships only the ``dynamic_agents`` package — not the shared
 ``ai_platform_engineering.skills_middleware.scan_gate`` source-of-
 truth. The cross-package import that lived inline in
 ``services/skills.py::_load_agent_skills`` raised ``ModuleNotFoundError``
@@ -88,7 +88,7 @@ class TestIsStatusBlocked:
 
 
 class TestIsStatusBlockedWithOverride:
-    """Mirror of the supervisor-side suite for the override behaviour.
+    """Mirror of the shared suite for the override behaviour.
 
     The vendored module is byte-identical to the source-of-truth (the
     drift test below enforces it), but we re-pin the policy here so

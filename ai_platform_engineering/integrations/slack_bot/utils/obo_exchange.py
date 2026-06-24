@@ -1,10 +1,8 @@
 """On-Behalf-Of (OBO) token exchange client (RFC 8693).
 
-Phase 3 of spec 2026-05-24-derive-team-from-channel completes the
-demolition of the per-team OBO model: there is no signed team claim on
-the token at all. Team scope is resolved purely from channel context by
-the Web UI BFF, RAG server, and Dynamic Agents — the bot just mints a
-team-agnostic platform token for the impersonated user.
+Slack bot OBO tokens are team-agnostic platform tokens. Team scope is
+resolved from channel context by the Web UI BFF, RAG server, and Dynamic
+Agents.
 """
 
 from __future__ import annotations
@@ -26,8 +24,8 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$")
 def _is_valid_slug(slug: str) -> bool:
     """Mirror of `isValidTeamSlug` in `ui/src/lib/rbac/keycloak-admin.ts`.
 
-    Kept as a public utility — other modules (channel_team_resolver)
-    still use it. The OBO exchange itself no longer invokes it.
+    Other modules, including channel team resolution, depend on the same
+    slug contract.
     """
     return bool(slug) and len(slug) <= 63 and bool(_SLUG_RE.match(slug))
 
@@ -222,10 +220,9 @@ class OboExchangeError(Exception):
 
 
 def downstream_auth_headers(access_token: str) -> dict[str, str]:
-    """Headers for outbound platform calls (A2A, RAG, AGW) using an OBO token.
+    """Headers for outbound platform calls using an OBO token.
 
-    The legacy ``X-Team-Id`` header was removed earlier; the team is now
-    derived from channel context by the receiving service, not signalled
-    by the caller.
+    Team scope is derived from channel context by the receiving service,
+    not signalled by the caller.
     """
     return {"Authorization": f"Bearer {access_token}"}

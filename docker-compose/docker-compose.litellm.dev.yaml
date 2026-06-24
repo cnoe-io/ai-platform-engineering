@@ -25,7 +25,7 @@ services:
     - LITELLM_VERIFY_SSL=${LITELLM_VERIFY_SSL:-true}
     - SERVER_NAME=${SERVER_NAME:-LITELLM}
     volumes:
-    - ../ai_platform_engineering/agents/litellm/mcp/mcp_litellm:/app/mcp_litellm
+    - ../ai_platform_engineering/mcp/litellm:/app/ai_platform_engineering/mcp/litellm
     build:
       context: ..
       dockerfile: build/agents/Dockerfile.mcp
