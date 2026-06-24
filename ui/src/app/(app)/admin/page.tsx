@@ -559,6 +559,8 @@ function AdminPage() {
       ),
     [activeCategory, tabGateValues]
   );
+  const simulationHasNoVisibleTabs =
+    isSimulationActive && !adminTabGatesLoading && visibleCategories.length === 0;
 
   useEffect(() => {
     if (adminRoleLoading || adminTabGatesLoading) return;
@@ -1290,7 +1292,7 @@ function AdminPage() {
                     }`}
                   >
                     <Eye className="h-3.5 w-3.5" />
-                    View as
+                    Preview access as
                     {isSimulationActive && (
                       <span className="max-w-40 truncate">
                         {simulation?.subject?.openfga_user ?? simulationTarget?.id}
@@ -1303,10 +1305,10 @@ function AdminPage() {
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>View As Effective Permissions</DialogTitle>
+                    <DialogTitle>Preview Access As</DialogTitle>
                     <DialogDescription>
-                      Search for a real user or team. Preview is read-only and evaluates Admin visibility
-                      against the selected OpenFGA subject.
+                      Admin-only, read-only simulation. Your session stays unchanged while Admin
+                      visibility is evaluated against the selected OpenFGA subject.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -1373,7 +1375,7 @@ function AdminPage() {
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        You can select a search result or enter a raw OpenFGA id directly.
+                        Select a search result, or enter an OpenFGA subject id for access debugging.
                       </p>
                     </div>
 
@@ -1447,18 +1449,44 @@ function AdminPage() {
                 </DialogContent>
               </Dialog>
 
+              {simulationHasNoVisibleTabs && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                        No Admin access for this preview
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        The selected OpenFGA subject has no visible Admin tabs. This can happen
+                        when admin access comes from bootstrap/session role state instead of
+                        materialized OpenFGA grants.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Active subject:{" "}
+                        <code>{simulation?.subject?.openfga_user ?? `${simulationTarget?.type}:${simulationTarget?.id}`}</code>
+                      </p>
+                    </div>
+                    <Button type="button" variant="outline" onClick={clearSimulationTarget}>
+                      Exit preview
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Filtered sub-tabs for the active category */}
-              <TabsList className="flex w-full justify-start gap-0">
-                {visibleTabsForCategory.map((t) => {
-                  const Icon = t.icon;
-                  return (
-                    <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
-                      <Icon className="h-4 w-4" />
-                      {t.label}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
+              {!simulationHasNoVisibleTabs && (
+                <TabsList className="flex w-full justify-start gap-0">
+                  {visibleTabsForCategory.map((t) => {
+                    const Icon = t.icon;
+                    return (
+                      <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
+                        <Icon className="h-4 w-4" />
+                        {t.label}
+                      </TabsTrigger>
+                    );
+                  })}
+                </TabsList>
+              )}
 
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
