@@ -7,8 +7,8 @@ import json
 import logging
 from typing import Optional
 
-from ..api.client import make_api_request
-from ..utils.cache import schedule_cache
+from api.client import make_api_request
+from utils.cache import schedule_cache
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

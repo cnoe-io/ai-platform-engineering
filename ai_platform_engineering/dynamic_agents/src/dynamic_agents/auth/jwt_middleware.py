@@ -53,7 +53,7 @@ DA_REQUIRE_BEARER = os.environ.get("DA_REQUIRE_BEARER", "").strip().lower() in (
 
 # Probe / observability endpoints must stay reachable without auth so Docker
 # healthchecks and Prometheus scrapes do not flap when bearer enforcement is on.
-PUBLIC_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
+PUBLIC_PATHS = frozenset({"/health", "/healthz", "/readyz", "/metrics"})
 
 
 def _validate_bearer_or_none(token: str) -> dict | None:

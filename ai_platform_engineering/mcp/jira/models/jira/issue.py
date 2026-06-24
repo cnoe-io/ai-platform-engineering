@@ -16,7 +16,7 @@ from ..constants import (
     JIRA_DEFAULT_ID,
     JIRA_DEFAULT_KEY,
 )
-from ...utils.adf import adf_to_text, is_adf_format
+from utils.adf import adf_to_text, is_adf_format
 from .comment import JiraComment
 from .common import (
     JiraAttachment,

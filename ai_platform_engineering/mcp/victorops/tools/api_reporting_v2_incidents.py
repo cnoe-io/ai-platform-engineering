@@ -10,7 +10,7 @@ import logging
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
-from ..api.client import list_orgs, make_api_request
+from api.client import list_orgs, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

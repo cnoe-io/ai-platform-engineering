@@ -13,8 +13,8 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from ..api.client import assemble_nested_body, make_api_request
-from ..models.incident import IncidentCreate
+from api.client import assemble_nested_body, make_api_request
+from models.incident import IncidentCreate
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

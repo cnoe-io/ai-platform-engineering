@@ -6,7 +6,7 @@
 import logging
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
-from ..api.client import make_api_request
+from api.client import make_api_request
 
 logger = logging.getLogger("pagerduty_mcp")
 

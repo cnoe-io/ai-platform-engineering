@@ -5,7 +5,7 @@
 
 import json
 
-from ..api.client import list_orgs
+from api.client import list_orgs
 
 
 async def list_victorops_orgs() -> str:

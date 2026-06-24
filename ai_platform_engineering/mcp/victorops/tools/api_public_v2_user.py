@@ -8,8 +8,8 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from ..api.client import assemble_nested_body, make_api_request
-from ..utils.cache import user_cache
+from api.client import assemble_nested_body, make_api_request
+from utils.cache import user_cache
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
