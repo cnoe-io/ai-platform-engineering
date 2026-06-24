@@ -38,7 +38,7 @@ This codebase follows the ["Worse is Better"](https://en.wikipedia.org/wiki/Wors
 
 ## System Overview
 
-Dynamic Agents is a standalone FastAPI service that runs independently from the main Platform Engineer (A2A) agent. It uses the `deepagents` library to create ephemeral AI agents configured through the UI.
+Dynamic Agents is the FastAPI runtime service for CAIPE agents. It uses the `deepagents` library to create AI agents configured through the UI.
 
 ### High-Level Architecture
 
@@ -1330,16 +1330,9 @@ Config values support `${VAR}` and `${VAR:-default}` syntax for environment vari
 │  │ • Agent     │  │   │              Route: /chat/[uuid]             │   │   │
 │  │   selector  │  │   │                                              │   │   │
 │  │             │  │   │   ┌─────────────────────────────────────┐   │   │   │
-│  └─────────────┘  │   │   │  selectedAgentId ?                  │   │   │   │
-│                   │   │   │                                      │   │   │   │
-│                   │   │   │  YES: DynamicAgentChatView          │   │   │   │
+│  └─────────────┘  │   │   │  DynamicAgentChatView               │   │   │   │
 │                   │   │   │       └── ChatPanel                 │   │   │   │
 │                   │   │   │           └── DynamicAgentClient    │   │   │   │
-│                   │   │   │                                      │   │   │   │
-│                   │   │   │  NO:  PlatformEngineerChatView      │   │   │   │
-│                   │   │   │       └── ChatPanel                 │   │   │   │
-│                   │   │   │           └── A2ASDKClient          │   │   │   │
-│                   │   │   │                                      │   │   │   │
 │                   │   │   └─────────────────────────────────────┘   │   │   │
 │                   │   └─────────────────────────────────────────────┘   │   │
 │                   │                                                      │   │
@@ -1357,60 +1350,46 @@ Config values support `${VAR}` and `${VAR:-default}` syntax for environment vari
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Chat Flow Differentiation
+### Chat Client Flow
 
-The UI uses a unified `ChatPanel` component that switches between two streaming clients:
+The UI uses a unified `ChatPanel` component with a Dynamic Agents streaming client:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Chat Client Selection                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-
     ChatPanel receives:
     - endpoint: Backend URL
     - conversationId: MongoDB conversation UUID
-    - selectedAgentId?: Dynamic agent ID (if any)
+    - selectedAgentId: Dynamic agent ID
               │
               ▼
-        ┌─────────────┐
-        │ selectedAgentId │
-        │   defined?      │
-        └───────┬─────────┘
-                │
-      ┌─────────┴─────────┐
-      │ YES               │ NO
-      ▼                   ▼
-┌────────────────┐  ┌────────────────┐
-│ DynamicAgent   │  │ A2ASDKClient   │
-│ Client         │  │                │
-└───────┬────────┘  └───────┬────────┘
-        │                   │
-        ▼                   ▼
-┌────────────────┐  ┌────────────────┐
-│ POST /api/     │  │ A2A Protocol   │
-│ dynamic-agents │  │ to Platform    │
-│ /chat/stream   │  │ Engineer       │
-└───────┬────────┘  └───────┬────────┘
-        │                   │
-        ▼                   ▼
-┌────────────────┐  ┌────────────────┐
-│ SSE Events:    │  │ A2A Events:    │
-│ • content      │  │ • task/*       │
-│ • tool_start   │  │ • artifact     │
-│ • tool_end     │  │ • status       │
-│ • todo_update  │  │ • message      │
-│ • final_result │  │                │
-└───────┬────────┘  └───────┬────────┘
-        │                   │
-        └─────────┬─────────┘
-                  │
-                  ▼
+┌────────────────┐
+│ DynamicAgent   │
+│ Client         │
+└───────┬────────┘
+        │
+        ▼
+┌────────────────┐
+│ POST /api/     │
+│ dynamic-agents │
+│ /chat/stream   │
+└───────┬────────┘
+        │
+        ▼
+┌────────────────┐
+│ SSE Events:    │
+│ • content      │
+│ • tool_start   │
+│ • tool_end     │
+│ • todo_update  │
+│ • final_result │
+└───────┬────────┘
+        │
+        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          Unified Event Processing                            │
 │                                                                              │
 │  • Accumulate content into message                                          │
 │  • Track tool calls for UI display                                          │
-│  • Store events in Zustand (a2aEvents or sseEvents)                         │
+│  • Store events in Zustand                                                  │
 │  • Update message when final_result received                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1429,7 +1408,7 @@ The frontend TypeScript types are defined in `ui/src/components/dynamic-agents/s
 interface ChatStore {
   conversations: Conversation[];
   
-  // Dynamic Agent events (separate from A2A events)
+  // Dynamic Agent stream events
   addSSEEvent: (event: SSEAgentEvent, conversationId: string) => void;
   clearSSEEvents: (conversationId: string) => void;
   
@@ -1441,9 +1420,8 @@ interface Conversation {
   id: string;
   title: string;
   messages: ChatMessage[];
-  a2aEvents: A2AEvent[];      // Platform Engineer events
   sseEvents: SSEAgentEvent[]; // Dynamic Agent events
-  agent_id?: string;          // Dynamic Agent ID (if using one)
+  agent_id?: string;          // Dynamic Agent ID
 }
 ```
 
@@ -1792,7 +1770,7 @@ When no session is active (e.g., during startup), logs show `session=-`.
 
 Dynamic Agents provides a flexible, admin-configurable agent system that:
 
-1. **Separates from A2A**: Uses its own SSE streaming protocol, distinct from the Platform Engineer's A2A protocol
+1. **Streams through the UI/BFF**: Uses structured SSE events for chat, tool calls, todos, and subagent updates
 2. **Caches efficiently**: Per-session agent runtimes with config-aware invalidation
 3. **Integrates MCP tools**: Multi-server support with tool filtering and namespacing
 4. **Supports hierarchy**: Subagent delegation with cycle detection and visibility rules

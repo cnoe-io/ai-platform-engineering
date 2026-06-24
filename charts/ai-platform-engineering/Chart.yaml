@@ -2,170 +2,149 @@ apiVersion: v2
 # pyproject.toml version
 appVersion: 0.5.21-dev.1 # Do NOT modify. It will be updated automatically using the release workflow
 name: ai-platform-engineering
-description: Parent chart to deploy multiple agent subcharts as different platform agents
+description: Parent chart to deploy CAIPE — dynamic agents, per-agent MCP servers, RBAC, and the UI
 sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
 version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:
-  # AI Platform Engineer Multi-Agent
-  - name: supervisor-agent
-    # Chart version for agent subchart
+  # Single MCP-server chart used multiple times with different aliases.
+  # Each alias deploys one agent's MCP server (Deployment + Service).
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-  # Single agent chart used multiple times with different aliases
-  - name: agent
-    version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-argocd
+    alias: mcp-argocd
     tags:
-      - agent-argocd
+      - mcp-argocd
       - basic
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.argocd
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-aws
+    alias: mcp-aws
     tags:
-      - agent-aws
+      - mcp-aws
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.aws
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-backstage
+    alias: mcp-backstage
     tags:
-      - agent-backstage
+      - mcp-backstage
       - basic
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.backstage
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-confluence
+    alias: mcp-confluence
     tags:
-      - agent-confluence
+      - mcp-confluence
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.confluence
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-github
+    alias: mcp-github
     tags:
-      - agent-github
+      - mcp-github
       - basic
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.github
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-gitlab
+    alias: mcp-gitlab
     tags:
-      - agent-gitlab
+      - mcp-gitlab
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.gitlab
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-jira
+    alias: mcp-jira
     tags:
-      - agent-jira
+      - mcp-jira
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.jira
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-komodor
+    alias: mcp-komodor
     tags:
-      - agent-komodor
+      - mcp-komodor
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.komodor
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-pagerduty
+    alias: mcp-pagerduty
     tags:
-      - agent-pagerduty
+      - mcp-pagerduty
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.pagerduty
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-slack
+    alias: mcp-slack
     tags:
-      - agent-slack
+      - mcp-slack
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.slack
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-splunk
+    alias: mcp-splunk
     tags:
-      - agent-splunk
+      - mcp-splunk
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.splunk
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-victorops
+    alias: mcp-victorops
     tags:
-      - agent-victorops
+      - mcp-victorops
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.victorops
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-webex
+    alias: mcp-webex
     tags:
-      - agent-webex
+      - mcp-webex
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.webex
-  - name: agent
+  - name: mcp-server
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-netutils
+    alias: mcp-netutils
     tags:
-      - agent-netutils
+      - mcp-netutils
       - complete
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.netutils
-  - name: agent
-    version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-weather
-    tags:
-      - agent-weather
-      - complete
-    import-values:
-      - child: agentExports.data
-        parent: global.enabledSubAgents.weather
-  - name: agent
-    version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-petstore
-    tags:
-      - agent-petstore
-      - complete
-    import-values:
-      - child: agentExports.data
-        parent: global.enabledSubAgents.petstore
   - name: rag-stack
     version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     repository: file://../rag-stack # TODO: might be changed to be separate
     tags:
       - rag-stack
       - complete
-    import-values: # This is used to automatically render ENABLE_RAG variable for the supervisor configmap
+    import-values: # This is used to automatically render ENABLE_RAG variable for the dynamic agents configmap
       - child: agentExports.data
         parent: global.enabledSubAgents.rag
   # CAIPE UI
@@ -188,10 +167,6 @@ dependencies:
     version: 0.5.21-dev.1
     condition: caipe-ui.mongodb.enabled
     alias: mongodb
-  # Redis Stack for LangGraph checkpoint + store persistence
-  - name: langgraph-redis
-    version: 0.5.21-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    condition: global.langgraphRedis.enabled
   # Skill Scanner — standalone cisco-ai-defense/skill-scanner REST API.
   # Required for the UI's skill safety scan; off by default.
   - name: skill-scanner

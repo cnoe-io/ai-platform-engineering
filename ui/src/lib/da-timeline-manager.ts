@@ -2,8 +2,8 @@
  * Timeline Manager
  *
  * Manages the transformation of SSE events into an interleaved timeline.
- * Events are rendered in temporal order (like A2A), with subagents
- * having their own nested timelines.
+ * Events are rendered in temporal order, with subagents having their own
+ * nested timelines.
  *
  * Key features:
  * - Interleaved content/tools in stream order

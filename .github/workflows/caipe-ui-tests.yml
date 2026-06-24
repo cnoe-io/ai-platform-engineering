@@ -211,7 +211,7 @@ jobs:
 
             - ✅ auth-guard.test.tsx - Route protection & authorization
             - ✅ token-expiry-guard.test.tsx - Token expiry handling
-            - ✅ a2a-sdk-client.test.ts - A2A streaming SDK
+            - ✅ dynamic-agent-client.test.ts - Dynamic Agents streaming client
             - ✅ auth-utils.test.ts - Authentication utilities (100% coverage)
             - ✅ auth-config.test.ts - OIDC configuration
 
@@ -230,7 +230,7 @@ jobs:
             <summary>⚠️ Areas Needing Tests</summary>
 
             **High Priority:**
-            - hooks/use-a2a-streaming.ts - Core streaming functionality
+            - lib/streaming/* - Core stream event handling
             - store/chat-store.ts - Chat state management
             - store/agent-skills-store.ts - Agent skills
             - lib/api-client.ts - API communication

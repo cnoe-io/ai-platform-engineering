@@ -15,7 +15,6 @@ import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
-import { SupervisorSkillsStatusSection } from "@/components/admin/platform/SupervisorSkillsStatusSection";
 import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
 import { PermissionsToolTab } from "@/components/admin/PermissionsToolTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
@@ -1902,8 +1901,7 @@ function AdminPage() {
                   </Card>
                 )}
 
-                {/* Supervisor skills + Skill Hubs */}
-                <SupervisorSkillsStatusSection isAdmin={isAdmin} />
+                {/* Skill Hubs */}
                 <SkillHubsSection isAdmin={isAdmin} />
               </TabsContent>
 

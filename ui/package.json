@@ -22,8 +22,6 @@
     "test:e2e:rbac-live-full": "RUN_RBAC_E2E=1 playwright test e2e/rbac/openfga-live.spec.ts e2e/rbac/mcp-server-create-live.spec.ts e2e/rbac/resource-lifecycle-live.spec.ts e2e/rbac/credential-team-sharing.spec.ts --config=playwright.rbac.config.ts"
   },
   "dependencies": {
-    "@a2a-js/sdk": "0.3.13",
-    "@ag-ui/core": "0.0.51",
     "@aws-sdk/client-kms": "3.1051.0",
     "@codemirror/autocomplete": "6.20.1",
     "@codemirror/commands": "6.10.3",
@@ -46,8 +44,6 @@
     "@react-sigma/core": "5.0.6",
     "@tailwindcss/postcss": "4.2.2",
     "@tailwindcss/typography": "0.5.19",
-    "@tanstack/react-virtual": "3.13.23",
-    "@types/dompurify": "3.0.5",
     "@uiw/react-codemirror": "4.25.9",
     "@xyflow/react": "12.10.2",
     "class-variance-authority": "0.7.1",
@@ -85,7 +81,6 @@
     "tailwind-merge": "3.5.0",
     "tailwindcss-animate": "1.0.7",
     "uuid": "14.0.0",
-    "ws": "8.21.0",
     "yaml": "2.8.3",
     "zustand": "5.0.12"
   },

@@ -14,10 +14,8 @@ All workflows live in `.github/workflows/`. The table below is the quick referen
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci-supervisor-agent.yml` | PR / push to `main` | Lint, unit tests, and integration tests for the supervisor agent |
-| `ci-a2a-sub-agent.yml` | PR / push to `main` | Tests all A2A sub-agents |
-| `ci-a2a-rag.yml` | PR / push to `main` | Tests the RAG ingestor and query pipeline |
-| `ci-mcp-sub-agent.yml` | PR / push to `main` | Tests MCP server agents |
+| `ci-rag.yml` | PR / push to `main` | Tests the RAG ingestor and query pipeline |
+| `ci-mcp-sub-agent.yml` | PR / push to `main` | Tests packaged MCP servers |
 | `ci-dynamic-agents.yml` | PR / push to `main` | Tests the dynamic-agents Helm chart and operator |
 | `ci-caipe-ui.yml` | PR / push to `main` | Builds and lints the CAIPE web UI |
 | `caipe-ui-tests.yml` | PR / push to `main` | Jest unit tests and mocked RBAC Playwright regression for the UI |
@@ -25,6 +23,11 @@ All workflows live in `.github/workflows/`. The table below is the quick referen
 | `helm-chart-test.yml` | PR / push to `main` | Full Helm chart install test on a Kind cluster |
 | `ci-skill-scanner.yml` | PR / push to `main` | Security scan of `.claude/skills/` content |
 | `ci-slack-bot.yml` | PR / push to `main` | Tests the Slack Bot integration |
+| `ci-webex-bot.yml` | PR / push to `main` | Tests the Webex Bot integration |
+| `ci-agentgateway-config-bridge.yml` | PR / push to `main` | Tests the AgentGateway config bridge |
+| `ci-audit-service.yml` | PR / push to `main` | Tests the audit service |
+| `ci-openfga-authz-bridge.yml` | PR / push to `main` | Tests the OpenFGA authz bridge |
+| `ci-keycloak-init.yml` | PR / push to `main` | Tests Keycloak bootstrap tooling |
 
 ## Quality Gates
 

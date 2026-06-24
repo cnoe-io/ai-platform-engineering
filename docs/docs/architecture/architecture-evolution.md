@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # CAIPE Architecture Evolution
 
-This document tracks the architecture evolution roadmap for the Cisco AI Platform Engineering (CAIPE) system, from the current static distributed model through dynamic agent unification and persona-based profiles.
+This document tracks historical CAIPE architecture phases. The labels below describe the system state at the time each phase was planned; see [Solution Architecture](./index.md) for the current runtime architecture.
 
 ## Roadmap
 
@@ -15,7 +15,7 @@ gantt
     axisFormat %b %Y
 
     section Foundation
-    Static Distributed Agents (current)           :done,    sda,   2026-01, 2026-06
+    Static Distributed Agents (then-current)      :done,    sda,   2026-01, 2026-06
     Static Single Agent                            :active,  ssa,   2026-03, 2026-06
     Task Config                                    :active,  tc,    2026-03, 2026-06
 
@@ -35,9 +35,9 @@ gantt
 
 ## Phases
 
-### Phase 1: Current — Static Distributed Agents
+### Phase 1: Static Distributed Agents
 
-The baseline CAIPE architecture.
+The baseline architecture for this phase.
 
 - Remote distributed agents and MCP servers
 - Customized via Agent Registry and Helm config

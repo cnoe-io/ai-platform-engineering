@@ -101,10 +101,10 @@ def test_gateway_api_provider_token_policy_follows_declarative_flag() -> None:
     docs = _helm_template(
         "global.agentgateway.routingMode=gateway-api",
         "global.agentgateway.knowledgeBaseTarget.enabled=false",
-        "tags.agent-github=true",
+        "tags.mcp-github=true",
         "global.enabledSubAgents.github.enabled=true",
-        "agent-github.mcp.agentgateway.enabled=true",
-        "agent-github.mcp.agentgateway.providerTokenAuth=false",
+        "mcp-github.mcp.agentgateway.enabled=true",
+        "mcp-github.mcp.agentgateway.providerTokenAuth=false",
         "global.agentgateway.extraMcpTargets[0].id=custom-provider",
         "global.agentgateway.extraMcpTargets[0].host=custom-provider.default.svc.cluster.local",
         "global.agentgateway.extraMcpTargets[0].port=8080",

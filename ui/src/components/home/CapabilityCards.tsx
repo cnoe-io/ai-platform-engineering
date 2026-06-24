@@ -56,12 +56,12 @@ const capabilities = [
     borderColor: "hover:border-amber-500/30",
   },
   {
-    id: "task-builder",
-    title: "Task Builder",
+    id: "workflows",
+    title: "Workflows",
     description:
       "Create and manage self-service workflows that chain agent actions into repeatable multi-step tasks.",
     icon: Workflow,
-    href: "/task-builder",
+    href: "/workflows",
     color: "text-violet-400",
     bgColor: "bg-violet-500/10",
     borderColor: "hover:border-violet-500/30",

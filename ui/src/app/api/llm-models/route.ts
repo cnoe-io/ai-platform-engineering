@@ -103,9 +103,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     // Slug validation
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/.test(model_id)) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/.test(model_id)) {
       throw new ApiError(
-        "model_id must start with alphanumeric and contain only alphanumeric, dots, slashes, hyphens, underscores",
+        "model_id must start with alphanumeric and contain only alphanumeric, dots, slashes, hyphens, underscores, colons",
         400,
       );
     }

@@ -7,7 +7,7 @@ import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
 import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
 import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";

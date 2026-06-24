@@ -143,8 +143,8 @@ export const FGA_ENFORCEMENT_MANIFEST: Record<
   },
   task: {
     status: "role_gated",
-    surfaces: ["ui/src/app/api/task-configs/route.ts"],
-    notes: "Task templates Keycloak-gated; FGA enforcement tracked separately.",
+    surfaces: ["ui/src/app/api/workflow-configs/route.ts"],
+    notes: "Workflow configs map to the OpenFGA `task` namespace; Keycloak-gated today, FGA enforcement tracked separately.",
   },
   conversation: {
     status: "role_gated",

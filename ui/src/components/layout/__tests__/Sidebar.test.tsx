@@ -50,7 +50,6 @@ const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
-const mockLoadTurnsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn((_id: string) => false)
 const mockHasUnviewedMessages = jest.fn((_id: string) => false)
 const mockIsConversationInputRequired = jest.fn((_id: string) => false)
@@ -70,7 +69,6 @@ jest.mock('@/store/chat-store', () => {
       deleteConversation: mockDeleteConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,
       loadMessagesFromServer: mockLoadMessagesFromServer,
-      loadTurnsFromServer: mockLoadTurnsFromServer,
       isConversationStreaming: mockIsConversationStreaming,
       hasUnviewedMessages: mockHasUnviewedMessages,
       isConversationInputRequired: mockIsConversationInputRequired,
@@ -146,6 +144,12 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 
 jest.mock('@/components/chat/ShareButton', () => ({
   ShareButton: () => null,
+}))
+
+// NewChatButton is exercised by its own test suite; stub it here so the
+// Sidebar tests don't depend on its agent-avatar / dynamic-agent fetch tree.
+jest.mock('@/components/chat/NewChatButton', () => ({
+  NewChatButton: () => <button data-testid="new-chat-button">New Chat</button>,
 }))
 
 jest.mock('@/lib/api-client', () => ({

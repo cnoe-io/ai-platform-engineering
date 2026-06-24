@@ -7,7 +7,7 @@ buildLastReview,
 useAiReview,
 } from "@/components/ai-review";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

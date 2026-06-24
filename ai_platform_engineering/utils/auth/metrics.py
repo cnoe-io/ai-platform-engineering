@@ -17,14 +17,12 @@ with rate(...) in PromQL):
         `cache` bucket so operators can see how much cache is saving them.
 
 The metrics are best-effort. If `prometheus_client` is not installed (e.g.
-in a slim test env) every recorder becomes a no-op and the supervisor /
-DA still serve traffic.
+in a slim test env) every recorder becomes a no-op and the service still
+serves traffic.
 
-Why this lives in `utils/auth/` rather than `utils/metrics/`:
-the existing `utils/metrics/agent_metrics.py` uses a singleton owned by
-the supervisor's main app. RBAC metrics need to be importable from
-*any* process (DA, supervisor, future MCP middleware) without dragging
-in the supervisor's request-pipeline metrics, so they live alongside
+Why this lives in `utils/auth/`: RBAC metrics need to be importable from
+*any* process (the dynamic-agents service, future MCP middleware) without
+dragging in a request-pipeline metrics singleton, so they live alongside
 the PDP code itself.
 """
 

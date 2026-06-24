@@ -91,13 +91,16 @@ Docker CI workflows detect `-chart.M` and skip image builds entirely and publish
 
 The main image workflows are tag-driven:
 
-- `ci-supervisor-agent.yml`
 - `ci-dynamic-agents.yml`
-- `ci-a2a-sub-agent.yml`
 - `ci-mcp-sub-agent.yml`
-- `ci-a2a-rag.yml`
+- `ci-rag.yml`
 - `ci-caipe-ui.yml`
+- `ci-audit-service.yml`
+- `ci-skill-scanner.yml`
 - `ci-slack-bot.yml`
+- `ci-webex-bot.yml`
+- `ci-keycloak-init.yml`
+- `ci-openfga-authz-bridge.yml`
 
 Each workflow resolves the tag through `.github/actions/determine-release-tag/action.yml`.
 

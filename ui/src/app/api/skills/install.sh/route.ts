@@ -1017,7 +1017,7 @@ PART_RE = re.compile(r"[^A-Za-z0-9._-]")
 RESERVED = {command_name, update_command_name, "skills", "update-skills"}
 
 def is_flagged(skill):
-    """Mirror of the supervisor-side scan_gate: a skill the security
+    """Mirror of the runtime scan_gate: a skill the security
     scanner has marked unsafe MUST NOT be materialized to disk, since
     the agent's native discovery would pick it up regardless of UI
     state."""

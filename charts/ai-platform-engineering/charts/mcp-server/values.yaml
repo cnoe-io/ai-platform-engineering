@@ -1,0 +1,174 @@
+# Default values for the mcp-server subchart.
+# Deploys one agent's MCP server (Deployment + Service). Instantiated once per
+# MCP server via aliases (mcp-argocd, mcp-jira, ...) from the parent Chart.yaml.
+agentExports:
+  data:
+    enabled: true
+
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+# Image settings shared by the MCP container. The MCP image itself is set under
+# `mcp.image`; `pullPolicy` here is the default pull policy and `repository` is
+# used by the image-repository channel helper.
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: ""
+
+# Secrets for pulling images from a private registry.
+imagePullSecrets: []
+
+# Service account for the MCP server pod.
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Annotations/labels applied to the MCP pod.
+podAnnotations: {}
+podLabels: {}
+
+# Security contexts satisfy the Kubernetes Pod Security Standards Baseline profile
+# (enforced) and meet Restricted profile requirements except readOnlyRootFilesystem,
+# left false because MCP servers may write to /tmp at runtime.
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
+
+# Replicas for the MCP Deployment (ignored when autoscaling.enabled).
+replicaCount: 1
+
+# Number of old ReplicaSets to retain for rollback.
+revisionHistoryLimit: 3
+
+# HorizontalPodAutoscaler for the MCP Deployment.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Vertical Pod Autoscaler for the MCP Deployment — applies resource recommendations
+# automatically (updateMode: "InPlaceOrRecreate"). Requires VPA installed in the
+# cluster. Do not enable alongside autoscaling.enabled (VPA conflicts with HPA).
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}
+  #   cpu: 2
+  #   memory: 2Gi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Secrets configuration for LLM providers.
+# When used as a subchart, parent global values can override these.
+llmSecrets:
+  create: false # if false, it'll assume that the secret already exists
+  secretName: "llm-secret"
+  data: {}
+  externalSecrets:
+    enabled: false
+    secretStoreRef:
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    data: []
+
+# Secrets configuration for agent-specific secrets (API keys, etc.).
+agentSecrets:
+  requiresSecret: true # if false, no agent secret is required e.g. api keys
+  create: false # if false, it'll assume that the secret already exists
+  secretName: "" # defaults to agent.name-secret if empty
+  data: {}
+  externalSecrets:
+    enabled: false
+    name: "" # defaults to agent.name-secret if empty
+    secretStoreRef: # this can be overriden by global.externalSecrets.secretStoreRef
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    target: {}
+    data: []
+
+# MCP (Model Context Protocol) server configuration.
+# An in-cluster MCP HTTP Deployment + Service is created when mode is "http" and
+# useRemoteMcpServer is not set. stdio mode / useRemoteMcpServer create no deploy.
+mcp:
+  mode: "http"
+  # MCP container image configuration
+  image:
+    repository:
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # MCP service configuration
+  service:
+    # Service type (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    # Service port (defaults to 8000)
+    port: 8000
+    # NodePort when service.type is NodePort
+    # nodePort: 30080
+
+  # Resource limits and requests for MCP container
+  resources: {}
+    # limits:
+    #   cpu: 500m
+    #   memory: 512Mi
+    # requests:
+    #   cpu: 250m
+    #   memory: 256Mi
+
+  # Health check probes for MCP container
+  startupProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+  livenessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Volume mounts for MCP container
+  volumeMounts: []
+
+  # Volumes for MCP container
+  volumes: []

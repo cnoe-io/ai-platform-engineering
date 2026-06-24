@@ -24,12 +24,26 @@ CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
 deriveConversationOwnerIdentityPlan,
 } from "./conversation-owner-identity";
 import {
+  applyLegacyRuntimeCleanupMigration,
+  deriveLegacyRuntimeCleanupPlan,
+  DEPRECATED_CONVERSATION_FIELDS_FILTER,
+  A2A_EVENTS_FILTER,
+  LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
+  LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
+} from "./legacy-runtime-cleanup";
+import {
   applyTeamToolWildcardSlashMigration,
   planTeamToolWildcardSlashMigration,
   TEAM_TOOL_WILDCARD_SLASH_CONFIRMATION,
   TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
 } from "./team-tool-wildcard-slash";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
+export {
+  getUnclassifiedSchemaAreas,
+  SCHEMA_AREA_CLASSIFICATIONS,
+  type SchemaAreaClassification,
+  type SchemaAreaClassificationEntry,
+} from "./schema-area-classifications";
 import type {
 MigrationApplyAllItemResult,
 MigrationApplyAllResult,
@@ -43,13 +57,6 @@ MigrationSchemaVersionStatus,
 SchemaVersionBootstrapApplyResult,
 SchemaVersionBootstrapPlanResult,
 } from "./types";
-export {
-getUnclassifiedSchemaAreas,
-SCHEMA_AREA_CLASSIFICATIONS,
-type SchemaAreaClassification,
-type SchemaAreaClassificationEntry
-} from "./schema-area-classifications";
-
 export const RELEASE_051 = "0.5.1";
 // 0.5.8 manifest — the unified shareable-resource RBAC backfills
 // (spec 2026-06-03). The migration framework tracks completed runs and the
@@ -57,10 +64,14 @@ export const RELEASE_051 = "0.5.1";
 // `ACTIVE_RELEASES` (the runs query, override scope, and runtime label all
 // span every active release).
 export const RELEASE_058 = "0.5.8";
+// 0.6.0 manifest — runtime storage cleanup. The
+// `legacy_runtime_cleanup_v1` migration keeps only checkpoint collections and
+// message metadata used by the current Dynamic Agents runtime.
+export const RELEASE_060 = "0.6.0";
 // All release manifests the runtime surfaces. The newest is the reported
 // `migration_release`; the runs query spans every entry so completed-state is
 // tracked across releases. Keep newest-last so `latestRelease()` is the tail.
-export const ACTIVE_RELEASES = [RELEASE_051, RELEASE_058] as const;
+export const ACTIVE_RELEASES = [RELEASE_051, RELEASE_058, RELEASE_060] as const;
 
 function latestRelease(): string {
   return ACTIVE_RELEASES[ACTIVE_RELEASES.length - 1];
@@ -219,7 +230,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Organization membership backfill",
     description:
-      "Grant existing linked users organization membership so baseline supervisor, RAG, and chat access survive the OpenFGA cutover.",
+      "Grant existing linked users organization membership so baseline RAG and chat access survive the OpenFGA cutover.",
     confirmation: "MIGRATE organization_membership TO v2",
     required: true,
     implemented: true,
@@ -504,6 +515,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     implemented: true,
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  {
+    id: LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "legacy_runtime_cleanup",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Legacy runtime storage cleanup",
+    description:
+      "Drop checkpoint collections not used by Dynamic Agents and strip message metadata fields that the current runtime does not read. Conversation/message stat data is preserved.",
+    confirmation: LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
+    required: false,
+    implemented: true,
+  },
 ];
 
 interface SchemaVersionDoc {
@@ -2097,6 +2122,34 @@ async function loadConversationMigrationInputs() {
   return { conversations, conversationDocs, userDocs };
 }
 
+/** Plan-time inputs for the 0.6.0 legacy-runtime cleanup: live collection
+ *  names plus counts of documents still carrying the dead fields. */
+async function loadLegacyRuntimeCleanupInputs() {
+  const conversations = await getCollection("conversations");
+  const messages = await getCollection("messages");
+  const [collectionNames, conversationsWithDeprecatedFields, messagesWithA2aEvents] =
+    await Promise.all([
+      listMongoCollectionNames(),
+      conversations.countDocuments(DEPRECATED_CONVERSATION_FIELDS_FILTER),
+      messages.countDocuments(A2A_EVENTS_FILTER),
+    ]);
+  return { collectionNames, conversationsWithDeprecatedFields, messagesWithA2aEvents };
+}
+
+/** Apply-time collection adapter for the 0.6.0 legacy-runtime cleanup. Wraps
+ *  the raw mongodb driver so the migration module stays driver-agnostic. */
+async function buildLegacyRuntimeCleanupCollections() {
+  const { db } = await connectToDatabase();
+  const conversations = await getCollection("conversations");
+  const messages = await getCollection("messages");
+  return {
+    conversations,
+    messages,
+    listCollectionNames: () => listMongoCollectionNames(),
+    dropCollection: (name: string) => db.dropCollection(name).catch(() => false),
+  };
+}
+
 async function loadUniversalMigrationInputs() {
   const [teams, users, dynamicAgents, platformConfig] = await Promise.all([
     getCollection("teams"),
@@ -2779,6 +2832,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
       now,
     });
   }
+  if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
+    return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
+  }
   if (migrationId === UNIVERSAL_REBAC_MIGRATION_ID) {
     const { teamDocs, userDocs, agentDocs, configDoc } = await loadUniversalMigrationInputs();
     return deriveUniversalRebacPlan({
@@ -3113,6 +3169,17 @@ export async function applyMigration(input: {
 
   if (input.migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
     return applyKeycloakRbacReconciliationMigration({ actor: input.actor, now });
+  }
+
+  if (input.migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
+    const collections = await buildLegacyRuntimeCleanupCollections();
+    const result = await applyLegacyRuntimeCleanupMigration({
+      actor: input.actor,
+      now,
+      collections,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
   }
 
   if (input.migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {

@@ -47,7 +47,7 @@ function humanReadableAction(resource: RbacResource, scope: string): string {
     "rag#kb.ingest": "ingest data",
     "rag#query": "query knowledge bases",
     "ai_assist#invoke": "use AI assist",
-    "chat_supervisor#invoke": "use the assistant",
+    "chat#invoke": "use the assistant",
     "credential_vault#use": "use credential services",
     "feedback#submit": "submit feedback",
     "self_profile#read": "read your profile",
@@ -61,7 +61,6 @@ function humanReadableAction(resource: RbacResource, scope: string): string {
     "tool#invoke": "invoke tools",
     "mcp#invoke": "invoke MCP tools",
     "skill#invoke": "execute skills",
-    "a2a#create": "create agent tasks",
   };
 
   return labels[`${resource}#${scope}`] || `access ${resource} (${scope})`;

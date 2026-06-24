@@ -265,13 +265,12 @@ interface RouteRbacPolicy {
 // `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
 // helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
 // capability mappings here while older routes are migrated off the wrapper.
-// Unknown routes fail toward admin UI capabilities instead of the old generic
-// supervisor umbrella so audit rows stay explicit.
+// Unknown routes fail toward admin UI capabilities so audit rows stay explicit.
 //
 // See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
 // for the migration plan that replaces this resolver with a per-route
 // capability map and adds dedicated OpenFGA relations
-// (`self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc.).
+// (`self_profile#read`, `chat#invoke`, `feedback#submit`, etc.).
 // New routes should call the appropriate `require*Permission` helper
 // directly rather than relying on this legacy gate.
 function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
@@ -319,11 +318,10 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   }
   if (
     pathname.startsWith('/api/chat') ||
-    pathname.startsWith('/api/a2a') ||
     pathname === '/api/dynamic-agents/models' ||
     pathname === '/api/dynamic-agents/available'
   ) {
-    return { resource: 'chat_supervisor', scope: 'invoke' };
+    return { resource: 'chat', scope: 'invoke' };
   }
   if (pathname.startsWith('/api/files')) {
     return method === 'GET'
@@ -337,11 +335,6 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
     return { resource: 'credential_vault', scope: 'use' };
   }
 
-  if (pathname.startsWith('/api/task-configs')) {
-    return method === 'GET'
-      ? { resource: 'dynamic_agent', scope: 'view' }
-      : { resource: 'dynamic_agent', scope: 'manage' };
-  }
   if (pathname.startsWith('/api/workflow-configs')) {
     // Workflow CRUD is gated in route handlers (owner / task#write). The legacy
     // gate only requires workflow discovery access so non-admin users can create
@@ -432,7 +425,7 @@ export async function getAuthFromBearerOrSession(
   const authHeader = request.headers.get('Authorization');
   const catalogKey = request.headers.get('X-Caipe-Catalog-Key');
 
-  // Path 0: Catalog API key (supervisor-minted, read-only skills access)
+  // Path 0: Catalog API key (BFF-minted, read-only skills access)
   if (catalogKey) {
     return {
       user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
@@ -589,7 +582,7 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'user_directory') {
     return 'can_search_directory';
   }
-  if (resource === 'chat_supervisor') {
+  if (resource === 'chat') {
     return 'can_chat';
   }
   if (resource === 'feedback') {

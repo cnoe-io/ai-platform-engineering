@@ -279,7 +279,7 @@ describe("admin platform-config route", () => {
     }
   });
 
-  it("revokes the previous all-users default-agent grant when falling back to the supervisor", async () => {
+  it("revokes the previous all-users default-agent grant when clearing the default", async () => {
     const collection = {
       findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", default_agent_id: "agent-old" }),
       updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
