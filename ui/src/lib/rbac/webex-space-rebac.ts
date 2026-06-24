@@ -38,6 +38,33 @@ export function webexSpaceGrantRelationship(
   };
 }
 
+// Team→space visibility tuples. Without these, the space exists in Mongo but
+// no one can `can_read` it in OpenFGA, so the admin /api/admin/webex/spaces
+// listing endpoint silently filters it out. Mirrors
+// slackChannelTeamVisibilityRelationships for parity with the Slack surface.
+export function webexSpaceTeamVisibilityRelationships(
+  workspaceId: string,
+  spaceId: string,
+  teamSlug: string
+): UniversalRebacRelationship[] {
+  const spaceResource: UniversalRebacResourceRef = {
+    type: "webex_space",
+    id: webexSpaceSubjectId(workspaceId, spaceId),
+  };
+  return [
+    {
+      subject: { type: "team", id: teamSlug, relation: "admin" },
+      action: "manage",
+      resource: spaceResource,
+    },
+    {
+      subject: { type: "team", id: teamSlug, relation: "member" },
+      action: "use",
+      resource: spaceResource,
+    },
+  ];
+}
+
 export async function checkWebexSpaceAccess(input: {
   workspace_id: string;
   space_id: string;
