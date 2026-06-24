@@ -198,12 +198,18 @@ global:
             # caipe-ui.externalSecrets) so the BFF and bridge share the token.
             name: ""
             key: AGENTGATEWAY_TARGETS_TOKEN
-          # ESO support: when data is set, an ExternalSecret is created that
-          # populates <release>-agentgateway-config-bridge-token from an
-          # external store (Vault, AWS SM, etc.). The auto-generated token
-          # Secret is suppressed when this is configured. Requires
-          # global.externalSecrets.enabled: true.
+          # ESO support: set enabled: true to have the External Secrets Operator
+          # populate <release>-agentgateway-config-bridge-token from an external
+          # store (Vault, AWS SM, etc.). When enabled, the auto-generated token
+          # Secret is suppressed so ESO owns it. Independent of
+          # global.externalSecrets.enabled — can be used standalone.
           externalSecret:
+            enabled: false
+            # apiVersion: v1beta1        # defaults to global.externalSecrets.apiVersion
+            # refreshInterval: "1h"
+            # secretStoreRef:            # defaults to global.externalSecrets.secretStoreRef
+            #   name: vault
+            #   kind: ClusterSecretStore
             data: []
             # - secretKey: AGENTGATEWAY_TARGETS_TOKEN
             #   remoteRef:
