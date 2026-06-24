@@ -1,4 +1,4 @@
-// Tome "Talk page" — the project's conversation, backed by a Mycelium room.
+// Tome "Talk page": the project's conversation, backed by a Mycelium room.
 //
 //   GET  /api/tome/projects/[slug]/talk        → { messages, total }
 //   POST /api/tome/projects/[slug]/talk { message } → { message }
@@ -91,6 +91,15 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   }
 
   const sender = tctx.user.email || "unknown";
-  const message = await sendMessage(slug, { sender_handle: sender, content: body.message.trim() });
+  // Distinguish who actually posted: the web UI authenticates with a session
+  // cookie, while the MCP (tome_talk_send) forwards an `Authorization: Bearer`
+  // token. A Bearer here means the message came from an agent acting as the
+  // user, not the user typing in the UI. Encode it in `message_type`.
+  const viaBearer = (request.headers.get("Authorization") || "").startsWith("Bearer ");
+  const message = await sendMessage(slug, {
+    sender_handle: sender,
+    content: body.message.trim(),
+    message_type: viaBearer ? "agent" : "broadcast",
+  });
   return successResponse({ message }, 201);
 });

@@ -305,11 +305,15 @@ export function TalkPanel({ slug }: { slug: string }) {
           ) : (
             messages.map((m, i) => {
               const prev = i > 0 ? messages[i - 1] : null;
+              // Posted via the MCP (agent acting as the user) vs typed in the UI.
+              const isAgent = m.message_type === "agent";
               // Discord-style grouping: consecutive messages from the same
-              // sender within 5 minutes share one header.
+              // sender within 5 minutes share one header. Break the group when
+              // the source flips (human vs agent) so the badge stays accurate.
               const grouped =
                 prev !== null &&
                 prev.sender_handle === m.sender_handle &&
+                (prev.message_type === "agent") === isAgent &&
                 Date.parse(m.created_at) - Date.parse(prev.created_at) < 5 * 60 * 1000;
               return (
                 <div
@@ -319,14 +323,28 @@ export function TalkPanel({ slug }: { slug: string }) {
                   {!grouped && (
                     <>
                       {/* Avatar sits in the left gutter, out of flow, so grouped
-                          messages align cleanly under the first one. */}
-                      <div className="gradient-primary-br absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white">
+                          messages align cleanly under the first one. Agents get
+                          a distinct violet tint. */}
+                      <div
+                        className={cn(
+                          "absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white",
+                          isAgent
+                            ? "bg-gradient-to-br from-violet-500 to-indigo-600"
+                            : "gradient-primary-br",
+                        )}
+                      >
                         {initialsOf(m.display_name || m.sender_handle)}
                       </div>
                       <div className="mb-0.5 flex items-baseline gap-2">
                         <span className="text-sm font-medium text-foreground">
                           {m.display_name || displayName(m.sender_handle)}
                         </span>
+                        {isAgent && (
+                          <span className="inline-flex items-center gap-0.5 rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-px text-[10px] font-medium text-violet-500">
+                            <Bot className="h-3 w-3" />
+                            agent
+                          </span>
+                        )}
                         <span className="text-[11px] text-muted-foreground">
                           {timeLabel(m.created_at)}
                         </span>
