@@ -138,13 +138,18 @@ spec:
               value: {{ index .Values.config "AGENTGATEWAY_ADMIN_CONFIG_URL" | default (printf "http://%s-agentgateway:15000/config" .Release.Name) | quote }}
             - name: AGENTGATEWAY_TARGETS_URL
               value: {{ index .Values.config "AGENTGATEWAY_TARGETS_URL" | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+            {{- $cb := (($agwGlobal.static).configBridge) | default dict }}
+            {{- if and $agwGlobal.enabled $cb.enabled }}
             {{- /*
             Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets can
             authenticate config-bridge poll requests. Use the operator-provided Secret when
             supplied; otherwise reference the auto-generated Secret created by the parent chart
             (charts/ai-platform-engineering/templates/agentgateway-config-bridge-secret.yaml).
+            Guarded by agentgateway+configBridge enabled so the secretKeyRef is not rendered
+            when the Secret would not exist, avoiding CreateContainerConfigError.
             */ -}}
-            {{- $cbBffSecret := ((((.Values.global.agentgateway).static).configBridge).bff).existingSecret | default dict }}
+            {{- $cbBffSecret := ($cb.bff).existingSecret | default dict }}
             {{- $cbTokenSecretName := $cbBffSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
             {{- $cbTokenSecretKey := $cbBffSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
@@ -152,6 +157,7 @@ spec:
                 secretKeyRef:
                   name: {{ $cbTokenSecretName | quote }}
                   key: {{ $cbTokenSecretKey | quote }}
+            {{- end }}
             - name: OPENFGA_AUTHZ_BRIDGE_HOST
               value: {{ index .Values.config "OPENFGA_AUTHZ_BRIDGE_HOST" | default (printf "%s-openfga-authz-bridge" .Release.Name) | quote }}
             - name: ETCD_HOST
