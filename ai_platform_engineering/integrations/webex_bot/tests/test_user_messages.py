@@ -40,7 +40,7 @@ def test_space_resolver_uses_plain_language_for_incomplete_team(
         lambda _space_id: {"_id": "team-1", "name": "Platform Eng"},
     )
 
-    result = asyncio.run(resolver.resolve("space12345", "kc-user-1"))
+    result = asyncio.run(resolver.resolve("space12345"))
 
     assert result.team_slug is None
     assert result.deny_message == user_messages.TEAM_SETUP_INCOMPLETE_MESSAGE.format(
