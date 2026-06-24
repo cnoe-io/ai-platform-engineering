@@ -150,6 +150,9 @@ spec:
                 secretKeyRef:
                   name: {{ $cb.bff.existingSecret.name | quote }}
                   key: {{ ($cb.bff.existingSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN") | quote }}
+            {{- else }}
+            - name: AGENTGATEWAY_TARGETS_TOKEN
+              value: "agentgateway-config-bridge-dev-token"
             {{- end }}
             {{- with $cb.extraEnv }}
             {{- toYaml . | nindent 12 }}
