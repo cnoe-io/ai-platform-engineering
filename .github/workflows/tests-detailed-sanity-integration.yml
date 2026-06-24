@@ -31,16 +31,17 @@ jobs:
         id: image-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           # Explicit override wins
-          if [ -n "${{ inputs.image_tag }}" ]; then
-            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
-            echo "Using explicit override: ${{ inputs.image_tag }}"
+          if [ -n "$IMAGE_TAG" ]; then
+            echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+            echo "Using explicit override: $IMAGE_TAG"
             exit 0
           fi
 
           # No tag: use the latest non-RC (final) release (e.g. 0.2.43)
-          TAG=$(gh api /repos/${{ github.repository }}/releases/latest \
+          TAG=$(gh api "/repos/${{ github.repository }}/releases/latest" \
             --jq '.tag_name' 2>/dev/null || true)
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             echo "::warning::No final release found, falling back to 'main'"

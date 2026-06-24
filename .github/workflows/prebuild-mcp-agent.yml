@@ -32,8 +32,7 @@ on:
         type: string
         default: ''
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -175,10 +174,11 @@ jobs:
       - name: Compute prebuild tag
         id: compute_tag
         shell: bash
+        env:
+          BRANCH: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BRANCH="${{ inputs.head_ref || github.head_ref }}"
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"

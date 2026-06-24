@@ -39,8 +39,9 @@ jobs:
 
       - name: Determine version
         id: versions
+        env:
+          NEW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: |
-          NEW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
           NEW_VERSION="${NEW_VERSION#v}"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $NEW_VERSION"

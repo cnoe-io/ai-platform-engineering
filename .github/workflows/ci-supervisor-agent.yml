@@ -27,7 +27,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -248,8 +247,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REGISTRY_USER: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -361,6 +361,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           # Determine overall conclusion
           BUILD_RESULT="${{ needs.build-and-push.result }}"
@@ -383,7 +384,7 @@ jobs:
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$WORKFLOW_NAME",
               "conclusion": "$CONCLUSION"
             }
           }

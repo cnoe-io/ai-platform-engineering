@@ -39,8 +39,9 @@ jobs:
 
       - name: Determine versions and dates
         id: meta
+        env:
+          NEW_VERSION: ${{ github.event.inputs.version }}
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
           NEW_VERSION="${NEW_VERSION#v}"
 
           PREV_VERSION=$(git tag --sort=-version:refname \
