@@ -49,7 +49,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       const pkg = byPackageId.get(inst.packageId);
       if (!pkg) continue;
 
-      const accessResult = evaluateAppAccess({ user: userCtx, session, pkg, installation: inst });
+      const accessResult = evaluateAppAccess({ user, session, pkg, installation: inst });
       items.push(
         buildPublicAgenticAppDetailPayload({
           pkg,
