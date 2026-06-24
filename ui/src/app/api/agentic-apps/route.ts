@@ -30,7 +30,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const { user, session } = await getAuthFromBearerOrSession(request);
   const userCtx = buildEffectiveAppsUserContext(
-    { email: user.email ?? "anonymous", name: user.email ?? "anonymous", role: "user" },
+    { email: user.email ?? "anonymous", role: "user" },
     session,
   );
 
