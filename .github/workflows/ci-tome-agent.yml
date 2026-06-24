@@ -1,5 +1,4 @@
 name: "[CI] Tome Agent Build and Push"
-description: "Build, smoke-test, and publish the tome-agent image (Python/uv, linux/amd64)"
 
 on:
   push:
