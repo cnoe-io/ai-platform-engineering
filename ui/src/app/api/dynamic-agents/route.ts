@@ -550,6 +550,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       features: body.features as DynamicAgentConfig["features"],
       interrupt_on: body.interrupt_on as DynamicAgentConfig["interrupt_on"],
       enabled: (body.enabled as boolean) ?? true,
+      // Carry the AI Review verdict from the create payload so a blocking
+      // review run during agent creation surfaces a grade in the list view.
+      ...(body.last_review !== undefined
+        ? { last_review: body.last_review as DynamicAgentConfig["last_review"] }
+        : {}),
       // Server-controlled fields — never from request body
       owner_id: user.email,
       owner_subject: ownerSubject,
