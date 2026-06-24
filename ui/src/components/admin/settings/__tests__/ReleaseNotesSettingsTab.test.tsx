@@ -45,22 +45,44 @@ function mockFetch({
     const href = String(url);
     if (href.includes('/api/settings/preferences') && init?.method === 'PATCH') {
       return Promise.resolve({
+        ok: true,
         json: () => Promise.resolve(preferencesPatch),
       } as Response);
     }
     if (href.includes('/api/settings')) {
       return Promise.resolve({
+        ok: true,
         json: () => Promise.resolve(settings),
       } as Response);
     }
     if (href.includes('/api/admin/platform-config') && init?.method === 'PATCH') {
       return Promise.resolve({
+        ok: true,
         json: () => Promise.resolve(patch),
       } as Response);
     }
     if (href.includes('/api/admin/platform-config')) {
       return Promise.resolve({
+        ok: true,
         json: () => Promise.resolve(config),
+      } as Response);
+    }
+    if (href.includes('/api/version')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ version: '0.5.1', packageVersion: '0.5.1' }),
+      } as Response);
+    }
+    if (href.includes('/api/changelog')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ releases: [] }),
+      } as Response);
+    }
+    if (href.includes('/api/release-notes')) {
+      return Promise.resolve({
+        ok: false,
+        json: () => Promise.resolve({}),
       } as Response);
     }
     return Promise.reject(new Error(`Unexpected fetch: ${href}`));
@@ -114,29 +136,33 @@ describe('ReleaseNotesSettingsTab', () => {
     );
   });
 
+  it('lets every user re-open the release notes popup on demand', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Show release notes popup/i }));
+
+    expect(await screen.findByText("What's new in 0.5.1")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open Migration Assistant' })).not.toBeInTheDocument();
+  });
+
   // ── Admin-only platform configuration ─────────────────────────────────────
-  it('does NOT render the admin platform configuration for non-admins', async () => {
+  it('does NOT render the admin section for non-admins', async () => {
     render(<ReleaseNotesSettingsTab isAdmin={false} />);
 
     await screen.findByTestId('release-notes-user-pref-toggle');
-    expect(screen.queryByText('Release notes configuration')).not.toBeInTheDocument();
+    expect(screen.queryByText('Admin')).not.toBeInTheDocument();
     expect(
       screen.queryByLabelText('Enable release notes notification'),
     ).not.toBeInTheDocument();
   });
 
-  it('renders admin platform configuration controls for admins', async () => {
+  it('renders the admin platform toggle under an Admin header for admins', async () => {
     render(<ReleaseNotesSettingsTab isAdmin />);
 
-    expect(await screen.findByText('Release notes configuration')).toBeInTheDocument();
-    expect(screen.getByLabelText('Enable release notes notification')).toBeChecked();
-    expect(screen.getByRole('button', { name: 'Show preview' })).toBeInTheDocument();
-    // Removed controls: version/revision/toast/CTA/next-login are gone.
-    expect(screen.queryByLabelText('Active release version')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Show toast reminder')).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Show this on next login for every user' }),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByText('Admin')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Enable release notes notification')).toBeChecked();
+    // No separate configuration card any more — admin lives in the same card.
+    expect(screen.queryByText('Release notes configuration')).not.toBeInTheDocument();
   });
 
   it('saves only the enabled flag without changing the default agent', async () => {
@@ -160,14 +186,5 @@ describe('ReleaseNotesSettingsTab', () => {
       release_notes: { enabled: false },
     });
     expect(JSON.parse(patchCall[1].body)).not.toHaveProperty('default_agent_id');
-  });
-
-  it('opens a release notes preview without saving dismissal state', async () => {
-    render(<ReleaseNotesSettingsTab isAdmin />);
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Show preview' }));
-
-    expect(screen.getByText("What's new in current release")).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Open Migration Assistant' })).not.toBeInTheDocument();
   });
 });

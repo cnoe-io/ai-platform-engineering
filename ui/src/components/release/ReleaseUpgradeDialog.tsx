@@ -1,9 +1,10 @@
 "use client";
 
-import { CheckCircle2,Clock3,Sparkles } from "lucide-react";
+import { AlertCircle,CheckCircle2,Clock3,Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import {
 Dialog,
@@ -26,63 +27,7 @@ interface ReleaseUpgradeDialogProps {
   isDismissing?: boolean;
 }
 
-const RELEASE_051_FALLBACK_SECTIONS: ReleaseNote["sections"] = [
-  {
-    type: "Highlights",
-    items: [
-      {
-        text: "Use the same agents and knowledge from the web UI, Slack, and Webex with more consistent permissions.",
-        scope: null,
-      },
-      {
-        text: "Get clearer next steps when a Slack channel or Webex space needs to be connected to your team.",
-        scope: null,
-      },
-      {
-        text: "Stay signed in through longer CAIPE sessions during normal work and validation.",
-        scope: null,
-      },
-    ],
-  },
-  {
-    type: "Admin and Operator Notes",
-    items: [
-      {
-        text: "ReBAC admin diagnostics now show migration health, graph views, tuple checks, and access decisions.",
-        scope: "admin",
-      },
-      {
-        text: "Keycloak reconciliation, token exchange, bot client secrets, and the CAIPE login theme are now chart-managed.",
-        scope: "admin",
-      },
-      {
-        text: "RBAC matrix, Playwright, and CI checks were expanded across Keycloak init, OpenFGA bridge, Webex bot, and docs validation.",
-        scope: "admin",
-      },
-    ],
-  },
-];
-
 const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
-
-function fallbackSections(releaseVersion: string): ReleaseNote["sections"] {
-  const normalizedReleaseVersion = releaseVersion.trim().replace(/^v/, "").toLowerCase();
-  if (normalizedReleaseVersion === "0.5.1" || normalizedReleaseVersion === "dev") {
-    return RELEASE_051_FALLBACK_SECTIONS;
-  }
-
-  return [
-    {
-      type: "Highlights",
-      items: [
-        {
-          text: `Review the ${releaseVersion} release notes for new CAIPE platform capabilities.`,
-          scope: null,
-        },
-      ],
-    },
-  ];
-}
 
 function userVisibleSections(sections: ReleaseNote["sections"], isAdmin: boolean): ReleaseNote["sections"] {
   if (isAdmin) return sections;
@@ -205,9 +150,11 @@ export function ReleaseUpgradeDialog({
   const markdownBody = releaseMarkdown?.body
     ? userVisibleMarkdownBody(releaseMarkdown.body, isAdmin)
     : null;
-  const sourceSections = release?.sections?.length ? release.sections : fallbackSections(releaseVersion);
-  const sections = userVisibleSections(sourceSections, isAdmin);
-  const visibleSections = sections.length > 0 ? sections : fallbackSections(releaseVersion);
+  const visibleSections = userVisibleSections(release?.sections ?? [], isAdmin);
+  // We only have real notes when there's a curated markdown body or at least one
+  // changelog-derived section to show. Otherwise the dialog renders an error.
+  const hasNotes = Boolean(markdownBody) || visibleSections.length > 0;
+  const appName = getConfig("appName");
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) return;
     if (isAdmin) {
@@ -226,7 +173,7 @@ export function ReleaseUpgradeDialog({
           </div>
           <DialogTitle>What&apos;s new in {releaseVersion}</DialogTitle>
           <DialogDescription>
-            This deployment includes CAIPE updates from the active release. Review the notes when you are ready.
+            This deployment includes {appName} updates from the active release. Review the notes when you are ready.
           </DialogDescription>
         </DialogHeader>
 
@@ -234,6 +181,14 @@ export function ReleaseUpgradeDialog({
           {markdownBody ? (
             <div className="min-w-0">
               <ReleaseNotesMarkdown body={markdownBody} />
+            </div>
+          ) : !hasNotes ? (
+            <div className="flex items-start gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <span className="min-w-0">
+                Couldn&apos;t load the release notes for {releaseVersion}. View the full
+                changelog below for the latest updates.
+              </span>
             </div>
           ) : (
             <div className="space-y-4">

@@ -222,7 +222,7 @@ describe("ReleaseUpgradeDialog", () => {
     expect(screen.queryByText(/Run the migration runbook/)).not.toBeInTheDocument();
   });
 
-  it("uses user-centric 0.5.1 highlights when release details are unavailable", () => {
+  it("shows an error state (no hardcoded fallback) when no real release notes are available", () => {
     render(
       <ReleaseUpgradeDialog
         open
@@ -235,24 +235,40 @@ describe("ReleaseUpgradeDialog", () => {
     );
 
     expect(screen.getByText("What's new in dev")).toBeInTheDocument();
+    expect(screen.getByText(/Couldn't load the release notes for dev/i)).toBeInTheDocument();
+    // The full changelog link is still offered as the next step.
+    expect(screen.getByRole("link", { name: "View full changelog" })).toBeInTheDocument();
+    // No hardcoded fallback prose leaks through any more.
     expect(
-      screen.getByText(
+      screen.queryByText(
         "Use the same agents and knowledge from the web UI, Slack, and Webex with more consistent permissions.",
       ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Get clearer next steps when a Slack channel or Webex space needs to be connected to your team.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Stay signed in through longer CAIPE sessions during normal work and validation.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText("Review the dev release notes for new CAIPE platform capabilities."),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/ReBAC admin diagnostics/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the error state when only admin-only sections exist for a non-admin", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin={false}
+        releaseVersion="0.5.1"
+        release={{
+          version: "0.5.1",
+          date: "2026-05-19",
+          sections: [
+            {
+              type: "Admin Notes",
+              items: [{ text: "ReBAC admin diagnostics improved", scope: "admin" }],
+            },
+          ],
+        }}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Couldn't load the release notes for 0.5.1/i)).toBeInTheDocument();
+    expect(screen.queryByText("ReBAC admin diagnostics improved")).not.toBeInTheDocument();
   });
 });
