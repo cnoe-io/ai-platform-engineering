@@ -43,6 +43,8 @@ describe("buildRubricGuidance", () => {
     );
     expect(out).toContain("Defines the role?");
     expect(out).toContain("Role");
+    // Weight is embedded in each bullet.
+    expect(out).toContain("(weight 1)");
   });
 
   it("orders error criteria before warning before info", () => {
@@ -78,8 +80,12 @@ describe("buildRubricGuidance", () => {
         criterion({ id: "i", name: "I", severity: "info" }),
       ]),
     );
-    expect(out).toContain("[must] E");
-    expect(out).toContain("[should] W");
-    expect(out).toContain("[nice-to-have] I");
+    expect(out).toContain("[must]");
+    expect(out).toContain("[should]");
+    expect(out).toContain("[nice-to-have]");
+    // Each label appears before the criterion name.
+    expect(out).toMatch(/\[must\].*E/s);
+    expect(out).toMatch(/\[should\].*W/s);
+    expect(out).toMatch(/\[nice-to-have\].*I/s);
   });
 });
