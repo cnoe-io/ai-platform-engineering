@@ -201,6 +201,7 @@ export interface UserSettings {
     show_timestamps_enabled: string;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
+    favorite_agentic_apps?: string[];
   };
   notifications: {
     email_enabled: boolean;

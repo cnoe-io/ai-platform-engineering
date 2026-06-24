@@ -28,6 +28,14 @@ interface ChatViewProps {
   adminOrigin?: "audit-logs" | "feedback" | null;
   /** Whether messages are still loading (show skeleton) */
   isLoadingMessages?: boolean;
+  clientContext?: Record<string, unknown>;
+  suggestedPrompts?: string[];
+  suggestedPromptsInitiallyHidden?: boolean;
+  emptyStateTitle?: string;
+  emptyStateSubtitle?: string;
+  surface?: "default" | "glass";
+  fontScale?: "compact" | "default" | "large";
+  hideContextPanel?: boolean;
 }
 
 /**
