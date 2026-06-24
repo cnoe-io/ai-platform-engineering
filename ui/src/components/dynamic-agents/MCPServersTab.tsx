@@ -13,6 +13,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toYaml } from "@/lib/yaml-serializer";
 import type { MCPServerConfigWithPermissions, MCPToolInfo } from "@/types/dynamic-agent";
 import {
@@ -996,7 +997,7 @@ function MCPToolTestDialog({
   const [paramsMode, setParamsMode] = React.useState<"fields" | "json">("fields");
   const [paramRows, setParamRows] = React.useState<ParamRow[]>(() => [createParamRow()]);
   const [running, setRunning] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<{ message: string; httpStatus?: number } | null>(null);
   const [result, setResult] = React.useState<ToolTestResult | null>(null);
 
   React.useEffect(() => {
@@ -1012,10 +1013,12 @@ function MCPToolTestDialog({
     setError(null);
 
     async function loadTools() {
+      let httpStatus: number | undefined;
       try {
         const response = await fetch(`/api/mcp-servers/probe?id=${server?._id}`, {
           method: "POST",
         });
+        httpStatus = response.status;
         const data = await response.json();
         if (!data.success || data.data?.success === false) {
           throw new Error(data.data?.error || data.error || "Could not load tools");
@@ -1025,7 +1028,7 @@ function MCPToolTestDialog({
         setTools(nextTools);
         setSelectedTool(preferredTool(nextTools));
       } catch (err: unknown) {
-        if (!cancelled) setError(errorMessage(err, "Could not load tools"));
+        if (!cancelled) setError({ message: errorMessage(err, "Could not load tools"), httpStatus });
       } finally {
         if (!cancelled) setLoadingTools(false);
       }
@@ -1085,7 +1088,7 @@ function MCPToolTestDialog({
       try {
         params = buildParamsFromRows(paramRows, selectedProperties);
       } catch (err: unknown) {
-        setError(errorMessage(err, "Check the parameter rows"));
+        setError({ message: errorMessage(err, "Check the parameter rows") });
         return;
       }
     } else {
@@ -1096,12 +1099,13 @@ function MCPToolTestDialog({
         }
         params = parsed as Record<string, unknown>;
       } catch (err: unknown) {
-        setError(errorMessage(err, "Params must be valid JSON"));
+        setError({ message: errorMessage(err, "Params must be valid JSON") });
         return;
       }
     }
 
     setRunning(true);
+    let testHttpStatus: number | undefined;
     try {
       const response = await fetch("/api/mcp-servers/test-tool", {
         method: "POST",
@@ -1112,13 +1116,14 @@ function MCPToolTestDialog({
           params,
         }),
       });
+      testHttpStatus = response.status;
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.error || "Tool test failed");
       }
       setResult(data.data as ToolTestResult);
     } catch (err: unknown) {
-      setError(errorMessage(err, "Tool test failed"));
+      setError({ message: errorMessage(err, "Tool test failed"), httpStatus: testHttpStatus });
     } finally {
       setRunning(false);
     }
@@ -1328,7 +1333,23 @@ function MCPToolTestDialog({
 
           {error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
+              <div className="flex items-start justify-between gap-2">
+                <span>{error.message}</span>
+                {error.httpStatus && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="shrink-0 cursor-default rounded border border-destructive/30 px-1.5 py-0.5 font-mono text-xs">
+                          HTTP {error.httpStatus}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        HTTP {error.httpStatus} — check service logs for details
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
             </div>
           )}
 
