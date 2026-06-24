@@ -25,7 +25,14 @@ function setupFetchMock() {
       return response({
         data: {
           spaces: [
-            { workspace_id: "WEBEX-WORKSPACE", space_id: "space-abc", space_name: "Platform Alerts", active_grants: 0 },
+            {
+              workspace_id: "WEBEX-WORKSPACE",
+              space_id: "space-abc",
+              space_name: "Platform Alerts",
+              team_slug: "platform-engineering",
+              primary_agent_id: "incident-agent",
+              active_grants: 1,
+            },
           ],
         },
       });
@@ -155,6 +162,31 @@ function response(payload: unknown): Response {
   return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) } as Response;
 }
 
+it("shows a loading spinner on the configured spaces tab while spaces load", async () => {
+  let resolveSpaces: ((value: Response) => void) | undefined;
+  const spacesPromise = new Promise<Response>((resolve) => {
+    resolveSpaces = resolve;
+  });
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === "/api/admin/webex/spaces" || url === "/api/admin/webex/spaces?health=1") {
+      return spacesPromise;
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({ data: { items: [] } });
+    }
+    return response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+  expect(screen.getByTestId("connector-items-loading")).toBeInTheDocument();
+  expect(screen.getByText("Loading Webex spaces…")).toBeInTheDocument();
+  expect(screen.queryByText("No spaces configured yet.")).not.toBeInTheDocument();
+
+  resolveSpaces?.(response({ data: { spaces: [] } }));
+  expect(await screen.findByText("No spaces configured yet.")).toBeInTheDocument();
+  expect(screen.queryByTestId("connector-items-loading")).not.toBeInTheDocument();
+});
+
 async function switchToTab(name: "Configured spaces" | "Onboard spaces" | "Advanced") {
   fireEvent.click(await screen.findByRole("tab", { name }));
 }
@@ -179,7 +211,7 @@ it("organises Webex admin into Configured / Onboard / Advanced tabs, mirrors Sla
   // Onboard tab shows discovery wizard only.
   await switchToTab("Onboard spaces");
   expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Find Webex Spaces with Bot Integration" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Find spaces" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Configured Webex spaces" })).not.toBeInTheDocument();
 
   // Advanced tab shows runtime status controls only
@@ -215,6 +247,9 @@ it("shows spaces in a table and expands a row to show diagnostics without manual
   // Space appears in the table; no "X grants" column
   expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
   expect(screen.queryByText(/0 grants/i)).not.toBeInTheDocument();
+  expect(screen.getByText("team:platform-engineering")).toBeInTheDocument();
+  expect(screen.getByText("Incident Agent")).toBeInTheDocument();
+  expect(screen.getByText("incident-agent")).toBeInTheDocument();
 
   // Expand the row
   await expandSpaceRow("Platform Alerts");
@@ -232,7 +267,7 @@ it("fixes stale diagnostic route metadata (orphan) by issuing DELETE", async () 
   render(<WebexSpaceRebacPanel />);
   await expandSpaceRow("Platform Alerts");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:foo-bar routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for foo-bar/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -246,7 +281,7 @@ it("fixes mention-only diagnostic route by lifting listen mode to all", async ()
   render(<WebexSpaceRebacPanel />);
   await expandSpaceRow("Platform Alerts");
 
-  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:incident-agent routing/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for incident-agent/i }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -258,11 +293,20 @@ it("fixes mention-only diagnostic route by lifting listen mode to all", async ()
 
 // ── Discovery + onboarding ─────────────────────────────────────────────────
 
+it("seeds configured Webex spaces on the onboard tab before discovery", async () => {
+  render(<WebexSpaceRebacPanel />);
+  await switchToTab("Onboard spaces");
+
+  expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
+  expect(screen.getByText("Configured")).toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/admin/webex/available-spaces"))).toBe(false);
+});
+
 it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defaults on apply", async () => {
   render(<WebexSpaceRebacPanel />);
   await switchToTab("Onboard spaces");
 
-  fireEvent.click(screen.getByRole("button", { name: "Find Webex Spaces with Bot Integration" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find spaces" }));
 
   // Only the new space (Incident War Room) is auto-selected; existing one (Platform Alerts) is not
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
@@ -291,7 +335,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
     expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("Discovered Webex spaces applied"), "success")
   );
   expect(screen.queryByText("Ready to set up")).not.toBeInTheDocument();
-  expect(screen.getByText("Configured")).toBeInTheDocument();
+  expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
 });
 
 it("allows discovery before global defaults are configured", async () => {
@@ -306,13 +350,13 @@ it("allows discovery before global defaults are configured", async () => {
   render(<WebexSpaceRebacPanel />);
   await switchToTab("Onboard spaces");
 
-  const discoverButton = await screen.findByRole("button", { name: "Find Webex Spaces with Bot Integration" });
+  const discoverButton = await screen.findByRole("button", { name: "Find spaces" });
   await waitFor(() => expect(discoverButton).toBeEnabled());
   fireEvent.click(discoverButton);
 
   await waitFor(() =>
-    expect(fetchMock.mock.calls.some(([url, init]) =>
-      String(url).startsWith("/api/admin/webex/available-spaces") && init?.cache === "no-store"
+    expect(fetchMock.mock.calls.some(([url]) =>
+      String(url).startsWith("/api/admin/webex/available-spaces") && String(url).includes("limit=200")
     )).toBe(true)
   );
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();

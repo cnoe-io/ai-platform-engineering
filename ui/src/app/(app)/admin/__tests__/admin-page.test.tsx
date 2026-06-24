@@ -44,6 +44,11 @@ jest.mock('@/lib/config', () => ({
     })[key] ?? true,
 }));
 
+jest.mock('@/lib/auth/dev-auth-provider', () => ({
+  ...jest.requireActual('@/lib/auth/dev-auth-provider'),
+  isDevAnonymousAuthEnabled: jest.fn(() => false),
+}));
+
 jest.mock('@/components/auth-guard', () => ({
   AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -280,7 +285,13 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ gates: overrides.tabGates ?? allGatesOpen }),
+        json: () => Promise.resolve({
+          gates: overrides.tabGates ?? allGatesOpen,
+          integration_panel_modes: overrides.integrationPanelModes ?? {
+            slack: 'full',
+            webex: 'full',
+          },
+        }),
       });
     }
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
@@ -364,6 +375,11 @@ jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
 
 import AdminPage from '../page';
+import { isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+
+const mockIsDevAnonymousAuthEnabled = isDevAnonymousAuthEnabled as jest.MockedFunction<
+  typeof isDevAnonymousAuthEnabled
+>;
 
 // ============================================================================
 // Tests
@@ -373,6 +389,7 @@ describe('Admin Dashboard Page', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsAdmin = false;
+    mockIsDevAnonymousAuthEnabled.mockReturnValue(true);
     currentSearchParams = new URLSearchParams();
   });
 
@@ -442,7 +459,10 @@ describe('Admin Dashboard Page', () => {
   describe('Read-only mode (non-admin user)', () => {
     beforeEach(() => {
       mockIsAdmin = false;
-      setupFetchMock();
+      mockIsDevAnonymousAuthEnabled.mockReturnValue(false);
+      setupFetchMock({
+        integrationPanelModes: { slack: 'self_service', webex: 'self_service' },
+      });
     });
 
     it('shows Read-Only badge', async () => {
@@ -511,6 +531,10 @@ describe('Admin Dashboard Page', () => {
           slack: true,
           webex: true,
         },
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
       });
       currentSearchParams = new URLSearchParams('cat=integrations&tab=slack');
 
@@ -522,7 +546,9 @@ describe('Admin Dashboard Page', () => {
 
       expect(screen.getByRole('tab', { name: /^Slack$/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /^Webex$/i })).toBeInTheDocument();
-      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
+      await waitFor(() => {
+        expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
+      });
       expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'false');
     });
   });
@@ -530,6 +556,7 @@ describe('Admin Dashboard Page', () => {
   describe('Admin mode', () => {
     beforeEach(() => {
       mockIsAdmin = true;
+      mockIsDevAnonymousAuthEnabled.mockReturnValue(true);
       setupFetchMock();
     });
 

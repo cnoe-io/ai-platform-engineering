@@ -275,88 +275,35 @@ const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-side token store
 // ─────────────────────────────────────────────────────────────────────────────
-// Large OAuth tokens (accessToken, refreshToken, idToken) are kept in server memory instead
-// of the JWT cookie.  This keeps the encrypted cookie under the 4096-byte
-// browser limit.  Only small metadata stays in the cookie.
+// Large OAuth tokens (accessToken, refreshToken, idToken) are offloaded from
+// the JWT cookie into a two-level store (L1 in-memory + L2 MongoDB) so the
+// encrypted cookie stays under the 4096-byte browser limit.
 //
-// Trade-off: tokens are lost on process restart. After that the user re-authenticates.
-// For multi-replica deployments, use sticky sessions or a shared store (Redis).
+// L1: per-pod Map with 60s TTL — zero-latency for the common case.
+// L2: MongoDB collection `auth_token_cache` — shared across all replicas,
+//     tokens AES-256-GCM encrypted at rest (key derived from NEXTAUTH_SECRET).
+//
+// See: https://github.com/cnoe-io/ai-platform-engineering/issues/1986
+import { getStoredTokens, storeTokens, resetTokenStore } from './auth-token-store';
 
-interface CachedTokens {
-  accessToken?: string;
-  refreshToken?: string;
-  idToken?: string;
-  claimGroups?: string[];
-  claimGroupsCheckedAt?: number;
-  updatedAt: number;
-}
-
-const _serverTokenStore = new Map<string, CachedTokens>();
-const _TOKEN_STORE_TTL = 24 * 60 * 60; // 24h — matches session maxAge
-
-export function _getStoredTokens(sub: string | undefined): CachedTokens | undefined {
-  if (!sub) return undefined;
-  const entry = _serverTokenStore.get(sub);
-  if (!entry) return undefined;
-  if (Math.floor(Date.now() / 1000) - entry.updatedAt > _TOKEN_STORE_TTL) {
-    _serverTokenStore.delete(sub);
-    return undefined;
-  }
-  return entry;
-}
-
-function _storeTokens(
-  sub: string | undefined,
-  data: { accessToken?: string; refreshToken?: string; idToken?: string }
-): void {
-  if (!sub) return;
-  const existing = _serverTokenStore.get(sub);
-  _serverTokenStore.set(sub, {
-    accessToken: data.accessToken ?? existing?.accessToken,
-    refreshToken: data.refreshToken ?? existing?.refreshToken,
-    idToken: data.idToken ?? existing?.idToken,
-    claimGroups: existing?.claimGroups,
-    claimGroupsCheckedAt: existing?.claimGroupsCheckedAt,
-    updatedAt: Math.floor(Date.now() / 1000),
-  });
-}
+// Claim groups are only needed for in-process authorization checks and are
+// re-populated on login and every token refresh. They stay in L1 only.
+const _claimGroupsCache = new Map<string, { groups: string[]; checkedAt: number }>();
 
 export function cacheOidcClaimGroups(sub: string | undefined, groups: string[]): void {
   if (!sub) return;
-  const existing = _serverTokenStore.get(sub);
-  _serverTokenStore.set(sub, {
-    accessToken: existing?.accessToken,
-    refreshToken: existing?.refreshToken,
-    idToken: existing?.idToken,
-    claimGroups: [...groups],
-    claimGroupsCheckedAt: Math.floor(Date.now() / 1000),
-    updatedAt: Math.floor(Date.now() / 1000),
-  });
+  _claimGroupsCache.set(sub, { groups: [...groups], checkedAt: Math.floor(Date.now() / 1000) });
 }
 
 export function getCachedOidcClaimGroups(sub: string | undefined): string[] {
   if (!sub) return [];
-  return _getStoredTokens(sub)?.claimGroups ?? [];
+  return _claimGroupsCache.get(sub)?.groups ?? [];
 }
 
 /** Reset server-side token store (for testing only). */
 export function _resetServerTokenStore(): void {
-  _serverTokenStore.clear();
-}
-
-// Periodic cleanup of expired entries
-if (typeof setInterval !== 'undefined') {
-  const _cleanupTimer = setInterval(() => {
-    const now = Math.floor(Date.now() / 1000);
-    for (const [key, value] of _serverTokenStore) {
-      if (now - value.updatedAt > _TOKEN_STORE_TTL) {
-        _serverTokenStore.delete(key);
-      }
-    }
-  }, 10 * 60 * 1000);
-  if (typeof _cleanupTimer === 'object' && 'unref' in _cleanupTimer) {
-    (_cleanupTimer as NodeJS.Timeout).unref();
-  }
+  _claimGroupsCache.clear();
+  resetTokenStore();
 }
 
 /**
@@ -873,7 +820,7 @@ export const authOptions: NextAuthOptions = {
   jwt: {
     async encode({ token, secret, maxAge }) {
       if (token?.sub) {
-        _storeTokens(token.sub, {
+        await storeTokens(token.sub, {
           accessToken: token.accessToken as string | undefined,
           refreshToken: token.refreshToken as string | undefined,
           idToken: token.idToken as string | undefined,
@@ -893,7 +840,7 @@ export const authOptions: NextAuthOptions = {
       const { decode } = await import("next-auth/jwt");
       const decoded = await decode({ token, secret });
       if (decoded?.sub) {
-        const stored = _getStoredTokens(decoded.sub);
+        const stored = await getStoredTokens(decoded.sub);
         if (stored) {
           if (stored.accessToken) decoded.accessToken = stored.accessToken;
           if (stored.refreshToken) decoded.refreshToken = stored.refreshToken;

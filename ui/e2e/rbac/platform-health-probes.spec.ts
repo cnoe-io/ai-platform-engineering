@@ -467,6 +467,39 @@ test.describe("platform health probes", () => {
     await expect(page).toHaveURL(/\/admin\?cat=security&tab=openfga/);
   });
 
+  test("AgentGateway remediation opens MCP Servers, not Skills Gateway", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    await installStableHeaderHealthMocks(page);
+    const probes = healthyProbes.map((probe) =>
+      probe.id === "agentgateway"
+        ? {
+            ...probe,
+            status: "down" as const,
+            detail: "connection refused",
+            latency_ms: 31,
+            remediation: {
+              label: "MCP Servers",
+              href: "/dynamic-agents?tab=mcp-servers",
+              description: "Open MCP Servers to sync AgentGateway routes.",
+            },
+          }
+        : probe,
+    );
+    await page.route("**/api/platform/health", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify(platformHealthPayload(probes)),
+      });
+    });
+
+    await installSessionAndOpenHome(page, env);
+    await openSystemStatus(page);
+
+    await page.locator('button[title="Open MCP Servers to sync AgentGateway routes."]').click();
+    await expect(page).toHaveURL(/\/dynamic-agents\?tab=mcp-servers/);
+  });
+
   test("long probe output scrolls inside the status popover", async ({ page }) => {
     const env = rbacEnvOrSkip({ requireUserSub: true });
     await installStableHeaderHealthMocks(page);

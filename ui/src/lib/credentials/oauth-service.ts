@@ -74,6 +74,10 @@ export interface ProviderConnectionMetadata {
   grantedScopes?: string[];
 }
 
+export type CompletedProviderConnection = ProviderConnectionMetadata & {
+  supersededConnectionIds?: string[];
+};
+
 export interface OAuthConnectorServiceOptions {
   connectorsCollection: Collection<OAuthConnectorDocument>;
   payloadStore: PayloadStore;
@@ -410,18 +414,16 @@ export class ProviderConnectionService {
     owner: CredentialOwnerRef,
     provider: string,
     keepId: string,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const docs = await this.findOwnerDocuments(owner);
-    await Promise.all(
-      docs
-        .filter(
-          (doc) =>
-            (doc.provider ?? doc.connectorId) === provider &&
-            doc.id !== keepId &&
-            (doc.status === "connected" || doc.status === "needs_reauth"),
-        )
-        .map((doc) => this.disableConnection(doc.id)),
+    const superseded = docs.filter(
+      (doc) =>
+        (doc.provider ?? doc.connectorId) === provider &&
+        doc.id !== keepId &&
+        (doc.status === "connected" || doc.status === "needs_reauth"),
     );
+    await Promise.all(superseded.map((doc) => this.disableConnection(doc.id)));
+    return superseded.map((doc) => doc.id);
   }
 
   /**
@@ -517,7 +519,7 @@ export class ProviderConnectionService {
     code: string;
     codeVerifier: string;
     requestedScopes?: string[];
-  }): Promise<ProviderConnectionMetadata> {
+  }): Promise<CompletedProviderConnection> {
     const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
     const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef);
     const token = await this.tokenClient(
@@ -569,9 +571,16 @@ export class ProviderConnectionService {
       ...(requestedScopes ? { requestedScopes } : {}),
       ...(grantedScopes ? { grantedScopes } : {}),
     };
-    await this.disableSupersededConnections(input.owner, connector.provider, id);
+    const supersededConnectionIds = await this.disableSupersededConnections(
+      input.owner,
+      connector.provider,
+      id,
+    );
     await this.providerConnectionsCollection.insertOne(doc);
-    return toProviderConnectionMetadata(doc);
+    return {
+      ...toProviderConnectionMetadata(doc),
+      supersededConnectionIds,
+    };
   }
 
   /**
@@ -593,7 +602,7 @@ export class ProviderConnectionService {
     owner: CredentialOwnerRef;
     accessToken: string;
     requestedScopes?: string[];
-  }): Promise<ProviderConnectionMetadata> {
+  }): Promise<CompletedProviderConnection> {
     // A pasted token (PAT / project access token) does NOT require a registered
     // OAuth connector — there is no authorization-code flow, no client app, and
     // no client secret. Earlier this called findEnabledConnector, which 404'd
@@ -633,9 +642,16 @@ export class ProviderConnectionService {
       updatedAt: now,
       ...(requestedScopes ? { requestedScopes } : {}),
     };
-    await this.disableSupersededConnections(input.owner, provider, id);
+    const supersededConnectionIds = await this.disableSupersededConnections(
+      input.owner,
+      provider,
+      id,
+    );
     await this.providerConnectionsCollection.insertOne(doc);
-    return toProviderConnectionMetadata(doc);
+    return {
+      ...toProviderConnectionMetadata(doc),
+      supersededConnectionIds,
+    };
   }
 
   async listConnections(

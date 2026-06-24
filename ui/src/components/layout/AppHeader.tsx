@@ -88,6 +88,12 @@ const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/dynamic-agents",
 ];
 
+const PLATFORM_HEALTH_ADMIN_HREF = "/admin?cat=platform&tab=health";
+
+function openPlatformHealthDashboard(router: ReturnType<typeof useRouter>): void {
+  router.push(PLATFORM_HEALTH_ADMIN_HREF);
+}
+
 function isOnGuardedEditor(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
   return EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) =>
@@ -755,22 +761,46 @@ export function AppHeader() {
                       <div className="text-base font-bold text-white mb-1">System Status</div>
                       <div className="text-xs text-white/80">Dynamic agents, tools, identity, and knowledge services</div>
                     </div>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
-                      <span className={cn(
-                        "inline-block w-2 h-2 rounded-full transition-colors duration-700",
-                        combinedStatus === "connected" ? "bg-green-400" :
-                        combinedStatus === "checking" ? "bg-amber-400" :
-                        combinedStatus === "degraded" ? "bg-amber-400" :
-                        combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
-                      )} />
-                      <span className="text-xs font-medium text-white">
-                        {combinedStatus === "connected" ? "All Systems Live" :
-                         combinedStatus === "checking" ? "Checking" :
-                         combinedStatus === "degraded" ? "Action Needed" :
-                         combinedStatus === "rag-disconnected" ? "RAG Offline" :
-                         "Issues Detected"}
-                      </span>
-                    </div>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => openPlatformHealthDashboard(router)}
+                        title="Open full health dashboard"
+                        className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 backdrop-blur-sm transition-colors hover:bg-white/30"
+                      >
+                        <span className={cn(
+                          "inline-block h-2 w-2 rounded-full transition-colors duration-700",
+                          combinedStatus === "connected" ? "bg-green-400" :
+                          combinedStatus === "checking" ? "bg-amber-400" :
+                          combinedStatus === "degraded" ? "bg-amber-400" :
+                          combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
+                        )} />
+                        <span className="text-xs font-medium text-white">
+                          {combinedStatus === "connected" ? "All Systems Live" :
+                           combinedStatus === "checking" ? "Checking" :
+                           combinedStatus === "degraded" ? "Action Needed" :
+                           combinedStatus === "rag-disconnected" ? "RAG Offline" :
+                           "Issues Detected"}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 backdrop-blur-sm">
+                        <span className={cn(
+                          "inline-block h-2 w-2 rounded-full transition-colors duration-700",
+                          combinedStatus === "connected" ? "bg-green-400" :
+                          combinedStatus === "checking" ? "bg-amber-400" :
+                          combinedStatus === "degraded" ? "bg-amber-400" :
+                          combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
+                        )} />
+                        <span className="text-xs font-medium text-white">
+                          {combinedStatus === "connected" ? "All Systems Live" :
+                           combinedStatus === "checking" ? "Checking" :
+                           combinedStatus === "degraded" ? "Action Needed" :
+                           combinedStatus === "rag-disconnected" ? "RAG Offline" :
+                           "Issues Detected"}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -780,19 +810,44 @@ export function AppHeader() {
                 >
                   <div className="rounded-xl border border-border/70 bg-background/40 p-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">Platform Health</div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <div className="text-sm font-semibold text-foreground">Platform Health</div>
+                          {isAdmin ? (
+                            <button
+                              type="button"
+                              onClick={() => openPlatformHealthDashboard(router)}
+                              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
+                            >
+                              Full health report
+                              <ChevronRight className="h-3 w-3" />
+                            </button>
+                          ) : null}
+                        </div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
                           {platformProbeSummary
                             ? `${platformProbeSummary.total} checks across dynamic agents, auth, storage, RAG, web ingestor, and migrations`
                             : "Checking dynamic agents, auth, storage, RAG, web ingestor, and migrations"}
                         </div>
                       </div>
-                      <span className={statusBadgeClassName(platformHealthTone)}>
-                        {platformProbeSummary
-                          ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
-                          : platformHealthLabel}
-                      </span>
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => openPlatformHealthDashboard(router)}
+                          title="Open full health dashboard"
+                          className={cn(statusBadgeClassName(platformHealthTone), "transition-opacity hover:opacity-90")}
+                        >
+                          {platformProbeSummary
+                            ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
+                            : platformHealthLabel}
+                        </button>
+                      ) : (
+                        <span className={statusBadgeClassName(platformHealthTone)}>
+                          {platformProbeSummary
+                            ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
+                            : platformHealthLabel}
+                        </span>
+                      )}
                     </div>
 
                     {platformProbes.length === 0 ? (
@@ -978,6 +1033,18 @@ export function AppHeader() {
 
                     <div className="mt-2 text-right text-[10px] font-mono text-muted-foreground">
                       Next probe: {platformProbeNextCheck}s
+                      {isAdmin ? (
+                        <>
+                          {" · "}
+                          <button
+                            type="button"
+                            onClick={() => openPlatformHealthDashboard(router)}
+                            className="font-sans font-medium text-primary hover:underline"
+                          >
+                            Open health dashboard
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </div>

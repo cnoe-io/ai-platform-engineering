@@ -1,11 +1,12 @@
+import { ambiguousRoutesMessage } from "@/lib/rbac/connector-diagnostic-messages";
 import {
-type ConnectorDiagnostics,
-type ConnectorDiagnosticsAdapter,
-type ConnectorHealthSummary,
-type ConnectorRouteMetadata,
-type ConnectorRuntimeRouteDiagnostic,
-computeConnectorDiagnostics,
-computeConnectorHealthSummary,
+  type ConnectorDiagnostics,
+  type ConnectorDiagnosticsAdapter,
+  type ConnectorHealthSummary,
+  type ConnectorRouteMetadata,
+  type ConnectorRuntimeRouteDiagnostic,
+  computeConnectorDiagnostics,
+  computeConnectorHealthSummary,
 } from "@/lib/rbac/connector-diagnostics";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
@@ -48,8 +49,8 @@ async function listOpenFgaSlackChannelAgentIds(workspaceId: string, channelId: s
 
 function buildAmbiguousRouteWarnings(routes: ConnectorRuntimeRouteDiagnostic[]): string[] {
   // Surface real misconfiguration: two enabled routes that match the
-  // same incoming message at the same priority. The Slack bot picks
-  // first-match-wins among ties, so the result is non-deterministic.
+  // same incoming message at the same priority. The Slack bot uses the
+  // lowest priority number first, then agent name as a tie-break.
   const eligible = routes.filter((route) => route.openfga_tuple);
   const warnings: string[] = [];
   for (const mode of ["mention", "message"] as const) {
@@ -63,9 +64,7 @@ function buildAmbiguousRouteWarnings(routes: ConnectorRuntimeRouteDiagnostic[]):
     }
     for (const [priority, agentIds] of byPriority) {
       if (agentIds.length < 2) continue;
-      warnings.push(
-        `Routes ${agentIds.map((id) => `agent:${id}`).join(", ")} all match ${mode === "mention" ? "@mentions" : "plain messages"} at priority ${priority}; the Slack bot will pick one non-deterministically. Adjust priority or listen mode so each message has a single winner.`,
-      );
+      warnings.push(ambiguousRoutesMessage(agentIds, mode, priority));
     }
   }
   return warnings;

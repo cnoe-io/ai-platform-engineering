@@ -62,7 +62,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Bot,Bug,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Bot,Bug,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -486,7 +486,7 @@ function AdminPage() {
   const pathname = usePathname();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
-  const { gates, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
+  const { gates, integrationPanelModes, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
   const isSimulationActive = Boolean(simulationTarget);
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
@@ -1506,13 +1506,27 @@ function AdminPage() {
 
               {tabGateValues.slack && (
                 <TabsContent value="slack" className="space-y-4">
-                  <SlackChannelRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
+                  <SlackChannelRebacPanel
+                    disabled={isSimulationActive}
+                    selfService={
+                      integrationPanelModes.slack
+                        ? integrationPanelModes.slack === "self_service"
+                        : !isAdmin
+                    }
+                  />
                 </TabsContent>
               )}
 
               {tabGateValues.webex && (
                 <TabsContent value="webex" className="space-y-4">
-                  <WebexSpaceRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
+                  <WebexSpaceRebacPanel
+                    disabled={isSimulationActive}
+                    selfService={
+                      integrationPanelModes.webex
+                        ? integrationPanelModes.webex === "self_service"
+                        : !isAdmin
+                    }
+                  />
                 </TabsContent>
               )}
 

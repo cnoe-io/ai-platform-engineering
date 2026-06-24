@@ -410,7 +410,7 @@ test.describe("mocked credentials workspace browser regression", () => {
         {
           kind: "provider_connection",
           target: "header",
-          name: "Authorization",
+          name: "X-CAIPE-Provider-Token",
           connection_scope: "pinned",
           provider_connection_id: "conn-atlassian",
         },

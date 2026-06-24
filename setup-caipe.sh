@@ -198,6 +198,9 @@ TLS_CERT_FILE=""
 TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
+COMPOSE_ENV_FILE=""
+COMPOSE_PROFILES_DEFAULT="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor"
+USE_DOCKER_COMPOSE=false
 # Dynamic agents: default ON (custom agent builder UI is part of the
 # baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
 # --no-dynamic-agents to skip.
@@ -3079,6 +3082,94 @@ _env_true() {
   [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]
 }
 
+_compose_env_file() {
+  if [[ -n "${COMPOSE_ENV_FILE:-}" ]]; then
+    echo "$COMPOSE_ENV_FILE"
+  elif [[ -n "${ENV_FILE:-}" ]]; then
+    echo "$ENV_FILE"
+  else
+    echo ".env"
+  fi
+}
+
+_ensure_compose_env_file() {
+  local env_file="$1"
+  if [[ -f "$env_file" ]]; then
+    return 0
+  fi
+  if [[ ! -f ".env.example" ]]; then
+    err "Env file not found: ${env_file}; .env.example is also missing"
+    exit 1
+  fi
+  cp .env.example "$env_file"
+  log "Created ${env_file} from .env.example"
+}
+
+_compose_env_edit_target() {
+  local env_file="$1"
+  if [[ ! -L "$env_file" ]]; then
+    echo "$env_file"
+    return 0
+  fi
+
+  local target
+  target=$(readlink "$env_file")
+  if [[ "$target" != /* ]]; then
+    local env_dir
+    env_dir=$(cd "$(dirname "$env_file")" && pwd)
+    target="${env_dir}/${target}"
+  fi
+
+  echo "$target"
+}
+
+_update_compose_image_tag() {
+  local env_file="$1"
+  _ensure_compose_env_file "$env_file"
+  local latest
+  if command -v gh &>/dev/null; then
+    latest=$(gh release view --repo cnoe-io/ai-platform-engineering --json tagName -q .tagName)
+  elif command -v curl &>/dev/null; then
+    latest=$(curl -sf "https://api.github.com/repos/cnoe-io/ai-platform-engineering/releases/latest" \
+      | jq .tag_name)
+  else
+    err "Either GitHub CLI (gh) or curl is required to fetch the latest CAIPE release"
+    err "Install gh/curl or edit IMAGE_TAG in ${env_file} manually."
+    exit 1
+  fi
+  latest="${latest#v}"
+  if [[ -z "$latest" ]]; then
+    err "Could not resolve the latest CAIPE release tag"
+    exit 1
+  fi
+
+  local edit_file
+  edit_file=$(_compose_env_edit_target "$env_file")
+  if [[ ! -f "$edit_file" ]]; then
+    err "Compose env file target is not a regular file: ${edit_file}"
+    exit 1
+  fi
+
+  cp "$edit_file" "${env_file}.bak"
+  if grep -q '^IMAGE_TAG=' "$edit_file"; then
+    local tmp_file
+    tmp_file=$(mktemp "${edit_file}.XXXXXX")
+    awk -v latest="$latest" '
+      /^IMAGE_TAG=/ { print "IMAGE_TAG=" latest; next }
+      { print }
+    ' "$edit_file" > "$tmp_file"
+    mv "$tmp_file" "$edit_file"
+  else
+    printf '\nIMAGE_TAG=%s\n' "$latest" >> "$edit_file"
+  fi
+
+  if [[ "$edit_file" != "$env_file" ]]; then
+    log "Updated IMAGE_TAG=${latest} in ${env_file} -> ${edit_file} (backup: ${env_file}.bak)"
+  else
+    log "Updated IMAGE_TAG=${latest} in ${env_file} (backup: ${env_file}.bak)"
+  fi
+}
+
 # Create a Kubernetes generic secret from a list of key names sourced from a
 # .env file. Keys with empty values are silently skipped. The secret is applied
 # idempotently (--dry-run=client | kubectl apply). No values are written to
@@ -3399,6 +3490,12 @@ webex-bot:
     OPENFGA_HTTP: "http://caipe-openfga:8080"
     OPENFGA_STORE_NAME: "caipe-openfga"
     KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+    WEBEX_ADMIN_API_ENABLED: "true"
+    WEBEX_ADMIN_API_PORT: "3002"
+    WEBEX_ADMIN_JWT_ISSUER: "${_issuer}"
+    WEBEX_ADMIN_JWKS_URL: "${_kc}/realms/caipe/protocol/openid-connect/certs"
+    WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
+    WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
 WEBEXEOF
   fi
 
@@ -8219,6 +8316,81 @@ cmd_status() {
   helm list -A 2>/dev/null
 }
 
+cmd_update_compose_release() {
+  local env_file
+  env_file=$(_compose_env_file)
+  _update_compose_image_tag "$env_file"
+}
+
+cmd_docker_compose() {
+  local env_file
+  env_file=$(_compose_env_file)
+  _ensure_compose_env_file "$env_file"
+  _update_compose_image_tag "$env_file"
+
+  if [[ "$(uname -s)" == "Darwin" && -x "/usr/local/bin/docker" && ! "$(command -v docker 2>/dev/null)" ]]; then
+    export PATH="/usr/local/bin:$PATH"
+  fi
+  if ! command -v docker &>/dev/null; then
+    warn "Docker is not installed — it is required for Docker Compose setup."
+    local os; os="$(uname -s)"
+    if [[ "$os" == "Linux" || "$os" == "Darwin" ]] && ask_yn "Install Docker now?" "y"; then
+      step "Installing Docker"
+      if [[ "$os" == "Linux" ]]; then
+        _install_docker_linux
+      else
+        _install_docker_macos
+      fi
+    else
+      err "Docker is required. Install it from https://docs.docker.com/engine/install/ and re-run."
+      exit 1
+    fi
+  fi
+  _check_docker_access
+
+  COMPOSE_PROFILES="${COMPOSE_PROFILES:-$(_env_get "$env_file" COMPOSE_PROFILES)}"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES:-$COMPOSE_PROFILES_DEFAULT}"
+  export COMPOSE_PROFILES
+
+  step "Starting Docker Compose all-in-one stack from docker-compose.yaml"
+  log "Env file: ${env_file}"
+  log "Profiles: ${COMPOSE_PROFILES}"
+  docker compose --env-file "$env_file" -f docker-compose.yaml up -d
+
+  log "CAIPE UI: http://localhost:3000"
+  log "Knowledge Bases ingest: http://localhost:3000/knowledge-bases/ingest"
+}
+
+choose_setup_target() {
+  $NON_INTERACTIVE && return 0
+
+  echo ""
+  echo -e "  ${BOLD}How do you want to run CAIPE?${NC}"
+  echo -e "    ${CYAN}1)${NC} Kind/Kubernetes ${DIM}(default; uses saved setup configuration when available)${NC}"
+  echo -e "    ${CYAN}2)${NC} Docker Compose ${DIM}(uses docker-compose.yaml + .env)${NC}"
+  echo ""
+  prompt "Select runtime [1]: "
+
+  local choice
+  tty_read -r choice
+  choice="${choice:-1}"
+  choice="$(echo "$choice" | tr '[:upper:]' '[:lower:]')"
+
+  case "$choice" in
+    1|kind|kubernetes|k8s)
+      return 0
+      ;;
+    2|compose|docker-compose|docker)
+      cmd_docker_compose
+      exit 0
+      ;;
+    *)
+      warn "Unknown choice '${choice}', continuing with Kind/Kubernetes"
+      return 0
+      ;;
+  esac
+}
+
 # ─── Auto-Detect Features ────────────────────────────────────────────────────
 detect_deployed_features() {
   if helm status langfuse -n langfuse &>/dev/null; then
@@ -8667,6 +8839,7 @@ BANNER
   # the same file and see the same cluster and contexts.
   export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 
+  choose_setup_target
   check_prerequisites
   _load_caipe_config
   choose_cluster
@@ -8952,7 +9125,8 @@ Usage: $(basename "$0") [COMMAND] [OPTIONS]
 
 Commands:
   setup         Interactive setup: cluster, chart version, credentials,
-                features (RAG, tracing), deploy, port-forward (default)
+                features (RAG, tracing), deploy to Kind/Kubernetes,
+                port-forward (default)
   port-forward  Start port-forwarding, run validation + sanity tests,
                 monitor with auto-restart and periodic health checks (5m)
   validate      Run validation and sanity tests (A2A, agents, RAG, tracing)
@@ -8962,10 +9136,19 @@ Commands:
                 PVCs, namespaces, and optionally the Kind cluster
   nuke          Non-interactive cleanup (same as: cleanup --yes)
   status        Show pod status and Helm releases
+  docker-compose
+                Prepare .env, update IMAGE_TAG to the latest GitHub release,
+                and start the OSS all-in-one Docker Compose stack from
+                docker-compose.yaml
+  update-compose-release
+                Update IMAGE_TAG in .env (or --env-file=FILE) to the latest
+                GitHub release using gh
 
 Options:
   --non-interactive  Skip all prompts (use current context, latest chart,
                      defaults for endpoint/model, no RAG/tracing unless flagged)
+  --docker-compose   Run the Docker Compose setup path instead of the default
+                     Kind/Kubernetes setup path
   --load-config=FILE Load wizard config from FILE instead of the default
                      ~/.config/caipe/config.yaml (shows summary, asks confirmation)
   --create-cluster   Create a Kind cluster if no kubectl context exists
@@ -9030,6 +9213,11 @@ Options:
                      in the caipe-local-user Secret)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
                      Creates per-agent k8s secrets and enables corresponding agents in Helm.
+                     For docker-compose/update-compose-release, selects the
+                     Compose env file to update/use (default: .env).
+  --compose-env-file=FILE
+                     Alias for selecting the Docker Compose env file without
+                     affecting Helm agent-secret provisioning.
                      Also honors feature toggles to mirror docker-compose.dev.yaml:
                      ENABLE_RAG, ENABLE_GRAPH_RAG, ENABLE_TRACING, ENABLE_SLACK(_BOT),
                      ENABLE_WEBEX(_BOT) (enable-only; CLI flags win). Supported agents:
@@ -9125,6 +9313,7 @@ Supported providers (via cnoe-agent-utils LLMFactory):
 
 Examples:
   $(basename "$0")                                        # interactive setup (default)
+  $(basename "$0") --docker-compose                       # update .env IMAGE_TAG + start Docker Compose
   $(basename "$0") --non-interactive --create-cluster     # create Kind cluster + deploy Claude (default)
   $(basename "$0") --non-interactive --rag --tracing      # Claude + vector RAG + tracing
   $(basename "$0") --non-interactive --graph-rag --tracing # Claude + Graph RAG + tracing
@@ -9136,6 +9325,8 @@ Examples:
   $(basename "$0")                                        # re-run: offers monitor/upgrade/full menu
   $(basename "$0") cleanup                                # interactive teardown
   $(basename "$0") nuke                                   # teardown (confirm once with 'yes')
+  $(basename "$0") docker-compose                         # update .env IMAGE_TAG + start Docker Compose
+  $(basename "$0") update-compose-release                 # only update IMAGE_TAG in .env
   LLM_PROVIDER=openai $(basename "$0") --non-interactive  # OpenAI instead of Claude
   LLM_PROVIDER=aws-bedrock $(basename "$0") --non-interactive       # AWS Bedrock (uses profile)
   ENABLE_VLLM=true $(basename "$0") --non-interactive                    # vLLM + LiteLLM (gpt-oss-20B in-cluster)
@@ -9160,6 +9351,7 @@ args=()
 for arg in "$@"; do
   case "$arg" in
     --yes|-y)          AUTO_YES=true ;;
+    --docker-compose)  USE_DOCKER_COMPOSE=true ;;
     --non-interactive) NON_INTERACTIVE=true ;;
     --create-cluster)  CREATE_CLUSTER=true ;;
     --rag)             ENABLE_RAG=true ;;
@@ -9197,6 +9389,7 @@ for arg in "$@"; do
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
+    --compose-env-file=*) COMPOSE_ENV_FILE="${arg#--compose-env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --load-config=*)   CAIPE_CONFIG_FILE="${arg#--load-config=}" ;;
     --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
@@ -9215,6 +9408,14 @@ for arg in "$@"; do
   esac
 done
 
+if $USE_DOCKER_COMPOSE; then
+  if [[ ${#args[@]} -gt 0 && "${args[0]}" != "setup" ]]; then
+    err "--docker-compose cannot be combined with the '${args[0]}' command"
+    usage
+  fi
+  args=(docker-compose)
+fi
+
 $ENABLE_RBAC_RUNTIME && ENABLE_AGENTGATEWAY=true
 $ENABLE_GRAPH_RAG && ENABLE_RAG=true
 [[ ${#INGEST_URLS[@]} -gt 0 ]] && ENABLE_RAG=true
@@ -9227,6 +9428,8 @@ case "${args[0]:-setup}" in
   cleanup)      cmd_cleanup ;;
   nuke)         AUTO_YES=true; cmd_cleanup ;;
   status)       cmd_status ;;
+  docker-compose|compose) cmd_docker_compose ;;
+  update-compose-release) cmd_update_compose_release ;;
   -h|--help)    usage ;;
   *)            err "Unknown command: ${args[0]}"; usage ;;
 esac

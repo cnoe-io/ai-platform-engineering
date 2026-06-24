@@ -196,6 +196,7 @@ describe("GET /api/admin/service-accounts/grantable", () => {
     ]);
     expect(body.data.tools).toEqual([
       { ref: "github/*", name: "github: all tools" },
+      { ref: "jira/*", name: "jira: all tools" },
       { ref: "jira/create_issue", name: "jira: create issue" },
       { ref: "jira/search", name: "jira: search" },
     ]);
@@ -267,6 +268,7 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       { method: "POST", headers: { Authorization: "Bearer token" } },
     );
     expect(body.data.tools).toEqual([
+      { ref: "jira/*", name: "jira: all tools" },
       { ref: "jira/create_issue", name: "jira: create_issue" },
       { ref: "jira/search", name: "jira/search" },
     ]);

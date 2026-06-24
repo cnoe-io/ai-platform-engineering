@@ -565,7 +565,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     });
   });
 
-  test("created MCP servers remain visible after the list refresh", async ({ page }) => {
+  test("new MCP servers default to Streamable HTTP and remain visible after refresh", async ({ page }) => {
     const mocks = await installMcpServerMocks(page);
 
     await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
@@ -573,6 +573,12 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /SSE/i })).toHaveCount(0);
+    await expect(page.getByLabel(/Endpoint URL/i)).toHaveAttribute(
+      "placeholder",
+      "e.g., http://localhost:3000/mcp",
+    );
 
     await fillNewMcpServerBasics(page, {
       displayName: "Ops Tools",
@@ -585,7 +591,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     expect(mocks.createRequests[0]).toMatchObject({
       id: "ops-tools",
       name: "Ops Tools",
-      transport: "sse",
+      transport: "http",
       endpoint: "https://mcp.example.test/mcp",
     });
 
@@ -635,7 +641,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await expect(page.getByLabel(/^Secret$/).first()).toContainText("Jira token");
-    await expect(page.getByLabel(/Credential header/i).first()).toHaveValue("Authorization");
+    await expect(page.getByLabel(/Credential header/i).first()).toHaveValue("X-CAIPE-Provider-Token");
     await page.getByLabel(/^Secret$/).first().selectOption(secretIds.jira);
 
     await page.getByRole("button", { name: "Add Credential" }).click();
@@ -656,7 +662,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       {
         kind: "secret_ref",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         secret_ref: "secret-jira-token",
       },
       {
@@ -694,7 +700,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       displayName: "Test Netutils",
       serverId: "test-netutils",
     });
-    await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+    await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
     await page.getByLabel(/Endpoint URL/i).fill("http://mcp-netutils:8000");
     await page.getByRole("button", { name: /check url/i }).click();
     await expect(page.getByText(/http:\/\/mcp-netutils:8000\/mcp/i)).toBeVisible();
@@ -702,7 +708,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect(page.getByLabel(/Endpoint URL/i)).toHaveValue("http://mcp-netutils:8000/mcp");
 
     await page.getByRole("button", { name: "Add Credential" }).click();
-    await page.getByLabel(/Credential header/i).selectOption("X-CAIPE-Token");
+    await page.getByLabel(/Credential header/i).selectOption("X-CAIPE-Provider-Token");
     await page.getByLabel(/^Secret$/).selectOption("secret-netutils-token");
     await expect(page.getByText("Preview net_...oken")).toBeVisible();
 
@@ -720,7 +726,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       {
         kind: "secret_ref",
         target: "header",
-        name: "X-CAIPE-Token",
+        name: "X-CAIPE-Provider-Token",
         secret_ref: "secret-netutils-token",
       },
     ]);
@@ -776,7 +782,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "pinned",
         provider_connection_id: "conn-atlassian",
       },

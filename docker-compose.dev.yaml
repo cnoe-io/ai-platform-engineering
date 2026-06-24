@@ -1929,6 +1929,10 @@ services:
       - OAUTH2_AUDIENCE=${OAUTH2_AUDIENCE:-}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
+      # Persist conversation history across /invoke calls (ephemeral by default).
+      # Required for the chat-as-sa.sh script and any non-streaming caller that
+      # expects multi-turn context.
+      - INVOKE_PERSIST_HISTORY=${INVOKE_PERSIST_HISTORY:-false}
       # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
       # When a caller has NOT connected their personal provider account, DA injects
       # these org PATs on X-CAIPE-Provider-Token so those tools stay backward
@@ -2830,7 +2834,7 @@ services:
       - WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=${WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES:-false}
       - WEBEX_DEFAULT_TEAM_SLUG=${WEBEX_DEFAULT_TEAM_SLUG:-}
       - WEBEX_DEFAULT_AGENT_ID=${WEBEX_DEFAULT_AGENT_ID:-}
-      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-false}
+      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-true}
       - WEBEX_ADMIN_API_HOST=${WEBEX_ADMIN_API_HOST:-0.0.0.0}
       - WEBEX_ADMIN_API_PORT=${WEBEX_ADMIN_API_PORT:-3002}
       - WEBEX_ADMIN_JWT_ISSUER=${WEBEX_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}

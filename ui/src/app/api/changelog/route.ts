@@ -6,6 +6,8 @@ export const dynamic = "force-dynamic";
 
 const CHANGELOG_URL =
   "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/CHANGELOG.md";
+const STABLE_RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+const RELEASE_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
 
 export interface ChangelogItem {
   text: string;
@@ -26,9 +28,98 @@ function extractScope(text: string): { scope: string | null; text: string } {
   return { scope: null, text };
 }
 
-function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scopes: string[] } {
-  const releases: ChangelogRelease[] = [];
+function collectScopes(releases: ChangelogRelease[]): string[] {
   const scopeSet = new Set<string>();
+  for (const release of releases) {
+    for (const section of release.sections) {
+      for (const item of section.items) {
+        if (item.scope) scopeSet.add(item.scope);
+      }
+    }
+  }
+  return Array.from(scopeSet).sort();
+}
+
+function normalizeVersion(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/^v/i, "");
+}
+
+function versionParts(version: string): [number, number, number] | null {
+  const match = normalizeVersion(version).match(RELEASE_VERSION_PATTERN);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = versionParts(left);
+  const rightParts = versionParts(right);
+  if (!leftParts || !rightParts) return 0;
+
+  for (let index = 0; index < leftParts.length; index += 1) {
+    const delta = leftParts[index] - rightParts[index];
+    if (delta !== 0) return delta;
+  }
+
+  return 0;
+}
+
+function prereleaseBase(version: string): string | null {
+  const normalized = normalizeVersion(version);
+  if (STABLE_RELEASE_VERSION_PATTERN.test(normalized)) return null;
+  const base = normalized.split("-")[0].split("+")[0];
+  return STABLE_RELEASE_VERSION_PATTERN.test(base) ? base : null;
+}
+
+function appendSections(
+  target: ChangelogRelease["sections"],
+  sections: ChangelogRelease["sections"]
+): void {
+  for (const section of sections) {
+    const existing = target.find((item) => item.type === section.type);
+    if (existing) {
+      existing.items.push(...section.items);
+    } else {
+      target.push({ type: section.type, items: [...section.items] });
+    }
+  }
+}
+
+function shouldRollIntoStable(
+  prerelease: ChangelogRelease,
+  stable: ChangelogRelease,
+  nextStable: ChangelogRelease | null
+): boolean {
+  const base = prereleaseBase(prerelease.version);
+  if (!base || compareVersions(base, stable.version) >= 0) return false;
+  return !nextStable || compareVersions(base, nextStable.version) >= 0;
+}
+
+function stableReleasesWithRolledUpPrereleases(releases: ChangelogRelease[]): ChangelogRelease[] {
+  const stableIndexes = releases
+    .map((release, index) => ({ release, index }))
+    .filter(({ release }) => STABLE_RELEASE_VERSION_PATTERN.test(release.version));
+
+  return stableIndexes.map(({ release, index }, stablePosition) => {
+    const nextStable = stableIndexes[stablePosition + 1] ?? null;
+    const nextStableIndex = nextStable?.index ?? releases.length;
+    const sections = release.sections.map((section) => ({
+      type: section.type,
+      items: [...section.items],
+    }));
+
+    // assisted-by Codex Codex-sonnet-4-6
+    for (const candidate of releases.slice(index + 1, nextStableIndex)) {
+      if (shouldRollIntoStable(candidate, release, nextStable?.release ?? null)) {
+        appendSections(sections, candidate.sections);
+      }
+    }
+
+    return { ...release, sections };
+  });
+}
+
+function parseChangelog(markdown: string): ChangelogRelease[] {
+  const releases: ChangelogRelease[] = [];
   const lines = markdown.split("\n");
 
   let currentRelease: ChangelogRelease | null = null;
@@ -36,7 +127,7 @@ function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scope
 
   for (const line of lines) {
     const versionMatch = line.match(
-      /^## (\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)\s*\((\d{4}-\d{2}-\d{2})\)/
+      /^## v?(\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.]+)*)\s*\((\d{4}-\d{2}-\d{2})\)/
     );
     if (versionMatch) {
       const [, version, date] = versionMatch;
@@ -65,7 +156,6 @@ function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scope
     const itemMatch = line.match(/^- (.+)/);
     if (itemMatch && currentSection) {
       const { scope, text } = extractScope(itemMatch[1].trim());
-      if (scope) scopeSet.add(scope);
       currentSection.items.push({ text, scope });
     }
   }
@@ -77,8 +167,7 @@ function parseChangelog(markdown: string): { releases: ChangelogRelease[]; scope
     releases.push(currentRelease);
   }
 
-  const scopes = Array.from(scopeSet).sort();
-  return { releases, scopes };
+  return releases;
 }
 
 async function fetchChangelogContent(): Promise<string | null> {
@@ -123,11 +212,10 @@ export async function GET() {
       );
     }
 
-    const { releases: allReleases, scopes } = parseChangelog(markdown);
+    const allReleases = parseChangelog(markdown);
 
-    const stableReleases = allReleases.filter(
-      (r) => !r.version.includes("rc") && !r.version.includes("alpha") && !r.version.includes("beta")
-    );
+    const stableReleases = stableReleasesWithRolledUpPrereleases(allReleases);
+    const scopes = collectScopes(stableReleases);
 
     return NextResponse.json({ releases: stableReleases, scopes });
   } catch (error) {

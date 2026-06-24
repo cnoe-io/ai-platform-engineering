@@ -101,7 +101,8 @@ PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
                     '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
                 ),
                 # Jira MCP reads Atlassian OAuth from this header directly; GitHub/GitLab
-                # consume Authorization. Forward the provider token for both patterns.
+                # and sooperset/mcp-atlassian (Confluence) consume Authorization. Forward
+                # the provider token for both patterns.
                 "x-caipe-provider-token": (
                     'default(request.headers["x-caipe-provider-token"], "")'
                 ),
@@ -115,6 +116,7 @@ PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
 # per-user RAG group RBAC) or a caipe-platform service token (non-user contexts) on
 # X-CAIPE-Provider-Token, which this rewrites into the upstream Authorization header.
 DEFAULT_MCP_ROUTE_POLICY_OVERRIDES: dict[str, dict[str, Any]] = {
+    "confluence": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "github": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "gitlab": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "jira": PROVIDER_TOKEN_BEARER_TRANSFORM,

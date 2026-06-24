@@ -204,6 +204,9 @@ async function createIndexes(db: Db) {
   // doesn't prevent other indexes from being created.
 
   await Promise.all([
+    // Auth token cache — shared across replicas; auto-expires after 24h
+    safeCreateIndex(db, 'auth_token_cache', { updatedAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 }),
+
     // Users collection
     safeCreateIndex(db, 'users', { email: 1 }, { unique: true }),
     safeCreateIndex(db, 'users', { keycloak_sub: 1 }),

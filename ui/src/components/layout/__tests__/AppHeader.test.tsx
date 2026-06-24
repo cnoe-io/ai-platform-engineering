@@ -693,6 +693,35 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.getByText('Platform Health')).toBeInTheDocument()
       expect(screen.getAllByText('Identity & Authz').length).toBeGreaterThan(0)
     })
+
+    it('links admins to the full platform health dashboard', () => {
+      mockIsAdmin = true
+      mockCaipeStatus = 'connected'
+      render(<AppHeader />)
+
+      fireEvent.click(screen.getByRole('button', { name: /full health report/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+
+      mockRouterPush.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: /all systems live/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+
+      mockRouterPush.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: /1\/1 ready/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+    })
+
+    it('hides the health dashboard link for non-admins', () => {
+      mockIsAdmin = false
+      mockCaipeStatus = 'connected'
+      render(<AppHeader />)
+
+      expect(screen.queryByRole('button', { name: /full health report/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /open health dashboard/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /all systems live/i })).not.toBeInTheDocument()
+      expect(screen.getByText('All Systems Live')).toBeInTheDocument()
+      expect(screen.getByText('1/1 Ready')).toBeInTheDocument()
+    })
   })
 
   describe('amber — Checking', () => {

@@ -46,12 +46,38 @@ interface MCPServerEditorProps {
 
 const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: string }[] = [
   { value: "stdio", label: "STDIO", description: "Local process via stdin/stdout" },
-  { value: "sse", label: "SSE", description: "Server-Sent Events endpoint" },
-  { value: "http", label: "HTTP", description: "HTTP/REST endpoint" },
+  {
+    value: "http",
+    label: "Streamable HTTP",
+    description: "MCP Streamable HTTP endpoint (recommended)",
+  },
 ];
 
-const HEADER_NAME_OPTIONS = ["Authorization", "X-CAIPE-Token"] as const;
+const MCP_PROVIDER_CREDENTIAL_HEADER = "X-CAIPE-Provider-Token";
+const HEADER_NAME_OPTIONS = [MCP_PROVIDER_CREDENTIAL_HEADER, "Authorization"] as const;
 const CUSTOM_HEADER_VALUE = "__custom__";
+
+function normalizeCredentialHeaderName(name: string): string {
+  const trimmed = name.trim();
+  if (/^(authorization|x-caipe-token)$/i.test(trimmed)) {
+    return MCP_PROVIDER_CREDENTIAL_HEADER;
+  }
+  return trimmed;
+}
+
+function normalizeCredentialSourcesForEditor(
+  sources: MCPCredentialSource[] | undefined,
+): MCPCredentialSource[] {
+  return (sources ?? []).map((source) =>
+    source.target === "header"
+      ? { ...source, name: normalizeCredentialHeaderName(source.name) }
+      : source,
+  );
+}
+
+function usesAgentGatewayRouting(transportType: TransportType): boolean {
+  return transportType !== "stdio";
+}
 
 interface EndpointProbeAttempt {
   url: string;
@@ -189,7 +215,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [showGeneratedNameEditor, setShowGeneratedNameEditor] = React.useState(false);
   const [name, setName] = React.useState(server?.name || "");
   const [description, setDescription] = React.useState(server?.description || "");
-  const [transport, setTransport] = React.useState<TransportType>(server?.transport || "sse");
+  const [transport, setTransport] = React.useState<TransportType>(server?.transport || "http");
   const [endpoint, setEndpoint] = React.useState(
     server?.agentgateway_target_endpoint || server?.endpoint || "",
   );
@@ -202,7 +228,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
   );
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
-    server?.credential_sources || []
+    normalizeCredentialSourcesForEditor(server?.credential_sources),
   );
 
   // Auth (HTTP/SSE only). 'none' = no Authorization header injection.
@@ -342,7 +368,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       {
         kind: "secret_ref",
         target: transport === "stdio" ? "env" : "header",
-        name: transport === "stdio" ? "" : "Authorization",
+        name: transport === "stdio" ? "" : MCP_PROVIDER_CREDENTIAL_HEADER,
         secret_ref: "",
       },
     ]);
@@ -371,7 +397,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
         name: nextTarget === "env" && currentNameIsDefaultHeader
           ? ""
           : nextTarget === "header" && !current.name.trim()
-          ? "Authorization"
+          ? MCP_PROVIDER_CREDENTIAL_HEADER
           : current.name,
       });
       return;
@@ -739,6 +765,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   </button>
                 ))}
               </div>
+              {isEditing && transport === "sse" ? (
+                <p className="text-xs text-muted-foreground">
+                  This server uses the legacy SSE transport. New servers should use Streamable HTTP.
+                </p>
+              ) : null}
             </div>
 
             {/* Transport-specific fields */}
@@ -855,7 +886,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   <div className="space-y-2">
                     <Label htmlFor="agentgateway-target">AgentGateway target</Label>
                     <p className="text-xs text-muted-foreground">
-                      Pick a routed MCP target from AgentGateway. Saved HTTP and SSE MCP servers
+                      Pick a routed MCP target from AgentGateway. Saved Streamable HTTP MCP servers
                       always go through AgentGateway so tool access can be authorized.
                     </p>
                     <TeamPicker
@@ -890,7 +921,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   <Input
                     id="endpoint"
                     name="mcp-endpoint"
-                    placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
+                    placeholder="e.g., http://localhost:3000/mcp"
                     value={endpoint}
                     onChange={(e) => {
                       const nextEndpoint = e.target.value;
@@ -990,6 +1021,15 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 <p className="text-xs text-muted-foreground">
                   Choose saved secrets or connected apps. Secret values stay on the server.
                 </p>
+                {usesAgentGatewayRouting(transport) ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Streamable HTTP MCP servers route through AgentGateway. The{" "}
+                    <code className="font-mono">Authorization</code> header is reserved for the
+                    caller JWT — use{" "}
+                    <code className="font-mono">{MCP_PROVIDER_CREDENTIAL_HEADER}</code> for provider
+                    OAuth tokens, API keys, and saved secrets.
+                  </p>
+                ) : null}
               </div>
               <Button
                 type="button"
@@ -1061,6 +1101,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             disabled={readOnly}
                             {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                           />
+                        ) : null}
+                        {usesAgentGatewayRouting(transport) &&
+                        source.name.trim().toLowerCase() === "authorization" ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Authorization is not forwarded to the upstream MCP server via
+                            AgentGateway. Use {MCP_PROVIDER_CREDENTIAL_HEADER} instead.
+                          </p>
                         ) : null}
                       </div>
                     ) : (

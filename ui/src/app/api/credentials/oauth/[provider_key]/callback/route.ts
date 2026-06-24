@@ -6,6 +6,7 @@ getAuthFromBearerOrSession,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
+import { relinkPinnedMcpCredentialSources } from "@/lib/credentials/relink-pinned-mcp-credentials";
 import { oauthStateCookieName,parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
@@ -172,7 +173,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
 
   const service = await getProviderConnectionService();
   try {
-    await service.completeConnection({
+    const connection = await service.completeConnection({
       providerKey,
       owner: {
         type: "user",
@@ -184,6 +185,17 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
       codeVerifier: parsedState.codeVerifier,
       requestedScopes: parsedState.requestedScopes,
     });
+    if (connection.supersededConnectionIds?.length) {
+      try {
+        await relinkPinnedMcpCredentialSources({
+          owner: { type: "user", id: ownerId },
+          supersededConnectionIds: connection.supersededConnectionIds,
+          newConnectionId: connection.id,
+        });
+      } catch (relinkError) {
+        console.warn("[credentials/oauth/callback] failed to relink pinned MCP credentials:", relinkError);
+      }
+    }
   } catch (error) {
     return completionPage({
       providerKey,

@@ -219,6 +219,14 @@ export type AdminTabKey =
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
 
+/** Integrations → Slack/Webex panel mode when the tab gate is open. */
+export type IntegrationPanelMode = "full" | "self_service";
+
+/** Present only for integration tabs the caller may open. */
+export type IntegrationPanelModesMap = Partial<
+  Record<Extract<AdminTabKey, "slack" | "webex">, IntegrationPanelMode>
+>;
+
 /**
  * Knowledge sidebar tab keys for RBAC-based visibility.
  *

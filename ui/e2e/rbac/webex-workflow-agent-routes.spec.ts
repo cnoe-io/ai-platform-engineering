@@ -206,22 +206,34 @@ test.describe("mocked Webex workflow agent routing regression", () => {
 
     await page.goto("/admin?cat=integrations&tab=webex", { waitUntil: "domcontentloaded" });
     await page.getByRole("tab", { name: "Onboard spaces" }).click();
-    await page.getByRole("button", { name: /Find Webex Spaces with Bot Integration/i }).click();
+    await page
+      .getByRole("button", { name: /^(Find spaces|Find Webex Spaces with Bot Integration)$/i })
+      .click();
 
     await expect(page.getByText(/bot-visible spaces discovered/i)).toBeVisible();
-    await page.getByRole("checkbox", { name: /Import Workflow Alerts/i }).check();
-    await page.getByRole("button", { name: /Team for Workflow Alerts/i }).click();
-    await page.getByRole("option", { name: /platform/i }).click();
-    await page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }).click();
-    await page.getByRole("option", { name: new RegExp(workflowAgent.name) }).click();
-    await page.getByRole("button", { name: /^Set up 1 space$/ }).click();
+    await page.getByRole("checkbox", { name: /Import Incident Bridge/i }).check();
+    await page.getByRole("button", { name: "Bulk team for selected rows" }).click();
+    await page.getByRole("option", { name: /Platform Team.*team:platform/i }).click();
+    await page.getByRole("button", { name: "Bulk Dynamic Agent for selected rows" }).click();
+    await page.getByRole("option", { name: new RegExp(workflowAgent.name, "i") }).click();
+    await page.getByRole("button", { name: /^Apply to 2 selected rows$/i }).click();
+
+    await expect(page.getByRole("button", { name: /Team for Incident Bridge/i })).toContainText("Platform Team");
+    await expect(page.getByRole("button", { name: /Dynamic Agent for Incident Bridge/i })).toContainText(workflowAgent.name);
+    await expect(page.getByRole("checkbox", { name: /Import Workflow Alerts/i })).toBeChecked();
+    await expect(page.getByRole("button", { name: /Team for Workflow Alerts/i })).toContainText("Platform Team");
+    await expect(page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i })).toContainText(workflowAgent.name);
+    await page.getByRole("button", { name: /^Set up 2 spaces$/ }).click();
 
     await expect.poll(() => defaultsRequests.length).toBe(1);
     expect(defaultsRequests[0]).toMatchObject({
       team_slug: "platform",
       agent_id: workflowAgent.id,
       create_routes: true,
-      manual_spaces: [{ id: "space-onboard-new", name: "Workflow Alerts" }],
+      manual_spaces: [
+        { id: "space-incidents", name: "Incident Bridge" },
+        { id: "space-onboard-new", name: "Workflow Alerts" },
+      ],
     });
   });
 
@@ -249,7 +261,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     await expect(page.getByText("Incident Bridge")).toBeVisible();
     await page.getByText("Incident Bridge").click();
     const fixButton = page.getByRole("button", {
-      name: new RegExp(`Fix agent:${workflowAgent.id} routing`),
+      name: new RegExp(`Fix routing for ${workflowAgent.id}`),
     });
     await expect(fixButton).toBeVisible();
     await fixButton.click();
