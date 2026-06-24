@@ -87,7 +87,13 @@ export interface UseAiReviewResult {
   /** Clear the current notice (panels call this after acknowledging the flag). */
   clearNotice: () => void;
   run: () => Promise<void>;
-  ensurePassedOrRun: () => Promise<boolean>;
+  /**
+   * Gate a save/next transition behind a passing review. Returns both the
+   * pass status AND the `ReviewResult` it settled on, so callers can persist
+   * the grade from the just-run result rather than reading the hook's
+   * `result` state — which lags by a render after an inline run.
+   */
+  ensurePassedOrRun: () => Promise<{ passed: boolean; result: ReviewResult | null }>;
   applyFix: (criterionId: string) => void;
   applyAllFixes: () => void;
   dismiss: (criterionId: string) => void;
@@ -280,11 +286,15 @@ export function useAiReview({
     await runInternal();
   }, [runInternal]);
 
-  const ensurePassedOrRun = useCallback(async (): Promise<boolean> => {
-    if (!enabled || enforcement === "informational") return true;
-    if (isPassed) return true;
+  const ensurePassedOrRun = useCallback(async (): Promise<{
+    passed: boolean;
+    result: ReviewResult | null;
+  }> => {
+    if (!enabled || enforcement === "informational")
+      return { passed: true, result: resultRef.current };
+    if (isPassed) return { passed: true, result: resultRef.current };
     const fresh = await runInternal();
-    return fresh?.passed ?? false;
+    return { passed: fresh?.passed ?? false, result: fresh };
   }, [enabled, enforcement, isPassed, runInternal]);
 
   const applyFix = useCallback(

@@ -61,7 +61,7 @@ import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import { buildLastReview,useAiReview } from "@/components/ai-review";
+import { buildBlockingMessage,buildLastReview,useAiReview } from "@/components/ai-review";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import {
 useSkillForm,
@@ -521,11 +521,21 @@ export function SkillWorkspace({
   // an LLM call.
   // ---------------------------------------------------------------------
   const handleSave = useCallback(async () => {
+    // Capture the freshly-run review result — `review.result` state lags by a
+    // render after an inline `ensurePassedOrRun`, so the grade we stamp below
+    // must come from the run we just awaited, not the stale closure value.
+    let reviewResult = review.result;
     if (review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
+      const { passed, result } = await review.ensurePassedOrRun();
+      reviewResult = result;
+      if (!passed) {
         toast(
-          "AI Review failed — address the comments in the Skill content step before saving.",
+          buildBlockingMessage(
+            review.config,
+            result,
+            "the Skill content step",
+            "saving",
+          ),
           "error",
         );
         return;
@@ -533,7 +543,7 @@ export function SkillWorkspace({
     }
     // Stamp the latest in-memory review verdict onto the saved row so the
     // skills gallery can show a grade badge without re-running the LLM.
-    const lastReview = buildLastReview(review.result, "skill-md");
+    const lastReview = buildLastReview(reviewResult, "skill-md");
     await form.handleSubmit(
       lastReview ? { last_review: lastReview } : undefined,
     );
@@ -545,10 +555,15 @@ export function SkillWorkspace({
     // (see `handleSave`) so the user can't sidestep the review by
     // jumping back and clicking Save.
     if (tab === "files" && review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
+      const { passed, result } = await review.ensurePassedOrRun();
+      if (!passed) {
         toast(
-          "AI Review failed — address the comments before continuing.",
+          buildBlockingMessage(
+            review.config,
+            result,
+            "the comments",
+            "continuing",
+          ),
           "error",
         );
         return;
