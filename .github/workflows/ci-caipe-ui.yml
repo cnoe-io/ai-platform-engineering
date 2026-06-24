@@ -43,21 +43,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: Determine Tag
         id: version
         uses: ./.github/actions/determine-release-tag
         with:
           manual_tag: ${{ inputs.tag_version }}
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ github.token }}
 
       - name: Detect changed paths
         id: filter
@@ -150,15 +141,6 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: Free disk space
         run: |
           echo "Disk usage before cleanup:"
@@ -244,15 +226,6 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: 📦 Install crane
         run: |
           VERSION="v0.20.2"
@@ -261,7 +234,7 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
@@ -392,18 +365,9 @@ jobs:
       needs.determine-changes.outputs.tag_version != '' &&
       !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: 🔔 Notify release finalize
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
         run: |
           BUILD_RESULT="${{ needs.build-and-push.result }}"
