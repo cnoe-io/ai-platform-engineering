@@ -80,10 +80,12 @@ def test_webex_agent_route_mode_supports_legacy_enabled_flag(monkeypatch) -> Non
     assert webex_agent_route_mode() == "db_prefer"
 
 
-def test_webex_space_openfga_subject_uses_workspace_alias(monkeypatch) -> None:
+def test_webex_space_openfga_subject_respects_explicit_workspace_id(monkeypatch) -> None:
     monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
 
-    assert webex_space_openfga_subject("ignored", "space-abc") == "webex_space:CAIPE-WEBEX--space-abc"
+    # Explicit workspace_id is used as-is so _load_routes' "unknown" fallback works.
+    assert webex_space_openfga_subject("CAIPE-WEBEX", "space-abc") == "webex_space:CAIPE-WEBEX--space-abc"
+    assert webex_space_openfga_subject("unknown", "space-abc") == "webex_space:unknown--space-abc"
 
 
 def test_resolver_matches_enabled_routes_by_listen_and_priority() -> None:
@@ -270,11 +272,21 @@ def test_resolver_records_openfga_read_failures_to_audit_service(monkeypatch) ->
     }
 
 
-def test_webex_workspace_ref_prefers_configured_alias(monkeypatch) -> None:
+def test_webex_workspace_ref_explicit_id_wins_over_alias(monkeypatch) -> None:
     monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
     monkeypatch.setenv("WEBEX_WORKSPACE_ID", "WFALLBACK")
 
-    assert webex_workspace_ref("org-123") == "CAIPE-WEBEX"
+    # Explicit workspace_id takes precedence so _load_routes' "unknown" fallback works.
+    assert webex_workspace_ref("org-123") == "org-123"
+    assert webex_workspace_ref("unknown") == "unknown"
+
+
+def test_webex_workspace_ref_alias_used_when_no_id(monkeypatch) -> None:
+    monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
+    monkeypatch.setenv("WEBEX_WORKSPACE_ID", "WFALLBACK")
+
+    # No argument → alias is the canonical namespace.
+    assert webex_workspace_ref() == "CAIPE-WEBEX"
 
 
 def test_resolver_explains_openfga_route_read_failure(monkeypatch) -> None:

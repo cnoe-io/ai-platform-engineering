@@ -247,6 +247,9 @@ config:
   # static-config-to-MongoDB/OpenFGA migration. The client secret is sensitive
   # and must come from existingSecret/externalSecrets as WEBEX_BOT_ADMIN_CLIENT_SECRET.
   WEBEX_BOT_ADMIN_URL: ""
+  # Must match webex-bot's WEBEX_WORKSPACE_ALIAS so the BFF writes OpenFGA
+  # tuples with the same workspace prefix the bot uses for lookups.
+  WEBEX_WORKSPACE_ALIAS: ""
   WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
   WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
   # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"

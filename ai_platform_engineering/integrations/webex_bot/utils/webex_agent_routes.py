@@ -51,13 +51,17 @@ def webex_agent_route_mode() -> WebexAgentRouteMode:
 
 
 def webex_workspace_ref(workspace_id: Optional[str] = None) -> str:
-    """Canonical workspace namespace for Webex ReBAC and OpenFGA subjects."""
+    """Canonical workspace namespace for Webex ReBAC and OpenFGA subjects.
 
+    Priority: explicit workspace_id > WEBEX_WORKSPACE_ALIAS > WEBEX_WORKSPACE_ID > "unknown".
+    Callers that pass workspace_id explicitly (e.g. the "unknown" legacy fallback in
+    _load_routes) get their value back unchanged so the lookup uses the right prefix.
+    """
+    if workspace_id is not None and workspace_id.strip():
+        return workspace_id.strip()
     alias = os.environ.get("WEBEX_WORKSPACE_ALIAS", "").strip()
     if alias:
         return alias
-    if workspace_id and workspace_id.strip():
-        return workspace_id.strip()
     fallback = os.environ.get("WEBEX_WORKSPACE_ID", "").strip()
     return fallback or "unknown"
 
