@@ -2,6 +2,7 @@
 
 import { GitBranch } from "lucide-react";
 
+import { ProviderLogo } from "@/components/credentials/provider-logo";
 import type { ProjectSources } from "@/types/projects";
 import {
   decodeWebexRoom,
@@ -11,7 +12,7 @@ import {
 import { SourcePicker, type SourceKind } from "./index";
 
 /**
- * The single, generic, config-driven sources surface — used everywhere a
+ * The single, generic, config-driven sources surface, used everywhere a
  * project's GitHub / Confluence / Webex sources are defined (create wizard,
  * project editing, ingest). The connectors shown are driven entirely by the
  * onboarding YAML via `useProjectSourceKinds()`; each renders the same rich
@@ -23,6 +24,13 @@ const LABELS: Record<SourceKind, string> = {
   github: "GitHub repos",
   confluence: "Confluence space",
   webex: "Webex",
+};
+
+/** Source kind → credentials provider id (for the shared ProviderLogo). */
+const PROVIDER_FOR_KIND: Record<SourceKind, string> = {
+  github: "github",
+  confluence: "atlassian",
+  webex: "webex",
 };
 
 /** Canonical ProjectSources ↔ per-connector string[] (the picker contract). */
@@ -79,7 +87,11 @@ export function SourcesEditor({
     <div className="space-y-5">
       {kinds.map((kind) => (
         <div key={kind} className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground">
+          <h4 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <ProviderLogo
+              provider={PROVIDER_FOR_KIND[kind]}
+              className="h-4 w-4 shrink-0 object-contain"
+            />
             {LABELS[kind]}
           </h4>
           {readOnly ? (

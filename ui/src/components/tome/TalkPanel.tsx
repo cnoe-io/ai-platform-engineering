@@ -1,15 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2, MessagesSquare } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, Bot, Loader2, MessagesSquare, User } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { cn } from "@/lib/utils";
 
 /**
- * The project's "Talk page" — the conversation ABOUT the project, backed by a
+ * The project's "Talk page", the conversation ABOUT the project, backed by a
  * Mycelium room (one room per project). The wiki holds the context; this holds
  * the discussion. Messages are attributed to the CAIPE-authenticated user;
  * agents posting via the MCP show up here under their own identity too.
@@ -52,6 +58,20 @@ function initialsOf(name: string): string {
   return letters.join("").toUpperCase() || "?";
 }
 
+/**
+ * Best-effort agent vs human split: people post under an email handle; agents
+ * (via MCP / connectors) post under a non-email handle. Easy to refine later.
+ */
+function isAgentHandle(handle: string): boolean {
+  return !handle.includes("@");
+}
+
+interface Participant {
+  handle: string;
+  name: string;
+  isAgent: boolean;
+}
+
 export function TalkPanel({ slug }: { slug: string }) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
   // Mycelium's `total` is just the returned-page size, not a grand total, so we
@@ -76,6 +96,24 @@ export function TalkPanel({ slug }: { slug: string }) {
   const initialScrollRef = useRef(false);
 
   const hasMore = !reachedStart;
+
+  // Unique participants seen in the loaded conversation (grows as older pages
+  // load). Agents first, then people; each sorted by name.
+  const participants = useMemo<Participant[]>(() => {
+    const byHandle = new Map<string, Participant>();
+    for (const m of messages) {
+      if (byHandle.has(m.sender_handle)) continue;
+      byHandle.set(m.sender_handle, {
+        handle: m.sender_handle,
+        name: m.display_name || displayName(m.sender_handle),
+        isAgent: isAgentHandle(m.sender_handle),
+      });
+    }
+    return [...byHandle.values()].sort(
+      (a, b) =>
+        Number(b.isAgent) - Number(a.isAgent) || a.name.localeCompare(b.name),
+    );
+  }, [messages]);
 
   const merge = useCallback((batch: TalkMessage[]) => {
     setMessages((prev) => {
@@ -115,7 +153,7 @@ export function TalkPanel({ slug }: { slug: string }) {
       stickBottomRef.current = vp
         ? vp.scrollHeight - vp.scrollTop - vp.clientHeight < NEAR_BOTTOM_PX
         : true;
-      // First newest-page fetch: a short page means the whole room fits — no older.
+      // First newest-page fetch: a short page means the whole room fits, no older.
       if (firstLoadRef.current) {
         firstLoadRef.current = false;
         if (page.messages.length < PAGE) setReachedStart(true);
@@ -240,6 +278,11 @@ export function TalkPanel({ slug }: { slug: string }) {
 
   return (
     <div className="flex h-full flex-col">
+      {participants.length > 0 && (
+        <div className="flex items-center justify-end border-b px-4 py-2">
+          <ParticipantStack participants={participants} />
+        </div>
+      )}
       <ScrollArea viewportRef={viewportRef} className="flex-1">
         <div className="mx-auto flex max-w-3xl flex-col gap-0 p-4">
           {loadingOlder && (
@@ -300,7 +343,7 @@ export function TalkPanel({ slug }: { slug: string }) {
         </div>
       </ScrollArea>
 
-      {/* Composer — matches the agent chat's floating bar aesthetic. */}
+      {/* Composer, matches the agent chat's floating bar aesthetic. */}
       <div className="pointer-events-none px-4 pb-2 pt-2">
         {error && (
           <p className="pointer-events-auto mx-auto mb-1.5 max-w-3xl text-center text-xs text-destructive">
@@ -347,6 +390,119 @@ export function TalkPanel({ slug }: { slug: string }) {
           </a>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Avatar bubble for one participant (overlapping face-pile or list row). */
+function ParticipantAvatar({
+  participant,
+  size = "sm",
+}: {
+  participant: Participant;
+  size?: "sm" | "md";
+}) {
+  const dim = size === "md" ? "h-8 w-8 text-[11px]" : "h-7 w-7 text-[10px]";
+  return (
+    <span
+      className={cn(
+        "flex items-center justify-center rounded-full font-medium text-white",
+        dim,
+        participant.isAgent
+          ? "bg-gradient-to-br from-violet-500 to-indigo-600"
+          : "gradient-primary-br",
+      )}
+    >
+      {initialsOf(participant.name)}
+    </span>
+  );
+}
+
+/**
+ * Overlapping avatar face-pile of everyone in the conversation. Hovering lifts
+ * an avatar; clicking opens the attendance list grouped into agents and people.
+ */
+function ParticipantStack({ participants }: { participants: Participant[] }) {
+  const MAX = 5;
+  const shown = participants.slice(0, MAX);
+  const extra = participants.length - shown.length;
+  const agents = participants.filter((p) => p.isAgent);
+  const humans = participants.filter((p) => !p.isAgent);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Agents and humans in this conversation"
+          className="flex items-center -space-x-2 rounded-full p-0.5 transition hover:opacity-90"
+        >
+          {shown.map((p) => (
+            <span
+              key={p.handle}
+              title={p.name}
+              className="relative inline-flex rounded-full ring-2 ring-background transition-transform hover:z-10 hover:scale-110"
+            >
+              <ParticipantAvatar participant={p} />
+            </span>
+          ))}
+          {extra > 0 && (
+            <span className="relative inline-flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground ring-2 ring-background">
+              +{extra}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-0">
+        <div className="border-b px-3 py-2">
+          <p className="text-sm font-semibold">Agents &amp; humans in this conversation</p>
+          <p className="text-xs text-muted-foreground">
+            {participants.length} so far
+          </p>
+        </div>
+        <div className="max-h-80 overflow-y-auto p-2">
+          {agents.length > 0 && (
+            <ParticipantGroup icon={<Bot className="h-3.5 w-3.5" />} label="Agents" people={agents} />
+          )}
+          {humans.length > 0 && (
+            <ParticipantGroup icon={<User className="h-3.5 w-3.5" />} label="Humans" people={humans} />
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ParticipantGroup({
+  icon,
+  label,
+  people,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  people: Participant[];
+}) {
+  return (
+    <div className="mb-1 last:mb-0">
+      <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {icon}
+        {label}
+        <span className="font-normal normal-case opacity-70">· {people.length}</span>
+      </div>
+      <ul>
+        {people.map((p) => (
+          <li
+            key={p.handle}
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
+          >
+            <ParticipantAvatar participant={p} size="md" />
+            <div className="min-w-0">
+              <p className="truncate text-sm text-foreground">{p.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{p.handle}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

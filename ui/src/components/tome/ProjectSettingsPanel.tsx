@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check, ExternalLink, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,7 +14,7 @@ import type { ProjectDocument, ProjectSources } from "@/types/projects";
  * Project settings, surfaced as a Tome view (nav item under Talk) so a project
  * can be reconfigured without leaving Tome. Edits title, description, and
  * sources (repos / Confluence / Webex via `SourcesEditor`) and persists with
- * `PATCH /api/projects/<slug>` — the same contract the project detail page uses.
+ * `PATCH /api/projects/<slug>`, the same contract the project detail page uses.
  * `onSaved` lets the host refresh anything derived from the project (e.g. the
  * breadcrumb title).
  */
@@ -137,7 +138,16 @@ export function ProjectSettingsPanel({
 
         {sourceKinds.length > 0 && (
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-muted-foreground">Sources</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-medium text-muted-foreground">Sources</label>
+              <Link
+                href="/credentials"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Manage connections
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
             <SourcesEditor kinds={sourceKinds} value={sources} onChange={setSources} />
           </div>
         )}
