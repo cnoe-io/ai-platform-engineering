@@ -297,8 +297,8 @@ jobs:
       contents: read
       packages: read
     container:
-      # assisted-by Codex Codex-sonnet-4-6
-      image: ghcr.io/cnoe-io/playwright:v1.61.0-noble
+      # assisted-by claude code claude-sonnet-4-6
+      image: ghcr.io/cisco-eti/playwright:v1.61.0-noble
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
