@@ -18,6 +18,9 @@ metadata:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "20"
     helm.sh/hook-delete-policy: before-hook-creation
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 5
   template:
