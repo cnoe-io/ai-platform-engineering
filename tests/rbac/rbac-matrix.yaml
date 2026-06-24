@@ -297,32 +297,6 @@ routes:
       frank_service_account:
         status: 403
         reason: DENY_NO_CAPABILITY
-  - id: ui-bff-post-api-admin-rebac-change-sets
-    surface: ui_bff
-    method: POST
-    path: /api/admin/rebac/change-sets
-    resource: admin_ui
-    scope: admin
-    migration_status: migrated
-    notes: dual-auth admin_ui#admin PDP gate for staged ReBAC policy change-set creation.
-    expectations:
-      alice_admin:
-        status: 200
-      bob_chat_user:
-        status: 403
-        reason: DENY_NO_CAPABILITY
-      carol_kb_ingestor:
-        status: 403
-        reason: DENY_NO_CAPABILITY
-      dave_no_role:
-        status: 403
-        reason: DENY_NO_CAPABILITY
-      eve_dynamic_agent_user:
-        status: 403
-        reason: DENY_NO_CAPABILITY
-      frank_service_account:
-        status: 403
-        reason: DENY_NO_CAPABILITY
   - id: ui-bff-get-api-admin-rebac-migrations
     surface: ui_bff
     method: GET
