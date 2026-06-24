@@ -37,6 +37,91 @@ type ProfileUser = {
   lastAccess: number | null;
 };
 
+type AccessVia = {
+  team_slug: string;
+  team_name: string;
+  role: "member" | "admin";
+};
+
+type AccessItem = {
+  id: string;
+  name: string;
+  capability: string;
+  via: AccessVia[];
+};
+
+type AccessGroups = {
+  agents: AccessItem[];
+  tools: AccessItem[];
+  knowledge_bases: AccessItem[];
+  skills: AccessItem[];
+  tasks: AccessItem[];
+};
+
+const ACCESS_GROUP_LABELS: Array<{ key: keyof AccessGroups; label: string }> = [
+  { key: "agents", label: "Agents" },
+  { key: "tools", label: "Tools" },
+  { key: "knowledge_bases", label: "Knowledge bases" },
+  { key: "skills", label: "Skills" },
+  { key: "tasks", label: "Tasks" },
+];
+
+// A group with hundreds of grants would blow out the modal; collapse to a
+// preview and let the admin expand the ones they care about.
+const ACCESS_COLLAPSED_LIMIT = 8;
+
+function AccessGroupList({ label, items }: { label: string; items: AccessItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? items : items.slice(0, ACCESS_COLLAPSED_LIMIT);
+  const hidden = items.length - visible.length;
+
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+        {label} <span className="font-normal normal-case">({items.length})</span>
+      </h4>
+      <ul className="space-y-1.5">
+        {visible.map((item) => (
+          <li
+            key={`${item.id}:${item.capability}`}
+            className="flex flex-col gap-1 rounded-lg border border-border bg-muted/40 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-foreground truncate">
+                {item.name}
+              </span>
+              <span className="ml-2 inline-flex items-center rounded-full bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {item.capability}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 shrink-0">
+              {item.via.map((v) => (
+                <span
+                  key={v.team_slug}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
+                  title={`Granted via team ${v.team_name} (${v.role})`}
+                >
+                  {v.team_name}
+                  <span className="text-muted-foreground/70">· {v.role}</span>
+                </span>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {items.length > ACCESS_COLLAPSED_LIMIT && (
+        <button
+          type="button"
+          className="mt-2 text-xs font-medium text-primary hover:underline"
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          {expanded ? "Show less" : `Show ${hidden} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function formatTs(ms: number | null | undefined): string {
   if (ms == null || ms <= 0) return "";
   try {
@@ -74,6 +159,9 @@ export function UserDetailModal({
   const [addTeamValue, setAddTeamValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [access, setAccess] = useState<AccessGroups | null>(null);
+  const [accessLoading, setAccessLoading] = useState(true);
+  const [accessError, setAccessError] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
     setLoadError(null);
@@ -118,6 +206,30 @@ export function UserDetailModal({
     }
   }, []);
 
+  const loadAccess = useCallback(async () => {
+    setAccessError(null);
+    setAccessLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/users/${encodeURIComponent(userId)}/access`
+      );
+      const json = (await readJson(res)) as {
+        success?: boolean;
+        data?: { access?: AccessGroups };
+        error?: string;
+      } | null;
+      if (!res.ok || !json?.success || !json.data?.access) {
+        throw new Error(json?.error || `Failed to load access (${res.status})`);
+      }
+      setAccess(json.data.access);
+    } catch (e) {
+      setAccessError(e instanceof Error ? e.message : "Failed to load access");
+      setAccess(null);
+    } finally {
+      setAccessLoading(false);
+    }
+  }, [userId]);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -141,6 +253,7 @@ export function UserDetailModal({
         } else {
           await Promise.all([refreshProfile(), loadTeams()]);
         }
+        void loadAccess();
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : "Load failed");
@@ -153,7 +266,7 @@ export function UserDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [refreshProfile, loadTeams, readOnly]);
+  }, [refreshProfile, loadTeams, loadAccess, readOnly]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {
@@ -162,6 +275,7 @@ export function UserDetailModal({
       try {
         await fn();
         await refreshProfile();
+        void loadAccess();
         onSaved();
         if (opts?.refreshSession) {
           void updateSession({ forceRefresh: true });
@@ -172,7 +286,7 @@ export function UserDetailModal({
         setBusy(null);
       }
     },
-    [refreshProfile, onSaved, updateSession]
+    [refreshProfile, loadAccess, onSaved, updateSession]
   );
 
   const fullName = useMemo(() => {
@@ -212,6 +326,14 @@ export function UserDetailModal({
     if (feds.length === 0) return "Local";
     return feds.map((f) => f.identityProvider).join(", ") || "Local";
   }, [user?.federatedIdentities]);
+
+  const accessTotal = useMemo(() => {
+    if (!access) return 0;
+    return ACCESS_GROUP_LABELS.reduce(
+      (sum, { key }) => sum + access[key].length,
+      0
+    );
+  }, [access]);
 
   const slackUserId = user?.attributes?.slack_user_id?.[0]?.trim() ?? "";
   const webexUserId = user?.attributes?.webex_user_id?.[0]?.trim() ?? "";
@@ -437,6 +559,36 @@ export function UserDetailModal({
                       name: t.label,
                     }))}
                   />
+                </div>
+              )}
+            </section>
+
+            <section className="mt-6 border-t border-border pt-6">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="text-sm font-semibold text-foreground">Access</h3>
+                <span className="text-xs text-muted-foreground">
+                  Granted through team membership
+                </span>
+              </div>
+              {accessLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  <span>Resolving access…</span>
+                </div>
+              ) : accessError ? (
+                <p className="text-sm text-destructive">{accessError}</p>
+              ) : !access || accessTotal === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No resource access. Access is granted by adding this user to a
+                  team that owns agents, tools, or knowledge bases.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {ACCESS_GROUP_LABELS.map(({ key, label }) => {
+                    const items = access[key];
+                    if (items.length === 0) return null;
+                    return <AccessGroupList key={key} label={label} items={items} />;
+                  })}
                 </div>
               )}
             </section>

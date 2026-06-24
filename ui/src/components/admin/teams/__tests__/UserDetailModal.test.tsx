@@ -42,6 +42,35 @@ const teamsResponse = {
   },
 };
 
+const accessResponse = {
+  success: true,
+  data: {
+    user: { id: "user-1", email: "sraradhy@cisco.com" },
+    teams: [{ team_slug: "platform", team_name: "Platform", role: "admin" }],
+    access: {
+      agents: [
+        {
+          id: "agent-github",
+          name: "GitHub agent",
+          capability: "use",
+          via: [{ team_slug: "platform", team_name: "Platform", role: "admin" }],
+        },
+      ],
+      tools: [
+        {
+          id: "jira_*",
+          name: "jira_*",
+          capability: "call",
+          via: [{ team_slug: "platform", team_name: "Platform", role: "admin" }],
+        },
+      ],
+      knowledge_bases: [],
+      skills: [],
+      tasks: [],
+    },
+  },
+};
+
 describe("UserDetailModal", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -59,6 +88,13 @@ describe("UserDetailModal", () => {
           ok: true,
           status: 200,
           json: () => Promise.resolve({ success: true, data: { revoked: true } }),
+        });
+      }
+      if (url.includes("/api/admin/users/user-1/access")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(accessResponse),
         });
       }
       if (url.includes("/api/admin/users/user-1")) {
@@ -108,6 +144,77 @@ describe("UserDetailModal", () => {
     await waitFor(() => {
       expect(global.fetch).not.toHaveBeenCalledWith("/api/admin/roles");
     });
+  });
+
+  it("shows resource access grouped with the granting team as the reason", async () => {
+    render(
+      <UserDetailModal
+        userId="user-1"
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+      />
+    );
+
+    expect(await screen.findByText("Sri Aradhyula")).toBeInTheDocument();
+
+    // Access section renders the resolved agent + tool with the team chip.
+    expect(await screen.findByText("GitHub agent")).toBeInTheDocument();
+    expect(screen.getByText("jira_*")).toBeInTheDocument();
+    expect(screen.getByText("Access")).toBeInTheDocument();
+    expect(screen.getAllByText("Platform").length).toBeGreaterThan(0);
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/admin/users/user-1/access"
+    );
+  });
+
+  it("collapses long access groups behind a Show more toggle", async () => {
+    const manyToolsAccess = {
+      success: true,
+      data: {
+        user: { id: "user-1", email: "sraradhy@cisco.com" },
+        teams: [{ team_slug: "platform", team_name: "Platform", role: "member" }],
+        access: {
+          agents: [],
+          tools: Array.from({ length: 20 }, (_, i) => ({
+            id: `tool-${i}`,
+            name: `tool-${i}`,
+            capability: "call",
+            via: [{ team_slug: "platform", team_name: "Platform", role: "member" }],
+          })),
+          knowledge_bases: [],
+          skills: [],
+          tasks: [],
+        },
+      },
+    };
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes("/api/admin/users/user-1/access")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(manyToolsAccess) });
+      }
+      if (url.includes("/api/admin/users/user-1")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(userResponse) });
+      }
+      if (url.includes("/api/admin/teams")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(teamsResponse) });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ success: false }) });
+    });
+
+    render(
+      <UserDetailModal userId="user-1" onClose={jest.fn()} onSaved={jest.fn()} />
+    );
+
+    // Only the first 8 of 20 tools render until expanded.
+    expect(await screen.findByText("tool-0")).toBeInTheDocument();
+    expect(screen.getByText("tool-7")).toBeInTheDocument();
+    expect(screen.queryByText("tool-8")).not.toBeInTheDocument();
+
+    const showMore = screen.getByRole("button", { name: /show 12 more/i });
+    fireEvent.click(showMore);
+
+    expect(screen.getByText("tool-19")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /show less/i }));
+    expect(screen.queryByText("tool-8")).not.toBeInTheDocument();
   });
 
   it("shows Webex link status from webex_user_id attribute", async () => {
