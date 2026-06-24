@@ -823,3 +823,149 @@ pre code.hljs {
 [data-animating] > [data-panel] {
   transition: flex-grow 300ms ease-in-out;
 }
+
+/* ========================================
+   TOME - Milkdown (Crepe) editor chrome
+   Reconcile Crepe's bundled `frame` theme with CAIPE design tokens so the
+   wiki editor matches the app shell instead of Crepe's stock palette, and
+   style citation chips emitted by CrepeEditor's linkAttr hook.
+   ======================================== */
+.milkdown-host {
+  min-height: 100%;
+  /* Map Crepe theme variables → CAIPE tokens. */
+  --crepe-color-background: hsl(var(--background));
+  --crepe-color-on-background: hsl(var(--foreground));
+  --crepe-color-surface: hsl(var(--card));
+  --crepe-color-surface-low: hsl(var(--muted));
+  --crepe-color-on-surface: hsl(var(--card-foreground));
+  --crepe-color-on-surface-variant: hsl(var(--muted-foreground));
+  --crepe-color-outline: hsl(var(--border));
+  --crepe-color-primary: hsl(var(--primary));
+  --crepe-color-on-primary: hsl(var(--primary-foreground));
+  --crepe-color-secondary: hsl(var(--accent));
+  --crepe-color-on-secondary: hsl(var(--accent-foreground));
+  --crepe-color-inverse: hsl(var(--foreground));
+  --crepe-color-on-inverse: hsl(var(--background));
+  --crepe-color-hover: hsl(var(--muted));
+  --crepe-color-selected: hsl(var(--accent));
+  --crepe-shadow-1: none;
+  --crepe-shadow-2: none;
+  /* Crepe's title font is a serif stack (Georgia/Times) - the app has no serif
+     face, so it falls back to Times New Roman. Point every Crepe font at the
+     app's own families instead. */
+  --crepe-font-title: var(--font-sans);
+  --crepe-font-default: var(--font-sans);
+  --crepe-font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+.milkdown-host .milkdown {
+  min-height: 100%;
+  background: transparent;
+  /* Crepe re-declares its theme vars ON `.milkdown` (e.g.
+     `--crepe-color-primary: #333`), which shadows the mapping we set on the
+     parent `.milkdown-host`. Re-map the consumed ones here, at matching
+     specificity, so links/accents pick up the app theme (not near-black). */
+  --crepe-color-primary: hsl(var(--primary));
+  --crepe-color-on-primary: hsl(var(--primary-foreground));
+  --crepe-color-on-background: hsl(var(--foreground));
+  --crepe-color-selected: hsl(var(--accent));
+  /* Crepe also re-declares its font vars on `.milkdown` with a serif stack
+     (Georgia/Times), falling back to Times New Roman. Re-apply the sans-serif
+     override at this level so it wins. */
+  --crepe-font-title: var(--font-sans);
+  --crepe-font-default: var(--font-sans);
+  --crepe-font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-family: var(--font-sans);
+}
+
+.milkdown-host .milkdown .ProseMirror {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 6rem;
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+}
+
+.milkdown-host .milkdown .ProseMirror h1,
+.milkdown-host .milkdown .ProseMirror h2,
+.milkdown-host .milkdown .ProseMirror h3,
+.milkdown-host .milkdown .ProseMirror h4,
+.milkdown-host .milkdown .ProseMirror h5,
+.milkdown-host .milkdown .ProseMirror h6 {
+  font-family: var(--font-sans);
+}
+
+/* The global `*:focus-visible` rule applies a Tailwind box-shadow ring to
+   every focusable element - including the contenteditable surface, which then
+   shows an unwanted light-blue ring on click. The caret (and the amber
+   edit-mode frame on the wrapper) already signal focus, so suppress it here. */
+.milkdown-host .milkdown .ProseMirror:focus,
+.milkdown-host .milkdown .ProseMirror:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Inline code: Crepe's default is a hard red (rgb(186,26,26)) on a fixed grey,
+   which clashes with the app theme (and is unreadable in dark mode). Match the
+   app's prose inline-code instead - muted bg, foreground text. Scoped to inline
+   code only (`:not(pre) > code`) so CodeMirror code blocks are untouched. */
+.milkdown-host .milkdown .ProseMirror :not(pre) > code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
+  color: hsl(var(--foreground));
+}
+
+/* Links: Crepe's default resolves to a near-black that's invisible in dark
+   mode (black-on-black). Use the app's link color, like `.prose a`. The
+   citation-chip links below opt out (they carry their own pill styling). */
+.milkdown-host .milkdown .ProseMirror a:not(.md-citation) {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Citation chips: github issue/pr/commit/release/mention links rendered by
+   the linkAttr hook get `md-citation md-citation-<kind>`. Inline pill styling. */
+.milkdown-host .md-citation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.05em 0.45em;
+  margin: 0 0.05em;
+  border-radius: 9999px;
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.milkdown-host .md-citation:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.milkdown-host .md-citation-issue {
+  border-color: rgb(34 197 94 / 0.4);
+  color: rgb(22 163 74);
+}
+.milkdown-host .md-citation-pr {
+  border-color: rgb(168 85 247 / 0.4);
+  color: rgb(147 51 234);
+}
+.milkdown-host .md-citation-commit {
+  border-color: rgb(245 158 11 / 0.4);
+  color: rgb(217 119 6);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.milkdown-host .md-citation-release {
+  border-color: rgb(14 165 233 / 0.4);
+  color: rgb(2 132 199);
+}
+.milkdown-host .md-citation-mention {
+  border-color: hsl(var(--primary) / 0.4);
+  color: hsl(var(--primary));
+}
