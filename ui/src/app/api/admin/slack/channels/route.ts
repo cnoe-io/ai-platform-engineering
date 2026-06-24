@@ -33,6 +33,14 @@ interface ChannelListRow {
   source: "team_mapping" | "route_metadata";
 }
 
+// Process-lifetime set of objects already repaired this run. Prevents
+// re-attempting the writeOpenFgaTuples + filterTupleDiff read-back on every
+// page load once the tuples are confirmed to be in place.
+const repairedObjects = new Set<string>();
+
+/** Test-only: reset the repair dedup set between Jest test runs. */
+export const __resetRepairedObjectsForTests = (): void => repairedObjects.clear();
+
 function pickPrimaryAgentId(routes: SlackChannelAgentRouteDocument[]): string | undefined {
   const enabledRoute = routes
     .filter((route) => route.enabled !== false)
@@ -58,11 +66,17 @@ async function slackChannelAccess(
   ]);
   let [read, manage] = await checkAccess();
   let repairedManageGrant = false;
-  if (read.allowed && !manage.allowed && teamSlug) {
+  // Only attempt repair when: (a) the channel is team-mapped (teamSlug set),
+  // (b) some permission is missing, and (c) we haven't already repaired this
+  // object in the current process lifetime — avoids re-running the expensive
+  // writeOpenFgaTuples + filterTupleDiff read-back on every page load for
+  // channels that are already correctly configured.
+  if (teamSlug && (!read.allowed || !manage.allowed) && !repairedObjects.has(object)) {
     // assisted-by Codex Codex-sonnet-4-6
-    // Older channel assignments may only have the team-member use tuple.
-    // Re-materialize the central assignment policy so upgraded installs get
-    // the new team-member manage tuple without a manual migration first.
+    // Older channel assignments may only have the team-member use tuple, or
+    // may be missing tuples entirely (e.g. a write failure during assignment).
+    // Re-materialize the central assignment policy so upgraded installs and
+    // members with zero access get correct grants without a manual migration.
     const repair = await writeOpenFgaTuples(
       buildUniversalRebacTupleDiff({
         writes: slackChannelTeamVisibilityRelationships(workspaceId, channelId, teamSlug),
@@ -77,6 +91,9 @@ async function slackChannelAccess(
       });
       return null;
     });
+    // Mark repaired regardless of write count — if tuples were already present
+    // (writes: 0 from filterTupleDiff), we skip re-attempting next time too.
+    if (repair?.enabled) repairedObjects.add(object);
     repairedManageGrant = Boolean(repair?.enabled && repair.writes > 0);
     [read, manage] = await checkAccess();
   }

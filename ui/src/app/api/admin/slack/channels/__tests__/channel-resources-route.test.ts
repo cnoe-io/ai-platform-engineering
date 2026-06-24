@@ -187,7 +187,7 @@ const agentGrant = {
   actions: ["use"],
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
   process.env.OPENFGA_HTTP = "http://openfga:8080";
   process.env.SLACK_WORKSPACE_ALIAS = workspaceAlias;
@@ -214,6 +214,10 @@ beforeEach(() => {
     },
   ]);
   mockCollections.slack_channel_grants = createMockCollection([]);
+  // Reset the module-scope repairedObjects Set so repair tests don't bleed
+  // into each other (the set persists across Jest's module cache lifetime).
+  const channelsRoute = await import("../route");
+  channelsRoute.__resetRepairedObjectsForTests();
 });
 
 afterEach(() => {

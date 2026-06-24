@@ -81,7 +81,8 @@ describe("GET /api/admin/service-accounts/grantable", () => {
   it("keys on the CALLER's own holdings (FR-007/009) and shapes {ref,name}", async () => {
     mockListOpenFgaObjects
       .mockResolvedValueOnce({ objects: ["agent:incident-resolver"] }) // can_use agent
-      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] }); // can_call tool
+      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] }) // can_call tool
+      .mockResolvedValueOnce({ objects: [] }); // member team (no teams → no traversal)
     mockListRebacCatalog.mockResolvedValue({
       resources: [{ type: "agent", id: "incident-resolver", display_name: "Incident Resolver" }],
     });
@@ -91,11 +92,12 @@ describe("GET /api/admin/service-accounts/grantable", () => {
     const body = await res.json();
     expect(body.success).toBe(true);
 
-    // The two list-objects calls are keyed on the caller subject + correct relations.
+    // The first three list-objects calls are keyed on the caller subject + correct relations.
     const calls = mockListOpenFgaObjects.mock.calls.map((c) => c[0]);
-    expect(calls).toEqual([
+    expect(calls.slice(0, 3)).toEqual([
       { user: "user:caller-sub", relation: "can_use", type: "agent" },
       { user: "user:caller-sub", relation: "can_call", type: "tool" },
+      { user: "user:caller-sub", relation: "member", type: "team" },
     ]);
 
     expect(body.data.agents).toEqual([{ ref: "incident-resolver", name: "Incident Resolver" }]);
@@ -109,7 +111,8 @@ describe("GET /api/admin/service-accounts/grantable", () => {
   it("falls back to the raw ref when the catalog has no display name", async () => {
     mockListOpenFgaObjects
       .mockResolvedValueOnce({ objects: ["agent:mystery-agent"] })
-      .mockResolvedValueOnce({ objects: [] });
+      .mockResolvedValueOnce({ objects: [] })
+      .mockResolvedValueOnce({ objects: [] }); // member team
 
     const res = await GET();
     const body = await res.json();
@@ -120,7 +123,8 @@ describe("GET /api/admin/service-accounts/grantable", () => {
   it("still returns agents/tools when the name catalog throws (names are decorative)", async () => {
     mockListOpenFgaObjects
       .mockResolvedValueOnce({ objects: ["agent:a1"] })
-      .mockResolvedValueOnce({ objects: ["tool:srv/do"] });
+      .mockResolvedValueOnce({ objects: ["tool:srv/do"] })
+      .mockResolvedValueOnce({ objects: [] }); // member team
     mockListRebacCatalog.mockRejectedValue(new Error("catalog down"));
 
     const res = await GET();

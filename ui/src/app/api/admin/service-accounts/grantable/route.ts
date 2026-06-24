@@ -249,10 +249,47 @@ export async function GET(request?: NextRequest | Request) {
         );
     }
 
-    const [agentObjects, toolObjects] = await Promise.all([
+    // Fetch direct grants and team memberships in parallel.
+    const [agentObjects, toolObjects, teamObjects] = await Promise.all([
       listOpenFgaObjects({ user: caller, relation: "can_use", type: "agent" }),
       listOpenFgaObjects({ user: caller, relation: "can_call", type: "tool" }),
+      listOpenFgaObjects({ user: caller, relation: "member", type: "team" }),
     ]);
+
+    // For each team the caller belongs to, fetch tool AND agent grants held by
+    // that team's members. This surfaces team-inherited grants (e.g.
+    // `tool:gitlab/*`, `agent:foo`) that are not written as direct user tuples.
+    const teamGrantResults = await Promise.all(
+      teamObjects.objects.map(async (teamObject) => {
+        const teamSlug = stripType(teamObject, "team");
+        const teamMember = `team:${teamSlug}#member`;
+        const [teamTools, teamAgents] = await Promise.all([
+          listOpenFgaObjects({ user: teamMember, relation: "can_call", type: "tool" })
+            .catch((err) => {
+              console.warn("[service-accounts/grantable] team tool lookup failed", { teamSlug, err });
+              return { objects: [] as string[] };
+            }),
+          listOpenFgaObjects({ user: teamMember, relation: "can_use", type: "agent" })
+            .catch((err) => {
+              console.warn("[service-accounts/grantable] team agent lookup failed", { teamSlug, err });
+              return { objects: [] as string[] };
+            }),
+        ]);
+        return { teamTools, teamAgents };
+      })
+    );
+
+    // Union direct grants with team-inherited grants (dedup by ref).
+    const allToolRefs = new Set<string>(
+      toolObjects.objects.map((o) => stripType(o, "tool"))
+    );
+    const allAgentRefs = new Set<string>(
+      agentObjects.objects.map((o) => stripType(o, "agent"))
+    );
+    for (const { teamTools, teamAgents } of teamGrantResults) {
+      for (const o of teamTools.objects) allToolRefs.add(stripType(o, "tool"));
+      for (const o of teamAgents.objects) allAgentRefs.add(stripType(o, "agent"));
+    }
 
     // Resolve friendly names best-effort from the ReBAC resource catalog;
     // fall back to the ref itself so the picker is always usable even if the
@@ -267,15 +304,15 @@ export async function GET(request?: NextRequest | Request) {
       // Names are decorative; ignore catalog failures.
     }
 
-    const agents: GrantableItem[] = agentObjects.objects.map((object) => {
-      const ref = stripType(object, "agent");
-      return { ref, name: nameByAgentId.get(ref) ?? ref };
-    });
+    const agents: GrantableItem[] = Array.from(allAgentRefs).map((ref) => ({
+      ref,
+      name: nameByAgentId.get(ref) ?? ref,
+    }));
 
-    const tools: GrantableItem[] = toolObjects.objects.map((object) => {
-      const ref = stripType(object, "tool");
-      return { ref, name: humanizeToolRef(ref) };
-    });
+    const tools: GrantableItem[] = Array.from(allToolRefs).map((ref) => ({
+      ref,
+      name: humanizeToolRef(ref),
+    }));
 
     // Stable ordering for a predictable picker.
     agents.sort((a, b) => a.name.localeCompare(b.name));
