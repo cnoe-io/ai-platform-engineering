@@ -1,144 +1,141 @@
 name: "[CI] Agentic App Runtime Build and Push"
+description: "Build, smoke-test, and publish the embedded agentic app runtime image"
 
 on:
   push:
     tags:
-      - '**'
+      - "**"
   pull_request:
     paths:
-      - 'ui/apps/**'
-      - 'build/Dockerfile.caipe-agentic-app-runtime'
+      - "ui/apps/**"
+      - "ui/package.json"
+      - "ui/package-lock.json"
+      - "build/Dockerfile.agentic-app"
+      - ".github/workflows/ci-agentic-app-runtime.yml"
   workflow_dispatch:
     inputs:
       tag_version:
-        description: 'Version tag to apply (e.g., 0.5.17-dev.2)'
+        description: "Version tag to apply (e.g., 0.6.0-dev.1)"
         required: false
         type: string
-      force_build:
-        description: 'Force a fresh build instead of retagging.'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
+  packages: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-agentic-app-runtime
+  DOCKERFILE: build/Dockerfile.agentic-app
+  LOCAL_IMAGE: caipe-agentic-app-runtime:ci
 
 jobs:
-  determine-changes:
+  smoke-test:
+    name: Smoke test ${{ matrix.app }}
     runs-on: ubuntu-latest
-    if: |
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
-      (github.event_name == 'workflow_dispatch')
-    outputs:
-      should_build: ${{ steps.set-outputs.outputs.should_build }}
-      should_retag: ${{ steps.set-outputs.outputs.should_retag }}
-      tag_version: ${{ steps.version.outputs.tag_version }}
-      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: finops
+            port: 3010
+            command: node apps/agentic-apps/finops/server.mjs
+            portEnv: FINOPS_APP_PORT
+            jwtSkipEnv: AGENTIC_APP_FINOPS_JWT_SKIP_VERIFY
+          - app: weather
+            port: 3020
+            command: node apps/agentic-apps/weather/server.mjs
+            portEnv: WEATHER_APP_PORT
+            jwtSkipEnv: AGENTIC_APP_WEATHER_JWT_SKIP_VERIFY
+          - app: oss-repo-management
+            port: 3040
+            command: node apps/agentic-apps/oss-repo-management/server.mjs
+            portEnv: OSS_REPO_MANAGEMENT_APP_PORT
+            jwtSkipEnv: AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_SKIP_VERIFY
+          - app: jira-project-dashboard
+            port: 3041
+            command: node apps/agentic-apps/jira-project-dashboard/server.mjs
+            portEnv: JIRA_PROJECT_DASHBOARD_APP_PORT
+            jwtSkipEnv: AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_SKIP_VERIFY
+
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
 
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: read
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Determine Tag
-        id: version
-        uses: ./.github/actions/determine-release-tag
+      - name: Build local agentic app runtime image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
-          manual_tag: ${{ inputs.tag_version }}
-          token: ${{ steps.app-token.outputs.token }}
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          provenance: false
+          sbom: false
 
-      - name: Detect changed paths
-        id: filter
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
-        with:
-          filters: |
-            apps:
-              - 'ui/apps/**'
-              - 'build/Dockerfile.caipe-agentic-app-runtime'
-
-      - name: Set Outputs
-        id: set-outputs
+      - name: Start ${{ matrix.app }} server
+        shell: bash
         env:
-          APPS_CHANGED: ${{ steps.filter.outputs.apps }}
-          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          FORCE_BUILD: ${{ inputs.force_build }}
-          EVENT_NAME: ${{ github.event_name }}
+          APP: ${{ matrix.app }}
+          COMMAND: ${{ matrix.command }}
+          PORT: ${{ matrix.port }}
+          PORT_ENV: ${{ matrix.portEnv }}
+          JWT_SKIP_ENV: ${{ matrix.jwtSkipEnv }}
         run: |
-          SHOULD_BUILD="false"
-          SHOULD_RETAG="false"
+          set -euo pipefail
+          docker run -d \
+            --name "agentic-app-${APP}" \
+            -p "127.0.0.1:${PORT}:${PORT}" \
+            -e NODE_ENV=test \
+            -e "${PORT_ENV}=${PORT}" \
+            -e "${JWT_SKIP_ENV}=true" \
+            "${LOCAL_IMAGE}" \
+            sh -c "${COMMAND}"
 
-          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
-            {
-              echo "should_build=false"
-              echo "should_retag=false"
-              echo "image_prefix="
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
-            IS_PRERELEASE="true"
-            PRERELEASE_NUM="${BASH_REMATCH[2]}"
-          else
-            IS_PRERELEASE="false"
-            PRERELEASE_NUM=0
-          fi
-
-          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
-            IMAGE_PREFIX="pre-release/"
-          else
-            IMAGE_PREFIX=""
-          fi
-
-          if [ "$FORCE_BUILD" == "true" ]; then
-            SHOULD_BUILD="true"
-            SHOULD_RETAG="false"
-          elif [ -n "$TAG_VERSION" ]; then
-            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
-              if [ "$APPS_CHANGED" == "true" ]; then
-                SHOULD_BUILD="true"
-              else
-                SHOULD_RETAG="true"
-              fi
-            else
-              SHOULD_BUILD="true"
+      - name: Check ${{ matrix.app }} /healthz
+        shell: bash
+        env:
+          APP: ${{ matrix.app }}
+          PORT: ${{ matrix.port }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error "http://127.0.0.1:${PORT}/healthz"; then
+              echo
+              echo "${APP} health check passed"
+              exit 0
             fi
-          elif [ "$APPS_CHANGED" == "true" ] || [ "$EVENT_NAME" == "workflow_dispatch" ]; then
-            SHOULD_BUILD="true"
-          fi
+            sleep 2
+          done
+          echo "${APP} health check failed"
+          docker logs "agentic-app-${APP}" || true
+          exit 1
 
-          {
-            echo "should_build=$SHOULD_BUILD"
-            echo "should_retag=$SHOULD_RETAG"
-            echo "image_prefix=$IMAGE_PREFIX"
-          } >> "$GITHUB_OUTPUT"
+      - name: Stop ${{ matrix.app }} server
+        if: always()
+        shell: bash
+        env:
+          APP: ${{ matrix.app }}
+        run: docker rm -f "agentic-app-${APP}" || true
 
-  build-and-push:
+  publish:
+    name: Publish runtime image
     runs-on: ubuntu-latest
-    needs: determine-changes
-    if: needs.determine-changes.outputs.should_build == 'true'
+    needs: smoke-test
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read
       packages: write
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-agentic-app-runtime
-      DOCKERFILE: build/Dockerfile.caipe-agentic-app-runtime
+
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -156,7 +153,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ github.token }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata for Docker
         id: meta
@@ -165,157 +162,23 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
-            type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
+            type=raw,value=${{ inputs.tag_version }},enable=${{ inputs.tag_version != '' }}
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
 
-      - name: Build and Push Docker image
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          context: .
-          file: ${{ env.DOCKERFILE }}
-          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-          sbom: false
-
-  retag-unchanged:
-    runs-on: ubuntu-latest
-    needs: determine-changes
-    if: needs.determine-changes.outputs.should_retag == 'true'
-    permissions:
-      contents: read
-      packages: write
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-agentic-app-runtime
-      DOCKERFILE: build/Dockerfile.caipe-agentic-app-runtime
-    steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-
-      - name: Install crane
-        run: |
-          VERSION="v0.20.2"
-          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar xz crane
-          sudo mv crane /usr/local/bin/
-
-      - name: Log in to registry
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_ACTOR: ${{ github.actor }}
-        run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GH_ACTOR" --password-stdin
-
-      - name: Check source image and retag or build
-        id: retag-or-build
-        env:
-          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
-        run: |
-          FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
-            BASE_VERSION="${BASH_REMATCH[1]}"
-            SUFFIX_TYPE="${BASH_REMATCH[2]}"
-            SUFFIX_NUM="${BASH_REMATCH[3]}"
-            SOURCE_TAG=""
-            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
-              for ((p=SUFFIX_NUM-1; p>=1; p--)); do
-                CANDIDATE="${BASE_VERSION}-${SUFFIX_TYPE}.${p}"
-                if crane manifest "${FULL_IMAGE}:${CANDIDATE}" >/dev/null 2>&1; then
-                  SOURCE_TAG="$CANDIDATE"
-                  break
-                fi
-              done
-            fi
-            if [[ -z "$SOURCE_TAG" ]]; then
-              SOURCE_TAG="${BASE_VERSION}"
-            fi
-          else
-            SOURCE_TAG="latest"
-          fi
-
-          if crane manifest "${FULL_IMAGE}:${SOURCE_TAG}" >/dev/null 2>&1 && crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}"; then
-            echo "needs_build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs_build=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout repository
-        if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Set up Docker Buildx
-        if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Log in to GitHub Container Registry
-        if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Set up QEMU
-        if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
-
-      - name: Build and Push fallback image
-        if: steps.retag-or-build.outputs.needs_build == 'true'
+      - name: Build and push agentic app runtime image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-changes.outputs.tag_version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
           provenance: false
           sbom: false
-
-  notify-release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    needs: [determine-changes, build-and-push, retag-unchanged]
-    if: |
-      always() &&
-      needs.determine-changes.outputs.tag_version != '' &&
-      !contains(needs.determine-changes.outputs.tag_version, '-')
-    steps:
-      - name: Notify release finalize
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
-          BUILD_RESULT: ${{ needs.build-and-push.result }}
-          RETAG_RESULT: ${{ needs.retag-unchanged.result }}
-          REPOSITORY: ${{ github.repository }}
-          WORKFLOW_NAME: ${{ github.workflow }}
-        run: |
-          if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
-          if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
-          if [[ "$BUILD_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
-            CONCLUSION="success"
-          else
-            CONCLUSION="failure"
-          fi
-          gh api --method POST "/repos/${REPOSITORY}/dispatches" --input - <<EOF
-          {
-            "event_type": "ci-completed",
-            "client_payload": {
-              "tag": "$TAG_VERSION",
-              "workflow": "$WORKFLOW_NAME",
-              "conclusion": "$CONCLUSION"
-            }
-          }
-          EOF
