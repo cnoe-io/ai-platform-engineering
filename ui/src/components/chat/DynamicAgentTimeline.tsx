@@ -701,7 +701,7 @@ function ToolParamsView({ args, isNested = false }: { args: Record<string, unkno
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tool Group Segment (multiple consecutive tools) - A2A style
+// Tool Group Segment (multiple consecutive tools)
 // ═══════════════════════════════════════════════════════════════
 
 function ToolGroupSegmentView({ segment, isNested = false }: { segment: ToolGroupSegment; isNested?: boolean }) {

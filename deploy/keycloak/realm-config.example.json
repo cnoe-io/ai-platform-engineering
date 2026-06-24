@@ -151,22 +151,6 @@
             ]
           },
           {
-            "name": "supervisor",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
             "name": "rag",
             "type": "caipe:component",
             "ownerManagedAccess": false,
@@ -255,28 +239,6 @@
             ]
           },
           {
-            "name": "a2a",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "create"
-              },
-              {
-                "name": "view"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "delete"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
             "name": "mcp",
             "type": "caipe:component",
             "ownerManagedAccess": false,
@@ -343,30 +305,6 @@
             "config": {
               "resources": "[\"admin_ui\"]",
               "scopes": "[\"view\",\"configure\",\"admin\",\"audit.view\"]",
-              "applyPolicies": "[\"admin-role-policy\"]"
-            }
-          },
-          {
-            "name": "supervisor-invoke-access",
-            "description": "Chat users can invoke supervisor",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"supervisor\"]",
-              "scopes": "[\"invoke\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "supervisor-admin-access",
-            "description": "Admins can configure and administer supervisor",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"supervisor\"]",
-              "scopes": "[\"configure\",\"admin\"]",
               "applyPolicies": "[\"admin-role-policy\"]"
             }
           },
@@ -439,18 +377,6 @@
             "config": {
               "resources": "[\"mcp\"]",
               "scopes": "[\"invoke\",\"view\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "a2a-access",
-            "description": "Chat users can create and view A2A tasks",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"a2a\"]",
-              "scopes": "[\"create\",\"view\"]",
               "applyPolicies": "[\"chat-user-role-policy\"]"
             }
           },
@@ -1017,7 +943,7 @@
       },
       {
         "name": "chat_user",
-        "description": "Standard chat user — can invoke supervisor, tools, MCP, A2A, skills",
+        "description": "Standard chat user — can use dynamic agents, tools, MCP, RAG, and skills",
         "composite": false,
         "clientRole": false,
         "containerId": "caipe"

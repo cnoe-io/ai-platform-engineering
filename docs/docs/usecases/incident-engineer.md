@@ -4,17 +4,17 @@ sidebar_position: 2
 
 # Use-case: Incident Engineer
 
-## Enhanced Incident Management with PagerDuty, Jira, Agents, and Runbooks
+## Enhanced Incident Management with PagerDuty, Jira, Dynamic Agents, and Runbooks
 
 ### Overview
 
-Integrating PagerDuty, Jira, intelligent agents, and runbooks with Retrieval-Augmented Generation (RAG) enhances incident management by combining automation, collaboration, and AI-driven insights.
+Integrating PagerDuty, Jira, Dynamic Agents, MCP tools, and runbooks with Retrieval-Augmented Generation (RAG) enhances incident management by combining automation, collaboration, and AI-driven insights.
 
 ### Key Features
 
 - **PagerDuty Integration**: Real-time alerting and incident response coordination.
 - **Jira Integration**: Seamless tracking and collaboration for incident resolution.
-- **Intelligent Agents**: AI-powered agents assist in detecting anomalies and providing actionable insights.
+- **Dynamic Agents**: AI-powered agents assist in detecting anomalies and providing actionable insights.
 - **Runbooks with RAG**: Dynamic retrieval of relevant runbook steps using RAG ensures accurate and efficient incident resolution.
 
 ### Benefits
@@ -41,25 +41,20 @@ Integrating PagerDuty, Jira, intelligent agents, and runbooks with Retrieval-Aug
 
 ### Getting Started
 
-To run the Incident Engineer persona:
+To run the Incident Engineer profile:
 
 ```bash
-# Using the generated docker-compose file
-cd docker-compose
-docker compose -f docker-compose.incident-engineer.yaml --profile a2a-p2p up
-
-# Or generate it fresh with dev mode
-make generate-docker-compose PERSONAS="incident-engineer" DEV=true
+docker compose --profile pagerduty --profile github --profile jira --profile confluence --profile backstage --profile komodor up
 ```
 
 The Incident Engineer persona includes:
-- PagerDuty agent for incident alerting
-- GitHub agent for code analysis
-- Backstage agent for service catalog integration
-- Jira agent for ticket management
-- Confluence agent for documentation
-- Komodor agent for Kubernetes troubleshooting
+- PagerDuty MCP server for incident alerting
+- GitHub MCP route for code analysis
+- Backstage MCP server for service catalog integration
+- Jira MCP server for ticket management
+- Confluence MCP server for documentation
+- Komodor MCP server for Kubernetes troubleshooting
 
 ### Conclusion
 
-Leveraging PagerDuty, Jira, intelligent agents, and RAG-powered runbooks transforms incident management into a proactive, efficient, and collaborative process.
+Leveraging PagerDuty, Jira, Dynamic Agents, and RAG-powered runbooks transforms incident management into a proactive, efficient, and collaborative process.

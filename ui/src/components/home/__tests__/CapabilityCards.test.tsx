@@ -2,7 +2,7 @@
  * Unit tests for CapabilityCards component
  *
  * Tests:
- * - Renders Chat, Agents, Tools, Skills, Task Builder, and Knowledge Bases cards when RAG is enabled
+ * - Renders Chat, Agents, Tools, Skills, Workflows, and Knowledge Bases cards when RAG is enabled
  * - Hides Knowledge Bases card when RAG is disabled
  * - Each card links to the correct route
  * - Each card renders title and description
@@ -60,7 +60,7 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-agents')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-mcp-servers')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
-      expect(screen.getByTestId('capability-card-task-builder')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-workflows')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-knowledge-bases')).toBeInTheDocument()
     })
 
@@ -89,9 +89,9 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-mcp-servers')).toHaveAttribute('href', '/dynamic-agents?tab=mcp-servers')
     })
 
-    it('Task Builder card links to /task-builder', () => {
+    it('Workflows card links to /workflows', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByTestId('capability-card-task-builder')).toHaveAttribute('href', '/task-builder')
+      expect(screen.getByTestId('capability-card-workflows')).toHaveAttribute('href', '/workflows')
     })
 
     it('Knowledge Bases card links to /knowledge-bases', () => {
@@ -123,9 +123,9 @@ describe('CapabilityCards', () => {
       expect(screen.getByText(/Connect agents to APIs/)).toBeInTheDocument()
     })
 
-    it('renders Task Builder card title and description', () => {
+    it('renders Workflows card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByText('Task Builder')).toBeInTheDocument()
+      expect(screen.getByText('Workflows')).toBeInTheDocument()
       expect(screen.getByText(/Create and manage self-service workflows/)).toBeInTheDocument()
     })
 
@@ -148,7 +148,7 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-agents')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-mcp-servers')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
-      expect(screen.getByTestId('capability-card-task-builder')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-workflows')).toBeInTheDocument()
       expect(screen.queryByTestId('capability-card-knowledge-bases')).not.toBeInTheDocument()
     })
 

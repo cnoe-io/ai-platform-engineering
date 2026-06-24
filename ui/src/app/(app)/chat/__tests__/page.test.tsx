@@ -15,6 +15,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 
 const mockReplace = jest.fn();
 const mockFetch = jest.fn();
+const mockResolveUsableChatAgentId = jest.fn();
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
@@ -42,6 +43,10 @@ jest.mock("@/lib/config", () => ({
 
 jest.mock("@/lib/storage-config", () => ({
   getStorageMode: () => "mongodb",
+}));
+
+jest.mock("@/lib/chat-agent-selection", () => ({
+  resolveUsableChatAgentId: () => mockResolveUsableChatAgentId(),
 }));
 
 const mockCreateConversation = jest.fn(() => "new-conv-id");
@@ -94,9 +99,7 @@ describe("Chat Redirect Page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = mockFetch;
-    mockFetch.mockResolvedValue({
-      json: async () => ({ success: true, data: { default_agent_id: "default-agent" } }),
-    });
+    mockResolveUsableChatAgentId.mockResolvedValue("default-agent");
     mockConversations = [];
     mockActiveConversationId = null;
     mockGetLastActiveConversationId.mockReturnValue(null);
@@ -146,18 +149,16 @@ describe("Chat Redirect Page", () => {
     render(<Chat />);
 
     await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith("default-agent"));
-    expect(mockFetch).toHaveBeenCalledWith("/api/admin/platform-config");
+    expect(mockResolveUsableChatAgentId).toHaveBeenCalled();
     expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
   });
 
-  it("falls back to supervisor when no default agent is configured", async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({ success: true, data: { default_agent_id: null } }),
-    });
+  it("uses the resolver fallback agent when no platform default is configured", async () => {
+    mockResolveUsableChatAgentId.mockResolvedValue("fallback-agent");
 
     render(<Chat />);
 
-    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith("fallback-agent"));
     expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
   });
 

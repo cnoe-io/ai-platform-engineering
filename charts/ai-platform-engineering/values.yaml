@@ -3,23 +3,20 @@ tags:
   complete: false
   caipe-ui: false
   dynamic-agents: false
-  agent-argocd: false
-  agent-aws: false
-  agent-backstage: false
-  agent-confluence: false
-  agent-github: false
-  agent-gitlab: false
-  agent-jira: false
-  agent-komodor: false
-  agent-pagerduty: false
-  agent-slack: false
-  agent-splunk: false
-  agent-victorops: false
-  agent-weather: false
-  agent-webex: false
-  agent-netutils: false
-  agent-weather: false
-  agent-petstore: false
+  mcp-argocd: false
+  mcp-aws: false
+  mcp-backstage: false
+  mcp-confluence: false
+  mcp-github: false
+  mcp-gitlab: false
+  mcp-jira: false
+  mcp-komodor: false
+  mcp-pagerduty: false
+  mcp-slack: false
+  mcp-splunk: false
+  mcp-victorops: false
+  mcp-webex: false
+  mcp-netutils: false
   rag-stack: false
   slack-bot: false
   webex-bot: false
@@ -28,7 +25,7 @@ tags:
 # Global configuration shared across all subcharts
 global:
   # -- Global image tag override. When set, overrides the default appVersion-based
-  # image tag for ALL subcharts (supervisor, agents, UI, etc.) in a single place.
+  # image tag for ALL subcharts (MCP servers, dynamic agents, UI, etc.) in a single place.
   # Individual subchart `image.tag` values still take highest precedence.
   image:
     tag: ""
@@ -37,19 +34,6 @@ global:
     # final release appVersions use the root published image repositories.
     # Set to `pre-release` or `release` to force either repository channel.
     channel: ""
-
-  # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
-  deploymentMode: "multi-node"
-  a2aAgents:
-    # Keep bundled A2A agent pods disabled by default while still allowing
-    # their MCP servers to install via broad tags such as complete.
-    enabled: false
-
-  # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
-  # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the
-  # Helm release name; set to "single-node" for stable, readable resource names.
-  singleNode:
-    mcpResourcePrefix: ""
 
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
@@ -67,7 +51,7 @@ global:
   metrics:
     enabled: true
 
-  # Global VPA config for all agent deployments (supervisor + all sub-agents).
+  # Global VPA config for all MCP server deployments.
   # Requires VPA to be installed in the cluster.
   # Do not enable alongside global autoscaling — VPA conflicts with HPA on CPU/memory scaling.
   # Setting initial resource requests (see resources: in each agent section) improves early VPA recommendations.
@@ -75,7 +59,7 @@ global:
   # "explicitly false" from the default "false"). To enable VPA selectively, keep global.vpa.enabled=false
   # and set vpa.enabled=true on individual agents instead.
   # Override global defaults per-agent with non-enabled fields:
-  #   agent-github:
+  #   mcp-github:
   #     vpa:
   #       maxAllowed:
   #         cpu: 2
@@ -94,12 +78,10 @@ global:
     #   cpu: 2
     #   memory: 2Gi
 
-  # VPA config for MCP containers in single-node mode, where each MCP server
-  # runs as a standalone Deployment and gets its own VPA resource.
-  # In multi-node mode, MCP runs as a sidecar and its VPA containerPolicy is
-  # governed by global.vpa (or per-agent vpa) instead.
-  # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
-  #   agent-github:
+  # VPA config for MCP server Deployments. Each MCP server runs as its own
+  # Deployment and gets its own VPA resource.
+  # Override per-agent by setting mcp.vpa under the relevant mcp-* section. Example:
+  #   mcp-github:
   #     mcp:
   #       vpa:
   #         enabled: false   # disable VPA for github MCP only
@@ -225,7 +207,6 @@ global:
     # the official GitHub MCP server needs a GitHub PAT secret at startup.
     # When enabled, GITHUB_PERSONAL_ACCESS_TOKEN is injected from
     # existingSecret; Helm fails early if the secret name is omitted.
-    # assisted-by Codex Codex-sonnet-4-6
     githubMcpServer:
       enabled: false
       image:
@@ -239,7 +220,7 @@ global:
       existingSecret:
         name: ""   # e.g. "github-mcp-secret"
         key: GITHUB_PERSONAL_ACCESS_TOKEN
-    # Additional MCP routes that are not rendered from `agent-*` subcharts.
+    # Additional MCP routes that are not rendered from `mcp-*` subcharts.
     # Use this for platform MCP endpoints such as RAG/Knowledge Base.
     # Each item renders one AgentgatewayBackend and one HTTPRoute:
     #   /mcp/<id> -> static host:port using the requested MCP protocol.
@@ -253,8 +234,7 @@ global:
     #     pathPrefix: /mcp/knowledge-base
     #     # Optional: set providerTokenAuth directly, or declare header-targeted
     #     # credential_sources and the chart derives the AgentGateway transform.
-    #     # assisted-by Codex Codex-sonnet-4-6
-    #     providerTokenAuth: false
+    #    #     providerTokenAuth: false
     #     # credential_sources:
     #     #   - kind: caller_token
     #     #     name: X-CAIPE-Provider-Token
@@ -291,16 +271,6 @@ agentgateway:
   #       key: GITLAB_PERSONAL_ACCESS_TOKEN
   extraEnvFrom: []
 
-  # LangGraph Redis for checkpoint and cross-thread store persistence.
-  # Two deployment options:
-  #   1. Dedicated Redis Stack (recommended): set enabled=true to deploy langgraph-redis subchart
-  #   2. Reuse rag-redis: set autoDiscoverService="rag-redis" on persistence values (see below)
-  #      WARNING: rag-redis uses plain redis:7.2-alpine which lacks RedisJSON + RediSearch modules.
-  #      langgraph-checkpoint-redis requires these modules. You must upgrade the rag-redis image
-  #      to redis:8.0+ (which includes them natively) or use the dedicated langgraph-redis instance.
-  langgraphRedis:
-    enabled: false
-
   # Standalone cisco-ai-defense/skill-scanner microservice. The CAIPE UI
   # uploads zipped SKILL packages to this Service for safety scanning.
   # Disabled by default; enable when you want the scanner running in
@@ -316,28 +286,6 @@ agentgateway:
   # The scanner is unauthenticated by design — Service stays ClusterIP.
   skillScanner:
     enabled: false
-
-  # Global checkpoint persistence for all agents + supervisor.
-  # Set once here; all subcharts inherit automatically.
-  # Per-agent override: set checkpointPersistence on individual agent sections.
-  # Options: memory (default, in-process) | redis | postgres | mongodb
-  checkpointPersistence:
-    type: "memory"
-    redis:
-      url: ""
-      existingSecret: {}
-      autoDiscoverService: ""
-      dbIndex: 0
-    postgres:
-      dsn: ""
-      existingSecret: {}
-    mongodb:
-      uri: ""
-      existingSecret: {}
-      dbName: ""
-      checkpointCollection: ""
-      writesCollection: ""
-    ttlMinutes: 0
 
 # ServiceMonitor for scraping all ai-platform-engineering components
 # For agent metrics endpoints, use global.metrics.enabled above
@@ -372,24 +320,6 @@ metrics:
 # Extra Kubernetes resources to deploy
 extraDeploy: []
 
-# Prompt Configuration
-# Choose between predefined prompt configurations or provide your own custom configuration
-#
-# Option 1: Use a predefined prompt configuration type
-# promptConfigType: "default"       # Uses data/prompt_config.yaml (standard orchestrator)
-# promptConfigType: "deep_agent"    # Uses data/prompt_config.deep_agent.yaml (strict zero-hallucination mode)
-#
-# Option 2: Provide custom prompt configuration (overrides promptConfigType)
-# promptConfig: |
-#   agent_name: "My Custom Agent"
-#   system_prompt_template: |
-#     ...
-#
-promptConfigType: "default"  # Options: "default" or "deep_agent"
-promptConfig: ""              # Custom prompt config (overrides promptConfigType if set)
-
-ragPromptConfig: ""           # Custom RAG prompt config (overrides default if set)
-
 # ---------------------------------------------------------------------------
 # Live-skills command template (rendered as the `/skills` slash command
 # in the "Skills Gateway" UI page). Customizable per-deployment.
@@ -407,144 +337,13 @@ ragPromptConfig: ""           # Custom RAG prompt config (overrides default if s
 skillsLiveSkillsName: ""       # Variant name (looks up data/skills/live-skills.<name>.md)
 skillsLiveSkills: ""           # Inline custom live-skills skill (overrides everything)
 
-# Task Configuration
-# Self-service workflow definitions (Create LLM Key, GitHub Org Invite, etc.)
-# Default is bundled from data/task_config.yaml. Override via taskConfig value.
-taskConfig: ""
+######### MCP server configurations #########
+# Each mcp-* block configures one MCP server (alias from Chart.yaml).
 
-######### Supervisor agent configuration #########
-supervisor-agent:
-  # Single-node mode configuration (only used when global.deploymentMode = "single-node").
-  # Lives under supervisor-agent: so both the subchart deployment template AND
-  # parent-chart templates (via index .Values "supervisor-agent") read from one place.
-  # In multi-node mode the agent subcharts export their enabled state via
-  # Chart.yaml import-values into global.enabledSubAgents — do NOT put
-  # enabledSubAgents under global: or it will conflict with that mechanism.
-  singleNode:
-    userInputPromptConfig: ""  # Custom user input subagent prompt config (overrides default if set)
-    enabledSubAgents:
-      aigateway: true
-      argocd: true
-      aws: true
-      backstage: true
-      confluence: true
-      github: true
-      jira: true
-      komodor: true
-      pagerduty: true
-      rag: false
-      slack: true
-      splunk: true
-      weather: false
-      webex: true
-  nameOverride: "supervisor-agent"
+mcp-argocd:
+  nameOverride: "mcp-argocd"
   image:
-    repository: "ghcr.io/cnoe-io/ai-platform-engineering"
-    # tag defaults to .Chart.AppVersion when not specified
-    tag: ""
-    pullPolicy: "IfNotPresent"
-    args: ["platform-engineer"]
-  env:
-    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
-    SKIP_AGENT_CONNECTIVITY_CHECK: "false"
-    AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
-    USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
-    TASK_CONFIG_PATH: "/app/task_config.yaml"
-    POLICY_FILE_PATH: "/app/policy.lp"
-    ENABLE_USER_INFO_TOOL: "false"   # Capture user identity from JWT; enables user_info tool and JWT context middleware
-    FORWARD_JWT_TO_MCP: "false"      # Forward the user JWT as Bearer token to HTTP/streamable-HTTP MCP connections (requires ENABLE_USER_INFO_TOOL=true). Also used by sub-agents via base_langgraph_agent.
-    # Self-service workflow env vars — referenced as ${VAR_NAME} in task_config.yaml prompts.
-    # Set these per environment so system workflows can resolve repo references at runtime.
-    # JARVIS_WORKFLOWS_REPO: "org/jarvis-workflows"      # Templates repo (safe-settings, terraform, etc.)
-    # ADMIN_REPO: "org/admin"                             # Safe-settings admin repo
-    # TERRAFORM_INFRA_REPO: "org/terraform-infra"         # Terraform infrastructure repo
-    # WORKFLOWS_REPO: "org/workflows"                     # GitHub Actions workflows repo
-    # GROUPS_AUTOMATION_REPO: "org/groups-automation"      # Group management automation repo
-    # GROUPS_TEAMS_PATH: "groups_yaml/teams"               # Path prefix for teams directory
-    # ORG_MEMBERSHIP_FILE_PATTERN: ""                      # Org membership YAML path pattern
-    # EMAIL_DOMAIN: "example.com"                          # Email domain for user ID derivation
-    # GITHUB_ORGS: "org1,org2"                             # Comma-separated allowed GitHub orgs
-  multiAgentConfig:
-    protocol: "a2a"
-    port: "8000"
-  # Cross-thread memory persistence: memory (default) | redis | postgres
-  # BYO / external: Redis (in-cluster, external, AWS ElastiCache for Redis), Postgres (external/managed).
-  # Use url/dsn for plain values, or existingSecret to pull from a K8s Secret (recommended for credentials).
-  memoryPersistence:
-    type: "memory"
-    redis:
-      url: ""   # e.g. redis://host:6379/0, redis://user:pass@host:6379/0, or ElastiCache Redis endpoint
-      existingSecret: {}   # optional: { name: "my-redis-secret", key: "REDIS_URL" }
-      # Auto-discover in-cluster Redis: "langgraph-redis" (dedicated) or "rag-redis" (shared, see caveats above)
-      autoDiscoverService: ""
-      dbIndex: 0   # DB index for autoDiscoverService (rag-redis: use 1+, db 0 is RAG data)
-      keyPrefix: ""   # optional: namespace shared Redis (e.g. release name, "caipe-prod", "tenant-xyz")
-    postgres:
-      dsn: ""   # e.g. postgresql://user:pass@host:5432/dbname
-      existingSecret: {}   # optional: { name: "my-pg-secret", key: "DATABASE_URL" }
-    mongodb:
-      uri: ""   # e.g. mongodb://host:27017, mongodb+srv://user:pass@cluster.example.com
-      existingSecret: {}   # optional: { name: "my-mongo-secret", key: "MONGODB_URI" }
-    # Embeddings for semantic memory search (shared with RAG stack EMBEDDINGS_PROVIDER/MODEL).
-    # When set, store backends use vector embeddings for similarity-based memory retrieval.
-    embeddings:
-      provider: ""   # e.g. openai, azure-openai (overrides EMBEDDINGS_PROVIDER for store)
-      model: ""      # e.g. text-embedding-3-small (overrides EMBEDDINGS_MODEL for store)
-      dims: ""       # auto-detected for known models; override if custom
-    ttlMinutes: 10080
-    enableFactExtraction: false
-    maxMemories: 50    # max facts returned to LLM per cross-thread query (LANGGRAPH_STORE_MAX_MEMORIES)
-    maxSummaries: 10   # max summaries returned to LLM per cross-thread query (LANGGRAPH_STORE_MAX_SUMMARIES)
-  # In-thread checkpoint persistence: memory (default) | redis | postgres | mongodb
-  # Persists conversation state within a thread across pod restarts.
-  checkpointPersistence:
-    type: "memory"
-    redis:
-      url: ""
-      existingSecret: {}
-      autoDiscoverService: ""   # "langgraph-redis" or "rag-redis"
-      dbIndex: 0
-    postgres:
-      dsn: ""
-      existingSecret: {}
-    mongodb:
-      uri: ""
-      existingSecret: {}
-    ttlMinutes: 0
-
-######### Sub-agent configurations #########
-# Agent configurations using aliases from Chart.yaml
-
-# AIGateway agent — not a subchart today (runs in-process in the supervisor).
-# Vault AppRole credentials for LiteLLM key management go here.
-# In single-node mode, single-node-agent-secrets.yaml creates an ExternalSecret
-# from this configuration.  A proper aigateway subchart is a follow-up.
-agent-aigateway:
-  mcp:
-    mode: "stdio" # this is a special tool and doesn't have MCP
-  agentSecrets:
-    secretName: "agent-aigateway-secret"
-    # externalSecrets:
-    #   data:
-    #   - secretKey: VAULT_ADDR
-    #     remoteRef: { key: path/to/vault, property: VAULT_ADDR }
-    #   - secretKey: VAULT_NAMESPACE
-    #     remoteRef: { key: path/to/vault, property: VAULT_NAMESPACE }
-    #   - secretKey: VAULT_ROLE_ID
-    #     remoteRef: { key: path/to/vault, property: VAULT_ROLE_ID }
-    #   - secretKey: VAULT_SECRET_ID
-    #     remoteRef: { key: path/to/vault, property: VAULT_SECRET_ID }
-    #   - secretKey: VAULT_MOUNT_POINT
-    #     remoteRef: { key: path/to/vault, property: VAULT_MOUNT_POINT }
-    #   - secretKey: VAULT_APPROLE_PATH
-    #     remoteRef: { key: path/to/vault, property: VAULT_APPROLE_PATH }
-    #   - secretKey: VAULT_PATH_PREFIX
-    #     remoteRef: { key: path/to/vault, property: VAULT_PATH_PREFIX }
-
-agent-argocd:
-  nameOverride: "agent-argocd"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-argocd"
+    repository: "ghcr.io/cnoe-io/mcp-argocd"
     pullPolicy: "IfNotPresent"
   mcp:
     image:
@@ -561,8 +360,8 @@ agent-argocd:
       enabled: false
       protocol: StreamableHTTP # SSE or StreamableHTTP
 
-agent-backstage:
-  nameOverride: "agent-backstage"
+mcp-backstage:
+  nameOverride: "mcp-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "IfNotPresent"
@@ -578,8 +377,8 @@ agent-backstage:
       enabled: false
       protocol: StreamableHTTP
 
-agent-confluence:
-  nameOverride: "agent-confluence"
+mcp-confluence:
+  nameOverride: "mcp-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "IfNotPresent"
@@ -596,10 +395,10 @@ agent-confluence:
     env:
       TRANSPORT: "streamable-http"
 
-agent-github:
-  nameOverride: "agent-github"
+mcp-github:
+  nameOverride: "mcp-github"
   image:
-    repository: "ghcr.io/cnoe-io/agent-github"
+    repository: "ghcr.io/cnoe-io/mcp-github"
     pullPolicy: "IfNotPresent"
   mcp:
     mode: "stdio"
@@ -610,8 +409,8 @@ agent-github:
       # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
       providerTokenAuth: true
 
-agent-gitlab:
-  nameOverride: "agent-gitlab"
+mcp-gitlab:
+  nameOverride: "mcp-gitlab"
   image:
     repository: "ghcr.io/cnoe-io/agent-gitlab"
     pullPolicy: "IfNotPresent"
@@ -665,8 +464,8 @@ agent-gitlab:
       #
       # GITLAB_DENIED_TOOLS_REGEX: "^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$"
 
-agent-jira:
-  nameOverride: "agent-jira"
+mcp-jira:
+  nameOverride: "mcp-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "IfNotPresent"
@@ -682,8 +481,8 @@ agent-jira:
       enabled: false
       protocol: StreamableHTTP
 
-agent-pagerduty:
-  nameOverride: "agent-pagerduty"
+mcp-pagerduty:
+  nameOverride: "mcp-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "IfNotPresent"
@@ -699,8 +498,8 @@ agent-pagerduty:
       enabled: false
       protocol: StreamableHTTP
 
-agent-slack:
-  nameOverride: "agent-slack"
+mcp-slack:
+  nameOverride: "mcp-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
     pullPolicy: "IfNotPresent"
@@ -722,8 +521,8 @@ agent-slack:
       # or restrict to specific channel IDs: "C123,C456" (whitelist), "!C789" (blacklist)
       # SLACK_MCP_ADD_MESSAGE_TOOL: "false"
 
-agent-aws:
-  nameOverride: "agent-aws"
+mcp-aws:
+  nameOverride: "mcp-aws"
   image:
     repository: "ghcr.io/cnoe-io/agent-aws"
     pullPolicy: "IfNotPresent"
@@ -752,8 +551,8 @@ agent-aws:
     # -- Block kubectl port-forward (tunnel internal services). Defaults to false (off).
     RESTRICT_KUBECTL_PORT_FORWARD: "false"
 
-agent-splunk:
-  nameOverride: "agent-splunk"
+mcp-splunk:
+  nameOverride: "mcp-splunk"
   image:
     repository: "ghcr.io/cnoe-io/agent-splunk"
     pullPolicy: "IfNotPresent"
@@ -769,8 +568,8 @@ agent-splunk:
       enabled: false
       protocol: StreamableHTTP
 
-agent-victorops:
-  nameOverride: "agent-victorops"
+mcp-victorops:
+  nameOverride: "mcp-victorops"
   image:
     repository: "ghcr.io/cnoe-io/agent-victorops"
     pullPolicy: "IfNotPresent"
@@ -785,8 +584,8 @@ agent-victorops:
       enabled: false
       protocol: StreamableHTTP
 
-agent-webex:
-  nameOverride: "agent-webex"
+mcp-webex:
+  nameOverride: "mcp-webex"
   image:
     repository: "ghcr.io/cnoe-io/agent-webex"
     pullPolicy: "IfNotPresent"
@@ -802,22 +601,8 @@ agent-webex:
       enabled: false
       protocol: StreamableHTTP
 
-agent-weather:
-  nameOverride: "agent-weather"
-  remoteAgent: true
-  image:
-    repository: "ghcr.io/cnoe-io/agent-weather"
-    pullPolicy: "IfNotPresent"
-  mcp:
-    image:
-      repository: "ghcr.io/cnoe-io/mcp-weather"
-      tag: ""
-      pullPolicy: "IfNotPresent"
-    mode: "http"
-    port: 8000
-
-agent-komodor:
-  nameOverride: "agent-komodor"
+mcp-komodor:
+  nameOverride: "mcp-komodor"
   image:
     repository: "ghcr.io/cnoe-io/agent-komodor"
     pullPolicy: "IfNotPresent"
@@ -833,8 +618,8 @@ agent-komodor:
       enabled: false
       protocol: StreamableHTTP
 
-agent-netutils:
-  nameOverride: "agent-netutils"
+mcp-netutils:
+  nameOverride: "mcp-netutils"
   agentSecrets:
     requiresSecret: false
   image:
@@ -852,46 +637,18 @@ agent-netutils:
       enabled: false
       protocol: StreamableHTTP
 
-agent-weather:
-  nameOverride: "agent-weather"
-  agentSecrets:
-    requiresSecret: false
-  image:
-    repository: "ghcr.io/cnoe-io/agent-weather"
-    pullPolicy: "IfNotPresent"
-  mcp:
-    useRemoteMcpServer: true
-
-agent-petstore:
-  nameOverride: "agent-petstore"
-  agentSecrets:
-    requiresSecret: false
-  image:
-    repository: "ghcr.io/cnoe-io/agent-petstore"
-    pullPolicy: "IfNotPresent"
-  mcp:
-    useRemoteMcpServer: true
-
 ######### CAIPE UI configuration #########
 caipe-ui:
   skills:
     enabled: true
   nameOverride: "caipe-ui"
-  # R1 upstream fix (May 2026): default the Keycloak Admin REST client
-  # secret name to "caipe-platform-secret" — the conventional name an
-  # operator passes via `keycloak.platformClient.secretRef` AND the
-  # default target of the keycloak chart's ExternalSecret (see below
-  # where we also default `keycloak.platformClient.secretRef` itself).
-  #
-  # Helm does not support cross-subchart value substitution at template
-  # time, so we have to hardcode the conventional name in both places.
+  # The CAIPE UI BFF uses the caipe-platform confidential client for
+  # Keycloak Admin REST calls. Helm does not support cross-subchart value
+  # substitution at template time, so the conventional Secret name is
+  # declared in both the keycloak and caipe-ui values.
   # Operators using a non-default Secret name must override BOTH:
   #     keycloak.platformClient.secretRef: my-custom-platform-secret
   #     caipe-ui.keycloakAdminClient.secretName: my-custom-platform-secret
-  #
-  # See docs/docs/security/rbac/secrets-bootstrap.md section "R1: BFF
-  # Keycloak Admin token — production-safety gate".
-  # assisted-by Claude:claude-opus-4-7
   keycloakAdminClient:
     secretName: "caipe-platform-secret"
     secretKey: "OIDC_CLIENT_SECRET"
@@ -930,11 +687,9 @@ caipe-ui:
       readOnly: true
   # ConfigMap for non-sensitive configuration
   config:
-    # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
-    A2A_BASE_URL: ""
     # Bootstrap default agent for new chats. Overridden at runtime by Admin → Settings UI.
     # Set to a dynamic agent ID to pre-configure the default without manual admin action.
-    # Leave empty to use the supervisor (Platform Engineer) as default.
+    # When empty, the UI resolves the first available dynamic agent as the default.
     DEFAULT_AGENT_ID: ""
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
@@ -962,10 +717,7 @@ caipe-ui:
     # When set, only listed templates are seeded; unlisted ones are removed on deploy.
     # When unset or empty, all built-in templates are seeded automatically.
     # BUILTIN_SKILL_IDS: "qs-deploy-status,qs-pr-review"
-    # Dynamic Agents: set to "true" to enable custom agent creation and management
-    # Requires admin role and MongoDB storage mode
-    DYNAMIC_AGENTS_ENABLED: "false"
-    # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
+    # Dynamic Agents service URL. Leave empty to use the chart default.
     # DYNAMIC_AGENTS_URL: ""
     # Connections & Secrets credential store. Disabled by default. Use local-cmk
     # only for non-production testing; production must use aws-kms.
@@ -1118,7 +870,6 @@ caipe-ui:
     # known placeholder ("changeme", "admin", "password", "mongo",
     # "root", "test", etc.). Mirrors `keycloak.strictClientSecrets`.
     # Default false so docker-compose dev + CI matrix keep working.
-    # assisted-by Claude:claude-opus-4-7
     strictPasswords: false
     # External Secrets for MongoDB credentials
     externalSecrets:
@@ -1282,7 +1033,7 @@ dynamic-agents:
 
 ######### Slack Bot Integration configuration #########
 # The Slack bot is a client integration (not an agent) that connects to the
-# CAIPE supervisor via A2A protocol, bringing AI assistance into Slack channels.
+# CAIPE UI BFF (dynamic agents) over SSE, bringing AI assistance into Slack channels.
 # Enable with: global.integrations.slackBot.enabled=true
 slack-bot:
   image:
@@ -1477,23 +1228,10 @@ keycloak:
     enabled: true
     botClientId: "caipe-webex-bot"
 
-  # CAIPE platform OIDC client (the supervisor confidential client).
-  #
-  # R1 upstream fix (May 2026): the umbrella defaults `secretRef` to
-  # `caipe-platform-secret` so the keycloak chart's
-  # `platformClientSecretName` helper and the caipe-ui Deployment's
-  # `KEYCLOAK_ADMIN_CLIENT_SECRET` valueFrom.secretKeyRef both resolve
-  # to the same Secret name. An operator who:
-  #   - pre-creates a K8s Secret called `caipe-platform-secret` with
-  #     key `OIDC_CLIENT_SECRET`, OR
-  #   - enables `externalSecret.enabled=true` (ESO emits a Secret of
-  #     this same name as its target),
-  # gets the full BFF → Keycloak Admin REST wiring out of the box.
-  #
-  # Migration for existing ESO installs that used the OLD default name
-  # `<release>-keycloak-platform-client`: see
-  # docs/docs/security/rbac/secrets-bootstrap.md → R1 upstream fix.
-  # assisted-by Claude:claude-opus-4-7
+  # CAIPE platform OIDC client. Keep this Secret name aligned with
+  # `caipe-ui.keycloakAdminClient.secretName`; the BFF reads it as
+  # KEYCLOAK_ADMIN_CLIENT_SECRET, and the Keycloak init/reconcile Jobs
+  # read the same value as KEYCLOAK_PLATFORM_CLIENT_SECRET.
   platformClient:
     secretRef: "caipe-platform-secret"
 

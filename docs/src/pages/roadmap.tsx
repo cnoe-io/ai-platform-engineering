@@ -7,14 +7,14 @@ import styles from './roadmap.module.css';
 const ROADMAP = [
   {
     title: 'Dynamic Agents Platform',
-    description: 'YAML-based dynamic agent configuration — domain-centric personas (SRE, code review, incident), dynamic skills integration, and full Custom Agent infrastructure replacing hardcoded configurations.',
+    description: 'YAML-based dynamic agent configuration — domain-centric personas (SRE, code review, incident), dynamic skills integration, and full Custom Agent infrastructure.',
     status: 'in-progress',
     subItems: [
       'YAML-based agent configuration and runtime',
-      'Dynamic skills & task builder integration',
+      'Dynamic skills integration',
       'Domain-centric personas: SRE Agent, Code Review Agent',
       'Dynamic agent visibility & access control',
-      'Custom Agents as the default supervisor type',
+      'Custom Agents as the default runtime',
     ],
     issueRefs: ['#963', '#964', '#965', '#966', '#967', '#968', '#970'],
   },

@@ -1,15 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const mockGetConfig = jest.fn((key: string) => {
-  if (key === "dynamicAgentsEnabled") return true;
-  return undefined;
-});
-
-jest.mock("@/lib/config", () => ({
-  getConfig: (key: string) => mockGetConfig(key),
-}));
-
 jest.mock("@/lib/gradient-themes", () => ({
   getGradientStyle: jest.fn(() => null),
   getAccentColor: jest.fn(() => "white"),
@@ -36,10 +27,6 @@ import { NewChatButton } from "../NewChatButton";
 beforeEach(() => {
   jest.clearAllMocks();
   global.fetch = mockFetch;
-  mockGetConfig.mockImplementation((key: string) => {
-    if (key === "dynamicAgentsEnabled") return true;
-    return undefined;
-  });
 });
 
 describe("NewChatButton", () => {
@@ -88,7 +75,7 @@ describe("NewChatButton", () => {
     expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/dynamic-agents/agents/agent-default");
   });
 
-  it("falls back to supervisor chat when no default agent is configured", async () => {
+  it("calls onNewChat with undefined when no default agent is configured", async () => {
     mockFetch.mockResolvedValueOnce({
       json: async () => ({ success: true, data: { default_agent_id: null } }),
     });

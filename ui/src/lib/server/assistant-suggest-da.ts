@@ -38,7 +38,7 @@ function warnIfBaseSuspicious(base: string): void {
       console.warn(
         `[dynamic-agents] DYNAMIC_AGENTS_URL=${base} looks suspicious. ` +
           `The dynamic-agents host port is typically 8100 (compose: 8100->8001). ` +
-          `Other localhost ports (8000=supervisor, 3000=UI) will refuse the request. ` +
+          `Other localhost ports (8000 or 3000=UI) will refuse the request. ` +
           `Update ui/.env.local if AI Assist / Skill Generate is failing.`,
       );
     }
@@ -79,7 +79,7 @@ export function formatAssistantSuggestFetchError(
       `Cannot connect to dynamic-agents at ${suggestUrl} (${code}). ` +
       `Start the dynamic-agents service and ensure it listens on the same host/port. ` +
       `The UI server reads DYNAMIC_AGENTS_URL (e.g. ui/.env.local); default is http://localhost:8100. ` +
-      `If your service uses another port, set DYNAMIC_AGENTS_URL to match (do not point at supervisor or other services).`
+      `If your service uses another port, set DYNAMIC_AGENTS_URL to match (do not point at the UI or other services).`
     );
   }
   return `Cannot reach dynamic-agents at ${suggestUrl}: ${err instanceof Error ? err.message : String(err)}`;

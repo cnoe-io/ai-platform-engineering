@@ -100,10 +100,6 @@ spec:
               value: {{ index .Values.config "SLACK_BOT_ADMIN_TOKEN_URL" | default (printf "http://%s-keycloak:8080/realms/%s/protocol/openid-connect/token" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
             - name: OPENFGA_HTTP
               value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
-            - name: A2A_BASE_URL
-              value: {{ index .Values.config "A2A_BASE_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
-            - name: BACKEND_SKILLS_URL
-              value: {{ index .Values.config "BACKEND_SKILLS_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
             - name: SLACK_BOT_ADMIN_URL
               value: {{ index .Values.config "SLACK_BOT_ADMIN_URL" | default (printf "http://%s-slack-bot:3001" .Release.Name) | quote }}
             - name: WEBEX_BOT_ADMIN_URL
@@ -176,13 +172,6 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: policy-config
-              mountPath: /app/policy.lp
-              subPath: policy.lp
-              readOnly: true
-            - name: task-config
-              mountPath: /app/config/task-config
-              readOnly: true
             {{- if $hasAppConfig }}
             - name: app-config
               mountPath: /etc/caipe-ui
@@ -192,14 +181,6 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        - name: policy-config
-          configMap:
-            name: policy-config
-            optional: true
-        - name: task-config
-          configMap:
-            name: task-config
-            optional: true
         {{- if $hasAppConfig }}
         - name: app-config
           configMap:

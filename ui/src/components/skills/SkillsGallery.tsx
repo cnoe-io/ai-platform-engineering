@@ -25,6 +25,7 @@ import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
@@ -162,8 +163,8 @@ function isHubSkill(config: AgentSkill): boolean {
  * A skill the security scanner has marked unsafe AND no admin has
  * green-lit — must not be runnable.
  *
- * The supervisor + dynamic agents enforce the same rule independently
- * (Python ``scan_gate.is_skill_blocked``) and the catalog API tier
+ * The dynamic-agent runtime enforces the same rule independently
+ * (``scan_gate.is_skill_blocked``) and the catalog API tier
  * stamps ``runnable: false`` (``applyRunnableGate`` in
  * ``app/api/skills/route.ts``). All three layers agree on the same
  * predicate: flagged-without-override is blocked; flagged-with-
@@ -803,10 +804,16 @@ export function SkillsGallery({
       }
     }
 
-    const conversationId = await createConversation();
-    setPendingMessage(message);
-    setActiveFormConfig(null);
-    router.push(`/chat/${conversationId}`);
+    try {
+      const conversationId = await createConversation(await resolveUsableChatAgentId());
+      setPendingMessage(message);
+      setActiveFormConfig(null);
+      router.push(`/chat/${conversationId}`);
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Failed to create a chat conversation";
+      toast(msg, "error");
+    }
   };
 
   /**

@@ -6,7 +6,7 @@ Every user prompt entering CAIPE through Slack and every LLM response leaving CA
 
 ## Guardrail Placement in the Pipeline
 
-The guardrails sit inside the **Slack Bot Backend Server**, wrapping the A2A call to the CAIPE Orchestrator. They are the last checkpoint before a prompt reaches the LLM and the first checkpoint before a response reaches Slack.
+The guardrails sit inside the **Slack Bot Backend Server**, wrapping the Dynamic Agents stream through the CAIPE UI BFF. They are the last checkpoint before a prompt reaches the LLM and the first checkpoint before a response reaches Slack.
 
 ```mermaid
 graph LR
@@ -17,28 +17,28 @@ graph LR
     subgraph BOT["Slack Bot Backend Server"]
         EXTRACT["Extract &<br/>Build Prompt"]
         IG["🛡️ Input<br/>Guardrails"]
-        A2A_OUT["A2A Client<br/>(send)"]
-        A2A_IN["A2A Client<br/>(receive)"]
+        STREAM_OUT["Stream Client<br/>(send)"]
+        STREAM_IN["Stream Client<br/>(receive)"]
         OG["🛡️ Output<br/>Guardrails"]
         FORMAT["Format &<br/>Post to Slack"]
     end
 
     subgraph CAIPE["CAIPE Agent Platform"]
-        ORCH["Orchestrator<br/>(A2A Server)"]
+        ORCH["CAIPE UI BFF +<br/>Dynamic Agents"]
         LLM["LLM"]
-        AGENTS["Domain Agents"]
+        AGENTS["MCP Tools"]
     end
 
     USER -->|"WebSocket<br/>(Socket Mode)"| EXTRACT
     EXTRACT --> IG
-    IG -->|"✅ Pass"| A2A_OUT
+    IG -->|"✅ Pass"| STREAM_OUT
     IG -->|"❌ Block"| FORMAT
-    A2A_OUT -->|"A2A Protocol"| ORCH
+    STREAM_OUT -->|"Dynamic Agents stream"| ORCH
     ORCH --> LLM
     LLM --> AGENTS
     AGENTS --> ORCH
-    ORCH -->|"A2A Streaming"| A2A_IN
-    A2A_IN --> OG
+    ORCH -->|"AG-UI SSE"| STREAM_IN
+    STREAM_IN --> OG
     OG -->|"✅ Pass"| FORMAT
     OG -->|"⚠️ Redact"| FORMAT
     FORMAT -->|"Slack API"| USER
@@ -47,8 +47,8 @@ graph LR
     style OG fill:#e74c3c,color:#fff,stroke:#c0392b
     style EXTRACT fill:#E67E22,color:#fff,stroke:#bf6516
     style FORMAT fill:#E67E22,color:#fff,stroke:#bf6516
-    style A2A_OUT fill:#E67E22,color:#fff,stroke:#bf6516
-    style A2A_IN fill:#E67E22,color:#fff,stroke:#bf6516
+    style STREAM_OUT fill:#E67E22,color:#fff,stroke:#bf6516
+    style STREAM_IN fill:#E67E22,color:#fff,stroke:#bf6516
     style USER fill:#611f69,color:#fff,stroke:#4a154b
     style ORCH fill:#2ECC71,color:#fff,stroke:#1a9c54
     style LLM fill:#9B59B6,color:#fff,stroke:#7d3c98
@@ -57,18 +57,18 @@ graph LR
 
 ### Insertion Points in Code
 
-Both guardrails are centralized in `utils/ai.py` inside `stream_a2a_response()`, so every code path (mentions, DMs, Q&A, AI alerts, retries) passes through them:
+Both guardrails are centralized in `utils/ai.py` inside `stream_response()`, so every code path (mentions, DMs, Q&A, AI alerts, retries) passes through them:
 
 | Guardrail | Location | Runs Before | Runs After |
 |---|---|---|---|
-| **Input** | Start of `stream_a2a_response()` | `a2a_client.send_message_stream()` | Prompt assembly (`extract_message_text` + `build_thread_context`) |
-| **Output** | After `_get_final_text()` | `_stream_final_response()` / `_post_final_response()` | `_check_overthink_skip()` and confidence marker stripping |
+| **Input** | Start of `stream_response()` | `sse_client.stream_chat()` / `sse_client.resume_stream()` | Prompt assembly (`extract_message_text` + `build_thread_context`) |
+| **Output** | Final text handling in `stream_response()` | Slack finalization | AG-UI event accumulation and confidence marker stripping |
 
 ---
 
 ## Input Guardrails
 
-Input guardrails validate and sanitize every user prompt before it is sent to the CAIPE Orchestrator via A2A. A blocked input never reaches the LLM.
+Input guardrails validate and sanitize every user prompt before it is sent to Dynamic Agents. A blocked input never reaches the LLM.
 
 ```mermaid
 flowchart LR
@@ -88,7 +88,7 @@ flowchart LR
         I4 --> I5
     end
 
-    G1 -->|"✅ All checks pass"| SEND(["Send to CAIPE<br/>via A2A Protocol"])
+    G1 -->|"✅ All checks pass"| SEND(["Send to CAIPE<br/>via Dynamic Agents stream"])
     I1 -->|"❌ Reject"| BLOCK
     I2 -->|"❌ Reject"| BLOCK
     I3 -->|"⚠️ Redact & warn"| I4
@@ -202,8 +202,8 @@ sequenceDiagram
     participant SA as Slack App<br/>(Workspace)
     participant SB as Slack Bot Backend
     participant IG as 🛡️ Input<br/>Guardrails
-    participant A2A as A2A Client
-    participant OR as CAIPE Orchestrator<br/>(A2A Server)
+    participant STREAM as Stream Client
+    participant OR as CAIPE UI BFF +<br/>Dynamic Agents
     participant OG as 🛡️ Output<br/>Guardrails
 
     Note over U,OG: ── Slack → Bot Backend (WebSocket / Socket Mode) ──
@@ -224,19 +224,19 @@ sequenceDiagram
     else Input has PII (redactable)
         IG-->>SB: ⚠️ REDACTED (cleaned prompt + warning)
         SB->>SA: Post warning: "I removed personal info from your message."
-        SB->>A2A: Send cleaned prompt
+        SB->>STREAM: Send cleaned prompt
     else Input passes all checks
         IG-->>SB: ✅ PASS
-        SB->>A2A: Send original prompt
+        SB->>STREAM: Send original prompt
     end
 
-    Note over A2A,OR: ── Bot Backend → CAIPE (A2A Protocol) ──
+    Note over STREAM,OR: ── Bot Backend → CAIPE (Dynamic Agents Stream) ──
 
-    A2A->>OR: A2A message/stream<br/>Authorization: Bearer <user_jwt>
+    STREAM->>OR: AG-UI stream request<br/>Authorization: Bearer <user_jwt>
     OR->>OR: LLM processing +<br/>Agent execution
-    OR-->>A2A: A2A streaming response (SSE)
+    OR-->>STREAM: AG-UI streaming response (SSE)
 
-    A2A->>SB: Parsed response<br/>(final_text from events)
+    STREAM->>SB: Parsed response<br/>(final_text from events)
 
     Note over SB,OG: ── Output Guardrail Check ──
 
@@ -263,7 +263,7 @@ sequenceDiagram
 
 ## Guardrail Architecture Patterns
 
-### Pattern 1: Middleware in `stream_a2a_response()`
+### Pattern 1: Middleware in `stream_response()`
 
 The recommended pattern centralizes both guardrails in the single function that all Slack handlers call. Every code path — mentions, DMs, Q&A, AI alerts, retries — passes through the same guardrails.
 
@@ -276,15 +276,15 @@ graph LR
         H4["handle_ai_alert_processing"]
     end
 
-    subgraph CENTRAL["stream_a2a_response() — Central Pipeline"]
+    subgraph CENTRAL["stream_response() — Central Pipeline"]
         IG["🛡️ Input Guardrails<br/>──────────<br/>validate_input(message_text)"]
-        A2A["A2A send_message_stream"]
+        STREAM["SSE stream_chat / resume_stream"]
         PARSE["Event parsing +<br/>_get_final_text()"]
         OG["🛡️ Output Guardrails<br/>──────────<br/>validate_output(final_text)"]
         POST["Post to Slack"]
 
-        IG --> A2A
-        A2A --> PARSE
+        IG --> STREAM
+        STREAM --> PARSE
         PARSE --> OG
         OG --> POST
     end
@@ -296,7 +296,7 @@ graph LR
 
     style IG fill:#e74c3c,color:#fff,stroke:#c0392b
     style OG fill:#e74c3c,color:#fff,stroke:#c0392b
-    style A2A fill:#E67E22,color:#fff,stroke:#bf6516
+    style STREAM fill:#E67E22,color:#fff,stroke:#bf6516
     style PARSE fill:#E67E22,color:#fff,stroke:#bf6516
     style POST fill:#E67E22,color:#fff,stroke:#bf6516
     style H1 fill:#611f69,color:#fff

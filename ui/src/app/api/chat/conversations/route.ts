@@ -5,7 +5,6 @@ import {
 getAuthFromBearerOrSession,
 getPaginationParams,
 paginatedResponse,
-requireRbacPermission,
 successResponse,
 validateRequired,
 withErrorHandler,
@@ -163,8 +162,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   // Combine release/0.4.0's dual-auth (bearer token | session) with comprehensive
   // RBAC enforcement. The bearer path is required by the Slack bot and other
-  // first-party service callers; the RBAC check is required to enforce the
-  // 098-enterprise-rbac scope on supervisor invocations.
+  // first-party service callers. Every conversation targets a dynamic agent, so
+  // authorization is enforced per-agent via `agent#can_use` (no agentless chat).
   const { user, session } = await getAuthFromBearerOrSession(request);
   const body: CreateConversationRequest = await request.json();
 
@@ -181,22 +180,25 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  if (body.agent_id) {
-    // Dynamic agent conversation — gate on agent-level can_use, not supervisor#invoke.
-    // Service-account callers are graphed as `service_account:<sub>` (their grants
-    // live under that type); see requireAgentUsePermission (spec 2026-06-05).
-    const denial = await requireAgentUsePermission({
-      subject: session.sub,
-      agentId: body.agent_id,
-      email: user.email,
-      isServiceAccount: session.isServiceAccount,
-    });
-    if (denial) {
-      return denial;
-    }
-  } else {
-    // No specific agent — routing through the supervisor.
-    await requireRbacPermission(session, 'supervisor', 'invoke');
+  // A conversation must target a dynamic agent. Reject agentless creation.
+  if (!body.agent_id) {
+    return NextResponse.json(
+      { success: false, error: 'agent_id is required: select an agent to start a conversation.' },
+      { status: 400 }
+    );
+  }
+
+  // Dynamic agent conversation — gate on agent-level can_use.
+  // Service-account callers are graphed as `service_account:<sub>` (their grants
+  // live under that type); see requireAgentUsePermission (spec 2026-06-05).
+  const denial = await requireAgentUsePermission({
+    subject: session.sub,
+    agentId: body.agent_id,
+    email: user.email,
+    isServiceAccount: session.isServiceAccount,
+  });
+  if (denial) {
+    return denial;
   }
 
   const conversations = await getCollection<Conversation>('conversations');

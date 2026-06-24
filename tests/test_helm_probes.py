@@ -66,66 +66,24 @@ _GLOBAL_BASE = {
 
 
 # ---------------------------------------------------------------------------
-# agent subchart
+# mcp-server subchart (renders one agent's MCP server: Deployment + Service)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def agent_docs():
-    return _helm_template(
-        CHARTS / "ai-platform-engineering/charts/agent",
+def agent_mcp_container():
+    docs = _helm_template(
+        CHARTS / "ai-platform-engineering/charts/mcp-server",
         {
             **_GLOBAL_BASE,
             "global.mcp.vpa.enabled": "false",
-            "image.repository": "ghcr.io/cnoe-io/agent-test",
             "mcp.image.repository": "ghcr.io/cnoe-io/mcp-test",
         },
     )
-
-
-@pytest.fixture(scope="module")
-def agent_main_container(agent_docs):
-    deps = _deployments(agent_docs)
-    # agent deployment is the one NOT ending in -mcp
-    dep = next(d for d in deps if not d["metadata"]["name"].endswith("-mcp"))
+    dep = _deployment_named(docs, "-mcp")
     return _main_container(dep)
 
 
-@pytest.fixture(scope="module")
-def agent_mcp_container(agent_docs):
-    dep = _deployment_named(agent_docs, "-mcp")
-    return _main_container(dep)
-
-
-class TestAgentProbes:
-    def test_startup_uses_httpget(self, agent_main_container):
-        assert "httpGet" in _startup(agent_main_container)
-
-    def test_startup_path_is_health(self, agent_main_container):
-        assert _startup(agent_main_container)["httpGet"]["path"] == "/health"
-
-    def test_startup_failure_threshold_is_30(self, agent_main_container):
-        assert _startup(agent_main_container)["failureThreshold"] == 30
-
-    def test_liveness_uses_httpget(self, agent_main_container):
-        assert "httpGet" in _liveness(agent_main_container)
-
-    def test_liveness_path_is_health(self, agent_main_container):
-        assert _liveness(agent_main_container)["httpGet"]["path"] == "/health"
-
-    def test_liveness_failure_threshold_is_3(self, agent_main_container):
-        assert _liveness(agent_main_container)["failureThreshold"] == 3
-
-    def test_readiness_uses_httpget(self, agent_main_container):
-        assert "httpGet" in _readiness(agent_main_container)
-
-    def test_readiness_path_is_ready(self, agent_main_container):
-        assert _readiness(agent_main_container)["httpGet"]["path"] == "/ready"
-
-    def test_readiness_failure_threshold_is_3(self, agent_main_container):
-        assert _readiness(agent_main_container)["failureThreshold"] == 3
-
-
-class TestAgentMcpProbes:
+class TestMcpServerProbes:
     def test_mcp_startup_uses_tcpsocket(self, agent_mcp_container):
         assert "tcpSocket" in _startup(agent_mcp_container)
 
@@ -142,68 +100,6 @@ class TestAgentMcpProbes:
         assert "httpGet" not in _startup(agent_mcp_container)
         assert "httpGet" not in _liveness(agent_mcp_container)
         assert "httpGet" not in _readiness(agent_mcp_container)
-
-
-class TestAgentSlimSuppressesProbes:
-    """Probes must be omitted when SLIM transport is active (agent cannot self-probe)."""
-
-    def test_slim_mode_omits_startup_probe(self):
-        docs = _helm_template(
-            CHARTS / "ai-platform-engineering/charts/agent",
-            {
-                **_GLOBAL_BASE,
-                "global.mcp.vpa.enabled": "false",
-                "global.slim.enabled": "true",
-                "global.slim.endpoint": "http://slim:46357",
-                "image.repository": "ghcr.io/cnoe-io/agent-test",
-                "mcp.image.repository": "ghcr.io/cnoe-io/mcp-test",
-            },
-        )
-        deps = _deployments(docs)
-        dep = next(d for d in deps if not d["metadata"]["name"].endswith("-mcp"))
-        c = _main_container(dep)
-        assert "startupProbe" not in c
-        assert "livenessProbe" not in c
-        assert "readinessProbe" not in c
-
-
-# ---------------------------------------------------------------------------
-# supervisor-agent subchart
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="module")
-def supervisor_container():
-    docs = _helm_template(
-        CHARTS / "ai-platform-engineering/charts/supervisor-agent",
-        {
-            **_GLOBAL_BASE,
-            "global.deploymentMode": "multi-node",
-            "image.repository": "ghcr.io/cnoe-io/supervisor",
-        },
-    )
-    return _main_container(_deployments(docs)[0])
-
-
-class TestSupervisorProbes:
-    def test_startup_uses_httpget(self, supervisor_container):
-        assert "httpGet" in _startup(supervisor_container)
-
-    def test_startup_path_is_health(self, supervisor_container):
-        assert _startup(supervisor_container)["httpGet"]["path"] == "/health"
-
-    def test_startup_failure_threshold_is_30(self, supervisor_container):
-        assert _startup(supervisor_container)["failureThreshold"] == 30
-
-    def test_liveness_path_is_health(self, supervisor_container):
-        assert _liveness(supervisor_container)["httpGet"]["path"] == "/health"
-
-    def test_readiness_path_is_health(self, supervisor_container):
-        assert _readiness(supervisor_container)["httpGet"]["path"] == "/health"
-
-    def test_no_tcpsocket(self, supervisor_container):
-        assert "tcpSocket" not in _startup(supervisor_container)
-        assert "tcpSocket" not in _liveness(supervisor_container)
-        assert "tcpSocket" not in _readiness(supervisor_container)
 
 
 # ---------------------------------------------------------------------------
@@ -400,41 +296,3 @@ class TestSkillScannerProbes:
         assert "tcpSocket" not in _startup(skill_scanner_container)
         assert "tcpSocket" not in _liveness(skill_scanner_container)
         assert "tcpSocket" not in _readiness(skill_scanner_container)
-
-
-# ---------------------------------------------------------------------------
-# langgraph-redis subchart
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="module")
-def langgraph_redis_container():
-    docs = _helm_template(
-        CHARTS / "ai-platform-engineering/charts/langgraph-redis",
-        _GLOBAL_BASE,
-    )
-    return _main_container(_deployments(docs)[0])
-
-
-class TestLanggraphRedisProbes:
-    def test_startup_uses_exec(self, langgraph_redis_container):
-        assert "exec" in _startup(langgraph_redis_container)
-
-    def test_startup_command_is_redis_cli_ping(self, langgraph_redis_container):
-        cmd = _startup(langgraph_redis_container)["exec"]["command"]
-        assert "redis-cli" in cmd
-        assert "ping" in cmd
-
-    def test_startup_failure_threshold_is_12(self, langgraph_redis_container):
-        # Redis starts quickly (12×5s = 60s window is sufficient)
-        assert _startup(langgraph_redis_container)["failureThreshold"] == 12
-
-    def test_liveness_uses_exec(self, langgraph_redis_container):
-        assert "exec" in _liveness(langgraph_redis_container)
-
-    def test_readiness_uses_exec(self, langgraph_redis_container):
-        assert "exec" in _readiness(langgraph_redis_container)
-
-    def test_no_httpget(self, langgraph_redis_container):
-        assert "httpGet" not in _startup(langgraph_redis_container)
-        assert "httpGet" not in _liveness(langgraph_redis_container)
-        assert "httpGet" not in _readiness(langgraph_redis_container)
