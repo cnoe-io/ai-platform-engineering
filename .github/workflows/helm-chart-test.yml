@@ -58,10 +58,10 @@ jobs:
 
     - name: Configure Helm for OCI authentication
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GH_ACTOR: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_ACTOR: ${{ github.actor }}
       run: |
-        echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GH_ACTOR" --password-stdin
+        echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
     - name: Install Helm dependencies for rag-stack
       run: |
@@ -138,7 +138,7 @@ jobs:
           --set global.deploymentMode=single-node \
           --set global.agentgateway.enabled=true \
           --set agentgateway.enabled=true \
-          --set mcp-argocd.mcp.agentgateway.enabled=true)
+          --set agent-argocd.mcp.agentgateway.enabled=true)
         if echo "$rendered" | grep -Eq 'kind:[[:space:]]*(Gateway|HTTPRoute|AgentgatewayBackend|AgentgatewayPolicy)'; then
           echo "ERROR: default routingMode rendered Gateway API / AgentGateway custom resources" >&2
           echo "$rendered" | grep -E 'kind:[[:space:]]*(Gateway|HTTPRoute|AgentgatewayBackend|AgentgatewayPolicy)' >&2
@@ -162,7 +162,7 @@ jobs:
           --set global.agentgateway.enabled=true \
           --set agentgateway.enabled=true \
           --set global.agentgateway.routingMode=gateway-api \
-          --set mcp-argocd.mcp.agentgateway.enabled=true)
+          --set agent-argocd.mcp.agentgateway.enabled=true)
         echo "$rendered" | grep -Eq 'kind:[[:space:]]*Gateway$' \
           || { echo "ERROR: gateway-api mode did not render a Gateway custom resource" >&2; exit 1; }
         echo "OK: opt-in gateway-api routing mode rendered Gateway API CRs"
@@ -172,7 +172,9 @@ jobs:
         cd charts/ai-platform-engineering
         helm template test-minimal . \
           --debug \
-          --set tags.mcp-argocd=true \
+          --set supervisor-agent.enabled=true \
+          --set agent-argocd.enabled=false \
+          --set agent-github.enabled=false \
           --set tags.rag-stack=false
 
     - name: Validate ai-platform-engineering image channels
@@ -259,10 +261,10 @@ jobs:
         helm template test-agents . \
           --set tags.complete=true \
           --set tags.rag-stack=false \
-          --set mcp-argocd.enabled=true \
-          --set mcp-github.enabled=true \
-          --set mcp-slack.enabled=true \
-          --set mcp-jira.enabled=true
+          --set agent-argocd.enabled=true \
+          --set agent-github.enabled=true \
+          --set agent-slack.enabled=true \
+          --set agent-jira.enabled=true
 
     - name: Validate chart packages
       run: |

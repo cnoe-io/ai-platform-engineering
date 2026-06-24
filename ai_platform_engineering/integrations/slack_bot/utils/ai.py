@@ -241,7 +241,7 @@ def _build_footer_text(triggered_by_user_id=None, additional_footer=None, agent_
     parts.append(f"_Agent: {agent_id}_")
   if triggered_by_user_id:
     parts.append(f"_Requested by <@{triggered_by_user_id}>_")
-  parts.append(f"_Mention @{APP_NAME} to continue_")
+  parts.append(f"*_Mention @{APP_NAME} to continue_*")
   return " • ".join(parts)
 
 

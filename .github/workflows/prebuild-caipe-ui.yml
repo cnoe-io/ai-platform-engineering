@@ -34,7 +34,8 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-ui
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -92,11 +93,9 @@ jobs:
         id: eligibility
         shell: bash
         env:
-          BASE_REF_INPUT: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
-          BASE_SHA_INPUT: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BASE_REF="$BASE_REF_INPUT"
-          BASE_SHA="$BASE_SHA_INPUT"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             BASE="$BASE_SHA"
@@ -128,13 +127,10 @@ jobs:
         id: compute_tag
         shell: bash
         env:
-          HEAD_REF_INPUT: ${{ inputs.head_ref || github.head_ref }}
-          BASE_REF_INPUT: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
-          BASE_SHA_INPUT: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          BRANCH: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BRANCH="$HEAD_REF_INPUT"
-          BASE_REF="$BASE_REF_INPUT"
-          BASE_SHA="$BASE_SHA_INPUT"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
@@ -192,6 +188,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
+            CAIPE_URL=http://caipe-supervisor:8000
             BUILDKIT_INLINE_CACHE=1
             IMAGE_TAG=${{ env.PREBUILD_TAG }}
             GIT_COMMIT=${{ inputs.head_sha || github.sha }}

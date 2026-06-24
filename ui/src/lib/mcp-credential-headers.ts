@@ -131,7 +131,12 @@ async function resolveSourceCredential(
         };
       }
     } catch (error) {
-      if (pinned || isMcpCredentialUnavailableError(error)) {
+      if (pinned) {
+        throw error;
+      }
+      // Non-pinned: a missing/unconnected provider connection is expected when
+      // the caller hasn't registered a credential yet — fall through to fallback_env.
+      if (!isMcpCredentialUnavailableError(error)) {
         throw error;
       }
     }
