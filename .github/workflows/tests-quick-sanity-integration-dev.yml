@@ -23,6 +23,10 @@ permissions:
   contents: read
   packages: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   quick-sanity-dev:
     runs-on: caipe-integration-tests
@@ -53,6 +57,7 @@ jobs:
           # For workflow_run: test the commit that triggered the build
           # For workflow_dispatch: test HEAD of the triggered branch
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
 
       - name: Detect image tag
         id: image-tag
@@ -172,9 +177,9 @@ jobs:
           python-version: '3.13'
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
 
       - name: Reclaim disk space
         run: |
@@ -237,7 +242,6 @@ jobs:
               logs -f --no-color --timestamps \
               | tee -a compose-live.log ) &
           echo $! > logs.pid
-        shell: bash
 
       - name: Wait for readiness
         run: |
