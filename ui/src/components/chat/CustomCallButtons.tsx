@@ -83,6 +83,16 @@ export const DEFAULT_AGENTS: CustomCall[] = [
       "Check service status",
     ],
   },
+  {
+    id: "webex",
+    label: "Webex",
+    prompt: "@webex",
+    suggestions: [
+      "Post incident update",
+      "Share deployment summary",
+      "Notify team space",
+    ],
+  },
 ];
 
 interface CustomCallButtonsProps {

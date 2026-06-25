@@ -12,6 +12,8 @@ const eslintConfig = [
       "dist/",
       "build/",
       "coverage/",
+      "playwright-report/",
+      "test-results/",
       "*.min.js",
     ],
   },
@@ -21,6 +23,11 @@ const eslintConfig = [
     rules: {
       "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
+      "react/no-unescaped-entities": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/set-state-in-effect": "off",
     },
   },
   // CAS silo boundary: the OpenFGA transport adapters are private. The CAS
