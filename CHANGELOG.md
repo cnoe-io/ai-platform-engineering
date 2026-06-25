@@ -1,3 +1,48 @@
+## 0.5.22 (2026-06-25)
+
+### Feat
+
+- **ui**: make release notes user-scoped under General and simplify config (#2017)
+
+### Fix
+
+- **ci**: resolve remaining zizmor findings (#2010)
+
+## 0.5.21-dev.4 (2026-06-25)
+
+### Feat
+
+- **admin**: replace low-level FGA admin tools with team-based user access view (#2016)
+
+### Fix
+
+- **webex**: gate space access on agent assignment, not team membership (#1763)
+
+## 0.5.21-dev.3 (2026-06-24)
+
+### Fix
+
+- **ai-review**: persist grade on create, align AI Suggest to rubric, and fix blocking-message UX (#2014)
+
+## 0.5.21-dev.2 (2026-06-24)
+
+### Feat
+
+- **core**: remove legacy supervisor model and A2A standalone agents (#1728)
+
+## 0.5.21-dev.1 (2026-06-24)
+
+### Feat
+
+- **slack-bot**: bold-italic footer hint and env.example comment cleanup (#2011)
+
+### Fix
+
+- **rbac**: filter OpenFGA tuples server-side in slack channel diagnostics (#2009)
+- **ci**: scope sync-release-branches write perms to the sync job
+- **ci**: scope overly-broad workflow permissions to jobs
+- **ci**: resolve zizmor template-injection and unpinned-action findings
+
 ## 0.5.21 (2026-06-23)
 
 ### Feat
