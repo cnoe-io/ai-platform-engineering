@@ -92,6 +92,9 @@ export interface Conversation {
   // assisted-by Codex Codex-sonnet-4-6
   // Response-only: current viewer reached this conversation through sharing, not ownership.
   viewer_has_shared_access?: boolean;
+  // assisted-by Codex Codex-sonnet-4-6
+  // Response-only: current viewer's effective access level for UI affordances.
+  access_level?: 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;

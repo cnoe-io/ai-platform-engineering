@@ -5,6 +5,7 @@ import {
 getAuthFromBearerOrSession,
 getPaginationParams,
 paginatedResponse,
+requireConversationAccess,
 successResponse,
 validateRequired,
 withErrorHandler,
@@ -144,9 +145,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
   const visibleItemsWithViewerFlags = annotateConversationsWithViewerSharing(session, user.email, visibleItems);
+  const visibleItemsWithAccessLevel = await Promise.all(
+    visibleItemsWithViewerFlags.map(async (conversation) => {
+      const { access_level } = await requireConversationAccess(
+        conversation._id,
+        user.email,
+        getCollection,
+        session,
+      );
+      return { ...conversation, access_level };
+    }),
+  );
 
   return paginatedResponse(
-    await enrichConversationAgentNames(visibleItemsWithViewerFlags),
+    await enrichConversationAgentNames(visibleItemsWithAccessLevel),
     visibleItems.length < items.length ? visibleItems.length : total,
     page,
     pageSize

@@ -31,8 +31,10 @@ export interface Conversation {
   /** Sharing information (optional, only for MongoDB conversations) */
   sharing?: {
     is_public?: boolean;
+    public_permission?: "view" | "comment";
     shared_with?: string[];
     shared_with_teams?: string[];
+    team_permissions?: Record<string, "view" | "comment">;
     share_link_enabled?: boolean;
   };
 }

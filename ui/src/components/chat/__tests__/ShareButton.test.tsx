@@ -39,7 +39,7 @@ describe('ShareButton', () => {
     })
   })
 
-  it('renders recipient share affordance with shared-by tooltip and copies the link', async () => {
+  it('copies the link for read-only shared recipients', async () => {
     render(
       <ShareButton
         conversationId="conv-recipient"
@@ -47,6 +47,7 @@ describe('ShareButton', () => {
         isOwner={false}
         isSharedWithViewer
         sharedBy="owner@test.com"
+        accessLevel="shared_readonly"
       />,
     )
 
@@ -62,6 +63,33 @@ describe('ShareButton', () => {
     })
     expect(screen.queryByTestId('share-dialog')).not.toBeInTheDocument()
     expect(mockShareDialog).not.toHaveBeenCalled()
+  })
+
+  it('opens sharing details for edit-mode shared recipients', async () => {
+    render(
+      <ShareButton
+        conversationId="conv-edit-recipient"
+        conversationTitle="Editable Recipient Chat"
+        isOwner={false}
+        isSharedWithViewer
+        sharedBy="owner@test.com"
+        accessLevel="shared"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Shared by owner@test.com' })).toBeInTheDocument()
+    expect(screen.getByText('Shared by owner@test.com')).toBeInTheDocument()
+    expect(screen.queryByText('Click to copy link')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Shared by owner@test.com' }))
+
+    await waitFor(() => expect(screen.getByTestId('share-dialog')).toBeInTheDocument())
+    expect(writeText).not.toHaveBeenCalled()
+    expect(mockShareDialog).toHaveBeenLastCalledWith(expect.objectContaining({
+      canManageSharing: false,
+      open: true,
+      sharedBy: 'owner@test.com',
+    }))
   })
 
   it('opens the share dialog for owners', () => {

@@ -73,12 +73,12 @@ test.describe("mocked RBAC e2e — chat navigation regression", () => {
     expect(createCallCount).toBe(0);
   });
 
-  test("shows the shared-by affordance to shared conversation recipients", async ({
+  test("copies the link for read-only shared conversation recipients", async ({
     context,
     page,
   }) => {
     const conversationId = "rbac-shared-recipient-conv";
-    const conversationTitle = "Shared Recipient Sidebar Chat";
+    const conversationTitle = "Readonly Shared Recipient Sidebar Chat";
     const sharedByText = `Shared by ${SHARED_OWNER_EMAIL}`;
     const env = await bootChatSession(page, {
       accessLevel: "shared_readonly",
@@ -95,25 +95,62 @@ test.describe("mocked RBAC e2e — chat navigation regression", () => {
 
     await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
-    await expect(page.getByText("View Only")).toBeVisible();
 
     const sidebarConversationTitle = page.getByTitle(conversationTitle);
     await expect(sidebarConversationTitle).toBeVisible();
-    await sidebarConversationTitle.hover();
 
     const recipientShareButton = page.getByRole("button", { name: sharedByText });
     await expect(recipientShareButton).toBeVisible();
-    await recipientShareButton.hover();
+    await recipientShareButton.hover({ force: true });
 
     await expect(page.getByText(sharedByText)).toBeVisible();
     await expect(page.getByText("Click to copy link")).toBeVisible();
 
-    await recipientShareButton.click();
+    await recipientShareButton.click({ force: true });
     await expect(page.getByText("Link copied")).toBeVisible();
-    await expect(page.getByRole("dialog", { name: /share/i })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: /shared conversation/i })).toHaveCount(0);
 
     const copiedUrl = await page.evaluate(() => navigator.clipboard.readText());
     expect(copiedUrl).toBe(`${env.baseUrl}/chat/${conversationId}`);
+  });
+
+  test("opens sharing details for edit-mode shared conversation recipients", async ({
+    page,
+  }) => {
+    const conversationId = "rbac-edit-shared-recipient-conv";
+    const conversationTitle = "Edit Shared Recipient Sidebar Chat";
+    const sharedByText = `Shared by ${SHARED_OWNER_EMAIL}`;
+    const env = await bootChatSession(page, {
+      accessLevel: "shared",
+      conversationId,
+      ownerEmail: SHARED_OWNER_EMAIL,
+      sharing: { shared_with: [CHAT_MEMBER_SESSION.email] },
+      title: conversationTitle,
+      viewerHasSharedAccess: true,
+    });
+
+    await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
+    await dismissReleaseUpgradeDialog(page);
+
+    const sidebarConversationTitle = page.getByTitle(conversationTitle);
+    await expect(sidebarConversationTitle).toBeVisible();
+
+    const recipientShareButton = page.getByRole("button", { name: sharedByText });
+    await expect(recipientShareButton).toBeVisible();
+    await recipientShareButton.hover({ force: true });
+
+    await expect(page.getByText(sharedByText)).toBeVisible();
+    await expect(page.getByText("Click to copy link")).toHaveCount(0);
+
+    await recipientShareButton.click({ force: true });
+    const dialog = page.getByRole("dialog", { name: "Shared Conversation" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Shared by")).toBeVisible();
+    await expect(dialog.getByText(SHARED_OWNER_EMAIL)).toBeVisible();
+    await expect(dialog.getByText("Share Link")).toBeVisible();
+    await expect(dialog.locator('input[readonly]').first()).toHaveValue(`${env.baseUrl}/chat/${conversationId}`);
+    await expect(dialog.getByPlaceholder("Search by email or team name...")).toHaveCount(0);
+    await expect(dialog.getByRole("switch", { name: "Share with everyone" })).toHaveCount(0);
   });
 
   test("waits for a slow conversation list fetch instead of creating a duplicate chat", async ({

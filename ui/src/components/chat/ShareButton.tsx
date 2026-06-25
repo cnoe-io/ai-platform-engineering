@@ -7,6 +7,7 @@ TooltipContent,
 TooltipProvider,
 TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Conversation } from "@/types/a2a";
 import { Check,Share2 } from "lucide-react";
 import React,{ useState } from "react";
 import { ShareDialog } from "./ShareDialog";
@@ -17,6 +18,8 @@ interface ShareButtonProps {
   isOwner?: boolean;
   isSharedWithViewer?: boolean;
   sharedBy?: string;
+  sharing?: Conversation["sharing"];
+  accessLevel?: Conversation["accessLevel"];
 }
 
 export function ShareButton({ 
@@ -25,15 +28,17 @@ export function ShareButton({
   isOwner = true,
   isSharedWithViewer = false,
   sharedBy,
+  sharing,
+  accessLevel,
 }: ShareButtonProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const handleQuickCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    
+
     const shareUrl = `${window.location.origin}/chat/${conversationId}`;
-    
+
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -50,6 +55,7 @@ export function ShareButton({
 
   const sharedByText = sharedBy?.trim() ? `Shared by ${sharedBy.trim()}` : "Shared conversation";
   const shouldShowButton = isOwner || isSharedWithViewer;
+  const shouldOpenDialog = isOwner || accessLevel === "shared";
 
   return (
     <>
@@ -60,7 +66,7 @@ export function ShareButton({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={isOwner ? handleOpenDialog : handleQuickCopy}
+                onClick={shouldOpenDialog ? handleOpenDialog : handleQuickCopy}
                 className="h-6 w-6"
                 aria-label={isOwner ? "Share conversation" : sharedByText}
               >
@@ -74,7 +80,9 @@ export function ShareButton({
                 <>
                   {/* assisted-by Codex Codex-sonnet-4-6 */}
                   <p>{copied ? "Link copied" : sharedByText}</p>
-                  {!copied && <p className="text-xs text-muted-foreground">Click to copy link</p>}
+                  {!copied && !shouldOpenDialog && (
+                    <p className="text-xs text-muted-foreground">Click to copy link</p>
+                  )}
                 </>
               )}
             </TooltipContent>
@@ -83,12 +91,15 @@ export function ShareButton({
       </TooltipProvider>
 
       {/* Share dialog */}
-      {isOwner && (
+      {shouldShowButton && shouldOpenDialog && (
         <ShareDialog
           conversationId={conversationId}
           conversationTitle={conversationTitle}
           open={showDialog}
           onOpenChange={setShowDialog}
+          canManageSharing={isOwner}
+          sharedBy={sharedBy}
+          initialSharing={sharing}
         />
       )}
     </>

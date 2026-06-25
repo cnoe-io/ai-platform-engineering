@@ -531,6 +531,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               isOwner={canManageSharing}
                               isSharedWithViewer={isSharedWithViewer}
                               sharedBy={sharedByLabel}
+                              sharing={conv.sharing}
+                              accessLevel={conv.accessLevel}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>
