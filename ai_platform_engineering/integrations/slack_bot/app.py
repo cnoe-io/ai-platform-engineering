@@ -1033,6 +1033,54 @@ def rbac_global_middleware(body, context, next, logger):
         next()
         return
 
+    # Bot messages: skip Keycloak resolution and nudge; mint unlinked SA token
+    # directly as a baseline. Bots have no Keycloak account so resolution always
+    # fails, and the nudge path tries to DM the bot which also fails noisily.
+    #
+    # We still need a baseline obo_token in context so that obo_user routes
+    # have something to carry (service_account routes will overwrite it in
+    # _route_to_agent anyway). The bot's Slack user ID and bot_id are recorded
+    # so downstream logging and the allowlist check in _match_agents work as
+    # normal.
+    if event.get("bot_id"):
+        # Resolve the bot's U-prefixed user ID via bots.info (mirrors the
+        # pattern in _route_to_agent lines 1518-1519), falling back to the
+        # raw bot_id only if the lookup fails.
+        _, _bot_user_id = utils.get_bot_info_by_id(event.get("bot_id"))
+        bot_slack_user_id = _bot_user_id or event.get("user") or event.get("bot_id")
+        slack_team_id = (
+            body.get("team_id")
+            or event.get("team")
+            or os.environ.get("SLACK_WORKSPACE_ID")
+        )
+        channel = (
+            event.get("channel")
+            or body.get("channel", {}).get("id")
+            or body.get("channel_id")
+        )
+        context["rbac_enabled"] = True
+        context["slack_user_id"] = bot_slack_user_id
+        context["is_bot"] = True
+        context["slack_workspace_id"] = slack_workspace_ref(str(slack_team_id) if slack_team_id else None)
+        context["surface_kind"] = "dm" if is_dm_channel(channel) else "channel"
+        bot_loop = None
+        try:
+            bot_loop = asyncio.new_event_loop()
+            unlinked_token = bot_loop.run_until_complete(_mint_unlinked_obo_token())
+        except Exception as exc:
+            logger.warning("[{}] rbac_global_middleware: unlinked SA mint failed for bot={}: {}", event.get("ts", "?"), bot_slack_user_id, exc)
+            unlinked_token = None
+        finally:
+            if bot_loop is not None:
+                bot_loop.close()
+        if unlinked_token is None:
+            logger.warning("[{}] rbac_global_middleware: no unlinked SA available, dropping bot message from {}", event.get("ts", "?"), bot_slack_user_id)
+            return _HANDLED_200
+        context["obo_token"] = unlinked_token
+        context["unlinked_fallback"] = True
+        next()
+        return
+
     slack_user_id = (
         event.get("user")
         or body.get("user", {}).get("id")

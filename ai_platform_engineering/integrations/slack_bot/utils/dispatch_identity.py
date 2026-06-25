@@ -23,12 +23,11 @@ Callers must ``return`` immediately on False.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Awaitable, Callable, Optional
 
-from .user_messages import send_error_notice as _send_error_notice_impl
+from loguru import logger
 
-logger = logging.getLogger("caipe.slack_bot.dispatch_identity")
+from .user_messages import send_error_notice as _send_error_notice_impl
 
 # Type alias for the coroutine function that mints a token for a given SA sub.
 ImpersonateFn = Callable[[str], Awaitable[Any]]
@@ -86,15 +85,24 @@ def apply_execution_identity(
     """
     # Resolve the effective mode: prefer run_as_mode, fall back to exec_mode alias.
     effective_mode = run_as_mode or exec_mode
+    thread_ts = event.get("ts", "?") if event else "?"
     if effective_mode != "service_account":
         # obo_user path — context["obo_token"] was set by the middleware; nothing to do.
+        unlinked = context.get("unlinked_fallback", False) if context else False
+        logger.info(
+            "[{}] dispatch_identity: run_as=obo_user agent={} unlinked_fallback={} — using middleware token",
+            thread_ts,
+            agent_id,
+            unlinked,
+        )
         return True
 
     if not sa_sub or not sa_sub.strip():
         # Misconfigured route: run_as=service_account with no sub.
         logger.warning(
-            "dispatch_identity: run_as=service_account agent=%s has no "
+            "[{}] dispatch_identity: run_as=service_account agent={} has no "
             "service_account_sub — aborting dispatch (misconfigured route)",
+            thread_ts,
             agent_id,
         )
         _send_error_notice(
@@ -117,7 +125,8 @@ def apply_execution_identity(
         sa_obo = sa_loop.run_until_complete(impersonate_fn(sa_sub))
         context["obo_token"] = sa_obo.access_token
         logger.info(
-            "dispatch_identity: run_as=service_account agent=%s sa_sub=%s — minted SA token",
+            "[{}] dispatch_identity: run_as=service_account agent={} sa_sub={} — minted SA token",
+            thread_ts,
             agent_id,
             sa_sub,
         )
@@ -125,9 +134,10 @@ def apply_execution_identity(
     except asyncio.CancelledError as exc:
         # PY-B2 / PY-S3: abort — never dispatch under the wrong identity.
         logger.warning(
-            "dispatch_identity: run_as=service_account token mint cancelled "
-            "agent=%s sa_sub=%s: %s — aborting dispatch to avoid running "
+            "[{}] dispatch_identity: run_as=service_account token mint cancelled "
+            "agent={} sa_sub={}: {} — aborting dispatch to avoid running "
             "under wrong identity",
+            thread_ts,
             agent_id,
             sa_sub,
             exc,
@@ -147,9 +157,10 @@ def apply_execution_identity(
     except Exception as exc:
         # PY-B2 / PY-S3: abort — never dispatch under the wrong identity.
         logger.warning(
-            "dispatch_identity: run_as=service_account token mint failed "
-            "agent=%s sa_sub=%s: %s — aborting dispatch to avoid running "
+            "[{}] dispatch_identity: run_as=service_account token mint failed "
+            "agent={} sa_sub={}: {} — aborting dispatch to avoid running "
             "under wrong identity",
+            thread_ts,
             agent_id,
             sa_sub,
             exc,
