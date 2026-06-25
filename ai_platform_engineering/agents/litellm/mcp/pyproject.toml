@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 mcp-litellm = "mcp_litellm.__main__:main"
+mcp-litellm-token-alert-scanner = "mcp_litellm.token_alert_scanner:main"
 
 [build-system]
 requires = ["hatchling"]

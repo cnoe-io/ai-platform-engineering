@@ -89,3 +89,32 @@ host to match the rendered LiteLLM MCP Service name.
 
 Use External Secrets or the platform secret manager for `LITELLM_API_KEY` in
 shared environments.
+
+## Automatic Webex Token Alerts
+
+LiteLLM token usage alerts can run automatically as an optional scanner sidecar
+on the `litellmMcp` deployment. The scanner periodically evaluates configured
+targets and sends Webex only when usage reaches the threshold.
+
+```yaml
+litellmMcp:
+  enabled: true
+  config:
+    LITELLM_API_URL: "https://litellm.prod.outshift.ai"
+    LITELLM_TOKEN_ALERTS_ENABLED: "true"
+    LITELLM_TOKEN_ALERT_THRESHOLD: "0.8"
+    LITELLM_TOKEN_ALERT_NOTIFICATION_CHANNEL: "webex"
+    LITELLM_TOKEN_ALERT_ALLOWED_RECIPIENTS: "mouledel@example.com"
+    LITELLM_TOKEN_ALERT_TARGETS_JSON: >-
+      [{"user_id":"mouledel@example.com","token_limit":1000000,"recipient":"mouledel@example.com"}]
+  tokenAlertScanner:
+    enabled: true
+    intervalSeconds: 3600
+    dryRun: false
+  existingSecret: "litellm-mcp-secret"
+```
+
+The same secret should include `LITELLM_API_KEY` and one Webex token variable:
+`WEBEX_TOKEN`, `WEBEX_ACCESS_TOKEN`, or `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN`.
+The scanner writes sent-alert keys to an emptyDir-backed state file so repeated
+scans do not notify the same target every interval.
