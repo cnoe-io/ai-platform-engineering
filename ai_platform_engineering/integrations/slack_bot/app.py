@@ -474,7 +474,7 @@ def _agent_listens_to(agent_listen, requested):
   return agent_listen == "all" or agent_listen == requested
 
 
-def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, listen=None):
+def _match_agents(channel_config, is_bot, bot_username=None, bot_user_id=None, user_id=None, listen=None):
   """Return all agents configured for this sender type and listen mode."""
   matched = []
   for agent in channel_config.agents:
@@ -483,8 +483,10 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
         continue
       if listen and not _agent_listens_to(agent.bots.listen, listen):
         continue
-      if agent.bots.bot_list is not None and bot_username not in agent.bots.bot_list:
-        continue
+      if agent.bots.bot_list is not None:
+        # Allow matching by name (e.g. "GitLab") OR by U-prefixed user ID.
+        if bot_username not in agent.bots.bot_list and bot_user_id not in agent.bots.bot_list:
+          continue
       matched.append(agent)
     elif not is_bot and agent.users:
       if not agent.users.enabled:
@@ -516,6 +518,7 @@ def _match_channel_agents(
   channel_config,
   is_bot,
   bot_username=None,
+  bot_user_id=None,
   user_id=None,
   listen=None,
   workspace_id=None,
@@ -529,6 +532,7 @@ def _match_channel_agents(
     channel_config,
     is_bot=is_bot,
     bot_username=bot_username,
+    bot_user_id=bot_user_id,
     user_id=user_id,
     listen=listen,
   )
@@ -1991,8 +1995,9 @@ def handle_message_events(body, say, client, context=None):
     return
 
   bot_username = None
+  sender_bot_user_id = None
   if is_bot:
-    bot_username = utils.get_username_by_bot_id(bot_id)
+    bot_username, sender_bot_user_id = utils.get_bot_info_by_id(bot_id)
 
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_channel_agents(
@@ -2000,6 +2005,7 @@ def handle_message_events(body, say, client, context=None):
     channel_config,
     is_bot=is_bot,
     bot_username=bot_username,
+    bot_user_id=sender_bot_user_id,
     user_id=sender_user_id,
     listen="message",
     workspace_id=_event_workspace_id(event),
