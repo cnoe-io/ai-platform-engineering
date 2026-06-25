@@ -381,6 +381,15 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                     sharedByKnownDifferentOwner
                   );
                   const isPublicShareForViewer = isSharedWithViewer && conv.sharing?.is_public;
+                  const sharedByLabel = conv.owner_id?.trim();
+                  const sharedBadgeText = isPublicShareForViewer
+                    ? sharedByLabel
+                      ? `Shared with everyone by ${sharedByLabel}`
+                      : "Shared with everyone"
+                    : sharedByLabel
+                      ? `Shared by ${sharedByLabel}`
+                      : "Shared conversation";
+                  const canManageSharing = viewerIsKnownOwner || (!ownerEmail && !isSharedWithViewer);
 
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
@@ -483,9 +492,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                   </TooltipTrigger>
                                   <TooltipContent side="right">
                                     <p className="text-xs">
-                                      {isPublicShareForViewer
-                                        ? 'Shared with everyone'
-                                        : 'Shared conversation'}
+                                      {sharedBadgeText}
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
@@ -521,7 +528,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={!conv.owner_id || conv.owner_id === session?.user?.email}
+                              isOwner={canManageSharing}
+                              isSharedWithViewer={isSharedWithViewer}
+                              sharedBy={sharedByLabel}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>

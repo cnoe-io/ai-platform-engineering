@@ -144,7 +144,18 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 }))
 
 jest.mock('@/components/chat/ShareButton', () => ({
-  ShareButton: () => null,
+  ShareButton: ({ isOwner, isSharedWithViewer, sharedBy }: any) => (
+    isOwner || isSharedWithViewer ? (
+      <button
+        data-testid="share-button"
+        data-owner={String(Boolean(isOwner))}
+        data-shared-viewer={String(Boolean(isSharedWithViewer))}
+        data-shared-by={sharedBy || ''}
+      >
+        Share
+      </button>
+    ) : null
+  ),
 }))
 
 // NewChatButton is exercised by its own test suite; stub it here so the
@@ -424,6 +435,10 @@ describe('Sidebar — Live Status Indicator', () => {
 
       expect(screen.getByText('Recipient Chat')).toBeInTheDocument()
       expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.getByText('Shared by owner@test.com')).toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'false')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'true')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-by', 'owner@test.com')
     })
 
     it('shows a shared badge from the server viewer flag without owner metadata', () => {
@@ -444,6 +459,8 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByText('Flagged Recipient Chat')).toBeInTheDocument()
       expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
       expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'false')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'true')
     })
 
     it('does not show the recipient shared badge to the owner', () => {
