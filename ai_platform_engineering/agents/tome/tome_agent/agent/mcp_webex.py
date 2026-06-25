@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -93,31 +94,30 @@ def build_webex_mcp(token: str = "", allowed_room_ids: list[str] | None = None):
     async def list_rooms(args: dict) -> dict[str, Any]:
         if not token:
             return _err("webex_token is not configured")
-        params = {
-            "max": args.get("max") or DEFAULT_MAX,
-            # Webex /v1/rooms sortBy enum is lowercase: id|lastactivity|created.
-            # "lastActivity" (the response field's casing) is rejected with a 400.
-            "sortBy": "lastactivity",
-        }
-        try:
-            data = await _get("/rooms", params)
-        except httpx.HTTPStatusError as e:
-            return _err(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
-        items = data.get("items") or []
-        # Scope: only surface rooms attached to this project, not every room the
-        # user's token can see.
-        out = [
-            {
-                "id": r.get("id"),
-                "title": r.get("title"),
-                "type": r.get("type"),
-                "created": r.get("created"),
-                "lastActivity": r.get("lastActivity"),
-                "isLocked": r.get("isLocked"),
-            }
-            for r in items
-            if _in_scope(r.get("id") or "")
-        ]
+        if not allowed:
+            return _ok([])  # no Webex rooms attached to this project
+        # Fetch each attached room by ID instead of listing /rooms and filtering.
+        # A user can be in hundreds of rooms, and a recency-sorted /rooms page
+        # (max=N) can omit an attached-but-not-recently-active room entirely, so
+        # the old list-then-filter approach returned [] even when the room was
+        # attached. GET /rooms/{id} always resolves a room the token can see;
+        # skip any that error (e.g. 404 when the token is not a member).
+        out: list[dict[str, Any]] = []
+        for rid in allowed:
+            try:
+                r = await _get(f"/rooms/{quote(rid, safe='')}")
+            except httpx.HTTPStatusError:
+                continue
+            out.append(
+                {
+                    "id": r.get("id"),
+                    "title": r.get("title"),
+                    "type": r.get("type"),
+                    "created": r.get("created"),
+                    "lastActivity": r.get("lastActivity"),
+                    "isLocked": r.get("isLocked"),
+                }
+            )
         return _ok(out)
 
     @tool(
