@@ -44,6 +44,14 @@ import {
   planDropTeamResourcesArrayMigration,
   type TeamResourcesDoc,
 } from "./drop-team-resources-array";
+import {
+  applyDropTeamKbOwnershipMigration,
+  DROP_TEAM_KB_OWNERSHIP_CONFIRMATION,
+  DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID,
+  planDropTeamKbOwnershipMigration,
+  TEAM_KB_OWNERSHIP_COLLECTION,
+  type DropTeamKbOwnershipInputs,
+} from "./drop-team-kb-ownership";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
 export {
   getUnclassifiedSchemaAreas,
@@ -535,6 +543,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
     dependencies: [UNIVERSAL_REBAC_MIGRATION_ID, TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID],
+  },
+  {
+    id: DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "team_kb_ownership",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "Drop legacy team_kb_ownership collection",
+    description:
+      "Make OpenFGA the single source of truth for team↔knowledge-base grants. Backfills any (team, kb) grant still present only in a `team_kb_ownership` row into OpenFGA (reader/ingestor/manager by permission), then drops the collection. The admin KB views, RAG-tool datasource binding, and team-card KB count now read grants live from OpenFGA, so the Mongo collection can only re-introduce drift. Strictly additive on tuples; idempotent once the collection is gone.",
+    confirmation: DROP_TEAM_KB_OWNERSHIP_CONFIRMATION,
+    required: true,
+    implemented: true,
+    dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
   {
@@ -2282,6 +2305,24 @@ async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
 }
 
 /**
+ * Inputs for the 0.6.0 drop-team-kb-ownership migration: the same rows +
+ * teamId→slug map the KB shared-team backfill uses (so the final belt-and-
+ * suspenders backfill mirrors it exactly), plus whether the collection still
+ * physically exists (drives the irreversible-drop warning + counts).
+ */
+async function loadDropTeamKbOwnershipInputs(): Promise<DropTeamKbOwnershipInputs> {
+  const [{ ownershipDocs, teamSlugByMongoId }, collectionNames] = await Promise.all([
+    loadKnowledgeBaseSharedTeamGrantsInputs(),
+    listMongoCollectionNames(),
+  ]);
+  return {
+    ownershipDocs,
+    teamSlugByMongoId,
+    collectionExists: collectionNames.includes(TEAM_KB_OWNERSHIP_COLLECTION),
+  };
+}
+
+/**
  * Read existing `knowledge_base:*` tuples from OpenFGA. Used by
  * `deriveDataSourceGrantsBackfillPlan` so the data_source mirror set is
  * computed from the source of truth instead of Mongo. OpenFGA does not
@@ -2955,6 +2996,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID) {
     return planDropTeamResourcesArrayMigration(await loadDropTeamResourcesInputs());
   }
+  if (migrationId === DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID) {
+    return planDropTeamKbOwnershipMigration(await loadDropTeamKbOwnershipInputs());
+  }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
   }
@@ -3296,6 +3340,30 @@ export async function applyMigration(input: {
         updateOne: (filter, update) =>
           teamsCollection.updateOne(filter as never, update as never),
       },
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID) {
+    const { ownershipDocs, teamSlugByMongoId, collectionExists } =
+      await loadDropTeamKbOwnershipInputs();
+    const { db } = await connectToDatabase();
+    const result = await applyDropTeamKbOwnershipMigration({
+      ownershipDocs,
+      teamSlugByMongoId,
+      collectionExists,
+      actor: input.actor,
+      now,
+      // Backfill tuples are plain `team:<slug>#<rel>` usersets on
+      // knowledge_base objects — strictly additive (no deletes), so one
+      // writeOpenFgaTuples pass suffices; it no-ops on identical writes.
+      writeTuples: async (writes) => {
+        if (writes.length === 0) return { writes: 0 };
+        const w = await writeOpenFgaTuples({ writes, deletes: [] });
+        return { writes: w.writes };
+      },
+      dropCollection: (name) => db.dropCollection(name).catch(() => false),
     });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;

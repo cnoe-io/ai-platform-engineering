@@ -21,6 +21,7 @@ jest.mock("../openfga", () => ({
 
 import {
   TeamResourceListingCache,
+  listTeamKbGrants,
   listTeamResourceIds,
   listTeamResourceIdsBatch,
 } from "../team-resource-listing";
@@ -112,6 +113,45 @@ describe("TeamResourceListingCache coalescing", () => {
     expect(a).toEqual(["s1"]);
     expect(b).toEqual(["s1"]);
     expect(mockListOpenFgaObjects).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("listTeamKbGrants", () => {
+  it("maps each KB relation to its permission, strongest wins", async () => {
+    mockListOpenFgaObjects.mockImplementation(async ({ user, relation, type }: ListArgs) => {
+      if (type !== "knowledge_base") return { objects: [] };
+      if (user === "team:platform#member" && relation === "reader") {
+        return { objects: ["knowledge_base:read-ds", "knowledge_base:both-ds"] };
+      }
+      if (user === "team:platform#member" && relation === "ingestor") {
+        return { objects: ["knowledge_base:both-ds"] };
+      }
+      if (user === "team:platform#admin" && relation === "manager") {
+        return { objects: ["knowledge_base:admin-ds"] };
+      }
+      return { objects: [] };
+    });
+
+    const grants = await listTeamKbGrants("platform");
+
+    expect(grants.permissions).toEqual({
+      "read-ds": "read",
+      // reader + ingestor on the same KB -> ingest (the stronger) wins
+      "both-ds": "ingest",
+      "admin-ds": "admin",
+    });
+    expect(grants.kbIds.sort()).toEqual(["admin-ds", "both-ds", "read-ds"]);
+  });
+
+  it("returns empty for a blank slug without calling OpenFGA", async () => {
+    const grants = await listTeamKbGrants("  ");
+    expect(grants).toEqual({ kbIds: [], permissions: {} });
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+  });
+
+  it("propagates OpenFGA errors (no silent empty)", async () => {
+    mockListOpenFgaObjects.mockRejectedValue(new Error("FGA down"));
+    await expect(listTeamKbGrants("platform")).rejects.toThrow("FGA down");
   });
 });
 

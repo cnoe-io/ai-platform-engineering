@@ -121,7 +121,7 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
     definitions.map((definition) => [definition.type, definition.actions])
   );
 
-  const [teams, users, agents, llmModels, mcpServers, kbOwnership, slackMappings, webexMappings] =
+  const [teams, users, agents, llmModels, mcpServers, slackMappings, webexMappings] =
     await Promise.all([
       readCollection<{ _id: unknown; slug?: string; name?: string; status?: string }>("teams"),
       readCollection<{ _id?: unknown; email?: string; name?: string; role?: string; keycloak_sub?: string; metadata?: { keycloak_sub?: string } }>("users"),
@@ -132,9 +132,6 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
       readCollection<{ _id: unknown; name?: string; description?: string }>("mcp_servers", {
         enabled: { $ne: false },
       }),
-      readCollection<{ kb_ids?: string[]; kb_permissions?: Record<string, string> }>(
-        "team_kb_ownership"
-      ),
       readCollection<{
         slack_workspace_id?: string;
         slack_channel_id?: string;
@@ -150,12 +147,6 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
         space_title?: string;
       }>("webex_space_team_mappings"),
     ]);
-
-  const kbIds = new Set<string>();
-  for (const row of kbOwnership) {
-    for (const id of row.kb_ids ?? []) kbIds.add(id);
-    for (const id of Object.keys(row.kb_permissions ?? {})) kbIds.add(id);
-  }
 
   const discovered: RebacCatalogResource[] = [
     ...teams.map((team) =>
@@ -183,7 +174,6 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
       resource("mcp_server", String(server._id), server.name || String(server._id), "role_gated"),
       resource("tool", `${String(server._id)}_*`, `${String(server._id)} tools`, "rebac_shadowed"),
     ]),
-    ...Array.from(kbIds).map((id) => resource("knowledge_base", id, id, "rebac_shadowed")),
     ...slackMappings.flatMap((mapping) => {
       const workspaceId = slackWorkspaceRef(mapping.slack_workspace_id);
       const channelId = mapping.slack_channel_id || mapping.channel_name || "unknown";

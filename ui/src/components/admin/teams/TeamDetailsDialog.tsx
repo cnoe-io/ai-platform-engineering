@@ -52,6 +52,7 @@ export type DialogMode =
   | "details"
   | "members"
   | "resources"
+  | "mcp"
   | "skills"
   | "workflows"
   | "kbs"
@@ -403,9 +404,12 @@ export function TeamDetailsDialog({
   // dialog close.
   useEffect(() => {
     // The read-only Skills & Workflows tabs are served by the same resources
-    // endpoint as the editable Agents & MCP tab, so load for all three.
+    // endpoint as the editable Agents and MCP tabs, so load for all of them.
     const usesResourcesEndpoint =
-      activeMode === "resources" || activeMode === "skills" || activeMode === "workflows";
+      activeMode === "resources" ||
+      activeMode === "mcp" ||
+      activeMode === "skills" ||
+      activeMode === "workflows";
     if (!open || !usesResourcesEndpoint || !currentTeam) return;
     let cancelled = false;
     setResourcesLoading(true);
@@ -896,7 +900,15 @@ export function TeamDetailsDialog({
             onClick={() => setActiveMode("resources")}
             className="text-xs shrink-0"
           >
-            Agents & MCP
+            Agents
+          </Button>
+          <Button
+            variant={activeMode === "mcp" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveMode("mcp")}
+            className="text-xs shrink-0"
+          >
+            MCPs
           </Button>
           <Button
             variant={activeMode === "skills" ? "default" : "ghost"}
@@ -1396,14 +1408,15 @@ export function TeamDetailsDialog({
           </div>
         )}
 
-        {/* Agents & MCP access (Spec 104 — team-scoped RBAC) */}
+        {/* Agents access (Spec 104 — team-scoped RBAC). Agents and MCP are
+            separate tabs but share one resources payload + save handler, so
+            switching tabs preserves unsaved edits on either side and a single
+            Save persists both. */}
         {activeMode === "resources" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
               Grant this team access to <span className="font-medium text-foreground">dynamic agents</span>{" "}
-              (who can chat with or manage each agent) and{" "}
-              <span className="font-medium text-foreground">MCP servers</span> (which tool integrations
-              appear in Dynamic Agents and skills). Changes apply to every member of this team.
+              — who can chat with (Use) or manage each agent. Changes apply to every member of this team.
             </p>
 
             {resourcesNotice && (
@@ -1419,7 +1432,7 @@ export function TeamDetailsDialog({
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
+              <div className="flex-1 min-h-0">
                 <AgentList
                   options={resourcesData.available.agents}
                   selectedUsers={selectedAgents}
@@ -1427,6 +1440,45 @@ export function TeamDetailsDialog({
                   onToggleUser={toggleAgent}
                   onToggleAdmin={toggleAgentAdmin}
                 />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <SaveButton
+                onSave={handleSaveResources}
+                saving={resourcesSaving}
+                dirty
+                hideDirtyBadge
+                disabled={resourcesLoading || !resourcesData}
+                ariaLabel="Save agent access"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* MCP servers access (Spec 104 — team-scoped RBAC). Shares the
+            resources payload + save handler with the Agents tab above. */}
+        {activeMode === "mcp" && (
+          <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
+            <p className="text-xs text-muted-foreground">
+              Grant this team access to <span className="font-medium text-foreground">MCP servers</span>{" "}
+              — which tool integrations appear in Dynamic Agents and skills. Changes apply to every member of this team.
+            </p>
+
+            {resourcesNotice && (
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3">
+                <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                  {resourcesNotice}
+                </p>
+              </div>
+            )}
+
+            {resourcesLoading || !resourcesData ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="flex-1 min-h-0">
                 <ToolList
                   options={resourcesData.available.tools}
                   selected={selectedTools}
@@ -1444,7 +1496,7 @@ export function TeamDetailsDialog({
                 dirty
                 hideDirtyBadge
                 disabled={resourcesLoading || !resourcesData}
-                ariaLabel="Save agents and MCP access"
+                ariaLabel="Save MCP access"
               />
             </div>
           </div>

@@ -174,11 +174,8 @@ export const GET = withErrorHandler(
       const skillsCol = await getCollection<SkillLite>("skills");
       const skillHubsCol = await getCollection<SkillHubLite>("skill_hubs");
       const hubSkillsCol = await getCollection<HubSkillLite>("hub_skills");
-      const ownershipCol = await getCollection<{ kb_ids?: string[]; kb_permissions?: Record<string, string> }>(
-        "team_kb_ownership"
-      );
 
-      const [allAgents, allServers, allSkills, enabledHubs, allHubSkills, ownership] = await Promise.all([
+      const [allAgents, allServers, allSkills, enabledHubs, allHubSkills] = await Promise.all([
         agentsCol
           .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1, description: 1, visibility: 1 } })
           .sort({ name: 1 })
@@ -204,7 +201,6 @@ export const GET = withErrorHandler(
           .sort({ name: 1 })
           .toArray()
           .catch(() => [] as HubSkillLite[]),
-        ownershipCol.find({}).sort({}).toArray().catch(() => []),
       ]);
 
       // We render tools by MCP server wildcard (e.g. `jira/*`) because the
@@ -214,11 +210,6 @@ export const GET = withErrorHandler(
       // then materializes concrete `mcp_server:<server>` and `tool:<server>/*`
       // OpenFGA tuples.
       const toolPrefixes = allServers.map((s) => `${s._id}/*`);
-      const kbIds = new Set<string>();
-      for (const row of ownership) {
-        for (const id of row.kb_ids ?? []) kbIds.add(id);
-        for (const id of Object.keys(row.kb_permissions ?? {})) kbIds.add(id);
-      }
       const enabledHubIds = new Set(
         enabledHubs.map((hub) => hub.id).filter((id): id is string => Boolean(id))
       );
@@ -312,7 +303,10 @@ export const GET = withErrorHandler(
             name: id,
             description: allServers[i].description ?? "",
           })),
-          knowledge_bases: Array.from(kbIds).sort().map((id) => ({ id, name: id, description: "" })),
+          // NOTE: no `knowledge_bases` here. KB assignment uses its own picker
+          // (`TeamKbAssignmentPanel`), backed by the RAG datasource catalog +
+          // OpenFGA grants; the resources tab never rendered a KB option list,
+          // so the field was vestigial and is dropped with `team_kb_ownership`.
           skills: skillOptions,
         },
       });

@@ -8,8 +8,9 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { writeOpenFgaTuples,type OpenFgaTupleKey,type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
 import { reconcileDataSourceRelationships } from '@/lib/rbac/openfga-owned-resources-reconcile';
+import { listTeamKbGrants } from '@/lib/rbac/team-resource-listing';
 import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
-import type { KbPermission,TeamKbOwnership } from '@/lib/rbac/types';
+import type { KbPermission } from '@/lib/rbac/types';
 import { ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
@@ -102,9 +103,15 @@ function kbTuple(teamSlug: string, datasourceId: string, permission: KbPermissio
   };
 }
 
+/** Previous team→KB grant state, read from OpenFGA (the source of truth). */
+interface PreviousKbGrants {
+  kb_ids: string[];
+  kb_permissions: Record<string, KbPermission>;
+}
+
 function buildKnowledgeBaseTupleDiff(
   teamSlug: string,
-  previous: Pick<TeamKbOwnership, 'kb_ids' | 'kb_permissions'> | null | undefined,
+  previous: PreviousKbGrants | null | undefined,
   nextKbIds: string[],
   nextPermissions: Record<string, KbPermission>
 ): TeamResourceTupleDiff {
@@ -182,7 +189,9 @@ export const GET = withErrorHandler(
 
       const params = await context.params;
       validateTeamId(params.id);
-      let team: TeamDoc | null = null;
+      // The userset slug FGA grants are keyed under. The global pseudo-team
+      // grants under `team:global#...`; every real team under `team:<slug>#...`.
+      let teamSlug = GLOBAL_PSEUDO_TEAM;
 
       if (params.id === GLOBAL_PSEUDO_TEAM) {
         if (user.role !== 'admin') {
@@ -194,27 +203,31 @@ export const GET = withErrorHandler(
           () => false
         );
         const teams = await getCollection('teams');
-        team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
+        const team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
         if (!canViewAdmin && !(await isTeamMember(team, user.email))) {
           throw new ApiError('You do not have permission to view this team\'s KB assignments', 403);
         }
+        teamSlug = (team.slug as string | undefined) || params.id;
       }
 
-      // `team_kb_ownership` is the canonical store for team KB assignments; a
-      // team with no ownership record simply has no KB assignments.
-      const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
-      const record = await ownership.findOne({ team_id: params.id });
+      // OpenFGA is the SINGLE source of truth for which KBs a team can access
+      // (mirrors agents/skills/workflows). Every write path lands the same
+      // `knowledge_base` tuples: the PUT/DELETE below, AND the RAG-server
+      // upload (`write_datasource_ownership`). Reading FGA here means an
+      // uploaded datasource with an owning team shows up without a manual
+      // re-assignment, and there is no second store to drift.
+      const grants = await listTeamKbGrants(teamSlug);
 
       return successResponse({
         team_id: params.id,
-        kb_ids: record?.kb_ids ?? [],
-        kb_permissions: record?.kb_permissions ?? {},
-        allowed_datasource_ids: record?.allowed_datasource_ids ?? [],
-        updated_at: record?.updated_at ?? null,
-        updated_by: record?.updated_by ?? null,
+        kb_ids: grants.kbIds,
+        kb_permissions: grants.permissions,
+        allowed_datasource_ids: grants.kbIds,
+        updated_at: null,
+        updated_by: null,
       });
   }
 );
@@ -280,29 +293,18 @@ export const PUT = withErrorHandler(
         permissions[kbId] = perm;
       }
 
-      const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
-      const previous = await ownership.findOne({ team_id: params.id });
-      const now = new Date();
-
-      const doc: TeamKbOwnership = {
-        team_id: params.id,
-        tenant_id: 'default',
-        kb_ids: body.kb_ids,
-        allowed_datasource_ids: body.kb_ids,
-        kb_permissions: permissions,
-        keycloak_role: `team_member(${params.id})`,
-        updated_at: now,
-        updated_by: user.email,
-      };
+      // Previous grant state comes from OpenFGA (the source of truth), so the
+      // diff reconciles exactly what is live — no separate Mongo store to keep
+      // in sync or to drift.
+      const previous = await listTeamKbGrants(teamSlug);
 
       await writeRequiredKnowledgeBaseTuples(
-        buildKnowledgeBaseTupleDiff(teamSlug, previous, doc.kb_ids, doc.kb_permissions)
-      );
-
-      await ownership.updateOne(
-        { team_id: params.id },
-        { $set: doc },
-        { upsert: true }
+        buildKnowledgeBaseTupleDiff(
+          teamSlug,
+          { kb_ids: previous.kbIds, kb_permissions: previous.permissions },
+          body.kb_ids,
+          permissions
+        )
       );
 
       console.log(
@@ -311,11 +313,11 @@ export const PUT = withErrorHandler(
 
       return successResponse({
         team_id: params.id,
-        kb_ids: doc.kb_ids,
-        kb_permissions: doc.kb_permissions,
-        allowed_datasource_ids: doc.allowed_datasource_ids,
-        updated_at: doc.updated_at,
-        updated_by: doc.updated_by,
+        kb_ids: body.kb_ids,
+        kb_permissions: permissions,
+        allowed_datasource_ids: body.kb_ids,
+        updated_at: null,
+        updated_by: user.email,
       });
   }
 );
@@ -361,38 +363,19 @@ export const DELETE = withErrorHandler(
         throw new ApiError('datasource_id query parameter is required', 400);
       }
 
-      const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
-      const record = await ownership.findOne({ team_id: params.id });
-      if (!record) {
-        throw new ApiError('No KB assignments found for this team', 404);
-      }
-
-      if (!record.kb_ids.includes(datasourceId)) {
+      // Current grants come from OpenFGA (the source of truth). Delete the
+      // tuple matching the live permission so the revoke is exact.
+      const current = await listTeamKbGrants(teamSlug);
+      if (!current.kbIds.includes(datasourceId)) {
         throw new ApiError(`KB "${datasourceId}" is not assigned to this team`, 404);
       }
 
-      const updatedKbIds = record.kb_ids.filter((id) => id !== datasourceId);
-      const updatedPermissions = { ...record.kb_permissions };
-      delete updatedPermissions[datasourceId];
-      const updatedAllowed = record.allowed_datasource_ids.filter((id) => id !== datasourceId);
+      const updatedKbIds = current.kbIds.filter((id) => id !== datasourceId);
 
       await writeRequiredKnowledgeBaseTuples({
         writes: [],
-        deletes: [kbTuple(teamSlug, datasourceId, record.kb_permissions[datasourceId] ?? 'read')],
+        deletes: [kbTuple(teamSlug, datasourceId, current.permissions[datasourceId] ?? 'read')],
       });
-
-      await ownership.updateOne(
-        { team_id: params.id },
-        {
-          $set: {
-            kb_ids: updatedKbIds,
-            allowed_datasource_ids: updatedAllowed,
-            kb_permissions: updatedPermissions,
-            updated_at: new Date(),
-            updated_by: user.email,
-          },
-        }
-      );
 
       console.log(
         `[Admin] KB "${datasourceId}" removed from team ${params.id} by ${user.email}`

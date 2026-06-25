@@ -21,11 +21,6 @@ interface CatalogMcpServer {
   enabled?: boolean;
 }
 
-interface TeamKbOwnershipLite {
-  kb_ids?: string[];
-  kb_permissions?: Record<string, string>;
-}
-
 interface CatalogDatasource {
   datasource_id?: string;
   name?: string | null;
@@ -59,9 +54,8 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
     const teamsCol = await getCollection<Team>("teams");
     const agentsCol = await getCollection<CatalogAgent>("dynamic_agents");
     const mcpCol = await getCollection<CatalogMcpServer>("mcp_servers");
-    const ownershipCol = await getCollection<TeamKbOwnershipLite>("team_kb_ownership");
 
-    const [teams, agents, servers, ownership] = await Promise.all([
+    const [teams, agents, servers] = await Promise.all([
       teamsCol
         .find({} as never, { projection: { _id: 1, name: 1, slug: 1, members: 1 } })
         .sort({ name: 1 })
@@ -80,22 +74,13 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
         .limit(200)
         .toArray()
         .catch(() => [] as CatalogMcpServer[]),
-      ownershipCol.find({}).limit(200).toArray().catch(() => [] as TeamKbOwnershipLite[]),
     ]);
 
-    const kbIds = new Set<string>();
-    for (const row of ownership) {
-      for (const id of row.kb_ids ?? []) {
-        kbIds.add(id);
-      }
-      for (const id of Object.keys(row.kb_permissions ?? {})) {
-        kbIds.add(id);
-      }
-    }
+    // KB datasources come from the RAG catalog (the authoritative source of
+    // datasource ids + names); team↔KB grants live in OpenFGA, surfaced via
+    // `universal_resources`/`by_type` rather than a per-team Mongo array.
     const datasourceById = await loadDatasourceNames(auth.session?.accessToken);
-    for (const id of datasourceById.keys()) {
-      kbIds.add(id);
-    }
+    const kbIds = new Set<string>(datasourceById.keys());
 
     const universal = await listRebacCatalog();
     const universalByType = universal.resources.reduce<Record<string, unknown[]>>((acc, resource) => {

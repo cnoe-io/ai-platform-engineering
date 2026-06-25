@@ -49,6 +49,11 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+const mockListTeamKbGrants = jest.fn();
+jest.mock("@/lib/rbac/team-resource-listing", () => ({
+  listTeamKbGrants: (...args: unknown[]) => mockListTeamKbGrants(...args),
+}));
+
 const mockReconcileDataSourceRelationships = jest.fn();
 jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileDataSourceRelationships: (...args: unknown[]) =>
@@ -118,21 +123,21 @@ beforeEach(() => {
   });
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockListTeamKbGrants.mockResolvedValue({ kbIds: [], permissions: {} });
   mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockCollections.teams = createMockCollection([
     { _id: teamId, slug: "platform", name: "Platform" },
   ]);
-  mockCollections.team_kb_ownership = createMockCollection([]);
 });
 
 describe("/api/admin/teams/[id]/kb-assignments", () => {
-  it("returns empty assignments when no ownership record exists (no legacy fallback)", async () => {
-    // `team_kb_ownership` is the only source now — the legacy `team.resources`
-    // fallback is gone, so a team with no ownership row simply has no KBs.
+  it("returns empty assignments when OpenFGA reports no KB grants", async () => {
+    // OpenFGA is the source of truth: a team with no `knowledge_base` grants
+    // has no KBs.
     mockCollections.teams = createMockCollection([
       { _id: teamId, slug: "platform", name: "Platform" },
     ]);
-    mockCollections.team_kb_ownership = createMockCollection([]);
+    mockListTeamKbGrants.mockResolvedValue({ kbIds: [], permissions: {} });
     const { GET } = await import("../route");
 
     const response = await GET(
@@ -142,20 +147,44 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockListTeamKbGrants).toHaveBeenCalledWith("platform");
     expect(body.data.kb_ids).toEqual([]);
     expect(body.data.kb_permissions).toEqual({});
     expect(body.data.allowed_datasource_ids).toEqual([]);
   });
 
-  it("reconciles knowledge-base tuples before saving assignments", async () => {
-    mockCollections.team_kb_ownership = createMockCollection([
-      {
-        team_id: String(teamId),
-        kb_ids: ["old-ds"],
-        allowed_datasource_ids: ["old-ds"],
-        kb_permissions: { "old-ds": "read" },
-      },
+  it("surfaces KB grants from OpenFGA even for a freshly uploaded datasource", async () => {
+    // Regression guard for the upload bug: a datasource granted to the team
+    // via RAG-server ownership tuples must appear in the team's KB
+    // assignments, sourced from OpenFGA.
+    mockCollections.teams = createMockCollection([
+      { _id: teamId, slug: "platform", name: "Platform" },
     ]);
+    mockListTeamKbGrants.mockResolvedValue({
+      kbIds: ["uploaded-ds"],
+      permissions: { "uploaded-ds": "ingest" },
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request(`/api/admin/teams/${teamId}/kb-assignments`),
+      { params: Promise.resolve({ id: String(teamId) }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.kb_ids).toEqual(["uploaded-ds"]);
+    expect(body.data.kb_permissions).toEqual({ "uploaded-ds": "ingest" });
+    expect(body.data.allowed_datasource_ids).toEqual(["uploaded-ds"]);
+  });
+
+  it("reconciles knowledge-base tuples before saving assignments", async () => {
+    // OpenFGA reports the team's current grants (a `read` on old-ds); the PUT
+    // diffs the requested selection against this live state.
+    mockListTeamKbGrants.mockResolvedValue({
+      kbIds: ["old-ds"],
+      permissions: { "old-ds": "read" },
+    });
     const { PUT } = await import("../route");
 
     const response = await PUT(
@@ -194,18 +223,14 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
         expect.objectContaining({ dataSourceId: dsId, parentKnowledgeBaseId: dsId }),
       );
     }
-    expect(mockCollections.team_kb_ownership.updateOne).toHaveBeenCalled();
   });
 
   it("removes the OpenFGA tuple before deleting a KB assignment", async () => {
-    mockCollections.team_kb_ownership = createMockCollection([
-      {
-        team_id: String(teamId),
-        kb_ids: ["old-ds"],
-        allowed_datasource_ids: ["old-ds"],
-        kb_permissions: { "old-ds": "ingest" },
-      },
-    ]);
+    // The team currently holds an `ingest` grant on old-ds in OpenFGA.
+    mockListTeamKbGrants.mockResolvedValue({
+      kbIds: ["old-ds"],
+      permissions: { "old-ds": "ingest" },
+    });
     const { DELETE } = await import("../route");
 
     const response = await DELETE(
@@ -230,15 +255,13 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
     );
   });
 
-  it("repairs missing OpenFGA tuples when saving an unchanged Mongo assignment", async () => {
-    mockCollections.team_kb_ownership = createMockCollection([
-      {
-        team_id: String(teamId),
-        kb_ids: ["existing-ds"],
-        allowed_datasource_ids: ["existing-ds"],
-        kb_permissions: { "existing-ds": "read" },
-      },
-    ]);
+  it("repairs missing OpenFGA tuples when saving an unchanged assignment", async () => {
+    // OpenFGA already reports a `read` grant on existing-ds; re-saving the same
+    // selection re-writes the tuple (idempotent repair) with no deletes.
+    mockListTeamKbGrants.mockResolvedValue({
+      kbIds: ["existing-ds"],
+      permissions: { "existing-ds": "read" },
+    });
     const { PUT } = await import("../route");
 
     const response = await PUT(

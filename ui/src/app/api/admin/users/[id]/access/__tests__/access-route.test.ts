@@ -6,9 +6,11 @@
  * Permissions Tool.
  *
  * Grants are read LIVE from OpenFGA `list-objects` (the single source of truth
- * — the `team.resources` array is gone), so these tests seed grants by mocking
- * `listOpenFgaObjects` keyed on (`team:<slug>#member`|`#admin`, relation, type)
- * for team grants and (`user:<sub>`, owner, type) for owner-direct grants.
+ * — the `team.resources` array and `team_kb_ownership` collection are both gone),
+ * so these tests seed grants by mocking `listOpenFgaObjects` keyed on
+ * (`team:<slug>#member`|`#admin`, relation, type) for team grants — including KB
+ * grants on type `knowledge_base` — and (`user:<sub>`, owner, type) for
+ * owner-direct grants.
  *
  * Covers:
  *  - aggregates agents/tools/skills/workflows/KBs from the user's active teams;
@@ -28,7 +30,6 @@ const mockGetRealmUserById = jest.fn();
 const mockMembershipFind = jest.fn();
 const mockTeamsFind = jest.fn();
 const mockAgentsFind = jest.fn();
-const mockKbOwnershipFind = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
 
 let mongoConfigured = true;
@@ -65,9 +66,6 @@ jest.mock("@/lib/mongodb", () => ({
       return {
         find: (...a: unknown[]) => ({ toArray: () => mockAgentsFind(...a) }),
       };
-    }
-    if (name === "team_kb_ownership") {
-      return { find: (...a: unknown[]) => ({ toArray: () => mockKbOwnershipFind(...a) }) };
     }
     throw new Error(`unexpected getCollection(${name})`);
   },
@@ -122,7 +120,6 @@ beforeEach(() => {
     { _id: "agent-github", name: "GitHub agent" },
     { _id: "agent-jira", name: "Jira agent" },
   ]);
-  mockKbOwnershipFind.mockResolvedValue([]);
   mockListOpenFgaObjects.mockImplementation(
     async ({ user, relation, type }: { user: string; relation: string; type: string }) => ({
       objects: grantTable[grantKey(user, relation, type)] ?? [],
@@ -143,10 +140,8 @@ describe("GET /api/admin/users/[id]/access", () => {
       [grantKey("team:platform#admin", "manager", "agent")]: ["agent:agent-jira"],
       [grantKey("team:platform#member", "caller", "tool")]: ["tool:jira/*"],
       [grantKey("team:platform#member", "user", "skill")]: ["skill:skill-summarize"],
+      [grantKey("team:platform#member", "reader", "knowledge_base")]: ["knowledge_base:kb-runbooks"],
     };
-    mockKbOwnershipFind.mockResolvedValue([
-      { team_id: "t1", kb_ids: ["kb-runbooks"], kb_permissions: { "kb-runbooks": "read" } },
-    ]);
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -169,20 +164,20 @@ describe("GET /api/admin/users/[id]/access", () => {
     ]);
   });
 
-  it("reads KB access from team_kb_ownership with per-KB permissions", async () => {
+  it("reads KB access from OpenFGA grants with per-KB permissions", async () => {
     mockMembershipFind.mockResolvedValue([
       { team_slug: "platform", relationship: "admin" },
     ]);
     mockTeamsFind.mockResolvedValue([
       { _id: "t1", slug: "platform", name: "Platform" },
     ]);
-    mockKbOwnershipFind.mockResolvedValue([
-      {
-        team_id: "t1",
-        kb_ids: ["kb-runbooks", "kb-secrets"],
-        kb_permissions: { "kb-runbooks": "ingest", "kb-secrets": "admin" },
-      },
-    ]);
+    // kb-runbooks via `member ingestor` (→ ingest), kb-secrets via `admin
+    // manager` (→ admin). The strongest-permission merge in listTeamKbGrants
+    // surfaces each at its granted level.
+    grantTable = {
+      [grantKey("team:platform#member", "ingestor", "knowledge_base")]: ["knowledge_base:kb-runbooks"],
+      [grantKey("team:platform#admin", "manager", "knowledge_base")]: ["knowledge_base:kb-secrets"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -204,13 +199,14 @@ describe("GET /api/admin/users/[id]/access", () => {
     mockTeamsFind.mockResolvedValue([
       { _id: "t1", slug: "platform", name: "Platform" },
     ]);
-    mockKbOwnershipFind.mockResolvedValue([
-      {
-        team_id: "t1",
-        kb_ids: ["kb-runbooks", "kb-secrets"],
-        kb_permissions: { "kb-runbooks": "read", "kb-secrets": "admin" },
-      },
-    ]);
+    // The team holds both a member reader grant and an admin manager grant.
+    // listTeamKbGrants surfaces both objects; the route's role gate must drop
+    // the admin-level grant for a plain member (roleSatisfies), so kb-secrets
+    // never reaches the response even though the tuple exists.
+    grantTable = {
+      [grantKey("team:platform#member", "reader", "knowledge_base")]: ["knowledge_base:kb-runbooks"],
+      [grantKey("team:platform#admin", "manager", "knowledge_base")]: ["knowledge_base:kb-secrets"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");

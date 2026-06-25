@@ -171,11 +171,9 @@ interface Team {
   // and is no longer read by the page badge — only kept on the type
   // so older fixtures and dialog state shapes continue to compile.
   member_count?: number;
-  // Server-decorated count of distinct KBs assigned to the team, sourced
-  // from the canonical `team_kb_ownership` collection (see
-  // GET /api/admin/teams). The legacy `resources.knowledge_bases` array on
-  // the team document is almost always empty, so the team-card KBs badge
-  // must prefer this field.
+  // Server-decorated count of distinct KBs the team can access, sourced live
+  // from OpenFGA `knowledge_base` grants (the single source of truth; see
+  // GET /api/admin/teams). Drives the team-card KBs badge.
   kb_count?: number;
   // Owned + shared agent/skill/workflow counts, server-decorated from OpenFGA
   // (the single source of truth for team↔resource grants). Drive the team-card
@@ -1677,9 +1675,9 @@ function AdminPage() {
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
-                              label="MCP"
+                              label="MCPs"
                               count={team.tool_wildcard ? "*" : (team.tool_count ?? 0)}
-                              onClick={() => openTeamDialog(team, "resources")}
+                              onClick={() => openTeamDialog(team, "mcp")}
                             />
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
