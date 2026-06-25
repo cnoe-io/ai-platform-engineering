@@ -9,11 +9,11 @@ import {
   OpenFgaReconcileRequiredError,
   type TupleReconcileContext,
 } from "@/lib/authz";
-import { getCollection } from "@/lib/mongodb";
-import type { Team } from "@/types/teams";
 import {
   isOpenFgaReconciliationEnabled,
+  listOpenFgaObjects,
   readOpenFgaTuples,
+  TEAM_TOOL_WILDCARD_SENTINEL_OBJECT,
   type OpenFgaReconcileResult,
   type OpenFgaTupleKey,
   type TeamResourceTupleDiff,
@@ -74,18 +74,50 @@ async function reconcileOwnedResource(
   return reconcileTupleDiff(diff, ctx);
 }
 
+/**
+ * `team:<slug>` member usersets that opted into the all-MCP-servers wildcard,
+ * read from the `tool:*` sentinel (the single source of truth now that the
+ * `team.resources.tool_wildcard` flag is gone). Returns slugs only.
+ */
+async function listToolWildcardTeamSlugs(): Promise<string[]> {
+  const slugs = new Set<string>();
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({
+      tuple: { object: TEAM_TOOL_WILDCARD_SENTINEL_OBJECT },
+      continuationToken,
+    });
+    for (const { key } of page.tuples) {
+      if (key.relation !== "caller") continue;
+      // Sentinel callers are `team:<slug>#member` usersets; ignore anything else.
+      const match = /^team:([^#]+)#member$/.exec(key.user);
+      if (match?.[1]) slugs.add(match[1]);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return [...slugs];
+}
+
+/** Agent ids the team is granted use of (`team:<slug>#member user agent:<id>`). */
+async function listTeamAgentIds(teamSlug: string): Promise<string[]> {
+  const { objects } = await listOpenFgaObjects({
+    user: `team:${teamSlug}#member`,
+    relation: "user",
+    type: "agent",
+  });
+  const prefix = "agent:";
+  return objects
+    .filter((object) => object.startsWith(prefix))
+    .map((object) => object.slice(prefix.length))
+    .filter(Boolean);
+}
+
 async function buildToolWildcardTeamBackfill(serverId: string): Promise<OpenFgaTupleKey[]> {
-  const teams = await getCollection<Team>("teams");
-  const wildcardTeams = await teams
-    .find(
-      { "resources.tool_wildcard": true } as never,
-      { projection: { _id: 1, slug: 1, resources: 1 } },
-    )
-    .toArray();
+  const wildcardTeamSlugs = await listToolWildcardTeamSlugs();
+  if (wildcardTeamSlugs.length === 0) return [];
 
   const tuples: OpenFgaTupleKey[] = [];
-  for (const team of wildcardTeams) {
-    const teamSlug = team.slug || String(team._id);
+  for (const teamSlug of wildcardTeamSlugs) {
     const mcpServerObject = `mcp_server:${serverId}`;
     const gatewayToolObject = `tool:${serverId}/*`;
     tuples.push(
@@ -96,7 +128,9 @@ async function buildToolWildcardTeamBackfill(serverId: string): Promise<OpenFgaT
       { user: `team:${teamSlug}#member`, relation: "caller", object: gatewayToolObject },
     );
 
-    for (const agentId of team.resources?.agents ?? []) {
+    // The agent runtime calls tools as `agent:<id>`, so each agent the team is
+    // granted must also gain caller access to the new server's gateway tool.
+    for (const agentId of await listTeamAgentIds(teamSlug)) {
       if (!isValidAgentId(agentId)) continue;
       tuples.push({ user: `agent:${agentId}`, relation: "caller", object: gatewayToolObject });
     }

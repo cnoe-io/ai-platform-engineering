@@ -11,6 +11,7 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
 import { listOpenFgaObjects } from '@/lib/rbac/openfga';
+import { listTeamResourceIdsBatch, TEAM_TOOL_WILDCARD_SENTINEL_ID } from '@/lib/rbac/team-resource-listing';
 import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
 import { loadTeamIdpSourceTypes,loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
@@ -166,14 +167,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // "synced from <IdP>" badge on the Admin team cards.
   const idpSourceTypes = slugs.length > 0 ? await loadTeamIdpSourceTypes(slugs) : new Map<string, string[]>();
 
-  // Decorate each team with `kb_count`. The canonical store for team KB
-  // assignments is the `team_kb_ownership` collection (keyed by the team's
-  // string `_id`), NOT the legacy `team.resources.knowledge_bases` array on
-  // the team document. Without this join the Admin team-card "KBs" badge
-  // reads an almost-always-empty field and shows nothing even when a team
-  // has KBs assigned (issue #1642 follow-up). We count distinct kb_ids per
-  // team in a single query, falling back to the legacy doc field when no
-  // ownership row exists yet.
+  // Decorate each team with `kb_count`. Team KB assignments live in the
+  // `team_kb_ownership` collection (keyed by the team's string `_id`); a team
+  // with no ownership row has no KBs and reports 0. We count distinct kb_ids
+  // per team in a single query.
   const teamIdStrings = pageTeams.map((team) => team._id.toString());
   const kbCounts = new Map<string, number>();
   if (teamIdStrings.length > 0) {
@@ -188,16 +185,40 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
   }
 
+  // Decorate each team with owned+shared agent/skill/workflow counts read live
+  // from OpenFGA (the single source of truth — the legacy `team.resources`
+  // array is gone). The reconcilers write the same `team:<slug>#member <rel>`
+  // tuple for owner AND shared teams, so one list-objects per (team, type)
+  // returns owned + shared together. Bounded to the current page's slugs ×
+  // 3 types via the batched + request-cached helper. Fail-closed to zero on
+  // OpenFGA error (the grid still renders; counts just read 0 until FGA heals).
+  let resourceCounts = new Map<string, { agents: string[]; skills: string[]; workflows: string[]; tools: string[] }>();
+  if (slugs.length > 0) {
+    try {
+      resourceCounts = await listTeamResourceIdsBatch(slugs, ['agents', 'skills', 'workflows', 'tools']);
+    } catch (err) {
+      console.error('[Admin Teams] failed to load OpenFGA resource counts', err);
+    }
+  }
+
   const teamsWithCounts = pageTeams.map((team) => {
     const slug = typeof team.slug === 'string' ? team.slug : '';
     const idStr = team._id.toString();
-    const legacyKbCount = Array.isArray(team.resources?.knowledge_bases)
-      ? team.resources.knowledge_bases.length
-      : 0;
+    const fgaCounts = slug ? resourceCounts.get(slug) : undefined;
+    // The `tool:*` sentinel means "all MCP servers"; surface it as a wildcard
+    // flag and exclude it from the explicit per-server tool count.
+    const toolIds = fgaCounts?.tools ?? [];
+    const toolWildcard = toolIds.includes(TEAM_TOOL_WILDCARD_SENTINEL_ID);
+    const toolCount = toolIds.filter((id) => id !== TEAM_TOOL_WILDCARD_SENTINEL_ID).length;
     return {
       ...team,
       member_count: slug ? memberCounts.get(slug) ?? 0 : 0,
-      kb_count: kbCounts.get(idStr) ?? legacyKbCount,
+      kb_count: kbCounts.get(idStr) ?? 0,
+      agent_count: fgaCounts?.agents.length ?? 0,
+      skill_count: fgaCounts?.skills.length ?? 0,
+      workflow_count: fgaCounts?.workflows.length ?? 0,
+      tool_count: toolCount,
+      tool_wildcard: toolWildcard,
       idp_source_types: slug ? idpSourceTypes.get(slug) ?? [] : [],
       can_manage: hasAdminView || (slug ? adminSlugs.has(slug) : false),
     };

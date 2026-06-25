@@ -843,14 +843,8 @@ describe("Slack channel ReBAC APIs", () => {
         }),
       })
     );
-    expect(mockCollections.teams.updateOne).toHaveBeenCalledWith(
-      { _id: "team-1" },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          resources: expect.objectContaining({ agents: ["incident-agent"] }),
-        }),
-      })
-    );
+    // The team↔agent grant is written to OpenFGA only (asserted below) — the
+    // legacy `team.resources` array is gone, so the team doc is not mutated.
     expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
       {
         workspace_id: workspaceAlias,

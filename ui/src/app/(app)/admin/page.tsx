@@ -177,6 +177,16 @@ interface Team {
   // the team document is almost always empty, so the team-card KBs badge
   // must prefer this field.
   kb_count?: number;
+  // Owned + shared agent/skill/workflow counts, server-decorated from OpenFGA
+  // (the single source of truth for team↔resource grants). Drive the team-card
+  // StatChip counts; the legacy `resources` array is gone.
+  agent_count?: number;
+  skill_count?: number;
+  workflow_count?: number;
+  // Per-server MCP tool grant count + wildcard flag, server-decorated from
+  // OpenFGA (`tool:<server>/*` caller grants; `tool:*` sentinel = all servers).
+  tool_count?: number;
+  tool_wildcard?: boolean;
   // Distinct IdP membership source types (okta / oidc_claim / ...) present on
   // the team, server-decorated from team_membership_sources. Drives the
   // "synced from <IdP>" badge so synced teams are distinguishable from manual.
@@ -191,15 +201,6 @@ interface Team {
     role: string;
     added_at: Date;
   }>;
-  // Spec 104 — surfaced on the team card via StatChip counts. Optional
-  // because legacy team docs may not have been migrated yet.
-  resources?: {
-    agents?: string[];
-    agent_admins?: string[];
-    tools?: string[];
-    knowledge_bases?: string[];
-    tool_wildcard?: boolean;
-  };
   // Spec 098 US9 — denormalised channel count for the team-card StatChip.
   // Source of truth is `channel_team_mappings`, but we mirror a thin array
   // onto the team document so the card doesn't need an extra round-trip.
@@ -1608,9 +1609,6 @@ function AdminPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {gridTeams.map((team) => {
-                      const chatIntegrationCount =
-                        (team.slack_channels?.length ?? 0) + (team.webex_spaces?.length ?? 0);
-
                       return (
                       <Card key={team._id}>
                         <CardHeader>
@@ -1658,12 +1656,13 @@ function AdminPage() {
                             </button>
                           </div>
 
-                          {/* Quick stats — 5 chips give an at-a-glance summary
-                              and double as deep-links into the right tab in
-                              the team-management dialog. Counts that we
-                              don't have on the Team object yet (KBs) just
-                              hide the number and show an icon. */}
-                          <div className="grid grid-cols-5 gap-1.5 mt-3">
+                          {/* Quick stats — the four highest-signal chips
+                              (Members, Agents, MCP, KBs). They double as
+                              deep-links into the matching tab in the
+                              team-management dialog. Skills, Workflows, and
+                              Chat were dropped from the card to keep it
+                              uncluttered; they remain available as tabs. */}
+                          <div className="grid grid-cols-4 gap-1.5 mt-3">
                             <StatChip
                               icon={<Users className="h-3.5 w-3.5" />}
                               label="Members"
@@ -1673,36 +1672,20 @@ function AdminPage() {
                             <StatChip
                               icon={<Bot className="h-3.5 w-3.5" />}
                               label="Agents"
-                              count={team.resources?.agents?.length ?? 0}
+                              count={team.agent_count ?? 0}
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
                               label="MCP"
-                              count={
-                                team.resources?.tool_wildcard
-                                  ? "*"
-                                  : (team.resources?.tools?.length ?? 0)
-                              }
+                              count={team.tool_wildcard ? "*" : (team.tool_count ?? 0)}
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
                               label="KBs"
-                              count={
-                                team.kb_count ??
-                                team.resources?.knowledge_bases?.length ??
-                                0
-                              }
+                              count={team.kb_count ?? 0}
                               onClick={() => openTeamDialog(team, "kbs")}
-                            />
-                            <StatChip
-                              icon={<MessageSquare className="h-3.5 w-3.5" />}
-                              label="Chat"
-                              count={chatIntegrationCount}
-                              ariaLabel={`${chatIntegrationCount} chat integration${chatIntegrationCount === 1 ? "" : "s"}`}
-                              title="Manage chat integrations"
-                              onClick={() => openTeamDialog(team, "channels")}
                             />
                           </div>
 

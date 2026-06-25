@@ -37,6 +37,13 @@ import {
   TEAM_TOOL_WILDCARD_SLASH_CONFIRMATION,
   TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
 } from "./team-tool-wildcard-slash";
+import {
+  applyDropTeamResourcesArrayMigration,
+  DROP_TEAM_RESOURCES_ARRAY_CONFIRMATION,
+  DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID,
+  planDropTeamResourcesArrayMigration,
+  type TeamResourcesDoc,
+} from "./drop-team-resources-array";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
 export {
   getUnclassifiedSchemaAreas,
@@ -513,6 +520,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     confirmation: "MIGRATE messaging_team_visibility TO v2",
     required: true,
     implemented: true,
+  },
+  {
+    id: DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "team_resources",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "Drop legacy team.resources array",
+    description:
+      "Make OpenFGA the single source of truth for team↔resource grants. Backfills any grant still present only in the `team.resources` array (agents/agent_admins/tools/knowledge_bases/skills/tasks) into OpenFGA, then `$unset`s the dead `resources` field. The admin Teams/Users views now read grants live from OpenFGA, so the hand-curated array can only re-introduce drift. Strictly additive on tuples; idempotent once the field is gone.",
+    confirmation: DROP_TEAM_RESOURCES_ARRAY_CONFIRMATION,
+    required: true,
+    implemented: true,
+    dependencies: [UNIVERSAL_REBAC_MIGRATION_ID, TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
   {
@@ -2337,6 +2359,23 @@ async function loadTeamToolWildcardInputs(): Promise<{
 }
 
 /**
+ * Load every team doc that still physically carries a `resources` field for
+ * the drop-team-resources-array migration. The `$exists` filter keeps the scan
+ * proportional to the work remaining — once the field is gone everywhere the
+ * loader returns nothing and the migration is a no-op. Projects only the slug +
+ * resources sub-fields the migration reads.
+ */
+async function loadDropTeamResourcesInputs(): Promise<TeamResourcesDoc[]> {
+  const teamsCol = await getCollection("teams");
+  const docs = (await teamsCol
+    .find({ resources: { $exists: true } } as never, {
+      projection: { _id: 1, slug: 1, resources: 1 },
+    } as never)
+    .toArray()) as Array<Record<string, unknown>>;
+  return docs as unknown as TeamResourcesDoc[];
+}
+
+/**
  * Load every `team_rag_tools` Mongo doc plus a `teamId → slug` map
  * for the MCP tool grants backfill, mirroring
  * `loadKnowledgeBaseSharedTeamGrantsInputs`.
@@ -2913,6 +2952,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     // the looser Mongo doc shape, so narrow to the migration's input type.
     return planTeamToolWildcardSlashMigration({ teams: teams as never[], toolTuples });
   }
+  if (migrationId === DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID) {
+    return planDropTeamResourcesArrayMigration(await loadDropTeamResourcesInputs());
+  }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
   }
@@ -3225,6 +3267,30 @@ export async function applyMigration(input: {
           deletes = d.deletes;
         }
         return { writes, deletes };
+      },
+      teamsCollection: {
+        updateOne: (filter, update) =>
+          teamsCollection.updateOne(filter as never, update as never),
+      },
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID) {
+    const teams = await loadDropTeamResourcesInputs();
+    const teamsCollection = await getCollection("teams");
+    const result = await applyDropTeamResourcesArrayMigration({
+      teams,
+      actor: input.actor,
+      now,
+      // Backfill tuples are plain `team:<slug>#<rel>` usersets on resource
+      // objects. They are strictly additive (no deletes), so a single
+      // writeOpenFgaTuples pass is sufficient; it no-ops on identical writes.
+      writeTuples: async (writes) => {
+        if (writes.length === 0) return { writes: 0 };
+        const w = await writeOpenFgaTuples({ writes, deletes: [] });
+        return { writes: w.writes };
       },
       teamsCollection: {
         updateOne: (filter, update) =>

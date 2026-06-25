@@ -38,6 +38,11 @@ type ProfileUser = {
 };
 
 type AccessVia = {
+  /**
+   * `team` — granted through team membership (attributed to team_slug/role).
+   * `owned` — the user personally owns the resource, independent of any team.
+   */
+  kind?: "team" | "owned";
   team_slug: string;
   team_name: string;
   role: "member" | "admin";
@@ -55,7 +60,7 @@ type AccessGroups = {
   tools: AccessItem[];
   knowledge_bases: AccessItem[];
   skills: AccessItem[];
-  tasks: AccessItem[];
+  workflows: AccessItem[];
 };
 
 const ACCESS_GROUP_LABELS: Array<{ key: keyof AccessGroups; label: string }> = [
@@ -63,7 +68,7 @@ const ACCESS_GROUP_LABELS: Array<{ key: keyof AccessGroups; label: string }> = [
   { key: "tools", label: "Tools" },
   { key: "knowledge_bases", label: "Knowledge bases" },
   { key: "skills", label: "Skills" },
-  { key: "tasks", label: "Tasks" },
+  { key: "workflows", label: "Workflows" },
 ];
 
 // A group with hundreds of grants would blow out the modal; collapse to a
@@ -95,16 +100,26 @@ function AccessGroupList({ label, items }: { label: string; items: AccessItem[] 
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5 shrink-0">
-              {item.via.map((v) => (
-                <span
-                  key={v.team_slug}
-                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
-                  title={`Granted via team ${v.team_name} (${v.role})`}
-                >
-                  {v.team_name}
-                  <span className="text-muted-foreground/70">· {v.role}</span>
-                </span>
-              ))}
+              {item.via.map((v) =>
+                v.kind === "owned" ? (
+                  <span
+                    key="owned"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
+                    title="Owned directly by this user"
+                  >
+                    Owned by user
+                  </span>
+                ) : (
+                  <span
+                    key={v.team_slug}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
+                    title={`Granted via team ${v.team_name} (${v.role})`}
+                  >
+                    {v.team_name}
+                    <span className="text-muted-foreground/70">· {v.role}</span>
+                  </span>
+                ),
+              )}
             </div>
           </li>
         ))}
@@ -330,7 +345,7 @@ export function UserDetailModal({
   const accessTotal = useMemo(() => {
     if (!access) return 0;
     return ACCESS_GROUP_LABELS.reduce(
-      (sum, { key }) => sum + access[key].length,
+      (sum, { key }) => sum + (access[key]?.length ?? 0),
       0
     );
   }, [access]);
@@ -585,7 +600,7 @@ export function UserDetailModal({
               ) : (
                 <div className="space-y-4">
                   {ACCESS_GROUP_LABELS.map(({ key, label }) => {
-                    const items = access[key];
+                    const items = access[key] ?? [];
                     if (items.length === 0) return null;
                     return <AccessGroupList key={key} label={label} items={items} />;
                   })}

@@ -63,7 +63,7 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
 
     const [teams, agents, servers, ownership] = await Promise.all([
       teamsCol
-        .find({} as never, { projection: { _id: 1, name: 1, slug: 1, members: 1, resources: 1 } })
+        .find({} as never, { projection: { _id: 1, name: 1, slug: 1, members: 1 } })
         .sort({ name: 1 })
         .limit(200)
         .toArray()
@@ -133,7 +133,8 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
             user_id: member.user_email ?? member.user_subject ?? "",
             role: member.role,
           })),
-          resources: team.resources ?? {},
+          // Team↔resource grants live in OpenFGA, surfaced via
+          // `universal_resources`/`by_type` — not a per-team Mongo array.
         };
       }),
       resources: {

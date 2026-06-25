@@ -39,9 +39,6 @@ function validateTeamId(id: string): void {
 interface TeamDoc {
   _id: ObjectId;
   slug?: string;
-  resources?: {
-    knowledge_bases?: string[];
-  };
 }
 
 function normalizeEmail(value: unknown): string {
@@ -206,27 +203,16 @@ export const GET = withErrorHandler(
         }
       }
 
+      // `team_kb_ownership` is the canonical store for team KB assignments; a
+      // team with no ownership record simply has no KB assignments.
       const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
       const record = await ownership.findOne({ team_id: params.id });
-      const legacyKbIds =
-        !record && params.id !== GLOBAL_PSEUDO_TEAM && team?.resources?.knowledge_bases
-          ? Array.from(
-              new Set(
-                team.resources.knowledge_bases
-                  .map((id) => id.trim())
-                  .filter((id) => id.length > 0)
-              )
-            )
-          : [];
-      const legacyPermissions = Object.fromEntries(
-        legacyKbIds.map((id) => [id, 'read' as KbPermission])
-      );
 
       return successResponse({
         team_id: params.id,
-        kb_ids: record?.kb_ids ?? legacyKbIds,
-        kb_permissions: record?.kb_permissions ?? legacyPermissions,
-        allowed_datasource_ids: record?.allowed_datasource_ids ?? legacyKbIds,
+        kb_ids: record?.kb_ids ?? [],
+        kb_permissions: record?.kb_permissions ?? {},
+        allowed_datasource_ids: record?.allowed_datasource_ids ?? [],
         updated_at: record?.updated_at ?? null,
         updated_by: record?.updated_by ?? null,
       });

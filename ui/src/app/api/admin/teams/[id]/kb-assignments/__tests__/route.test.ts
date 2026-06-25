@@ -126,16 +126,11 @@ beforeEach(() => {
 });
 
 describe("/api/admin/teams/[id]/kb-assignments", () => {
-  it("falls back to legacy team resource KB assignments when ownership rows are missing", async () => {
+  it("returns empty assignments when no ownership record exists (no legacy fallback)", async () => {
+    // `team_kb_ownership` is the only source now — the legacy `team.resources`
+    // fallback is gone, so a team with no ownership row simply has no KBs.
     mockCollections.teams = createMockCollection([
-      {
-        _id: teamId,
-        slug: "platform",
-        name: "Platform",
-        resources: {
-          knowledge_bases: ["legacy-ds"],
-        },
-      },
+      { _id: teamId, slug: "platform", name: "Platform" },
     ]);
     mockCollections.team_kb_ownership = createMockCollection([]);
     const { GET } = await import("../route");
@@ -147,9 +142,9 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.kb_ids).toEqual(["legacy-ds"]);
-    expect(body.data.kb_permissions).toEqual({ "legacy-ds": "read" });
-    expect(body.data.allowed_datasource_ids).toEqual(["legacy-ds"]);
+    expect(body.data.kb_ids).toEqual([]);
+    expect(body.data.kb_permissions).toEqual({});
+    expect(body.data.allowed_datasource_ids).toEqual([]);
   });
 
   it("reconciles knowledge-base tuples before saving assignments", async () => {
