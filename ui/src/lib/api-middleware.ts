@@ -1254,6 +1254,24 @@ interface ConversationAccessResult {
   access_level: ConversationAccessLevel;
 }
 
+function normalizedIdentity(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function sessionSubject(session: { sub?: unknown } | undefined): string {
+  return typeof session?.sub === 'string' ? session.sub.trim() : '';
+}
+
+function isConversationOwnerForAccess(
+  conversation: { owner_id?: unknown; owner_subject?: unknown },
+  userId: string,
+  session?: { sub?: unknown },
+): boolean {
+  const subject = sessionSubject(session);
+  if (subject && conversation.owner_subject === subject) return true;
+  return Boolean(normalizedIdentity(userId) && normalizedIdentity(conversation.owner_id) === normalizedIdentity(userId));
+}
+
 /**
  * Check if user has access to a conversation (owner, shared with directly,
  * shared with one of their teams, via sharing_access records, or admin audit).
@@ -1265,7 +1283,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<any>,
-  session?: { role?: string }
+  session?: { role?: string; sub?: string }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -1274,8 +1292,10 @@ export async function requireConversationAccess(
     throw new ApiError('Conversation not found', 404, 'NOT_FOUND');
   }
 
-  // Check if user is owner
-  if (conversation.owner_id === userId) {
+  // Check if user is owner. Newer conversations may carry owner_subject; older
+  // records rely on owner_id email and should be compared case-insensitively.
+  // assisted-by Codex Codex-sonnet-4-6
+  if (isConversationOwnerForAccess(conversation, userId, session)) {
     return { conversation, access_level: 'owner' };
   }
 
@@ -1291,11 +1311,15 @@ export async function requireConversationAccess(
   }
 
   // Check if conversation is shared with user directly
-  if (conversation.sharing?.shared_with?.includes(userId)) {
+  const normalizedUserId = normalizedIdentity(userId);
+  const directShareMatch = conversation.sharing?.shared_with?.some(
+    (email: unknown) => normalizedIdentity(email) === normalizedUserId,
+  );
+  if (directShareMatch) {
     const sharingAccess = await getCollectionFn('sharing_access');
     const accessRecord = await sharingAccess.findOne({
       conversation_id: conversationId,
-      granted_to: userId,
+      granted_to: { $in: [userId, normalizedUserId] },
       revoked_at: null,
     });
     // Default to 'comment' (full access) for backward compatibility with

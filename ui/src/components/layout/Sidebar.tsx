@@ -524,7 +524,12 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div
+                            className={cn(
+                              "transition-opacity",
+                              activeConversationId === conv.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                            )}
+                          >
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
