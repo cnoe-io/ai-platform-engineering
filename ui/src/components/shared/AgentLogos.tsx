@@ -132,6 +132,16 @@ export const AGENT_LOGOS: Record<string, AgentLogoConfig> = {
       </svg>
     )
   },
+  webex: {
+    name: "webex",
+    displayName: "Webex",
+    color: "#07C1E4",
+    icon: (
+      <div className="w-full h-full flex items-center justify-center">
+        <img src="/webex.svg" alt="Webex" className="w-full h-full object-contain" />
+      </div>
+    )
+  },
   confluence: {
     name: "confluence",
     displayName: "Confluence",
@@ -221,6 +231,7 @@ export function normalizeAgentName(name: string): string {
   if (normalized === "jira" || normalized.includes("atlassian")) return "jira";
   if (normalized === "splunk") return "splunk";
   if (normalized === "pagerduty" || normalized === "pd") return "pagerduty";
+  if (normalized === "webex" || normalized.includes("webex")) return "webex";
   if (normalized === "confluence") return "confluence";
   if (normalized === "kubernetes" || normalized === "k8s") return "kubernetes";
   if (normalized === "user_input" || normalized.includes("platform")) return "user_input";

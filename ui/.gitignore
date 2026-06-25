@@ -3,3 +3,7 @@ env-config.js
 # Test coverage reports
 coverage/
 *.lcov
+
+# Playwright artifacts
+playwright-report/
+test-results/
