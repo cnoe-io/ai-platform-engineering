@@ -433,14 +433,7 @@ describe('GET /api/chat/conversations — team sharing', () => {
     GET = mod.GET;
   });
 
-  // Spec 098-enterprise-rbac moved team-share visibility out of the Mongo
-  // query and into a ReBAC post-filter. The route now fetches non-deleted
-  // candidates and lets `filterConversationsByImplicitOrExplicitPermission`
-  // decide visibility, so the legacy `$or` over `sharing.shared_with_*` is
-  // intentionally gone. These tests now assert the new contract: the query
-  // no longer leaks legacy sharing predicates regardless of the caller's
-  // team memberships.
-  it('does NOT include legacy shared_with_teams predicates in the Mongo query', async () => {
+  it('prefilters owned and sharing-configured candidates before ReBAC', async () => {
     mockGetServerSession.mockResolvedValue(userSession(MEMBER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -459,12 +452,19 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const serialized = JSON.stringify(findCall);
-    expect(serialized).not.toContain('shared_with_teams');
-    expect(serialized).not.toContain('shared_with');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      {
+        $or: [
+          { owner_id: MEMBER_EMAIL },
+          { 'sharing.is_public': true },
+          { 'sharing.shared_with': MEMBER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      },
+    ]));
   });
 
-  it('does NOT include legacy shared_with predicates when user has no teams', async () => {
+  it('uses the same bounded candidate shape when user has no teams', async () => {
     mockGetServerSession.mockResolvedValue(userSession(NON_MEMBER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -483,7 +483,16 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(JSON.stringify(findCall)).not.toContain('shared_with');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: [
+          { owner_id: NON_MEMBER_EMAIL },
+          { 'sharing.is_public': true },
+          { 'sharing.shared_with': NON_MEMBER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      }),
+    ]));
   });
 
   it('does not branch query shape on the number of teams (ReBAC does the filtering)', async () => {
@@ -508,7 +517,13 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(JSON.stringify(findCall)).not.toContain('shared_with_teams');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: expect.arrayContaining([
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ]),
+      }),
+    ]));
   });
 
   it('still excludes soft-deleted conversations', async () => {

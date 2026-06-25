@@ -15,6 +15,20 @@ function normalizeEmail(email: string | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
 
+export function conversationVisibilityCandidateQuery(userEmail: string): { $or: Record<string, unknown>[] } {
+  const email = userEmail.trim();
+  return {
+    $or: [
+      { owner_id: email },
+      { "sharing.is_public": true },
+      { "sharing.shared_with": email },
+      // assisted-by Codex Codex-sonnet-4-6
+      // Team membership is still decided by ReBAC; this only bounds the Mongo candidate set.
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ],
+  };
+}
+
 export function isImplicitConversationOwner(
   session: ResourceAuthzSession,
   userEmail: string,

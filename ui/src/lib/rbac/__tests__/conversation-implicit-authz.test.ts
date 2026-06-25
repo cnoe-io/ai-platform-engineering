@@ -1,4 +1,5 @@
 import {
+  conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
   isImplicitConversationOwner,
   requireConversationResourcePermission,
@@ -19,6 +20,17 @@ const { filterResourcesByPermission, requireResourcePermission } = jest.requireM
 describe("conversation implicit authorization", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("builds a bounded candidate query for owned and explicitly shared conversations", () => {
+    expect(conversationVisibilityCandidateQuery("alice@example.com")).toEqual({
+      $or: [
+        { owner_id: "alice@example.com" },
+        { "sharing.is_public": true },
+        { "sharing.shared_with": "alice@example.com" },
+        { "sharing.shared_with_teams.0": { $exists: true } },
+      ],
+    });
   });
 
   it("treats owner_subject and legacy owner_id as implicit ownership", () => {

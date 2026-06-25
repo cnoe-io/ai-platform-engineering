@@ -10,7 +10,10 @@ validateRequired,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
-import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
+import {
+  conversationVisibilityCandidateQuery,
+  filterConversationsByImplicitOrExplicitPermission,
+} from '@/lib/rbac/conversation-implicit-authz';
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
 import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { buildParticipants } from '@/types/a2a';
@@ -94,11 +97,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const conversations = await getCollection<Conversation>('conversations');
 
-  // Fetch non-deleted candidates and let the ReBAC filter decide visibility.
-  // Legacy sharing fields are still stored for migration, but no longer prefilter reads.
+  // Fetch only owned or sharing-configured candidates; ReBAC remains the final
+  // visibility check for team shares and explicit conversation grants.
   const query: any = {
     $and: [
       { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
+      conversationVisibilityCandidateQuery(user.email),
     ],
   };
 

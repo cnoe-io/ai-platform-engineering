@@ -56,6 +56,14 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  conversationVisibilityCandidateQuery: (userEmail: string) => ({
+    $or: [
+      { owner_id: userEmail },
+      { "sharing.is_public": true },
+      { "sharing.shared_with": userEmail },
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ],
+  }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
 }));
@@ -87,7 +95,7 @@ describe("POST /api/chat/conversations agent authorization", () => {
     );
   });
 
-  it("lists candidate conversations without legacy team prefiltering before OpenFGA filtering", async () => {
+  it("lists bounded conversation candidates before OpenFGA filtering", async () => {
     const candidate = {
       _id: "conv-openfga-only",
       title: "OpenFGA Only",
@@ -109,8 +117,17 @@ describe("POST /api/chat/conversations agent authorization", () => {
     expect(response.status).toBe(200);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
     expect(countDocuments).toHaveBeenCalledWith(
-      expect.not.objectContaining({
-        $or: expect.any(Array),
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          {
+            $or: [
+              { owner_id: "alice@example.com" },
+              { "sharing.is_public": true },
+              { "sharing.shared_with": "alice@example.com" },
+              { "sharing.shared_with_teams.0": { $exists: true } },
+            ],
+          },
+        ]),
       }),
     );
     expect(mockFilterConversationsByImplicitOrExplicitPermission).toHaveBeenCalledWith(

@@ -28,6 +28,7 @@ jest.mock("@/lib/api-middleware", () => {
   const session = { sub: "alice-sub", role: "user" };
   return {
     ApiError,
+    getAuthFromBearerOrSession: async () => ({ user, session }),
     getPaginationParams: () => ({ page: 1, pageSize: 20, skip: 0 }),
     getUserTeamIds: (...args: unknown[]) => mockGetUserTeamIds(...args),
     paginatedResponse: (items: unknown[], total: number, page: number, pageSize: number) =>
@@ -55,6 +56,14 @@ jest.mock("@/lib/api-middleware", () => {
 });
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  conversationVisibilityCandidateQuery: (userEmail: string) => ({
+    $or: [
+      { owner_id: userEmail },
+      { "sharing.is_public": true },
+      { "sharing.shared_with": userEmail },
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ],
+  }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
   requireConversationResourcePermission: (...args: unknown[]) =>
@@ -138,7 +147,39 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
     );
   });
 
-  it("search conversations applies text filters before OpenFGA without owner/shared prefilters", async () => {
+  it("conversation list prefilters owned and sharing-configured candidates before OpenFGA authorization", async () => {
+    const candidate = conversation({ owner_id: "alice@example.com" });
+    const conversations = collectionWithItems([candidate]);
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "conversations") return conversations;
+      return collectionWithItems([]);
+    });
+    const { GET } = await import("../chat/conversations/route");
+
+    const response = await GET(request("/api/chat/conversations"));
+
+    expect(response.status).toBe(200);
+    const mongoQuery = conversations.find.mock.calls[0][0];
+    expect(mongoQuery.$and).toEqual(
+      expect.arrayContaining([
+        {
+          $or: [
+            { owner_id: "alice@example.com" },
+            { "sharing.is_public": true },
+            { "sharing.shared_with": "alice@example.com" },
+            { "sharing.shared_with_teams.0": { $exists: true } },
+          ],
+        },
+      ]),
+    );
+    expect(mockFilterConversationsByImplicitOrExplicitPermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub" }),
+      "alice@example.com",
+      [candidate],
+    );
+  });
+
+  it("search conversations applies candidate and text filters before OpenFGA", async () => {
     const candidate = conversation({ title: "needle" });
     const conversations = collectionWithItems([candidate]);
     mockGetCollection.mockResolvedValue(conversations);
@@ -148,12 +189,16 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
 
     expect(response.status).toBe(200);
     const mongoQuery = conversations.find.mock.calls[0][0];
-    expect(mongoQuery).not.toHaveProperty("$or", [
-      { owner_id: "alice@example.com" },
-      { "sharing.shared_with": "alice@example.com" },
-    ]);
     expect(mongoQuery.$and).toEqual(
       expect.arrayContaining([
+        {
+          $or: [
+            { owner_id: "alice@example.com" },
+            { "sharing.is_public": true },
+            { "sharing.shared_with": "alice@example.com" },
+            { "sharing.shared_with_teams.0": { $exists: true } },
+          ],
+        },
         expect.objectContaining({
           $or: expect.arrayContaining([expect.objectContaining({ title: expect.any(Object) })]),
         }),
@@ -166,7 +211,7 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
     );
   });
 
-  it("trash listing is filtered by OpenFGA instead of owner_id", async () => {
+  it("trash listing is bounded to owned and sharing-configured candidates before OpenFGA", async () => {
     const deleted = conversation({ deleted_at: new Date() });
     const conversations = collectionWithItems([deleted]);
     mockGetCollection.mockImplementation(async (name: string) => {
@@ -179,7 +224,19 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
 
     expect(response.status).toBe(200);
     const listQuery = conversations.find.mock.calls[1][0];
-    expect(listQuery).not.toHaveProperty("owner_id");
+    expect(listQuery.$and).toEqual(
+      expect.arrayContaining([
+        { deleted_at: { $exists: true, $ne: null } },
+        {
+          $or: [
+            { owner_id: "alice@example.com" },
+            { "sharing.is_public": true },
+            { "sharing.shared_with": "alice@example.com" },
+            { "sharing.shared_with_teams.0": { $exists: true } },
+          ],
+        },
+      ]),
+    );
     expect(mockFilterConversationsByImplicitOrExplicitPermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",

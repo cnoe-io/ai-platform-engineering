@@ -8,7 +8,10 @@ withAuth,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
-import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
+import {
+  conversationVisibilityCandidateQuery,
+  filterConversationsByImplicitOrExplicitPermission,
+} from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 import { deleteConversationsPermanently } from '../delete-permanently';
@@ -50,8 +53,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Query for soft-deleted conversation candidates, then filter by ReBAC.
     const query = {
-      source: { $ne: 'slack' } as any,
-      deleted_at: { $exists: true, $ne: null },
+      $and: [
+        { source: { $ne: 'slack' } as any },
+        { deleted_at: { $exists: true, $ne: null } },
+        conversationVisibilityCandidateQuery(user.email),
+      ],
     };
 
     const total = await conversations.countDocuments(query);
