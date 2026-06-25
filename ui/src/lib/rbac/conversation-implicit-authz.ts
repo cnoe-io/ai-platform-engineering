@@ -39,6 +39,25 @@ export function isImplicitConversationOwner(
   return Boolean(normalizeEmail(userEmail) && normalizeEmail(conversation.owner_id) === normalizeEmail(userEmail));
 }
 
+export interface ConversationViewerSharingFlag {
+  viewer_has_shared_access: boolean;
+}
+
+export function annotateConversationsWithViewerSharing<
+  T extends Pick<Conversation, "owner_id" | "owner_subject">,
+>(
+  session: ResourceAuthzSession,
+  userEmail: string,
+  conversations: T[],
+): Array<T & ConversationViewerSharingFlag> {
+  return conversations.map((conversation) => ({
+    ...conversation,
+    // assisted-by Codex Codex-sonnet-4-6
+    // Sidebar needs an explicit recipient signal even when owner metadata is absent client-side.
+    viewer_has_shared_access: !isImplicitConversationOwner(session, userEmail, conversation),
+  }));
+}
+
 export async function requireConversationResourcePermission(
   session: ResourceAuthzSession,
   userEmail: string,

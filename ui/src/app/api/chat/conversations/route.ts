@@ -11,6 +11,7 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import {
+  annotateConversationsWithViewerSharing,
   conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
 } from '@/lib/rbac/conversation-implicit-authz';
@@ -23,7 +24,7 @@ import { NextRequest,NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import packageJson from '../../../../../package.json';
 
-type ConversationWithAgentDisplay = Conversation & {
+type ConversationWithAgentDisplay<T extends Conversation = Conversation> = T & {
   agent_id?: string;
   agent_name?: string;
 };
@@ -32,9 +33,9 @@ function getConversationAgentId(conversation: Conversation): string | undefined 
   return conversation.participants?.find((participant) => participant.type === 'agent')?.id;
 }
 
-async function enrichConversationAgentNames(
-  items: Conversation[],
-): Promise<ConversationWithAgentDisplay[]> {
+async function enrichConversationAgentNames<T extends Conversation>(
+  items: T[],
+): Promise<ConversationWithAgentDisplay<T>[]> {
   const agentIds = Array.from(
     new Set(items.map(getConversationAgentId).filter((id): id is string => Boolean(id))),
   );
@@ -142,9 +143,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .toArray();
 
   const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+  const visibleItemsWithViewerFlags = annotateConversationsWithViewerSharing(session, user.email, visibleItems);
 
   return paginatedResponse(
-    await enrichConversationAgentNames(visibleItems),
+    await enrichConversationAgentNames(visibleItemsWithViewerFlags),
     visibleItems.length < items.length ? visibleItems.length : total,
     page,
     pageSize

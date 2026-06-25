@@ -357,19 +357,28 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                 {conversations.map((conv, index) => {
                   const currentUserEmail = session?.user?.email?.trim().toLowerCase();
                   const ownerEmail = conv.owner_id?.trim().toLowerCase();
-                  const isOwner = !ownerEmail || (currentUserEmail ? ownerEmail === currentUserEmail : false);
+                  const viewerIsKnownOwner =
+                    conv.accessLevel === "owner" ||
+                    Boolean(ownerEmail && currentUserEmail && ownerEmail === currentUserEmail);
                   const hasSharingConfig = Boolean(
                     conv.sharing?.is_public ||
                     (conv.sharing?.shared_with?.length ?? 0) > 0 ||
                     (conv.sharing?.shared_with_teams?.length ?? 0) > 0 ||
                     conv.sharing?.share_link_enabled
                   );
+                  const sharedByKnownDifferentOwner = Boolean(
+                    ownerEmail &&
+                    currentUserEmail &&
+                    ownerEmail !== currentUserEmail &&
+                    hasSharingConfig
+                  );
                   // assisted-by Codex Codex-sonnet-4-6
-                  // The badge is viewer-facing: show it for recipients, not just because the owner shared it.
-                  const isSharedWithViewer = !isOwner && (
+                  // The badge is viewer-facing, so prefer the server's per-viewer sharing signal.
+                  const isSharedWithViewer = !viewerIsKnownOwner && (
+                    conv.isSharedWithViewer === true ||
                     conv.accessLevel === "shared" ||
                     conv.accessLevel === "shared_readonly" ||
-                    hasSharingConfig
+                    sharedByKnownDifferentOwner
                   );
                   const isPublicShareForViewer = isSharedWithViewer && conv.sharing?.is_public;
 

@@ -426,6 +426,26 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
     })
 
+    it('shows a shared badge from the server viewer flag without owner metadata', () => {
+      mockConversations = [
+        makeConv('conv-flagged-recipient', 'Flagged Recipient Chat', {
+          isSharedWithViewer: true,
+          sharing: {
+            is_public: false,
+            shared_with: [],
+            shared_with_teams: [],
+            share_link_enabled: false,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Flagged Recipient Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+    })
+
     it('does not show the recipient shared badge to the owner', () => {
       mockConversations = [
         makeConv('conv-owner-shared', 'Owner Shared Chat', {

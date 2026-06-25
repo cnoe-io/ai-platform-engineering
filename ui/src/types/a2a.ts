@@ -25,6 +25,9 @@ export interface Conversation {
   owner_id?: string;
   /** Current viewer access level returned by the conversation detail API. */
   accessLevel?: ConversationAccessLevel;
+  /** Server list says the current viewer sees this row through sharing. */
+  // assisted-by Codex Codex-sonnet-4-6
+  isSharedWithViewer?: boolean;
   /** Sharing information (optional, only for MongoDB conversations) */
   sharing?: {
     is_public?: boolean;

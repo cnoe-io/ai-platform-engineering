@@ -1,4 +1,5 @@
 import {
+  annotateConversationsWithViewerSharing,
   conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
   isImplicitConversationOwner,
@@ -75,6 +76,32 @@ describe("conversation implicit authorization", () => {
       }),
       { bypassForOrgAdmin: true },
     );
+  });
+
+  it("annotates viewer sharing for non-owned visible rows", () => {
+    type ViewerFlagRow = {
+      _id: string;
+      owner_id?: string;
+      owner_subject?: string;
+    };
+
+    const rows = annotateConversationsWithViewerSharing<ViewerFlagRow>(
+      { sub: "alice-sub" },
+      "alice@example.com",
+      [
+        { _id: "owned-sub", owner_id: "other@example.com", owner_subject: "alice-sub" },
+        { _id: "owned-email", owner_id: "alice@example.com", owner_subject: undefined },
+        { _id: "shared-no-owner", owner_id: undefined, owner_subject: undefined },
+        { _id: "shared-known-owner", owner_id: "bob@example.com", owner_subject: undefined },
+      ],
+    );
+
+    expect(rows.map((row) => [row._id, row.viewer_has_shared_access])).toEqual([
+      ["owned-sub", false],
+      ["owned-email", false],
+      ["shared-no-owner", true],
+      ["shared-known-owner", true],
+    ]);
   });
 
   it("requires OpenFGA only when caller is not the implicit owner", async () => {

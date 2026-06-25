@@ -758,6 +758,7 @@ const storeImplementation = (set: any, get: any) => ({
               streamEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.streamEvents || []) : [],
               participants: conv.participants || [],
               owner_id: conv.owner_id,
+              isSharedWithViewer: conv.viewer_has_shared_access,
               sharing: conv.sharing,
             };
           });

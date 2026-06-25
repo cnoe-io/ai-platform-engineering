@@ -89,6 +89,9 @@ export interface Conversation {
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
+  // assisted-by Codex Codex-sonnet-4-6
+  // Response-only: current viewer reached this conversation through sharing, not ownership.
+  viewer_has_shared_access?: boolean;
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;
