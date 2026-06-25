@@ -258,7 +258,6 @@ const CATEGORIES: Category[] = [
     icon: Settings,
     tabs: [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
-      { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
@@ -1461,11 +1460,6 @@ function AdminPage() {
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
                   <PlatformSettingsTab isAdmin={isAdmin} />
-                </TabsContent>
-              )}
-
-              {tabGateValues.settings && (
-                <TabsContent value="release-notes" className="space-y-4">
                   <ReleaseNotesSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
               )}

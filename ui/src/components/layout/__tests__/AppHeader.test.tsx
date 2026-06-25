@@ -158,12 +158,8 @@ const mockReleasePrompt = {
   open: false,
   isAdmin: false,
   releaseVersion: null as string | null,
-  announcementId: null as string | null,
   release: null as any,
-  showMigrationCta: true,
-  toastNotification: null as any,
-  markToastShown: jest.fn(),
-  openMigrationAssistant: jest.fn(),
+  releaseMarkdown: null as any,
   skipUntilNextLogin: jest.fn(),
   dismissPermanently: jest.fn(),
   isLoading: false,
@@ -385,11 +381,8 @@ describe('AppHeader — nav tabs', () => {
     mockReleasePrompt.open = false
     mockReleasePrompt.isAdmin = false
     mockReleasePrompt.releaseVersion = null
-    mockReleasePrompt.announcementId = null
     mockReleasePrompt.release = null
-    mockReleasePrompt.showMigrationCta = true
-    mockReleasePrompt.toastNotification = null
-    mockReleasePrompt.markToastShown.mockClear()
+    mockReleasePrompt.releaseMarkdown = null
   })
 
   describe('Insights tab removed from nav', () => {
@@ -1043,24 +1036,6 @@ describe('AppHeader — Chat tab notification dots', () => {
     render(<AppHeader />)
 
     expect(screen.getByTestId('release-upgrade-dialog')).toHaveTextContent('0.5.1 admin')
-  })
-
-  it('shows the managed release notes toast once when configured', () => {
-    mockReleasePrompt.releaseVersion = '0.6.0'
-    mockReleasePrompt.toastNotification = {
-      id: '0.6.0:revision-2',
-      message: 'Release notes for 0.6.0 are available.',
-      duration: 12000,
-    }
-
-    render(<AppHeader />)
-
-    expect(mockToast).toHaveBeenCalledWith(
-      'Release notes for 0.6.0 are available.',
-      'info',
-      12000,
-    )
-    expect(mockReleasePrompt.markToastShown).toHaveBeenCalled()
   })
 
   // ---------------------------------------------------------------------------

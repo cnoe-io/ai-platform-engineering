@@ -17,7 +17,6 @@ TooltipContent,
 TooltipProvider,
 TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useToast } from "@/components/ui/toast";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
@@ -237,21 +236,10 @@ export function AppHeader() {
   // Policy → Keycloak just to notice. Gated by `isAdmin` so non-admin
   // sessions never trigger the underlying Keycloak Admin round-trip.
   const keycloakHealth = useKeycloakHealthSummary({ enabled: isAdmin });
-  const { toast } = useToast();
   const noAuthConfigured = !config.ssoEnabled || config.unsafeRbacBypassEnabled;
   const noAuthStatusText = config.unsafeRbacBypassEnabled
     ? "RBAC bypass is enabled. UI authorization checks allow every operation."
     : "SSO is disabled. This deployment is not enforcing browser sign-in.";
-
-  React.useEffect(() => {
-    if (!session || !releasePrompt.toastNotification) return;
-    toast(
-      releasePrompt.toastNotification.message,
-      "info",
-      releasePrompt.toastNotification.duration,
-    );
-    releasePrompt.markToastShown();
-  }, [releasePrompt, session, toast]);
 
   // Combined status: hard failures from the API path or platform
   // dependencies mark the system as disconnected; optional RAG failures are
@@ -1285,10 +1273,8 @@ export function AppHeader() {
         releaseVersion={releasePrompt.releaseVersion}
         release={releasePrompt.release}
         releaseMarkdown={releasePrompt.releaseMarkdown}
-        onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
         onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
         onDismissPermanently={releasePrompt.dismissPermanently}
-        showMigrationCta={releasePrompt.showMigrationCta}
         isDismissing={releasePrompt.isDismissing}
       />
     )}

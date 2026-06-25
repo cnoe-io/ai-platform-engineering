@@ -63,12 +63,6 @@ describe("admin platform-config route", () => {
         default_agent_id: "agent-default",
         release_notes: {
           enabled: true,
-          release_version: "0.6.0",
-          announcement_revision: 4,
-          announcement_id: "0.6.0:revision-4",
-          show_toast: true,
-          toast_duration_ms: 10000,
-          show_migration_cta: true,
         },
       }),
       updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
@@ -124,14 +118,8 @@ describe("admin platform-config route", () => {
     const response = await GET(request("/api/admin/platform-config"));
     const body = await response.json();
 
-    expect(body.data.release_notes).toMatchObject({
+    expect(body.data.release_notes).toEqual({
       enabled: true,
-      release_version: "0.6.0",
-      announcement_revision: 4,
-      announcement_id: "0.6.0:revision-4",
-      show_toast: true,
-      toast_duration_ms: 10000,
-      show_migration_cta: true,
     });
   });
 
@@ -316,12 +304,7 @@ describe("admin platform-config route", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           release_notes: {
-            enabled: true,
-            release_version: "0.6.0",
-            announcement_revision: 2,
-            show_toast: true,
-            toast_duration_ms: 12000,
-            show_migration_cta: false,
+            enabled: false,
           },
         }),
       }),
@@ -333,17 +316,13 @@ describe("admin platform-config route", () => {
       { _id: "platform_settings" },
       expect.objectContaining({
         $set: expect.objectContaining({
-          release_notes: expect.objectContaining({
-            release_version: "0.6.0",
-            announcement_revision: 2,
-            announcement_id: "0.6.0:revision-2",
-          }),
+          release_notes: { enabled: false },
         }),
       }),
       { upsert: true },
     );
     expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty("default_agent_id");
-    expect(body.data.release_notes.announcement_id).toBe("0.6.0:revision-2");
+    expect(body.data.release_notes).toEqual({ enabled: false });
   });
 
   it("checks coarse admin before system_config manage on updates", async () => {
