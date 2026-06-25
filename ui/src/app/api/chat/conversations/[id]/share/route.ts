@@ -4,6 +4,7 @@
 
 import {
 ApiError,
+requireConversationAccess,
 successResponse,
 validateEmail,
 validateUUID,
@@ -129,14 +130,12 @@ export const GET = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
-    const conversations = await getCollection<Conversation>('conversations');
-    const conversation = await conversations.findOne({ _id: conversationId });
-
-    if (!conversation) {
-      throw new ApiError('Conversation not found', 404);
-    }
-
-    await requireConversationResourcePermission(session, user.email, conversation, 'share');
+    const { conversation } = await requireConversationAccess(
+      conversationId,
+      user.email,
+      getCollection,
+      session,
+    );
 
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
     const accessList = await sharingAccess

@@ -31,8 +31,10 @@ type ChatBootMocksOptions = {
   agentId?: string;
   sharing?: {
     is_public?: boolean;
+    public_permission?: "view" | "comment";
     shared_with?: string[];
     shared_with_teams?: string[];
+    team_permissions?: Record<string, "view" | "comment">;
     share_link_enabled?: boolean;
   };
   viewerHasSharedAccess?: boolean;
@@ -92,6 +94,7 @@ export async function installChatBootMocks(
   const seedExistingConversation = options.seedExistingConversation !== false;
   const conversationListDelayMs = options.conversationListDelayMs ?? 0;
   let created = seedExistingConversation;
+  const directSharePermission = options.accessLevel === "shared_readonly" ? "view" : "comment";
 
   await page.route("**/api/admin/platform-config", async (route) => {
     await route.fulfill({
@@ -205,6 +208,27 @@ export async function installChatBootMocks(
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ success: true, data: conversation }),
+      });
+      return;
+    }
+
+    if (path === `/api/chat/conversations/${conversationId}/share` && method === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            sharing: conversation.sharing,
+            access_list: (conversation.sharing.shared_with ?? []).map((email: string) => ({
+              conversation_id: conversationId,
+              granted_by: ownerEmail,
+              granted_to: email,
+              permission: directSharePermission,
+              granted_at: new Date().toISOString(),
+            })),
+          },
+        }),
       });
       return;
     }

@@ -89,15 +89,14 @@ export function ShareDialog({
     setIsPublic(sharing?.is_public || false);
     setTeamPermissions(sharing?.team_permissions || {});
     setPublicPermission(sharing?.public_permission || 'comment');
+    setUserPermissions({});
   };
 
   // Load current sharing info
   useEffect(() => {
     if (open) {
       applySharingSnapshot(initialSharing);
-      if (canManageSharing) {
-        loadSharingInfo();
-      }
+      loadSharingInfo();
     }
   }, [open, conversationId, canManageSharing]);
 
