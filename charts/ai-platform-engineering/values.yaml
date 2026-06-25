@@ -193,16 +193,19 @@ global:
           # Internal BFF route that publishes sanitized AgentGateway MCP targets.
           url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets
           existingSecret:
-            # Name of the Kubernetes Secret containing AGENTGATEWAY_TARGETS_TOKEN.
-            # Mount the same key into caipe-ui (via caipe-ui.existingSecret or
-            # caipe-ui.externalSecrets) so the BFF and bridge share the token.
+            # REQUIRED when configBridge is enabled and externalSecret is not used.
+            # Name of a pre-existing Secret containing AGENTGATEWAY_TARGETS_TOKEN.
+            # The same secret must be accessible to caipe-ui (via caipe-ui.existingSecret
+            # or caipe-ui.externalSecrets) so both sides share the token.
+            # Generate and create:
+            #   TOKEN=$(openssl rand -base64 32)
+            #   kubectl create secret generic <name> --from-literal=AGENTGATEWAY_TARGETS_TOKEN=$TOKEN
             name: ""
             key: AGENTGATEWAY_TARGETS_TOKEN
-          # ESO support: set enabled: true to have the External Secrets Operator
-          # populate <release>-agentgateway-config-bridge-token from an external
-          # store (Vault, AWS SM, etc.). When enabled, the auto-generated token
-          # Secret is suppressed so ESO owns it. Independent of
-          # global.externalSecrets.enabled — can be used standalone.
+          # ESO alternative: when enabled, the External Secrets Operator creates the
+          # token secret from an external store (Vault, AWS SM, etc.).
+          # existingSecret.name is not required when this is enabled.
+          # Independent of global.externalSecrets.enabled.
           externalSecret:
             enabled: false
             # apiVersion: v1beta1        # defaults to global.externalSecrets.apiVersion
