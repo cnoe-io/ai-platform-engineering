@@ -748,6 +748,47 @@ describe("ChatContainer", () => {
     expect(addedConv.title).toBe("From MongoDB");
   });
 
+  it("preserves sharing metadata when a shared conversation is opened directly", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    // Direct URL loads bypass the list route, so this metadata must survive the detail fetch.
+    const sharing = {
+      is_public: false,
+      shared_with: [],
+      shared_with_teams: [],
+      share_link_enabled: true,
+    };
+    const findAddedConversation = () =>
+      mockConversations.find((conversation) => conversation.id === mockUuid) as
+        | { owner_id?: string; sharing?: typeof sharing }
+        | undefined;
+
+    render(<ChatContainer />);
+
+    resolveGetConversation({
+      _id: mockUuid,
+      title: "Direct Shared Conversation",
+      owner_id: "owner@example.com",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      participants: [{ type: "agent", id: "agent-1" }],
+      sharing,
+      access_level: "shared_readonly",
+    });
+
+    await waitFor(() => {
+      expect(findAddedConversation()).toBeDefined();
+    });
+
+    await waitFor(() => {
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+    });
+    resolveLoadMessages();
+
+    const addedConv = findAddedConversation();
+    expect(addedConv?.owner_id).toBe("owner@example.com");
+    expect(addedConv?.sharing).toEqual(sharing);
+  });
+
   it("adds fallback conversation to store when MongoDB returns 404", async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { useChatStore } = require("@/store/chat-store");

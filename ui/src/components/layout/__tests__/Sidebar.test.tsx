@@ -96,6 +96,7 @@ jest.mock('lucide-react', () => ({
   Sparkles: (props: any) => <span data-testid="icon-sparkles" {...props} />,
   Zap: (props: any) => <span data-testid="icon-zap" {...props} />,
   Database: (props: any) => <span data-testid="icon-database" {...props} />,
+  Globe: (props: React.ComponentProps<'span'>) => <span data-testid="icon-globe" {...props} />,
   HardDrive: (props: any) => <span data-testid="icon-hard-drive" {...props} />,
   Users2: (props: any) => <span data-testid="icon-users2" {...props} />,
   Shield: (props: any) => <span data-testid="icon-shield" {...props} />,
@@ -387,6 +388,47 @@ describe('Sidebar — Live Status Indicator', () => {
 
       expect(screen.queryByText('Live')).not.toBeInTheDocument()
       expect(screen.queryByText('New response')).not.toBeInTheDocument()
+    })
+
+    it('shows a shared badge for link-shared conversations', () => {
+      mockConversations = [
+        makeConv('conv-shared-link', 'Shared Link Chat', {
+          owner_id: 'owner@test.com',
+          // assisted-by Codex Codex-sonnet-4-6
+          // Link-shared direct URLs should still render the non-public shared badge.
+          sharing: {
+            is_public: false,
+            shared_with: [],
+            shared_with_teams: [],
+            share_link_enabled: true,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Shared Link Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+    })
+
+    it('shows a globe badge for public conversations', () => {
+      mockConversations = [
+        makeConv('conv-public', 'Public Chat', {
+          owner_id: 'owner@test.com',
+          sharing: {
+            is_public: true,
+            shared_with: [],
+            shared_with_teams: [],
+            share_link_enabled: false,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Public Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-globe')).toBeInTheDocument()
     })
   })
 

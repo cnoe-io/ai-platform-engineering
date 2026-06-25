@@ -169,9 +169,9 @@ export function ChatContainer() {
         if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Loading from MongoDB...");
           try {
-            const conv = await apiClient.getConversation(uuid);
-            if ((conv as any).access_level) {
-              setAccessLevel((conv as any).access_level);
+            const conv = await apiClient.getConversation(uuid) as Conversation & { access_level?: string };
+            if (conv.access_level) {
+              setAccessLevel(conv.access_level);
             }
             const localConv: LocalConversation = {
               id: conv._id,
@@ -181,6 +181,10 @@ export function ChatContainer() {
               messages: [],
               streamEvents: [],
               participants: conv.participants || [],
+              // assisted-by Codex Codex-sonnet-4-6
+              // Direct-open shared chats may skip the list route; keep share metadata for sidebar badges.
+              owner_id: conv.owner_id,
+              sharing: conv.sharing,
             };
 
             useChatStore.setState((state) => ({
