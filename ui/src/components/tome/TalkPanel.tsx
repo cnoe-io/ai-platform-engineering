@@ -306,14 +306,16 @@ export function TalkPanel({ slug }: { slug: string }) {
             messages.map((m, i) => {
               const prev = i > 0 ? messages[i - 1] : null;
               // Posted via the MCP (agent acting as the user) vs typed in the UI.
-              const isAgent = m.message_type === "agent";
+              // Agents post with message_type "announce" (the only valid
+              // room-wide Mycelium type we use for this); humans use "broadcast".
+              const isAgent = m.message_type === "announce";
               // Discord-style grouping: consecutive messages from the same
               // sender within 5 minutes share one header. Break the group when
               // the source flips (human vs agent) so the badge stays accurate.
               const grouped =
                 prev !== null &&
                 prev.sender_handle === m.sender_handle &&
-                (prev.message_type === "agent") === isAgent &&
+                (prev.message_type === "announce") === isAgent &&
                 Date.parse(m.created_at) - Date.parse(prev.created_at) < 5 * 60 * 1000;
               return (
                 <div

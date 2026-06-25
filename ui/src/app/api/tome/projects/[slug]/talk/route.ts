@@ -95,11 +95,17 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   // cookie, while the MCP (tome_talk_send) forwards an `Authorization: Bearer`
   // token. A Bearer here means the message came from an agent acting as the
   // user, not the user typing in the UI. Encode it in `message_type`.
+  //
+  // Mycelium's public message API only accepts announce|direct|broadcast|delegate
+  // (mycelium schemas.py); "agent" is rejected with a 422. Humans post as
+  // "broadcast"; agents post as "announce" - a room-wide type (no recipient).
+  // In a Tome room only humans and agents post, so "announce" unambiguously
+  // means "posted by an agent".
   const viaBearer = (request.headers.get("Authorization") || "").startsWith("Bearer ");
   const message = await sendMessage(slug, {
     sender_handle: sender,
     content: body.message.trim(),
-    message_type: viaBearer ? "agent" : "broadcast",
+    message_type: viaBearer ? "announce" : "broadcast",
   });
   return successResponse({ message }, 201);
 });
