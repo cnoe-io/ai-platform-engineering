@@ -95,7 +95,9 @@ def build_webex_mcp(token: str = "", allowed_room_ids: list[str] | None = None):
             return _err("webex_token is not configured")
         params = {
             "max": args.get("max") or DEFAULT_MAX,
-            "sortBy": "lastActivity",
+            # Webex /v1/rooms sortBy enum is lowercase: id|lastactivity|created.
+            # "lastActivity" (the response field's casing) is rejected with a 400.
+            "sortBy": "lastactivity",
         }
         try:
             data = await _get("/rooms", params)
