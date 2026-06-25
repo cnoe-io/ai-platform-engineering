@@ -23,7 +23,6 @@ ArchiveRestore,
 ChevronLeft,
 ChevronRight,
 Database,
-Globe,
 HardDrive,
 History,
 MessageCircleQuestion,
@@ -34,8 +33,7 @@ RefreshCw,
 Shield,
 Sparkles,
 TrendingUp,
-Users,
-Users2
+Users
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -380,15 +378,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                     conv.accessLevel === "shared_readonly" ||
                     sharedByKnownDifferentOwner
                   );
-                  const isPublicShareForViewer = isSharedWithViewer && conv.sharing?.is_public;
                   const sharedByLabel = conv.owner_id?.trim();
-                  const sharedBadgeText = isPublicShareForViewer
-                    ? sharedByLabel
-                      ? `Shared with everyone by ${sharedByLabel}`
-                      : "Shared with everyone"
-                    : sharedByLabel
-                      ? `Shared by ${sharedByLabel}`
-                      : "Shared conversation";
                   const canManageSharing = viewerIsKnownOwner || (!ownerEmail && !isSharedWithViewer);
 
                   const isLive = isConversationStreaming(conv.id);
@@ -480,24 +470,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
-                            {isSharedWithViewer && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    {isPublicShareForViewer ? (
-                                      <Globe className="h-3 w-3 text-green-500 shrink-0" />
-                                    ) : (
-                                      <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
-                                    )}
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    <p className="text-xs">
-                                      {sharedBadgeText}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
                           </div>
                           <p className={cn(
                             "text-xs truncate",
@@ -527,7 +499,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           <div
                             className={cn(
                               "transition-opacity",
-                              activeConversationId === conv.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                              activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                ? "opacity-100"
+                                : "opacity-0 group-hover:opacity-100",
                             )}
                           >
                             <ShareButton

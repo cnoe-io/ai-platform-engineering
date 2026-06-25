@@ -144,18 +144,31 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 }))
 
 jest.mock('@/components/chat/ShareButton', () => ({
-  ShareButton: ({ isOwner, isSharedWithViewer, sharedBy }: any) => (
-    isOwner || isSharedWithViewer ? (
+  ShareButton: ({ isOwner, isSharedWithViewer, sharedBy, sharing }: any) => {
+    const hasSharingConfig = Boolean(
+      sharing?.is_public ||
+      (sharing?.shared_with?.length ?? 0) > 0 ||
+      (sharing?.shared_with_teams?.length ?? 0) > 0 ||
+      sharing?.share_link_enabled
+    )
+
+    return isOwner || isSharedWithViewer ? (
       <button
         data-testid="share-button"
         data-owner={String(Boolean(isOwner))}
         data-shared-viewer={String(Boolean(isSharedWithViewer))}
         data-shared-by={sharedBy || ''}
       >
+        {sharing?.is_public ? (
+          <span data-testid="icon-globe" />
+        ) : (isOwner || isSharedWithViewer || hasSharingConfig) ? (
+          <span data-testid="icon-users2" />
+        ) : null}
         Share
+        {isSharedWithViewer && sharedBy ? <span>Shared by {sharedBy}</span> : null}
       </button>
     ) : null
-  ),
+  },
 }))
 
 // NewChatButton is exercised by its own test suite; stub it here so the
@@ -463,7 +476,7 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'true')
     })
 
-    it('does not show the recipient shared badge to the owner', () => {
+    it('shows the shared action icon to the owner without marking them as a recipient', () => {
       mockConversations = [
         makeConv('conv-owner-shared', 'Owner Shared Chat', {
           owner_id: 'test@test.com',
@@ -479,8 +492,10 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.getByText('Owner Shared Chat')).toBeInTheDocument()
-      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
       expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'true')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'false')
     })
 
     it('shows a globe badge for public conversations', () => {
