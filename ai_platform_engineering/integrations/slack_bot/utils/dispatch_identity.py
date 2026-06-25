@@ -37,6 +37,7 @@ def apply_execution_identity(
     *,
     run_as_mode: str = "",
     sa_sub: Optional[str],
+    sa_name: Optional[str] = None,
     agent_id: str,
     context: dict[str, Any],
     event: dict[str, Any],
@@ -125,9 +126,10 @@ def apply_execution_identity(
         sa_obo = sa_loop.run_until_complete(impersonate_fn(sa_sub))
         context["obo_token"] = sa_obo.access_token
         logger.info(
-            "[{}] dispatch_identity: run_as=service_account agent={} sa_sub={} — minted SA token",
+            "[{}] dispatch_identity: run_as=service_account agent={} sa={} ({}) — minted SA token",
             thread_ts,
             agent_id,
+            sa_name or sa_sub,
             sa_sub,
         )
         return True
@@ -135,10 +137,11 @@ def apply_execution_identity(
         # PY-B2 / PY-S3: abort — never dispatch under the wrong identity.
         logger.warning(
             "[{}] dispatch_identity: run_as=service_account token mint cancelled "
-            "agent={} sa_sub={}: {} — aborting dispatch to avoid running "
+            "agent={} sa={} ({}): {} — aborting dispatch to avoid running "
             "under wrong identity",
             thread_ts,
             agent_id,
+            sa_name or sa_sub,
             sa_sub,
             exc,
         )
@@ -158,10 +161,11 @@ def apply_execution_identity(
         # PY-B2 / PY-S3: abort — never dispatch under the wrong identity.
         logger.warning(
             "[{}] dispatch_identity: run_as=service_account token mint failed "
-            "agent={} sa_sub={}: {} — aborting dispatch to avoid running "
+            "agent={} sa={} ({}): {} — aborting dispatch to avoid running "
             "under wrong identity",
             thread_ts,
             agent_id,
+            sa_name or sa_sub,
             sa_sub,
             exc,
         )

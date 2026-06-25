@@ -1286,6 +1286,7 @@ def handle_mention(event, say, client, context=None):
         should_proceed = apply_execution_identity(
           run_as_mode=exec_id.mode,
           sa_sub=exec_id.service_account_sub,
+          sa_name=exec_id.service_account_name,
           agent_id=agent_id,
           context=context,
           event=event,
@@ -1508,6 +1509,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
             should_proceed = apply_execution_identity(
                 run_as_mode=exec_id.mode,
                 sa_sub=exec_id.service_account_sub,
+                sa_name=exec_id.service_account_name,
                 agent_id=agent_match.agent_id,
                 context=context,
                 event=event,
