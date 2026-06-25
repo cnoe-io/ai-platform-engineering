@@ -56,6 +56,11 @@ jest.mock("@/lib/api-middleware", () => {
 });
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  annotateConversationsWithViewerSharing: (_session: unknown, userEmail: string, items: Array<{ owner_id?: string }>) =>
+    items.map((item) => ({
+      ...item,
+      viewer_has_shared_access: item.owner_id?.toLowerCase() !== userEmail.toLowerCase(),
+    })),
   conversationVisibilityCandidateQuery: (userEmail: string) => ({
     $or: [
       { owner_id: userEmail },

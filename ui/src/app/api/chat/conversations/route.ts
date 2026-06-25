@@ -2,15 +2,16 @@
 // POST /api/chat/conversations - Create new conversation (or return existing via upsert)
 
 import {
-getAuthFromBearerOrSession,
-getPaginationParams,
-paginatedResponse,
-requireConversationAccess,
-successResponse,
-validateRequired,
-withErrorHandler,
+  getAuthFromBearerOrSession,
+  getPaginationParams,
+  getUserTeamIds,
+  paginatedResponse,
+  successResponse,
+  validateRequired,
+  withErrorHandler,
 } from '@/lib/api-middleware';
-import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import type { ConversationAccessLevel } from '@/lib/api-middleware';
+import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   annotateConversationsWithViewerSharing,
   conversationVisibilityCandidateQuery,
@@ -19,9 +20,9 @@ import {
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
 import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { buildParticipants } from '@/types/a2a';
-import type { ClientType,Conversation,CreateConversationRequest } from '@/types/mongodb';
+import type { ClientType, Conversation, CreateConversationRequest } from '@/types/mongodb';
 import { VALID_CLIENT_TYPES } from '@/types/mongodb';
-import { NextRequest,NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import packageJson from '../../../../../package.json';
 
@@ -29,6 +30,95 @@ type ConversationWithAgentDisplay<T extends Conversation = Conversation> = T & {
   agent_id?: string;
   agent_name?: string;
 };
+
+function normalizeIdentity(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function permissionToAccessLevel(permission: unknown): ConversationAccessLevel {
+  return permission === 'view' ? 'shared_readonly' : 'shared';
+}
+
+function isListConversationOwner(
+  conversation: Pick<Conversation, 'owner_id' | 'owner_subject'>,
+  userEmail: string,
+  session?: { sub?: unknown },
+): boolean {
+  const subject = typeof session?.sub === 'string' ? session.sub.trim() : '';
+  if (subject && conversation.owner_subject === subject) return true;
+  return Boolean(
+    normalizeIdentity(userEmail) &&
+    normalizeIdentity(conversation.owner_id) === normalizeIdentity(userEmail),
+  );
+}
+
+async function getDirectSharePermission(
+  conversationId: string,
+  userEmail: string,
+): Promise<'view' | 'comment' | undefined> {
+  try {
+    const sharingAccess = await getCollection<{ permission?: 'view' | 'comment' }>('sharing_access');
+    const normalizedEmail = normalizeIdentity(userEmail);
+    const identities = Array.from(new Set([userEmail, normalizedEmail].filter(Boolean)));
+    const accessRecord = await sharingAccess.findOne({
+      conversation_id: conversationId,
+      granted_to: { $in: identities },
+      revoked_at: null,
+    });
+    return accessRecord?.permission;
+  } catch {
+    return undefined;
+  }
+}
+
+async function getTeamSharePermission(
+  conversation: Conversation,
+  userEmail: string,
+): Promise<'view' | 'comment' | undefined> {
+  const sharedTeams = conversation.sharing?.shared_with_teams;
+  if (!sharedTeams?.length) return undefined;
+
+  try {
+    const userTeamIds = await getUserTeamIds(userEmail);
+    const matchedTeamId = sharedTeams.find((teamId) => userTeamIds.includes(teamId));
+    if (!matchedTeamId) return undefined;
+    return conversation.sharing?.team_permissions?.[matchedTeamId] ?? 'comment';
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveListConversationAccessLevel(
+  conversation: Conversation,
+  userEmail: string,
+  session?: { role?: unknown; sub?: unknown },
+): Promise<ConversationAccessLevel> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // The list already passed ReBAC filtering; derive display-level access without refetching the row.
+  if (isListConversationOwner(conversation, userEmail, session)) return 'owner';
+
+  if (conversation.sharing?.is_public) {
+    return permissionToAccessLevel(conversation.sharing.public_permission ?? 'view');
+  }
+
+  const normalizedEmail = normalizeIdentity(userEmail);
+  const directShareMatch = conversation.sharing?.shared_with?.some(
+    (email) => normalizeIdentity(email) === normalizedEmail,
+  );
+  if (directShareMatch) {
+    const permission = await getDirectSharePermission(conversation._id, userEmail);
+    return permissionToAccessLevel(permission ?? 'comment');
+  }
+
+  const teamPermission = await getTeamSharePermission(conversation, userEmail);
+  if (teamPermission) {
+    return permissionToAccessLevel(teamPermission);
+  }
+
+  if (session?.role === 'admin') return 'admin_audit';
+
+  return 'shared';
+}
 
 function getConversationAgentId(conversation: Conversation): string | undefined {
   return conversation.participants?.find((participant) => participant.type === 'agent')?.id;
@@ -147,12 +237,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const visibleItemsWithViewerFlags = annotateConversationsWithViewerSharing(session, user.email, visibleItems);
   const visibleItemsWithAccessLevel = await Promise.all(
     visibleItemsWithViewerFlags.map(async (conversation) => {
-      const { access_level } = await requireConversationAccess(
-        conversation._id,
-        user.email,
-        getCollection,
-        session,
-      );
+      const access_level = await resolveListConversationAccessLevel(conversation, user.email, session);
       return { ...conversation, access_level };
     }),
   );
