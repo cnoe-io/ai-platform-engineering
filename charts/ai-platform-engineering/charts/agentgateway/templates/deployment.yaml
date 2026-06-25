@@ -143,12 +143,12 @@ spec:
             - name: AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS
               value: {{ $cb.pollSeconds | default 5 | quote }}
             - name: AGENTGATEWAY_TARGETS_URL
-              value: {{ (($cb.bff).url) | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
-            {{- if and (not ((($cb.bff).existingSecret).name)) (not ((($cb.bff).externalSecret).enabled)) }}
-            {{- fail "global.agentgateway.static.configBridge.bff.existingSecret.name is required when configBridge is enabled.\nCreate a secret and set existingSecret.name, or use externalSecret for ESO.\nExample: kubectl create secret generic <release>-cb-token --from-literal=AGENTGATEWAY_TARGETS_TOKEN=$(openssl rand -base64 32)" }}
+              value: {{ (($cb.ui).url) | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            {{- if and (not ((($cb.ui).existingSecret).name)) (not ((($cb.ui).externalSecret).enabled)) }}
+            {{- fail "configBridge.ui.existingSecret.name is required when configBridge is enabled.\nSet existingSecret.name or use externalSecret for ESO.\nExample: kubectl create secret generic <name> --from-literal=AGENTGATEWAY_TARGETS_TOKEN=$(openssl rand -base64 32)" }}
             {{- end }}
-            {{- $cbTokenSecretName := (($cb.bff).existingSecret).name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
-            {{- $cbTokenSecretKey := (($cb.bff).existingSecret).key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
+            {{- $cbTokenSecretName := (($cb.ui).existingSecret).name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := (($cb.ui).existingSecret).key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
               valueFrom:
                 secretKeyRef:

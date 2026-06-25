@@ -149,9 +149,9 @@ spec:
             Guarded by agentgateway+configBridge enabled so the secretKeyRef is not rendered
             when the Secret would not exist, avoiding CreateContainerConfigError.
             */ -}}
-            {{- $cbBffSecret := ($cb.bff).existingSecret | default dict }}
-            {{- $cbTokenSecretName := $cbBffSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
-            {{- $cbTokenSecretKey := $cbBffSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
+            {{- $cbUiSecret := ($cb.ui).existingSecret | default dict }}
+            {{- $cbTokenSecretName := $cbUiSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := $cbUiSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
               valueFrom:
                 secretKeyRef:

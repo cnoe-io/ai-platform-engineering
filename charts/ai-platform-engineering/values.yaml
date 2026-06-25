@@ -189,7 +189,7 @@ global:
         authzHostSecret:
           name: ""           # name of the Secret
           key: AGENTGATEWAY_AUTHZ_HOST  # key inside the Secret
-        bff:
+        ui:
           # Internal BFF route that publishes sanitized AgentGateway MCP targets.
           url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets
           existingSecret:
