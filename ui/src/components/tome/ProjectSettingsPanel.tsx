@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Check, ExternalLink, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,11 +26,16 @@ export function ProjectSettingsPanel({
   slug: string;
   onSaved?: (project: ProjectDocument) => void;
 }) {
+  const router = useRouter();
   const { kinds: sourceKinds } = useProjectSourceKinds();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -96,6 +102,20 @@ export function ProjectSettingsPanel({
       setSaving(false);
     }
   }, [slug, title, description, sources, onSaved]);
+
+  const deleteProject = useCallback(async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Delete failed (${res.status})`);
+      router.push("/projects");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+      setDeleting(false);
+    }
+  }, [slug, router]);
 
   if (loading) {
     return (
@@ -165,6 +185,44 @@ export function ProjectSettingsPanel({
               Saved
             </span>
           )}
+        </div>
+
+        {/* Danger zone */}
+        <div className="rounded-lg border border-destructive/40 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-destructive">
+            <TriangleAlert className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-semibold">Danger zone</span>
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Delete this project</p>
+              <p className="text-xs text-muted-foreground">
+                Permanently removes the wiki, ingest history, and all sources. This cannot be undone.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Type <span className="font-mono font-medium text-foreground">{slug}</span> to confirm.
+            </p>
+            <input
+              type="text"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder={slug}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-destructive/40"
+            />
+            {deleteError && <p className="text-xs text-destructive">{deleteError}</p>}
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deleteConfirm !== slug || deleting}
+              onClick={() => void deleteProject()}
+            >
+              {deleting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              {deleting ? "Deleting…" : "Delete project"}
+            </Button>
+          </div>
         </div>
       </div>
     </ScrollArea>
