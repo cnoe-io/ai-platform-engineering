@@ -30,14 +30,6 @@ LITELLM_TOKEN_ALERT_LIMITS_JSON={}
 LITELLM_TOKEN_ALERT_NOTIFICATION_CHANNEL=none
 LITELLM_TOKEN_ALERT_ALLOWED_RECIPIENTS=
 LITELLM_TOKEN_ALERT_WEBEX_API_URL=https://webexapis.com/v1
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_HOST=
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_PORT=587
-LITELLM_TOKEN_ALERT_EMAIL_USE_TLS=true
-LITELLM_TOKEN_ALERT_EMAIL_USE_SSL=false
-LITELLM_TOKEN_ALERT_EMAIL_FROM=
-LITELLM_TOKEN_ALERT_EMAIL_SUBJECT="⚠️ Your LiteLLM Token Usage Warning"
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_USERNAME=
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_PASSWORD=
 WEBEX_TOKEN=
 ```
 
@@ -56,8 +48,7 @@ LITELLM_TOKEN_ALERTS_ENABLED=false
 LITELLM_TOKEN_ALERT_THRESHOLD=0.8
 ```
 
-While disabled, the tool still
-returns `notification.would_notify=true` when the
+While disabled, the tool still returns `notification.would_notify=true` when the
 threshold is reached, but it does not send a notification. This is the intended
 mode for local validation. Pass `param_token_limit` directly for one-off tests,
 or configure repeatable limits with a JSON map:
@@ -76,28 +67,11 @@ LITELLM_TOKEN_ALERT_ALLOWED_RECIPIENTS=mouledel@example.com
 WEBEX_TOKEN=<webex-bot-token>
 ```
 
-To test email delivery instead, use the `email` channel and configure SMTP:
-
-```bash
-LITELLM_TOKEN_ALERTS_ENABLED=true
-LITELLM_TOKEN_ALERT_NOTIFICATION_CHANNEL=email
-LITELLM_TOKEN_ALERT_ALLOWED_RECIPIENTS=mouledel@example.com
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_HOST=smtp.example.com
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_PORT=587
-LITELLM_TOKEN_ALERT_EMAIL_USE_TLS=true
-LITELLM_TOKEN_ALERT_EMAIL_FROM=litellm-alerts@example.com
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_USERNAME=<smtp-username>
-LITELLM_TOKEN_ALERT_EMAIL_SMTP_PASSWORD=<smtp-password>
-```
-
-To send both Webex and email notifications, set
-`LITELLM_TOKEN_ALERT_NOTIFICATION_CHANNEL=webex,email`.
-
 Then call `evaluate_token_usage_alert` with `param_dry_run=false` and
 `param_notification_recipient="mouledel@example.com"`. The alert will remain
 suppressed for recipients outside `LITELLM_TOKEN_ALERT_ALLOWED_RECIPIENTS`.
 `WEBEX_ACCESS_TOKEN` and `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN` are accepted as
-token aliases. The allowlist is required for Webex and email delivery.
+token aliases. The allowlist is required for Webex delivery.
 
 ## Running
 
@@ -179,7 +153,7 @@ caipe-ui:
         enabled: true
 ```
 
-If the Helm release name is not `ai-platform-engineering, update the endpoint
+If the Helm release name is not `ai-platform-engineering`, update the endpoint
 host to match the rendered LiteLLM MCP Service name.
 
 Prod values use released images instead of prebuild images:
@@ -192,8 +166,8 @@ litellmMcp:
     tag: "<release-version>"
   config:
     LITELLM_API_URL: "https://litellm.prod.outshift.ai"
-   LITELLM_API_TIMEOUT: "120"
-   LITELLM_VERIFY_SSL: "true"
+    LITELLM_API_TIMEOUT: "120"
+    LITELLM_VERIFY_SSL: "true"
   existingSecret: "litellm-mcp-secret"
 
 dynamic-agents:
@@ -212,11 +186,10 @@ caipe-ui:
         enabled: true
 ```
 
-If the Helm release name is not `ai-platform-engineering, update the endpoint
+If the Helm release name is not `ai-platform-engineering`, update the endpoint
 host to match the rendered LiteLLM MCP Service name.
 
 Create `litellm-mcp-secret` with:
-
 
 ```bash
 kubectl create secret generic litellm-mcp-secret \
