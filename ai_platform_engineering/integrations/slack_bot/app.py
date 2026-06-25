@@ -1072,13 +1072,13 @@ def rbac_global_middleware(body, context, next, logger):
             bot_loop = asyncio.new_event_loop()
             unlinked_token = bot_loop.run_until_complete(_mint_unlinked_obo_token())
         except Exception as exc:
-            logger.warning("[{}] rbac_global_middleware: unlinked SA mint failed for bot={}: {}", event.get("ts", "?"), bot_slack_user_id, exc)
+            logger.warning("[{}] rbac_global_middleware: unlinked SA mint failed for bot={}: {}", event.get("ts"), bot_slack_user_id, exc)
             unlinked_token = None
         finally:
             if bot_loop is not None:
                 bot_loop.close()
         if unlinked_token is None:
-            logger.warning("[{}] rbac_global_middleware: no unlinked SA available, dropping bot message from {}", event.get("ts", "?"), bot_slack_user_id)
+            logger.warning("[{}] rbac_global_middleware: no unlinked SA available, dropping bot message from {}", event.get("ts"), bot_slack_user_id)
             return _HANDLED_200
         context["obo_token"] = unlinked_token
         context["unlinked_fallback"] = True

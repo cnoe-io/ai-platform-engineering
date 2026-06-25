@@ -85,7 +85,7 @@ def apply_execution_identity(
     """
     # Resolve the effective mode: prefer run_as_mode, fall back to exec_mode alias.
     effective_mode = run_as_mode or exec_mode
-    thread_ts = event.get("ts", "?") if event else "?"
+    thread_ts = event.get("ts") if event else None
     if effective_mode != "service_account":
         # obo_user path — context["obo_token"] was set by the middleware; nothing to do.
         unlinked = context.get("unlinked_fallback", False) if context else False
