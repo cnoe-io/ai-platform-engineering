@@ -22,21 +22,38 @@ type TestCredentials = {
 type ChatBootMocksOptions = {
   conversationId?: string;
   ownerEmail?: string;
+  title?: string;
   /** When true (default), GET /api/chat/conversations returns the fixture conversation. */
   seedExistingConversation?: boolean;
   /** Artificial delay for the conversation list GET (simulates Sidebar + /chat racing). */
   conversationListDelayMs?: number;
   /** When set, seeds an agent participant on the conversation fixture. */
   agentId?: string;
+  sharing?: {
+    is_public?: boolean;
+    shared_with?: string[];
+    shared_with_teams?: string[];
+    share_link_enabled?: boolean;
+  };
+  viewerHasSharedAccess?: boolean;
+  accessLevel?: "owner" | "shared" | "shared_readonly" | "admin_audit";
   onConversationListRequest?: (url: URL) => void;
   onConversationCreate?: () => void;
 };
 
-function chatConversationFixture(id: string, ownerEmail: string, agentId?: string) {
+function chatConversationFixture(
+  id: string,
+  ownerEmail: string,
+  agentId?: string,
+  options: Pick<
+    ChatBootMocksOptions,
+    "accessLevel" | "sharing" | "title" | "viewerHasSharedAccess"
+  > = {},
+) {
   const now = new Date().toISOString();
   return {
     _id: id,
-    title: "RBAC E2E Conversation",
+    title: options.title ?? "RBAC E2E Conversation",
     client_type: "webui",
     owner_id: ownerEmail,
     participants: agentId ? [{ type: "agent", id: agentId }] : [],
@@ -48,7 +65,10 @@ function chatConversationFixture(id: string, ownerEmail: string, agentId?: strin
       shared_with: [],
       shared_with_teams: [],
       share_link_enabled: false,
+      ...options.sharing,
     },
+    viewer_has_shared_access: options.viewerHasSharedAccess,
+    access_level: options.accessLevel,
     tags: [],
     is_archived: false,
     is_pinned: false,
@@ -63,7 +83,12 @@ export async function installChatBootMocks(
 ): Promise<void> {
   const conversationId = options.conversationId ?? "rbac-e2e-conversation";
   const ownerEmail = options.ownerEmail ?? env.user.email;
-  const conversation = chatConversationFixture(conversationId, ownerEmail, options.agentId);
+  const conversation = chatConversationFixture(conversationId, ownerEmail, options.agentId, {
+    accessLevel: options.accessLevel,
+    sharing: options.sharing,
+    title: options.title,
+    viewerHasSharedAccess: options.viewerHasSharedAccess,
+  });
   const seedExistingConversation = options.seedExistingConversation !== false;
   const conversationListDelayMs = options.conversationListDelayMs ?? 0;
   let created = seedExistingConversation;
@@ -72,9 +97,65 @@ export async function installChatBootMocks(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ success: true, data: { default_agent_id: null } }),
+      body: JSON.stringify({
+        success: true,
+        data: {
+          default_agent_id: options.agentId ?? null,
+          release_notes: { enabled: false },
+        },
+      }),
     });
   });
+
+  if (options.agentId) {
+    const agent = {
+      _id: options.agentId,
+      name: "RBAC E2E Agent",
+      description: "Mocked dynamic agent for chat browser regressions",
+      enabled: true,
+      skills: [],
+      ui: {},
+    };
+
+    await page.route("**/api/dynamic-agents**", async (route) => {
+      const request = route.request();
+      const requestUrl = new URL(request.url());
+      const method = request.method();
+      const path = requestUrl.pathname;
+
+      if (path === "/api/dynamic-agents/available" && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: [agent] }),
+        });
+        return;
+      }
+
+      if (path === `/api/dynamic-agents/agents/${options.agentId}` && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: agent }),
+        });
+        return;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: true,
+            data: { items: [agent], total: 1, page: 1, page_size: 20 },
+          }),
+        });
+        return;
+      }
+
+      await route.continue();
+    });
+  }
 
   await page.route("**/api/chat/conversations**", async (route) => {
     const request = route.request();

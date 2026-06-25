@@ -14,6 +14,8 @@ const CHAT_MEMBER_SESSION = {
   email: "member@caipe.local",
   subject: "playwright-chat-member-sub",
 };
+const CHAT_AGENT_ID = "agent-rbac-e2e";
+const SHARED_OWNER_EMAIL = "owner@caipe.local";
 
 function minimalSessionEnv() {
   return {
@@ -30,7 +32,10 @@ async function bootChatSession(
 ) {
   test.skip(!process.env.NEXTAUTH_SECRET, "NEXTAUTH_SECRET required for chat navigation SSR.");
   const env = minimalSessionEnv();
-  await installChatBootMocks(page, env, options);
+  await installChatBootMocks(page, env, {
+    agentId: CHAT_AGENT_ID,
+    ...options,
+  });
   await installTestSession(page, env, {
     email: CHAT_MEMBER_SESSION.email,
     subject: CHAT_MEMBER_SESSION.subject,
@@ -66,6 +71,49 @@ test.describe("mocked RBAC e2e — chat navigation regression", () => {
     await dismissReleaseUpgradeDialog(page);
     await expectChatComposerReady(page);
     expect(createCallCount).toBe(0);
+  });
+
+  test("shows the shared-by affordance to shared conversation recipients", async ({
+    context,
+    page,
+  }) => {
+    const conversationId = "rbac-shared-recipient-conv";
+    const conversationTitle = "Shared Recipient Sidebar Chat";
+    const sharedByText = `Shared by ${SHARED_OWNER_EMAIL}`;
+    const env = await bootChatSession(page, {
+      accessLevel: "shared_readonly",
+      conversationId,
+      ownerEmail: SHARED_OWNER_EMAIL,
+      sharing: { shared_with: [CHAT_MEMBER_SESSION.email] },
+      title: conversationTitle,
+      viewerHasSharedAccess: true,
+    });
+
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: env.baseUrl,
+    });
+
+    await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
+    await dismissReleaseUpgradeDialog(page);
+    await expect(page.getByText("View Only")).toBeVisible();
+
+    const sidebarConversationTitle = page.getByTitle(conversationTitle);
+    await expect(sidebarConversationTitle).toBeVisible();
+    await sidebarConversationTitle.hover();
+
+    const recipientShareButton = page.getByRole("button", { name: sharedByText });
+    await expect(recipientShareButton).toBeVisible();
+    await recipientShareButton.hover();
+
+    await expect(page.getByText(sharedByText)).toBeVisible();
+    await expect(page.getByText("Click to copy link")).toBeVisible();
+
+    await recipientShareButton.click();
+    await expect(page.getByText("Link copied")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: /share/i })).toHaveCount(0);
+
+    const copiedUrl = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copiedUrl).toBe(`${env.baseUrl}/chat/${conversationId}`);
   });
 
   test("waits for a slow conversation list fetch instead of creating a duplicate chat", async ({
