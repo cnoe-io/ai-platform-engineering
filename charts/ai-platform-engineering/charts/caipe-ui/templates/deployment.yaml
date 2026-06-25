@@ -104,6 +104,10 @@ spec:
               value: {{ index .Values.config "SLACK_BOT_ADMIN_URL" | default (printf "http://%s-slack-bot:3001" .Release.Name) | quote }}
             - name: WEBEX_BOT_ADMIN_URL
               value: {{ index .Values.config "WEBEX_BOT_ADMIN_URL" | default (printf "http://%s-webex-bot:3002" .Release.Name) | quote }}
+            {{- with index .Values.config "WEBEX_WORKSPACE_ALIAS" }}
+            - name: WEBEX_WORKSPACE_ALIAS
+              value: {{ . | quote }}
+            {{- end }}
             - name: DYNAMIC_AGENTS_URL
               value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
             - name: SKILL_SCANNER_URL

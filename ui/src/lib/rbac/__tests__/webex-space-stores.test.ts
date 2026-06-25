@@ -255,16 +255,13 @@ describe("webex-space stores", () => {
   });
 
   it("checks space and user grants via the access helper", async () => {
-    mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
+    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: true });
 
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
     const { checkWebexSpaceAccess } = await import("../webex-space-rebac");
     const result = await checkWebexSpaceAccess({
       workspace_id: "org-123",
       space_id: "space-abc",
-      user_subject: "user:alice-sub",
       resource: { type: "agent", id: "a1" },
       action: "use",
     });
@@ -272,16 +269,10 @@ describe("webex-space stores", () => {
     expect(result).toEqual({
       allowed: true,
       space_allowed: true,
-      user_allowed: true,
       reason: "allowed",
     });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenNthCalledWith(1, {
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith({
       subject: { type: "webex_space", id: "CAIPE-WEBEX--space-abc" },
-      action: "use",
-      resource: { type: "agent", id: "a1" },
-    });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenNthCalledWith(2, {
-      subject: { type: "user", id: "alice-sub" },
       action: "use",
       resource: { type: "agent", id: "a1" },
     });
@@ -315,12 +306,11 @@ describe("webex-space stores", () => {
 
   it("denies unsupported resource types with unsupported_resource", async () => {
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
-    const { checkWebexSpaceAccess, parseWebexSpaceGrantSubject } = await import("../webex-space-rebac");
+    const { checkWebexSpaceAccess } = await import("../webex-space-rebac");
 
     const result = await checkWebexSpaceAccess({
       workspace_id: "org-123",
       space_id: "space-abc",
-      user_subject: "user:alice-sub",
       resource: { type: "conversation", id: "c1" },
       action: "use",
     });
@@ -328,12 +318,9 @@ describe("webex-space stores", () => {
     expect(result).toEqual({
       allowed: false,
       space_allowed: false,
-      user_allowed: false,
       reason: "unsupported_resource",
     });
     expect(mockCheckUniversalRebacRelationship).not.toHaveBeenCalled();
-    expect(parseWebexSpaceGrantSubject("not-a-valid-subject")).toBeNull();
-    expect(parseWebexSpaceGrantSubject("bogus:alice-sub")).toBeNull();
   });
 
   it("denies access when the space grant is missing", async () => {
@@ -344,7 +331,6 @@ describe("webex-space stores", () => {
     const result = await checkWebexSpaceAccess({
       workspace_id: "org-123",
       space_id: "space-abc",
-      user_subject: "user:alice-sub",
       resource: { type: "agent", id: "a1" },
       action: "use",
     });
@@ -352,7 +338,6 @@ describe("webex-space stores", () => {
     expect(result).toEqual({
       allowed: false,
       space_allowed: false,
-      user_allowed: false,
       reason: "missing_space_grant",
     });
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);

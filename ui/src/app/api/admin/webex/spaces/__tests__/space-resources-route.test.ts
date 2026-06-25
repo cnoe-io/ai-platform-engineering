@@ -372,64 +372,6 @@ describe("Webex space ReBAC resource APIs", () => {
     });
   });
 
-  it("checks both space grants and user resource grants", async () => {
-    mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
-    const { POST } = await import("../[workspaceId]/[spaceId]/access-check/route");
-
-    const response = await POST(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/access-check`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId, spaceId }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: true,
-      space_allowed: true,
-      user_allowed: true,
-      reason: "allowed",
-    });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subject: { type: "webex_space", id: `${workspaceAlias}--${spaceId}` },
-      })
-    );
-  });
-
-  it("denies Webex access when the OpenFGA space tuple was removed", async () => {
-    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: false });
-    const { POST } = await import("../[workspaceId]/[spaceId]/access-check/route");
-
-    const response = await POST(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/access-check`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId, spaceId }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: false,
-      space_allowed: false,
-      reason: "missing_space_grant",
-    });
-  });
-
   it("requires admin authorization before applying Webex defaults", async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
     mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });

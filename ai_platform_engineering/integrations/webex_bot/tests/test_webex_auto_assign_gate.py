@@ -32,7 +32,7 @@ class RetryTeamResolver:
     calls: int = 0
     team_slug: str = "platform-eng"
 
-    async def resolve(self, space_id: str, keycloak_user_id: str) -> SpaceTeamResolution:
+    async def resolve(self, space_id: str) -> SpaceTeamResolution:
         self.calls += 1
         if self.calls == 1:
             return SpaceTeamResolution(
