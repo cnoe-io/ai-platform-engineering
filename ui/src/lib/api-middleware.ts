@@ -7,10 +7,12 @@ import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
+import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
+import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import {
   getDevAnonymousSession,
   getDevAnonymousUser,
@@ -1194,19 +1196,55 @@ export function requireOwnership(ownerId: string, userId: string) {
 
 /**
  * Resolve all team IDs that a user belongs to.
- * Looks up the teams collection for teams where the user is a member.
+ * Uses canonical team_membership_sources and falls back to legacy teams.members[].
  */
 export async function getUserTeamIds(userEmail: string): Promise<string[]> {
+  const refs = new Set<string>();
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  if (!normalizedEmail) return [];
+
+  try {
+    // assisted-by Codex Codex-sonnet-4-6
+    // Chat team shares must follow the canonical membership store, not stale embedded team members.
+    const sources = await getRbacCollection<TeamMembershipSource>('teamMembershipSources');
+    const rows = await sources
+      .find({ status: 'active', user_email: normalizedEmail })
+      .project({ team_id: 1, team_slug: 1 })
+      .toArray();
+
+    for (const row of rows) {
+      if (typeof row.team_id === 'string' && row.team_id.trim()) {
+        refs.add(row.team_id.trim());
+      }
+      if (typeof row.team_slug === 'string' && row.team_slug.trim()) {
+        refs.add(row.team_slug.trim());
+      }
+    }
+  } catch {
+    // Fall through to the legacy embedded-members lookup below.
+  }
+
   try {
     const teams = await getCollection('teams');
+    const emailClauses = Array.from(new Set([userEmail.trim(), normalizedEmail].filter(Boolean)));
     const userTeams = await teams
-      .find({ 'members.user_id': userEmail })
-      .project({ _id: 1 })
+      .find({ $or: emailClauses.map((email) => ({ 'members.user_id': email })) })
+      .project({ _id: 1, slug: 1 })
       .toArray();
-    return userTeams.map((t: any) => t._id.toString());
+
+    for (const team of userTeams) {
+      if (team?._id !== undefined && team?._id !== null) {
+        refs.add(team._id.toString());
+      }
+      if (typeof team?.slug === 'string' && team.slug.trim()) {
+        refs.add(team.slug.trim());
+      }
+    }
   } catch {
-    return [];
+    // Ignore legacy lookup failures; sharing should fail closed for non-matches.
   }
+
+  return Array.from(refs);
 }
 
 export type ConversationAccessLevel = 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';

@@ -64,8 +64,10 @@ const mockCheckOpenFgaTuple = jest.fn().mockImplementation(async (tuple: { relat
   const allowed = new Set(['can_read', 'can_discover', 'can_write', 'can_use', 'can_chat']);
   return { allowed: allowed.has(tuple?.relation ?? '') };
 });
+const mockWriteOpenFgaTuples = jest.fn().mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
 jest.mock('@/lib/rbac/resource-authz', () => ({
@@ -685,5 +687,54 @@ describe('POST /api/chat/conversations/[id]/share — permission storage', () =>
     expect(res.status).toBe(200);
     const updateCall = convsCol.updateOne.mock.calls[0][1];
     expect(updateCall.$set['sharing.team_permissions']).toEqual({ [teamIdStr]: 'view' });
+  });
+
+  it('stores canonical team slugs and writes team conversation grants', async () => {
+    const teamObjId = new ObjectId();
+    const teamIdStr = teamObjId.toHexString();
+
+    const conv = makeConversation({
+      sharing: { shared_with: [], shared_with_teams: [] },
+    });
+
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({ ...conv });
+    mockCollections['conversations'] = convsCol;
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({ _id: teamObjId, slug: 'platform', name: 'Platform' });
+    mockCollections['teams'] = teamsCol;
+
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');
+
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        team_ids: [teamIdStr],
+        permission: 'comment',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    const updateCall = convsCol.updateOne.mock.calls[0][1];
+    expect(updateCall.$set['sharing.shared_with_teams']).toEqual(['platform']);
+    expect(updateCall.$set['sharing.team_permissions']).toEqual({ platform: 'comment' });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: 'team:platform#member', relation: 'reader', object: `conversation:${conv._id}` },
+        { user: 'team:platform#member', relation: 'writer', object: `conversation:${conv._id}` },
+      ]),
+      deletes: [],
+    });
   });
 });

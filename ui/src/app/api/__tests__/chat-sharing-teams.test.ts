@@ -180,7 +180,43 @@ describe('getUserTeamIds', () => {
     const result = await getUserTeamIds(MEMBER_EMAIL);
 
     expect(result).toEqual([TEAM_ID_1.toString(), TEAM_ID_2.toString()]);
-    expect(teamsCol.find).toHaveBeenCalledWith({ 'members.user_id': MEMBER_EMAIL });
+    expect(teamsCol.find).toHaveBeenCalledWith({
+      $or: [{ 'members.user_id': MEMBER_EMAIL }],
+    });
+  });
+
+  it('returns canonical team ids and slugs from team_membership_sources', async () => {
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { team_id: TEAM_ID_1.toString(), team_slug: 'platform' },
+          { team_id: TEAM_ID_2.toString(), team_slug: 'sre' },
+        ]),
+      }),
+    });
+    mockCollections['team_membership_sources'] = sourcesCol;
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const result = await getUserTeamIds(MEMBER_EMAIL);
+
+    expect(result).toEqual([
+      TEAM_ID_1.toString(),
+      'platform',
+      TEAM_ID_2.toString(),
+      'sre',
+    ]);
+    expect(sourcesCol.find).toHaveBeenCalledWith({
+      status: 'active',
+      user_email: MEMBER_EMAIL,
+    });
   });
 
   it('returns empty array when user has no teams', async () => {
@@ -268,6 +304,34 @@ describe('requireConversationAccess — team-based access', () => {
       }),
     });
     mockCollections['teams'] = teamsCol;
+
+    const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
+
+    expect(result).toBeDefined();
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared');
+  });
+
+  it('grants access when user belongs to a canonically shared team slug', async () => {
+    const conv = makeConversation({
+      sharing: {
+        shared_with: [],
+        shared_with_teams: ['platform'],
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { team_id: TEAM_ID_1.toString(), team_slug: 'platform' },
+        ]),
+      }),
+    });
+    mockCollections['team_membership_sources'] = sourcesCol;
 
     const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
 

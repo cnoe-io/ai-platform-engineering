@@ -9,12 +9,34 @@ import { useEffect,useState } from "react";
 import { createPortal } from "react-dom";
 
 type SharePermission = 'view' | 'comment';
+const TEAM_SHARE_SEARCH_ENDPOINT = '/api/dynamic-agents/teams';
 
 interface ShareDialogProps {
   conversationId: string;
   conversationTitle: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+function teamShareRef(team: Team): string {
+  return team.slug?.trim() || String(team._id);
+}
+
+function teamAliases(team: Team): string[] {
+  return Array.from(new Set([team.slug, team._id].map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function isTeamAlreadyShared(team: Team, sharedTeamRefs: string[]): boolean {
+  const sharedRefs = new Set(sharedTeamRefs.map((value) => String(value).trim()).filter(Boolean));
+  return teamAliases(team).some((alias) => sharedRefs.has(alias));
+}
+
+async function fetchShareableTeams(): Promise<Team[]> {
+  const teamsResponse = await fetch(TEAM_SHARE_SEARCH_ENDPOINT);
+  if (!teamsResponse.ok) return [];
+  const teamsData = await teamsResponse.json();
+  if (Array.isArray(teamsData.data)) return teamsData.data;
+  return teamsData.data?.teams || [];
 }
 
 export function ShareDialog({
@@ -92,18 +114,16 @@ export function ShareDialog({
         // Load team names for display
         if (teamIds.length > 0) {
           try {
-            const teamsResponse = await fetch('/api/admin/teams');
-            if (teamsResponse.ok) {
-              const teamsData = await teamsResponse.json();
-              const allTeams = teamsData.data?.teams || [];
-              const namesMap: Record<string, string> = {};
-              allTeams.forEach((team: Team) => {
-                if (teamIds.includes(team._id)) {
-                  namesMap[team._id] = team.name;
+            const allTeams = await fetchShareableTeams();
+            const namesMap: Record<string, string> = {};
+            allTeams.forEach((team: Team) => {
+              for (const alias of teamAliases(team)) {
+                if (teamIds.includes(alias)) {
+                  namesMap[alias] = team.name;
                 }
-              });
-              setTeamNames(namesMap);
-            }
+              }
+            });
+            setTeamNames(namesMap);
           } catch (err) {
             console.error("Failed to load team names:", err);
           }
@@ -149,37 +169,22 @@ export function ShareDialog({
 
         // Search teams (may require admin access - handle gracefully)
         try {
-          const teamsResponse = await fetch('/api/admin/teams');
-          if (teamsResponse.ok) {
-            const teamsData = await teamsResponse.json();
-            const allTeams = teamsData.data?.teams || [];
-            // Filter teams by name/description matching search input
-            const searchLower = searchInput.toLowerCase();
-            const matchingTeams = allTeams.filter((team: Team) => {
-              const nameMatch = team.name.toLowerCase().includes(searchLower);
-              const descMatch = team.description?.toLowerCase().includes(searchLower);
-              const notAlreadyShared = !sharedWithTeams.includes(team._id);
-              return (nameMatch || descMatch) && notAlreadyShared;
-            });
-            setTeamResults(matchingTeams);
-            
-            // Show no results message if both are empty
-            if (filteredUsers.length === 0 && matchingTeams.length === 0 && searchInput.length >= 2) {
-              setNoResults(true);
-            }
-          } else if (teamsResponse.status === 403) {
-            // Admin access required - teams search not available
-            setTeamResults([]);
-            // Still check user results
-            if (filteredUsers.length === 0 && searchInput.length >= 2) {
-              setNoResults(true);
-            }
-          } else {
-            // Other error - still check user results
-            setTeamResults([]);
-            if (filteredUsers.length === 0 && searchInput.length >= 2) {
-              setNoResults(true);
-            }
+          const allTeams = await fetchShareableTeams();
+          // assisted-by Codex Codex-sonnet-4-6
+          // Team chat sharing uses the member-visible team endpoint, not the admin grid API.
+          const searchLower = searchInput.toLowerCase();
+          const matchingTeams = allTeams.filter((team: Team) => {
+            const nameMatch = team.name.toLowerCase().includes(searchLower);
+            const slugMatch = team.slug?.toLowerCase().includes(searchLower);
+            const descMatch = team.description?.toLowerCase().includes(searchLower);
+            const notAlreadyShared = !isTeamAlreadyShared(team, sharedWithTeams);
+            return (nameMatch || slugMatch || descMatch) && notAlreadyShared;
+          });
+          setTeamResults(matchingTeams);
+
+          // Show no results message if both are empty
+          if (filteredUsers.length === 0 && matchingTeams.length === 0 && searchInput.length >= 2) {
+            setNoResults(true);
           }
         } catch (teamErr) {
           console.error("Team search failed:", teamErr);
@@ -588,8 +593,8 @@ export function ShareDialog({
                     <div className="text-xs font-medium text-muted-foreground px-2 py-1">Teams</div>
                     {teamResults.map((team) => (
                       <button
-                        key={team._id}
-                        onClick={() => handleShareTeam(team._id)}
+                        key={teamShareRef(team)}
+                        onClick={() => handleShareTeam(teamShareRef(team))}
                         disabled={loading}
                         className="w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm rounded-md"
                       >
