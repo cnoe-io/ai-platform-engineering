@@ -142,14 +142,16 @@ spec:
             {{- $cb := (($agwGlobal.static).configBridge) | default dict }}
             {{- if and $agwGlobal.enabled $cb.enabled }}
             {{- /*
-            Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets can
-            authenticate config-bridge poll requests. Use the operator-provided Secret when
-            supplied; otherwise reference the auto-generated Secret created by the parent chart
-            (charts/ai-platform-engineering/templates/agentgateway-config-bridge-secret.yaml).
-            Guarded by agentgateway+configBridge enabled so the secretKeyRef is not rendered
-            when the Secret would not exist, avoiding CreateContainerConfigError.
+            Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets
+            can authenticate config-bridge poll requests. Reads from the same
+            global.agentgateway.static.configBridge.ui.existingSecret as the
+            config-bridge sidecar so both sides share the token.
             */ -}}
             {{- $cbUiSecret := ($cb.ui).existingSecret | default dict }}
+            {{- $cbUiES := ($cb.ui).externalSecret | default dict }}
+            {{- if and (not $cbUiSecret.name) (not $cbUiES.enabled) }}
+            {{- fail "configBridge.ui.existingSecret.name is required when configBridge is enabled.\nSet existingSecret.name or use externalSecret for ESO.\nExample: kubectl create secret generic <name> --from-literal=AGENTGATEWAY_TARGETS_TOKEN=$(openssl rand -base64 32)" }}
+            {{- end }}
             {{- $cbTokenSecretName := $cbUiSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
             {{- $cbTokenSecretKey := $cbUiSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
