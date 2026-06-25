@@ -1,3 +1,12 @@
+## 0.5.23 (2026-06-25)
+
+### Fix
+
+- **audit**: run store.query in thread and narrow health-check lookback to 24h (#2026)
+- **okta-sync**: handle DPoP nonce requirement automatically (#2023)
+- **ci**: use github token for ui ghcr push (#2024)
+- **ci**: use github token for ui tag detection (#2022)
+
 ## 0.5.22 (2026-06-25)
 
 ### Feat
