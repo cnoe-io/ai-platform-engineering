@@ -474,7 +474,7 @@ def _agent_listens_to(agent_listen, requested):
   return agent_listen == "all" or agent_listen == requested
 
 
-def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, listen=None):
+def _match_agents(channel_config, is_bot, bot_username=None, bot_user_id=None, user_id=None, listen=None):
   """Return all agents configured for this sender type and listen mode."""
   matched = []
   for agent in channel_config.agents:
@@ -483,8 +483,10 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
         continue
       if listen and not _agent_listens_to(agent.bots.listen, listen):
         continue
-      if agent.bots.bot_list is not None and bot_username not in agent.bots.bot_list:
-        continue
+      if agent.bots.bot_list is not None:
+        # Allow matching by name (e.g. "GitLab") OR by U-prefixed user ID.
+        if bot_username not in agent.bots.bot_list and bot_user_id not in agent.bots.bot_list:
+          continue
       matched.append(agent)
     elif not is_bot and agent.users:
       if not agent.users.enabled:
@@ -516,6 +518,7 @@ def _match_channel_agents(
   channel_config,
   is_bot,
   bot_username=None,
+  bot_user_id=None,
   user_id=None,
   listen=None,
   workspace_id=None,
@@ -529,6 +532,7 @@ def _match_channel_agents(
     channel_config,
     is_bot=is_bot,
     bot_username=bot_username,
+    bot_user_id=bot_user_id,
     user_id=user_id,
     listen=listen,
   )
@@ -1033,6 +1037,54 @@ def rbac_global_middleware(body, context, next, logger):
         next()
         return
 
+    # Bot messages: skip Keycloak resolution and nudge; mint unlinked SA token
+    # directly as a baseline. Bots have no Keycloak account so resolution always
+    # fails, and the nudge path tries to DM the bot which also fails noisily.
+    #
+    # We still need a baseline obo_token in context so that obo_user routes
+    # have something to carry (service_account routes will overwrite it in
+    # _route_to_agent anyway). The bot's Slack user ID and bot_id are recorded
+    # so downstream logging and the allowlist check in _match_agents work as
+    # normal.
+    if event.get("bot_id"):
+        # Resolve the bot's U-prefixed user ID via bots.info (mirrors the
+        # pattern in _route_to_agent lines 1518-1519), falling back to the
+        # raw bot_id only if the lookup fails.
+        _, _bot_user_id = utils.get_bot_info_by_id(event.get("bot_id"))
+        bot_slack_user_id = _bot_user_id or event.get("user") or event.get("bot_id")
+        slack_team_id = (
+            body.get("team_id")
+            or event.get("team")
+            or os.environ.get("SLACK_WORKSPACE_ID")
+        )
+        channel = (
+            event.get("channel")
+            or body.get("channel", {}).get("id")
+            or body.get("channel_id")
+        )
+        context["rbac_enabled"] = True
+        context["slack_user_id"] = bot_slack_user_id
+        context["is_bot"] = True
+        context["slack_workspace_id"] = slack_workspace_ref(str(slack_team_id) if slack_team_id else None)
+        context["surface_kind"] = "dm" if is_dm_channel(channel) else "channel"
+        bot_loop = None
+        try:
+            bot_loop = asyncio.new_event_loop()
+            unlinked_token = bot_loop.run_until_complete(_mint_unlinked_obo_token())
+        except Exception as exc:
+            logger.warning("[{}] rbac_global_middleware: unlinked SA mint failed for bot={}: {}", event.get("ts"), bot_slack_user_id, exc)
+            unlinked_token = None
+        finally:
+            if bot_loop is not None:
+                bot_loop.close()
+        if unlinked_token is None:
+            logger.warning("[{}] rbac_global_middleware: no unlinked SA available, dropping bot message from {}", event.get("ts"), bot_slack_user_id)
+            return _HANDLED_200
+        context["obo_token"] = unlinked_token
+        context["unlinked_fallback"] = True
+        next()
+        return
+
     slack_user_id = (
         event.get("user")
         or body.get("user", {}).get("id")
@@ -1234,6 +1286,7 @@ def handle_mention(event, say, client, context=None):
         should_proceed = apply_execution_identity(
           run_as_mode=exec_id.mode,
           sa_sub=exec_id.service_account_sub,
+          sa_name=exec_id.service_account_name,
           agent_id=agent_id,
           context=context,
           event=event,
@@ -1456,6 +1509,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
             should_proceed = apply_execution_identity(
                 run_as_mode=exec_id.mode,
                 sa_sub=exec_id.service_account_sub,
+                sa_name=exec_id.service_account_name,
                 agent_id=agent_match.agent_id,
                 context=context,
                 event=event,
@@ -1943,8 +1997,9 @@ def handle_message_events(body, say, client, context=None):
     return
 
   bot_username = None
+  sender_bot_user_id = None
   if is_bot:
-    bot_username = utils.get_username_by_bot_id(bot_id)
+    bot_username, sender_bot_user_id = utils.get_bot_info_by_id(bot_id)
 
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_channel_agents(
@@ -1952,6 +2007,7 @@ def handle_message_events(body, say, client, context=None):
     channel_config,
     is_bot=is_bot,
     bot_username=bot_username,
+    bot_user_id=sender_bot_user_id,
     user_id=sender_user_id,
     listen="message",
     workspace_id=_event_workspace_id(event),
