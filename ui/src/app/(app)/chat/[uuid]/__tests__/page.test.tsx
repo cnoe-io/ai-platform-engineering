@@ -759,7 +759,7 @@ describe("ChatContainer", () => {
     };
     const findAddedConversation = () =>
       mockConversations.find((conversation) => conversation.id === mockUuid) as
-        | { owner_id?: string; sharing?: typeof sharing }
+        | { owner_id?: string; sharing?: typeof sharing; accessLevel?: string }
         | undefined;
 
     render(<ChatContainer />);
@@ -786,6 +786,7 @@ describe("ChatContainer", () => {
 
     const addedConv = findAddedConversation();
     expect(addedConv?.owner_id).toBe("owner@example.com");
+    expect(addedConv?.accessLevel).toBe("shared_readonly");
     expect(addedConv?.sharing).toEqual(sharing);
   });
 

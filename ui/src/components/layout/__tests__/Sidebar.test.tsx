@@ -412,6 +412,40 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
     })
 
+    it('shows a shared badge for recipient access even without sharing arrays', () => {
+      mockConversations = [
+        makeConv('conv-recipient', 'Recipient Chat', {
+          owner_id: 'owner@test.com',
+          accessLevel: 'shared_readonly',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Recipient Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+    })
+
+    it('does not show the recipient shared badge to the owner', () => {
+      mockConversations = [
+        makeConv('conv-owner-shared', 'Owner Shared Chat', {
+          owner_id: 'test@test.com',
+          sharing: {
+            is_public: false,
+            shared_with: ['teammate@test.com'],
+            shared_with_teams: [],
+            share_link_enabled: false,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Owner Shared Chat')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+    })
+
     it('shows a globe badge for public conversations', () => {
       mockConversations = [
         makeConv('conv-public', 'Public Chat', {

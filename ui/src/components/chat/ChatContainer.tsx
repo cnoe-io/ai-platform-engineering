@@ -6,7 +6,7 @@ import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
-import type { Conversation as LocalConversation } from "@/types/a2a";
+import type { Conversation as LocalConversation, ConversationAccessLevel } from "@/types/a2a";
 import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import type { Conversation } from "@/types/mongodb";
@@ -73,7 +73,7 @@ export function ChatContainer() {
   const existingHasMessages = !!(existingConv?.messages && existingConv.messages.length > 0);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
-  const [accessLevel, setAccessLevel] = useState<string | null>(null);
+  const [accessLevel, setAccessLevel] = useState<ConversationAccessLevel | null>(existingConv?.accessLevel ?? null);
   const [fetchInProgress, setFetchInProgress] = useState(
     storageMode === 'mongodb' && !existingHasMessages
   );
@@ -125,7 +125,9 @@ export function ChatContainer() {
         setActiveConversation(uuid);
 
         // Derive access level from store data
-        if (localConv.owner_id && session?.user?.email && localConv.owner_id !== session.user.email) {
+        if (localConv.accessLevel) {
+          setAccessLevel(localConv.accessLevel);
+        } else if (localConv.owner_id && session?.user?.email && localConv.owner_id !== session.user.email) {
           if (localConv.sharing?.is_public) {
             setAccessLevel('shared_readonly');
           } else if (localConv.sharing?.shared_with?.includes(session.user.email) ||
@@ -169,7 +171,7 @@ export function ChatContainer() {
         if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Loading from MongoDB...");
           try {
-            const conv = await apiClient.getConversation(uuid) as Conversation & { access_level?: string };
+            const conv = await apiClient.getConversation(uuid) as Conversation & { access_level?: ConversationAccessLevel };
             if (conv.access_level) {
               setAccessLevel(conv.access_level);
             }
@@ -184,6 +186,7 @@ export function ChatContainer() {
               // assisted-by Codex Codex-sonnet-4-6
               // Direct-open shared chats may skip the list route; keep share metadata for sidebar badges.
               owner_id: conv.owner_id,
+              accessLevel: conv.access_level,
               sharing: conv.sharing,
             };
 

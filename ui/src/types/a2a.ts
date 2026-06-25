@@ -8,6 +8,7 @@ import type { Participant } from "@/types/mongodb";
 
 // Turn status for Dynamic Agents (shown in timeline)
 export type TurnStatus = "done" | "interrupted" | "waiting_for_input";
+export type ConversationAccessLevel = "owner" | "shared" | "shared_readonly" | "admin_audit";
 
 // Chat conversation types
 export interface Conversation {
@@ -22,6 +23,8 @@ export interface Conversation {
   participants: Participant[];
   /** Owner email (only for MongoDB conversations) */
   owner_id?: string;
+  /** Current viewer access level returned by the conversation detail API. */
+  accessLevel?: ConversationAccessLevel;
   /** Sharing information (optional, only for MongoDB conversations) */
   sharing?: {
     is_public?: boolean;

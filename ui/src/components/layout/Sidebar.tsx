@@ -355,13 +355,23 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
                 {conversations.map((conv, index) => {
-                  // Check if conversation is shared
-                  const isShared = conv.sharing && (
-                    conv.sharing.is_public ||
-                    (conv.sharing.shared_with && conv.sharing.shared_with.length > 0) ||
-                    (conv.sharing.shared_with_teams && conv.sharing.shared_with_teams.length > 0) ||
-                    conv.sharing.share_link_enabled
+                  const currentUserEmail = session?.user?.email?.trim().toLowerCase();
+                  const ownerEmail = conv.owner_id?.trim().toLowerCase();
+                  const isOwner = !ownerEmail || (currentUserEmail ? ownerEmail === currentUserEmail : false);
+                  const hasSharingConfig = Boolean(
+                    conv.sharing?.is_public ||
+                    (conv.sharing?.shared_with?.length ?? 0) > 0 ||
+                    (conv.sharing?.shared_with_teams?.length ?? 0) > 0 ||
+                    conv.sharing?.share_link_enabled
                   );
+                  // assisted-by Codex Codex-sonnet-4-6
+                  // The badge is viewer-facing: show it for recipients, not just because the owner shared it.
+                  const isSharedWithViewer = !isOwner && (
+                    conv.accessLevel === "shared" ||
+                    conv.accessLevel === "shared_readonly" ||
+                    hasSharingConfig
+                  );
+                  const isPublicShareForViewer = isSharedWithViewer && conv.sharing?.is_public;
 
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
@@ -387,7 +397,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               ? "bg-blue-500/5 border border-blue-500/25"
                               : activeConversationId === conv.id
                                 ? "bg-primary/10 border border-primary/30"
-                                : isShared
+                                : isSharedWithViewer
                                   ? "hover:bg-muted/50 border border-blue-500/20"
                                   : "hover:bg-muted/50 border border-transparent"
                       )}
@@ -452,11 +462,11 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
-                            {isShared && (
+                            {isSharedWithViewer && (
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    {conv.sharing?.is_public ? (
+                                    {isPublicShareForViewer ? (
                                       <Globe className="h-3 w-3 text-green-500 shrink-0" />
                                     ) : (
                                       <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
@@ -464,7 +474,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                   </TooltipTrigger>
                                   <TooltipContent side="right">
                                     <p className="text-xs">
-                                      {conv.sharing?.is_public
+                                      {isPublicShareForViewer
                                         ? 'Shared with everyone'
                                         : 'Shared conversation'}
                                     </p>
