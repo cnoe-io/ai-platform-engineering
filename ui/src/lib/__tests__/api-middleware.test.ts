@@ -52,6 +52,8 @@ jest.mock('@/lib/audit', () => ({
 
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
+const mockValidateBearerJWT = jest.requireMock('@/lib/jwt-validation').validateBearerJWT;
+const mockValidateLocalSkillsJWT = jest.requireMock('@/lib/jwt-validation').validateLocalSkillsJWT;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
 const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkPermission;
 
@@ -59,6 +61,7 @@ beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
   mockAuditWrite.mockClear();
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
+  delete process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS;
 });
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -79,9 +82,15 @@ import {
   requireOwnership,
   requireAdmin,
   requireRbacPermission,
+  clearSessionAuthCacheForTests,
+  getAuthFromBearerOrSession,
   getAuthenticatedUser,
   withAuth,
 } from '../api-middleware';
+
+beforeEach(() => {
+  clearSessionAuthCacheForTests();
+});
 
 describe('ApiError', () => {
   it('creates with message and default status 500', () => {
@@ -897,6 +906,119 @@ describe('getAuthenticatedUser', () => {
     const result = await getAuthenticatedUser(req);
 
     expect(result.user.role).toBe('user');
+  });
+
+  it('caches valid cookie sessions for repeated API calls', async () => {
+    process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS = '10000';
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1 });
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'alice@test.com', name: 'Alice' },
+      role: 'user',
+      sub: 'alice-sub',
+    });
+    mockGetCollection.mockResolvedValue({ updateOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=alice-session' },
+      }) as unknown as NextRequest;
+
+    const first = await getAuthenticatedUser(makeRequest());
+    const second = await getAuthenticatedUser(makeRequest());
+
+    expect(first.user).toEqual(second.user);
+    expect(mockGetServerSession).toHaveBeenCalledTimes(1);
+    expect(updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache session auth when no cookie header is present', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'nocookie@test.com', name: 'No Cookie' },
+      role: 'user',
+    });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels') as unknown as NextRequest;
+
+    await getAuthenticatedUser(makeRequest());
+    await getAuthenticatedUser(makeRequest());
+
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes session auth after the cache ttl expires', async () => {
+    process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS = '50';
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1000);
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'ttl@test.com', name: 'TTL User' },
+      role: 'user',
+    });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=ttl-session' },
+      }) as unknown as NextRequest;
+
+    await getAuthenticatedUser(makeRequest());
+    nowSpy.mockReturnValue(1049);
+    await getAuthenticatedUser(makeRequest());
+    nowSpy.mockReturnValue(1051);
+    await getAuthenticatedUser(makeRequest());
+
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it('does not cache sessions denied by the Web UI admission gate', async () => {
+    mockGetServerSession
+      .mockResolvedValueOnce({
+        user: { email: 'blocked@test.com', name: 'Blocked User' },
+        role: 'user',
+        isAuthorized: false,
+      })
+      .mockResolvedValueOnce({
+        user: { email: 'blocked@test.com', name: 'Blocked User' },
+        role: 'user',
+        isAuthorized: true,
+      });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=blocked-session' },
+      }) as unknown as NextRequest;
+
+    await expect(getAuthenticatedUser(makeRequest())).rejects.toMatchObject({
+      code: 'WEB_UI_ACCESS_DENIED',
+    });
+
+    const result = await getAuthenticatedUser(makeRequest());
+
+    expect(result.user.email).toBe('blocked@test.com');
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps bearer authentication outside the cookie session cache', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue(null);
+    mockValidateBearerJWT.mockResolvedValue({
+      email: 'service@test.com',
+      name: 'Service Account',
+      sub: 'service-sub',
+      org: 'caipe',
+    });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: {
+          authorization: 'Bearer service-token',
+          cookie: 'next-auth.session-token=browser-session',
+        },
+      }) as unknown as NextRequest;
+
+    await getAuthFromBearerOrSession(makeRequest());
+    await getAuthFromBearerOrSession(makeRequest());
+
+    expect(mockGetServerSession).not.toHaveBeenCalled();
+    expect(mockValidateBearerJWT).toHaveBeenCalledTimes(2);
   });
 });
 
