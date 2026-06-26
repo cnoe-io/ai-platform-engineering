@@ -37,9 +37,11 @@ PUBLISHED_CONFIG_MODE = 0o644
 _VALID_AGENTGATEWAY_LOG_LEVELS = frozenset({"trace", "debug", "info", "warn", "error"})
 DEFAULT_AGENTGATEWAY_LOG_LEVEL = "info"
 
+_AUTHZ_HOST = os.getenv("AGENTGATEWAY_AUTHZ_HOST", "openfga-authz-bridge:9100")
+
 DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
-        "host": "openfga-authz-bridge:9100",
+        "host": _AUTHZ_HOST,
         "failureMode": {"denyWithStatus": 403},
         # Forward the HTTP request body to the bridge so it can parse the
         # JSON-RPC `tools/call` method+name and run the caller-keyed per-tool

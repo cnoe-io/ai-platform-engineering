@@ -276,6 +276,10 @@ const allGatesOpen = {
   migrations: true,
 };
 
+const allGatesClosed = Object.fromEntries(
+  Object.keys(allGatesOpen).map((key) => [key, false])
+);
+
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
     if (url.includes('/api/rbac/admin-tab-gates')) {
@@ -288,6 +292,7 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
             slack: 'full',
             webex: 'full',
           },
+          simulation: overrides.simulation ?? null,
         }),
       });
     }
@@ -557,18 +562,18 @@ describe('Admin Dashboard Page', () => {
       setupFetchMock();
     });
 
-    it('opens a subtle searchable view-as modal from the category bar', async () => {
+    it('opens a subtle searchable access-preview modal from the category bar', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /view as/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /preview access as/i })).toBeInTheDocument();
       });
       expect(screen.queryByText(/Read-only simulator\. The UI stays authenticated as you/i)).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /view as/i }));
+      fireEvent.click(screen.getByRole('button', { name: /preview access as/i }));
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
-      expect(screen.getByText('View As Effective Permissions')).toBeInTheDocument();
+      expect(screen.getByText('Preview Access As')).toBeInTheDocument();
       const search = screen.getByPlaceholderText(/search by email, name, or keycloak sub/i);
       fireEvent.change(search, { target: { value: 'user' } });
 
@@ -583,6 +588,35 @@ describe('Admin Dashboard Page', () => {
         expect.stringContaining('simulate_type=user&simulate_id=kc-user'),
         { scroll: false }
       );
+    });
+
+    it('explains active access previews that have no visible admin tabs', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=admin-sub');
+      setupFetchMock({
+        tabGates: allGatesClosed,
+        integrationPanelModes: {},
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'admin-sub',
+            openfga_user: 'user:admin-sub',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('No Admin access for this preview')).toBeInTheDocument();
+      });
+      expect(screen.getByText(/bootstrap\/session role state/i)).toBeInTheDocument();
+      expect(screen.getAllByText('user:admin-sub').length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole('button', { name: /exit preview/i }));
+
+      expect(replaceMock).toHaveBeenCalledWith('/admin?', { scroll: false });
     });
 
     it('does not show Read-Only badge', async () => {

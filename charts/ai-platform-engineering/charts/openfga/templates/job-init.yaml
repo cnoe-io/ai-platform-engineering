@@ -9,6 +9,9 @@ metadata:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "5"
     "helm.sh/hook-delete-policy": before-hook-creation
+    "argocd.argoproj.io/hook": PostSync
+    "argocd.argoproj.io/sync-wave": "5"
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation
 spec:
   backoffLimit: {{ .Values.init.backoffLimit }}
   template:

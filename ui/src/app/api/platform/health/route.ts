@@ -484,7 +484,7 @@ async function getPlatformHealth(): Promise<NextResponse> {
       id: "dynamic-agents",
       label: "Dynamic Agents",
       group: "core",
-      target: `${dynamicAgentsUrl}/health`,
+      target: `${dynamicAgentsUrl}/healthz`,
       remediation: {
         label: "Dynamic Agents",
         href: "/agents",
