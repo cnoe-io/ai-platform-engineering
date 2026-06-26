@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Square } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 /**
@@ -30,8 +31,18 @@ export function IngestRunView({
   onPagesChanged?: () => void;
 }) {
   const [run, setRun] = useState<RunDetail | null>(null);
+  const [stopping, setStopping] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const prevLines = useRef(0);
+
+  const stop = async () => {
+    setStopping(true);
+    try {
+      await fetch(`/api/tome/projects/${slug}/ingests/${runId}`, { method: "DELETE" });
+    } finally {
+      setStopping(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -90,9 +101,22 @@ export function IngestRunView({
               ingest · {status}
             </span>
           </div>
-          <span className="text-[10px] uppercase tracking-wider text-neutral-500">
-            {status === "running" || status === "queued" ? "live" : "log"}
-          </span>
+          <div className="flex items-center gap-2">
+            {(status === "running" || status === "queued") && (
+              <button
+                type="button"
+                onClick={() => void stop()}
+                disabled={stopping}
+                className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] uppercase tracking-wider text-red-400 hover:bg-neutral-800 disabled:opacity-50"
+              >
+                <Square className="h-2.5 w-2.5 fill-current" />
+                {stopping ? "Stopping…" : "Stop"}
+              </button>
+            )}
+            <span className="text-[10px] uppercase tracking-wider text-neutral-500">
+              {status === "running" || status === "queued" ? "live" : "log"}
+            </span>
+          </div>
         </div>
         <ScrollArea viewportRef={scrollRef} className="flex-1">
           <div

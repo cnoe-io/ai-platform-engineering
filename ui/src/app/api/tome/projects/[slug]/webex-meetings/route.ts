@@ -24,7 +24,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
 
-  const creds = await resolveForwardedCredentials(tctx, ["webex"]);
+  const creds = await resolveForwardedCredentials(tctx);
   const token = creds["webex"]?.access_token;
 
   if (!token) {
@@ -35,7 +35,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
   // Step 1: get recordings + all transcripts in parallel.
   const [recRes, txRes] = await Promise.all([
-    fetch("https://webexapis.com/v1/recordings?max=30", { headers }),
+    fetch("https://webexapis.com/v1/recordings?max=100", { headers }),
     fetch("https://webexapis.com/v1/meetingTranscripts?max=100", { headers }),
   ]);
 
@@ -70,8 +70,10 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
           `https://webexapis.com/v1/meetingSummaries?meetingId=${encodeURIComponent(meetingId)}`,
           { headers },
         );
+        const body = await res.text();
+        console.log(`[webex-meetings] summary ${meetingId} status=${res.status} body=${body.slice(0, 200)}`);
         if (!res.ok) return false;
-        const j = (await res.json()) as { items?: unknown[] };
+        const j = JSON.parse(body) as { items?: unknown[] };
         return (j.items?.length ?? 0) > 0;
       } catch {
         return false;

@@ -26,21 +26,10 @@ type ForwardedCredentials = Record<string, Record<string, string>>;
 /** Providers we recognize as "tome connectors" — matches MCP slugs on the agent. */
 type Provider = "github" | "atlassian" | "webex";
 
-/**
- * Which provider credentials this run needs, derived from project sources alone.
- * A connector with no attached sources gets no credential lookup. Source
- * presence is the single source of truth — the integrations step already
- * filters by deployment config upstream.
- */
-function enabledProviders(ctx: TomeProjectContext): Provider[] {
-  const out: Provider[] = [];
-  const sources = ctx.project.sources;
-  if ((sources?.repos ?? []).length > 0) out.push("github");
-  // Confluence sources come either as a typed array or the legacy single URL.
-  if (projectConfluenceSpaces(ctx.project).length > 0) out.push("atlassian");
-  if (projectWebexRooms(ctx.project).length > 0) out.push("webex");
-  return out;
-}
+/** All providers the agent understands. We always resolve all of them — the
+ * credential store returns nothing for providers the user hasn't connected,
+ * so subsetting by project sources is unnecessary gatekeeping. */
+const ALL_PROVIDERS: Provider[] = ["github", "atlassian", "webex"];
 
 /** Extract the OIDC `sub` from a session for credential lookup; "" if unknown. */
 function sessionSub(session: unknown): string {
@@ -59,13 +48,10 @@ function sessionSub(session: unknown): string {
  */
 export async function resolveForwardedCredentials(
   ctx: TomeProjectContext,
-  overrideProviders?: Provider[],
 ): Promise<ForwardedCredentials> {
-  const providers = overrideProviders ?? enabledProviders(ctx);
-  if (providers.length === 0) return {};
   const sub = sessionSub(ctx.session);
   if (!sub) return {};
-  return collectForwardedCredentials(sub, providers);
+  return collectForwardedCredentials(sub, ALL_PROVIDERS);
 }
 
 /** RepoSnapshot — mirrors contract.RepoSnapshot. */

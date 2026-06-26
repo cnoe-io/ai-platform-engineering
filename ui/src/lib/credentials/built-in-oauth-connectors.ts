@@ -53,6 +53,7 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
       "spark:memberships_read",    // room members
       "meeting:schedules_read",    // list meetings (meeting picker)
       "meeting:transcripts_read",  // fetch transcripts for ingest
+      "meeting:summaries_read",    // AI meeting summaries (meeting picker hasSummary)
     ],
   },
   {
