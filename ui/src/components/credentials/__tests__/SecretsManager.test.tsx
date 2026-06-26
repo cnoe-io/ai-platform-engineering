@@ -264,13 +264,13 @@ describe("SecretsManager", () => {
     const panel = await screen.findByRole("region", { name: /github token team access/i });
     expect(panel).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: /share github token/i })).not.toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: /team access/i })).toHaveTextContent("Platform Team");
-    expect(within(panel).getByRole("button", { name: /team access/i })).toHaveTextContent("team:platform-team");
+    expect(within(panel).getByRole("combobox", { name: /team access/i })).toHaveTextContent("Platform Team");
+    expect(within(panel).getByRole("combobox", { name: /team access/i })).toHaveTextContent("team:platform-team");
     expect(within(panel).getByText(/Choose a team that can use this saved secret/i)).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: /revoke access/i })).toBeInTheDocument();
     expect(screen.queryByText("Shared with Platform Team")).not.toBeInTheDocument();
 
-    await user.click(within(panel).getByRole("button", { name: /team access/i }));
+    await user.click(within(panel).getByRole("combobox", { name: /team access/i }));
     const listbox = await screen.findByRole("listbox");
     expect(panel).not.toContainElement(listbox);
   });

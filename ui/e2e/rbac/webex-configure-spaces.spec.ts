@@ -292,7 +292,7 @@ async function gotoConfigureSpaces(page: Page) {
 }
 
 async function pickTeam(page: Page, buttonName: RegExp, optionName: RegExp) {
-  await page.getByRole("button", { name: buttonName }).click();
+  await page.getByRole("combobox", { name: buttonName }).click();
   await page.getByRole("option", { name: optionName }).click();
 }
 
@@ -483,13 +483,13 @@ test.describe("mocked Webex Configure spaces UI", () => {
       .click();
 
     await expect(
-      page.getByRole("button", { name: /Team for Workflow Alerts/i }),
+      page.getByRole("combobox", { name: /Team for Workflow Alerts/i }),
     ).toContainText("Platform Team");
     await expect(
       page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }),
     ).toContainText("SRE Agent");
     await expect(
-      page.getByRole("button", { name: /Team for Night Ops/i }),
+      page.getByRole("combobox", { name: /Team for Night Ops/i }),
     ).toContainText("Platform Team");
     await expect(
       page.getByRole("button", { name: /Dynamic Agent for Night Ops/i }),
@@ -502,7 +502,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
       /KB Agent.*agent:agent-kb/,
     );
     await expect(
-      page.getByRole("button", { name: /Team for Night Ops/i }),
+      page.getByRole("combobox", { name: /Team for Night Ops/i }),
     ).toContainText("Operations Team");
     await expect(
       page.getByRole("button", { name: /Dynamic Agent for Night Ops/i }),

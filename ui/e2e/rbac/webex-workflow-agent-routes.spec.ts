@@ -235,7 +235,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       .getByRole("checkbox", { name: /Import Incident Bridge/i })
       .check();
     await page
-      .getByRole("button", { name: "Bulk team for selected rows" })
+      .getByRole("combobox", { name: "Bulk team for selected rows" })
       .click();
     await page
       .getByRole("option", { name: /Platform Team.*team:platform/i })
@@ -251,7 +251,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       .click();
 
     await expect(
-      page.getByRole("button", { name: /Team for Incident Bridge/i }),
+      page.getByRole("combobox", { name: /Team for Incident Bridge/i }),
     ).toContainText("Platform Team");
     await expect(
       page.getByRole("button", { name: /Dynamic Agent for Incident Bridge/i }),
@@ -260,7 +260,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       page.getByRole("checkbox", { name: /Import Workflow Alerts/i }),
     ).toBeChecked();
     await expect(
-      page.getByRole("button", { name: /Team for Workflow Alerts/i }),
+      page.getByRole("combobox", { name: /Team for Workflow Alerts/i }),
     ).toContainText("Platform Team");
     await expect(
       page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }),

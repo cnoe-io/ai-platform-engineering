@@ -38,7 +38,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await expect(
         page.getByText(/Pick a routed MCP target from AgentGateway/i),
       ).toBeVisible();
-      await expect(page.getByRole("button", { name: /agentgateway target/i })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: /agentgateway target/i })).toBeVisible();
 
       const agLabel = page.getByText("AgentGateway target", { exact: true });
       const endpointLabel = page.getByText(/Endpoint URL/i);
@@ -56,7 +56,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openAddMcpServerEditor(page);
       await expect.poll(() => mocks.discoverRequests).toBeGreaterThanOrEqual(1);
 
-      await page.getByRole("button", { name: /agentgateway target/i }).click();
+      await page.getByRole("combobox", { name: /agentgateway target/i }).click();
       await page.getByRole("textbox", { name: /search targets/i }).fill("jira");
       await page.getByRole("option", { name: /Jira/i }).click();
 
@@ -549,7 +549,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openAddMcpServerEditor(page);
       await expect.poll(() => mocks.discoverRequests).toBeGreaterThanOrEqual(1);
 
-      await page.getByRole("button", { name: /agentgateway target/i }).click();
+      await page.getByRole("combobox", { name: /agentgateway target/i }).click();
       for (const target of DEFAULT_AGENTGATEWAY_TARGETS) {
         await expect(page.getByRole("option", { name: new RegExp(target.name, "i") })).toBeVisible();
       }
