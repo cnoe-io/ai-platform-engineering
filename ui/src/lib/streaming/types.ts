@@ -2,8 +2,8 @@
  * Stream Event Types
  *
  * These types are used by the Dynamic Agents streaming client.
- * They are intentionally separate from A2A types to maintain clean separation
- * between the two agent architectures.
+ * They are intentionally protocol-agnostic so the UI can persist and render
+ * stream events without coupling to a specific wire format.
  *
  * Event types match the backend stream encoder output:
  * - content: LLM token streaming

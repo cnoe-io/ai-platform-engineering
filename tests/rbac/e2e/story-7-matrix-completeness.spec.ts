@@ -11,7 +11,7 @@
  *
  *   (a) `surface == 'ui_bff'` AND it appears in the Jest matrix-driver
  *       results emitted by `ui/src/__tests__/rbac-matrix-driver.test.ts`.
- *   (b) `surface in {supervisor, mcp, dynamic_agents, rag, slack_bot}`
+ *   (b) `surface in {mcp, dynamic_agents, rag, slack_bot}`
  *       AND it appears in the pytest matrix-driver results emitted by
  *       `tests/rbac/unit/py/test_matrix_driver.py`.
  *

@@ -156,7 +156,7 @@ test("resolves default agent with persisted config before env fallback", () => {
   );
 });
 
-test("resolves DEFAULT_AGENT_ID and skips supervisor fallback", () => {
+test("resolves DEFAULT_AGENT_ID without a fallback default", () => {
   assert.deepEqual(
     resolveDefaultAgent({
       platformConfig: {},

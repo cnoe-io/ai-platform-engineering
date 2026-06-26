@@ -1149,7 +1149,7 @@ export function UserMenu() {
                     <span className="text-sm font-semibold">Services</span>
                   </div>
                   <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
-                    <ConfigRow label={`${config.appName} URL`} value={config.caipeUrl} />
+                    <ConfigRow label="Dynamic Agents URL" value={config.dynamicAgentsUrl} />
                     <ConfigRow label="RAG URL" value={config.ragUrl} />
                     <ConfigRow label="Environment" value={config.isDev ? "development" : config.isProd ? "production" : "unknown"} />
                   </div>

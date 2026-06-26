@@ -32,8 +32,7 @@ on:
         type: string
         default: ''
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -53,7 +52,7 @@ jobs:
       mcp_build_args: ${{ steps.read-config.outputs.mcp_build_args }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           sparse-checkout: .github/agents.json
@@ -81,7 +80,7 @@ jobs:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
@@ -158,7 +157,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
@@ -175,10 +174,11 @@ jobs:
       - name: Compute prebuild tag
         id: compute_tag
         shell: bash
+        env:
+          BRANCH: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BRANCH="${{ inputs.head_ref || github.head_ref }}"
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
@@ -279,7 +279,7 @@ jobs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           sparse-checkout: .github/agents.json
           sparse-checkout-cone-mode: false

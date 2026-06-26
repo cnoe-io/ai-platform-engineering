@@ -6,6 +6,7 @@
  */
 
 export { buildLastReview,useAiReview } from "./use-ai-review";
+export { buildBlockingMessage } from "./blocking-message";
 export type {
 AiReviewStatus,
 UseAiReviewArgs,

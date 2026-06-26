@@ -16,7 +16,6 @@ from pathlib import Path
 
 
 PARENT_EXPECTED_IMAGE_NAMES = (
-    "ai-platform-engineering",
     "mcp-argocd",
     "caipe-ui",
     "caipe-audit-service",
@@ -28,10 +27,6 @@ PARENT_EXPECTED_IMAGE_NAMES = (
     "skill-scanner",
 )
 
-A2A_AGENT_EXPECTED_IMAGE_NAMES = (
-    "agent-argocd",
-)
-
 RAG_EXPECTED_IMAGE_NAMES = (
     "caipe-rag-server",
     "caipe-rag-ingestors",
@@ -39,6 +34,8 @@ RAG_EXPECTED_IMAGE_NAMES = (
 )
 
 
+# mcp-argocd is rendered by `tags.basic=true`, so it is covered by
+# PARENT_HELM_ARGS and validated under PARENT_EXPECTED_IMAGE_NAMES.
 PARENT_HELM_ARGS = (
     "--set",
     "tags.basic=true",
@@ -62,12 +59,6 @@ PARENT_HELM_ARGS = (
     "openfga-authz-bridge.tokenValidation.issuer=https://idp.example.com/realms/caipe",
     "--set",
     "openfga-authz-bridge.tokenValidation.audiences[0]=agentgateway",
-)
-
-A2A_AGENT_HELM_ARGS = (
-    *PARENT_HELM_ARGS,
-    "--set",
-    "agent-argocd.a2a.enabled=true",
 )
 
 RAG_SUBCHART_HELM_ARGS = (
@@ -173,18 +164,11 @@ def main() -> int:
     args = parser.parse_args()
 
     default_images = rendered_images(render_chart(args.chart, PARENT_HELM_ARGS))
-    default_a2a_images = rendered_images(render_chart(args.chart, A2A_AGENT_HELM_ARGS))
     auto_images = rendered_images(
         render_chart(args.chart, PARENT_HELM_ARGS, "--set", "global.image.channel=auto")
     )
-    auto_a2a_images = rendered_images(
-        render_chart(args.chart, A2A_AGENT_HELM_ARGS, "--set", "global.image.channel=auto")
-    )
     release_images = rendered_images(
         render_chart(args.chart, PARENT_HELM_ARGS, "--set", "global.image.channel=release")
-    )
-    release_a2a_images = rendered_images(
-        render_chart(args.chart, A2A_AGENT_HELM_ARGS, "--set", "global.image.channel=release")
     )
     default_rag_images = render_rag_subcharts(args.rag_chart)
     auto_rag_images = render_rag_subcharts(args.rag_chart, "--set", "global.image.channel=auto")
@@ -197,10 +181,6 @@ def main() -> int:
         default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + require_images(
-        default_a2a_images,
-        default_prefix,
-        A2A_AGENT_EXPECTED_IMAGE_NAMES,
-    ) + require_images(
         default_rag_images,
         default_prefix,
         RAG_EXPECTED_IMAGE_NAMES,
@@ -209,10 +189,6 @@ def main() -> int:
         auto_images,
         default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
-    ) + require_images(
-        auto_a2a_images,
-        default_prefix,
-        A2A_AGENT_EXPECTED_IMAGE_NAMES,
     ) + require_images(
         auto_rag_images,
         default_prefix,
@@ -223,10 +199,6 @@ def main() -> int:
         "ghcr.io/cnoe-io",
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + require_images(
-        release_a2a_images,
-        "ghcr.io/cnoe-io",
-        A2A_AGENT_EXPECTED_IMAGE_NAMES,
-    ) + require_images(
         release_rag_images,
         "ghcr.io/cnoe-io",
         RAG_EXPECTED_IMAGE_NAMES,
@@ -235,10 +207,6 @@ def main() -> int:
         default_images,
         forbidden_default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
-    ) + forbid_images(
-        default_a2a_images,
-        forbidden_default_prefix,
-        A2A_AGENT_EXPECTED_IMAGE_NAMES,
     ) + forbid_images(
         default_rag_images,
         forbidden_default_prefix,
@@ -249,10 +217,6 @@ def main() -> int:
         forbidden_default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + forbid_images(
-        auto_a2a_images,
-        forbidden_default_prefix,
-        A2A_AGENT_EXPECTED_IMAGE_NAMES,
-    ) + forbid_images(
         auto_rag_images,
         forbidden_default_prefix,
         RAG_EXPECTED_IMAGE_NAMES,
@@ -261,10 +225,6 @@ def main() -> int:
         release_images,
         "ghcr.io/cnoe-io/pre-release",
         PARENT_EXPECTED_IMAGE_NAMES,
-    ) + forbid_images(
-        release_a2a_images,
-        "ghcr.io/cnoe-io/pre-release",
-        A2A_AGENT_EXPECTED_IMAGE_NAMES,
     ) + forbid_images(
         release_rag_images,
         "ghcr.io/cnoe-io/pre-release",

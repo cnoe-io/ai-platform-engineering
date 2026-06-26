@@ -2,7 +2,7 @@
 
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { SettingsPanel } from "@/components/settings-panel";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import { GithubIcon as Github } from "@/components/ui/icons";
@@ -17,10 +17,9 @@ TooltipContent,
 TooltipProvider,
 TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useToast } from "@/components/ui/toast";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
@@ -69,7 +68,6 @@ import React from "react";
  * unsaved-changes store.
  */
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
-  "/task-builder",
   "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
@@ -84,7 +82,7 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  * dialog for both cases by reading `pendingNavigationHref` directly.
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
-  "/task-builder",
+  "/workflows",
   "/dynamic-agents",
 ];
 
@@ -169,7 +167,7 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
-  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Task Builder, Dynamic Agent
+  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Workflows, Dynamic Agent
   // editor) ask the AppHeader to render the discard dialog on their behalf
   // for top-nav clicks. Other editors (e.g. /skills/workspace) own their own
   // in-page dialog and consume `pendingNavigationHref` directly — that keeps
@@ -209,11 +207,11 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for the CAIPE API path (polls every 30 seconds)
+  // Health check for the Dynamic Agents runtime API path (polls every 30 seconds)
   const {
-    status: caipeStatus,
-    storageMode
-  } = useCAIPEHealth();
+    status: runtimeStatus,
+  } = useAgentRuntimeHealth();
+  const storageMode = config.storageMode;
 
   // Health check for RAG server (polls every 30 seconds)
   const {
@@ -239,30 +237,19 @@ export function AppHeader() {
   // Policy → Keycloak just to notice. Gated by `isAdmin` so non-admin
   // sessions never trigger the underlying Keycloak Admin round-trip.
   const keycloakHealth = useKeycloakHealthSummary({ enabled: isAdmin });
-  const { toast } = useToast();
   const noAuthConfigured = !config.ssoEnabled || config.unsafeRbacBypassEnabled;
   const noAuthStatusText = config.unsafeRbacBypassEnabled
     ? "RBAC bypass is enabled. UI authorization checks allow every operation."
     : "SSO is disabled. This deployment is not enforcing browser sign-in.";
 
-  React.useEffect(() => {
-    if (!session || !releasePrompt.toastNotification) return;
-    toast(
-      releasePrompt.toastNotification.message,
-      "info",
-      releasePrompt.toastNotification.duration,
-    );
-    releasePrompt.markToastShown();
-  }, [releasePrompt, session, toast]);
-
   // Combined status: hard failures from the API path or platform
   // dependencies mark the system as disconnected; optional RAG failures are
   // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
-    if (caipeStatus === "checking") return "checking";
+    if (runtimeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
     if (platformProbeStatus === "checking") return "checking";
-    if (caipeStatus === "disconnected") return "disconnected";
+    if (runtimeStatus === "disconnected") return "disconnected";
     if (platformProbeStatus === "down") return "disconnected";
     if (platformProbeStatus === "degraded") return "degraded";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
@@ -331,7 +318,6 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/credentials")) return "credentials";
     if (pathname?.startsWith("/workflows")) return "workflows";
-    if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/schedules")) return "schedules";
@@ -351,9 +337,8 @@ export function AppHeader() {
   //   - the title / aria-label lists alerts in the same order so the
   //     hover-text is stable.
   //
-  // Counts use the same numbers each individual source previously
-  // displayed in its own chip, so the total in the unified pill is
-  // a simple sum across the visible sources.
+  // Counts are source-owned and additive, so the total in the unified
+  // pill is a simple sum across the visible sources.
   type AdminAlertSource = {
     id: string;
     label: string;
@@ -426,13 +411,6 @@ export function AppHeader() {
       ].filter(Boolean) as AdminAlertSource[])
     : [];
   const secondaryNavItems = [
-    config.taskBuilderEnabled && {
-      key: "task-builder",
-      href: "/task-builder",
-      label: "Task Builder",
-      Icon: Workflow,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
     config.workflowsEnabled && {
       key: "workflows",
       href: "/workflows",
@@ -447,7 +425,7 @@ export function AppHeader() {
       Icon: Database,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+    storageMode === "mongodb" && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
@@ -1119,20 +1097,14 @@ export function AppHeader() {
             </Popover>
           )}
           {/*
-            Unified admin alerts pill. Replaces four previously separate
-            chips (Migrations required, Version metadata needed,
-            Migration override active, Keycloak unreachable / failing
-            invariants) with a single labelled `Alerts: <total>` trigger
-            so the header stays compact when multiple subsystems flag
-            issues simultaneously. Trigger severity is the worst across
-            all visible sources (red wins over amber).
+            Unified admin alerts pill. A single labelled `Alerts: <total>`
+            trigger keeps the header compact when multiple subsystems flag
+            issues simultaneously. Trigger severity is the worst across all
+            visible sources (red wins over amber).
 
-            Clicking the pill opens a popover that lists EVERY active
-            alert as its own row, each with its own GuardedLink to the
-            relevant admin tab. This replaces the previous "single
-            deep-link to the highest-severity source" behavior which
-            silently hid lower-severity items and produced confusing
-            no-ops when the user was already on the destination tab.
+            Clicking the pill opens a popover that lists every active alert
+            as its own row, each with its own GuardedLink to the relevant
+            admin tab so lower-severity items remain actionable.
 
             Per-row navigation uses GuardedLink so unsaved-changes
             guards still fire. The popover closes itself on row click
@@ -1310,10 +1282,8 @@ export function AppHeader() {
         releaseVersion={releasePrompt.releaseVersion}
         release={releasePrompt.release}
         releaseMarkdown={releasePrompt.releaseMarkdown}
-        onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
         onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
         onDismissPermanently={releasePrompt.dismissPermanently}
-        showMigrationCta={releasePrompt.showMigrationCta}
         isDismissing={releasePrompt.isDismissing}
       />
     )}

@@ -1,1 +1,0 @@
-charts/ai-platform-engineering/data/policy.lp

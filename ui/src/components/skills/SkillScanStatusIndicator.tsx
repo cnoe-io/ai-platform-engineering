@@ -71,7 +71,7 @@ const STATUS_COPY: Record<
   },
   unscanned: {
     title: "Not scanned",
-    hint: "No scan yet, or the supervisor was unreachable when you saved.",
+    hint: "No scan yet, or the scanner was unreachable when you saved.",
   },
   admin_overridden: {
     title: "Admin override active",

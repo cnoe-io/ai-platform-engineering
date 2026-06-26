@@ -45,7 +45,7 @@ describe("catalog-api-keys routes (BFF)", () => {
     mockResolveOwner.mockReturnValue("kc-sub-abc");
   });
 
-  it("POST mints in-process (no supervisor)", async () => {
+  it("POST mints through the BFF", async () => {
     mockCreate.mockResolvedValue({
       key: "sk_abc123.secretpart",
       key_id: "sk_abc123",

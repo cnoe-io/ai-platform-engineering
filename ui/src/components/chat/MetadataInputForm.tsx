@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { AlertCircle,ChevronDown,Send } from "lucide-react";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 
-// Platform Engineer Input Field (from A2A response)
+// Dynamic agent input field metadata.
 export interface InputField {
   field_name: string;
   field_label?: string;

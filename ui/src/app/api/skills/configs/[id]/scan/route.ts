@@ -21,8 +21,6 @@ import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 
-const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
-
 /**
  * Prefer persisted SKILL.md (`skill_content`). If missing (e.g. workflow-only saves),
  * synthesize minimal markdown from task `llm_prompt` so manual scan still runs.
@@ -49,30 +47,6 @@ function resolveSkillMarkdownForScan(skill: AgentSkill): string {
 }
 
 /**
- * Background-fire a supervisor catalog refresh after a successful scan.
- * Forwards the caller's credentials so the supervisor's auth gate
- * (`get_catalog_auth` — JWT or `X-Caipe-Catalog-Key`) doesn't reject us
- * with 401 the moment `OIDC_ISSUER` is set on the supervisor side. See
- * `scanSkillContent` for the same auth pattern on the synchronous call.
- */
-function triggerSupervisorRefresh(auth?: {
-  accessToken?: string;
-  catalogKey?: string;
-}): void {
-  if (!SUPERVISOR_URL) return;
-  const headers: Record<string, string> = {};
-  if (auth?.accessToken) headers["Authorization"] = `Bearer ${auth.accessToken}`;
-  if (auth?.catalogKey) headers["X-Caipe-Catalog-Key"] = auth.catalogKey;
-  fetch(`${SUPERVISOR_URL}/skills/refresh?include_hubs=false`, {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(30_000),
-  }).catch((err) => {
-    console.warn("[ScanSkill] Background supervisor refresh failed:", err);
-  });
-}
-
-/**
  * POST /api/skills/configs/[id]/scan
  *
  * Re-runs skill-scanner on persisted SKILL.md for Mongo-backed skills.
@@ -92,7 +66,7 @@ export const POST = withErrorHandler(
       throw new ApiError("Config id is required", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
+    return await withAuth(request, async (_req, user, session) => {
       const existing = await getAgentSkillVisibleToUser(id, user.email);
       if (!existing) {
         throw new ApiError("Agent config not found", 404);
@@ -140,15 +114,6 @@ export const POST = withErrorHandler(
           503,
         );
       }
-
-      // The supervisor catalog refresh below still needs the user's
-      // creds (its `/skills/refresh` is JWT-gated when OIDC is on); the
-      // scan call itself goes to the unauthenticated internal scanner.
-      const supervisorAuth = {
-        accessToken: (session as { accessToken?: string } | null | undefined)
-          ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
-      };
 
       const t0 = Date.now();
       const scanResult = await scanSkillContent(existing.name, content, id, {
@@ -211,8 +176,6 @@ export const POST = withErrorHandler(
           },
         },
       );
-
-      triggerSupervisorRefresh(supervisorAuth);
 
       return successResponse({
         id,

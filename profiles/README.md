@@ -2,11 +2,11 @@
 
 This directory is used for profile-related documentation and future extensions.
 
-## Persona Configuration
+## Persona Reference
 
 The main persona configuration file is located at the project root: `persona.yaml`
 
-This file defines user personas (roles) and their associated agent configurations. Each persona represents a specific use case or job role with a curated set of AI agents.
+This file defines user personas (roles) and their associated tool/runtime preferences. Each persona represents a specific use case or job role with a curated set of integrations.
 
 ### Structure
 
@@ -15,8 +15,8 @@ persona:
   <persona-name>:
     description: "Description of the persona"
     agents:
-      - agent1
-      - agent2
+      - github
+      - jira
 ```
 
 ### Available Personas
@@ -45,19 +45,11 @@ persona:
 
 ### Using Personas
 
-Personas can be used with the `generate-docker-compose.py` script to generate tailored docker-compose configurations:
+Personas are reference data for documentation and deployment planning. Use Docker Compose profiles or Helm `tags.mcp-*` values to enable the matching MCP integrations in a running environment.
 
-```bash
-# Generate compose for a specific persona
-./scripts/generate-docker-compose.py --persona devops-engineer
+### Available Integrations
 
-# Generate for multiple personas
-./scripts/generate-docker-compose.py --persona argocd full-platform
-```
-
-### Available Agents
-
-Agents that can be included in personas:
+Integrations that can be included in personas:
 - `argocd` - GitOps with ArgoCD
 - `aws` - AWS cloud operations
 - `backstage` - Developer portal
@@ -75,4 +67,3 @@ Agents that can be included in personas:
 ## Default Profile
 
 The default profile is specified in `persona.yaml` under `default_profile` and will be used if no specific persona is specified.
-

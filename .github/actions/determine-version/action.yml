@@ -47,12 +47,14 @@ runs:
     - name: 🔍 Detect branch and derive base version + suffix
       id: branch
       shell: bash
+      env:
+        PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
       run: |
         # For pull_request events, GITHUB_REF is refs/pull/N/merge — use the
         # PR base branch instead so we compute the version the target branch
         # would get after merge.
         if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
-          BRANCH="${{ github.event.pull_request.base.ref }}"
+          BRANCH="$PR_BASE_REF"
           echo "📌 PR detected — using base branch: $BRANCH"
         else
           BRANCH="${GITHUB_REF#refs/heads/}"

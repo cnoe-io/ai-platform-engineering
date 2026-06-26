@@ -5,9 +5,6 @@
  * POSTs to the UI proxy route and parses SSE events, yielding
  * SSEAgentEvent objects for ChatPanel to process.
  *
- * This client is intentionally separate from A2ASDKClient to maintain
- * clean architectural separation between A2A and Dynamic Agents.
- *
  * SSE event types from the backend (stream_events.py):
  *   - content: streaming text token (data is a string)
  *   - tool_start: tool invocation started (data is structured JSON)
@@ -238,11 +235,6 @@ export class DynamicAgentClient {
     }
   }
 
-  /**
-   * @deprecated Stub — no matching Next.js route exists. ChatPanel should not
-   * talk to dynamic agents. Remove when the supervisor ChatPanel is retired.
-   */
-
   async *resumeStream(
     _conversationId: string,
     _agentId: string,
@@ -329,7 +321,7 @@ export class DynamicAgentClient {
         const agentEvent = createSSEAgentEvent(
           event,
           parsedData,
-          undefined, // taskId could be added later for crash recovery
+          undefined,
         );
 
         return agentEvent;

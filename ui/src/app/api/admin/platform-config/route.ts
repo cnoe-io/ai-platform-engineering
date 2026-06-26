@@ -73,37 +73,13 @@ async function reconcileDefaultAgentGrant(previousAgentId: string | null, nextAg
   await writeOpenFgaTuples({ writes, deletes });
 }
 
-function normalizeReleaseVersion(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const version = value.trim().replace(/^v/, '');
-  return version || null;
-}
-
-function announcementIdFor(version: string | null, revision: number): string {
-  return `${version || 'release'}:revision-${revision}`;
-}
-
+// Release notes is a single platform-wide on/off switch. The announcement
+// always targets the currently deployed version, and dismissal is permanent
+// per-version, so there is no version/revision/toast/CTA config to store.
 function normalizeReleaseNotesConfig(input: unknown = {}) {
   const source = isRecord(input) ? input : {};
-  const releaseVersion = normalizeReleaseVersion(source.release_version);
-  const revision = Number.isFinite(Number(source.announcement_revision))
-    ? Math.max(1, Math.floor(Number(source.announcement_revision)))
-    : 1;
-  const toastDuration = Number.isFinite(Number(source.toast_duration_ms))
-    ? Math.max(0, Math.floor(Number(source.toast_duration_ms)))
-    : 5000;
-
   return {
     enabled: source.enabled !== false,
-    release_version: releaseVersion,
-    announcement_revision: revision,
-    announcement_id:
-      typeof source.announcement_id === 'string' && source.announcement_id.trim()
-        ? source.announcement_id.trim()
-        : announcementIdFor(releaseVersion, revision),
-    show_toast: source.show_toast === true,
-    toast_duration_ms: toastDuration,
-    show_migration_cta: source.show_migration_cta !== false,
   };
 }
 

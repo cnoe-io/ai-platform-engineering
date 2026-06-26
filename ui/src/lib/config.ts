@@ -32,8 +32,6 @@
  * NEVER add secrets, credentials, or internal infrastructure details here.
  */
 export interface Config {
-  /** CAIPE A2A endpoint URL */
-  caipeUrl: string;
   /** RAG Server URL for knowledge base operations */
   ragUrl: string;
   /** Whether we're in development mode */
@@ -105,11 +103,6 @@ export interface Config {
    */
   workflowsEnabled: boolean;
   /**
-   * Whether the Task Builder tab is shown in the top navigation.
-   * Enabled by default. Set TASK_BUILDER_ENABLED=false to disable.
-   */
-  taskBuilderEnabled: boolean;
-  /**
    * Whether the admin Feedback tab and feedback API are enabled.
    * Enabled by default. Set FEEDBACK_ENABLED=false to disable.
    */
@@ -142,11 +135,6 @@ export interface Config {
    * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
    */
   actionAuditEnabled: boolean;
-  /**
-   * Temporary admin migration tab for assigning owner_user_id to legacy pod meetings.
-   * Enabled by default. Set POD_OWNER_MIGRATION_ENABLED=false to disable.
-   */
-  podOwnerMigrationEnabled: boolean;
   /** Audit log emission backend. UI supports "service"; storage lives in audit-service. */
   auditLogBackend: string;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
@@ -159,10 +147,6 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
-  /** Whether dynamic agents feature is enabled */
-  dynamicAgentsEnabled: boolean;
-  /** Dynamic agent id used by Schedules -> Chat with agent. Empty string falls back to the platform default. */
-  scheduleEditorAgentId: string;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -229,7 +213,6 @@ const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 's
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
-  caipeUrl: '/api/a2a',
   ragUrl: 'http://localhost:9446',
   isDev: false,
   isProd: false,
@@ -258,20 +241,16 @@ const DEFAULT_CONFIG: Config = {
   sourceUrl: null,
   workflowRunnerEnabled: false,
   workflowsEnabled: false,
-  taskBuilderEnabled: true,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
-  podOwnerMigrationEnabled: true,
   auditLogBackend: 'service',
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
-  dynamicAgentsEnabled: false,
-  scheduleEditorAgentId: '',
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -338,20 +317,6 @@ function validated(value: string | undefined, allowed: string[], fallback: strin
 }
 
 /**
- * Returns the internal (server-side) URL for the CAIPE supervisor.
- *
- * Use this in API routes that proxy requests to the supervisor — it resolves
- * to the Docker-internal service name, falling back to caipe-supervisor:8000.
- * Never use caipeUrl from getServerConfig() for server-side fetches; that value
- * is the browser-facing URL and may be unreachable from inside the container.
- *
- * MUST only be called on the server (Node.js runtime).
- */
-export function getInternalA2AUrl(): string {
-  return (env('A2A_BASE_URL') || 'http://caipe-supervisor:8000').replace(/\/$/, '');
-}
-
-/**
  * Build the full Config from server-side process.env.
  *
  * MUST only be called on the server (Node.js runtime).
@@ -359,12 +324,6 @@ export function getInternalA2AUrl(): string {
 export function getServerConfig(): Config {
   const isProduction = process.env.NODE_ENV === 'production';
   const isDev = process.env.NODE_ENV === 'development';
-
-  // caipeUrl is the browser-facing supervisor URL embedded in __APP_CONFIG__.
-  // Read it dynamically so container runtime ConfigMaps work; direct
-  // process.env.NEXT_PUBLIC_* reads can be inlined during `next build`.
-  const caipeUrl = publicEnv('A2A_BASE_URL')
-    || (isProduction ? '/api/a2a' : 'http://localhost:8000');
 
   const ragUrl = env('RAG_URL')
     || process.env.RAG_SERVER_URL
@@ -380,7 +339,6 @@ export function getServerConfig(): Config {
   const unsafeRbacBypassEnabled = enabledEnv('CAIPE_UNSAFE_RBAC_BYPASS');
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
-  const taskBuilderEnabled = env('TASK_BUILDER_ENABLED') !== 'false';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   // Default `false` (locked). Must mirror the server-side check in
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
@@ -388,16 +346,7 @@ export function getServerConfig(): Config {
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
-  const podOwnerMigrationRaw = env('POD_OWNER_MIGRATION_ENABLED') ?? 'true';
-  const podOwnerMigrationEnabled = !['false', '0', 'off', 'no'].includes(
-    podOwnerMigrationRaw.trim().toLowerCase(),
-  );
   const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
-  const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
-  const scheduleEditorAgentId =
-    env('SCHEDULE_EDITOR_AGENT_ID')?.trim() ||
-    process.env.DEFAULT_AGENT_ID?.trim() ||
-    '';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   // The user-facing Credentials surface is gated independently of the SA token
   // surface. It defaults to the master flag (backward-compatible) and can be
@@ -445,7 +394,6 @@ export function getServerConfig(): Config {
   const logoStyle: 'default' | 'white' = logoStyleEnv === 'white' ? 'white' : 'default';
 
   return {
-    caipeUrl,
     ragUrl,
     isDev,
     isProd: isProduction,
@@ -474,20 +422,16 @@ export function getServerConfig(): Config {
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
     workflowsEnabled,
-    taskBuilderEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
     auditLogsEnabled,
     actionAuditEnabled,
-    podOwnerMigrationEnabled,
     auditLogBackend,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
-    dynamicAgentsEnabled,
-    scheduleEditorAgentId,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

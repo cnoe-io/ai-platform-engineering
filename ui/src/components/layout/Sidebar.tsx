@@ -7,50 +7,37 @@ import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
-import { resolveNewConversationAgentId, type NewConversationAgentSelection } from "@/lib/new-chat-agent";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getStorageMode } from "@/lib/storage-config";
-import { cn, formatDate, truncateText } from "@/lib/utils";
+import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
-import { getAgentId, isDynamicAgentConversation } from "@/types/a2a";
-import { AnimatePresence, motion } from "framer-motion";
+import { getAgentId } from "@/types/a2a";
+import { AnimatePresence,motion } from "framer-motion";
 import {
 Archive,
 ArchiveRestore,
 ChevronLeft,
 ChevronRight,
 Database,
-Globe,
 HardDrive,
 History,
-Loader2,
 MessageCircleQuestion,
 MessageSquare,
-Pencil,
 Plus,
 Radio,
 RefreshCw,
 Shield,
 Sparkles,
 TrendingUp,
-Users,
-Users2
+Users
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useState, useTransition } from "react";
+import { useEffect,useState,useTransition } from "react";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";
@@ -58,30 +45,6 @@ interface SidebarProps {
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
   onUseCaseSaved?: () => void;
-}
-
-function getScheduleBadge(conv: Conversation): { label: string; title: string } | null {
-  const scheduleId = conv.metadata?.schedule_id;
-  const scheduleTitle = conv.metadata?.schedule_title;
-  if (typeof scheduleTitle === "string" && scheduleTitle.trim()) {
-    const label = scheduleTitle.trim();
-    return {
-      label,
-      title: typeof scheduleId === "string" && scheduleId.trim()
-        ? `Scheduled run ${scheduleId.trim()}: ${label}`
-        : `Scheduled run: ${label}`,
-    };
-  }
-
-  if (typeof scheduleId === "string" && scheduleId.trim()) {
-    const label = scheduleId.trim();
-    return { label, title: `Scheduled run ${label}` };
-  }
-
-  const legacyMatch = conv.id.match(/sched_[a-z0-9]+/i);
-  if (!legacyMatch) return null;
-
-  return { label: legacyMatch[0], title: `Scheduled run ${legacyMatch[0]}` };
 }
 
 export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
@@ -94,11 +57,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     deleteConversation,
     loadConversationsFromServer,
     loadMessagesFromServer,
-    loadTurnsFromServer,
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
-    updateConversationTitle,
   } = useChatStore();
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
@@ -108,9 +69,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [isResizing, setIsResizing] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
-  const [titleEditorConversation, setTitleEditorConversation] = useState<{ id: string; title: string } | null>(null);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [isSavingTitle, setIsSavingTitle] = useState(false);
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
@@ -192,16 +150,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.log('[Sidebar] Manual reload triggered');
       await loadConversationsFromServer();
       // Also force-reload the active conversation's messages to pick up
-      // follow-up messages from other devices and refresh A2A events
+      // follow-up messages from other devices and refresh stream events
       if (activeConversationId) {
-        const activeConv = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
-        if (activeConv && isDynamicAgentConversation(activeConv)) {
-          // Dynamic Agent — use old messages path
-          await loadMessagesFromServer(activeConversationId, { force: true });
-        } else {
-          // Platform Engineer — use turns path
-          await loadTurnsFromServer(activeConversationId);
-        }
+        await loadMessagesFromServer(activeConversationId, { force: true });
       }
     } catch (error) {
       console.error('[Sidebar] Failed to reload conversations:', error);
@@ -210,47 +161,10 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     }
   };
 
-  const openTitleEditor = (conv: Conversation, event: React.MouseEvent) => {
-    event.stopPropagation();
-    setTitleEditorConversation({ id: conv.id, title: conv.title || "New Conversation" });
-    setTitleDraft(conv.title || "");
-  };
-
-  const closeTitleEditor = () => {
-    if (isSavingTitle) return;
-    setTitleEditorConversation(null);
-    setTitleDraft("");
-  };
-
-  const saveTitle = async () => {
-    if (!titleEditorConversation || isSavingTitle) return;
-    const nextTitle = titleDraft.trim();
-    if (!nextTitle) {
-      toast("Conversation title cannot be empty", "error", 3000);
-      return;
-    }
-    if (nextTitle === titleEditorConversation.title) {
-      closeTitleEditor();
-      return;
-    }
-
-    setIsSavingTitle(true);
+  const handleNewChat = async (agentId?: string) => {
+    let resolvedAgentId: string | null = null;
     try {
-      await updateConversationTitle(titleEditorConversation.id, nextTitle);
-      toast("Conversation title updated", "success", 3000);
-      setTitleEditorConversation(null);
-      setTitleDraft("");
-    } catch (error) {
-      console.error("[Sidebar] Failed to update conversation title:", error);
-      toast("Failed to update conversation title", "error", 4000);
-    } finally {
-      setIsSavingTitle(false);
-    }
-  };
-
-  const handleNewChat = async (agentId?: NewConversationAgentSelection) => {
-    try {
-      const conversationAgentId = await resolveNewConversationAgentId(agentId);
+      resolvedAgentId = agentId?.trim() || await resolveUsableChatAgentId();
 
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
@@ -258,7 +172,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         const result = await apiClient.createConversation({
           title: "New Conversation",
           client_type: 'webui',
-          agent_id: conversationAgentId,
+          agent_id: resolvedAgentId,
         });
         const conversation = result.conversation;
 
@@ -270,9 +184,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
-          a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
-          metadata: conversation.metadata,
         };
 
         // Update store and wait for it to propagate
@@ -290,7 +202,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         });
       } else {
         // Create conversation in localStorage
-        const conversationId = await createConversation(agentId);
+        const conversationId = await createConversation(resolvedAgentId);
 
         // Use React transition for smooth navigation
         startTransition(() => {
@@ -299,12 +211,16 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       }
     } catch (error) {
       console.error('[Sidebar] Failed to create conversation:', error);
+      const message =
+        error instanceof Error ? error.message : "Failed to create a chat conversation";
+      toast(message, "error");
 
-      // Fallback to localStorage
-      const conversationId = await createConversation(agentId);
-      startTransition(() => {
-        router.push(`/chat/${conversationId}`);
-      });
+      if (storageMode !== 'mongodb' && resolvedAgentId) {
+        const conversationId = await createConversation(resolvedAgentId);
+        startTransition(() => {
+          router.push(`/chat/${conversationId}`);
+        });
+      }
     }
   };
 
@@ -437,19 +353,37 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
                 {conversations.map((conv, index) => {
-                  // Check if conversation is shared
-                  const isShared = conv.sharing && (
-                    conv.sharing.is_public ||
-                    (conv.sharing.shared_with && conv.sharing.shared_with.length > 0) ||
-                    (conv.sharing.shared_with_teams && conv.sharing.shared_with_teams.length > 0) ||
-                    conv.sharing.share_link_enabled
+                  const currentUserEmail = session?.user?.email?.trim().toLowerCase();
+                  const ownerEmail = conv.owner_id?.trim().toLowerCase();
+                  const viewerIsKnownOwner =
+                    conv.accessLevel === "owner" ||
+                    Boolean(ownerEmail && currentUserEmail && ownerEmail === currentUserEmail);
+                  const hasSharingConfig = Boolean(
+                    conv.sharing?.is_public ||
+                    (conv.sharing?.shared_with?.length ?? 0) > 0 ||
+                    (conv.sharing?.shared_with_teams?.length ?? 0) > 0 ||
+                    conv.sharing?.share_link_enabled
                   );
+                  const sharedByKnownDifferentOwner = Boolean(
+                    ownerEmail &&
+                    currentUserEmail &&
+                    ownerEmail !== currentUserEmail &&
+                    hasSharingConfig
+                  );
+                  // assisted-by Codex Codex-sonnet-4-6
+                  // The badge is viewer-facing, so prefer the server's per-viewer sharing signal.
+                  const isSharedWithViewer = !viewerIsKnownOwner && (
+                    conv.isSharedWithViewer === true ||
+                    conv.accessLevel === "shared" ||
+                    conv.accessLevel === "shared_readonly" ||
+                    sharedByKnownDifferentOwner
+                  );
+                  const sharedByLabel = conv.owner_id?.trim();
+                  const canManageSharing = viewerIsKnownOwner || (!ownerEmail && !isSharedWithViewer);
 
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
-                  const scheduleBadge = getScheduleBadge(conv);
-                  const isOwner = !conv.owner_id || conv.owner_id === session?.user?.email;
 
                   return (
                   <div
@@ -471,7 +405,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               ? "bg-blue-500/5 border border-blue-500/25"
                               : activeConversationId === conv.id
                                 ? "bg-primary/10 border border-primary/30"
-                                : isShared
+                                : isSharedWithViewer
                                   ? "hover:bg-muted/50 border border-blue-500/20"
                                   : "hover:bg-muted/50 border border-transparent"
                       )}
@@ -536,34 +470,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
-                            {scheduleBadge && (
-                              <span
-                                className="shrink-0 max-w-[132px] truncate rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-cyan-700 dark:text-cyan-300"
-                                title={scheduleBadge.title}
-                              >
-                                {truncateText(scheduleBadge.label, sidebarWidth > 350 ? 24 : 18)}
-                              </span>
-                            )}
-                            {isShared && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    {conv.sharing?.is_public ? (
-                                      <Globe className="h-3 w-3 text-green-500 shrink-0" />
-                                    ) : (
-                                      <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
-                                    )}
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    <p className="text-xs">
-                                      {conv.sharing?.is_public
-                                        ? 'Shared with everyone'
-                                        : 'Shared conversation'}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
                           </div>
                           <p className={cn(
                             "text-xs truncate",
@@ -590,30 +496,22 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
-                          {isOwner && (
-                            <TooltipProvider delayDuration={200}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={(event) => openTitleEditor(conv, event)}
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={4}>
-                                  <p className="text-xs">Edit title</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          )}
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div
+                            className={cn(
+                              "transition-opacity",
+                              activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                ? "opacity-100"
+                                : "opacity-0 group-hover:opacity-100",
+                            )}
+                          >
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={isOwner}
+                              isOwner={canManageSharing}
+                              isSharedWithViewer={isSharedWithViewer}
+                              sharedBy={sharedByLabel}
+                              sharing={conv.sharing}
+                              accessLevel={conv.accessLevel}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>
@@ -641,7 +539,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               // so the user always has somewhere to land
                               let navigateToId: string | null = null;
                               if (isLastConversation) {
-                                navigateToId = await createConversation();
+                                navigateToId = await createConversation(await resolveUsableChatAgentId());
                                 console.log('[Sidebar] Created replacement conversation:', navigateToId);
                               }
 
@@ -861,53 +759,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         open={recycleBinOpen}
         onOpenChange={setRecycleBinOpen}
       />
-
-      <Dialog open={!!titleEditorConversation} onOpenChange={(open) => {
-        if (!open) closeTitleEditor();
-      }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Chat Title</DialogTitle>
-            <DialogDescription>
-              Rename this conversation in your chat history.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveTitle();
-            }}
-          >
-            <Input
-              value={titleDraft}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              maxLength={120}
-              autoFocus
-              placeholder="Conversation title"
-              disabled={isSavingTitle}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={closeTitleEditor}
-                disabled={isSavingTitle}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSavingTitle || !titleDraft.trim()}
-                className="gap-1.5"
-              >
-                {isSavingTitle && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Save
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
     </motion.div>
   );

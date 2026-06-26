@@ -18,7 +18,7 @@ CAIPE + Keycloak stack:
 | `workflow-agent-user-delegation.spec.ts` | Mocked regression for run-as-user workflow delegation (user OBO bearer vs service account on team/global/private workflows). |
 | `workflow-agent-oauth-live.spec.ts` | Live-stack regression for Keycloak client-credentials → `/api/workflow-runs` (401 unauthenticated, 201 global workflow). |
 | `workflow-agent-user-delegation-live.spec.ts` | Live-stack regression: service account 403 on team workflow; session owner 201; global fallback for SA. |
-| `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
+| `rbac-admin-regression.spec.ts` | Mocked browser regression for the RBAC Audit export UX. |
 | `audit-service-writers.spec.ts` | Mocked browser regression for audit-service-backed audit reads, filtering, downloads, and outage recovery. |
 | `audit-log.spec.ts` | Mocked browser regression for the audit-service reader UI: storage status, time windows, custom ranges, ZIP export, and outage badges. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |

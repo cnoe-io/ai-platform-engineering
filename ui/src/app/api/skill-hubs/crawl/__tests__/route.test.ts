@@ -12,10 +12,7 @@
  * The route rejects host/type mismatches with a structured 400 before
  * any local crawler call happens. We pin that behavior here, plus the
  * happy path (canonical owner/repo, matching URLs) to make sure the
- * guard isn't over-aggressive. The route used to forward GitHub
- * previews to a Python proxy when `NEXT_PUBLIC_A2A_BASE_URL` was
- * set; that path was removed because the Python middleware no longer
- * has its own GitHub crawler. The env var is now ignored here.
+ * guard isn't over-aggressive.
  */
 
 const mockNextResponseJson = jest.fn(
@@ -86,7 +83,6 @@ beforeEach(() => {
   mockNextResponseJson.mockClear();
   crawlGitHubMock.mockReset();
   crawlGitLabMock.mockReset();
-  delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
 });
 
 describe("POST /api/skill-hubs/crawl — host/type mismatch backstop", () => {
@@ -108,25 +104,6 @@ describe("POST /api/skill-hubs/crawl — host/type mismatch backstop", () => {
     // a foreign org name.
     expect(crawlGitHubMock).not.toHaveBeenCalled();
     expect(crawlGitLabMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects the same gitlab.com URL even with NEXT_PUBLIC_A2A_BASE_URL set (env var is ignored now)", async () => {
-    // The route used to honor NEXT_PUBLIC_A2A_BASE_URL by forwarding
-    // GitHub previews to a Python proxy. That proxy is gone (Python
-    // catalog reads are Mongo-only), but we still defend against
-    // anyone wiring this env back up by mistake — the guard fires
-    // regardless of what's in the env.
-    process.env.NEXT_PUBLIC_A2A_BASE_URL = "http://supervisor:8000";
-    const res = await POST(
-      makeRequest({
-        type: "github",
-        location: "https://gitlab.com/gitlab-org/ai/skills",
-      }),
-    );
-    expect(res.status).toBe(400);
-    expect((await res.json() as { error: string }).error).toBe(
-      "type_location_mismatch",
-    );
   });
 
   it("rejects type=gitlab + github.com URL (the other direction)", async () => {

@@ -2,7 +2,7 @@
  * MongoDB-backed catalog API keys for Skills Gateway (FR-018).
  *
  * Mirrors `ai_platform_engineering/skills_middleware/api_keys_store.py` so the
- * BFF can mint/list/revoke keys without proxying to the supervisor.
+ * BFF and Skills Gateway use the same key format.
  *
  * Key format: `{key_id}.{secret}`. Only a versioned scrypt digest is stored.
  */

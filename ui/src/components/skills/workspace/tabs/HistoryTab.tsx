@@ -59,7 +59,7 @@ export interface ScanTabProps {
   /** Display name for toasts and dialog copy. */
   skillName?: string;
   /** Called after a successful manual scan so the parent can refresh
-   * the gallery / supervisor sync state. Optional. */
+   * gallery state. Optional. */
   onScanComplete?: () => void | Promise<void>;
 }
 

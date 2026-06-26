@@ -20,7 +20,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -34,16 +33,17 @@ jobs:
       (github.event_name == 'pull_request')
     steps:
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
 
       - name: 🔍 Check for chart changes and version bumps
+        env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
           echo "Checking for chart changes..."
 
           # Get the base branch (usually main or master)
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
 
           # Check if there are any changes in the charts directory
           CHART_CHANGES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^charts/" || true)
@@ -150,12 +150,15 @@ jobs:
   publish:
     name: Push Helm Charts to GHCR
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     # Publish on merge to main or workflow_dispatch
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
 
@@ -165,14 +168,18 @@ jobs:
           version: v3.14.0
 
       - name: 🔐 Login to GHCR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
-          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: 🔍 Detect Changed Charts
         id: detect
+        env:
+          PUBLISH_ALL: ${{ github.event.inputs.publish_all }}
         run: |
           # Check if publish_all is set (workflow_dispatch)
-          PUBLISH_ALL="${{ github.event.inputs.publish_all }}"
 
           if [[ "$PUBLISH_ALL" == "true" ]]; then
             echo "📦 publish_all=true, will publish all charts"

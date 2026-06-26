@@ -110,34 +110,23 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 function readinessFor(row: ConnectorOnboardingRow): {
   state: ReadinessState;
   label: string;
-  detail: string;
 } {
   if (row.isExisting) {
-    return {
-      state: "ready",
-      label: "Configured",
-      detail: row.selected
-        ? "Already configured. Will be re-applied if you keep it selected."
-        : "Already configured. Select if you want to refresh it.",
-    };
+    return { state: "ready", label: "Configured" };
   }
   if (!row.selected) {
-    return { state: "skipped", label: "Not selected", detail: "Won't be touched." };
+    return { state: "skipped", label: "Not selected" };
   }
   if (!row.teamSlug && !row.agentId) {
-    return {
-      state: "blocked",
-      label: "Pick team and agent",
-      detail: "Choose a team and a Dynamic Agent for this row.",
-    };
+    return { state: "blocked", label: "Pick team and agent" };
   }
   if (!row.teamSlug) {
-    return { state: "blocked", label: "Pick a team", detail: "Choose a team for this row." };
+    return { state: "blocked", label: "Pick a team" };
   }
   if (!row.agentId) {
-    return { state: "blocked", label: "Pick an agent", detail: "Choose a Dynamic Agent for this row." };
+    return { state: "blocked", label: "Pick an agent" };
   }
-  return { state: "needs_setup", label: "Ready to set up", detail: "Will be set up when you apply." };
+  return { state: "needs_setup", label: "Ready to set up" };
 }
 
 function readinessClass(state: ReadinessState): string {
@@ -147,7 +136,7 @@ function readinessClass(state: ReadinessState): string {
   // actually need the admin's attention.
   if (state === "ready") return "border-slate-300 bg-slate-50 text-slate-700";
   if (state === "needs_setup") return "border-emerald-300 bg-emerald-50 text-emerald-700";
-  if (state === "blocked") return "border-red-300 bg-red-50 text-red-700";
+  if (state === "blocked") return "border-amber-300 bg-amber-50 text-amber-700";
   return "border-slate-300 bg-slate-50 text-slate-600";
 }
 
@@ -429,7 +418,7 @@ export function ConnectorOnboardingWizard({
                         key={row.id}
                         className={cn(
                           "grid min-w-[860px] grid-cols-[minmax(240px,1fr)_190px_220px_190px] gap-3 border-b px-3 py-3 last:border-b-0",
-                          readiness.state === "blocked" && "bg-red-500/5",
+                          readiness.state === "blocked" && "bg-amber-500/5",
                           readiness.state === "needs_setup" && "bg-emerald-500/5",
                         )}
                       >
@@ -484,7 +473,6 @@ export function ConnectorOnboardingWizard({
                             <ReadinessIcon state={readiness.state} />
                             {readiness.label}
                           </Badge>
-                          <div className="text-xs text-muted-foreground">{readiness.detail}</div>
                         </div>
                       </div>
                     );
@@ -515,10 +503,7 @@ export function ConnectorOnboardingWizard({
             </>
           )}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="max-w-3xl text-xs text-muted-foreground">
-              Sets up only the selected {itemPlural}: assigns each one to its team, grants the agent, and
-              creates default routes when route creation is enabled.
-            </p>
+            <div />
             <div className="flex flex-col items-end gap-1">
               <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="outline" onClick={onDiscover} disabled={disabled || discovering}>

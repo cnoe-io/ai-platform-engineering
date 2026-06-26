@@ -29,6 +29,20 @@ describe("ai-assist-tasks registry", () => {
   it("returns null for unknown task ids", () => {
     expect(getAiAssistTask("does-not-exist")).toBeNull();
   });
+
+  it("points graded tasks at their AI Review rubric target", () => {
+    expect(getAiAssistTask("agent-system-prompt")!.reviewTarget).toBe(
+      "agent-system-prompt",
+    );
+    expect(getAiAssistTask("skill-md")!.reviewTarget).toBe("skill-md");
+    // enhance-skill-md spreads skill-md, so it inherits the same target.
+    expect(getAiAssistTask("enhance-skill-md")!.reviewTarget).toBe("skill-md");
+  });
+
+  it("leaves non-graded tasks without a review target", () => {
+    expect(getAiAssistTask("code-snippet")!.reviewTarget).toBeUndefined();
+    expect(getAiAssistTask("agent-description")!.reviewTarget).toBeUndefined();
+  });
 });
 
 describe("describe-skill task", () => {

@@ -70,7 +70,7 @@ describe("parseAuthError", () => {
     const res = jsonResponse(403, {
       success: false,
       error: "You do not have permission to use the assistant.",
-      code: "chat_supervisor#invoke",
+      code: "agent#can_use",
       reason: "pdp_denied",
       action: "contact_admin",
     });
@@ -80,7 +80,7 @@ describe("parseAuthError", () => {
       status: 403,
       reason: "pdp_denied",
       action: "contact_admin",
-      code: "chat_supervisor#invoke",
+      code: "agent#can_use",
     });
   });
 

@@ -375,10 +375,8 @@ def test_strip_known_sections_removes_workflow_definition_block() -> None:
 
 
 def test_strip_workflow_section_removes_self_service_block_in_system_prompt() -> None:
-    # The supervisor's system prompt has its own
-    # ``## Self-Service Workflows`` boilerplate; today it doesn't
-    # inline the prompts but we strip it preemptively in case future
-    # rev's of deep_agent.py start appending the workflow listing.
+    # Workflow-capable prompts can include this boilerplate without
+    # needing to expose embedded workflow instructions in traces.
     prompt = (
         "Be helpful.\n"
         "## Self-Service Workflows\n"

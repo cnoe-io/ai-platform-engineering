@@ -112,14 +112,14 @@ spec:
               value: {{ index .Values.config "SLACK_BOT_ADMIN_TOKEN_URL" | default (printf "http://%s-keycloak:8080/realms/%s/protocol/openid-connect/token" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
             - name: OPENFGA_HTTP
               value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
-            - name: A2A_BASE_URL
-              value: {{ index .Values.config "A2A_BASE_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
-            - name: BACKEND_SKILLS_URL
-              value: {{ index .Values.config "BACKEND_SKILLS_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
             - name: SLACK_BOT_ADMIN_URL
               value: {{ index .Values.config "SLACK_BOT_ADMIN_URL" | default (printf "http://%s-slack-bot:3001" .Release.Name) | quote }}
             - name: WEBEX_BOT_ADMIN_URL
               value: {{ index .Values.config "WEBEX_BOT_ADMIN_URL" | default (printf "http://%s-webex-bot:3002" .Release.Name) | quote }}
+            {{- with index .Values.config "WEBEX_WORKSPACE_ALIAS" }}
+            - name: WEBEX_WORKSPACE_ALIAS
+              value: {{ . | quote }}
+            {{- end }}
             - name: DYNAMIC_AGENTS_URL
               value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
             - name: SKILL_SCANNER_URL
@@ -150,6 +150,24 @@ spec:
               value: {{ index .Values.config "AGENTGATEWAY_ADMIN_CONFIG_URL" | default (printf "http://%s-agentgateway:15000/config" .Release.Name) | quote }}
             - name: AGENTGATEWAY_TARGETS_URL
               value: {{ index .Values.config "AGENTGATEWAY_TARGETS_URL" | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+            {{- $cb := (($agwGlobal.static).configBridge) | default dict }}
+            {{- if and $agwGlobal.enabled $cb.enabled }}
+            {{- /*
+            Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets
+            can authenticate config-bridge poll requests. Reads from the same
+            global.agentgateway.static.configBridge.ui.existingSecret as the
+            config-bridge sidecar so both sides share the token.
+            */ -}}
+            {{- $cbUiSecret := ($cb.ui).existingSecret | default dict }}
+            {{- $cbTokenSecretName := $cbUiSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := $cbUiSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
+            - name: AGENTGATEWAY_TARGETS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cbTokenSecretName | quote }}
+                  key: {{ $cbTokenSecretKey | quote }}
+            {{- end }}
             - name: OPENFGA_AUTHZ_BRIDGE_HOST
               value: {{ index .Values.config "OPENFGA_AUTHZ_BRIDGE_HOST" | default (printf "%s-openfga-authz-bridge" .Release.Name) | quote }}
             - name: ETCD_HOST
@@ -188,13 +206,6 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: policy-config
-              mountPath: /app/policy.lp
-              subPath: policy.lp
-              readOnly: true
-            - name: task-config
-              mountPath: /app/config/task-config
-              readOnly: true
             {{- if $hasAppConfig }}
             - name: app-config
               mountPath: /etc/caipe-ui
@@ -204,14 +215,6 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        - name: policy-config
-          configMap:
-            name: policy-config
-            optional: true
-        - name: task-config
-          configMap:
-            name: task-config
-            optional: true
         {{- if $hasAppConfig }}
         - name: app-config
           configMap:

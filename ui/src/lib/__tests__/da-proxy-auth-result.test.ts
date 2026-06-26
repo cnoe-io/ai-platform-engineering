@@ -29,7 +29,7 @@ jest.mock("../api-middleware", () => ({
 }));
 
 jest.mock("../config", () => ({
-  getServerConfig: () => ({ dynamicAgentsEnabled: true, dynamicAgentsUrl: "http://dynamic-agents:8000" }),
+  getServerConfig: () => ({ dynamicAgentsUrl: "http://dynamic-agents:8000" }),
 }));
 
 function request(path = "/api/v1/chat/invoke"): NextRequest {

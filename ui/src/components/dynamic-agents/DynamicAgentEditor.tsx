@@ -3,11 +3,12 @@
 import {
 AiReviewButton,
 AiReviewPanel,
+buildBlockingMessage,
 buildLastReview,
 useAiReview,
 } from "@/components/ai-review";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -429,6 +430,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Blocking-review message, kept separate from `error` so it only renders on
+  // the Instructions step and can auto-clear the moment the review passes.
+  const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
+    null,
+  );
   const [middlewareError, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
@@ -464,6 +470,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     },
     onApplyFix: setSystemPrompt,
   });
+
+  // Clear the blocking-review banner once the review passes — including a
+  // re-run triggered from the panel (apply-all-fixes → run again), not just a
+  // Next/Save click.
+  React.useEffect(() => {
+    if (review.isPassed) setBlockingMessage(null);
+  }, [review.isPassed]);
 
   // Editor resize drag handlers
   const handleDragStart = React.useCallback((e: React.MouseEvent) => {
@@ -718,15 +731,21 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
     // no-op when the config is disabled or informational.
     if (activeStep === "instructions" && review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
-        const message = "AI Review failed — address the comments below before continuing.";
-        // assisted-by Codex Codex-sonnet-4-6
-        // A blocking review should be visible even when the footer is below the fold.
-        toast(message, "error");
-        setError(message);
+      const { passed, result } = await review.ensurePassedOrRun();
+      if (!passed) {
+        const message = buildBlockingMessage(
+          review.config,
+          result,
+          "the comments below",
+          "continuing",
+        );
+        // The banner below carries the message — visible even when the footer
+        // is below the fold.
+        setBlockingMessage(message);
         return;
       }
+      // Review passed — clear any stale blocking banner from a prior attempt.
+      setBlockingMessage(null);
     }
     if (currentStepIndex < STEPS.length - 1) {
       setActiveStep(STEPS[currentStepIndex + 1].id);
@@ -877,15 +896,25 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     // Gate save behind a passing AI Review when the admin has flagged this
     // target as "blocking". `ensurePassedOrRun` is a no-op when the config is
     // disabled or informational.
+    // Capture the freshly-run review result so the grade we persist below
+    // comes from the run we just awaited — `review.result` state lags by a
+    // render after an inline `ensurePassedOrRun`, so reading it here would
+    // stamp a stale (often null) grade onto the save.
+    let reviewResult = review.result;
     if (review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
-        const message = "AI Review failed — address the comments in the Instructions step before saving.";
-        // assisted-by Codex Codex-sonnet-4-6
-        // Return to the reviewed content so the user can see and act on comments.
-        toast(message, "error");
+      const { passed, result } = await review.ensurePassedOrRun();
+      reviewResult = result;
+      if (!passed) {
+        const message = buildBlockingMessage(
+          review.config,
+          result,
+          "the Instructions step",
+          "saving",
+        );
+        // Return to the reviewed content so the user can see and act on the
+        // inline comments; the banner below carries the message.
         setActiveStep("instructions");
-        setError(message);
+        setBlockingMessage(message);
         setLoading(false);
         return;
       }
@@ -930,7 +959,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       // list view can show a grade badge without re-running the LLM. Only
       // emit the field when we actually have a result this session — never
       // overwrite a prior `last_review` with null.
-      const lastReview = buildLastReview(review.result, "agent-system-prompt");
+      const lastReview = buildLastReview(reviewResult, "agent-system-prompt");
 
       if (isEditing) {
         // Update existing agent
@@ -1848,8 +1877,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
                 <p className="text-sm text-muted-foreground">
                   Define your agent&apos;s behavior, personality, and capabilities.
-                  You can paste content from an AGENTS.md file here.
                 </p>
+
+                {blockingMessage && (
+                  <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                    <p className="text-sm text-destructive">{blockingMessage}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}

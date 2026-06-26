@@ -5,7 +5,6 @@ withErrorHandler,
 import type { SkillHubDoc } from "@/lib/hub-crawl";
 import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
-import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 import { NextRequest,NextResponse } from "next/server";
 
 /**
@@ -13,8 +12,7 @@ import { NextRequest,NextResponse } from "next/server";
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   By default aggregates locally (Mongo + hubs + templates). Set
- *   SKILLS_CATALOG_USE_SUPERVISOR_PROXY=true to proxy GET /skills to the supervisor.
+ *   Aggregates locally (Mongo + hubs + templates).
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -109,8 +107,8 @@ export interface CatalogSkill {
    * disabled card with a "Disabled — flagged" badge so admins can
    * still see and re-scan it. Defaults to `true` when omitted.
    *
-   * The supervisor + dynamic agents enforce the same rule
-   * independently (Python ``scan_gate`` module) so a stale UI badge
+   * The dynamic-agent runtime enforces the same rule independently
+   * (``scan_gate`` module) so a stale UI badge
    * cannot make a flagged skill executable. A flagged skill with an
    * active ``scan_override`` is runnable on both sides (UI here,
    * Python there) when the admin-override feature is enabled.
@@ -324,57 +322,7 @@ export async function filterSkillsByOpenFga(
 }
 
 /**
- * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
- * Returns null if not configured or unreachable.
- * Forwards query params so the backend can also filter server-side.
- */
-function shouldProxyCatalogToSupervisor(): boolean {
-  const raw = process.env.SKILLS_CATALOG_USE_SUPERVISOR_PROXY?.trim().toLowerCase();
-  return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
-}
-
-async function fetchFromBackend(
-  params: QueryParams,
-  authHeader?: string | null,
-): Promise<CatalogResponse | null> {
-  if (!shouldProxyCatalogToSupervisor()) {
-    return null;
-  }
-  const { getInternalA2AUrl } = await import("@/lib/config");
-  const backendUrl = getInternalA2AUrl();
-  if (!backendUrl) return null;
-
-  try {
-    const url = new URL("/skills", backendUrl);
-    const incoming = new URLSearchParams();
-    if (params.includeContent) incoming.set("include_content", "true");
-    if (params.q) incoming.set("q", params.q);
-    if (params.source) incoming.set("source", params.source);
-    if (params.repo) incoming.set("repo", params.repo);
-    if (params.visibility) incoming.set("visibility", params.visibility);
-    if (params.tags.length > 0) incoming.set("tags", params.tags.join(","));
-    if (params.page !== null) {
-      incoming.set("page", String(params.page));
-      incoming.set("page_size", String(params.pageSize));
-    }
-    applySkillsCatalogQueryToBackendUrl(url, incoming);
-
-    const headers: Record<string, string> = {};
-    if (authHeader) headers["Authorization"] = authHeader;
-
-    const res = await fetch(url.toString(), {
-      headers,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as CatalogResponse;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Local aggregation fallback: merge skill-templates (filesystem) and
+ * Local aggregation: merge skill-templates (filesystem) and
  * persisted agent skills from MongoDB (`agent_skills`) into a single catalog.
  */
 async function aggregateLocally(
@@ -695,8 +643,8 @@ export function isAdminOverrideEnabled(): boolean {
  * This is the single UI-facing enforcement point so the gallery,
  * runner, and downstream consumers (Skills API gateway, install.sh)
  * all agree without each having to re-derive the rule. The Python
- * supervisor and dynamic agents enforce the same policy via
- * ``scan_gate.py``; this stamp is for UI affordances + defense in
+ * dynamic agents enforce the same policy via ``scan_gate.py``; this stamp
+ * is for UI affordances + defense in
  * depth against a backend that hasn't yet been updated.
  */
 export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {
@@ -731,27 +679,13 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(req);
 
   const params = parseQueryParams(req);
-  const authHeader = req.headers.get("Authorization");
   const skillAuth = {
     subject: typeof session?.sub === "string" ? `user:${session.sub}` : null,
     mode: params.includeContent ? ("use" as const) : ("read" as const),
     isAdmin: user.role === "admin" || session?.role === "admin",
   };
 
-  // Optional supervisor proxy (SKILLS_CATALOG_USE_SUPERVISOR_PROXY=true).
-  const backendResult = await fetchFromBackend(params, authHeader);
-  if (backendResult) {
-    const authorizedSkills = await filterSkillsByOpenFga(backendResult.skills, skillAuth);
-    return NextResponse.json(
-      sanitizeCatalogResponse({
-        ...backendResult,
-        skills: authorizedSkills,
-        meta: { ...backendResult.meta, total: authorizedSkills.length },
-      }),
-    );
-  }
-
-  // Local aggregation fallback
+  // Local aggregation (Mongo + hubs + templates).
   try {
     const catalog = await aggregateLocally(params.includeContent);
     const filtered = filterSkills(catalog.skills, params);

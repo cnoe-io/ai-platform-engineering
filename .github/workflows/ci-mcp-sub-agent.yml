@@ -23,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -37,7 +36,7 @@ jobs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           sparse-checkout: .github/agents.json
           sparse-checkout-cone-mode: false
@@ -73,9 +72,10 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: read
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
 
@@ -208,9 +208,10 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
       - name: Log in to GitHub Container Registry
@@ -290,6 +291,7 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: 📦 Install crane
         run: |
@@ -300,8 +302,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REGISTRY_USER: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -361,7 +364,7 @@ jobs:
       # Fallback build if retag not possible
       - name: Checkout repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -420,11 +423,13 @@ jobs:
           private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: 🔔 Notify release finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-agents.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           # Determine overall conclusion
           BUILD_RESULT="${{ needs.build-and-push.result }}"
@@ -447,7 +452,7 @@ jobs:
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$WORKFLOW_NAME",
               "conclusion": "$CONCLUSION"
             }
           }
