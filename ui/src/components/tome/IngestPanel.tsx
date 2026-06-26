@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, Loader2, Play, RefreshCw } from "lucide-reac
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProjectAssets } from "@/components/tome/ProjectAssets";
 import { cn } from "@/lib/utils";
 
@@ -324,17 +325,25 @@ function MeetingBadge({
   unavailableReason: string;
 }) {
   return (
-    <span
-      title={available ? `${label} available` : unavailableReason}
-      className={cn(
-        "rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide transition-opacity",
-        available
-          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-          : "bg-muted text-muted-foreground opacity-40",
-      )}
-    >
-      {label}
-    </span>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className={cn(
+              "cursor-default rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide transition-opacity",
+              available
+                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                : "bg-muted text-muted-foreground opacity-40",
+            )}
+          >
+            {label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {available ? `${label} available` : unavailableReason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

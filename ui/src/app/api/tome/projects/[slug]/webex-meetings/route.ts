@@ -33,11 +33,9 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
-  // Three parallel calls: recordings (source of truth for "was captured"),
-  // summaries and transcripts (availability flags).
-  const [recRes, sumRes, txRes] = await Promise.all([
+  // Step 1: get recordings + all transcripts in parallel.
+  const [recRes, txRes] = await Promise.all([
     fetch("https://webexapis.com/v1/recordings?max=30", { headers }),
-    fetch("https://webexapis.com/v1/meetingSummaries?max=100", { headers }),
     fetch("https://webexapis.com/v1/meetingTranscripts?max=100", { headers }),
   ]);
 
@@ -45,30 +43,49 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     return successResponse({ meetings: [] });
   }
 
-  const [recJson, sumJson, txJson] = await Promise.all([
-    recRes.json() as Promise<{ items?: Array<{ meetingId?: string; topic?: string; timeRecorded?: string; createTime?: string }> }>,
-    sumRes.ok ? (sumRes.json() as Promise<{ items?: Array<{ meetingId?: string }> }>) : Promise.resolve({ items: [] }),
-    txRes.ok  ? (txRes.json()  as Promise<{ items?: Array<{ meetingId?: string }> }>) : Promise.resolve({ items: [] }),
-  ]);
+  const recJson = (await recRes.json()) as {
+    items?: Array<{ meetingId?: string; topic?: string; timeRecorded?: string; createTime?: string }>;
+  };
+  const txJson = txRes.ok
+    ? ((await txRes.json()) as { items?: Array<{ meetingId?: string }> })
+    : { items: [] };
 
-  const summaryIds  = new Set((sumJson.items ?? []).map((s) => s.meetingId).filter(Boolean));
-  const transcriptIds = new Set((txJson.items  ?? []).map((t) => t.meetingId).filter(Boolean));
+  const transcriptIds = new Set((txJson.items ?? []).map((t) => t.meetingId).filter(Boolean));
 
-  // Deduplicate by meetingId (a meeting can have multiple recording segments).
+  // Deduplicate recordings by meetingId.
   const seen = new Set<string>();
-  const meetings: WebexMeetingListItem[] = [];
+  const deduped: Array<{ meetingId: string; topic: string; start: string }> = [];
   for (const r of recJson.items ?? []) {
-    if (!r.meetingId || !r.topic) continue;
-    if (seen.has(r.meetingId)) continue;
+    if (!r.meetingId || !r.topic || seen.has(r.meetingId)) continue;
     seen.add(r.meetingId);
-    meetings.push({
-      id: r.meetingId,
-      title: r.topic,
-      start: r.timeRecorded ?? r.createTime ?? "",
-      hasSummary: summaryIds.has(r.meetingId),
-      hasTranscript: transcriptIds.has(r.meetingId),
-    });
+    deduped.push({ meetingId: r.meetingId, topic: r.topic, start: r.timeRecorded ?? r.createTime ?? "" });
   }
+
+  // Step 2: check summary availability per meeting in parallel.
+  // meetingSummaries requires a meetingId — no global list endpoint.
+  const summaryFlags = await Promise.all(
+    deduped.map(async ({ meetingId }) => {
+      try {
+        const res = await fetch(
+          `https://webexapis.com/v1/meetingSummaries?meetingId=${encodeURIComponent(meetingId)}`,
+          { headers },
+        );
+        if (!res.ok) return false;
+        const j = (await res.json()) as { items?: unknown[] };
+        return (j.items?.length ?? 0) > 0;
+      } catch {
+        return false;
+      }
+    }),
+  );
+
+  const meetings: WebexMeetingListItem[] = deduped.map((r, i) => ({
+    id: r.meetingId,
+    title: r.topic,
+    start: r.start,
+    hasSummary: summaryFlags[i],
+    hasTranscript: transcriptIds.has(r.meetingId),
+  }));
 
   return successResponse({ meetings });
 });
