@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
 
 import pytest
 
@@ -18,91 +17,28 @@ def test_resolve_denies_when_mongo_unavailable(monkeypatch: pytest.MonkeyPatch) 
     resolver = WebexSpaceTeamResolver()
     monkeypatch.setattr(resolver, "_get_client", lambda: None)
 
-    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
+    result = asyncio.run(resolver.resolve("space-12345678"))
     assert result.team_slug is None
     assert result.deny_message is not None
 
 
-def test_resolve_denies_non_member(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_returns_team_slug_without_membership_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     resolver = WebexSpaceTeamResolver()
 
     team_doc = {
         "_id": "507f1f77bcf86cd799439011",
         "slug": "platform-eng",
         "name": "Platform Eng",
-        "members": [{"user_id": "other-user@corp.com"}],
+        "members": [],
     }
 
-    def fake_load(_space_id: str) -> Optional[dict[str, Any]]:
-        return team_doc
+    monkeypatch.setattr(resolver, "_load_space_team_sync", lambda _space_id: team_doc)
 
-    async def fake_member(_team_doc: dict[str, Any], _kc_user_id: str) -> bool:
-        return False
-
-    monkeypatch.setattr(resolver, "_load_space_team_sync", fake_load)
-    monkeypatch.setattr(resolver, "_user_is_member", fake_member)
-
-    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
-    assert result.team_slug is None
-    assert "member" in (result.deny_message or "").lower()
-
-
-def test_resolve_allows_openfga_team_member_without_legacy_members(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    resolver = WebexSpaceTeamResolver()
-
-    monkeypatch.setattr(
-        resolver,
-        "_load_space_team_sync",
-        lambda _space_id: {
-            "_id": "507f1f77bcf86cd799439011",
-            "slug": "platform-eng",
-            "name": "Platform Eng",
-            "members": [],
-        },
-    )
-
-    async def fake_openfga_member(
-        _team_slug: str, _keycloak_user_id: str
-    ) -> Optional[bool]:
-        return True
-
-    monkeypatch.setattr(resolver, "_user_is_openfga_team_member", fake_openfga_member)
-
-    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
-
+    result = asyncio.run(resolver.resolve("space-12345678"))
     assert result.team_slug == "platform-eng"
     assert result.deny_message is None
-
-
-def test_resolve_denies_when_openfga_team_member_check_denies_legacy_member(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    resolver = WebexSpaceTeamResolver()
-
-    monkeypatch.setattr(
-        resolver,
-        "_load_space_team_sync",
-        lambda _space_id: {
-            "_id": "507f1f77bcf86cd799439011",
-            "slug": "platform-eng",
-            "name": "Platform Eng",
-            "members": [{"user_id": "kc-user-1"}],
-        },
-    )
-
-    async def fake_openfga_member(
-        _team_slug: str, _keycloak_user_id: str
-    ) -> Optional[bool]:
-        return False
-
-    monkeypatch.setattr(resolver, "_user_is_openfga_team_member", fake_openfga_member)
-
-    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
-
-    assert result.team_slug is None
-    assert "member" in (result.deny_message or "").lower()
 
 
 def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,7 +46,7 @@ def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> No
 
     team_doc = {
         "_id": "507f1f77bcf86cd799439011",
-        "slug": "Bad Slug!",
+        "slug": "",
         "name": "Broken Team",
         "members": [{"user_id": "kc-user-1"}],
     }
@@ -121,6 +57,6 @@ def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> No
         lambda _space_id: team_doc,
     )
 
-    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
+    result = asyncio.run(resolver.resolve("space-12345678"))
     assert result.team_slug is None
     assert result.deny_message is not None

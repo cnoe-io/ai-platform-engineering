@@ -135,7 +135,7 @@ uiClient:
 # placeholder secret ("caipe-platform-dev-secret") so first-boot import works
 # without any external state. Production installs MUST override this — anyone
 # who can read the rendered realm ConfigMap can otherwise mint
-# client_credentials tokens for the supervisor's audience.
+# client_credentials tokens for the CAIPE platform audience.
 #
 # Three ways to provide:
 #   (1) DEV       — leave both fields empty → realm placeholder is used
@@ -447,10 +447,10 @@ theme:
 resources:
   requests:
     cpu: 250m
-    memory: 512Mi
+    memory: 1Gi
   limits:
     cpu: "1"
-    memory: 1Gi
+    memory: 2Gi
 
 podAnnotations: {}
 nodeSelector: {}

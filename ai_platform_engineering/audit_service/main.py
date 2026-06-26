@@ -256,28 +256,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         query_limit = min(limit or current_settings.read_default_limit, current_settings.read_max_limit)
         query_time_resolution = _normalize_time_resolution(time_resolution)
-        result = store.query(
-            AuditQuery(
-                since=query_since,
-                until=query_until,
-                limit=query_limit,
-                time_resolution=query_time_resolution,
-                type=type,
-                outcome=outcome,
-                component=component,
-                correlation_id=correlation_id,
-                tenant_id=tenant_id,
-                source=source,
-                action=action,
-                capability=capability,
-                resource_ref=resource_ref,
-                subject_hash=subject_hash,
-                reason_code=reason_code,
-                agent_name=agent_name,
-                tool_name=tool_name,
-                user_email=user_email,
-            )
+        audit_query = AuditQuery(
+            since=query_since,
+            until=query_until,
+            limit=query_limit,
+            time_resolution=query_time_resolution,
+            type=type,
+            outcome=outcome,
+            component=component,
+            correlation_id=correlation_id,
+            tenant_id=tenant_id,
+            source=source,
+            action=action,
+            capability=capability,
+            resource_ref=resource_ref,
+            subject_hash=subject_hash,
+            reason_code=reason_code,
+            agent_name=agent_name,
+            tool_name=tool_name,
+            user_email=user_email,
         )
+        result = await asyncio.to_thread(store.query, audit_query)
         return QueryResponse(records=result.records, total=result.total, limit=query_limit, truncated=result.truncated)
 
     return app

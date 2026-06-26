@@ -306,3 +306,69 @@ export async function listHttpMcpTools(input: {
     await revokeDiagnosticAgentAccess(diagnosticTuples, "mcp-http-server-client");
   }
 }
+
+export async function listDirectHttpMcpTools(input: {
+  endpoint: string;
+  timeoutMs?: number;
+}): Promise<{ tools: MCPToolInfo[]; sessionId?: string }> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // Health diagnostics are read-only: list tools directly without temporary
+  // AgentGateway authorization tuples or tool invocation smoke tests.
+  const headers: Record<string, string> = {};
+  const first = await mcpJsonRpc({
+    endpoint: input.endpoint,
+    headers,
+    payload: {
+      jsonrpc: "2.0",
+      id: `tools-list-${Date.now()}`,
+      method: "tools/list",
+      params: {},
+    },
+    timeoutMs: input.timeoutMs,
+  });
+  if (first.ok) {
+    const tools = extractTools(first.payload);
+    if (tools) return { tools, sessionId: first.sessionId };
+  }
+
+  const initialized = await mcpJsonRpc({
+    endpoint: input.endpoint,
+    headers,
+    payload: {
+      jsonrpc: "2.0",
+      id: `initialize-${Date.now()}`,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "caipe-ui-health", version: "0.5.16" },
+      },
+    },
+    timeoutMs: input.timeoutMs,
+  });
+  if (!initialized.ok || !initialized.sessionId) {
+    throw new ApiError(`MCP initialize failed with HTTP ${initialized.status}`, 502, "MCP_INIT_FAILED");
+  }
+
+  const listed = await mcpJsonRpc({
+    endpoint: input.endpoint,
+    headers,
+    sessionId: initialized.sessionId,
+    payload: {
+      jsonrpc: "2.0",
+      id: `tools-list-${Date.now()}`,
+      method: "tools/list",
+      params: {},
+    },
+    timeoutMs: input.timeoutMs,
+  });
+  if (!listed.ok) {
+    throw new ApiError(`MCP tools/list failed with HTTP ${listed.status}`, 502, "MCP_LIST_FAILED");
+  }
+
+  const tools = extractTools(listed.payload);
+  if (!tools) {
+    throw new ApiError("MCP tools/list returned an unexpected payload", 502, "MCP_LIST_INVALID");
+  }
+  return { tools, sessionId: initialized.sessionId };
+}

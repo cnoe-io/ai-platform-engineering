@@ -437,7 +437,7 @@ export function ReportProblemDialog({
                     <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/30 bg-zinc-900">
                       <Terminal className="h-3 w-3 text-green-400" />
                       <span className="text-xs font-mono text-green-400">
-                        A2A Stream
+                        Stream Events
                       </span>
                       <span className="ml-auto text-xs font-mono text-muted-foreground">
                         {debugLog.length} event{debugLog.length !== 1 ? "s" : ""}

@@ -1,6 +1,6 @@
 # Use Agentgateway as MCP Proxy
 
-## CAIPE Multi-Agent MCP Flow Solution Architecture
+## CAIPE MCP Flow Solution Architecture
 
 ```mermaid
 flowchart LR
@@ -9,15 +9,15 @@ flowchart LR
   subgraph Client["🖥️ User Interface"]
     BP[🔌 Backstage Plugin]
     CLI[💬 Chat CLI]
+    UI[🌐 CAIPE UI]
   end
 
-  subgraph CAIPE["🤖 CAIPE Multi-agent System"]
-    MAS[🧠 Multi-Agent System]
-    A2A[🔗 A2A Protocol]
+  subgraph CAIPE["🤖 CAIPE Runtime"]
+    BFF[CAIPE UI / BFF]
+    DA[Dynamic Agents Runtime]
   end
 
-  subgraph SubAgent["⚙️ Sub-Agent (e.g., ArgoCD, Jira, etc.)"]
-    SA[🔧 Sub-Agent]
+  subgraph Gateway["⚙️ MCP Gateway Boundary"]
     JV[🔐 JWT Validator]
     MP[🚪 Agentgateway]
   end
@@ -38,15 +38,16 @@ flowchart LR
   K -->|Issue JWT| U
   U -->|Provide JWT| BP
   U -->|Provide JWT| CLI
+  U -->|Browser session| UI
 
   %% Request flow
-  BP -->|Request + JWT| MAS
-  CLI -->|Request + JWT| MAS
-  MAS -->|Validate JWT| K
-  K -->|JWKS validation| MAS
-  MAS -->|A2A communication + JWT| A2A
-  A2A -->|Forward request + JWT| SA
-  SA -->|Validate JWT| JV
+  BP -->|Request + JWT| BFF
+  CLI -->|Request + JWT| BFF
+  UI -->|Request| BFF
+  BFF -->|Validate session / JWT| K
+  K -->|JWKS validation| BFF
+  BFF -->|Chat / tool request + user context| DA
+  DA -->|MCP request + JWT| JV
   JV -->|JWKS validation| K
   JV -->|Validated| MP
   MP -->|Agentgateway with JWT| M1
@@ -62,9 +63,9 @@ flowchart LR
   classDef mcpClass fill:#e0f2f1,stroke:#004d40,stroke-width:2px,color:#000
 
   class U userClass
-  class BP,CLI clientClass
-  class MAS,A2A caipeClass
-  class SA,JV,MP subagentClass
+  class BP,CLI,UI clientClass
+  class BFF,DA caipeClass
+  class JV,MP subagentClass
   class K,JWKS idpClass
   class M1,M2,M3 mcpClass
 ```
@@ -137,10 +138,9 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
-    participant UI as 🖥️ User Interface<br/>(Backstage Plugin / Chat CLI)
-    participant CAIPE as 🤖 CAIPE Multi-Agent System
-    participant A2A as 🔗 A2A Protocol
-    participant SA as ⚙️ Sub-Agent<br/>(ArgoCD, Jira, etc.)
+    participant UI as 🖥️ User Interface<br/>(Backstage Plugin / Chat CLI / CAIPE UI)
+    participant BFF as 🌐 CAIPE UI / BFF
+    participant DA as 🤖 Dynamic Agents Runtime
     participant MP as 🚪 Agentgateway
     participant MCP as 🌐 Remote MCP Servers
     participant K as 🔑 Keycloak
@@ -154,46 +154,43 @@ sequenceDiagram
     K->>UI: 3. Issue JWT Token
 
     %% Login to CAIPE UX Interface
-    UI->>CAIPE: 4. Login to CAIPE UX Interface + JWT Token
+    UI->>BFF: 4. Login to CAIPE UX Interface + JWT Token
 
     %% User sends query
     U->>UI: 5. Send User Query
 
-    %% CAIPE Multi-Agent Flow
-    UI->>CAIPE: 6. User Query + JWT Token
-    CAIPE->>JWKS: 7. Retrieve JWKS
-    JWKS->>CAIPE: 8. Return Public Keys
-    CAIPE->>CAIPE: 9. Validate JWT locally
+    %% CAIPE Runtime Flow
+    UI->>BFF: 6. User Query + JWT Token
+    BFF->>JWKS: 7. Retrieve JWKS
+    JWKS->>BFF: 8. Return Public Keys
+    BFF->>BFF: 9. Validate JWT locally
 
     alt JWT Valid
-        CAIPE->>A2A: 10. Forward Request + JWT via A2A
-        A2A->>SA: 11. Deliver Request + JWT
+        BFF->>DA: 10. Forward request + user context
 
-        %% Sub-Agent Processing
-        SA->>JWKS: 12. Retrieve JWKS
-        JWKS->>SA: 13. Return Public Keys
-        SA->>SA: 14. Validate JWT locally (expiration & scopes)
+        %% Dynamic Agents Processing
+        DA->>JWKS: 11. Retrieve JWKS
+        JWKS->>DA: 12. Return Public Keys
+        DA->>DA: 13. Validate JWT locally (expiration & scopes)
 
         alt JWT Valid
-            SA->>MP: 15. Forward to Agentgateway
+            DA->>MP: 14. Forward MCP request to Agentgateway
 
             %% Agentgateway Processing
-            MP->>MP: 16. Verify JWT token expiration, scopes & filter tools based on CEL rules
-            MP->>MCP: 17. Agentgateway Request with JWT
-            MCP->>MP: 18. Response
-            MP->>SA: 19. Forward Response
-            SA->>A2A: 20. Send Response via A2A
-            A2A->>CAIPE: 21. Deliver Response
-            CAIPE->>UI: 22. Return Response
-            UI->>U: 23. Display Result
+            MP->>MP: 15. Verify JWT token expiration, scopes & tool authorization
+            MP->>MCP: 16. Agentgateway Request with JWT
+            MCP->>MP: 17. Response
+            MP->>DA: 18. Forward Response
+            DA->>BFF: 19. Stream response
+            BFF->>UI: 20. Return Response
+            UI->>U: 21. Display Result
         else JWT Invalid
-            SA->>A2A: 15. Error Response
-            A2A->>CAIPE: 16. Error Response
-            CAIPE->>UI: 17. Error Response
-            UI->>U: 18. Display Error
+            DA->>BFF: 14. Error Response
+            BFF->>UI: 15. Error Response
+            UI->>U: 16. Display Error
         end
     else JWT Invalid
-        CAIPE->>UI: 10. JWT Validation Failed
+        BFF->>UI: 10. JWT Validation Failed
         UI->>U: 11. Display Authentication Error
     end
 ```

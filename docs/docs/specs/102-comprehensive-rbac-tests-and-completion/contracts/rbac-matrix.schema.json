@@ -31,12 +31,12 @@
         },
         "surface": {
           "type": "string",
-          "enum": ["ui_bff", "supervisor", "mcp", "dynamic_agents", "rag", "slack_bot", "webex_bot"],
+          "enum": ["ui_bff", "mcp", "dynamic_agents", "rag", "slack_bot", "webex_bot"],
           "description": "Which trust boundary the gate lives on. 'mcp' covers all <agent>_mcp servers; the specific server is identified via the 'resource' field."
         },
         "method": {
           "type": "string",
-          "description": "HTTP method (GET, POST, PUT, DELETE, PATCH) or the literal 'rpc' for non-HTTP transports (MCP tools/call, A2A tasks/send)."
+          "description": "HTTP method (GET, POST, PUT, DELETE, PATCH) or the literal 'rpc' for non-HTTP transports such as MCP tools/call."
         },
         "path": {
           "type": "string",

@@ -187,10 +187,10 @@ Slack Bolt registrations in `app.py`. These are **not** HTTP routes; payloads fo
 
 | Handler type | Registration | Description | Payload (brief) | Response / side effects |
 |--------------|--------------|-------------|-----------------|-------------------------|
-| Event | `@app.event("app_mention")` | Invokes CAIPE when the bot is @mentioned in a configured channel. | `event.channel`, `event.user`, `event.text`, `thread_ts` / `ts` | Streams A2A reply in thread; may post “Retry” blocks on failure. |
+| Event | `@app.event("app_mention")` | Invokes CAIPE when the bot is @mentioned in a configured channel. | `event.channel`, `event.user`, `event.text`, `thread_ts` / `ts` | Streams a Dynamic Agents reply in thread; may post “Retry” blocks on failure. |
 | Event | `@app.event("message")` | Router for DMs, Q&A mode, bot alerts, and subtypes filter. | `event.channel_type`, `event.channel`, `event.user`, `event.text`, `bot_id` | Dispatches to DM handler, Q&A, or AI alert pipeline; ignores edited/deleted subtypes. |
-| (internal) | `handle_dm_message` | DMs to the bot (from `message` when `channel_type == "im"`). | IM `event` | `stream_a2a_response`; retry UI on errors. |
-| (internal) | `handle_qanda_message` | Auto-reply in channels with Q&A enabled. | Channel `event` | `stream_a2a_response`; may mark thread “skipped” (overthink). |
+| (internal) | `handle_dm_message` | DMs to the bot (from `message` when `channel_type == "im"`). | IM `event` | `stream_response`; retry UI on errors. |
+| (internal) | `handle_qanda_message` | Auto-reply in channels with Q&A enabled. | Channel `event` | `stream_response`; may mark thread “skipped” (overthink). |
 | Event | `@app.event("reaction_added")` | Placeholder. | `reaction` event | No-op. |
 | Event | `@app.event("reaction_removed")` | Placeholder. | `reaction` event | No-op. |
 | Error | `@app.error` | Global error logging. | `error`, `body` | Logs exception. |
@@ -203,12 +203,12 @@ Slack Bolt registrations in `app.py`. These are **not** HTTP routes; payloads fo
 |--------------|--------------|-------------|-----------------|-------------------------|
 | Action | `@app.action({"action_id": "hitl_form_.*"})` | Human-in-the-loop form interactions. | Interactive payload with `actions`, `user`, `channel` | `HITLCallbackHandler.handle_interaction`. |
 | Action | `@app.action("caipe_feedback")` | Thumbs up/down on bot messages. | `actions[0].value`, `message.ts` | `submit_feedback_score`; ephemeral follow-up or refinement buttons. |
-| Action | `@app.action("caipe_feedback_more_detail")` | Request more detailed answer. | `value` → `channel_id\|thread_ts` | Submits score; triggers follow-up A2A stream. |
-| Action | `@app.action("caipe_feedback_less_verbose")` | Request shorter answer. | `value` → `channel_id\|thread_ts` | Submits score; triggers concise A2A stream. |
-| Action | `@app.action("caipe_retry")` | Retry after transient failure. | `value` → `channel_id\|thread_ts` | Rebuilds thread context; `stream_a2a_response`. |
+| Action | `@app.action("caipe_feedback_more_detail")` | Request more detailed answer. | `value` → `channel_id\|thread_ts` | Submits score; triggers follow-up Dynamic Agents stream. |
+| Action | `@app.action("caipe_feedback_less_verbose")` | Request shorter answer. | `value` → `channel_id\|thread_ts` | Submits score; triggers concise Dynamic Agents stream. |
+| Action | `@app.action("caipe_retry")` | Retry after transient failure. | `value` → `channel_id\|thread_ts` | Rebuilds thread context; `stream_response`. |
 | Action | `@app.action("caipe_feedback_wrong_answer")` | Opens modal for correction. | `trigger_id`, `value` | `views_open` with correction modal. |
 | Action | `@app.action("caipe_feedback_other")` | Opens modal (other feedback). | Same pattern | `views_open`. |
-| View | `@app.view("caipe_wrong_answer_modal")` | Modal submit for wrong answer / other. | `view.state.values`, `private_metadata` | `submit_feedback_score` with comment; A2A correction stream. |
+| View | `@app.view("caipe_wrong_answer_modal")` | Modal submit for wrong answer / other. | `view.state.values`, `private_metadata` | `submit_feedback_score` with comment; Dynamic Agents correction stream. |
 
 ---
 

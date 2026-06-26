@@ -52,20 +52,8 @@ import { NextRequest,NextResponse } from "next/server";
  */
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
-const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
 const ANCILLARY_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB soft limit (FR-028)
-
-function triggerSupervisorRefresh(): void {
-  if (!SUPERVISOR_URL) return;
-  const url = `${SUPERVISOR_URL}/skills/refresh?include_hubs=false`;
-  fetch(url, {
-    method: "POST",
-    signal: AbortSignal.timeout(30_000),
-  }).catch((err) => {
-    console.warn("[AgentSkill] Background supervisor refresh failed:", err);
-  });
-}
 
 function validateAncillaryFiles(
   files: Record<string, string> | undefined,
@@ -388,8 +376,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    triggerSupervisorRefresh();
-
     return successResponse(
       {
         id,
@@ -625,8 +611,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     console.log(`[AgentSkill] Updated agent config "${id}" by ${user.email}`);
     console.log(`[API PUT] ============ UPDATE REQUEST END ============`);
 
-    triggerSupervisorRefresh();
-
     const scanStatus = (body as Record<string, unknown>).scan_status as ScanStatus | undefined;
     return successResponse({
       id,
@@ -660,8 +644,6 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     // gone from the user's perspective).
     await deleteRevisionsForSkill(id);
     console.log(`[AgentSkill] Deleted agent config "${id}" by ${user.email}`);
-
-    triggerSupervisorRefresh();
 
     return successResponse({
       id,

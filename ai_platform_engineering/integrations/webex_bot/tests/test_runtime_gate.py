@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ai_platform_engineering.integrations.webex_bot.app import (
@@ -62,7 +62,7 @@ class FakeTeamResolver:
     team_slug: Optional[str] = "platform-eng"
     deny_message: Optional[str] = None
 
-    async def resolve(self, space_id: str, keycloak_user_id: str) -> SpaceTeamResolution:
+    async def resolve(self, space_id: str) -> SpaceTeamResolution:
         return SpaceTeamResolution(
             team_slug=self.team_slug,
             team_id="team-mongo-id" if self.team_slug else None,
@@ -98,11 +98,10 @@ class FakeRebacChecker:
     allowed: bool = True
     reason: str = "allowed"
 
-    def check_agent_access(self, **kwargs: Any) -> WebexSpaceRebacDecision:
+    def check_space_grant(self, **kwargs: Any) -> WebexSpaceRebacDecision:
         return WebexSpaceRebacDecision(
             allowed=self.allowed,
             space_allowed=self.allowed,
-            user_allowed=self.allowed,
             reason=self.reason,  # type: ignore[arg-type]
         )
 
@@ -110,8 +109,10 @@ class FakeRebacChecker:
 @dataclass
 class FakeRouteResolver:
     agent_id: Optional[str] = "agent-1"
+    calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def resolve_route(self, **kwargs: Any) -> WebexRouteResolution:
+        self.calls.append(kwargs)
         if not self.agent_id:
             return WebexRouteResolution(
                 agent_id=None,
@@ -228,14 +229,14 @@ def test_rebac_denial_preserves_reason_category() -> None:
             identity_linker=FakeIdentityLinker(),
             team_resolver=FakeTeamResolver(),
             obo_exchanger=FakeOboExchanger(),
-            rebac_checker=FakeRebacChecker(allowed=False, reason="missing_user_grant"),
+            rebac_checker=FakeRebacChecker(allowed=False, reason="missing_space_grant"),
             route_resolver=FakeRouteResolver(),
             dispatcher=dispatcher,
         )
     )
     assert result.allowed is False
-    assert result.reason_code == "missing_user_grant"
-    assert result.rebac_reason == "missing_user_grant"
+    assert result.reason_code == "missing_space_grant"
+    assert result.rebac_reason == "missing_space_grant"
     assert dispatcher.calls == []
 
 
@@ -415,3 +416,24 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
     )
     assert unspecified is not None
     assert unspecified.is_direct is False
+
+
+def test_direct_webex_event_passes_direct_flag_to_route_resolver() -> None:
+    route_resolver = FakeRouteResolver(agent_id="incident-agent")
+    dispatcher = FakeDispatcher()
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="howdy") | {"roomType": "direct"},
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            rebac_checker=FakeRebacChecker(),
+            route_resolver=route_resolver,
+            dispatcher=dispatcher,
+        )
+    )
+
+    assert result.allowed is True
+    assert result.dispatched is True
+    assert route_resolver.calls[0]["is_direct"] is True
+    assert dispatcher.calls[0]["agent_id"] == "incident-agent"

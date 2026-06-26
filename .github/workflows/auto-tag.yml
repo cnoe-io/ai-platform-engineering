@@ -31,10 +31,9 @@ jobs:
     name: Determine version, update files, tag and push
     runs-on: ubuntu-latest
     # Don't run on commits pushed by the release bot or final release PR bumps (avoid infinite loops).
-    if: >
+    if: >-
       ${{
         !(
-          github.actor == 'caipe-ci-release[bot]' ||
           github.event.head_commit.author.email == 'caipe-ci-release[bot]@users.noreply.github.com' ||
           github.event.head_commit.committer.email == 'caipe-ci-release[bot]@users.noreply.github.com' ||
           (
@@ -45,7 +44,6 @@ jobs:
             !contains(github.event.head_commit.message, '-chart.') &&
             !contains(github.event.head_commit.message, '-hotfix.') &&
             (
-              github.actor == 'github-actions[bot]' ||
               github.event.head_commit.author.email == 'github-actions[bot]@users.noreply.github.com' ||
               github.event.head_commit.committer.email == 'github-actions[bot]@users.noreply.github.com'
             )
@@ -64,11 +62,15 @@ jobs:
         with:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-actions: write
+          permission-contents: write
+          permission-packages: write
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       # ── Release branch merge detection ──────────────────────────────
@@ -134,8 +136,8 @@ jobs:
         if: ${{ steps.release-merge.outputs.is_release_merge == 'true' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.release-merge.outputs.version }}
         run: |
-          VERSION="${{ steps.release-merge.outputs.version }}"
           echo "🚀 Dispatching release-manual.yml with version=$VERSION"
 
           gh workflow run release-manual.yml \
@@ -157,13 +159,15 @@ jobs:
       # ── Normal auto-tag flow (skip if release merge) ───────────────────
       - name: 🐍 Set up Python
         if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
       - name: 📦 Install uv
         if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
 
       # ── Shared Logic 1: determine version ──────────────────────────────
       - name: 🏷️ Determine version

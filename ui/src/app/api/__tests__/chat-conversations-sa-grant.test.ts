@@ -64,8 +64,17 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  conversationVisibilityCandidateQuery: (userEmail: string, directShareConversationIds: string[] = []) => ({
+    $or: [
+      { owner_id: userEmail },
+      { "sharing.shared_with": userEmail },
+      ...(directShareConversationIds.length > 0 ? [{ _id: { $in: directShareConversationIds } }] : []),
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ],
+  }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
+  getDirectSharingAccessConversationIds: jest.fn(async () => []),
 }));
 
 jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
@@ -95,7 +104,8 @@ function makeCollection(existingDoc: Record<string, unknown> | null = null) {
 
 const SA_SUB = "sa-uuid-abc";
 const HUMAN_EMAIL = "human@example.com";
-const CONV_BODY = { title: "Test Conversation", client_type: "slack" };
+const AGENT_ID = "agent-default";
+const CONV_BODY = { title: "Test Conversation", client_type: "slack", agent_id: AGENT_ID };
 
 describe("POST /api/chat/conversations — SA auto-grant", () => {
   beforeEach(() => {

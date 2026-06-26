@@ -78,9 +78,7 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/config", () => ({
-  getServerConfig: () => ({
-    dynamicAgentsEnabled: true,
-  }),
+  getServerConfig: () => ({}),
 }));
 
 jest.mock("@/lib/rbac/resource-authz", () => ({

@@ -80,10 +80,12 @@ def test_webex_agent_route_mode_supports_legacy_enabled_flag(monkeypatch) -> Non
     assert webex_agent_route_mode() == "db_prefer"
 
 
-def test_webex_space_openfga_subject_uses_workspace_alias(monkeypatch) -> None:
+def test_webex_space_openfga_subject_respects_explicit_workspace_id(monkeypatch) -> None:
     monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
 
-    assert webex_space_openfga_subject("ignored", "space-abc") == "webex_space:CAIPE-WEBEX--space-abc"
+    # Explicit workspace_id is used as-is so _load_routes' "unknown" fallback works.
+    assert webex_space_openfga_subject("CAIPE-WEBEX", "space-abc") == "webex_space:CAIPE-WEBEX--space-abc"
+    assert webex_space_openfga_subject("unknown", "space-abc") == "webex_space:unknown--space-abc"
 
 
 def test_resolver_matches_enabled_routes_by_listen_and_priority() -> None:
@@ -126,6 +128,79 @@ def test_resolver_matches_enabled_routes_by_listen_and_priority() -> None:
     )
 
     assert [match.agent_id for match in matches] == ["high-priority-agent", "low-priority-agent"]
+
+
+def test_resolve_direct_webex_message_uses_existing_mention_route(monkeypatch) -> None:
+    monkeypatch.setenv("WEBEX_AGENT_ROUTES_MODE", "db_only")
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE-WEBEX",
+                "space_id": "direct-space12345",
+                "agent_id": "personal-agent",
+                "enabled": True,
+                "priority": 10,
+                "status": "active",
+                "users": {"enabled": True, "listen": "mention"},
+            },
+        ]
+    )
+    resolver = WebexAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["personal-agent"],
+    )
+
+    async def _run() -> tuple[str | None, str | None]:
+        return await resolve_webex_agent_route(
+            workspace_id="CAIPE-WEBEX",
+            space_id="direct-space12345",
+            person_id="person1234",
+            text="howdy",
+            is_direct=True,
+            resolver=resolver,
+        )
+
+    agent_id, deny = asyncio.run(_run())
+
+    assert agent_id == "personal-agent"
+    assert deny is None
+
+
+def test_plain_group_message_route_mismatch_uses_plain_language() -> None:
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE-WEBEX",
+                "space_id": "space12345",
+                "agent_id": "mention-only-agent",
+                "enabled": True,
+                "priority": 10,
+                "status": "active",
+                "users": {"enabled": True, "listen": "mention"},
+            },
+        ]
+    )
+    resolver = WebexAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["mention-only-agent"],
+    )
+
+    explanation = resolver.explain_no_route_match(
+        workspace_id="CAIPE-WEBEX",
+        space_id="space12345",
+        is_bot=False,
+        user_id="person1234",
+        listen="message",
+        route_required=True,
+    )
+
+    assert explanation == (
+        "I can help in this Webex space when you mention CAIPE. Try mentioning "
+        "CAIPE with your question, or ask an admin to enable always-on replies "
+        "for this space."
+    )
+    for internal_term in ("OpenFGA", "Listen mode", "plain space messages", "Admin >"):
+        assert internal_term not in explanation
 
 
 def test_resolver_ignores_mongo_routes_without_openfga_tuple() -> None:
@@ -270,11 +345,21 @@ def test_resolver_records_openfga_read_failures_to_audit_service(monkeypatch) ->
     }
 
 
-def test_webex_workspace_ref_prefers_configured_alias(monkeypatch) -> None:
+def test_webex_workspace_ref_explicit_id_wins_over_alias(monkeypatch) -> None:
     monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
     monkeypatch.setenv("WEBEX_WORKSPACE_ID", "WFALLBACK")
 
-    assert webex_workspace_ref("org-123") == "CAIPE-WEBEX"
+    # Explicit workspace_id takes precedence so _load_routes' "unknown" fallback works.
+    assert webex_workspace_ref("org-123") == "org-123"
+    assert webex_workspace_ref("unknown") == "unknown"
+
+
+def test_webex_workspace_ref_alias_used_when_no_id(monkeypatch) -> None:
+    monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
+    monkeypatch.setenv("WEBEX_WORKSPACE_ID", "WFALLBACK")
+
+    # No argument → alias is the canonical namespace.
+    assert webex_workspace_ref() == "CAIPE-WEBEX"
 
 
 def test_resolver_explains_openfga_route_read_failure(monkeypatch) -> None:
@@ -336,6 +421,27 @@ def test_resolve_webex_agent_route_denies_on_openfga_outage_db_prefer(monkeypatc
 
 def test_resolve_webex_agent_route_denies_on_openfga_outage_db_only(monkeypatch) -> None:
     _resolve_denies_when_last_error("db_only", monkeypatch)
+
+
+def test_route_required_without_space_agent_association_uses_setup_message() -> None:
+    resolver = WebexAgentRouteResolver(
+        collection_factory=lambda: _Collection([]),
+        openfga_agent_ids_factory=lambda _workspace_id, _space_id: [],
+    )
+
+    explanation = resolver.explain_no_route_match(
+        workspace_id="CAIPE-WEBEX",
+        space_id="space12345",
+        is_bot=False,
+        user_id="person1234",
+        listen="message",
+        route_required=True,
+    )
+
+    assert explanation == (
+        "This Webex space is not set up for CAIPE yet. Ask an admin to set up "
+        "the Webex integration for this space in CAIPE."
+    )
 
 
 def test_resolve_webex_agent_route_db_prefer_falls_back_to_default_agent(monkeypatch) -> None:

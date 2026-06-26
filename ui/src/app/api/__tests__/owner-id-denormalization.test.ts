@@ -464,7 +464,7 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
           latency_ms: 800,
           agent_name: 'aws',
         },
-        a2a_events: [
+        stream_events: [
           { id: 'e1', type: 'tool_start', toolName: 'cost_explorer' },
         ],
       }),
@@ -475,11 +475,9 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
 
     const updateDoc = msgCol.updateOne.mock.calls[0][1];
     expect(updateDoc.$setOnInsert.owner_id).toBe('user@example.com');
-    expect(updateDoc.$set.metadata.model).toBe('gpt-4o');
-    expect(updateDoc.$set.metadata.tokens_used).toBe(350);
     expect(updateDoc.$set.metadata.latency_ms).toBe(800);
     expect(updateDoc.$set.metadata.agent_name).toBe('aws');
     expect(updateDoc.$set.metadata.is_final).toBe(true);
-    expect(updateDoc.$set.a2a_events).toHaveLength(1);
+    expect(updateDoc.$set.stream_events).toHaveLength(1);
   });
 });

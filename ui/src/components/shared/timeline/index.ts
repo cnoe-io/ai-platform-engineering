@@ -1,4 +1,4 @@
-// Shared timeline components for A2A and Dynamic Agent timelines
+// Shared timeline components for Dynamic Agent timelines.
 
 export { CollapsibleSection } from "./CollapsibleSection";
 export { MarkdownRenderer } from "./MarkdownRenderer";

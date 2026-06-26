@@ -314,8 +314,8 @@ export interface CatalogSkill {
    * cache when an admin has green-lit a flagged hub skill. Lives in a
    * separate field from ``scan_status`` (post-pivot, two-field design)
    * so scanner write paths can keep updating ``scan_status`` without
-   * racing the override. The supervisor's Python ``scan_gate`` checks
-   * the same field; the runtime gate is
+   * racing the override. The runtime ``scan_gate`` checks the same field;
+   * the gate is
    *   ``scan_status === "flagged" && !scan_override``.
    * Surfaced through the catalog so the UI's report dialog can render
    * the audit panel + Remove-override button on hub-projected rows.

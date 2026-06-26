@@ -214,7 +214,7 @@ export function OverviewTab({ form }: OverviewTabProps) {
         {/* Category is the only classification we still surface in the
             Overview form. The "Difficulty" radio (beginner / intermediate
             / advanced) was removed because nothing in the gallery, the
-            scanner, the supervisor, or the agent runtime actually
+            scanner or the agent runtime actually
             consumed it — it was a label without a job. The underlying
             `difficulty` field on AgentSkill is kept for back-compat
             with any persisted skills that already set it; new skills

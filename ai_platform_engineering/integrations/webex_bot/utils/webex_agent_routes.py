@@ -21,6 +21,11 @@ from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
     EscalationConfig,
     UsersConfig,
 )
+from ai_platform_engineering.integrations.webex_bot.utils.user_messages import (
+    WEBEX_DIRECT_AGENT_REQUIRED_MESSAGE,
+    WEBEX_SPACE_MENTION_REQUIRED_MESSAGE,
+    WEBEX_SPACE_SETUP_REQUIRED_MESSAGE,
+)
 
 logger = logging.getLogger("caipe.webex_bot.webex_agent_routes")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
@@ -51,13 +56,17 @@ def webex_agent_route_mode() -> WebexAgentRouteMode:
 
 
 def webex_workspace_ref(workspace_id: Optional[str] = None) -> str:
-    """Canonical workspace namespace for Webex ReBAC and OpenFGA subjects."""
+    """Canonical workspace namespace for Webex ReBAC and OpenFGA subjects.
 
+    Priority: explicit workspace_id > WEBEX_WORKSPACE_ALIAS > WEBEX_WORKSPACE_ID > "unknown".
+    Callers that pass workspace_id explicitly (e.g. the "unknown" legacy fallback in
+    _load_routes) get their value back unchanged so the lookup uses the right prefix.
+    """
+    if workspace_id is not None and workspace_id.strip():
+        return workspace_id.strip()
     alias = os.environ.get("WEBEX_WORKSPACE_ALIAS", "").strip()
     if alias:
         return alias
-    if workspace_id and workspace_id.strip():
-        return workspace_id.strip()
     fallback = os.environ.get("WEBEX_WORKSPACE_ID", "").strip()
     return fallback or "unknown"
 
@@ -318,6 +327,7 @@ class WebexAgentRouteResolver:
         listen: Optional[str] = None,
         app_name: str = "CAIPE",
         route_required: bool = False,
+        is_direct: bool = False,
     ) -> str | None:
         """Return a user-facing explanation when a routed Webex message has no match."""
 
@@ -342,23 +352,18 @@ class WebexAgentRouteResolver:
                 "so I cannot safely dispatch this message. Please try again shortly "
                 "or ask an admin to check Webex Runtime Diagnostics."
             )
+        if is_direct:
+            return WEBEX_DIRECT_AGENT_REQUIRED_MESSAGE.format(app_name=app_name)
         if candidates and listen == "message":
-            return (
-                f"This Webex space has {app_name} agent routes, but none are configured "
-                f"to listen to plain space messages. Mention {app_name}, or set the route "
-                "Listen mode to `message` or `all` in Admin > OpenFGA ReBAC > Webex Spaces."
-            )
+            return WEBEX_SPACE_MENTION_REQUIRED_MESSAGE.format(app_name=app_name)
         if candidates and listen == "mention":
             return (
-                f"This Webex space has {app_name} agent routes, but none are configured "
-                "to listen to mentions. Set the route Listen mode to `mention` or `all` "
-                "in Admin > OpenFGA ReBAC > Webex Spaces."
+                f"I found Webex routes for this space, but none can respond to "
+                f"{app_name} mentions yet. Ask an admin to check this space's "
+                f"Webex setup in {app_name}."
             )
         if route_required:
-            return (
-                "No OpenFGA space-agent association is configured for this Webex space. "
-                "Ask an admin to add one in Admin > OpenFGA ReBAC > Webex Spaces."
-            )
+            return WEBEX_SPACE_SETUP_REQUIRED_MESSAGE.format(app_name=app_name)
         return None
 
     def invalidate(self, workspace_id: str, space_id: str) -> None:
@@ -387,12 +392,16 @@ async def resolve_webex_agent_route(
     space_id: str,
     person_id: str,
     text: str,
+    is_direct: bool = False,
     resolver: WebexAgentRouteResolver | None = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Resolve the agent for a Webex message (agent_id, deny_message)."""
 
     mode = webex_agent_route_mode()
-    listen = infer_listen_mode(text)
+    # assisted-by Codex Codex-sonnet-4-6
+    # 1:1 Webex rooms have no mention gesture, so direct messages should
+    # use any active user route for that room instead of requiring message mode.
+    listen = None if is_direct else infer_listen_mode(text)
     active = resolver or get_webex_agent_route_resolver()
 
     if mode == "config":
@@ -415,6 +424,7 @@ async def resolve_webex_agent_route(
             is_bot=False,
             user_id=person_id,
             listen=listen,
+            is_direct=is_direct,
             route_required=True,
         )
     if matches:
@@ -426,6 +436,7 @@ async def resolve_webex_agent_route(
             is_bot=False,
             user_id=person_id,
             listen=listen,
+            is_direct=is_direct,
             route_required=True,
         )
         return None, deny or "No agent route is configured for this Webex space."
@@ -439,6 +450,7 @@ async def resolve_webex_agent_route(
         is_bot=False,
         user_id=person_id,
         listen=listen,
+        is_direct=is_direct,
         route_required=not bool(agent_id),
     )
     return None, deny or "No agent route is configured for this Webex space."

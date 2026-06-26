@@ -33,13 +33,13 @@ global:
     redis:
       host: "rag-redis"
       port: 6379
-      # DB index (0-15). Use different indexes when sharing one Redis with supervisor memory
-      # (e.g. db: 0 for RAG, supervisor memoryPersistence.redis.url with /1).
+      # DB index (0-15). Use a dedicated index when sharing Redis with other
+      # workloads.
       db: 0
 
   # Secrets configuration for LLM providers
   # When used as a subchart, global values can override these values
-  # When used as a standalone agent, this will be the secret for the LLM provider
+  # When used standalone, this is the secret for the LLM provider.
   llmSecrets:
     create: true # if false, it'll assume that the secret already exists
     secretName: "llm-secret"

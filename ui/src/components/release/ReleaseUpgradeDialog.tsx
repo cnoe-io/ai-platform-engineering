@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowRight,CheckCircle2,Clock3,Sparkles } from "lucide-react";
+import { AlertCircle,CheckCircle2,Clock3,Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import {
 Dialog,
@@ -21,70 +22,12 @@ interface ReleaseUpgradeDialogProps {
   releaseVersion: string;
   release: ReleaseNote | null;
   releaseMarkdown?: ReleaseMarkdown | null;
-  onOpenMigrationAssistant: () => void;
   onSkipUntilNextLogin: () => void;
   onDismissPermanently: () => void | Promise<void>;
-  showMigrationCta?: boolean;
   isDismissing?: boolean;
 }
 
-const RELEASE_051_FALLBACK_SECTIONS: ReleaseNote["sections"] = [
-  {
-    type: "Highlights",
-    items: [
-      {
-        text: "Use the same agents and knowledge from the web UI, Slack, and Webex with more consistent permissions.",
-        scope: null,
-      },
-      {
-        text: "Get clearer next steps when a Slack channel or Webex space needs to be connected to your team.",
-        scope: null,
-      },
-      {
-        text: "Stay signed in through longer CAIPE sessions during normal work and validation.",
-        scope: null,
-      },
-    ],
-  },
-  {
-    type: "Admin and Operator Notes",
-    items: [
-      {
-        text: "ReBAC admin diagnostics now show migration health, graph views, tuple checks, and access decisions.",
-        scope: "admin",
-      },
-      {
-        text: "Keycloak reconciliation, token exchange, bot client secrets, and the CAIPE login theme are now chart-managed.",
-        scope: "admin",
-      },
-      {
-        text: "RBAC matrix, Playwright, and CI checks were expanded across Keycloak init, OpenFGA bridge, Webex bot, and docs validation.",
-        scope: "admin",
-      },
-    ],
-  },
-];
-
 const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
-
-function fallbackSections(releaseVersion: string): ReleaseNote["sections"] {
-  const normalizedReleaseVersion = releaseVersion.trim().replace(/^v/, "").toLowerCase();
-  if (normalizedReleaseVersion === "0.5.1" || normalizedReleaseVersion === "dev") {
-    return RELEASE_051_FALLBACK_SECTIONS;
-  }
-
-  return [
-    {
-      type: "Highlights",
-      items: [
-        {
-          text: `Review the ${releaseVersion} release notes for new CAIPE platform capabilities.`,
-          scope: null,
-        },
-      ],
-    },
-  ];
-}
 
 function userVisibleSections(sections: ReleaseNote["sections"], isAdmin: boolean): ReleaseNote["sections"] {
   if (isAdmin) return sections;
@@ -200,18 +143,18 @@ export function ReleaseUpgradeDialog({
   releaseVersion,
   release,
   releaseMarkdown = null,
-  onOpenMigrationAssistant,
   onSkipUntilNextLogin,
   onDismissPermanently,
-  showMigrationCta = true,
   isDismissing = false,
 }: ReleaseUpgradeDialogProps) {
   const markdownBody = releaseMarkdown?.body
     ? userVisibleMarkdownBody(releaseMarkdown.body, isAdmin)
     : null;
-  const sourceSections = release?.sections?.length ? release.sections : fallbackSections(releaseVersion);
-  const sections = userVisibleSections(sourceSections, isAdmin);
-  const visibleSections = sections.length > 0 ? sections : fallbackSections(releaseVersion);
+  const visibleSections = userVisibleSections(release?.sections ?? [], isAdmin);
+  // We only have real notes when there's a curated markdown body or at least one
+  // changelog-derived section to show. Otherwise the dialog renders an error.
+  const hasNotes = Boolean(markdownBody) || visibleSections.length > 0;
+  const appName = getConfig("appName");
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) return;
     if (isAdmin) {
@@ -230,9 +173,7 @@ export function ReleaseUpgradeDialog({
           </div>
           <DialogTitle>What&apos;s new in {releaseVersion}</DialogTitle>
           <DialogDescription>
-            {isAdmin && showMigrationCta
-              ? "This deployment includes new release updates and schema migrations. Review the notes, then open the migration assistant when you are ready."
-              : "This deployment includes CAIPE updates from the active release. Review the notes when you are ready."}
+            This deployment includes {appName} updates from the active release. Review the notes when you are ready.
           </DialogDescription>
         </DialogHeader>
 
@@ -240,6 +181,14 @@ export function ReleaseUpgradeDialog({
           {markdownBody ? (
             <div className="min-w-0">
               <ReleaseNotesMarkdown body={markdownBody} />
+            </div>
+          ) : !hasNotes ? (
+            <div className="flex items-start gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <span className="min-w-0">
+                Couldn&apos;t load the release notes for {releaseVersion}. View the full
+                changelog below for the latest updates.
+              </span>
             </div>
           ) : (
             <div className="space-y-4">
@@ -273,15 +222,6 @@ export function ReleaseUpgradeDialog({
           </a>
         </div>
 
-        {isAdmin && showMigrationCta && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
-            <div className="font-medium">Admin migration reminder</div>
-            <div className="mt-1 text-xs">
-              Run dry-runs before applying {releaseVersion} schema migrations, especially RBAC and messaging ReBAC backfills.
-            </div>
-          </div>
-        )}
-
         <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
           {isAdmin ? (
             <>
@@ -289,17 +229,9 @@ export function ReleaseUpgradeDialog({
                 <Clock3 className="h-4 w-4" />
                 Skip until next login
               </Button>
-              <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                <Button variant="outline" onClick={onDismissPermanently} disabled={isDismissing}>
-                  Do not show again
-                </Button>
-                {showMigrationCta && (
-                  <Button onClick={onOpenMigrationAssistant} className="gap-2">
-                    Open Migration Assistant
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
+              <Button variant="outline" onClick={onDismissPermanently} disabled={isDismissing}>
+                Do not show again
+              </Button>
             </>
           ) : (
             <Button onClick={onDismissPermanently} disabled={isDismissing}>

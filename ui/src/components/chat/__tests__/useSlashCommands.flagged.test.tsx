@@ -5,9 +5,9 @@
  * stamps ``runnable``/``blocked_reason``/``scan_status`` on every entry
  * via ``applyRunnableGate``) and assembles slash-command entries for the
  * chat autocomplete menu. Per security policy a flagged skill must never
- * appear as a selectable command -- the supervisor will refuse to run it
- * regardless, but offering it in the picker leaks metadata to the user
- * and gives the impression the command is available. These tests pin the
+ * appear as a selectable command. Offering it in the picker leaks
+ * metadata to the user and gives the impression the command is
+ * available. These tests pin the
  * three signals we treat as authoritative (mirrors the bash filters in
  * ``install.sh`` and the React filter in ``SkillsSelector.tsx``).
  */
@@ -40,7 +40,7 @@ describe("useSlashCommands flagged-skill gate", () => {
     jest.resetAllMocks();
   });
 
-  it("supervisor view drops skills with scan_status=flagged", async () => {
+  it("chat view drops skills with scan_status=flagged", async () => {
     mockSkillsResponse([
       { id: "safe", name: "safe-skill", description: "Safe one", scan_status: "passed" },
       {
@@ -64,7 +64,7 @@ describe("useSlashCommands flagged-skill gate", () => {
     expect(labels).not.toContain("evil-skill");
   });
 
-  it("supervisor view drops skills marked runnable=false even without scan_status", async () => {
+  it("chat view drops skills marked runnable=false even without scan_status", async () => {
     // ``runnable=false`` alone (e.g. unscanned-strict gate without an
     // explicit ``flagged`` stamp) must still be hidden so older
     // gateways without a status field can't accidentally surface a

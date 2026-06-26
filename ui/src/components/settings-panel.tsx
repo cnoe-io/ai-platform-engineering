@@ -460,7 +460,7 @@ export function SettingsPanel() {
                       ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789
                     </p>
                     <code className="font-mono bg-muted px-2 py-1 rounded" style={{ fontSize: "0.85em" }}>
-                      const agent = new A2AAgent();
+                      const agent = new DynamicAgent();
                     </code>
                   </div>
                 </section>

@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 CALLER_PROVIDER_NOT_CONNECTED = "caller_provider_not_connected"
 PINNED_PROVIDER_UNAVAILABLE = "pinned_provider_unavailable"
+TOP_LEVEL_UNION_SCHEMA_KEYS = ("oneOf", "anyOf", "allOf")
 
 _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "atlassian": "Atlassian",
@@ -194,18 +196,15 @@ def warn_if_agent_gateway_missing_hmac() -> None:
 def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
     """Build an httpx.AsyncClient factory that injects the per-request user JWT.
 
-    Spec 102 Phase 8 / T106. Mirror of the supervisor's
-    ``base_langgraph_agent._build_httpx_client_factory``: each MCP HTTP
-    connection opened by ``langchain-mcp-adapters`` calls this factory,
-    which reads ``current_user_token`` (set by ``JwtAuthMiddleware``)
-    and forwards it as ``Authorization: Bearer <token>``. This is the
-    fix for the live HTTP 401 from agentgateway because the runtime no
-    longer relies on the (token-less) X-User-Context header for
-    outbound auth.
+    Spec 102 Phase 8 / T106. Each MCP HTTP connection opened by
+    ``langchain-mcp-adapters`` calls this factory, which reads
+    ``current_user_token`` (set by ``JwtAuthMiddleware``) and forwards
+    it as ``Authorization: Bearer <token>``. This is the fix for the
+    live HTTP 401 from agentgateway because the runtime no longer relies
+    on the (token-less) X-User-Context header for outbound auth.
 
     Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
-    ``SSL_CERT_FILE`` and ``SSL_VERIFY=false`` for parity with the
-    supervisor stack.
+    ``SSL_CERT_FILE`` and ``SSL_VERIFY=false``.
     """
     ca_bundle = (
         os.getenv("CUSTOM_CA_BUNDLE")
@@ -1160,6 +1159,130 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _json_schema_dict(schema: Any) -> dict[str, Any] | None:
+    """Return a JSON-schema dict for Pydantic model classes or schema dicts."""
+    if isinstance(schema, dict):
+        return copy.deepcopy(schema)
+
+    if isinstance(schema, type):
+        model_json_schema = getattr(schema, "model_json_schema", None)
+        if callable(model_json_schema):
+            return copy.deepcopy(model_json_schema())
+        schema_method = getattr(schema, "schema", None)
+        if callable(schema_method):
+            return copy.deepcopy(schema_method())
+
+    return None
+
+
+def _resolve_local_schema_ref(ref: str, root: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve local JSON-schema refs like ``#/$defs/Foo``."""
+    if not ref.startswith("#/"):
+        return None
+
+    node: Any = root
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+
+    return copy.deepcopy(node) if isinstance(node, dict) else None
+
+
+def _dereference_schema(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        resolved = _resolve_local_schema_ref(ref, root)
+        if resolved is not None:
+            return resolved
+    return schema
+
+
+def _object_shape_from_schema(schema: dict[str, Any], root: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+    """Extract object properties and required fields from a schema branch."""
+    schema = _dereference_schema(schema, root)
+    properties: dict[str, Any] = {}
+    required: set[str] = set()
+
+    for key in TOP_LEVEL_UNION_SCHEMA_KEYS:
+        branches = schema.get(key)
+        if not isinstance(branches, list):
+            continue
+
+        branch_required_sets: list[set[str]] = []
+        for branch in branches:
+            if not isinstance(branch, dict):
+                continue
+            branch_properties, branch_required = _object_shape_from_schema(branch, root)
+            properties.update(branch_properties)
+            branch_required_sets.append(branch_required)
+
+        if key == "allOf":
+            for branch_required in branch_required_sets:
+                required.update(branch_required)
+        elif branch_required_sets:
+            required.update(set.intersection(*branch_required_sets))
+
+    branch_properties = schema.get("properties")
+    if isinstance(branch_properties, dict):
+        properties.update(copy.deepcopy(branch_properties))
+
+    branch_required = schema.get("required")
+    if isinstance(branch_required, list):
+        required.update(item for item in branch_required if isinstance(item, str))
+
+    return properties, required
+
+
+def _collapse_top_level_union_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Collapse a top-level union/intersection schema into a provider-safe object."""
+    properties, required = _object_shape_from_schema(schema, schema)
+    collapsed: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
+    for metadata_key in ("title", "description"):
+        value = schema.get(metadata_key)
+        if isinstance(value, str) and value:
+            collapsed[metadata_key] = value
+
+    if required:
+        collapsed["required"] = sorted(required)
+
+    return collapsed
+
+
+def _model_safe_args_schema(tool: BaseTool, agent_name: str) -> Any:
+    """Return an args schema that model providers can accept for tool binding."""
+    try:
+        schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))
+    except Exception as exc:  # noqa: BLE001 - schema inspection should not drop a tool
+        logger.debug("[%s] Could not inspect tool schema for '%s': %s", agent_name, tool.name, exc)
+        return tool.args_schema
+
+    if not schema:
+        return tool.args_schema
+
+    top_level_keys = [key for key in TOP_LEVEL_UNION_SCHEMA_KEYS if key in schema]
+    if not top_level_keys:
+        return tool.args_schema
+
+    # assisted-by Codex Codex-sonnet-4-6
+    # Bedrock Converse rejects top-level oneOf/anyOf/allOf in tool input
+    # schemas. Collapse just the root into an object while preserving known
+    # properties so one bad MCP schema cannot prevent quick chat from starting.
+    logger.warning(
+        "[%s] Sanitizing Bedrock-incompatible top-level schema for tool '%s' (keys=%s)",
+        agent_name,
+        tool.name,
+        ",".join(top_level_keys),
+    )
+    return _collapse_top_level_union_schema(schema)
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "agent",
@@ -1213,7 +1336,7 @@ def wrap_tools_with_error_handling(
         new_tool = StructuredTool(
             name=tool.name,
             description=tool.description or "",
-            args_schema=tool.args_schema,
+            args_schema=_model_safe_args_schema(tool, agent_name),
             coroutine=_safe_coro,
             response_format=resp_fmt,
             metadata=tool.metadata,

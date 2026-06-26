@@ -1,213 +1,55 @@
-# Dynamic Agents Architecture
+# Dynamic Agents UI Architecture
 
-This document describes the architecture of Dynamic Agents and how it differs from A2A (Agent-to-Agent) protocol.
+Dynamic Agents are the primary agent runtime for the CAIPE UI. This folder owns
+the agent builder, model/MCP server configuration panels, and runtime context
+views used by chat.
 
-## Overview
+## Frontend Flow
 
-The UI supports two distinct agent communication patterns:
-
-1. **A2A Protocol** - For external agents (e.g., Platform Engineer Agent) using the Agent-to-Agent standard
-2. **Dynamic Agents SSE** - For internally-defined agents using Server-Sent Events streaming
-
-These two systems are **intentionally separate** to maintain clean type boundaries and avoid coupling.
-
-## Architecture Comparison
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              ChatPanel.tsx                                   │
-│                                   │                                          │
-│                    ┌──────────────┴──────────────┐                          │
-│                    │                             │                          │
-│              isDynamicAgent?                     │                          │
-│                    │                             │                          │
-│         ┌─────────YES─────────┐       ┌────────NO────────┐                 │
-│         ▼                     │       ▼                  │                 │
-│  ┌──────────────────┐         │  ┌──────────────────┐    │                 │
-│  │ DynamicAgentClient│         │  │    A2AClient     │    │                 │
-│  │ (SSE streaming)  │         │  │ (A2A protocol)   │    │                 │
-│  └────────┬─────────┘         │  └────────┬─────────┘    │                 │
-│           │                   │           │              │                 │
-│           ▼                   │           ▼              │                 │
-│  ┌──────────────────┐         │  ┌──────────────────┐    │                 │
-│  │  ParsedSSEEvent  │         │  │  ParsedA2AEvent  │    │                 │
-│  └────────┬─────────┘         │  └────────┬─────────┘    │                 │
-│           │                   │           │              │                 │
-│           ▼                   │           ▼              │                 │
-│  ┌──────────────────┐         │  ┌──────────────────┐    │                 │
-│  │toSSEAgentStoreEvent│        │  │   toStoreEvent   │    │                 │
-│  └────────┬─────────┘         │  └────────┬─────────┘    │                 │
-│           │                   │           │              │                 │
-│           ▼                   │           ▼              │                 │
-│  ┌──────────────────┐         │  ┌──────────────────┐    │                 │
-│  │  SSEAgentEvent   │         │  │    A2AEvent      │    │                 │
-│  └────────┬─────────┘         │  └────────┬─────────┘    │                 │
-│           │                   │           │              │                 │
-│           ▼                   │           ▼              │                 │
-│  ┌──────────────────┐         │  ┌──────────────────┐    │                 │
-│  │ conv.sseEvents[] │         │  │ conv.a2aEvents[] │    │                 │
-│  └────────┬─────────┘         │  └────────┬─────────┘    │                 │
-│           │                   │           │              │                 │
-│           ▼                   │           ▼              │                 │
-│  ┌──────────────────┐         │  ┌──────────────────┐    │                 │
-│  │DynamicAgentContext│        │  │  A2AEventPanel   │    │                 │
-│  │ (SSE panels)     │         │  │  (A2A panels)    │    │                 │
-│  └──────────────────┘         │  └──────────────────┘    │                 │
-└─────────────────────────────────────────────────────────────────────────────┘
+```text
+Chat page
+  -> BFF stream routes under /api/v1/chat/stream/*
+  -> Dynamic Agents service
+  -> streamed AG-UI/SSE events
+  -> chat store
+  -> DynamicAgentTimeline and context panels
 ```
 
-## File Organization
+The browser calls the BFF, not the Dynamic Agents service directly. This keeps
+session, RBAC, service-account, and AgentGateway decisions on the server side.
 
-### Dynamic Agents (this folder)
+## Key Files
 
 | File | Purpose |
-|------|---------|
-| `sse-types.ts` | Type definitions for SSE events and conversion functions |
-| `DynamicAgentContext.tsx` | UI panel for displaying SSE events (subagents, tools, execution plans) |
-| `DynamicAgentEditor.tsx` | Editor for creating/editing dynamic agent definitions |
-| `ChatView.tsx` (moved to `chat/`) | Chat view wrapper for dynamic agents |
-| `DynamicAgentsTab.tsx` | Tab component listing available dynamic agents |
+|---|---|
+| `DynamicAgentEditor.tsx` | Create and edit dynamic agent definitions |
+| `DynamicAgentsTab.tsx` | List and manage available agents |
+| `MCPServersTab.tsx` | Register, probe, and manage MCP server connections |
+| `SubagentPicker.tsx` | Configure delegation to other dynamic agents |
+| `DynamicAgentContext.tsx` | Show runtime context, tools, subagents, and MCP status |
+| `AgentAvatar.tsx` | Shared dynamic-agent avatar rendering |
+| `ui/src/components/chat/DynamicAgentChatPanel.tsx` | Chat panel for streamed agent runs |
+| `ui/src/components/chat/DynamicAgentTimeline.tsx` | Timeline rendering for tools, content, warnings, and subagents |
+| `ui/src/lib/dynamic-agent-client.ts` | BFF-facing streaming client helpers |
+| `ui/src/lib/chat-agent-selection.ts` | Resolves a usable default chat agent |
 
-### A2A (separate locations)
+## Runtime State
 
-| File | Purpose |
-|------|---------|
-| `ui/src/lib/a2a-sdk-client.ts` | A2A protocol client |
-| `ui/src/types/a2a.ts` | A2A type definitions |
-| `ui/src/components/chat/A2AEventPanel.tsx` | UI panel for A2A events |
+- Conversations and messages are stored through the UI BFF.
+- Dynamic Agents persists checkpoint and file state in MongoDB.
+- Per-message stream events are kept separate from durable runtime status so
+  each new user turn can clear transient events without losing configuration
+  warnings such as failed MCP servers.
 
-### Shared
+## Adding Stream UI Features
 
-| File | Purpose |
-|------|---------|
-| `ui/src/lib/dynamic-agent-client.ts` | SSE streaming client |
-| `ui/src/components/chat/ChatPanel.tsx` | Main chat component, routes to correct client |
-| `ui/src/store/chat-store.ts` | Zustand store with both A2A and SSE event actions |
+1. Add or extend event types in `ui/src/lib/streaming/types.ts`.
+2. Update `ui/src/lib/da-timeline-manager.ts` when timeline grouping changes.
+3. Update `DynamicAgentTimeline.tsx` or `DynamicAgentContext.tsx` to render the
+   new state.
+4. Add focused tests for the parsing or rendering behavior.
 
-## Why Separate Systems?
+## Related Backend Docs
 
-1. **Clean Types** - A2A types remain pure for A2A protocol compliance
-2. **Independent Evolution** - Dynamic agents can add features without affecting A2A
-3. **Clear Ownership** - Dynamic agent code is contained in this folder
-4. **Explicit Intent** - Code makes it clear which system is being used
-5. **No Coupling** - Changes to one system don't break the other
-
-## SSE Event Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            BACKEND (Python)                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  agent_runtime.py                                                                │
-│     │                                                                            │
-│     ├─► Tool calls      → emit tool_start/tool_end events                       │
-│     ├─► Todo updates    → emit todo_update events                               │
-│     ├─► Subagent calls  → emit tool_start/tool_end with tool_name="task"        │
-│     │                     (agent_id injected into args for UI lookup)           │
-│     └─► Complete        → emit final_result event with:                         │
-│                            - artifact.metadata.failed_servers[]                 │
-│                            - artifact.metadata.missing_tools[]                  │
-│                                                                                  │
-│  stream_events.py                                                                │
-│     └─► make_final_result_event(failed_servers, missing_tools)                  │
-│                                                                                  │
-│  chat.py                                                                         │
-│     └─► emit "done" event (signals SSE stream complete, not a content event)    │
-└────────────────────────────────────────────────────────────────────────────────┘
-                                     │ SSE Stream
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            FRONTEND (TypeScript)                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  DynamicAgentClient                                                              │
-│     └─► Yields SSEAgentEvent for each SSE event                                 │
-│         ("done" event returns null, ignored)                                    │
-│                                                                                  │
-│  ChatPanel.tsx                                                                   │
-│     └─► createSSEAgentEvent() extracts structured data                          │
-│     └─► addSSEEvent() stores event in conversation                              │
-│                                                                                  │
-│  chat-store.ts                                                                   │
-│     └─► Appends event to conversation.sseEvents[]                               │
-│     └─► For final_result: extracts runtimeStatus (persistent)                   │
-│                                                                                  │
-│  DynamicAgentContext.tsx                                                         │
-│     └─► Reads sseEvents for ephemeral data (tools, todos, subagents)            │
-│     └─► Reads runtimeStatus for persistent data (failedServers, missingTools)   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-## Event Lifecycle
-
-### Per-Message Events (Ephemeral)
-
-These are cleared at the start of each new message via `clearSSEEvents()`:
-- `tool_start` / `tool_end` - Tool invocations (including subagents via tool_name="task")
-- `todo_update` - Task list updates
-- `content` - LLM token streaming
-- `error` - Error messages
-
-### Persistent State (runtimeStatus)
-
-This survives `clearSSEEvents()` and persists across messages:
-- `failedServers` - MCP servers that failed to connect
-- `missingTools` - Tools that were configured but unavailable
-- `initialized` - Whether runtime has been initialized
-
-## Warning/Error Display Strategy
-
-1. **Ephemeral Errors** (from `error` SSE events)
-   - Displayed in Events tab as red "Agent Error" banners
-   - Cleared when user sends next message
-
-2. **Persistent Configuration Issues** (derived from `runtimeStatus`)
-   - Displayed in Events tab as amber "Configuration Issues" banner
-   - Persists across messages until runtime is restarted
-   - Also shown in Agent tab with MCP server status indicators
-
-## MCP Server Status States
-
-| State | Color | Icon | Condition |
-|-------|-------|------|-----------|
-| Unknown | Gray | HelpCircle | No message sent yet, or after restart |
-| Connected | Green | CheckCircle | Runtime initialized and server not in failedServers |
-| Failed | Red | XCircle | Runtime initialized and server in failedServers |
-
-## Restart Agent Session Flow
-
-1. User clicks "Restart Agent Session"
-2. Backend destroys runtime
-3. Frontend clears sseEvents AND runtimeStatus
-4. MCP servers show as "unknown" (gray)
-5. User sends next message
-6. Runtime recreated, MCP servers reconnected
-7. New runtimeStatus populated from final_result
-
-## Adding New Features
-
-### To Dynamic Agents SSE:
-1. Add fields to ParsedSSEEvent in `sse-types.ts`
-2. Update conversion functions to handle new fields
-3. Add fields to SSEAgentEvent if needed for storage
-4. Update `DynamicAgentContext.tsx` to display new data
-
-### To A2A:
-1. Add fields to ParsedA2AEvent in `a2a-sdk-client.ts`
-2. Update conversion functions
-3. Add fields to A2AEvent in `types/a2a.ts` if needed
-4. Update `A2AEventPanel.tsx` to display new data
-
-**Do NOT mix concerns between the two systems.**
-
----
-
-## Related Documentation
-
-- [Server Architecture](../../../../ai_platform_engineering/dynamic_agents/ARCHITECTURE.md) - Backend runtime, caching, MongoDB storage, and request flow diagrams
-- [SSE Events](../../../../ai_platform_engineering/dynamic_agents/SSE_EVENTS.md) - Detailed SSE event types and streaming protocol
-
-## Editor Unsaved-Changes Warning
-
-When `DynamicAgentEditor` has unsaved edits, attempts to leave the editor (back button, sibling sub-tab on the Agents page, or any top-level header link) surface an in-app modal instead of silently discarding the form. Dirty state is value-based (revert-to-original clears it) and tracked via `useEditorDirtyTracking` (`src/hooks/use-editor-dirty-tracking.ts`), which mirrors a single boolean into the global `useUnsavedChangesStore`. Native browser dialogs (`beforeunload`, refresh, tab close) are intentionally NOT used. See the spec at `docs/docs/specs/2026-04-29-agent-editor-unsaved-warning/` for the full design.
+- `ai_platform_engineering/dynamic_agents/ARCHITECTURE.md`
+- `ai_platform_engineering/dynamic_agents/SSE_EVENTS.md`

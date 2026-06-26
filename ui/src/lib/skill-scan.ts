@@ -7,8 +7,7 @@ import type { ScanStatus } from "@/types/agent-skill";
 /**
  * URL of the standalone cisco-ai-defense/skill-scanner API server.
  *
- * We deliberately route to the scanner directly — not through the
- * supervisor — because:
+ * We deliberately route to the scanner directly because:
  *
  *   1. The scanner is unauthenticated (per upstream README "Development
  *      Use Only"), so it MUST stay internal-only. Compose binds it to
@@ -16,8 +15,7 @@ import type { ScanStatus } from "@/types/agent-skill";
  *   2. Calling it from Next.js API routes (server-side only) means the
  *      scanner URL never leaks to the browser and the unauth surface
  *      stays inside the trust boundary (UI pod → scanner pod).
- *   3. Scanner upgrades become an image bump instead of a supervisor
- *      rebuild + MAS restart.
+ *   3. Scanner upgrades become an image bump instead of a platform rebuild.
  *
  * If the env is unset (e.g. local dev without the scanner profile up) we
  * gracefully report `unscanned` rather than throwing — saving a skill
@@ -33,13 +31,12 @@ export function isSkillScannerConfigured(): boolean {
   return Boolean(SKILL_SCANNER_URL);
 }
 
-/** Backwards-compatible alias for the previous supervisor-based name. */
+/** Alias kept for call sites that still import this name. */
 export const isSupervisorScanConfigured = isSkillScannerConfigured;
 
 /**
- * Previously used to forward the caller's bearer/catalog credentials to
- * the supervisor. The standalone scanner is unauthenticated on the
- * internal network, so this is now a no-op accepted only for source
+ * The standalone scanner is unauthenticated on the internal network, so
+ * this is a no-op accepted only for source
  * compatibility with existing call sites in
  * `app/api/skills/configs/[id]/scan/route.ts` and the hub scan route.
  *
@@ -80,8 +77,7 @@ interface ScannerResponse {
  *   - Network error / timeout → scanner pod down or slow
  *   - Non-2xx HTTP → log status + body snippet for debugging
  *
- * `auth` is accepted for backwards-compatibility with the old supervisor-
- * based client and ignored.
+ * `auth` is accepted for compatibility with existing call sites and ignored.
  */
 /**
  * Hard cap on total ancillary bytes packed into a single scan ZIP.
@@ -194,9 +190,8 @@ export async function scanSkillContent(
     };
   }
 
-  // Backwards compat: previous signature was `(name, content, id, ScanAuth)`.
-  // ScanAuth is now a no-op; ScanOptions is the new payload. Detect by the
-  // presence of the new `ancillaryFiles` key vs the legacy auth keys.
+  // Callers may pass either scan options or auth fields; only scan options
+  // affect the standalone scanner request.
   const options: ScanOptions =
     optionsOrAuth && "ancillaryFiles" in optionsOrAuth
       ? (optionsOrAuth as ScanOptions)
@@ -309,8 +304,7 @@ export async function scanSkillContent(
 /**
  * Translate scanner output into the UI's tri-state. We treat the scan as
  * `flagged` whenever the scanner says it's not safe OR reports any
- * finding at HIGH/CRITICAL severity — matching the previous gate
- * behaviour of the supervisor-side runner.
+ * finding at HIGH/CRITICAL severity.
  */
 function interpretScannerResponse(
   data: ScannerResponse,

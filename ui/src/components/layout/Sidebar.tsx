@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getStorageMode } from "@/lib/storage-config";
 import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
-import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
+import { getAgentId } from "@/types/a2a";
 import { AnimatePresence,motion } from "framer-motion";
 import {
 Archive,
@@ -22,7 +23,6 @@ ArchiveRestore,
 ChevronLeft,
 ChevronRight,
 Database,
-Globe,
 HardDrive,
 History,
 MessageCircleQuestion,
@@ -33,8 +33,7 @@ RefreshCw,
 Shield,
 Sparkles,
 TrendingUp,
-Users,
-Users2
+Users
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -58,7 +57,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     deleteConversation,
     loadConversationsFromServer,
     loadMessagesFromServer,
-    loadTurnsFromServer,
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
@@ -152,16 +150,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.log('[Sidebar] Manual reload triggered');
       await loadConversationsFromServer();
       // Also force-reload the active conversation's messages to pick up
-      // follow-up messages from other devices and refresh A2A events
+      // follow-up messages from other devices and refresh stream events
       if (activeConversationId) {
-        const activeConv = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
-        if (activeConv && isDynamicAgentConversation(activeConv)) {
-          // Dynamic Agent — use old messages path
-          await loadMessagesFromServer(activeConversationId, { force: true });
-        } else {
-          // Platform Engineer — use turns path
-          await loadTurnsFromServer(activeConversationId);
-        }
+        await loadMessagesFromServer(activeConversationId, { force: true });
       }
     } catch (error) {
       console.error('[Sidebar] Failed to reload conversations:', error);
@@ -171,14 +162,17 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   };
 
   const handleNewChat = async (agentId?: string) => {
+    let resolvedAgentId: string | null = null;
     try {
+      resolvedAgentId = agentId?.trim() || await resolveUsableChatAgentId();
+
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
         const { apiClient } = await import('@/lib/api-client');
         const result = await apiClient.createConversation({
           title: "New Conversation",
           client_type: 'webui',
-          agent_id: agentId,
+          agent_id: resolvedAgentId,
         });
         const conversation = result.conversation;
 
@@ -190,7 +184,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
-          a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
         };
 
@@ -209,7 +202,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         });
       } else {
         // Create conversation in localStorage
-        const conversationId = await createConversation(agentId);
+        const conversationId = await createConversation(resolvedAgentId);
 
         // Use React transition for smooth navigation
         startTransition(() => {
@@ -218,12 +211,16 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       }
     } catch (error) {
       console.error('[Sidebar] Failed to create conversation:', error);
+      const message =
+        error instanceof Error ? error.message : "Failed to create a chat conversation";
+      toast(message, "error");
 
-      // Fallback to localStorage
-      const conversationId = await createConversation(agentId);
-      startTransition(() => {
-        router.push(`/chat/${conversationId}`);
-      });
+      if (storageMode !== 'mongodb' && resolvedAgentId) {
+        const conversationId = await createConversation(resolvedAgentId);
+        startTransition(() => {
+          router.push(`/chat/${conversationId}`);
+        });
+      }
     }
   };
 
@@ -356,13 +353,32 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
                 {conversations.map((conv, index) => {
-                  // Check if conversation is shared
-                  const isShared = conv.sharing && (
-                    conv.sharing.is_public ||
-                    (conv.sharing.shared_with && conv.sharing.shared_with.length > 0) ||
-                    (conv.sharing.shared_with_teams && conv.sharing.shared_with_teams.length > 0) ||
-                    conv.sharing.share_link_enabled
+                  const currentUserEmail = session?.user?.email?.trim().toLowerCase();
+                  const ownerEmail = conv.owner_id?.trim().toLowerCase();
+                  const viewerIsKnownOwner =
+                    conv.accessLevel === "owner" ||
+                    Boolean(ownerEmail && currentUserEmail && ownerEmail === currentUserEmail);
+                  const hasSharingConfig = Boolean(
+                    (conv.sharing?.shared_with?.length ?? 0) > 0 ||
+                    (conv.sharing?.shared_with_teams?.length ?? 0) > 0 ||
+                    conv.sharing?.share_link_enabled
                   );
+                  const sharedByKnownDifferentOwner = Boolean(
+                    ownerEmail &&
+                    currentUserEmail &&
+                    ownerEmail !== currentUserEmail &&
+                    hasSharingConfig
+                  );
+                  // assisted-by Codex Codex-sonnet-4-6
+                  // The badge is viewer-facing, so prefer the server's per-viewer sharing signal.
+                  const isSharedWithViewer = !viewerIsKnownOwner && (
+                    conv.isSharedWithViewer === true ||
+                    conv.accessLevel === "shared" ||
+                    conv.accessLevel === "shared_readonly" ||
+                    sharedByKnownDifferentOwner
+                  );
+                  const sharedByLabel = conv.owner_id?.trim();
+                  const canManageSharing = viewerIsKnownOwner || (!ownerEmail && !isSharedWithViewer);
 
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
@@ -388,7 +404,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               ? "bg-blue-500/5 border border-blue-500/25"
                               : activeConversationId === conv.id
                                 ? "bg-primary/10 border border-primary/30"
-                                : isShared
+                                : isSharedWithViewer
                                   ? "hover:bg-muted/50 border border-blue-500/20"
                                   : "hover:bg-muted/50 border border-transparent"
                       )}
@@ -453,26 +469,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
-                            {isShared && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    {conv.sharing?.is_public ? (
-                                      <Globe className="h-3 w-3 text-green-500 shrink-0" />
-                                    ) : (
-                                      <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
-                                    )}
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    <p className="text-xs">
-                                      {conv.sharing?.is_public
-                                        ? 'Shared with everyone'
-                                        : 'Shared conversation'}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
                           </div>
                           <p className={cn(
                             "text-xs truncate",
@@ -499,11 +495,22 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div
+                            className={cn(
+                              "transition-opacity",
+                              activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                ? "opacity-100"
+                                : "opacity-0 group-hover:opacity-100",
+                            )}
+                          >
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={!conv.owner_id || conv.owner_id === session?.user?.email}
+                              isOwner={canManageSharing}
+                              isSharedWithViewer={isSharedWithViewer}
+                              sharedBy={sharedByLabel}
+                              sharing={conv.sharing}
+                              accessLevel={conv.accessLevel}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>
@@ -531,7 +538,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               // so the user always has somewhere to land
                               let navigateToId: string | null = null;
                               if (isLastConversation) {
-                                navigateToId = await createConversation();
+                                navigateToId = await createConversation(await resolveUsableChatAgentId());
                                 console.log('[Sidebar] Created replacement conversation:', navigateToId);
                               }
 

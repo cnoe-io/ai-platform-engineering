@@ -23,7 +23,6 @@ describe('AGENT_LOGOS', () => {
     'confluence',
     'kubernetes',
     'user_input',
-    'supervisor',
     'rag',
     'knowledge',
   ];

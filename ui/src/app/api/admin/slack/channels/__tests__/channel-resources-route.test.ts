@@ -266,6 +266,76 @@ describe("Slack channel ReBAC APIs", () => {
         active_grants: 1,
       }),
     ]);
+    expect(body.data.channels[0].health).toBeUndefined();
+    expect(mockAuditQuery).not.toHaveBeenCalled();
+  });
+
+  it("adds bounded health summaries for the configured Slack channel list when requested", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        team_slug: "platform-engineering",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: "CSUPPORT",
+        channel_name: "support",
+        team_slug: "platform-engineering",
+        active: true,
+      },
+    ]);
+    mockAuditQuery.mockImplementation(async (query: { resourceRef?: string }) => {
+      if (query.resourceRef === `slack_channel:${workspaceAlias}--CSUPPORT`) {
+        return [
+          {
+            ts: "2026-06-25T12:00:00.000Z",
+            reason_code: "OPENFGA_READ_FAILED",
+            message: "OpenFGA tuple read failed",
+          },
+        ];
+      }
+      return [];
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels?health=1"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toHaveLength(2);
+    expect(body.data.channels).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          channel_id: channelId,
+          health: expect.objectContaining({
+            openfga_reachable: true,
+            last_runtime_error_ts: null,
+          }),
+        }),
+        expect.objectContaining({
+          channel_id: "CSUPPORT",
+          health: expect.objectContaining({
+            openfga_reachable: true,
+            last_runtime_error_ts: "2026-06-25T12:00:00.000Z",
+          }),
+        }),
+      ])
+    );
+    expect(mockAuditQuery).toHaveBeenCalledTimes(2);
+    for (const [query] of mockAuditQuery.mock.calls) {
+      const until = query.until as Date;
+      const since = query.since as Date;
+      expect(query).toMatchObject({
+        component: "slack_bot",
+        outcome: "error",
+        limit: 1,
+      });
+      expect(until.getTime() - since.getTime()).toBe(24 * 60 * 60 * 1000);
+    }
   });
 
   it("batches audit-service runtime error lookup when listing Slack channel health", async () => {

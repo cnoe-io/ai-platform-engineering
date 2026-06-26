@@ -1,0 +1,27 @@
+{{- if and .Values.agentSecrets (or .Values.agentSecrets.create .Values.agentSecrets.externalSecrets.enabled) }}
+DEPRECATION WARNING: agentSecrets is deprecated and will be removed in a future release.
+  Rename it to mcpSecrets in your values — the structure is identical:
+
+    mcpSecrets:
+      {{ toYaml .Values.agentSecrets | nindent 6 | trim }}
+
+  agentSecrets continues to work and is merged with mcpSecrets (mcpSecrets wins on conflict).
+{{- end }}
+
+{{- if .Values.vpa.enabled }}
+NOTE: VPA is enabled. Ensure VerticalPodAutoscaler is installed in your cluster before deploying.
+      Install VPA: https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/docs/installation.md
+      Retrieve recommendations: kubectl get vpa {{ include "agent.fullname" . }}-mcp -o jsonpath='{.status.recommendation}' | jq .
+{{- end }}
+
+{{- if include "agent.createMcpHttpServer" . | eq "true" }}
+MCP server deployed: {{ include "agent.fullname" . }}-mcp (port {{ .Values.mcp.service.port | default 8000 }}).
+
+Reach it in-cluster at:
+  http://{{ include "agent.fullname" . }}-mcp.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcp.service.port | default 8000 }}
+
+Port-forward for local testing:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "agent.fullname" . }}-mcp 8000:{{ .Values.mcp.service.port | default 8000 }}
+{{- else }}
+This agent uses a remote/stdio MCP server; no in-cluster MCP Service was created.
+{{- end }}

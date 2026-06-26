@@ -30,17 +30,20 @@ jobs:
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Checkout repository (full history)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Determine versions and dates
         id: meta
+        env:
+          NEW_VERSION: ${{ github.event.inputs.version }}
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
           NEW_VERSION="${NEW_VERSION#v}"
 
           PREV_VERSION=$(git tag --sort=-version:refname \

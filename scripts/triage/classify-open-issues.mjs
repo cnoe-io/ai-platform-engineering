@@ -40,6 +40,7 @@ const AREA_COLOR = {
   "RBAC/Auth": "#e5534b", "Infra/NFR": "#d99b3d", "UI/Admin": "#45c4d6",
   "Bots/Webhooks": "#e08ac0", "LLM/Budget": "#7f8c99", "Persistence/Obs": "#c9d05b",
   "Docs/Misc": "#6b7480",
+  "Runtime/Streaming": "#8f7bd6",
 };
 
 // Area heuristics: first match wins, evaluated against `${labels} ${title}`.
@@ -51,7 +52,7 @@ const AREA_RULES = [
   ["Dynamic Agents", /\b(dynamic agent|custom agent|task config|task builder|skills?middleware|persona|sub[- ]?agent)\b/i],
   ["LLM/Budget", /\b(llm|litellm|token (budget|quota)|quota|bedrock|model per agent|throttl|fallback model)\b/i],
   ["UI/Admin", /\b(ui\b|admin|dashboard|frontend|combobox|dropdown|pagination|skill builder|tab\b|modal|page\b|next\.?js|react)\b/i],
-  ["Agent Arch/A2A", /\b(a2a|langgraph|streaming|recursion|supervisor|agent scaling|thread_id|compute worker|knative)\b/i],
+  ["Runtime/Streaming", /\b(a2a|langgraph|streaming|recursion|agent scaling|thread_id|compute worker|knative)\b/i],
   ["Infra/NFR", /\b(helm|kind\b|docker|kubernetes|\bpod\b|health check|liveness|readiness|auto[- ]?scal|kyverno|seccomp|security context|ansible|sandbox|resource (default|limit)|kustomize|setup-caipe)\b/i],
   ["Persistence/Obs", /\b(mongo|langfuse|checkpoint|schema|collection|long[- ]?term memory|observability|metric|telemetry|ttl)\b/i],
   ["Docs/Misc", /\b(docs?|documentation|tutorial|llms\.txt|release notes|readme|badge)\b/i],
