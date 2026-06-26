@@ -1,3 +1,30 @@
+## 0.5.24 (2026-06-26)
+
+### Feat
+
+- **mcp**: add mcpSecrets alias with deprecation of agentSecrets
+
+### Fix
+
+- **mcp**: set mcpSecrets default to empty map, guard against nil
+- **mcp**: guard ExternalSecret data/dataFrom to prevent empty-list rejection
+- **chart**: wire AGENTGATEWAY_TARGETS_TOKEN into caipe-ui and add dev-mode default (#2007)
+- **chat**: stabilize shared conversation list access
+- **chat**: show recipient share permissions
+- **chat**: use shared icon for share control
+- **chat**: preserve owner share controls
+- **chat**: respect shared conversation edit affordance
+- **chat**: show shared-by affordance to recipients
+- **chat**: mark shared recipients in sidebar
+- **chat**: enable team conversation sharing
+- **chat**: show shared badge to recipients
+- **chat**: preserve shared chat UI indicators
+- **chat**: prevent private conversation visibility leak
+- **slack-bot**: log SA name alongside sub in dispatch_identity (SDPL-1984)
+- **slack-bot**: use None fallback for event ts (SDPL-1984)
+- **slack-bot**: match bot allowlist by name OR user ID (SDPL-1984)
+- **slack-bot**: skip Keycloak identity resolution in middleware for bot messages (SDPL-1984)
+
 ## 0.5.23 (2026-06-25)
 
 ### Fix
