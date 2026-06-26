@@ -1,5 +1,5 @@
-name: "[CI][MCP] Sub-Agents MCP Docker Build and Push"
-description: "Build and push MCP Docker images for sub-agents"
+name: "[CI][MCP] MCP Servers Docker Build and Push"
+description: "Build and push MCP server Docker images"
 
 on:
   push:
