@@ -344,6 +344,63 @@ describe("SchedulesPage", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/chat/conversation-1");
   });
 
+  it("falls back to the platform default agent for schedule edit chat", async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            total: 1,
+            items: [
+              {
+                schedule_id: "schedule-1",
+                agent_id: "agent-1",
+                edit_agent_id: null,
+                agent_name: "Agent One",
+                title: "Important Team 2 Meeting Prep",
+                message_template: "Run the job",
+                pod_id: "important-team-2",
+                attributes: {},
+                cron: "*/5 * * * *",
+                tz: "UTC",
+                enabled: true,
+                cronjob_name: null,
+                version: 1,
+                versions: [],
+                created_at: "2026-05-25T00:00:00Z",
+                updated_at: null,
+                last_run: null,
+                one_off_runs: [],
+              },
+            ],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { default_agent_id: "agent-platform-default" },
+        }),
+      });
+
+    render(<SchedulesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Important Team 2 Meeting Prep")).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /modify schedule-1/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat with agent" }));
+
+    await waitFor(() =>
+      expect(mockCreateConversation).toHaveBeenCalledWith("agent-platform-default")
+    );
+    expect(global.fetch).toHaveBeenCalledWith("/api/admin/platform-config");
+    expect(mockRouterPush).toHaveBeenCalledWith("/chat/conversation-1");
+  });
+
   it("asks for confirmation before deleting a schedule", async () => {
     render(<SchedulesPage />);
 

@@ -1206,13 +1206,36 @@ describe('chat-store', () => {
       );
     });
 
-    it('uses configured default agent when agent id is omitted', async () => {
-      (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
-        dynamicAgentsEnabled: true,
-        defaultNewChatAgentId: 'agent-sunny-webex-meeting-test',
-      };
+    it('uses the platform default agent when agent id is omitted', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        json: async () => ({ success: true, data: { default_agent_id: 'agent-platform-default' } }),
+      });
 
       const id = await useChatStore.getState().createConversation();
+
+      expect(id).toBe('server-generated-id');
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'agent-platform-default',
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBe('agent-platform-default');
+    });
+
+    it('falls back to supervisor when no platform default agent is configured', async () => {
+      const id = await useChatStore.getState().createConversation();
+
+      expect(id).toBe('server-generated-id');
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: undefined,
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBeUndefined();
+    });
+
+    it('preserves explicit dynamic agent conversations', async () => {
+      const id = await useChatStore.getState().createConversation('agent-sunny-webex-meeting-test');
 
       expect(id).toBe('server-generated-id');
       expect(mockApiClient.createConversation).toHaveBeenCalledWith(
@@ -1224,11 +1247,6 @@ describe('chat-store', () => {
     });
 
     it('allows explicit Platform Engineer conversations with null', async () => {
-      (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
-        dynamicAgentsEnabled: true,
-        defaultNewChatAgentId: 'agent-sunny-webex-meeting-test',
-      };
-
       await useChatStore.getState().createConversation(null);
 
       expect(mockApiClient.createConversation).toHaveBeenCalledWith(

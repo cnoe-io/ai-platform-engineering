@@ -250,7 +250,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
 
   const handleNewChat = async (agentId?: NewConversationAgentSelection) => {
     try {
-      const conversationAgentId = resolveNewConversationAgentId(agentId);
+      const conversationAgentId = await resolveNewConversationAgentId(agentId);
 
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server

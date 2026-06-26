@@ -182,6 +182,10 @@ affinity: {}
 config:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
   A2A_BASE_URL: ""
+  # Bootstrap default agent for new chats. Overridden at runtime by Admin > Settings UI.
+  # Set to a dynamic agent ID to pre-configure the default without manual admin action.
+  # Leave empty to use the supervisor (Platform Engineer) as default.
+  DEFAULT_AGENT_ID: ""
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
@@ -271,8 +275,6 @@ config:
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
   DYNAMIC_AGENTS_URL: ""
-  # Dynamic agent id used by the main "+ New Chat" button. Empty keeps Platform Engineer.
-  DEFAULT_NEW_CHAT_AGENT_ID: ""
   # Scheduler service URL used by the Schedules tab to pause/restart CronJobs.
   SCHEDULER_URL: "http://caipe-scheduler:8080"
   # Connections & Secrets credential store. Disabled by default. Use local-cmk

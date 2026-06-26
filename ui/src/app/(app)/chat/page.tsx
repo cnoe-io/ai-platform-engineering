@@ -2,22 +2,12 @@
 
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { resolvePlatformDefaultAgentId } from "@/lib/new-chat-agent";
 import { getStorageMode } from "@/lib/storage-config";
 import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect,useRef } from "react";
-
-async function resolveDefaultAgentId(): Promise<string | undefined> {
-  try {
-    const response = await fetch("/api/admin/platform-config");
-    const data = await response.json();
-    const agentId = data?.success ? data.data?.default_agent_id : null;
-    return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * /chat landing page — resumes the last active conversation, falls back to
@@ -89,7 +79,7 @@ function ChatRedirectPage() {
         router.replace(`/chat/${latestId}`);
       } else {
         // 3. No owned conversations — create a new one
-        const newId = await createConversation(await resolveDefaultAgentId());
+        const newId = await createConversation((await resolvePlatformDefaultAgentId()) ?? null);
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
@@ -99,7 +89,7 @@ function ChatRedirectPage() {
       console.error("[ChatRedirect] Failed to resolve conversation:", error);
       // Fallback: create a new conversation
       if (!redirected.current) {
-        const newId = await createConversation(await resolveDefaultAgentId());
+        const newId = await createConversation((await resolvePlatformDefaultAgentId()) ?? null);
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }

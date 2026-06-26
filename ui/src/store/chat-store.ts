@@ -299,7 +299,7 @@ const storeImplementation = (set: any, get: any) => ({
 
       createConversation: async (agentId?: NewConversationAgentSelection) => {
         const storageMode = getStorageMode();
-        const conversationAgentId = resolveNewConversationAgentId(agentId);
+        const conversationAgentId = await resolveNewConversationAgentId(agentId);
 
         let id: string;
 

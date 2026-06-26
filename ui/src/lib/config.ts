@@ -161,10 +161,8 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
-  /** Dynamic agent id used by the main "+ New Chat" button. Null keeps Platform Engineer as default. */
-  defaultNewChatAgentId: string | null;
-  /** Dynamic agent id used by Schedules -> Chat with agent. Falls back to defaultNewChatAgentId. */
-  scheduleEditorAgentId: string | null;
+  /** Dynamic agent id used by Schedules -> Chat with agent. Empty string falls back to the platform default. */
+  scheduleEditorAgentId: string;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -273,8 +271,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
-  defaultNewChatAgentId: null,
-  scheduleEditorAgentId: null,
+  scheduleEditorAgentId: '',
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -397,9 +394,10 @@ export function getServerConfig(): Config {
   );
   const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
-  const defaultNewChatAgentId = env('DEFAULT_NEW_CHAT_AGENT_ID')?.trim() || null;
   const scheduleEditorAgentId =
-    env('SCHEDULE_EDITOR_AGENT_ID')?.trim() || defaultNewChatAgentId;
+    env('SCHEDULE_EDITOR_AGENT_ID')?.trim() ||
+    process.env.DEFAULT_AGENT_ID?.trim() ||
+    '';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   // The user-facing Credentials surface is gated independently of the SA token
   // surface. It defaults to the master flag (backward-compatible) and can be
@@ -489,7 +487,6 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
-    defaultNewChatAgentId,
     scheduleEditorAgentId,
     agentProtocol,
     reportProblemEnabled,

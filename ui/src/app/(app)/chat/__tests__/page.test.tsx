@@ -157,7 +157,7 @@ describe("Chat Redirect Page", () => {
 
     render(<Chat />);
 
-    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(null));
     expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
   });
 

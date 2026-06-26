@@ -46,6 +46,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { humanizeCron } from "@/lib/cron-humanize";
 import { getConfig } from "@/lib/config";
+import { resolvePlatformDefaultAgentId } from "@/lib/new-chat-agent";
 import { useChatStore } from "@/store/chat-store";
 
 interface ScheduleRun {
@@ -660,10 +661,13 @@ export default function SchedulesPage() {
       setError(null);
       setChattingId(item.schedule_id);
       try {
-        const scheduleEditorAgentId =
+        const configuredEditorAgentId =
           item.edit_agent_id?.trim() ||
-          getConfig("scheduleEditorAgentId")?.trim() ||
-          undefined;
+          getConfig("scheduleEditorAgentId")?.trim();
+        const scheduleEditorAgentId =
+          configuredEditorAgentId ||
+          (await resolvePlatformDefaultAgentId()) ||
+          null;
         const conversationId = await createConversation(scheduleEditorAgentId);
         setPendingMessage(
           [

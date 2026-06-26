@@ -136,7 +136,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
   const handleMainClick = () => {
     // Route to configured default agent (or supervisor when none configured)
-    onNewChat(defaultAgentId ?? undefined);
+    onNewChat(defaultAgentId ?? null);
   };
 
   const handleDropdownToggle = (e: React.MouseEvent) => {
@@ -260,7 +260,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
             {/* Platform Engineer option */}
             {showPlatformEngineer && (
               <button
-                onClick={() => handleSelectAgent(undefined)}
+                onClick={() => handleSelectAgent(null)}
                 className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">

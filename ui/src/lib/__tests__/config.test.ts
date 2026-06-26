@@ -73,7 +73,7 @@ describe('getServerConfig', () => {
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
         'ACTION_AUDIT_ENABLED',
-        'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+        'SCHEDULE_EDITOR_AGENT_ID', 'DEFAULT_AGENT_ID',
         'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
         'CAIPE_UNSAFE_RBAC_BYPASS',
         'POD_OWNER_MIGRATION_ENABLED',
@@ -115,8 +115,7 @@ describe('getServerConfig', () => {
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.podOwnerMigrationEnabled).toBe(true);
       expect(cfg.auditLogBackend).toBe('service');
-      expect(cfg.defaultNewChatAgentId).toBeNull();
-      expect(cfg.scheduleEditorAgentId).toBeNull();
+      expect(cfg.scheduleEditorAgentId).toBe('');
       expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
@@ -159,8 +158,7 @@ describe('getServerConfig', () => {
         'podOwnerMigrationEnabled',
         'auditLogBackend',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-        'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
-        'scheduleEditorAgentId',
+        'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'scheduleEditorAgentId',
         'reportProblemEnabled',
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
@@ -217,20 +215,14 @@ describe('getServerConfig', () => {
       expect(getServerConfig().appName).toBe('Grid');
     });
 
-    it('should read DEFAULT_NEW_CHAT_AGENT_ID', () => {
-      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
-      expect(getServerConfig().defaultNewChatAgentId).toBe('agent-sunny-webex-meeting-test');
-    });
-
-    it('should default SCHEDULE_EDITOR_AGENT_ID to DEFAULT_NEW_CHAT_AGENT_ID', () => {
-      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
-      expect(getServerConfig().scheduleEditorAgentId).toBe('agent-sunny-webex-meeting-test');
-    });
-
     it('should read SCHEDULE_EDITOR_AGENT_ID', () => {
-      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
       process.env.SCHEDULE_EDITOR_AGENT_ID = 'agent-scheduled-job-editor';
       expect(getServerConfig().scheduleEditorAgentId).toBe('agent-scheduled-job-editor');
+    });
+
+    it('should default SCHEDULE_EDITOR_AGENT_ID to DEFAULT_AGENT_ID', () => {
+      process.env.DEFAULT_AGENT_ID = 'agent-platform-default';
+      expect(getServerConfig().scheduleEditorAgentId).toBe('agent-platform-default');
     });
 
     it('should read LOGO_URL', () => {
@@ -999,7 +991,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'auditLogBackend',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
-      'defaultNewChatAgentId', 'scheduleEditorAgentId',
+      'scheduleEditorAgentId',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
@@ -1302,7 +1294,7 @@ describe('edge cases', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
-        'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+        'SCHEDULE_EDITOR_AGENT_ID', 'DEFAULT_AGENT_ID',
         'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
       );
       delete process.env.MONGODB_URI;
@@ -1397,7 +1389,7 @@ describe('end-to-end: layout injection → client read', () => {
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
       'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
       'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
-      'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+      'SCHEDULE_EDITOR_AGENT_ID', 'DEFAULT_AGENT_ID',
       'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
     );
     delete process.env.MONGODB_URI;

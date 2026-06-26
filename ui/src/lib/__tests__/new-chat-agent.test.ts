@@ -2,48 +2,39 @@
  * @jest-environment jsdom
  */
 
-import { getDefaultNewChatAgentId, resolveNewConversationAgentId } from "../new-chat-agent";
+import { resolveNewConversationAgentId } from "../new-chat-agent";
 
 describe("new chat agent resolution", () => {
+  const mockFetch = global.fetch as jest.Mock;
+
   beforeEach(() => {
+    jest.clearAllMocks();
     delete (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__;
+    mockFetch.mockResolvedValue({
+      json: async () => ({ success: true, data: { default_agent_id: null } }),
+    });
   });
 
-  it("uses DEFAULT_NEW_CHAT_AGENT_ID when no agent id is provided", () => {
-    (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
-      dynamicAgentsEnabled: true,
-      defaultNewChatAgentId: "agent-sunny-webex-meeting-test",
-    };
+  it("uses the platform-config default when no agent id is provided", async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ success: true, data: { default_agent_id: "agent-platform-default" } }),
+    });
 
-    expect(getDefaultNewChatAgentId()).toBe("agent-sunny-webex-meeting-test");
-    expect(resolveNewConversationAgentId()).toBe("agent-sunny-webex-meeting-test");
+    await expect(resolveNewConversationAgentId()).resolves.toBe("agent-platform-default");
+    expect(mockFetch).toHaveBeenCalledWith("/api/admin/platform-config");
   });
 
-  it("does not use the default when dynamic agents are disabled", () => {
-    (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
-      dynamicAgentsEnabled: false,
-      defaultNewChatAgentId: "agent-sunny-webex-meeting-test",
-    };
-
-    expect(getDefaultNewChatAgentId()).toBeUndefined();
-    expect(resolveNewConversationAgentId()).toBeUndefined();
+  it("falls back to supervisor when no platform default is configured", async () => {
+    await expect(resolveNewConversationAgentId()).resolves.toBeUndefined();
   });
 
-  it("preserves explicit agent selection", () => {
-    (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
-      dynamicAgentsEnabled: true,
-      defaultNewChatAgentId: "agent-sunny-webex-meeting-test",
-    };
-
-    expect(resolveNewConversationAgentId("agent-other")).toBe("agent-other");
+  it("preserves explicit agent selection", async () => {
+    await expect(resolveNewConversationAgentId("agent-other")).resolves.toBe("agent-other");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("treats null as explicit Platform Engineer selection", () => {
-    (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
-      dynamicAgentsEnabled: true,
-      defaultNewChatAgentId: "agent-sunny-webex-meeting-test",
-    };
-
-    expect(resolveNewConversationAgentId(null)).toBeUndefined();
+  it("treats null as explicit Platform Engineer selection", async () => {
+    await expect(resolveNewConversationAgentId(null)).resolves.toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
