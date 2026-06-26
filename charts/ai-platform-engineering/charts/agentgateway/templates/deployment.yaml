@@ -144,9 +144,6 @@ spec:
               value: {{ $cb.pollSeconds | default 5 | quote }}
             - name: AGENTGATEWAY_TARGETS_URL
               value: {{ (($cb.ui).url) | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
-            {{- if and (not ((($cb.ui).existingSecret).name)) (not ((($cb.ui).externalSecret).enabled)) }}
-            {{- fail "configBridge.ui.existingSecret.name is required when configBridge is enabled.\nSet existingSecret.name or use externalSecret for ESO.\nExample: kubectl create secret generic <name> --from-literal=AGENTGATEWAY_TARGETS_TOKEN=$(openssl rand -base64 32)" }}
-            {{- end }}
             {{- $cbTokenSecretName := (($cb.ui).existingSecret).name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
             {{- $cbTokenSecretKey := (($cb.ui).existingSecret).key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
             - name: AGENTGATEWAY_TARGETS_TOKEN
