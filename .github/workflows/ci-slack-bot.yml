@@ -22,7 +22,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -54,6 +53,7 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: read
 
       - name: Determine Tag
         id: version
@@ -150,6 +150,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
       - name: Install dependencies and run tests
         run: |
           cd ai_platform_engineering/integrations/slack_bot
@@ -184,6 +186,7 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -248,6 +251,7 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: 📦 Install crane
         run: |
@@ -258,8 +262,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REGISTRY_USER: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -365,11 +370,13 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: 🔔 Notify release finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           BUILD_RESULT="${{ needs.build-and-push.result }}"
           RETAG_RESULT="${{ needs.retag-unchanged.result }}"
@@ -390,7 +397,7 @@ jobs:
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$WORKFLOW_NAME",
               "conclusion": "$CONCLUSION"
             }
           }

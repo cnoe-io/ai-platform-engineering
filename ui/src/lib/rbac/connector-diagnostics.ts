@@ -119,7 +119,7 @@ async function latestRuntimeError(
   const resourceRef = adapter.auditResourceRef(workspaceId, itemId);
   try {
     const until = new Date();
-    const since = new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
     const rows = await getAuditReader().query({
       since,
       until,

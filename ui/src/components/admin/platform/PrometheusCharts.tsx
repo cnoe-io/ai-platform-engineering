@@ -123,66 +123,6 @@ export function MetricStatCard({
 }
 
 // ────────────────────────────────────────────────────────────────
-// ActiveAgentsCard — shows count + names of enabled agents
-// ────────────────────────────────────────────────────────────────
-
-export function ActiveAgentsCard({
-  refreshInterval = 30_000,
-  className,
-}: {
-  refreshInterval?: number;
-  className?: string;
-}) {
-  const { data, loading, error, configured } = usePrometheusQuery({
-    query: "enabled_subagents == 1",
-    refreshInterval,
-  });
-
-  const agents = useMemo(() => {
-    if (!data) return [];
-    return data
-      .filter((m) => parseFloat(m.value?.[1] || "0") === 1)
-      .map((m) => m.metric.agent_name || "unknown")
-      .sort();
-  }, [data]);
-
-  return (
-    <Card className={className}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">Active Agents</CardTitle>
-        <Loader2 className={cn(
-          "h-4 w-4 text-muted-foreground",
-          loading ? "animate-spin" : "hidden",
-        )} />
-      </CardHeader>
-      <CardContent>
-        {!configured ? (
-          <p className="text-sm text-muted-foreground">Not configured</p>
-        ) : error ? (
-          <p className="text-sm text-destructive truncate" title={error}>—</p>
-        ) : (
-          <>
-            <div className="text-2xl font-bold">{agents.length}</div>
-            {agents.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {agents.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400"
-                  >
-                    {name}
-                  </span>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────
 // TimeseriesChart — line/area chart for range queries
 // ────────────────────────────────────────────────────────────────
 

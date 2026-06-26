@@ -15,7 +15,7 @@ import { NextRequest,NextResponse } from "next/server";
  * GET /api/catalog-api-keys — list metadata for caller’s catalog API keys.
  * POST /api/catalog-api-keys — mint a new key (one-time full key in response).
  *
- * Implemented in the BFF (Mongo `catalog_api_keys`); no supervisor proxy.
+ * Implemented in the BFF (Mongo `catalog_api_keys`).
  */
 
 export const GET = withErrorHandler(async (request: NextRequest) => {

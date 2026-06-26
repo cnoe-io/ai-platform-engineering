@@ -30,17 +30,20 @@ jobs:
         with:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: Checkout repository (full history)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Determine version
         id: versions
+        env:
+          NEW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: |
-          NEW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
           NEW_VERSION="${NEW_VERSION#v}"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $NEW_VERSION"
@@ -49,6 +52,7 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 'lts/*'
+          package-manager-cache: false
 
       - name: Update published-versions.json
         env:

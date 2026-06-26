@@ -106,37 +106,21 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          # Supervisor / main agent
-          - ai-platform-engineering
           # UI
           - caipe-ui
           # Dynamic agents runtime
           - caipe-dynamic-agents
           # Bots
           - caipe-slack-bot
+          - caipe-webex-bot
           # RAG components
           - caipe-rag-agent-ontology
           - caipe-rag-server
           - caipe-rag-ingestors
-          # A2A sub-agents
-          - agent-argocd
-          - agent-aws
-          - agent-backstage
-          - agent-confluence
-          - agent-github
-          - agent-gitlab
-          - agent-jira
-          - agent-komodor
-          - agent-netutils
-          - agent-pagerduty
-          - agent-slack
-          - agent-splunk
-          - agent-template
-          - agent-victorops
-          - agent-webex
-          - agent-weather
-          # MCP sub-agents
+          # Per-tool MCP servers (canonical mcp_agents from .github/agents.json).
+          # github has no local image — uses external ghcr.io/github/github-mcp-server.
           - mcp-argocd
+          - mcp-aws
           - mcp-backstage
           - mcp-confluence
           - mcp-jira

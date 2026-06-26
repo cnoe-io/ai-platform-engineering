@@ -539,12 +539,7 @@ describe('GET /api/chat/conversations — public conversations', () => {
     GET = mod.GET;
   });
 
-  // Spec 098-enterprise-rbac removed the per-user `$or` (owner_id /
-  // sharing.shared_with / sharing.is_public) from
-  // `/api/chat/conversations`. Visibility is now decided by the ReBAC
-  // post-filter (`filterConversationsByImplicitOrExplicitPermission`),
-  // so the Mongo query no longer references legacy sharing fields.
-  it('does NOT include legacy is_public/sharing predicates in the Mongo query', async () => {
+  it('prefilters owned and explicitly shared/public candidates before ReBAC', async () => {
     mockGetServerSession.mockResolvedValue(userSession(VIEWER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -563,9 +558,16 @@ describe('GET /api/chat/conversations — public conversations', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const serialized = JSON.stringify(findCall);
-    expect(serialized).not.toContain('sharing.is_public');
-    expect(serialized).not.toContain('sharing.shared_with');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      {
+        $or: [
+          { owner_id: VIEWER_EMAIL },
+          { 'sharing.is_public': true },
+          { 'sharing.shared_with': VIEWER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      },
+    ]));
   });
 
   it('keeps a stable $and query regardless of caller identity', async () => {
@@ -588,7 +590,14 @@ describe('GET /api/chat/conversations — public conversations', () => {
 
     const findCall = convsCol.find.mock.calls[0][0];
     expect(findCall.$and).toBeDefined();
-    expect(JSON.stringify(findCall)).not.toContain('sharing.is_public');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: expect.arrayContaining([
+          { 'sharing.is_public': true },
+          { 'sharing.shared_with': VIEWER_EMAIL },
+        ]),
+      }),
+    ]));
   });
 });
 

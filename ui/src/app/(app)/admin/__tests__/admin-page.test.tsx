@@ -145,9 +145,6 @@ jest.mock('@/components/admin/security/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 
-jest.mock('@/components/admin/PermissionsToolTab', () => ({
-  PermissionsToolTab: () => <div data-testid="permissions-tool-tab">PermissionsToolTab</div>,
-}));
 
 jest.mock('@/components/admin/teams/CreateTeamDialog', () => ({
   CreateTeamDialog: () => null,
@@ -681,7 +678,7 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('orders Security & Policy tabs with RBAC Audit second and Permissions Tool as default', async () => {
+    it('orders Security & Policy tabs with RBAC Audit as default and no Permissions Tool', async () => {
       currentSearchParams = new URLSearchParams('cat=security');
 
       render(<AdminPage />);
@@ -692,19 +689,17 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByText('Security & Policy'));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Permissions Tool',
         'RBAC Audit',
-        'OpenFGA ReBAC',
+        'Policy Graph',
         'Chat Audit',
         'Keycloak',
         'Migrations',
       ]);
-      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^RBAC Audit$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByRole('tab', { name: /^RBAC Audit$/i })).toBeInTheDocument();
-      expect(screen.queryByRole('tab', { name: /^Policy$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^Permissions Tool$/i })).not.toBeInTheDocument();
     });
 
     it('does not show Keycloak role badges for listed users', async () => {
@@ -752,7 +747,6 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'Release notes',
         'AI Review',
         'Credentials',
         'Knowledge Bases',
@@ -760,7 +754,8 @@ describe('Admin Dashboard Page', () => {
         'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /release notes/i })).toBeInTheDocument();
+      // Release notes lives under General, not as a standalone tab.
+      expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /knowledge bases/i })).toBeInTheDocument();
@@ -838,26 +833,26 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('opens the Release notes settings tab from the query string', async () => {
+    it('falls back to the General settings tab for the removed release-notes tab', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=release-notes');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Release notes$/i })).toHaveAttribute(
+      // An unknown tab value falls through to the first visible Settings tab
+      // (General), which renders both the platform settings and the release
+      // notes preference/config sections.
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
+      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(screen.getByTestId('release-notes-settings-tab')).toBeInTheDocument();
-      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
-        scroll: false,
-      });
     });
 
     it.each([
       ['settings', 'settings', /^General$/i],
-      ['settings', 'release-notes', /^Release notes$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'rag-access', /^Knowledge Bases$/i],
       ['settings', 'skills', /^Skills$/i],
@@ -869,7 +864,7 @@ describe('Admin Dashboard Page', () => {
       ['insights', 'feedback', /^Feedback$/i],
       ['platform', 'metrics', /^Metrics$/i],
       ['platform', 'health', /^Health$/i],
-      ['security', 'openfga', /^OpenFGA ReBAC$/i],
+      ['security', 'openfga', /^Policy Graph$/i],
       ['security', 'keycloak', /^Keycloak$/i],
       ['security', 'action-audit', /^RBAC Audit$/i],
       ['security', 'audit-logs', /^Chat Audit$/i],
@@ -985,7 +980,7 @@ describe('Admin Dashboard Page', () => {
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /openfga rebac/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Policy Graph$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );

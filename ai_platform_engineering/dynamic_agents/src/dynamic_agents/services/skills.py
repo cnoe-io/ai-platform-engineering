@@ -61,9 +61,8 @@ def _load_agent_skills(
     excluded; ``unscanned`` skills are excluded only under
     ``SKILL_SCANNER_GATE=strict`` (the default is ``warn`` so
     deployments without the optional skill-scanner sidecar still
-    load skills). This keeps dynamic agents in lockstep with the
-    supervisor catalog policy so a flagged skill cannot be ingested
-    via either path.
+    load skills). This applies the shared skill-catalog scan-gate
+    policy so a flagged skill cannot be ingested.
     """
     if not skill_ids:
         return [], set()

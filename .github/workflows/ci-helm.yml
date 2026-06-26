@@ -28,12 +28,14 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   publish-release-helm:
     name: Publish Tagged Helm Charts
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       is_final_release: ${{ steps.tag.outputs.is_final_release }}
       tag_version: ${{ steps.tag.outputs.tag_version }}
@@ -41,11 +43,15 @@ jobs:
     steps:
       - name: Resolve tag
         id: tag
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG_VERSION: ${{ inputs.tag_version }}
+          GH_REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG_VERSION="${{ inputs.tag_version }}"
+          if [[ "$GH_EVENT_NAME" == "workflow_dispatch" ]]; then
+            TAG_VERSION="$INPUT_TAG_VERSION"
           else
-            TAG_VERSION="${{ github.ref_name }}"
+            TAG_VERSION="$GH_REF_NAME"
           fi
 
           if [[ -z "$TAG_VERSION" ]]; then
@@ -147,11 +153,15 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: Login to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GH_ACTOR" --password-stdin
 
       - name: Write local chart version normalizer
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
@@ -371,13 +381,17 @@ jobs:
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: Notify release finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.publish-release-helm.outputs.tag_version }}
+          PUBLISH_RESULT: ${{ needs.publish-release-helm.result }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_WORKFLOW: ${{ github.workflow }}
         run: |
-          RESULT="${{ needs.publish-release-helm.result }}"
+          RESULT="$PUBLISH_RESULT"
           if [[ "$RESULT" == "success" ]]; then
             CONCLUSION="success"
           else
@@ -386,12 +400,12 @@ jobs:
 
           echo "Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api --method POST "/repos/${GH_REPOSITORY}/dispatches" --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$GH_WORKFLOW",
               "conclusion": "$CONCLUSION"
             }
           }

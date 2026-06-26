@@ -1,7 +1,7 @@
 "use client";
 
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { useWorkflowConfigStore } from "@/store/workflow-config-store";

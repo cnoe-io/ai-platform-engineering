@@ -97,11 +97,11 @@ def _load_builtin_scan_index() -> dict[str, str]:
     The UI-side scanner ("Scan all skills" / per-template "Scan now")
     persists its results into ``builtin_skill_scans`` keyed by the
     loader's template id (frontmatter ``name`` || dirname). We need
-    the same map here so the supervisor honours those results when
+    the same map here so the catalog honours those results when
     deciding whether to serve a packaged skill.
 
     Best-effort: returns an empty dict on any error so a Mongo outage
-    can't take down the supervisor catalog.
+    can't take down the skill catalog.
     """
     try:
         from ai_platform_engineering.utils.mongodb_client import get_mongodb_client
@@ -173,7 +173,7 @@ def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
             if is_skill_blocked(skill):
                 blocked += 1
                 logger.info(
-                    "Excluding built-in skill %r from supervisor catalog (scan_status=%r)",
+                    "Excluding built-in skill %r from skill catalog (scan_status=%r)",
                     skill["id"],
                     skill["scan_status"],
                 )
@@ -200,7 +200,7 @@ def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
             if is_skill_blocked(skill):
                 blocked += 1
                 logger.info(
-                    "Excluding built-in skill %r from supervisor catalog (scan_status=%r)",
+                    "Excluding built-in skill %r from skill catalog (scan_status=%r)",
                     skill["id"],
                     skill["scan_status"],
                 )
@@ -211,7 +211,7 @@ def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
 
     if blocked:
         logger.warning(
-            "Scan gate excluded %d built-in skills from supervisor catalog", blocked
+            "Scan gate excluded %d built-in skills from skill catalog", blocked
         )
     logger.info("Loaded %d default skills from %s", len(skills), skills_dir)
     return skills

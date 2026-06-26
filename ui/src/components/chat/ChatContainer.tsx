@@ -1,13 +1,12 @@
 "use client";
 
 import { ChatView } from "@/components/chat/DynamicAgentChatView";
-import { SupervisorChatView } from "@/components/chat/PlatformEngineerChatView";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
-import type { Conversation as LocalConversation } from "@/types/a2a";
+import type { Conversation as LocalConversation, ConversationAccessLevel } from "@/types/a2a";
 import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import type { Conversation } from "@/types/mongodb";
@@ -35,7 +34,7 @@ export function ChatContainer() {
   const [agentNotFound, setAgentNotFound] = useState(false);
 
   // Only subscribe to stable functions — NOT to `conversations`.
-  const { setActiveConversation, loadMessagesFromServer, loadTurnsFromServer } = useChatStore();
+  const { setActiveConversation, loadMessagesFromServer } = useChatStore();
 
   // Subscribe reactively to agent participant for this conversation.
   const selectedAgentId = useChatStore(
@@ -46,20 +45,13 @@ export function ChatContainer() {
     }
   );
 
-  const caipeUrl = getConfig('caipeUrl');
   const dynamicAgentsUrl = getConfig('dynamicAgentsUrl');
-  const dynamicAgentsEnabled = getConfig('dynamicAgentsEnabled');
 
-  // Compute the endpoint based on selected agent
+  // Compute the dynamic-agent chat endpoint for the selected agent.
   const chatEndpoint = useMemo(() => {
-    if (selectedAgentId && dynamicAgentsEnabled) {
-      return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
-    }
-    // Platform Engineer (Supervisor): A2A JSON-RPC endpoint at root path.
-    // The A2A SDK sends "message/stream" as the JSON-RPC method in the body,
-    // not as a URL path segment.
-    return caipeUrl;
-  }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
+    if (!selectedAgentId) return '';
+    return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
+  }, [selectedAgentId, dynamicAgentsUrl]);
 
   const storageMode = getStorageMode();
 
@@ -81,7 +73,7 @@ export function ChatContainer() {
   const existingHasMessages = !!(existingConv?.messages && existingConv.messages.length > 0);
 
   const [conversation, setConversation] = useState<Conversation | LocalConversation | null>(existingConv || null);
-  const [accessLevel, setAccessLevel] = useState<string | null>(null);
+  const [accessLevel, setAccessLevel] = useState<ConversationAccessLevel | null>(existingConv?.accessLevel ?? null);
   const [fetchInProgress, setFetchInProgress] = useState(
     storageMode === 'mongodb' && !existingHasMessages
   );
@@ -133,7 +125,9 @@ export function ChatContainer() {
         setActiveConversation(uuid);
 
         // Derive access level from store data
-        if (localConv.owner_id && session?.user?.email && localConv.owner_id !== session.user.email) {
+        if (localConv.accessLevel) {
+          setAccessLevel(localConv.accessLevel);
+        } else if (localConv.owner_id && session?.user?.email && localConv.owner_id !== session.user.email) {
           if (localConv.sharing?.is_public) {
             setAccessLevel('shared_readonly');
           } else if (localConv.sharing?.shared_with?.includes(session.user.email) ||
@@ -143,7 +137,6 @@ export function ChatContainer() {
         }
 
         const hasMessages = localConv.messages && localConv.messages.length > 0;
-        const isDA = isDynamicAgentConversation(localConv);
 
         if (hasMessages) {
           console.log("[ChatContainer] Found conversation in store with messages, loading instantly");
@@ -151,25 +144,14 @@ export function ChatContainer() {
           setFetchDone(true);
 
           if (storageMode === 'mongodb') {
-            // Dynamic Agents use the old messages path; Platform Engineer uses turns
-            if (isDA) {
-              loadMessagesFromServer(uuid).catch((err) => {
-                console.warn('[ChatContainer] Failed to sync messages from server:', err);
-              });
-            } else {
-              loadTurnsFromServer(uuid).catch((err) => {
-                console.warn('[ChatContainer] Failed to sync turns from server:', err);
-              });
-            }
+            loadMessagesFromServer(uuid).catch((err) => {
+              console.warn('[ChatContainer] Failed to sync messages from server:', err);
+            });
           }
         } else if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Found conversation in store but no messages, loading from MongoDB...");
           try {
-            if (isDA) {
-              await loadMessagesFromServer(uuid, { force: true });
-            } else {
-              await loadTurnsFromServer(uuid);
-            }
+            await loadMessagesFromServer(uuid, { force: true });
           } catch (err) {
             console.warn('[ChatContainer] Failed to load messages from server:', err);
           } finally {
@@ -189,9 +171,9 @@ export function ChatContainer() {
         if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Loading from MongoDB...");
           try {
-            const conv = await apiClient.getConversation(uuid);
-            if ((conv as any).access_level) {
-              setAccessLevel((conv as any).access_level);
+            const conv = await apiClient.getConversation(uuid) as Conversation & { access_level?: ConversationAccessLevel };
+            if (conv.access_level) {
+              setAccessLevel(conv.access_level);
             }
             const localConv: LocalConversation = {
               id: conv._id,
@@ -199,10 +181,13 @@ export function ChatContainer() {
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
               messages: [],
-
               streamEvents: [],
-              a2aEvents: [],
               participants: conv.participants || [],
+              // assisted-by Codex Codex-sonnet-4-6
+              // Direct-open shared chats may skip the list route; keep share metadata for sidebar badges.
+              owner_id: conv.owner_id,
+              accessLevel: conv.access_level,
+              sharing: conv.sharing,
             };
 
             useChatStore.setState((state) => ({
@@ -212,12 +197,7 @@ export function ChatContainer() {
             setConversation(localConv);
 
             try {
-              // Dynamic Agents use the old messages path; Platform Engineer uses turns
-              if (isDynamicAgentConversation(conv)) {
-                await loadMessagesFromServer(uuid);
-              } else {
-                await loadTurnsFromServer(uuid);
-              }
+              await loadMessagesFromServer(uuid);
             } catch (err) {
               console.warn('[ChatContainer] Failed to load messages from server:', err);
             }
@@ -241,7 +221,6 @@ export function ChatContainer() {
               updatedAt: new Date(),
               messages: [],
               streamEvents: [],
-              a2aEvents: [],
               participants: [],
             };
 
@@ -260,7 +239,6 @@ export function ChatContainer() {
             updatedAt: new Date(),
             messages: [],
             streamEvents: [],
-            a2aEvents: [],
             participants: [],
           };
 
@@ -279,7 +257,6 @@ export function ChatContainer() {
           updatedAt: new Date(),
           messages: [],
           streamEvents: [],
-          a2aEvents: [],
           participants: [],
         };
 
@@ -297,11 +274,11 @@ export function ChatContainer() {
 
     loadConversation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer, loadTurnsFromServer]);
+  }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
 
   // Fetch agent info when a dynamic agent is selected
   useEffect(() => {
-    if (!dynamicAgentsEnabled || !uuid) {
+    if (!uuid) {
       setAgentInfo(null);
       setAgentNotFound(false);
       return;
@@ -356,7 +333,7 @@ export function ChatContainer() {
     fetchAgentInfo();
     // Note: agentInfo in deps intentionally triggers re-fetch when agentInfo becomes null
     // (e.g., on page refresh or after navigating away and back)
-  }, [uuid, selectedAgentId, dynamicAgentsEnabled, agentInfo]);
+  }, [uuid, selectedAgentId, agentInfo]);
 
   // If no uuid, render nothing (this is the /chat redirect page case)
   if (!uuid) {
@@ -400,7 +377,28 @@ export function ChatContainer() {
   // having no messages is legitimate (e.g., messages were deleted) — not a loading state.
   const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && !fetchDone && conversation?.title !== "New Conversation");
 
-  return selectedAgentId && dynamicAgentsEnabled ? (
+  // Every conversation is bound to a dynamic agent. If somehow none is selected
+  // (e.g. a legacy conversation with no agent participant), prompt the user to
+  // pick one rather than falling back to a default chat surface.
+  if (!selectedAgentId) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            This conversation isn’t linked to an agent. Select an agent to start chatting.
+          </p>
+          <button
+            onClick={() => router.push("/chat")}
+            className="text-sm text-primary hover:underline"
+          >
+            Start a new conversation
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
     <ChatView
       endpoint={chatEndpoint}
       conversationId={uuid}
@@ -412,15 +410,6 @@ export function ChatContainer() {
       readOnlyReason={readOnlyReason}
       adminOrigin={adminOrigin}
       isLoadingMessages={isLoadingMessages}
-    />
-  ) : (
-    <SupervisorChatView
-      endpoint={chatEndpoint}
-      conversationId={uuid}
-      conversationTitle={conversationTitle}
-      readOnly={isReadOnly}
-      readOnlyReason={readOnlyReason}
-      adminOrigin={adminOrigin}
     />
   );
 }

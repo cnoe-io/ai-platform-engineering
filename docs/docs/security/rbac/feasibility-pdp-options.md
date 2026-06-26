@@ -78,12 +78,12 @@ Evaluate **policies as code** against arbitrary input documents. Far more flexib
 | Approach | Notable for |
 |---|---|
 | **Keep inline rules on AGW only** | Rejected for the current branch. Relationship-shaped grants now live in OpenFGA so the Admin UI can answer and explain "who has access to X?". |
-| **Use Keycloak Authorization Services (UMA) more** | Already in production for management-plane checks (Web UI backend, supervisor, MCP middleware, slack bot — see `ai_platform_engineering/utils/auth/keycloak_authz.py`). Could be extended to AGW via ext_authz at the cost of latency and Keycloak-on-hot-path coupling. See [Why we don't use Keycloak's PDP for AGW today](#why-we-dont-use-keycloaks-pdp-for-agw-today) below. |
+| **Use Keycloak Authorization Services (UMA) more** | Already in production for management-plane checks (Web UI backend, MCP middleware, Slack bot — see `ai_platform_engineering/utils/auth/keycloak_authz.py`). Could be extended to AGW via ext_authz at the cost of latency and Keycloak-on-hot-path coupling. See [Why we don't use Keycloak's PDP for AGW today](#why-we-dont-use-keycloaks-pdp-for-agw-today) below. |
 | **Roll your own** | The "small RBAC service we'll build in 2 weeks" is the most-rewritten artifact in the industry. Don't. |
 
 ### Why we don't use Keycloak's PDP for AGW today
 
-Keycloak ships its own PDP (Keycloak Authorization Services, UMA 2.0). It's already on the management plane: `require_rbac_permission()` in `ai_platform_engineering/utils/auth/keycloak_authz.py` calls Keycloak's `/realms/<r>/protocol/openid-connect/token` endpoint with `grant_type=urn:ietf:params:oauth:grant-type:uma-ticket` for every Web UI backend/supervisor/MCP-middleware permission check. The data plane now uses OpenFGA behind AgentGateway `ext_authz`; Keycloak UMA remains off the hot path.
+Keycloak ships its own PDP (Keycloak Authorization Services, UMA 2.0). It's already on the management plane: `require_rbac_permission()` in `ai_platform_engineering/utils/auth/keycloak_authz.py` calls Keycloak's `/realms/<r>/protocol/openid-connect/token` endpoint with `grant_type=urn:ietf:params:oauth:grant-type:uma-ticket` for Web UI backend, MCP middleware, and bot permission checks. The data plane now uses OpenFGA behind AgentGateway `ext_authz`; Keycloak UMA remains off the hot path.
 
 We **don't** put Keycloak's PDP on AGW's data plane for three reasons:
 
@@ -154,7 +154,7 @@ Pick **OPA**. The investment in Rego pays off across many policy domains beyond 
 ### Current decision
 
 OpenFGA is now the selected data-plane PDP for AgentGateway. Keycloak
-Authorization Services remains the management-plane PDP for Web UI backend, supervisor,
+Authorization Services remains the management-plane PDP for Web UI backend,
 MCP middleware, and Slack bot checks. Do not reintroduce a separate AG MCP
 policy CRUD surface; model gateway access as OpenFGA tuples and let AG call the
 bridge through `ext_authz`.

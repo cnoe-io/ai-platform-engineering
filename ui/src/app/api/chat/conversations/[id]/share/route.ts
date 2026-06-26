@@ -4,6 +4,7 @@
 
 import {
 ApiError,
+requireConversationAccess,
 successResponse,
 validateEmail,
 validateUUID,
@@ -12,9 +13,109 @@ withErrorHandler
 } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
+import { writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import type { Conversation,ShareConversationRequest,SharingAccess } from '@/types/mongodb';
 import { ObjectId } from 'mongodb';
 import { NextRequest } from 'next/server';
+
+type SharePermission = 'view' | 'comment';
+
+interface TeamShareDocument {
+  _id?: unknown;
+  slug?: string;
+  name?: string;
+}
+
+interface ResolvedTeamShare {
+  shareRef: string;
+  subjectRef: string;
+  aliases: string[];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function teamLookupFilter(teamRef: string): Record<string, unknown> {
+  const clauses: Record<string, unknown>[] = [
+    { slug: teamRef },
+    { _id: teamRef },
+  ];
+  if (ObjectId.isValid(teamRef)) {
+    clauses.push({ _id: new ObjectId(teamRef) });
+  }
+  return { $or: clauses };
+}
+
+async function resolveTeamShares(teamRefs: string[]): Promise<ResolvedTeamShare[]> {
+  const teams = await getCollection<TeamShareDocument>('teams');
+  const resolved: ResolvedTeamShare[] = [];
+
+  for (const rawRef of uniqueStrings(teamRefs)) {
+    const team = await teams.findOne(teamLookupFilter(rawRef));
+    if (!team) {
+      throw new ApiError(`Team not found: ${rawRef}`, 404);
+    }
+
+    const id = team._id !== undefined && team._id !== null ? String(team._id) : rawRef;
+    const slug = typeof team.slug === 'string' ? team.slug.trim() : '';
+    // assisted-by Codex Codex-sonnet-4-6
+    // Store canonical slugs for new team shares, while accepting legacy Mongo _id refs.
+    const shareRef = slug || id;
+
+    resolved.push({
+      shareRef,
+      subjectRef: slug || id,
+      aliases: uniqueStrings([rawRef, id, slug]),
+    });
+  }
+
+  return resolved;
+}
+
+function canonicalizeSharedTeamRefs(existingRefs: string[], resolvedTeams: ResolvedTeamShare[]): string[] {
+  const next: string[] = [];
+  for (const existingRef of existingRefs) {
+    const ref = String(existingRef).trim();
+    if (!ref) continue;
+    const resolved = resolvedTeams.find((team) => team.aliases.includes(ref));
+    next.push(resolved?.shareRef ?? ref);
+  }
+  next.push(...resolvedTeams.map((team) => team.shareRef));
+  return uniqueStrings(next);
+}
+
+function mergeTeamPermissions(
+  existing: Record<string, SharePermission> | undefined,
+  resolvedTeams: ResolvedTeamShare[],
+  permission: SharePermission,
+): Record<string, SharePermission> {
+  const next: Record<string, SharePermission> = {};
+  for (const [ref, value] of Object.entries(existing || {})) {
+    const resolved = resolvedTeams.find((team) => team.aliases.includes(ref));
+    next[resolved?.shareRef ?? ref] = value;
+  }
+  for (const team of resolvedTeams) {
+    next[team.shareRef] = permission;
+  }
+  return next;
+}
+
+function teamConversationGrantTuples(
+  conversationId: string,
+  resolvedTeams: ResolvedTeamShare[],
+  permission: SharePermission,
+): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const team of resolvedTeams) {
+    const user = `team:${team.subjectRef}#member`;
+    tuples.push({ user, relation: 'reader', object: `conversation:${conversationId}` });
+    if (permission === 'comment') {
+      tuples.push({ user, relation: 'writer', object: `conversation:${conversationId}` });
+    }
+  }
+  return tuples;
+}
 
 // GET /api/chat/conversations/[id]/share
 export const GET = withErrorHandler(async (
@@ -29,14 +130,12 @@ export const GET = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
-    const conversations = await getCollection<Conversation>('conversations');
-    const conversation = await conversations.findOne({ _id: conversationId });
-
-    if (!conversation) {
-      throw new ApiError('Conversation not found', 404);
-    }
-
-    await requireConversationResourcePermission(session, user.email, conversation, 'share');
+    const { conversation } = await requireConversationAccess(
+      conversationId,
+      user.email,
+      getCollection,
+      session,
+    );
 
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
     const accessList = await sharingAccess
@@ -77,6 +176,9 @@ export const POST = withErrorHandler(async (
 
     if ((hasUsers || hasTeams) && !body.permission) {
       throw new ApiError('permission is required when sharing with users or teams', 400);
+    }
+    if (body.permission && !['view', 'comment'].includes(body.permission)) {
+      throw new ApiError('permission must be "view" or "comment"', 400);
     }
 
     const conversations = await getCollection<Conversation>('conversations');
@@ -126,18 +228,8 @@ export const POST = withErrorHandler(async (
 
     // Handle team sharing
     if (body.team_ids && body.team_ids.length > 0) {
-      // Validate team IDs exist
-      const teams = await getCollection('teams');
-      for (const teamId of body.team_ids) {
-        // Convert string teamId to ObjectId for MongoDB query
-        if (!ObjectId.isValid(teamId)) {
-          throw new ApiError(`Invalid team ID format: ${teamId}`, 400);
-        }
-        const team = await teams.findOne({ _id: new ObjectId(teamId) });
-        if (!team) {
-          throw new ApiError(`Team not found: ${teamId}`, 404);
-        }
-      }
+      const resolvedTeams = await resolveTeamShares(body.team_ids);
+      const permission = body.permission as SharePermission;
 
       // Initialize sharing object if it doesn't exist
       if (!conversation.sharing) {
@@ -146,15 +238,23 @@ export const POST = withErrorHandler(async (
 
       // Update conversation shared_with_teams
       const existingSharedWithTeams = conversation.sharing?.shared_with_teams || [];
-      update['sharing.shared_with_teams'] = [...new Set([...existingSharedWithTeams, ...body.team_ids])];
+      update['sharing.shared_with_teams'] = canonicalizeSharedTeamRefs(existingSharedWithTeams, resolvedTeams);
 
       // Store per-team permission
-      const existingTeamPerms = conversation.sharing?.team_permissions || {};
-      const newTeamPerms = { ...existingTeamPerms };
-      for (const teamId of body.team_ids) {
-        newTeamPerms[teamId] = body.permission;
+      update['sharing.team_permissions'] = mergeTeamPermissions(
+        conversation.sharing?.team_permissions,
+        resolvedTeams,
+        permission,
+      );
+
+      const grantTuples = teamConversationGrantTuples(conversationId, resolvedTeams, permission);
+      if (grantTuples.length > 0) {
+        try {
+          await writeOpenFgaTuples({ writes: grantTuples, deletes: [] });
+        } catch (err) {
+          console.warn('[chat/share] Team conversation grant write failed (best-effort):', err);
+        }
       }
-      update['sharing.team_permissions'] = newTeamPerms;
     }
 
     if (body.is_public !== undefined) {

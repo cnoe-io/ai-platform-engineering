@@ -106,7 +106,7 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
     if is_skill_blocked(doc):
       blocked += 1
       logger.info(
-        "Excluding agent_skill %r from supervisor catalog (scan_status=%r)",
+        "Excluding agent_skill %r from skill catalog (scan_status=%r)",
         name,
         doc.get("scan_status"),
       )
@@ -144,7 +144,7 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
 
   if blocked:
     logger.warning(
-      "Scan gate excluded %d agent_skills from supervisor catalog", blocked
+      "Scan gate excluded %d agent_skills from skill catalog", blocked
     )
   logger.info("Loaded %d skills from agent_skills", len(skills))
   return skills

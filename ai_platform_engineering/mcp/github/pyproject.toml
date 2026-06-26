@@ -1,0 +1,29 @@
+[project]
+name = "agent_github"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "GitHub agent metadata. The runtime uses the external ghcr.io/github/github-mcp-server MCP image; this directory has no local Python package."
+readme = "README.md"
+authors = [
+    { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
+]
+maintainers = [
+    { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
+]
+requires-python = ">=3.13,<4.0"
+dependencies = []
+
+[tool.ruff]
+# Allow lines to be as long as 140.
+line-length = 140
+# Number of spaces per indentation level
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+]
+ignore = ["F403"]

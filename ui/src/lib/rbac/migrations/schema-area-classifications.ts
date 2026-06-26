@@ -56,6 +56,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "migration",
     description: "Keycloak RBAC reconciliation migration target.",
   },
+  legacy_runtime_cleanup: {
+    classification: "migration",
+    description:
+      "Drops checkpoint collections and message metadata fields outside the current Dynamic Agents runtime contract. Not backed by a single collection — a virtual schema area tracked only by the migration framework.",
+  },
   llm_models: {
     classification: "baseline_v1",
     description: "LLM model configuration records.",

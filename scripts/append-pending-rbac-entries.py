@@ -53,8 +53,6 @@ PENDING: list[tuple[str, str, str, str, str]] = [
      "Legacy requireAdmin gate; TODO migrate (skill-hub crawler)"),
     ("POST", "/api/skills/refresh", "admin_ui", "admin",
      "Legacy requireAdmin gate; TODO migrate (skill cache refresh)"),
-    ("POST", "/api/task-configs/seed", "admin_ui", "admin",
-     "Legacy requireAdmin gate; TODO migrate (task-config seeding)"),
 ]
 
 

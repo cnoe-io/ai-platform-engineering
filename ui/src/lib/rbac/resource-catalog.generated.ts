@@ -8,7 +8,6 @@
 
 export const KEYCLOAK_RESOURCE_CATALOG = {
   admin_ui: { scopes: ["admin", "view"] as const },
-  supervisor: { scopes: ["invoke"] as const },
 } as const;
 
 export type KeycloakResourceName = keyof typeof KEYCLOAK_RESOURCE_CATALOG;

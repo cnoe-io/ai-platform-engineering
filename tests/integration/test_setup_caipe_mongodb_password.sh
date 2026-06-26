@@ -5,12 +5,8 @@
 # Unit test for the R2 randomization of the MongoDB root password
 # inside setup-caipe.sh.
 #
-# Before R2, setup-caipe.sh baked the literal password "changeme" into
-# four sites (helm install of bitnami/mongodb, plus the MONGODB_URI
-# written into the dynamic-agents / supervisor / caipe-ui ConfigMaps).
-# Every workshop install inherited the same password.
-#
-# R2 introduces _resolve_mongodb_password() which:
+# _resolve_mongodb_password() keeps setup-caipe.sh idempotent without
+# using a shared placeholder password. It:
 #   (1) reads an existing password from the `caipe-mongodb-credentials`
 #       Secret (so re-runs are idempotent), OR
 #   (2) generates a fresh `openssl rand -hex 24` value, AND

@@ -42,14 +42,11 @@ CAIPE is empowered by a set of specialized sub-agents that integrate seamlessly 
 Together, these sub-agents enable users to perform complex operations using agentic workflows by invoking relavant APIs using MCP tools. The system also includes:
 
 * **A curated prompt library**: A carefully evaluated collection of prompts designed for high accuracy and optimal workflow performance in multi-agent systems. These prompts guide persona agents (such as "Platform Engineer" or "Incident Engineer") using standardized instructions and questions, ensuring effective collaboration, incident response, platform operations, and knowledge sharing.
-* **Multiple End-user interfaces**: Easily invoke agentic workflows programmatically using standard A2A protocol or through intuitive UIs, enabling seamless integration with existing systems like Backstage (Internal Developer Portals).
+* **Multiple End-user interfaces**: Invoke agentic workflows programmatically through Dynamic Agents APIs or through intuitive UIs, enabling seamless integration with existing systems like Backstage (Internal Developer Portals).
 * **End-to-end security**: Secure agentic communication and task execution across all agents, ensuring API RBACs to meet enterprise requirements.
 * **Enterprise-ready cloud deployment architecture**: Reference deployment patterns for scalable, secure, and resilient multi-agent systems in cloud and hybrid environments
 
 *For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
-
-![](docs/docs/architecture/images/5_caipe-architecture-a2a-over-gateway.svg)
-
 
 ![](docs/docs/architecture/images/6_solution_architecture.svg)
 
@@ -70,7 +67,7 @@ Together, these sub-agents enable users to perform complex operations using agen
 
 ## 🚀 Quick Start with Docker Compose
 
-Run CAIPE locally with the OSS all-in-one stack:
+Run CAIPE locally with the OSS Docker Compose stack:
 
 ```bash
 # Clone the repository
@@ -85,15 +82,15 @@ cp .env.example .env
 docker compose up
 ```
 
-Access the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
+Access the UI at **http://localhost:3000** and the dynamic-agents API at **http://localhost:8100**.
 
 The default `.env.example` uses image tag `0.5.16` and enables this profile set:
 
 ```bash
-COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb
 ```
 
-That starts the supervisor in all-in-one mode, the MCP server containers, production UI, dynamic agents, local Keycloak/OpenFGA/AgentGateway RBAC, MongoDB, and RAG. Remote A2A sub-agent containers are not started by default.
+That starts the dynamic-agents runtime, the MCP server containers, production UI, local Keycloak/OpenFGA/AgentGateway RBAC, MongoDB, and RAG.
 
 Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or `webex-bot` only when you want those bot integrations.
 
@@ -115,40 +112,27 @@ docker compose --profile web_ingestor up
 docker compose -f docker-compose.dev.yaml up --build
 ```
 
-### Deployment Modes
+### Architecture
 
-CAIPE supports all-in-one, distributed, and hybrid supervisor modes:
-
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| **All-in-one** (default) | Supervisor runs agents in-process and connects to MCP server containers | OSS local deployments, VM deployments, demos |
-| **Distributed** | Supervisor orchestrates remote sub-agent containers via A2A | Scale-out testing and specialized deployments |
-| **Hybrid** | Only selected agents run remotely | Gradual migration or debugging |
-
-#### All-in-One Mode
-
-All-in-one mode leaves `DISTRIBUTED_AGENTS` empty and starts MCP servers instead of sub-agent containers:
+CAIPE runs a **dynamic-agents** runtime that drives user-defined agents, each
+backed by tools served from **per-tool MCP server** containers. The UI reaches
+the runtime server-side; chat streams (AG-UI/SSE) are proxied through the
+Next.js BFF. Enable the integrations you need via Docker Compose profiles (or
+the matching Helm `tags.mcp-*`); each enabled integration starts its own MCP
+server.
 
 ```bash
-# Image-based stack
+# Image-based stack (dynamic-agents + MCP servers + UI + RBAC + RAG + Mongo)
 docker compose up
 
-# Development mode — all-in-one (build from source)
+# Build from source
 docker compose -f docker-compose.dev.yaml up --build
 
-# Development mode — fully distributed (all agents as separate A2A containers)
-DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-agents up --build
-
-# Development mode — hybrid (only specific agents distributed)
-DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile argocd --profile github up --build
+# Start every MCP integration
+docker compose --profile all-agents up
 ```
 
-The supervisor mode is controlled by the `DISTRIBUTED_AGENTS` environment variable:
-- Empty (default): all agents run in-process via MCP (all-in-one)
-- `all`: all agents run as remote A2A containers (fully distributed)
-- Comma-separated list (e.g., `argocd,github`): only listed agents are remote (hybrid)
-
-##### All-in-One with RAG (Knowledge Base)
+#### RAG (Knowledge Base)
 
 RAG is included in the default profile set. Use `graph_rag` only when you also want Neo4j-backed graph relationships:
 
@@ -156,7 +140,7 @@ RAG is included in the default profile set. Use `graph_rag` only when you also w
 # Vector RAG, included by default
 docker compose up
 
-# All-in-one with full Graph RAG (includes Neo4j)
+# Full Graph RAG (includes Neo4j)
 docker compose --profile graph_rag up
 ```
 
@@ -179,31 +163,19 @@ curl -X POST http://localhost:9446/v1/datasources \
   -d '{"url": "https://cnoe-io.github.io/ai-platform-engineering/"}'
 ```
 
-The agent will automatically use the knowledge base when answering questions about ingested content.
-
-#### Distributed Mode
-
-Distributed mode runs a supervisor that orchestrates specialized sub-agents as separate services:
-
-```bash
-DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-agents up --build
-```
+Agents automatically use the knowledge base when answering questions about ingested content.
 
 ### Kubernetes Deployment
 
-For Kubernetes, use the Helm chart:
+For Kubernetes, use the Helm chart. Enable the UI, the dynamic-agents runtime,
+and one `tags.mcp-*` flag per integration you want (each deploys its own MCP
+server):
 
 ```bash
-# Multi-node mode (default) - deploys supervisor + sub-agents
 helm install caipe charts/ai-platform-engineering \
   --set tags.caipe-ui=true \
-  --set caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL="https://your-caipe-api.example.com"
-
-# Single-node mode - deploys single unified agent
-helm install caipe charts/ai-platform-engineering \
-  --set global.deploymentMode=single-node \
-  --set tags.caipe-ui=true \
-  --set caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL="https://your-caipe-api.example.com"
+  --set tags.dynamic-agents=true \
+  --set tags.mcp-netutils=true
 ```
 
 #### Pod Security Standards

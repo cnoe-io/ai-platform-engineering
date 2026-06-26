@@ -27,25 +27,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fa/4c/502dc34d0ee1f4b5f4bde7339fe91bc79d0f15de497cf6dc26bfb9f66b3a/a2a-0.44.tar.gz", hash = "sha256:16c483f670b4aadc381f53aa1e4922b05ff2b8a1de9b581c1cca2623c2ad6483", size = 2032, upload-time = "2020-08-04T08:10:04.094Z" }
 
 [[package]]
-name = "a2a-sdk"
-version = "0.2.16"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
-    { name = "pydantic" },
-    { name = "sse-starlette" },
-    { name = "starlette" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/3b/8fd1e3fe28606712c203b968a6fe2c8e7944b6df9e65c28976c66c19286c/a2a_sdk-0.2.16.tar.gz", hash = "sha256:d9638c71674183f32fe12f8865015e91a563a90a3aa9ed43020f1b23164862b3", size = 179006, upload-time = "2025-07-21T19:51:14.107Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/92/16bfbc2ef0ef037c5860ef3b13e482aeb1860b9643bf833ed522c995f639/a2a_sdk-0.2.16-py3-none-any.whl", hash = "sha256:54782eab3d0ad0d5842bfa07ff78d338ea836f1259ece51a825c53193c67c7d0", size = 103090, upload-time = "2025-07-21T19:51:12.613Z" },
-]
-
-[[package]]
 name = "aiofile"
 version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4277,7 +4258,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "a2a" },
-    { name = "a2a-sdk" },
     { name = "aiofile" },
     { name = "aiohttp" },
     { name = "aiohttp-retry" },
@@ -4334,7 +4314,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "a2a", specifier = "==0.44" },
-    { name = "a2a-sdk", specifier = "==0.2.16" },
     { name = "aiofile", specifier = "==3.9.0" },
     { name = "aiohttp", specifier = "==3.14.1" },
     { name = "aiohttp-retry", specifier = "==2.9.1" },

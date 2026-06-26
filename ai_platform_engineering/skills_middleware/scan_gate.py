@@ -3,9 +3,9 @@
 """Skill scan gating policy.
 
 Centralizes the rule for which skills are allowed to be served to the
-supervisor catalog and to dynamic agents. Used by every loader path
-(``load_default_skills``, ``load_agent_skills``, supervisor hub
-fetcher, ``dynamic_agents.services.skills.load_skills``) so the policy
+skill catalog and to dynamic agents. Used by every loader path
+(``load_default_skills``, ``load_agent_skills``, hub fetcher,
+``dynamic_agents.services.skills.load_skills``) so the policy
 can't drift between callers.
 
 Policy
