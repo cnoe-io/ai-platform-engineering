@@ -1,13 +1,14 @@
 "use client";
 
-// Read-only OpenFGA relationship graph.
+// OpenFGA relationship graph and repair utilities.
 //
 // This surface used to host four tabs (Tuples, Policy Graph editor, Manifest,
 // Default FGA Grants) plus drag-to-connect grant editing. All direct-editing
 // affordances were removed: grants are authored through Teams → resource
 // assignment (which reconciles tuples), and per-user/per-team access is read in
 // the Teams/Users workflows. What remains here is a visualization for seeing
-// how team → resource relationships and effective access resolve in OpenFGA.
+// how team → resource relationships and effective access resolve in OpenFGA,
+// plus targeted repair for agent allowed_tools caller tuples.
 
 import { memo, useCallback, useEffect, useState } from "react";
 import {
@@ -65,6 +66,44 @@ interface CatalogResponse {
     store_name: string;
   };
   teams: CatalogTeam[];
+}
+
+interface OpenFgaTupleKey {
+  user: string;
+  relation: string;
+  object: string;
+}
+
+interface AgentToolSyncAgent {
+  agent_id: string;
+  name: string;
+  config_driven: boolean;
+  enabled: boolean;
+  expected_tuples: number;
+  present_tuples: number;
+  missing_tuples: number;
+  errors: string[];
+}
+
+interface AgentToolSyncReport {
+  checked_at: string;
+  status: {
+    mongodb_configured: boolean;
+    openfga_configured: boolean;
+    reconcile_enabled: boolean;
+  };
+  counts: {
+    agents_scanned: number;
+    config_driven_agents: number;
+    expected_tuples: number;
+    present_tuples: number;
+    missing_tuples: number;
+    applied_tuples: number;
+    error_agents: number;
+  };
+  agents: AgentToolSyncAgent[];
+  missing_samples: OpenFgaTupleKey[];
+  applied_samples: OpenFgaTupleKey[];
 }
 
 interface GraphNode {
@@ -266,6 +305,8 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         </div>
       )}
 
+      <AgentToolSyncPanel disabled={!catalog?.status.reconcile_enabled} onRepaired={loadGraph} />
+
       <Card>
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -365,6 +406,155 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function AgentToolSyncPanel({
+  disabled,
+  onRepaired,
+}: {
+  disabled: boolean;
+  onRepaired: () => void | Promise<void>;
+}) {
+  const [report, setReport] = useState<AgentToolSyncReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [action, setAction] = useState<"check" | "apply" | null>(null);
+
+  const runSync = useCallback(
+    async (mode: "check" | "apply") => {
+      setAction(mode);
+      setError(null);
+      try {
+        const res = await fetch("/api/admin/openfga/agent-tool-sync", {
+          method: mode === "apply" ? "POST" : "GET",
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const message =
+            typeof payload?.error === "string"
+              ? payload.error
+              : typeof payload?.message === "string"
+                ? payload.message
+                : `OpenFGA agent tool sync failed: ${res.status}`;
+          throw new Error(message);
+        }
+        setReport(apiData<AgentToolSyncReport>(payload));
+        if (mode === "apply") {
+          void Promise.resolve(onRepaired()).catch(() => undefined);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "OpenFGA agent tool sync failed");
+      } finally {
+        setAction(null);
+      }
+    },
+    [onRepaired]
+  );
+
+  const agentsWithMissing = (report?.agents ?? [])
+    .filter((agent) => agent.missing_tuples > 0 || agent.errors.length > 0)
+    .slice(0, 5);
+  const canRepair = !disabled && action === null && (report?.counts.missing_tuples ?? 0) > 0;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <CardTitle>Agent Tool Grants</CardTitle>
+          <CardDescription>
+            Compare dynamic agent allowed tools with AgentGateway OpenFGA caller tuples.
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={action !== null}
+            onClick={() => runSync("check")}
+          >
+            {action === "check" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Check
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="gap-2"
+            disabled={!canRepair}
+            onClick={() => runSync("apply")}
+          >
+            {action === "apply" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+            Repair Missing
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4" />
+            {error}
+          </div>
+        )}
+        {!report ? (
+          <p className="text-sm text-muted-foreground">No sync check has run.</p>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-4">
+              <MetricCard label="Agents" value={report.counts.agents_scanned} />
+              <MetricCard label="Config-driven" value={report.counts.config_driven_agents} />
+              <MetricCard label="Missing tuples" value={report.counts.missing_tuples} />
+              <MetricCard label="Applied tuples" value={report.counts.applied_tuples} />
+            </div>
+            {(!report.status.mongodb_configured ||
+              !report.status.openfga_configured ||
+              !report.status.reconcile_enabled) && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+                <AlertCircle className="mt-0.5 h-4 w-4" />
+                MongoDB or OpenFGA reconciliation is not enabled for this instance.
+              </div>
+            )}
+            {report.counts.missing_tuples === 0 && report.counts.error_agents === 0 && (
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                Agent tool grants are in sync.
+              </div>
+            )}
+            {agentsWithMissing.length > 0 && (
+              <div className="rounded-md border bg-muted/10 p-3">
+                <div className="mb-2 text-sm font-medium">Agents needing attention</div>
+                <div className="space-y-2">
+                  {agentsWithMissing.map((agent) => (
+                    <div key={agent.agent_id} className="flex flex-wrap items-center gap-2 text-sm">
+                      <code>{agent.agent_id}</code>
+                      <span className="text-muted-foreground">{agent.name}</span>
+                      {agent.config_driven && <Badge variant="secondary">config-driven</Badge>}
+                      {agent.missing_tuples > 0 && (
+                        <Badge variant="destructive">{agent.missing_tuples} missing</Badge>
+                      )}
+                      {agent.errors.length > 0 && <Badge variant="destructive">check error</Badge>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {report.missing_samples.length > 0 && (
+              <div className="rounded-md border bg-muted/10 p-3">
+                <div className="mb-2 text-sm font-medium">Missing tuple sample</div>
+                <div className="space-y-1 text-xs">
+                  {report.missing_samples.slice(0, 5).map((tuple) => (
+                    <div key={`${tuple.user}:${tuple.relation}:${tuple.object}`}>
+                      <code>{tuple.user}</code>{" "}
+                      <span className="text-muted-foreground">{tuple.relation}</span>{" "}
+                      <code>{tuple.object}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

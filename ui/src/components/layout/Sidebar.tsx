@@ -20,6 +20,7 @@ import { AnimatePresence,motion } from "framer-motion";
 import {
 Archive,
 ArchiveRestore,
+Check,
 ChevronLeft,
 ChevronRight,
 Database,
@@ -27,17 +28,25 @@ HardDrive,
 History,
 MessageCircleQuestion,
 MessageSquare,
+Pencil,
 Plus,
 Radio,
 RefreshCw,
 Shield,
 Sparkles,
 TrendingUp,
-Users
+Users,
+X
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect,useState,useTransition } from "react";
+import {
+  useEffect,
+  useState,
+  useTransition,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";
@@ -55,6 +64,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     setActiveConversation,
     createConversation,
     deleteConversation,
+    updateConversationTitle,
     loadConversationsFromServer,
     loadMessagesFromServer,
     isConversationStreaming,
@@ -69,6 +79,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [isResizing, setIsResizing] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [renameSavingId, setRenameSavingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
@@ -221,6 +234,39 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           router.push(`/chat/${conversationId}`);
         });
       }
+    }
+  };
+
+  const beginTitleEdit = (event: ReactMouseEvent, conversation: Conversation) => {
+    event.stopPropagation();
+    setEditingConversationId(conversation.id);
+    setEditingTitle(conversation.title || "");
+  };
+
+  const cancelTitleEdit = (event?: ReactMouseEvent) => {
+    event?.stopPropagation();
+    setEditingConversationId(null);
+    setEditingTitle("");
+    setRenameSavingId(null);
+  };
+
+  const commitTitleEdit = async (event: ReactMouseEvent | ReactKeyboardEvent, conversation: Conversation) => {
+    event.stopPropagation();
+    const nextTitle = editingTitle.trim();
+    if (!nextTitle) return;
+
+    if (nextTitle === conversation.title) {
+      cancelTitleEdit();
+      return;
+    }
+
+    setRenameSavingId(conversation.id);
+    try {
+      await updateConversationTitle(conversation.id, nextTitle);
+      setEditingConversationId(null);
+      setEditingTitle("");
+    } finally {
+      setRenameSavingId(null);
     }
   };
 
@@ -384,6 +430,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
+                  const isEditingTitle = editingConversationId === conv.id;
+                  const isSavingTitle = renameSavingId === conv.id;
 
                   return (
                   <div
@@ -467,9 +515,30 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                       <>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
-                            <p className="text-sm font-medium truncate flex-1" title={conv.title}>
-                              {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
-                            </p>
+                            {isEditingTitle ? (
+                              <input
+                                autoFocus
+                                value={editingTitle}
+                                disabled={isSavingTitle}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => setEditingTitle(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void commitTitleEdit(event, conv);
+                                  } else if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    cancelTitleEdit();
+                                  }
+                                }}
+                                className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm font-medium outline-none focus:border-primary"
+                                aria-label="Conversation title"
+                              />
+                            ) : (
+                              <p className="text-sm font-medium truncate flex-1" title={conv.title}>
+                                {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
+                              </p>
+                            )}
                           </div>
                           <p className={cn(
                             "text-xs truncate",
@@ -496,24 +565,87 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
-                          <div
-                            className={cn(
-                              "transition-opacity",
-                              activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
-                                ? "opacity-100"
-                                : "opacity-0 group-hover:opacity-100",
-                            )}
-                          >
-                            <ShareButton
-                              conversationId={conv.id}
-                              conversationTitle={conv.title}
-                              isOwner={canManageSharing}
-                              isSharedWithViewer={isSharedWithViewer}
-                              sharedBy={sharedByLabel}
-                              sharing={conv.sharing}
-                              accessLevel={conv.accessLevel}
-                            />
-                          </div>
+                          {isEditingTitle ? (
+                            <>
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      disabled={isSavingTitle || !editingTitle.trim()}
+                                      onClick={(event) => void commitTitleEdit(event, conv)}
+                                    >
+                                      <Check className="h-3 w-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" sideOffset={4}>
+                                    <p className="text-xs">Save title</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      disabled={isSavingTitle}
+                                      onClick={cancelTitleEdit}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" sideOffset={4}>
+                                    <p className="text-xs">Cancel rename</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </>
+                          ) : (
+                            <>
+                              <div
+                                className={cn(
+                                  "transition-opacity",
+                                  activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100",
+                                )}
+                              >
+                                <ShareButton
+                                  conversationId={conv.id}
+                                  conversationTitle={conv.title}
+                                  isOwner={canManageSharing}
+                                  isSharedWithViewer={isSharedWithViewer}
+                                  sharedBy={sharedByLabel}
+                                  sharing={conv.sharing}
+                                  accessLevel={conv.accessLevel}
+                                />
+                              </div>
+                              {canManageSharing && (
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={(event) => beginTitleEdit(event, conv)}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" sideOffset={4}>
+                                      <p className="text-xs">Rename conversation</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </>
+                          )}
+                          {!isEditingTitle && (
                           <TooltipProvider delayDuration={200}>
                           <Tooltip>
                           <TooltipTrigger asChild>
@@ -575,6 +707,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           </TooltipContent>
                           </Tooltip>
                           </TooltipProvider>
+                          )}
                         </div>
                       </>
                     )}

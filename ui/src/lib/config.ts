@@ -147,6 +147,10 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
+  /** Whether Dynamic Agents UI features are enabled */
+  dynamicAgentsEnabled: boolean;
+  /** Optional default agent ID used to edit scheduled jobs */
+  scheduleEditorAgentId: string | null;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -251,6 +255,8 @@ const DEFAULT_CONFIG: Config = {
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
+  dynamicAgentsEnabled: true,
+  scheduleEditorAgentId: null,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -373,6 +379,7 @@ export function getServerConfig(): Config {
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
+  const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') !== 'false';
 
   const agentProtocolEnv = env('AGENT_PROTOCOL');
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
@@ -432,6 +439,8 @@ export function getServerConfig(): Config {
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
+    dynamicAgentsEnabled,
+    scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

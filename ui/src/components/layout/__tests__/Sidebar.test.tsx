@@ -10,7 +10,7 @@
  */
 
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 // ============================================================================
 // Mocks — must be before imports
@@ -48,6 +48,7 @@ let mockActiveConversationId: string | null = null
 const mockSetActiveConversation = jest.fn()
 const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
+const mockUpdateConversationTitle = jest.fn().mockResolvedValue(undefined)
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn((_id: string) => false)
@@ -67,6 +68,7 @@ jest.mock('@/store/chat-store', () => {
       setActiveConversation: mockSetActiveConversation,
       createConversation: mockCreateConversation,
       deleteConversation: mockDeleteConversation,
+      updateConversationTitle: mockUpdateConversationTitle,
       loadConversationsFromServer: mockLoadConversationsFromServer,
       loadMessagesFromServer: mockLoadMessagesFromServer,
       isConversationStreaming: mockIsConversationStreaming,
@@ -91,6 +93,7 @@ jest.mock('lucide-react', () => ({
   Plus: (props: any) => <span data-testid="icon-plus" {...props} />,
   Archive: (props: any) => <span data-testid="icon-archive" {...props} />,
   ArchiveRestore: (props: any) => <span data-testid="icon-archive-restore" {...props} />,
+  Check: (props: any) => <span data-testid="icon-check" {...props} />,
   ChevronLeft: (props: any) => <span data-testid="icon-chevron-left" {...props} />,
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
   Sparkles: (props: any) => <span data-testid="icon-sparkles" {...props} />,
@@ -105,6 +108,7 @@ jest.mock('lucide-react', () => ({
   RefreshCw: (props: any) => <span data-testid="icon-refresh" {...props} />,
   Pencil: (props: any) => <span data-testid="icon-pencil" {...props} />,
   Loader2: (props: any) => <span data-testid="icon-loader" {...props} />,
+  X: (props: any) => <span data-testid="icon-x" {...props} />,
 }))
 
 jest.mock('@/components/ui/button', () => ({
@@ -283,6 +287,28 @@ describe('Sidebar — Live Status Indicator', () => {
 
       expect(screen.getByTestId('icon-radio')).toBeInTheDocument()
       expect(screen.getByTestId('icon-message-square')).toBeInTheDocument()
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // Conversation title editing
+  // --------------------------------------------------------------------------
+
+  describe('conversation title editing', () => {
+    it('renames a conversation from the history row', async () => {
+      mockConversations = [makeConv('conv-rename', 'Old Title')]
+
+      render(<Sidebar {...defaultProps} />)
+
+      fireEvent.click(screen.getByTestId('icon-pencil').closest('button')!)
+      fireEvent.change(screen.getByLabelText('Conversation title'), {
+        target: { value: '  New Title  ' },
+      })
+      fireEvent.click(screen.getByTestId('icon-check').closest('button')!)
+
+      await waitFor(() => {
+        expect(mockUpdateConversationTitle).toHaveBeenCalledWith('conv-rename', 'New Title')
+      })
     })
   })
 
