@@ -184,11 +184,13 @@ idp:
     enabled: false
     method: "S256"
   hook:
-    # Argo CD hook semantics. GitOps installs can override these to match their
-    # sync strategy. Set argocdHookDeletePolicy to "BeforeHookCreation,HookSucceeded"
-    # when using Argo CD to prevent the init-idp Job from getting stuck with a
-    # blocking finalizer across back-to-back syncs.
-    argocdHookDeletePolicy: ""
+    # assisted-by Codex Codex-sonnet-4-6
+    # Argo CD hook semantics. Native Argo annotations are emitted because this
+    # chart also defines native Argo hooks; relying only on Helm hook mapping can
+    # leave init Jobs under mixed lifecycle rules during GitOps syncs.
+    argocdHook: PostSync
+    argocdSyncWave: "20"
+    argocdHookDeletePolicy: BeforeHookCreation,HookSucceeded
     # Helm CLI hook semantics. before-hook-creation,hook-succeeded ensures the
     # old Job is removed on re-creation and cleaned up after success.
     helmHookDeletePolicy: "before-hook-creation,hook-succeeded"
@@ -241,6 +243,15 @@ tokenExchange:
   botClientId: "caipe-slack-bot"
   botClientSecret: ""
   secretRef: ""
+  hook:
+    # Argo CD hook semantics for the token-exchange init Job.
+    argocdHook: PostSync
+    argocdSyncWave: "10"
+    argocdHookDeletePolicy: BeforeHookCreation,HookSucceeded
+    # Helm CLI hook semantics.
+    helmHook: post-install,post-upgrade
+    helmHookWeight: "10"
+    helmHookDeletePolicy: before-hook-creation,hook-succeeded
   # init-token-exchange.sh seeds each bot service account's OpenFGA grants
   # (e.g. read on `system_config:platform_settings`) so the Slack and Webex
   # bots can make service-to-service reads against the BFF. Without these the

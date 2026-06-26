@@ -18,6 +18,12 @@ metadata:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "20"
     helm.sh/hook-delete-policy: {{ .Values.idp.hook.helmHookDeletePolicy | default "before-hook-creation,hook-succeeded" | quote }}
+    {{- with .Values.idp.hook.argocdHook }}
+    argocd.argoproj.io/hook: {{ . | quote }}
+    {{- end }}
+    {{- with .Values.idp.hook.argocdSyncWave }}
+    argocd.argoproj.io/sync-wave: {{ . | quote }}
+    {{- end }}
     {{- with .Values.idp.hook.argocdHookDeletePolicy }}
     argocd.argoproj.io/hook-delete-policy: {{ . | quote }}
     {{- end }}

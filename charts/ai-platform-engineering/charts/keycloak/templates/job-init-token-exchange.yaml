@@ -6,9 +6,18 @@ metadata:
   labels:
     {{- include "keycloak.labels" . | nindent 4 }}
   annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "10"
-    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook: {{ .Values.tokenExchange.hook.helmHook | quote }}
+    helm.sh/hook-weight: {{ .Values.tokenExchange.hook.helmHookWeight | quote }}
+    helm.sh/hook-delete-policy: {{ .Values.tokenExchange.hook.helmHookDeletePolicy | quote }}
+    {{- with .Values.tokenExchange.hook.argocdHook }}
+    argocd.argoproj.io/hook: {{ . | quote }}
+    {{- end }}
+    {{- with .Values.tokenExchange.hook.argocdSyncWave }}
+    argocd.argoproj.io/sync-wave: {{ . | quote }}
+    {{- end }}
+    {{- with .Values.tokenExchange.hook.argocdHookDeletePolicy }}
+    argocd.argoproj.io/hook-delete-policy: {{ . | quote }}
+    {{- end }}
 spec:
   backoffLimit: 5
   template:
