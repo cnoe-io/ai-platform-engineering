@@ -1020,8 +1020,9 @@ services:
       # Cap JVM heap so KC plays nicely on a busy dev laptop. Default
       # `start-dev` lets the JVM scale to 25% of host memory, which on a
       # heavily-loaded compose stack can trip Docker Desktop's OOM killer
-      # during schema init (exit 137). 768m headroom is plenty for dev.
-      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=256m"
+      # during schema init (exit 137). Keep a bounded heap, but leave enough
+      # room for RBAC/AuthZ warmup so admin pages do not stall on Keycloak.
+      JAVA_OPTS_KC_HEAP: "${KEYCLOAK_JAVA_OPTS_KC_HEAP:--Xms256m -Xmx1024m -XX:MaxMetaspaceSize=384m}"
     # `--import-realm` is still safe with a durable DB: KC only imports on
     # an empty realm, so subsequent boots become idempotent no-ops and your
     # runtime mutations (teams, role assignments, identity links) survive.
