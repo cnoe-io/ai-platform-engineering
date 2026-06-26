@@ -1165,6 +1165,7 @@ def rbac_global_middleware(body, context, next, logger):
                     last_sent=last_sent,
                     linking_prompt_cooldown=_LINKING_PROMPT_COOLDOWN,
                     is_dm_channel_fn=is_dm_channel,
+                    is_explicit_invocation=is_mention or is_command or is_dm_channel(channel),
                 )
             )
         except Exception as exc:
