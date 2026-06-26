@@ -146,24 +146,26 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 jest.mock('@/components/chat/ShareButton', () => ({
   ShareButton: ({ isOwner, isSharedWithViewer, sharedBy, sharing }: any) => {
     const hasSharingConfig = Boolean(
-      sharing?.is_public ||
       (sharing?.shared_with?.length ?? 0) > 0 ||
       (sharing?.shared_with_teams?.length ?? 0) > 0 ||
       sharing?.share_link_enabled
     )
+    // assisted-by Codex Codex-sonnet-4-6
+    const isShared = Boolean(isSharedWithViewer || hasSharingConfig)
 
     return isOwner || isSharedWithViewer ? (
       <button
         data-testid="share-button"
         data-owner={String(Boolean(isOwner))}
         data-shared-viewer={String(Boolean(isSharedWithViewer))}
+        data-shared={String(isShared)}
         data-shared-by={sharedBy || ''}
       >
-        {sharing?.is_public ? (
-          <span data-testid="icon-globe" />
-        ) : (isOwner || isSharedWithViewer || hasSharingConfig) ? (
+        {isShared ? (
           <span data-testid="icon-users2" />
-        ) : null}
+        ) : (
+          <span data-testid="icon-share2" />
+        )}
         Share
         {isSharedWithViewer && sharedBy ? <span>Shared by {sharedBy}</span> : null}
       </button>
@@ -414,6 +416,22 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.queryByText('New response')).not.toBeInTheDocument()
     })
 
+    it('uses the share icon for owner conversations without sharing config', () => {
+      mockConversations = [
+        makeConv('conv-owner-private', 'Private Owner Chat', {
+          owner_id: 'test@test.com',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Private Owner Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-share2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'true')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared', 'false')
+    })
+
     it('shows a shared badge for link-shared conversations', () => {
       mockConversations = [
         makeConv('conv-shared-link', 'Shared Link Chat', {
@@ -496,9 +514,10 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
       expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'true')
       expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'false')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared', 'true')
     })
 
-    it('shows a globe badge for public conversations', () => {
+    it('does not treat legacy public conversations as shared', () => {
       mockConversations = [
         makeConv('conv-public', 'Public Chat', {
           owner_id: 'owner@test.com',
@@ -514,7 +533,10 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.getByText('Public Chat')).toBeInTheDocument()
-      expect(screen.getByTestId('icon-globe')).toBeInTheDocument()
+      expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-share2')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
     })
   })
 

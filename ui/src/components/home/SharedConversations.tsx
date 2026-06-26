@@ -1,11 +1,11 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Globe,Users,Users2 } from "lucide-react";
+import { Users,Users2 } from "lucide-react";
 import React,{ useState } from "react";
 import { ConversationCard } from "./ConversationCard";
 
-type TabId = "shared-with-me" | "team" | "everyone";
+type TabId = "shared-with-me" | "team";
 
 interface SharedConversation {
   id: string;
@@ -14,26 +14,22 @@ interface SharedConversation {
   totalMessages?: number;
   sharedBy?: string;
   teamName?: string;
-  isPublic?: boolean;
 }
 
 interface SharedConversationsProps {
   sharedWithMe: SharedConversation[];
   sharedWithTeam: SharedConversation[];
-  sharedWithEveryone: SharedConversation[];
   loading: boolean;
 }
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "shared-with-me", label: "Shared with me", icon: Users2 },
   { id: "team", label: "Team", icon: Users },
-  { id: "everyone", label: "Everyone", icon: Globe },
 ];
 
 export function SharedConversations({
   sharedWithMe,
   sharedWithTeam,
-  sharedWithEveryone,
   loading,
 }: SharedConversationsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("shared-with-me");
@@ -44,8 +40,6 @@ export function SharedConversations({
         return sharedWithMe;
       case "team":
         return sharedWithTeam;
-      case "everyone":
-        return sharedWithEveryone;
       default:
         return [];
     }
@@ -57,8 +51,6 @@ export function SharedConversations({
         return "No conversations shared with you yet.";
       case "team":
         return "No team-shared conversations yet.";
-      case "everyone":
-        return "No publicly shared conversations yet.";
       default:
         return "No conversations found.";
     }

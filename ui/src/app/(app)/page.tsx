@@ -34,7 +34,6 @@ export default function HomePage() {
   const [recentChats, setRecentChats] = useState<HomeConversation[]>([]);
   const [sharedWithMe, setSharedWithMe] = useState<HomeConversation[]>([]);
   const [sharedWithTeam, setSharedWithTeam] = useState<HomeConversation[]>([]);
-  const [sharedWithEveryone, setSharedWithEveryone] = useState<HomeConversation[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingShared, setLoadingShared] = useState(true);
@@ -59,7 +58,6 @@ export default function HomePage() {
       totalMessages: conv.metadata?.total_messages,
       agentName: enriched.agent_name ?? enriched.metadata?.agent_name ?? agentId,
       isShared:
-        conv.sharing?.is_public ||
         (conv.sharing?.shared_with?.length ?? 0) > 0 ||
         (conv.sharing?.shared_with_teams?.length ?? 0) > 0,
       sharedBy: conv.owner_id,
@@ -126,11 +124,6 @@ export default function HomePage() {
             teamName: undefined,
           }));
         setSharedWithTeam(teamShared);
-
-        const publicShared = response.items
-          .filter((c) => c.sharing?.is_public)
-          .map(mapMongoConversation);
-        setSharedWithEveryone(publicShared);
       } catch (err) {
         console.error("[HomePage] Failed to load shared conversations:", err);
       } finally {
@@ -189,7 +182,6 @@ export default function HomePage() {
             <SharedConversations
               sharedWithMe={sharedWithMe}
               sharedWithTeam={sharedWithTeam}
-              sharedWithEveryone={sharedWithEveryone}
               loading={loadingShared}
             />
           )}

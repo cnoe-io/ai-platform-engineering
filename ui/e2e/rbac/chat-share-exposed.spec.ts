@@ -10,7 +10,7 @@
  * These tests verify the end-to-end behaviour of the "Shared Conversations"
  * section on the home page:
  *   - Only conversations returned by /api/chat/shared appear in the UI
- *   - The three tabs (Shared with me / Team / Everyone) filter correctly
+ *   - The supported tabs (Shared with me / Team) filter correctly
  *   - Private conversations that should never be shared are not displayed
  *   - API requests are made with correct scoping parameters
  *   - Empty states render per tab when there are no matching conversations
@@ -292,21 +292,6 @@ test.describe("issue #1979 — shared conversations exposure regression", () => 
     await expect(page.getByText(`Shared by ${directConv.owner_id}`)).toBeVisible();
   });
 
-  test("renders public conversations in Everyone tab", async ({ page }) => {
-    const publicConv = makeConversation("conv-public", "Public Conversation", {
-      is_public: true,
-    });
-
-    await installHomePageMocks(page, { items: [publicConv] });
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-
-    await expect(page.getByTestId("shared-conversations")).toBeVisible({ timeout: 10_000 });
-
-    // Switch to Everyone tab
-    await page.getByTestId("shared-tab-everyone").click();
-    await expect(page.getByText("Public Conversation")).toBeVisible();
-  });
-
   test("renders team-shared conversations in Team tab", async ({ page }) => {
     const teamConv = makeConversation("conv-team", "Team Shared Conversation", {
       shared_with_teams: ["team-abc"],
@@ -380,8 +365,8 @@ test.describe("issue #1979 — shared conversations exposure regression", () => 
   });
 
   test("search and trash APIs do not return unshared private conversations", async ({ page }) => {
-    const publicConv = makeConversation("conv-public-search", "Public Search Result", {
-      is_public: true,
+    const sharedConv = makeConversation("conv-shared-search", "Shared Search Result", {
+      shared_with: [CALLER_EMAIL],
     });
     const ownedTrash = makeConversation("conv-owned-trash", "Owned Trash Result", {}, CALLER_EMAIL);
     const unsharedPrivate = makeConversation("conv-private-search", "Private Search Result");
@@ -389,7 +374,7 @@ test.describe("issue #1979 — shared conversations exposure regression", () => 
     let trashRequest: URL | null = null;
 
     await installHomePageMocks(page, {
-      searchItems: [publicConv],
+      searchItems: [sharedConv],
       trashItems: [ownedTrash],
       onSearchRequest: (url) => {
         searchRequest = url;
@@ -408,7 +393,7 @@ test.describe("issue #1979 — shared conversations exposure regression", () => 
     const searchTitles = search.body.data?.items?.map((item) => item.title) ?? [];
 
     expect(search.status, JSON.stringify(search.body)).toBe(200);
-    expect(searchTitles).toContain(publicConv.title);
+    expect(searchTitles).toContain(sharedConv.title);
     expect(searchTitles).not.toContain(unsharedPrivate.title);
     expect(searchRequest?.searchParams.get("q")).toBe("Private Search");
 
@@ -477,43 +462,12 @@ test.describe("issue #1979 — shared conversations exposure regression", () => 
     await expect(page.getByText("Direct Only")).not.toBeVisible();
   });
 
-  test("switching to Everyone tab shows only public conversations", async ({ page }) => {
-    const publicConv = makeConversation("conv-public", "Public Chat", {
-      is_public: true,
-    });
-    const directConv = makeConversation("conv-direct", "Direct Share", {
-      shared_with: [CALLER_EMAIL],
-    });
-
-    await installHomePageMocks(page, { items: [publicConv, directConv] });
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-
-    await expect(page.getByTestId("shared-conversations")).toBeVisible({ timeout: 10_000 });
-
-    await page.getByTestId("shared-tab-everyone").click();
-    await expect(page.getByText("Public Chat")).toBeVisible();
-    await expect(page.getByText("Direct Share")).not.toBeVisible();
-  });
-
-  test("Everyone tab shows empty state when no public conversations exist", async ({ page }) => {
-    const directConv = makeConversation("conv-direct", "Direct Only Conversation", {
+  test("Team tab shows empty state when no team-shared conversations exist", async ({ page }) => {
+    const directConv = makeConversation("conv-direct", "Direct Only", {
       shared_with: [CALLER_EMAIL],
     });
 
     await installHomePageMocks(page, { items: [directConv] });
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-
-    await expect(page.getByTestId("shared-conversations")).toBeVisible({ timeout: 10_000 });
-
-    await page.getByTestId("shared-tab-everyone").click();
-    await expect(page.getByTestId("shared-empty")).toBeVisible();
-    await expect(page.getByText("No publicly shared conversations yet.")).toBeVisible();
-  });
-
-  test("Team tab shows empty state when no team-shared conversations exist", async ({ page }) => {
-    const publicConv = makeConversation("conv-public", "Public Only", { is_public: true });
-
-    await installHomePageMocks(page, { items: [publicConv] });
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByTestId("shared-conversations")).toBeVisible({ timeout: 10_000 });
