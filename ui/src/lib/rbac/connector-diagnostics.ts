@@ -1,6 +1,5 @@
 import { getAuditReader } from "@/lib/audit/reader";
 import {
-  ambiguousRoutesMessage,
   missingRouteMetadataMessage,
   noTuplesMessage,
   openFgaReadFailureMessage,
@@ -49,6 +48,15 @@ export interface ConnectorHealthSummary {
   last_runtime_error_ts: string | null;
 }
 
+export interface ConnectorHealthSummaryTarget {
+  workspaceId: string;
+  itemId: string;
+}
+
+interface ConnectorDiagnosticsOptions {
+  lastRuntimeError?: ConnectorLastRuntimeError | null;
+}
+
 export interface ConnectorDiagnosticsAdapter {
   kind: ConnectorKind;
   // Display labels used inside warning text. botLabel is the prefix
@@ -94,6 +102,11 @@ export interface ConnectorDiagnosticsAdapter {
   buildAmbiguousRouteWarnings?: (routes: ConnectorRuntimeRouteDiagnostic[]) => string[];
 }
 
+// assisted-by Codex Codex-sonnet-4-6
+const RUNTIME_ERROR_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const RUNTIME_ERROR_BATCH_LIMIT = 5_000;
+const RUNTIME_ERROR_QUERY_TIMEOUT_MS = 2_000;
+
 function listenMatches(listen: ConnectorListenMode, requested: "mention" | "message"): boolean {
   return listen === "all" || listen === requested;
 }
@@ -111,6 +124,15 @@ function buildBaseRouteWarnings(
   return warnings;
 }
 
+function runtimeErrorFromEvent(event: Record<string, unknown>): ConnectorLastRuntimeError {
+  return {
+    ts: event.ts instanceof Date ? event.ts.toISOString() : typeof event.ts === "string" ? event.ts : undefined,
+    reason_code: typeof event.reason_code === "string" ? event.reason_code : undefined,
+    message: typeof event.message === "string" ? event.message : undefined,
+    action: typeof event.action === "string" ? event.action : undefined,
+  };
+}
+
 async function latestRuntimeError(
   adapter: ConnectorDiagnosticsAdapter,
   workspaceId: string,
@@ -119,7 +141,7 @@ async function latestRuntimeError(
   const resourceRef = adapter.auditResourceRef(workspaceId, itemId);
   try {
     const until = new Date();
-    const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+    const since = new Date(until.getTime() - RUNTIME_ERROR_LOOKBACK_MS);
     const rows = await getAuditReader().query({
       since,
       until,
@@ -127,24 +149,63 @@ async function latestRuntimeError(
       outcome: "error",
       resourceRef,
       limit: 1,
+      timeoutMs: RUNTIME_ERROR_QUERY_TIMEOUT_MS,
     });
     const event = rows[0] as Record<string, unknown> | undefined;
     if (!event) return null;
-    return {
-      ts: event.ts instanceof Date ? event.ts.toISOString() : typeof event.ts === "string" ? event.ts : undefined,
-      reason_code: typeof event.reason_code === "string" ? event.reason_code : undefined,
-      message: typeof event.message === "string" ? event.message : undefined,
-      action: typeof event.action === "string" ? event.action : undefined,
-    };
+    return runtimeErrorFromEvent(event);
   } catch {
     return null;
   }
+}
+
+function healthTargetKey(workspaceId: string, itemId: string): string {
+  return `${workspaceId}\u0000${itemId}`;
+}
+
+async function latestRuntimeErrors(
+  adapter: ConnectorDiagnosticsAdapter,
+  targets: ConnectorHealthSummaryTarget[],
+): Promise<Map<string, ConnectorLastRuntimeError>> {
+  const targetByResourceRef = new Map<string, string>();
+  for (const target of targets) {
+    targetByResourceRef.set(
+      adapter.auditResourceRef(target.workspaceId, target.itemId),
+      healthTargetKey(target.workspaceId, target.itemId),
+    );
+  }
+  const errorsByTarget = new Map<string, ConnectorLastRuntimeError>();
+  if (targetByResourceRef.size === 0) return errorsByTarget;
+
+  try {
+    const until = new Date();
+    const since = new Date(until.getTime() - RUNTIME_ERROR_LOOKBACK_MS);
+    const rows = await getAuditReader().query({
+      since,
+      until,
+      component: adapter.auditComponent,
+      outcome: "error",
+      limit: RUNTIME_ERROR_BATCH_LIMIT,
+      timeoutMs: RUNTIME_ERROR_QUERY_TIMEOUT_MS,
+    });
+    for (const event of rows) {
+      const resourceRef = event.resource_ref;
+      if (typeof resourceRef !== "string") continue;
+      const targetKey = targetByResourceRef.get(resourceRef);
+      if (!targetKey || errorsByTarget.has(targetKey)) continue;
+      errorsByTarget.set(targetKey, runtimeErrorFromEvent(event));
+    }
+  } catch {
+    return errorsByTarget;
+  }
+  return errorsByTarget;
 }
 
 export async function computeConnectorDiagnostics(
   adapter: ConnectorDiagnosticsAdapter,
   workspaceId: string,
   itemId: string,
+  options: ConnectorDiagnosticsOptions = {},
 ): Promise<ConnectorDiagnostics> {
   const metadataRoutes = await adapter.listRouteMetadata(workspaceId, itemId);
   const warnings: string[] = [];
@@ -194,7 +255,9 @@ export async function computeConnectorDiagnostics(
     warnings.push(noTuplesMessage(adapter.tupleNoun, adapter.runtimeLabel));
   }
 
-  const lastError = await latestRuntimeError(adapter, workspaceId, itemId);
+  const lastError = Object.prototype.hasOwnProperty.call(options, "lastRuntimeError")
+    ? options.lastRuntimeError ?? null
+    : await latestRuntimeError(adapter, workspaceId, itemId);
   const surfacedLastError =
     lastError && (adapter.shouldSurfaceLastRuntimeError?.(lastError, openfgaError) ?? true)
       ? lastError
@@ -218,11 +281,32 @@ export async function computeConnectorHealthSummary(
   adapter: ConnectorDiagnosticsAdapter,
   workspaceId: string,
   itemId: string,
+  options: ConnectorDiagnosticsOptions = {},
 ): Promise<ConnectorHealthSummary> {
-  const diagnostics = await computeConnectorDiagnostics(adapter, workspaceId, itemId);
+  const diagnostics = await computeConnectorDiagnostics(adapter, workspaceId, itemId, options);
   return {
     warnings_count: diagnostics.warnings.length,
     openfga_reachable: diagnostics.openfga.reachable,
     last_runtime_error_ts: diagnostics.last_runtime_error?.ts ?? null,
   };
+}
+
+export async function computeConnectorHealthSummaries(
+  adapter: ConnectorDiagnosticsAdapter,
+  targets: ConnectorHealthSummaryTarget[],
+): Promise<ConnectorHealthSummary[]> {
+  const errorsByTarget = await latestRuntimeErrors(adapter, targets);
+  return Promise.all(
+    targets.map(async (target) =>
+      computeConnectorHealthSummary(adapter, target.workspaceId, target.itemId, {
+        lastRuntimeError: errorsByTarget.get(healthTargetKey(target.workspaceId, target.itemId)) ?? null,
+      }).catch(
+        (): ConnectorHealthSummary => ({
+          warnings_count: 0,
+          openfga_reachable: false,
+          last_runtime_error_ts: null,
+        }),
+      ),
+    ),
+  );
 }

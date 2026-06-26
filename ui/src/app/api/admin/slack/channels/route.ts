@@ -43,7 +43,8 @@ function pickPrimaryAgentId(routes: SlackChannelAgentRouteDocument[]): string | 
   return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
 }
 
-const SLACK_LIST_HEALTH_AUDIT_LIMIT = 1000;
+const SLACK_LIST_HEALTH_AUDIT_LIMIT = 5_000;
+const SLACK_LIST_HEALTH_AUDIT_TIMEOUT_MS = 2_000;
 
 function slackChannelAuditResourceRef(workspaceId: string, channelId: string): string {
   return `slack_channel:${slackWorkspaceRef(workspaceId)}--${channelId}`;
@@ -92,6 +93,7 @@ async function loadSlackListHealth(rows: ChannelListRow[]): Promise<Map<string, 
     component: "slack_bot",
     outcome: "error",
     limit: SLACK_LIST_HEALTH_AUDIT_LIMIT,
+    timeoutMs: SLACK_LIST_HEALTH_AUDIT_TIMEOUT_MS,
   });
 
   for (const event of events) {
