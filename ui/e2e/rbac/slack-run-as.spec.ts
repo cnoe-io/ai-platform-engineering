@@ -150,7 +150,7 @@ test.describe("mocked Slack Run as browser regression", () => {
 
     await expect(page.getByRole("tab", { name: "Configured channels" })).toBeVisible();
     await page.getByRole("button", { name: /#incidents/ }).click();
-    await expect(page.getByRole("button", { name: "Team for #incidents" })).toContainText(
+    await expect(page.getByRole("combobox", { name: "Team for #incidents" })).toContainText(
       "team:platform-engineering",
     );
 
@@ -767,7 +767,7 @@ test.describe("mocked Slack Run as browser regression", () => {
     await expect(page.getByRole("tab", { name: "Onboard channels" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Advanced" })).toBeVisible();
     await page.getByRole("button", { name: /#admin-overrides-channel/ }).click();
-    await expect(page.getByRole("button", { name: "Team for #admin-overrides-channel" })).toBeEnabled();
+    await expect(page.getByRole("combobox", { name: "Team for #admin-overrides-channel" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Add Agent" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Edit agent:locked-agent" })).toBeEnabled();
 
