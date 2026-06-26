@@ -130,6 +130,58 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
+  it('returns access_level owner for case-insensitive owner email matches', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'Owner@Example.com',
+      title: 'Test',
+      sharing: { shared_with: ['owner@example.com'], shared_with_teams: [] },
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue({ permission: 'view' });
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'owner@example.com',
+      mockGetCollection
+    );
+
+    expect(result.access_level).toBe('owner');
+    expect(sharingAccessCol.findOne).not.toHaveBeenCalled();
+  });
+
+  it('returns access_level owner when owner_subject matches the session subject', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'legacy-owner@example.com',
+      owner_subject: 'owner-subject',
+      title: 'Test',
+      sharing: { shared_with: ['viewer@example.com'], shared_with_teams: [] },
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue({ permission: 'view' });
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'viewer@example.com',
+      mockGetCollection,
+      { sub: 'owner-subject' }
+    );
+
+    expect(result.access_level).toBe('owner');
+    expect(sharingAccessCol.findOne).not.toHaveBeenCalled();
+  });
+
   it('returns access_level shared when user is in shared_with', async () => {
     const conv = {
       _id: CONV_ID,

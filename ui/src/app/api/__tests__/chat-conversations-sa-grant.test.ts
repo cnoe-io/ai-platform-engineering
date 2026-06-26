@@ -64,6 +64,14 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  conversationVisibilityCandidateQuery: (userEmail: string) => ({
+    $or: [
+      { owner_id: userEmail },
+      { "sharing.is_public": true },
+      { "sharing.shared_with": userEmail },
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ],
+  }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
 }));

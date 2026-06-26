@@ -8,6 +8,7 @@ import type { Participant } from "@/types/mongodb";
 
 // Turn status for Dynamic Agents (shown in timeline)
 export type TurnStatus = "done" | "interrupted" | "waiting_for_input";
+export type ConversationAccessLevel = "owner" | "shared" | "shared_readonly" | "admin_audit";
 
 // Chat conversation types
 export interface Conversation {
@@ -22,11 +23,18 @@ export interface Conversation {
   participants: Participant[];
   /** Owner email (only for MongoDB conversations) */
   owner_id?: string;
+  /** Current viewer access level returned by the conversation detail API. */
+  accessLevel?: ConversationAccessLevel;
+  /** Server list says the current viewer sees this row through sharing. */
+  // assisted-by Codex Codex-sonnet-4-6
+  isSharedWithViewer?: boolean;
   /** Sharing information (optional, only for MongoDB conversations) */
   sharing?: {
     is_public?: boolean;
+    public_permission?: "view" | "comment";
     shared_with?: string[];
     shared_with_teams?: string[];
+    team_permissions?: Record<string, "view" | "comment">;
     share_link_enabled?: boolean;
   };
 }

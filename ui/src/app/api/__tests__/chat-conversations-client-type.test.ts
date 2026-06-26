@@ -19,6 +19,11 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
+jest.mock('@/lib/authz', () => ({
+  authorize: jest.fn().mockResolvedValue({ decision: 'DENY' }),
+  authorizeMany: jest.fn().mockResolvedValue(new Map()),
+}));
+
 const mockCollections: Record<string, any> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
@@ -65,11 +70,17 @@ function userSession(email = 'user@example.com') {
 
 function resetMocks() {
   mockGetServerSession.mockReset();
+  authorizeMany.mockReset();
+  authorizeMany.mockResolvedValue(new Map());
   mockGetCollection.mockClear();
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
 import { GET } from '../chat/conversations/route';
+
+const { authorizeMany } = jest.requireMock('@/lib/authz') as {
+  authorizeMany: jest.Mock;
+};
 
 describe('GET /api/chat/conversations — client_type filtering', () => {
   beforeEach(resetMocks);
@@ -154,6 +165,75 @@ describe('GET /api/chat/conversations — client_type filtering', () => {
       success: false,
       error: expect.stringContaining('Invalid client_type'),
     });
+  });
+
+  it('marks shared recipient rows in the conversations list response', async () => {
+    mockGetServerSession.mockResolvedValue({
+      ...userSession('viewer@example.com'),
+      sub: 'viewer-sub',
+    });
+    authorizeMany.mockResolvedValue(new Map([
+      ['shared-recipient-conv', { decision: 'ALLOW' }],
+    ]));
+
+    const conversationsCol = createMockCollection();
+    conversationsCol.countDocuments.mockResolvedValue(2);
+    conversationsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        skip: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                _id: 'owned-conv',
+                title: 'Owned conversation',
+                owner_id: 'viewer@example.com',
+                created_at: new Date(),
+                updated_at: new Date(),
+                metadata: { total_messages: 0 },
+                sharing: { is_public: false, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+                tags: [],
+                is_archived: false,
+                is_pinned: false,
+              },
+              {
+                _id: 'shared-recipient-conv',
+                title: 'Shared recipient conversation',
+                owner_id: 'owner@example.com',
+                created_at: new Date(),
+                updated_at: new Date(),
+                metadata: { total_messages: 0 },
+                sharing: {
+                  is_public: false,
+                  shared_with: ['viewer@example.com'],
+                  shared_with_teams: [],
+                  share_link_enabled: false,
+                },
+                tags: [],
+                is_archived: false,
+                is_pinned: false,
+              },
+            ]),
+          }),
+        }),
+      }),
+    });
+    mockCollections['conversations'] = conversationsCol;
+
+    const req = makeRequest('/api/chat/conversations?page_size=100');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        _id: 'owned-conv',
+        viewer_has_shared_access: false,
+      }),
+      expect.objectContaining({
+        _id: 'shared-recipient-conv',
+        viewer_has_shared_access: true,
+      }),
+    ]));
   });
 
   it('enriches conversation agent participants with display names', async () => {

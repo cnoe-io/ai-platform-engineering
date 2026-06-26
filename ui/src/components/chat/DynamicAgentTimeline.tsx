@@ -202,11 +202,14 @@ export function AgentTimeline({
 
   // Determine if turn has ended (not streaming and has final answer)
   const turnEnded = !isStreaming && finalAnswer !== null;
+  const hasWarningsOrErrors = segments.some(s => s.type === "warning" || s.type === "error");
 
-  // Machinery sections collapse after streaming ends (or start collapsed if already ended)
-  const [machineryExpanded, setMachineryExpanded] = useState(!turnEnded);
+  // assisted-by Codex Codex-sonnet-4-6
+  // Collapse completed machinery, but keep warning/error details visible until the user collapses them.
+  const [machineryExpanded, setMachineryExpanded] = useState(!turnEnded || hasWarningsOrErrors);
   const prevStreamingRef = useRef(isStreaming);
   const prevFinalAnswerRef = useRef(finalAnswer);
+  const prevHadWarningsOrErrorsRef = useRef(hasWarningsOrErrors);
   // Track whether this turn transitioned from streaming → final.
   // When true, skip the reveal animation since content was already visible.
   // State (not ref) so the JSX can read it without a react-hooks/refs violation.
@@ -225,25 +228,30 @@ export function AgentTimeline({
       prevPendingHitlRef.current = pendingHitl;
       return;
     }
+    if (hasWarningsOrErrors && !prevHadWarningsOrErrorsRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: surface new warnings/errors instead of hiding them behind the summary row
+      setMachineryExpanded(true);
+    }
     // Collapse when HITL input is resolved (pendingHitl went true → false)
-    if (prevPendingHitlRef.current) {
+    if (prevPendingHitlRef.current && !hasWarningsOrErrors) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMachineryExpanded(false);
     }
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: collapse when streaming ends and mark streaming-complete for animation
-      setMachineryExpanded(false);
+      setMachineryExpanded(hasWarningsOrErrors);
       setWasStreaming(true);
     }
     // Also collapse when final answer first appears AND streaming has stopped
-    if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming) {
+    if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming && !hasWarningsOrErrors) {
       setMachineryExpanded(false);
     }
     prevStreamingRef.current = isStreaming;
     prevFinalAnswerRef.current = finalAnswer;
+    prevHadWarningsOrErrorsRef.current = hasWarningsOrErrors;
     prevPendingHitlRef.current = pendingHitl;
-  }, [isStreaming, finalAnswer, pendingHitl]);
+  }, [isStreaming, finalAnswer, pendingHitl, hasWarningsOrErrors]);
 
   // Group consecutive tools for compact rendering
   const groupedSegments = groupConsecutiveTools(segments);
@@ -253,8 +261,6 @@ export function AgentTimeline({
   const subagentCount = segments.filter(s => s.type === "subagent").length;
   const warningCount = segments.filter(s => s.type === "warning").length;
   const errorCount = segments.filter(s => s.type === "error").length;
-
-  const hasWarningsOrErrors = warningCount > 0 || errorCount > 0;
 
   // Determine if tasks/files sections will actually be shown
   const showTasksSection = tasks.length > 0 && hasTodoToolsInSegments(segments) && (isStreaming || tasks.some(t => t.status !== "completed"));
@@ -1117,6 +1123,8 @@ function TimelineSummary({
 
   return (
     <button
+      type="button"
+      aria-expanded={expanded}
       onClick={onToggle}
       className={cn(
         "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs",

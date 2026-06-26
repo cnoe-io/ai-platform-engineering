@@ -282,4 +282,86 @@ describe('ShareDialog — Share with everyone toggle', () => {
     consoleSpy.mockRestore()
     alertSpy.mockRestore()
   })
+
+  it('shares with teams from the member-visible team endpoint', async () => {
+    let sharing = {
+      is_public: false,
+      shared_with: [],
+      shared_with_teams: [] as string[],
+      share_link_enabled: false,
+    }
+
+    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: any) => {
+      if (url.includes('/api/dynamic-agents/teams')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: [
+              {
+                _id: 'team-1',
+                slug: 'platform',
+                name: 'Platform Team',
+                description: 'Core platform',
+              },
+            ],
+          }),
+        })
+      }
+      if (url.includes('/share') && (!opts || opts.method !== 'POST')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: { sharing },
+          }),
+        })
+      }
+      if (url.includes('/share') && opts?.method === 'POST') {
+        sharing = {
+          ...sharing,
+          shared_with_teams: ['platform'],
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { sharing } }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+
+    render(<ShareDialog {...defaultProps} />)
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search by email or team name...')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Search by email or team name...'), {
+      target: { value: 'plat' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Platform Team')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Platform Team'))
+
+    await waitFor(() => {
+      const postCalls = (global.fetch as jest.Mock).mock.calls.filter(
+        ([url, opts]: [string, any]) => url.includes('/share') && opts?.method === 'POST'
+      )
+      expect(postCalls.length).toBeGreaterThan(0)
+      const body = JSON.parse(postCalls[0][1].body)
+      expect(body.team_ids).toEqual(['platform'])
+    })
+
+    expect((global.fetch as jest.Mock).mock.calls.some(([url]: [string]) =>
+      url.includes('/api/dynamic-agents/teams')
+    )).toBe(true)
+    expect((global.fetch as jest.Mock).mock.calls.some(([url]: [string]) =>
+      url.includes('/api/admin/teams')
+    )).toBe(false)
+  })
 })

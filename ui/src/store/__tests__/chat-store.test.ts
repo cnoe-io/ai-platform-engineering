@@ -1037,6 +1037,31 @@ describe('chat-store', () => {
       expect(newConv!.messages).toHaveLength(0);
     });
 
+    it('maps the server viewer sharing flag into local conversations', async () => {
+      useChatStore.setState({ conversations: [] });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: 'shared-recipient',
+            title: 'Shared Recipient',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            viewer_has_shared_access: true,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const sharedConv = useChatStore.getState().conversations.find(c => c.id === 'shared-recipient');
+      expect(sharedConv!.isSharedWithViewer).toBe(true);
+    });
+
     it('does not preserve non-active non-streaming local-only conversations', async () => {
       // Conversations that are neither active nor streaming should be removed
       // when not present in the server response (FR-004).
