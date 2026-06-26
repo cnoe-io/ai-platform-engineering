@@ -524,6 +524,12 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   // pending transfer so the PUT carries owner_team_slug + confirm_not_member.
   const [transferRequested, setTransferRequested] = useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = useState(false);
+  // Server-side not-a-member rejection (TRANSFER_NOT_MEMBER_UNCONFIRMED): the
+  // owner picker offered a team the caller can't OpenFGA-`use` (e.g. an org
+  // admin who is not a literal member). Surface an inline confirm-and-retry
+  // instead of only a transient toast.
+  const [transferNeedsServerConfirm, setTransferNeedsServerConfirm] = useState(false);
+  const [transferConfirmError, setTransferConfirmError] = useState<string | null>(null);
   const [availableTeams, setAvailableTeams] = useState<Array<{ _id?: string; slug?: string; name?: string }>>([]);
   const [saving, setSaving] = useState(false);
 
@@ -545,6 +551,10 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       setSharedTeamSlugs(initial?.shared_with_teams ?? []);
       setSharedWithOrg(initial?.shared_with_org ?? false);
       setSaving(false);
+      setTransferRequested(false);
+      setTransferConfirmedNotMember(false);
+      setTransferNeedsServerConfirm(false);
+      setTransferConfirmError(null);
 
       // Load the caller's teams for the owner picker + share multi-select.
       fetch("/api/dynamic-agents/teams")
@@ -574,7 +584,10 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
     }
   }, [open, initial]);
 
-  const handleSave = async () => {
+  const handleSave = async (opts?: { forceConfirmNotMember?: boolean }) => {
+    // `setState` is async, so a confirm-and-retry can't rely on the freshly-set
+    // `transferConfirmedNotMember`; the caller passes the value through opts.
+    const confirmNotMember = opts?.forceConfirmNotMember || transferConfirmedNotMember;
     const config: MCPToolConfig = {
       tool_id: toolId.trim(),
       description,
@@ -590,12 +603,24 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       // Transfer confirmation (US3): only send when the owner picker changed,
       // so a normal edit never trips the BFF's not-a-member transfer gate.
       ...(transferRequested
-        ? { confirm_not_member: transferConfirmedNotMember }
+        ? { confirm_not_member: confirmNotMember }
         : {}),
     };
     setSaving(true);
+    setTransferNeedsServerConfirm(false);
+    setTransferConfirmError(null);
     try {
       await onSave(config);
+    } catch (err) {
+      // The destination team is one the caller can pick but is not an OpenFGA
+      // member of; offer an explicit confirm-and-retry instead of only the
+      // parent's transient toast. Other errors are already toasted upstream.
+      if ((err as { code?: string })?.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+        setTransferNeedsServerConfirm(true);
+        setTransferConfirmError(
+          'You are not a member of the destination team. Click "Confirm Transfer" to transfer ownership anyway.',
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -803,11 +828,34 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
           </label>
         </div>
 
+        {transferConfirmError && (
+          <div
+            role="alert"
+            className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            <p>{transferConfirmError}</p>
+            {transferNeedsServerConfirm && (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={saving}
+                onClick={() => {
+                  setTransferConfirmedNotMember(true);
+                  void handleSave({ forceConfirmNotMember: true });
+                }}
+              >
+                Confirm Transfer
+              </Button>
+            )}
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving || !canSave}>
+          <Button onClick={() => void handleSave()} disabled={saving || !canSave}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isEdit ? "Save Changes" : "Create Tool"}
           </Button>
@@ -1178,7 +1226,12 @@ export default function MCPToolsView() {
       setEditingTool(null);
       await fetchAll();
     } catch (err) {
-      toast(`Error: ${String(err)}`, "error");
+      // The not-a-member transfer rejection is recoverable: the dialog renders
+      // an inline "Confirm Transfer" affordance, so skip the transient toast
+      // and let the dialog drive the retry.
+      if ((err as { code?: string })?.code !== "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+        toast(`Error: ${String(err)}`, "error");
+      }
       throw err;
     }
   };

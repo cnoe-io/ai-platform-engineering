@@ -206,16 +206,24 @@ export function TeamPicker({
             triggerClassName,
           )}
         >
-          <div className="flex-1 min-w-0">
+          <div className="flex flex-1 min-w-0 items-center gap-2">
             {selected ? (
-              <span className="flex items-center gap-2">
-                <span className="truncate">{labelOf(selected)}</span>
+              <>
+                <span
+                  className="truncate"
+                  style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {labelOf(selected)}
+                </span>
                 {!hideSlugSuffix && (
-                  <code className="shrink-0 text-[10px] text-muted-foreground">
+                  <code
+                    className="truncate text-[10px] text-muted-foreground"
+                    style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     team:{selected.slug}
                   </code>
                 )}
-              </span>
+              </>
             ) : (
               <span className="text-muted-foreground">{placeholder}</span>
             )}
@@ -288,11 +296,17 @@ export function TeamPicker({
                     )}
                     aria-hidden="true"
                   />
-                  <span className="flex-1 min-w-0 truncate">
+                  <span
+                    className="truncate"
+                    style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     {labelOf(option)}
                   </span>
                   {!hideSlugSuffix && (
-                    <code className="shrink-0 text-[10px] text-muted-foreground">
+                    <code
+                      className="truncate text-[10px] text-muted-foreground"
+                      style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
                       team:{option.slug}
                     </code>
                   )}
@@ -592,9 +606,17 @@ function OptionRow({
           <Check className="h-3 w-3 text-primary-foreground" aria-hidden="true" />
         )}
       </span>
-      <span className="flex-1 min-w-0 truncate">{labelOf(option)}</span>
+      <span
+        className="truncate"
+        style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+      >
+        {labelOf(option)}
+      </span>
       {!hideSlugSuffix && (
-        <code className="shrink-0 text-[10px] text-muted-foreground">
+        <code
+          className="truncate text-[10px] text-muted-foreground"
+          style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
           team:{option.slug}
         </code>
       )}

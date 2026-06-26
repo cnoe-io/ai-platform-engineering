@@ -99,16 +99,24 @@ export function AgentPicker({
             triggerClassName,
           )}
         >
-          <div className="flex-1 min-w-0">
+          <div className="flex flex-1 min-w-0 items-center gap-2">
             {selected ? (
-              <span className="flex items-center gap-2">
-                <span className="truncate">{labelOf(selected)}</span>
+              <>
+                <span
+                  className="truncate"
+                  style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {labelOf(selected)}
+                </span>
                 {!hideIdSuffix && (
-                  <code className="shrink-0 text-[10px] text-muted-foreground">
+                  <code
+                    className="truncate text-[10px] text-muted-foreground"
+                    style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     agent:{selected.value}
                   </code>
                 )}
-              </span>
+              </>
             ) : (
               <span className="text-muted-foreground">{placeholder}</span>
             )}
@@ -173,9 +181,17 @@ export function AgentPicker({
                     )}
                     aria-hidden="true"
                   />
-                  <span className="flex-1 min-w-0 truncate">{labelOf(option)}</span>
+                  <span
+                    className="truncate"
+                    style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {labelOf(option)}
+                  </span>
                   {!hideIdSuffix && (
-                    <code className="shrink-0 text-[10px] text-muted-foreground">
+                    <code
+                      className="truncate text-[10px] text-muted-foreground"
+                      style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
                       agent:{option.value}
                     </code>
                   )}

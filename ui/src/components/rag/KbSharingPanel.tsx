@@ -45,6 +45,11 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
   // pending transfer.
   const [transferRequested, setTransferRequested] = React.useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
+  // Server-side not-a-member rejection (TRANSFER_NOT_MEMBER_UNCONFIRMED): the
+  // owner picker offered a team the caller can't OpenFGA-`use` (e.g. an org
+  // admin who is not a literal member). Surface an inline confirm-and-retry
+  // instead of a dead-end error.
+  const [transferNeedsServerConfirm, setTransferNeedsServerConfirm] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -91,10 +96,14 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
     fetchSharing();
   }, [fetchTeams, fetchSharing]);
 
-  const handleSave = React.useCallback(async () => {
+  const handleSave = React.useCallback(async (opts?: { forceConfirmNotMember?: boolean }) => {
     setSaving(true);
     setError(null);
     setInfo(null);
+    setTransferNeedsServerConfirm(false);
+    // `setState` is async, so a confirm-and-retry can't rely on the freshly-set
+    // `transferConfirmedNotMember`; the caller passes the value through opts.
+    const confirmNotMember = opts?.forceConfirmNotMember || transferConfirmedNotMember;
     try {
       // Send owner_team_slug + confirm_not_member only when the owner picker
       // changed, so a share-only save never trips the BFF's not-a-member
@@ -105,12 +114,21 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
         body: JSON.stringify({
           team_slugs: selected,
           ...(transferRequested
-            ? { owner_team_slug: ownerTeamSlug, confirm_not_member: transferConfirmedNotMember }
+            ? { owner_team_slug: ownerTeamSlug, confirm_not_member: confirmNotMember }
             : {}),
         }),
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => null);
+        // The destination team is one the caller can pick but is not an OpenFGA
+        // member of; offer an explicit confirm-and-retry.
+        if (detail?.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+          setTransferNeedsServerConfirm(true);
+          setError(
+            'You are not a member of the destination team. Click "Confirm Transfer" to transfer ownership anyway.',
+          );
+          return;
+        }
         throw new Error(detail?.error ?? `Failed to save (${res.status})`);
       }
       const data = (await res.json()) as SharingResponse;
@@ -130,6 +148,11 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       setSaving(false);
     }
   }, [knowledgeBaseId, selected, transferRequested, transferConfirmedNotMember, ownerTeamSlug]);
+
+  const handleConfirmTransfer = React.useCallback(() => {
+    setTransferConfirmedNotMember(true);
+    void handleSave({ forceConfirmNotMember: true });
+  }, [handleSave]);
 
   const isDirty = React.useMemo(() => {
     // A pending ownership transfer makes the form dirty even when the shared
@@ -207,9 +230,20 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       {error && (
         <div
           role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
         >
-          {error}
+          <p>{error}</p>
+          {transferNeedsServerConfirm && (
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={loading || saving}
+              onClick={handleConfirmTransfer}
+            >
+              Confirm Transfer
+            </Button>
+          )}
         </div>
       )}
 
@@ -222,7 +256,7 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
         >
           Reset
         </Button>
-        <Button onClick={handleSave} disabled={loading || saving || !isDirty} size="sm">
+        <Button onClick={() => void handleSave()} disabled={loading || saving || !isDirty} size="sm">
           {saving ? "Saving…" : "Save sharing"}
         </Button>
       </div>
