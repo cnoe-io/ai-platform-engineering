@@ -67,6 +67,23 @@ AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_
 CALLER_TOOL_CHECK_ENABLED = os.environ.get(
     "CAIPE_CALLER_TOOL_CHECK_ENABLED", ""
 ).strip().lower() in ("1", "true", "yes", "on")
+# Workspace alias used to construct the FGA slack_channel subject
+# (mirrors SLACK_WORKSPACE_ALIAS / SLACK_WORKSPACE_ID in the BFF).
+SLACK_WORKSPACE_ID = (
+    os.environ.get("SLACK_WORKSPACE_ALIAS", "").strip()
+    or os.environ.get("SLACK_WORKSPACE_ID", "").strip()
+    or "workspace-default"
+)
+# Mapping of (mcp_target, tool_name) → (argument_key, fga_object_type, fga_relation).
+# Callers must hold `<fga_relation> <fga_object_type>:<id>` for the tool call to proceed.
+# channel_id values may be C-prefixed IDs, #name, or @dm — the bridge normalises
+# #/@-prefixed values back to opaque identifiers for the FGA subject.
+RESOURCE_SCOPED_TOOLS: dict[tuple[str, str], tuple[str, str, str]] = {
+    ("slack", "conversations_add_message"): ("channel_id", "slack_channel", "can_write"),
+    ("slack", "reactions_add"):             ("channel_id", "slack_channel", "can_write"),
+    ("slack", "reactions_remove"):          ("channel_id", "slack_channel", "can_write"),
+    ("slack", "conversations_mark"):        ("channel_id", "slack_channel", "can_write"),
+}
 _JWKS_CLIENT: jwt.PyJWKClient | None = None
 OK = 0
 PERMISSION_DENIED = 7
@@ -526,6 +543,46 @@ def mcp_tool_call_from_request(request: CheckRequest) -> tuple[str, str] | None:
     return target, name
 
 
+def _normalise_channel_id(raw: str) -> str:
+    """Strip #/@ sigils from channel names/DM references so the value is usable
+    as an opaque FGA object id component (e.g. '#general' → 'general')."""
+    return raw.lstrip("#@")
+
+
+def mcp_resource_arg_from_request(
+    request: CheckRequest,
+) -> tuple[str, str, str] | None:
+    """Return ``(fga_object_type, fga_object_id, fga_relation)`` when the tool
+    call maps to a resource-scoped tool and the required argument is present.
+
+    Returns ``None`` for any tool call that is not resource-scoped, or when the
+    argument is absent (allowing the call through without a resource check so
+    that non-channel operations are unaffected).
+    """
+    tool_call = mcp_tool_call_from_request(request)
+    if not tool_call:
+        return None
+    target, tool_name = tool_call
+    key = (target, tool_name)
+    if key not in RESOURCE_SCOPED_TOOLS:
+        return None
+    arg_key, obj_type, relation = RESOURCE_SCOPED_TOOLS[key]
+    body = _request_body_text(request)
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return None
+    arguments = payload.get("params", {}).get("arguments", {})
+    if not isinstance(arguments, dict):
+        return None
+    raw_id = arguments.get(arg_key, "")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return None
+    channel_id = _normalise_channel_id(raw_id.strip())
+    obj_id = f"{SLACK_WORKSPACE_ID}--{channel_id}"
+    return obj_type, obj_id, relation
+
+
 def _subject_from_metadata(request: CheckRequest) -> str | None:
     metadata = request.attributes.metadata_context.filter_metadata
     for key in ("caipe.auth", "dev.agentgateway.jwt"):
@@ -803,6 +860,44 @@ class OpenFgaAuthorizationService:
                         obj=caller_tool_obj,
                         outcome="allow",
                         reason_code="OK_CALLER_TOOL",
+                        duration_ms=(time.perf_counter() - start) * 1000,
+                    )
+            # Resource-scoped write check: for tools that target a specific
+            # resource (e.g. posting to a Slack channel), verify the caller
+            # holds the required relation on that resource object. This is the
+            # channel-write gate — team members get `can_write` on channels
+            # owned by their team via the slack_channel_team_assignment_v1 policy.
+            # Only active when CAIPE_RESOURCE_SCOPED_TOOL_CHECK_ENABLED=true.
+            if allowed:
+                resource_check = mcp_resource_arg_from_request(request)
+                if resource_check is not None:
+                    res_type, res_id, res_relation = resource_check
+                    res_obj = f"{res_type}:{res_id}"
+                    resource_allowed = _check_openfga(user, res_relation, res_obj)
+                    if not resource_allowed:
+                        _audit_decision(
+                            request=request,
+                            subject=sub,
+                            user=user,
+                            relation=res_relation,
+                            obj=res_obj,
+                            outcome="deny",
+                            reason_code="DENY_CHANNEL_WRITE",
+                            duration_ms=(time.perf_counter() - start) * 1000,
+                        )
+                        return build_check_response(
+                            allowed=False,
+                            code=PERMISSION_DENIED,
+                            message=f"caller lacks {res_relation} on {res_obj}",
+                        )
+                    _audit_decision(
+                        request=request,
+                        subject=sub,
+                        user=user,
+                        relation=res_relation,
+                        obj=res_obj,
+                        outcome="allow",
+                        reason_code="OK_CHANNEL_WRITE",
                         duration_ms=(time.perf_counter() - start) * 1000,
                     )
         except Exception as e:

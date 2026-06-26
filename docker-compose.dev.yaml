@@ -2188,6 +2188,7 @@ services:
       # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
       # agent+caller tool check for E2E.
       CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
+      SLACK_WORKSPACE_ALIAS: ${SLACK_WORKSPACE_ALIAS:-}
       AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
       TENANT_ID: ${TENANT_ID:-default}
       AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
