@@ -371,7 +371,7 @@ export function ProviderConnections() {
         </p>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="overflow-hidden rounded-3xl border border-border/80 bg-card/85 shadow-2xl shadow-black/15 ring-1 ring-white/[0.03] backdrop-blur">
+      <div className="overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm">
         {connectionRows.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1040px] table-fixed text-left">
