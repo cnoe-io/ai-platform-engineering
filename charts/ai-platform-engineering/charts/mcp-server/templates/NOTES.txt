@@ -1,3 +1,13 @@
+{{- if and .Values.agentSecrets (or .Values.agentSecrets.create .Values.agentSecrets.externalSecrets.enabled) }}
+DEPRECATION WARNING: agentSecrets is deprecated and will be removed in a future release.
+  Rename it to mcpSecrets in your values — the structure is identical:
+
+    mcpSecrets:
+      {{ toYaml .Values.agentSecrets | nindent 6 | trim }}
+
+  agentSecrets continues to work and is merged with mcpSecrets (mcpSecrets wins on conflict).
+{{- end }}
+
 {{- if .Values.vpa.enabled }}
 NOTE: VPA is enabled. Ensure VerticalPodAutoscaler is installed in your cluster before deploying.
       Install VPA: https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/docs/installation.md
