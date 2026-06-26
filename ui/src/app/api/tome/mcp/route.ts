@@ -302,13 +302,46 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "tome_reingest",
+    name: "tome_list_webex_meetings",
     description:
-      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint. Returns the new run id.",
-    inputSchema: schema({ project_slug: STR, seed: STR }, ["project_slug"]),
+      "List recent recorded Webex meetings available for a project's ingest run. Returns [] when the user has no Webex OAuth connection. Use the returned `id`, `title`, and `start` fields to select meetings for `tome_reingest`. `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
     handler: async (_req, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
-      const body = args.seed ? { seed: String(args.seed) } : {};
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/webex-meetings`),
+        "list webex meetings",
+      );
+      return toolText(JSON.stringify(data?.meetings ?? [], null, 2));
+    },
+  },
+  {
+    name: "tome_reingest",
+    description:
+      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. Returns the new run id.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        seed: STR,
+        webex_meetings: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { id: STR, title: STR, start: STR },
+            required: ["id", "title", "start"],
+            additionalProperties: false,
+          },
+        },
+      },
+      ["project_slug"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const body: Record<string, unknown> = {};
+      if (args.seed) body.seed = String(args.seed);
+      if (Array.isArray(args.webex_meetings) && args.webex_meetings.length > 0) {
+        body.webexMeetings = args.webex_meetings;
+      }
       const r = await fwd("POST", `/api/tome/projects/${slug}/reingest`, body);
       const data = ensureOk(r, "reingest");
       return toolText(`Ingest started. runId=${data?.runId}`);
