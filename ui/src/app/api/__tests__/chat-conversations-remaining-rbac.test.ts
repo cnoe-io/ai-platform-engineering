@@ -8,6 +8,7 @@ const mockGetCollection = jest.fn();
 const mockGetUserTeamIds = jest.fn();
 const mockRequireOwnership = jest.fn();
 const mockFilterConversationsByImplicitOrExplicitPermission = jest.fn();
+const mockGetDirectSharingAccessConversationIds = jest.fn();
 const mockRequireConversationResourcePermission = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
@@ -61,16 +62,19 @@ jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
       ...item,
       viewer_has_shared_access: item.owner_id?.toLowerCase() !== userEmail.toLowerCase(),
     })),
-  conversationVisibilityCandidateQuery: (userEmail: string) => ({
+  conversationVisibilityCandidateQuery: (userEmail: string, directShareConversationIds: string[] = []) => ({
     $or: [
       { owner_id: userEmail },
       { "sharing.is_public": true },
       { "sharing.shared_with": userEmail },
+      ...(directShareConversationIds.length > 0 ? [{ _id: { $in: directShareConversationIds } }] : []),
       { "sharing.shared_with_teams.0": { $exists: true } },
     ],
   }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
+  getDirectSharingAccessConversationIds: (...args: unknown[]) =>
+    mockGetDirectSharingAccessConversationIds(...args),
   requireConversationResourcePermission: (...args: unknown[]) =>
     mockRequireConversationResourcePermission(...args),
 }));
@@ -121,6 +125,7 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
     mockFilterConversationsByImplicitOrExplicitPermission.mockImplementation(
       async (_session, _email, items) => items,
     );
+    mockGetDirectSharingAccessConversationIds.mockResolvedValue([]);
     mockRequireConversationResourcePermission.mockResolvedValue(undefined);
   });
 
@@ -149,6 +154,8 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",
       [candidate],
+      "discover",
+      [],
     );
   });
 
@@ -181,6 +188,8 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",
       [candidate],
+      "discover",
+      [],
     );
   });
 
@@ -213,6 +222,8 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",
       [candidate],
+      "discover",
+      [],
     );
   });
 
@@ -246,6 +257,8 @@ describe("remaining conversation routes use OpenFGA instead of legacy owner/team
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",
       [deleted],
+      "discover",
+      [],
     );
   });
 

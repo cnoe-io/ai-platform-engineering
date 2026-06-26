@@ -16,6 +16,7 @@ import {
   annotateConversationsWithViewerSharing,
   conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
 } from '@/lib/rbac/conversation-implicit-authz';
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
 import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
@@ -110,6 +111,11 @@ async function resolveListConversationAccessLevel(
     return permissionToAccessLevel(permission ?? 'comment');
   }
 
+  const directAccessPermission = await getDirectSharePermission(conversation._id, userEmail);
+  if (directAccessPermission) {
+    return permissionToAccessLevel(directAccessPermission);
+  }
+
   const teamPermission = await getTeamSharePermission(conversation, userEmail);
   if (teamPermission) {
     return permissionToAccessLevel(teamPermission);
@@ -188,13 +194,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const conversations = await getCollection<Conversation>('conversations');
+  const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
   // Fetch only owned or sharing-configured candidates; ReBAC remains the final
   // visibility check for team shares and explicit conversation grants.
   const query: any = {
     $and: [
       { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
-      conversationVisibilityCandidateQuery(user.email),
+      conversationVisibilityCandidateQuery(user.email, directShareConversationIds),
     ],
   };
 
@@ -233,7 +240,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .limit(pageSize)
     .toArray();
 
-  const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+  const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+    session,
+    user.email,
+    items,
+    'discover',
+    directShareConversationIds,
+  );
   const visibleItemsWithViewerFlags = annotateConversationsWithViewerSharing(session, user.email, visibleItems);
   const visibleItemsWithAccessLevel = await Promise.all(
     visibleItemsWithViewerFlags.map(async (conversation) => {

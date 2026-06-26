@@ -2,6 +2,7 @@ import {
   annotateConversationsWithViewerSharing,
   conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
   isImplicitConversationOwner,
   requireConversationResourcePermission,
 } from "../conversation-implicit-authz";
@@ -34,6 +35,29 @@ describe("conversation implicit authorization", () => {
     });
   });
 
+  it("includes direct SharingAccess conversation ids as Mongo fallback candidates", () => {
+    expect(conversationVisibilityCandidateQuery("Alice@Example.com", ["legacy-share"])).toEqual({
+      $or: [
+        { owner_id: { $in: ["Alice@Example.com", "alice@example.com"] } },
+        { "sharing.is_public": true },
+        { "sharing.shared_with": { $in: ["Alice@Example.com", "alice@example.com"] } },
+        { _id: { $in: ["legacy-share"] } },
+        { "sharing.shared_with_teams.0": { $exists: true } },
+      ],
+    });
+  });
+
+  it("reads direct SharingAccess conversation ids with raw and normalized email candidates", async () => {
+    const distinct = jest.fn().mockResolvedValue(["legacy-share", "legacy-share", ""]);
+    const ids = await getDirectSharingAccessConversationIds("Alice@Example.com", async () => ({ distinct }));
+
+    expect(ids).toEqual(["legacy-share"]);
+    expect(distinct).toHaveBeenCalledWith("conversation_id", {
+      granted_to: { $in: ["Alice@Example.com", "alice@example.com"] },
+      revoked_at: null,
+    });
+  });
+
   it("treats owner_subject and legacy owner_id as implicit ownership", () => {
     expect(
       isImplicitConversationOwner(
@@ -58,12 +82,24 @@ describe("conversation implicit authorization", () => {
       [
         { _id: "owned-sub", owner_id: "other@example.com", owner_subject: "alice-sub" } as any,
         { _id: "owned-email", owner_id: "legacy@example.com" } as any,
+        { _id: "direct-embedded", owner_id: "carol@example.com", sharing: { shared_with: ["Legacy@Example.com"] } } as any,
+        { _id: "direct-access", owner_id: "carol@example.com" } as any,
+        { _id: "public", owner_id: "carol@example.com", sharing: { is_public: true } } as any,
         { _id: "shared", owner_id: "carol@example.com" } as any,
         { _id: "denied", owner_id: "dave@example.com" } as any,
       ],
+      "discover",
+      ["direct-access"],
     );
 
-    expect(visible.map((conversation) => conversation._id)).toEqual(["owned-sub", "owned-email", "shared"]);
+    expect(visible.map((conversation) => conversation._id)).toEqual([
+      "owned-sub",
+      "owned-email",
+      "direct-embedded",
+      "direct-access",
+      "public",
+      "shared",
+    ]);
     expect(filterResourcesByPermission).toHaveBeenCalledWith(
       { sub: "alice-sub" },
       [

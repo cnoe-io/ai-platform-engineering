@@ -10,6 +10,7 @@ import { getCollection } from '@/lib/mongodb';
 import {
   conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
 } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 import { NextRequest } from 'next/server';
@@ -25,9 +26,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { page, pageSize, skip } = getPaginationParams(request);
 
     const conversations = await getCollection<Conversation>('conversations');
+    const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
     // Build search query from content filters and privacy-safe conversation candidates.
-    const searchQuery: any = { $and: [conversationVisibilityCandidateQuery(user.email)] };
+    const searchQuery: any = {
+      $and: [conversationVisibilityCandidateQuery(user.email, directShareConversationIds)],
+    };
 
     // Add text search if query provided
     if (query) {
@@ -57,7 +61,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+      session,
+      user.email,
+      items,
+      'discover',
+      directShareConversationIds,
+    );
 
     return paginatedResponse(
       visibleItems,

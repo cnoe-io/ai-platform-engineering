@@ -519,8 +519,8 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
 
     expect(res.status).toBe(200);
     expect(sharingAccessCol.updateOne).toHaveBeenCalledWith(
-      { conversation_id: conv._id, granted_to: VIEWER_EMAIL, revoked_at: null },
-      { $set: { permission: 'comment' } }
+      { conversation_id: conv._id, granted_to: { $in: [VIEWER_EMAIL] }, revoked_at: null },
+      { $set: { permission: 'comment', granted_to: VIEWER_EMAIL } }
     );
   });
 
@@ -646,6 +646,100 @@ describe('POST /api/chat/conversations/[id]/share — permission storage', () =>
     const insertedRecords = sharingAccessCol.insertMany.mock.calls[0][0];
     expect(insertedRecords[0].permission).toBe('view');
     expect(insertedRecords[0].granted_to).toBe(VIEWER_EMAIL);
+  });
+
+  it('writes OpenFGA user grants when a direct-share recipient has a stable subject', async () => {
+    const conv = makeConversation({
+      sharing: { shared_with: [], shared_with_teams: [] },
+    });
+
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({ ...conv, sharing: { ...conv.sharing, shared_with: [VIEWER_EMAIL] } });
+    mockCollections['conversations'] = convsCol;
+
+    mockCollections['sharing_access'] = createMockCollection();
+    const usersCol = createMockCollection();
+    usersCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { email: VIEWER_EMAIL, keycloak_sub: 'viewer-sub' },
+        ]),
+      }),
+    });
+    mockCollections['users'] = usersCol;
+
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');
+
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_emails: [VIEWER_EMAIL],
+        permission: 'comment',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: 'user:viewer-sub', relation: 'reader', object: `conversation:${conv._id}` },
+        { user: 'user:viewer-sub', relation: 'writer', object: `conversation:${conv._id}` },
+      ]),
+      deletes: [],
+    });
+  });
+
+  it('keeps Mongo direct-share fallback when a direct-share recipient is not provisioned', async () => {
+    const conv = makeConversation({
+      sharing: { shared_with: [], shared_with_teams: [] },
+    });
+
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({ ...conv, sharing: { ...conv.sharing, shared_with: [VIEWER_EMAIL] } });
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingAccessCol;
+    const usersCol = createMockCollection();
+    usersCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['users'] = usersCol;
+
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');
+
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_emails: [VIEWER_EMAIL],
+        permission: 'view',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(sharingAccessCol.insertMany).toHaveBeenCalled();
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
   it('stores team_permissions when sharing with teams', async () => {

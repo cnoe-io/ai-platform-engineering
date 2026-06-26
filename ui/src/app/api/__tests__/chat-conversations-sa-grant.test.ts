@@ -64,16 +64,18 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
-  conversationVisibilityCandidateQuery: (userEmail: string) => ({
+  conversationVisibilityCandidateQuery: (userEmail: string, directShareConversationIds: string[] = []) => ({
     $or: [
       { owner_id: userEmail },
       { "sharing.is_public": true },
       { "sharing.shared_with": userEmail },
+      ...(directShareConversationIds.length > 0 ? [{ _id: { $in: directShareConversationIds } }] : []),
       { "sharing.shared_with_teams.0": { $exists: true } },
     ],
   }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
+  getDirectSharingAccessConversationIds: jest.fn(async () => []),
 }));
 
 jest.mock("@/lib/rbac/openfga-agent-authz", () => ({

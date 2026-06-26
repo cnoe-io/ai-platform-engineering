@@ -2,14 +2,14 @@
 
 import { Button } from "@/components/ui/button";
 import {
-Tooltip,
-TooltipContent,
-TooltipProvider,
-TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { Conversation } from "@/types/a2a";
-import { Check, Globe, Users2 } from "lucide-react";
-import React,{ useState } from "react";
+import { Check, Share2, Users2 } from "lucide-react";
+import React, { useState } from "react";
 import { ShareDialog } from "./ShareDialog";
 
 interface ShareButtonProps {
@@ -22,8 +22,8 @@ interface ShareButtonProps {
   accessLevel?: Conversation["accessLevel"];
 }
 
-export function ShareButton({ 
-  conversationId, 
+export function ShareButton({
+  conversationId,
   conversationTitle = "Conversation",
   isOwner = true,
   isSharedWithViewer = false,
@@ -53,21 +53,23 @@ export function ShareButton({
     setShowDialog(true);
   };
 
-  const sharedByText = sharedBy?.trim() ? `Shared by ${sharedBy.trim()}` : "Shared conversation";
+  const sharedByText = sharedBy?.trim()
+    ? `Shared by ${sharedBy.trim()}`
+    : "Shared conversation";
   const shouldShowButton = isOwner || isSharedWithViewer;
   const shouldOpenDialog = isOwner || accessLevel === "shared";
   const hasSharingConfig = Boolean(
     sharing?.is_public ||
     (sharing?.shared_with?.length ?? 0) > 0 ||
     (sharing?.shared_with_teams?.length ?? 0) > 0 ||
-    sharing?.share_link_enabled
+    sharing?.share_link_enabled,
   );
-  const Icon = sharing?.is_public ? Globe : Users2;
-  const iconClassName = sharing?.is_public
-    ? "h-3 w-3 text-green-500"
-    : isOwner || isSharedWithViewer || hasSharingConfig
-      ? "h-3 w-3 text-blue-500"
-      : "h-3 w-3";
+  // assisted-by Codex Codex-sonnet-4-6
+  const isShared = hasSharingConfig || isSharedWithViewer;
+  const Icon = isShared ? Users2 : Share2;
+  const iconClassName = isShared
+    ? "h-3 w-3 text-blue-500"
+    : "h-3 w-3 text-foreground";
 
   return (
     <>
@@ -82,18 +84,24 @@ export function ShareButton({
                 className="h-6 w-6"
                 aria-label={isOwner ? "Share conversation" : sharedByText}
               >
-                {copied ? <Check className="h-3 w-3" /> : <Icon className={iconClassName} />}
+                {copied ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <Icon className={iconClassName} />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="left">
               {isOwner ? (
-                <p>Share</p>
+                <p>{isShared ? "Edit Share" : "Share"}</p>
               ) : (
                 <>
                   {/* assisted-by Codex Codex-sonnet-4-6 */}
                   <p>{copied ? "Link copied" : sharedByText}</p>
                   {!copied && !shouldOpenDialog && (
-                    <p className="text-xs text-muted-foreground">Click to copy link</p>
+                    <p className="text-xs text-muted-foreground">
+                      Click to copy link
+                    </p>
                   )}
                 </>
               )}

@@ -61,16 +61,18 @@ jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
       ...item,
       viewer_has_shared_access: item.owner_id?.toLowerCase() !== userEmail.toLowerCase(),
     })),
-  conversationVisibilityCandidateQuery: (userEmail: string) => ({
+  conversationVisibilityCandidateQuery: (userEmail: string, directShareConversationIds: string[] = []) => ({
     $or: [
       { owner_id: userEmail },
       { "sharing.is_public": true },
       { "sharing.shared_with": userEmail },
+      ...(directShareConversationIds.length > 0 ? [{ _id: { $in: directShareConversationIds } }] : []),
       { "sharing.shared_with_teams.0": { $exists: true } },
     ],
   }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
+  getDirectSharingAccessConversationIds: jest.fn(async () => []),
 }));
 
 jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
@@ -139,6 +141,8 @@ describe("POST /api/chat/conversations agent authorization", () => {
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",
       [candidate],
+      "discover",
+      [],
     );
   });
 
