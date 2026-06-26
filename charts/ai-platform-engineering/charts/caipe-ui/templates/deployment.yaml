@@ -138,6 +138,24 @@ spec:
               value: {{ index .Values.config "AGENTGATEWAY_ADMIN_CONFIG_URL" | default (printf "http://%s-agentgateway:15000/config" .Release.Name) | quote }}
             - name: AGENTGATEWAY_TARGETS_URL
               value: {{ index .Values.config "AGENTGATEWAY_TARGETS_URL" | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+            {{- $cb := (($agwGlobal.static).configBridge) | default dict }}
+            {{- if and $agwGlobal.enabled $cb.enabled }}
+            {{- /*
+            Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets
+            can authenticate config-bridge poll requests. Reads from the same
+            global.agentgateway.static.configBridge.ui.existingSecret as the
+            config-bridge sidecar so both sides share the token.
+            */ -}}
+            {{- $cbUiSecret := ($cb.ui).existingSecret | default dict }}
+            {{- $cbTokenSecretName := $cbUiSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := $cbUiSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
+            - name: AGENTGATEWAY_TARGETS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cbTokenSecretName | quote }}
+                  key: {{ $cbTokenSecretKey | quote }}
+            {{- end }}
             - name: OPENFGA_AUTHZ_BRIDGE_HOST
               value: {{ index .Values.config "OPENFGA_AUTHZ_BRIDGE_HOST" | default (printf "%s-openfga-authz-bridge" .Release.Name) | quote }}
             - name: ETCD_HOST
