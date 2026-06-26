@@ -2,6 +2,7 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
+import { ChevronDown } from "lucide-react";
 import React from "react";
 
 import {
@@ -110,7 +111,13 @@ function effectiveScopeSelection(
   return allowed.filter((scope) => base.includes(scope));
 }
 
-export function ProviderConnections() {
+export function ProviderConnections({
+  collapsed = false,
+  onToggle,
+}: {
+  collapsed?: boolean;
+  onToggle?: () => void;
+} = {}) {
   const [connections, setConnections] = React.useState<ProviderConnection[]>([]);
   const [connectors, setConnectors] = React.useState<OAuthConnector[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -364,14 +371,27 @@ export function ProviderConnections() {
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold">Connected Apps</h2>
-        <p className="text-sm text-muted-foreground">
-          Connect apps like Atlassian so agents can use approved account access.
-        </p>
-      </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm">
+      <button
+        type="button"
+        className="flex w-full items-start gap-3 text-left"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+      >
+        <ChevronDown
+          className={`mt-1 h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
+          aria-hidden="true"
+        />
+        <div>
+          <h2 className="text-xl font-semibold">Connected Apps</h2>
+          <p className="text-sm text-muted-foreground">
+            Connect apps like Atlassian so agents can use approved account access.
+          </p>
+        </div>
+      </button>
+      {!collapsed && (
+        <>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm">
         {connectionRows.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1040px] table-fixed text-left">
@@ -686,6 +706,8 @@ export function ProviderConnections() {
           onRunAgain={() => void handleProfileCheck(diagnosticModal.connector, diagnosticModal.connection)}
           onClose={() => setDiagnosticModal(null)}
         />
+      )}
+        </>
       )}
     </section>
   );

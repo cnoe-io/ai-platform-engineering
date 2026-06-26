@@ -8,6 +8,9 @@ import { ProviderConnections } from "./ProviderConnections";
 import { SecretsManager } from "./SecretsManager";
 
 export function CredentialsWorkspace() {
+  const [appsCollapsed, setAppsCollapsed] = React.useState(false);
+  const [secretsCollapsed, setSecretsCollapsed] = React.useState(false);
+
   return (
     <section className="space-y-6">
       <div>
@@ -17,9 +20,15 @@ export function CredentialsWorkspace() {
           you save them.
         </p>
       </div>
-      <SecretsManager />
+      <ProviderConnections
+        collapsed={appsCollapsed}
+        onToggle={() => setAppsCollapsed((c) => !c)}
+      />
       <hr className="border-border" />
-      <ProviderConnections />
+      <SecretsManager
+        collapsed={secretsCollapsed}
+        onToggle={() => setSecretsCollapsed((c) => !c)}
+      />
     </section>
   );
 }
