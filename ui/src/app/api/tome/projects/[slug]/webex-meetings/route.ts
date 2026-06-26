@@ -40,11 +40,12 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   });
 
   if (!res.ok) {
-    // Token present but call failed — return empty rather than surface a 500.
     return successResponse({ meetings: [] });
   }
 
-  const json = (await res.json()) as { items?: Array<{ id?: string; title?: string; start?: string }> };
+  const text = await res.text();
+
+  const json = JSON.parse(text) as { items?: Array<{ id?: string; title?: string; start?: string }> };
   const meetings: WebexMeetingListItem[] = (json.items ?? [])
     .filter((m) => m.id && m.title && m.start)
     .map((m) => ({ id: m.id!, title: m.title!, start: m.start! }));
