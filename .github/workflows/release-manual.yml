@@ -211,7 +211,7 @@ jobs:
           echo "### CI (triggered by tag push) ⏳" >> $GITHUB_STEP_SUMMARY
           echo "CI workflows run from the pushed \`$NEW_VERSION\` tag and publish matching artifacts when complete:" >> $GITHUB_STEP_SUMMARY
           echo "- Dynamic agents" >> $GITHUB_STEP_SUMMARY
-          echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
+          echo "- MCP servers" >> $GITHUB_STEP_SUMMARY
           echo "- RAG components" >> $GITHUB_STEP_SUMMARY
           echo "- CAIPE UI" >> $GITHUB_STEP_SUMMARY
           echo "- Slack bot" >> $GITHUB_STEP_SUMMARY
