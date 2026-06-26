@@ -1,3 +1,21 @@
+## 0.5.25 (2026-06-26)
+
+### Feat
+
+- **health**: refactor platform health probes to capabilities with profile-aware integration status (#2005)
+
+### Fix
+
+- **ui**: improve sharing/transfer UX and consolidate KB ownership (#2041)
+- **slack**: batch configured channel health audit lookup (#2043)
+- **ui**: cache session auth for repeated api calls
+- **keycloak**: add memory headroom for slack admin loads (#2038)
+- **ui**: actually use the seedConfig source for mcp
+- **webex**: simplify space onboarding and direct routing
+- **mcp**: stabilize tool schema and health scans
+- **chat**: restore user and team share visibility (#2031)
+- **admin**: collapse long user team lists (#2034)
+
 ## 0.5.24 (2026-06-26)
 
 ### Feat
