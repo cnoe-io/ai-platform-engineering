@@ -1,3 +1,9 @@
+## 0.5.26 (2026-06-26)
+
+### Fix
+
+- **slack**: suppress ephemeral nudges for passive channel posts (#2045)
+
 ## 0.5.25 (2026-06-26)
 
 ### Feat
