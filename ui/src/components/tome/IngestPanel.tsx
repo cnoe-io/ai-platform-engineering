@@ -23,6 +23,8 @@ interface WebexMeeting {
   id: string;
   title: string;
   start: string;
+  hasSummary: boolean;
+  hasTranscript: boolean;
 }
 
 /**
@@ -160,7 +162,7 @@ export function IngestPanel({
             ) : (
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
             )}
-            <span>Recent recorded meetings</span>
+            <span>Recorded meetings</span>
             {selectedMeetings.size > 0 && (
               <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                 {selectedMeetings.size} selected
@@ -170,9 +172,9 @@ export function IngestPanel({
           {meetingsOpen && (
             <div className="border-t px-4 pb-3 pt-2">
               <p className="mb-2 text-xs text-muted-foreground">
-                Select meetings whose transcripts and AI summaries should be
-                included in this ingest run. Selection is per-run and not saved
-                to the project.
+                Select recordings to include in this ingest run. The agent will pull
+                whatever is available — AI summary and/or transcript. Selection is
+                per-run and not saved to the project.
               </p>
               {meetingsLoading ? (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -180,7 +182,7 @@ export function IngestPanel({
                 </p>
               ) : !meetings || meetings.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No recent recorded meetings found, or Webex is not connected.
+                  No recorded meetings found, or Webex is not connected.
                 </p>
               ) : (
                 <ul className="divide-y rounded-md border">
@@ -197,6 +199,18 @@ export function IngestPanel({
                         <span className="flex-1 truncate font-medium">{m.title}</span>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {new Date(m.start).toLocaleDateString()}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          <MeetingBadge
+                            label="Summary"
+                            available={m.hasSummary}
+                            unavailableReason="No AI summary — meeting may still be processing"
+                          />
+                          <MeetingBadge
+                            label="Transcript"
+                            available={m.hasTranscript}
+                            unavailableReason="No transcript — Webex Assistant wasn't enabled for this meeting"
+                          />
                         </span>
                       </label>
                     </li>
@@ -298,6 +312,30 @@ function durationLabel(r: RunSummary): string {
     (new Date(r.finished_at).getTime() - new Date(r.started_at).getTime()) / 1000,
   );
   return `${s}s`;
+}
+
+function MeetingBadge({
+  label,
+  available,
+  unavailableReason,
+}: {
+  label: string;
+  available: boolean;
+  unavailableReason: string;
+}) {
+  return (
+    <span
+      title={available ? `${label} available` : unavailableReason}
+      className={cn(
+        "rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide transition-opacity",
+        available
+          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+          : "bg-muted text-muted-foreground opacity-40",
+      )}
+    >
+      {label}
+    </span>
+  );
 }
 
 function StatusPill({ status }: { status: RunSummary["status"] }) {

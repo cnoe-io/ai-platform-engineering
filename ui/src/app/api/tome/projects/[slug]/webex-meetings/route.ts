@@ -1,5 +1,6 @@
-// Fetch recent ended Webex meetings for the meeting picker in IngestPanel.
-// Returns [] when the project's user has no Webex connection.
+// Fetch recorded Webex meetings for the ingest meeting picker.
+// Returns meetings that have a recording, with per-meeting flags for whether
+// an AI summary and/or transcript are available.
 
 import { NextRequest } from "next/server";
 
@@ -15,14 +16,14 @@ export interface WebexMeetingListItem {
   id: string;
   title: string;
   start: string;
+  hasSummary: boolean;
+  hasTranscript: boolean;
 }
 
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
 
-  // Resolve Webex token directly — project may not have rooms configured yet
-  // but the user might still have a Webex OAuth connection.
   const creds = await resolveForwardedCredentials(tctx, ["webex"]);
   const token = creds["webex"]?.access_token;
 
@@ -30,25 +31,44 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     return successResponse({ meetings: [] });
   }
 
-  const url = new URL("https://webexapis.com/v1/meetings");
-  url.searchParams.set("meetingType", "meeting");
-  url.searchParams.set("state", "ended");
-  url.searchParams.set("max", "30");
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
+  // Three parallel calls: recordings (source of truth for "was captured"),
+  // summaries and transcripts (availability flags).
+  const [recRes, sumRes, txRes] = await Promise.all([
+    fetch("https://webexapis.com/v1/recordings?max=30", { headers }),
+    fetch("https://webexapis.com/v1/meetingSummaries?max=100", { headers }),
+    fetch("https://webexapis.com/v1/meetingTranscripts?max=100", { headers }),
+  ]);
 
-  if (!res.ok) {
+  if (!recRes.ok) {
     return successResponse({ meetings: [] });
   }
 
-  const text = await res.text();
+  const [recJson, sumJson, txJson] = await Promise.all([
+    recRes.json() as Promise<{ items?: Array<{ meetingId?: string; topic?: string; timeRecorded?: string; createTime?: string }> }>,
+    sumRes.ok ? (sumRes.json() as Promise<{ items?: Array<{ meetingId?: string }> }>) : Promise.resolve({ items: [] }),
+    txRes.ok  ? (txRes.json()  as Promise<{ items?: Array<{ meetingId?: string }> }>) : Promise.resolve({ items: [] }),
+  ]);
 
-  const json = JSON.parse(text) as { items?: Array<{ id?: string; title?: string; start?: string }> };
-  const meetings: WebexMeetingListItem[] = (json.items ?? [])
-    .filter((m) => m.id && m.title && m.start)
-    .map((m) => ({ id: m.id!, title: m.title!, start: m.start! }));
+  const summaryIds  = new Set((sumJson.items ?? []).map((s) => s.meetingId).filter(Boolean));
+  const transcriptIds = new Set((txJson.items  ?? []).map((t) => t.meetingId).filter(Boolean));
+
+  // Deduplicate by meetingId (a meeting can have multiple recording segments).
+  const seen = new Set<string>();
+  const meetings: WebexMeetingListItem[] = [];
+  for (const r of recJson.items ?? []) {
+    if (!r.meetingId || !r.topic) continue;
+    if (seen.has(r.meetingId)) continue;
+    seen.add(r.meetingId);
+    meetings.push({
+      id: r.meetingId,
+      title: r.topic,
+      start: r.timeRecorded ?? r.createTime ?? "",
+      hasSummary: summaryIds.has(r.meetingId),
+      hasTranscript: transcriptIds.has(r.meetingId),
+    });
+  }
 
   return successResponse({ meetings });
 });
