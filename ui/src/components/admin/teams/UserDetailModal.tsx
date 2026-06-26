@@ -1,9 +1,10 @@
 "use client";
 
-import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
-import { Loader2 } from "lucide-react";
+// assisted-by Codex Codex-sonnet-4-6
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useCallback,useEffect,useMemo,useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 export interface UserDetailModalProps {
@@ -69,6 +70,7 @@ const ACCESS_GROUP_LABELS: Array<{ key: keyof AccessGroups; label: string }> = [
 // A group with hundreds of grants would blow out the modal; collapse to a
 // preview and let the admin expand the ones they care about.
 const ACCESS_COLLAPSED_LIMIT = 8;
+const TEAM_COLLAPSED_LIMIT = 8;
 
 function AccessGroupList({ label, items }: { label: string; items: AccessItem[] }) {
   const [expanded, setExpanded] = useState(false);
@@ -162,6 +164,7 @@ export function UserDetailModal({
   const [access, setAccess] = useState<AccessGroups | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
+  const [teamsExpanded, setTeamsExpanded] = useState(false);
 
   const refreshProfile = useCallback(async () => {
     setLoadError(null);
@@ -233,6 +236,10 @@ export function UserDetailModal({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setTeamsExpanded(false);
+  }, [userId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -316,6 +323,10 @@ export function UserDetailModal({
     for (const t of user?.teams ?? []) s.add(t.team_id);
     return s;
   }, [user?.teams]);
+
+  const teams = user?.teams ?? [];
+  const visibleTeams = teamsExpanded ? teams : teams.slice(0, TEAM_COLLAPSED_LIMIT);
+  const hiddenTeamCount = teams.length - visibleTeams.length;
 
   const addableTeams = useMemo(() => {
     return teamOptions.filter((t) => !memberTeamIds.has(t.teamId));
@@ -508,12 +519,41 @@ export function UserDetailModal({
             ) : null}
 
             <section className="mt-6 border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-3">Teams</h3>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {(user.teams ?? []).length === 0 ? (
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-md text-left text-sm font-semibold text-foreground hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-expanded={teamsExpanded}
+                  aria-controls="user-detail-teams-list"
+                  disabled={teams.length <= TEAM_COLLAPSED_LIMIT}
+                  onClick={() => setTeamsExpanded((prev) => !prev)}
+                >
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${
+                      teamsExpanded ? "rotate-0" : "-rotate-90"
+                    } ${teams.length <= TEAM_COLLAPSED_LIMIT ? "opacity-0" : ""}`}
+                    aria-hidden
+                  />
+                  <span>Teams</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    {teams.length}
+                  </span>
+                </button>
+                {teams.length > TEAM_COLLAPSED_LIMIT ? (
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+                    onClick={() => setTeamsExpanded((prev) => !prev)}
+                  >
+                    {teamsExpanded ? "Collapse" : `Show ${hiddenTeamCount} more`}
+                  </button>
+                ) : null}
+              </div>
+              <div id="user-detail-teams-list" className="mb-3 flex flex-wrap gap-2">
+                {teams.length === 0 ? (
                   <span className="text-sm text-muted-foreground">No teams</span>
                 ) : (
-                  (user.teams ?? []).map((t) => (
+                  visibleTeams.map((t) => (
                     <span
                       key={`${t.team_id}:${t.tenant_id}`}
                       className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
@@ -536,6 +576,11 @@ export function UserDetailModal({
                     </span>
                   ))
                 )}
+                {hiddenTeamCount > 0 ? (
+                  <span className="inline-flex items-center rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    +{hiddenTeamCount} more
+                  </span>
+                ) : null}
               </div>
               {!readOnly && (
                 <div className="flex flex-wrap items-center gap-2">
