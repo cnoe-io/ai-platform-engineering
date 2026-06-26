@@ -8,6 +8,7 @@ import { ObjectId } from "mongodb";
 import {
   ApiError,
   getAuthFromBearerOrSession,
+  getUserTeamIds,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -60,17 +61,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     if (!email) {
       return successResponse({ projects: [] });
     }
-    const userTeams = await getCollection("teams");
-    const memberships = await userTeams
-      .find({
-        $or: [
-          { "members.user_id": email },
-          { owner_id: email },
-        ],
-      })
-      .project({ _id: 1 })
-      .toArray();
-    const teamIds = memberships.map((t) => String(t._id));
+    const teamIds = await getUserTeamIds(email);
     filter = { team_id: { $in: teamIds } };
   }
 
