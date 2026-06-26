@@ -134,6 +134,7 @@ class RouteResolverProtocol(Protocol):
         space_id: str,
         person_id: str,
         text: str,
+        is_direct: bool = False,
     ) -> WebexRouteResolution:
         """Resolve the agent route to dispatch this message to."""
         raise NotImplementedError
@@ -357,6 +358,7 @@ class _WebexAgentRouteResolver:
         space_id: str,
         person_id: str,
         text: str,
+        is_direct: bool = False,
     ) -> WebexRouteResolution:
         from .utils.webex_agent_routes import resolve_webex_agent_route
 
@@ -365,6 +367,7 @@ class _WebexAgentRouteResolver:
             space_id=space_id,
             person_id=person_id,
             text=text,
+            is_direct=is_direct,
         )
         return WebexRouteResolution(agent_id=agent_id, deny_message=deny_message)
 
@@ -603,6 +606,7 @@ async def handle_webex_message(
         space_id=parsed.space_id,
         person_id=parsed.person_id,
         text=parsed.text,
+        is_direct=parsed.is_direct,
     )
     agent_id = route.agent_id
     if not agent_id:
