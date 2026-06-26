@@ -61,6 +61,7 @@ async function installMcpPermissionMocks(
     servers: McpServerFixture[];
     capabilities?: { repair_agentgateway: boolean };
     isAdmin?: boolean;
+    probeErrors?: Record<string, string>;
   },
 ): Promise<void> {
   const capabilities = options.capabilities ?? { repair_agentgateway: false };
@@ -82,6 +83,19 @@ async function installMcpPermissionMocks(
 
         if (path === "/api/mcp-servers/probe" && method === "POST") {
           const serverId = new URL(route.request().url()).searchParams.get("id") ?? "";
+          const probeError = options.probeErrors?.[serverId];
+          if (probeError) {
+            await fulfillJson(route, {
+              success: true,
+              data: {
+                server_id: serverId,
+                success: false,
+                error: probeError,
+                tools: [],
+              },
+            });
+            return true;
+          }
           await fulfillJson(route, {
             success: true,
             data: {
@@ -116,7 +130,7 @@ async function installMcpPermissionMocks(
 }
 
 test.describe("RBAC e2e — MCP server permission gating", () => {
-  test.beforeEach(({ page: _page }, testInfo) => {
+  test.beforeEach(({}, testInfo) => {
     test.skip(
       !mockedRbacEnabled(),
       "Set RUN_RBAC_REGRESSION=1 to run the mocked MCP permission gating regression.",
@@ -178,6 +192,46 @@ test.describe("RBAC e2e — MCP server permission gating", () => {
     await expect(page.getByText("Discover Only MCP")).toBeVisible();
     await expect(page.getByRole("button", { name: /Probe tools for Discover Only MCP/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Test MCP tools for Discover Only MCP/i })).toHaveCount(0);
+  });
+
+  test("shows green and amber tool health indicators after probing MCP rows", async ({ page }) => {
+    await installMcpPermissionMocks(page, {
+      servers: [
+        {
+          _id: "mcp-healthy",
+          name: "Healthy MCP",
+          transport: "http",
+          endpoint: "http://mcp-healthy:8000/mcp",
+          enabled: true,
+          permissions: { can_manage: false, can_invoke: false, can_discover: true },
+        },
+        {
+          _id: "mcp-degraded",
+          name: "Degraded MCP",
+          transport: "http",
+          endpoint: "http://mcp-degraded:8000/mcp",
+          enabled: true,
+          permissions: { can_manage: false, can_invoke: false, can_discover: true },
+        },
+      ],
+      probeErrors: {
+        "mcp-degraded": "MCP initialize failed with HTTP 500",
+      },
+    });
+
+    await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
+    const mcpServersPanel = page.getByLabel("MCP Servers");
+    await expect(page.getByText("Healthy MCP")).toBeVisible();
+    await expect(page.getByText("Degraded MCP")).toBeVisible();
+
+    await page.getByRole("button", { name: /Probe tools for Healthy MCP/i }).click();
+    await expect(mcpServersPanel.getByText("Healthy", { exact: true })).toBeVisible();
+    await expect(page.getByText("1 tool(s) available")).toBeVisible();
+
+    await page.getByRole("button", { name: /Probe tools for Degraded MCP/i }).click();
+    await expect(mcpServersPanel.getByText("Degraded", { exact: true })).toBeVisible();
+    await expect(page.getByText("Tool Scan Degraded")).toBeVisible();
+    await expect(page.getByText("MCP initialize failed with HTTP 500")).toBeVisible();
   });
 
   test("shows test action only when can_invoke is granted", async ({ page }) => {
