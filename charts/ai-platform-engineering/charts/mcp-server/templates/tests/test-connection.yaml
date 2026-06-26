@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: "{{ include "agent.fullname" . }}-mcp-test-connection"
+  name: "{{ include "agent.fullname" . }}-test-connection"
   labels:
     {{- include "agent.labels" . | nindent 4 }}
   annotations:
@@ -12,6 +12,6 @@ spec:
     - name: wget
       image: busybox
       command: ['wget']
-      args: ['{{ include "agent.fullname" . }}-mcp:{{ .Values.mcp.service.port | default 8000 }}']
+      args: ['{{ include "agent.fullname" . }}:{{ .Values.mcp.service.port | default 8000 }}']
   restartPolicy: Never
 {{- end }}
