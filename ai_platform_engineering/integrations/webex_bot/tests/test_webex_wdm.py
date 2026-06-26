@@ -18,6 +18,7 @@ from ai_platform_engineering.integrations.webex_bot.webex_wdm import (
     websocket_connect_header_kwargs,
     websocket_handshake_status,
 )
+from ai_platform_engineering.integrations.webex_bot.app import parse_webex_event
 from ai_platform_engineering.integrations.webex_bot.utils.webex_ids import (
     canonicalize_webex_space_id,
     public_webex_room_id_from_uuid,
@@ -50,6 +51,7 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
         "roomId": PUBLIC_ROOM_ID,
         "personId": "person-public-id",
         "personEmail": "user@example.com",
+        "roomType": "direct",
         "text": "neo-coder hello",
         "mentionedPeople": ["bot-person-id"],
     }
@@ -69,11 +71,15 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
             "webexRoomId": PUBLIC_ROOM_ID,
             "personId": "person-public-id",
             "personEmail": "user@example.com",
+            "roomType": "direct",
             "text": "neo-coder hello",
             "mentionedPeople": ["bot-person-id"],
             "isSelf": False,
         },
     }
+    parsed = parse_webex_event(event)
+    assert parsed is not None
+    assert parsed.is_direct is True
 
 
 # ── WDM device reuse + message dedup ───────────────────────────────────────

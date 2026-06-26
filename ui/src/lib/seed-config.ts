@@ -313,8 +313,22 @@ async function seedMCPServers(
     // Preserve created_at if document already exists
     const existing = await collection.findOne({ _id: serverId });
     const createdAt = existing?.created_at ?? now;
+    const source: MCPServerConfig["source"] | undefined =
+      serverData.source === "manual" ||
+      serverData.source === "config" ||
+      serverData.source === "agentgateway"
+        ? serverData.source
+        : undefined;
+    const agentgatewayEndpoint =
+      typeof serverData.agentgateway_endpoint === "string"
+        ? serverData.agentgateway_endpoint
+        : undefined;
+    const agentgatewayTargetEndpoint =
+      typeof serverData.agentgateway_target_endpoint === "string"
+        ? serverData.agentgateway_target_endpoint
+        : undefined;
 
-    const doc = {
+    const doc: MCPServerConfig = {
       _id: serverId,
       name: (serverData.name as string) ?? serverId,
       description: (serverData.description as string) ?? "",
@@ -323,8 +337,18 @@ async function seedMCPServers(
       command: (serverData.command as string) ?? undefined,
       args: (serverData.args as string[]) ?? undefined,
       env: (serverData.env as Record<string, string>) ?? undefined,
+      credential_sources: Array.isArray(serverData.credential_sources)
+        ? (serverData.credential_sources as MCPServerConfig["credential_sources"])
+        : undefined,
       enabled: (serverData.enabled as boolean) ?? true,
       config_driven: true,
+      source,
+      agentgateway_discovered:
+        typeof serverData.agentgateway_discovered === "boolean"
+          ? serverData.agentgateway_discovered
+          : undefined,
+      agentgateway_endpoint: agentgatewayEndpoint,
+      agentgateway_target_endpoint: agentgatewayTargetEndpoint,
       created_at: createdAt,
       updated_at: now,
     };

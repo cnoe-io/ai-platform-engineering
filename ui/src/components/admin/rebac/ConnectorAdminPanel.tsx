@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight,FileUp,HelpCircle,Loader2,RefreshCw,RotateCw,Settings2 } from "lucide-react";
+import { ChevronRight,FileUp,HelpCircle,RefreshCw,RotateCw,Settings2 } from "lucide-react";
 import React,{ useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -494,20 +494,30 @@ function enrichDiscoveredRows(
   return rows.map((row) => {
     const existing = sources.configuredItemsById.get(row.id);
     const legacyAgent = sources.legacyChannelAgents[row.id];
+    // assisted-by Codex Codex-sonnet-4-6: 1:1 Webex rooms are personal bot DMs, not team-assigned spaces.
+    const teamRequired = row.teamRequired !== false;
+    const selectable = row.selectable !== false && teamRequired;
     const teamSlug =
-      row.team_slug ||
-      existing?.team_slug ||
-      sources.globalDefaults.team_slug ||
-      "";
+      teamRequired
+        ? row.team_slug ||
+          existing?.team_slug ||
+          sources.globalDefaults.team_slug ||
+          ""
+        : "";
     const agentId =
-      row.agent_id ||
-      existing?.primary_agent_id ||
-      legacyAgent ||
-      sources.globalDefaults.agent_id ||
-      "";
-    const isSetupComplete = Boolean(existing?.team_slug && (existing?.active_grants ?? 0) > 0);
+      selectable
+        ? row.agent_id ||
+          existing?.primary_agent_id ||
+          legacyAgent ||
+          sources.globalDefaults.agent_id ||
+          ""
+        : "";
+    const isSetupComplete = teamRequired && Boolean(existing?.team_slug && (existing?.active_grants ?? 0) > 0);
     return {
       ...row,
+      teamRequired,
+      selectable,
+      selected: selectable ? row.selected : false,
       team_slug: teamSlug,
       agent_id: agentId,
       is_existing: row.is_existing || isSetupComplete,
@@ -527,6 +537,11 @@ function mergeDiscoveredById(base: DiscoveredItem[], incoming: DiscoveredItem[])
   const byId = new Map(base.map((item) => [item.id, item]));
   for (const item of incoming) byId.set(item.id, item);
   return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function discoveredItemMatchesSearch(item: DiscoveredItem, query: string): boolean {
+  if (!query) return true;
+  return `${item.name} ${item.id} ${item.secondary}`.toLowerCase().includes(query);
 }
 
 const MIN_LOADING_VISIBLE_MS = process.env.NODE_ENV === "test" ? 0 : 400;
@@ -602,7 +617,10 @@ export function ConnectorAdminPanel({
   // self-service mode there is no tab bar — the configured table always shows —
   // so `view` stays local there and the URL is left untouched.
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
-  const panelView: PanelView = selfService ? "channels" : view;
+  const singlePanelView = selfService ? undefined : adapter.singlePanelView;
+  const panelView: PanelView = selfService ? "channels" : singlePanelView ?? view;
+  const showTabBar = !selfService && !singlePanelView;
+  const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
   const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
 
@@ -636,7 +654,13 @@ export function ConnectorAdminPanel({
     [configuredItemIds, discoveredItems],
   );
   const selectedDiscoveredRows = useMemo(
-    () => discoveredRows.filter((row) => row.selected && row.team_slug && row.agent_id),
+    () =>
+      discoveredRows.filter((row) =>
+        row.selectable !== false &&
+        row.selected &&
+        (row.teamRequired === false || row.team_slug) &&
+        row.agent_id,
+      ),
     [discoveredRows],
   );
 
@@ -796,10 +820,10 @@ export function ConnectorAdminPanel({
     void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
   }, [loadTeams, selfService]);
   useEffect(() => {
-    if (selfService) return;
+    if (!hasAdvancedView) return;
     void loadRuntimeStatus().catch((e) =>
       setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} bot runtime status`));
-  }, [loadRuntimeStatus, selfService, adapter.connectorName]);
+  }, [loadRuntimeStatus, hasAdvancedView, adapter.connectorName]);
   const connectorName = adapter.connectorName;
   const itemSingular = adapter.itemSingular;
   useEffect(() => {
@@ -865,30 +889,36 @@ export function ConnectorAdminPanel({
   const buildDiscoveredRows = useCallback(
     (discovered: DiscoveredItem[], previousRows: DiscoveredRow[]): DiscoveredRow[] => {
       const prevById = new Map(previousRows.map((row) => [row.id, row]));
-      const hasNewItems = discovered.some((item) => !configuredItemIds.has(item.id));
       const built = discovered.map((item) => {
         const prev = prevById.get(item.id);
         const existing = configuredItemsById.get(item.id);
         const isExisting = configuredItemIds.has(item.id);
-        const isSetupComplete = Boolean(existing?.team_slug && (existing.active_grants ?? 0) > 0);
+        const teamRequired = item.teamRequired !== false;
+        const selectable = item.selectable !== false && teamRequired;
+        const isSetupComplete = teamRequired && Boolean(existing?.team_slug && (existing.active_grants ?? 0) > 0);
         const autoSelect = adapter.discoveryAutoSelectNewItems
-          ? (hasNewItems ? !isExisting : true)
+          ? selectable && !isExisting
           : false;
         if (prev) {
           return {
             ...prev,
             name: item.name,
             secondary: item.secondary,
-            team_slug: prev.team_slug || existing?.team_slug || "",
-            agent_id: prev.agent_id || existing?.primary_agent_id || "",
+            teamRequired,
+            selectable,
+            selected: selectable ? prev.selected : false,
+            team_slug: teamRequired ? prev.team_slug || existing?.team_slug || "" : "",
+            agent_id: selectable ? prev.agent_id || existing?.primary_agent_id || "" : "",
             is_existing: isSetupComplete || prev.is_existing,
           };
         }
         return {
           ...item,
           selected: autoSelect,
-          team_slug: existing?.team_slug ?? "",
-          agent_id: existing?.primary_agent_id ?? "",
+          teamRequired,
+          selectable,
+          team_slug: teamRequired ? existing?.team_slug ?? "" : "",
+          agent_id: selectable ? existing?.primary_agent_id ?? "" : "",
           is_existing: isSetupComplete,
         };
       });
@@ -938,12 +968,21 @@ export function ConnectorAdminPanel({
         setDiscoveryHasMore(pageData.hasMore);
         setDiscoveryTotalMatches(pageData.totalMatches ?? null);
 
-        const configuredSeed = itemsToDiscovered(items);
+        const query = opts.q?.trim().toLowerCase() ?? "";
+        const configuredSeed = itemsToDiscovered(items).filter((item) =>
+          discoveredItemMatchesSearch(item, query),
+        );
         if (opts.append) {
           setDiscoveredItems((prev) => mergeDiscoveredById(prev, pageData.items));
           setDiscoveredRows((prev) => {
             const merged = mergeDiscoveredById(
-              prev.map((row) => ({ id: row.id, name: row.name, secondary: row.secondary })),
+              prev.map((row) => ({
+                id: row.id,
+                name: row.name,
+                secondary: row.secondary,
+                teamRequired: row.teamRequired,
+                selectable: row.selectable,
+              })),
               pageData.items,
             );
             return buildDiscoveredRows(merged, prev);
@@ -977,7 +1016,7 @@ export function ConnectorAdminPanel({
         }
       }
     },
-    [adapter, buildDiscoveredRows, items, paginatedDiscovery, toast, loadLegacyChannelHints],
+    [adapter, buildDiscoveredRows, items, toast, loadLegacyChannelHints],
   );
 
   useEffect(() => {
@@ -1048,21 +1087,31 @@ export function ConnectorAdminPanel({
     setDiscoveredRows((rows) => rows.map((row) => row.id === itemId ? { ...row, ...updates } : row));
   };
   const setAllRowsSelected = (sel: boolean) => {
-    setDiscoveredRows((rows) => rows.map((row) => ({ ...row, selected: sel })));
+    setDiscoveredRows((rows) => rows.map((row) => ({ ...row, selected: row.selectable === false ? false : sel })));
   };
 
   const applyOnboarding = async () => {
     setLoading(true); setMessage(null);
     try {
       const result = await adapter.applyOnboarding({
-        rows: discoveredRows.map((r) => ({ id: r.id, name: r.name, teamSlug: r.team_slug, agentId: r.agent_id, selected: r.selected })),
+        rows: discoveredRows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          teamSlug: r.team_slug,
+          agentId: r.agent_id,
+          selected: r.selected,
+          teamRequired: r.teamRequired,
+          selectable: r.selectable,
+        })),
         defaultTeamSlug: onboardingDefaults.team_slug,
         defaultAgentId: onboardingDefaults.agent_id,
         createDefaultRoutes: true,
         fetchFn: fetch,
       });
       await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
-      const appliedIds = new Set(discoveredRows.filter((r) => r.selected).map((r) => r.id));
+      const appliedIds = new Set(
+        discoveredRows.filter((r) => r.selected && r.selectable !== false).map((r) => r.id),
+      );
       setDiscoveredRows((rows) => rows.map((row) => appliedIds.has(row.id) ? { ...row, is_existing: true, selected: false } : row));
       toast(result.toastMessage, "success");
     } catch (err) {
@@ -1095,17 +1144,44 @@ export function ConnectorAdminPanel({
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
+  const showCompactOnboardingHeader = !selfService && panelView === "onboard";
+
+  const onboardingHeader = showCompactOnboardingHeader ? (
+    <div className="flex min-w-0 items-center gap-2">
+      <h3 className="truncate text-base font-semibold tracking-tight">
+        {viewTitle.onboard}
+      </h3>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${adapter.connectorName} ${adapter.itemPlural} setup details`}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <HelpCircle className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xl space-y-2 whitespace-normal text-xs">
+          <p>{viewDescription.onboard}</p>
+          <div className="space-y-2">{adapter.authzDisclaimer}</div>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  ) : null;
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>{selfService ? adapter.copy.selfServiceTitle : viewTitle[view]}</CardTitle>
-        <CardDescription>
-          {selfService ? adapter.copy.selfServiceDescription : viewDescription[view]}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      {!showCompactOnboardingHeader && (
+        <CardHeader>
+          <CardTitle>{selfService ? adapter.copy.selfServiceTitle : viewTitle[panelView]}</CardTitle>
+          <CardDescription>
+            {selfService ? adapter.copy.selfServiceDescription : viewDescription[panelView]}
+          </CardDescription>
+        </CardHeader>
+      )}
+      <CardContent className={cn("flex flex-col gap-4", showCompactOnboardingHeader && "pt-6")}>
         {/* Tab bar */}
-        {!selfService && (
+        {showTabBar && (
           <div role="tablist" aria-label={adapter.ariaLabels.tablist}
             className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
             {(Object.keys(viewTitle) as PanelView[]).map((key) => (
@@ -1119,7 +1195,7 @@ export function ConnectorAdminPanel({
         )}
 
         {/* Auth disclaimer */}
-        {(selfService || panelView === "onboard") && (
+        {(selfService || (panelView === "onboard" && !showCompactOnboardingHeader)) && (
           <div className="space-y-2 rounded-md border p-3 text-sm text-muted-foreground">
             {adapter.authzDisclaimer}
           </div>
@@ -1385,6 +1461,7 @@ export function ConnectorAdminPanel({
             isAdmin={!selfService}
             itemSingular={adapter.itemSingular}
             itemPlural={adapter.itemPlural}
+            header={onboardingHeader}
             discoveredLabel={adapter.copy.discoveryDiscoveredLabel}
             findLabel={adapter.copy.discoveryFindLabel}
             refreshLabel={adapter.copy.discoveryRefreshLabel}
@@ -1393,6 +1470,7 @@ export function ConnectorAdminPanel({
             description={adapter.copy.discoveryDescription}
             discoveryStatusText={discoveryStatusText}
             discoveredCount={discoveredItems.length}
+            configuredCount={items.length}
             newCount={discoveredNewCount}
             selectedCount={selectedDiscoveredRows.length}
             rows={discoveredRows.map((row) => ({
@@ -1403,6 +1481,8 @@ export function ConnectorAdminPanel({
               teamSlug: row.team_slug,
               agentId: row.agent_id,
               isExisting: row.is_existing,
+              teamRequired: row.teamRequired,
+              selectable: row.selectable,
               importLabel: `Import ${row.name}`,
               teamLabel: `Team for ${row.name}`,
               agentLabel: `Dynamic Agent for ${row.name}`,
@@ -1420,7 +1500,7 @@ export function ConnectorAdminPanel({
             discoveryLoadingMore={discoveryLoadingMore}
             onLoadMore={paginatedDiscovery ? loadMoreDiscovery : undefined}
             discoveryTotalMatches={paginatedDiscovery ? discoveryTotalMatches : null}
-            serverSideSearch={adapter.discoveryServerSearch === true}
+            serverSideSearch={adapter.discoveryServerSearch === true && discoveryLiveFetched}
             searchDisabled={discoverLoading || discoveryLoadingMore}
             searchValue={discoverySearch}
             onSearchChange={setDiscoverySearch}

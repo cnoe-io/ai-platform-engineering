@@ -7,7 +7,7 @@
  * Covers the sharing permission model:
  * - 'view' permission → shared_readonly access (cannot send messages)
  * - 'comment' permission → shared access (can send messages)
- * - Public shares → always shared_readonly
+ * - Legacy public flags no longer grant access
  * - Team shares with per-team permissions
  * - Permission changes via PATCH
  * - Backward compatibility: legacy shares without permission records default to 'comment'
@@ -227,8 +227,8 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
     });
   });
 
-  describe('public shares', () => {
-    it('returns shared_readonly (view) by default for public conversations', async () => {
+  describe('legacy public flags', () => {
+    it('does not grant access to non-owners from is_public=true', async () => {
       const conv = makeConversation({
         sharing: { is_public: true, shared_with: [], shared_with_teams: [] },
       });
@@ -236,38 +236,11 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
       convsCol.findOne.mockResolvedValue(conv);
       mockCollections['conversations'] = convsCol;
 
-      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
-
-      expect(result.access_level).toBe('shared_readonly');
+      await expect(requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection))
+        .rejects.toThrow('You do not have access to this conversation.');
     });
 
-    it('returns shared_readonly when public_permission is view', async () => {
-      const conv = makeConversation({
-        sharing: { is_public: true, public_permission: 'view', shared_with: [], shared_with_teams: [] },
-      });
-      const convsCol = createMockCollection();
-      convsCol.findOne.mockResolvedValue(conv);
-      mockCollections['conversations'] = convsCol;
-
-      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
-
-      expect(result.access_level).toBe('shared_readonly');
-    });
-
-    it('returns shared when public_permission is comment', async () => {
-      const conv = makeConversation({
-        sharing: { is_public: true, public_permission: 'comment', shared_with: [], shared_with_teams: [] },
-      });
-      const convsCol = createMockCollection();
-      convsCol.findOne.mockResolvedValue(conv);
-      mockCollections['conversations'] = convsCol;
-
-      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
-
-      expect(result.access_level).toBe('shared');
-    });
-
-    it('owner still gets owner access on public conversations', async () => {
+    it('owner still gets owner access when old public state is present', async () => {
       const conv = makeConversation({
         sharing: { is_public: true, shared_with: [], shared_with_teams: [] },
       });
@@ -519,8 +492,8 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
 
     expect(res.status).toBe(200);
     expect(sharingAccessCol.updateOne).toHaveBeenCalledWith(
-      { conversation_id: conv._id, granted_to: VIEWER_EMAIL, revoked_at: null },
-      { $set: { permission: 'comment' } }
+      { conversation_id: conv._id, granted_to: { $in: [VIEWER_EMAIL] }, revoked_at: null },
+      { $set: { permission: 'comment', granted_to: VIEWER_EMAIL } }
     );
   });
 
@@ -646,6 +619,100 @@ describe('POST /api/chat/conversations/[id]/share — permission storage', () =>
     const insertedRecords = sharingAccessCol.insertMany.mock.calls[0][0];
     expect(insertedRecords[0].permission).toBe('view');
     expect(insertedRecords[0].granted_to).toBe(VIEWER_EMAIL);
+  });
+
+  it('writes OpenFGA user grants when a direct-share recipient has a stable subject', async () => {
+    const conv = makeConversation({
+      sharing: { shared_with: [], shared_with_teams: [] },
+    });
+
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({ ...conv, sharing: { ...conv.sharing, shared_with: [VIEWER_EMAIL] } });
+    mockCollections['conversations'] = convsCol;
+
+    mockCollections['sharing_access'] = createMockCollection();
+    const usersCol = createMockCollection();
+    usersCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { email: VIEWER_EMAIL, keycloak_sub: 'viewer-sub' },
+        ]),
+      }),
+    });
+    mockCollections['users'] = usersCol;
+
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');
+
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_emails: [VIEWER_EMAIL],
+        permission: 'comment',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: 'user:viewer-sub', relation: 'reader', object: `conversation:${conv._id}` },
+        { user: 'user:viewer-sub', relation: 'writer', object: `conversation:${conv._id}` },
+      ]),
+      deletes: [],
+    });
+  });
+
+  it('keeps Mongo direct-share fallback when a direct-share recipient is not provisioned', async () => {
+    const conv = makeConversation({
+      sharing: { shared_with: [], shared_with_teams: [] },
+    });
+
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({ ...conv, sharing: { ...conv.sharing, shared_with: [VIEWER_EMAIL] } });
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingAccessCol;
+    const usersCol = createMockCollection();
+    usersCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['users'] = usersCol;
+
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');
+
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_emails: [VIEWER_EMAIL],
+        permission: 'view',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(sharingAccessCol.insertMany).toHaveBeenCalled();
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
   it('stores team_permissions when sharing with teams', async () => {

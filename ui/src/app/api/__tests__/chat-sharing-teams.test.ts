@@ -520,7 +520,6 @@ describe('GET /api/chat/conversations — team sharing', () => {
       {
         $or: [
           { owner_id: MEMBER_EMAIL },
-          { 'sharing.is_public': true },
           { 'sharing.shared_with': MEMBER_EMAIL },
           { 'sharing.shared_with_teams.0': { $exists: true } },
         ],
@@ -551,7 +550,6 @@ describe('GET /api/chat/conversations — team sharing', () => {
       expect.objectContaining({
         $or: [
           { owner_id: NON_MEMBER_EMAIL },
-          { 'sharing.is_public': true },
           { 'sharing.shared_with': NON_MEMBER_EMAIL },
           { 'sharing.shared_with_teams.0': { $exists: true } },
         ],
@@ -661,7 +659,7 @@ describe('GET /api/chat/shared — team sharing', () => {
     // Must include a sharing pre-filter ($or over sharing fields)
     expect(findCall.$or).toBeDefined();
     const orStr = JSON.stringify(findCall.$or);
-    expect(orStr).toContain('sharing.is_public');
+    expect(orStr).not.toContain('sharing.is_public');
     expect(orStr).toContain('sharing.shared_with');
     expect(orStr).toContain('sharing.share_link_enabled');
     expect(orStr).toContain('sharing.shared_with_teams');

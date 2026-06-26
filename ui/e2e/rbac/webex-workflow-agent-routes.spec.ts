@@ -31,7 +31,10 @@ function webexHandler(state: {
   routes: unknown[];
 }): MockRouteHandler {
   return async ({ route, path, method }) => {
-    if (path === "/api/admin/webex/spaces" || path === "/api/admin/webex/spaces?health=1") {
+    if (
+      path === "/api/admin/webex/spaces" ||
+      path === "/api/admin/webex/spaces?health=1"
+    ) {
       await fulfillJson(route, {
         data: {
           spaces: [
@@ -49,7 +52,10 @@ function webexHandler(state: {
       return true;
     }
 
-    if (path.startsWith("/api/admin/webex/available-spaces") && method === "GET") {
+    if (
+      path.startsWith("/api/admin/webex/available-spaces") &&
+      method === "GET"
+    ) {
       await fulfillJson(route, {
         data: {
           spaces: [
@@ -73,7 +79,10 @@ function webexHandler(state: {
       return true;
     }
 
-    if (path === "/api/dynamic-agents?enabled_only=true" || path === "/api/dynamic-agents") {
+    if (
+      path === "/api/dynamic-agents?enabled_only=true" ||
+      path === "/api/dynamic-agents"
+    ) {
       await fulfillJson(route, {
         data: {
           items: [
@@ -88,7 +97,9 @@ function webexHandler(state: {
     if (path === "/api/admin/teams" && method === "GET") {
       await fulfillJson(route, {
         data: {
-          teams: [{ _id: "team-platform", slug: "platform", name: "Platform Team" }],
+          teams: [
+            { _id: "team-platform", slug: "platform", name: "Platform Team" },
+          ],
         },
       });
       return true;
@@ -135,7 +146,8 @@ function webexHandler(state: {
     }
 
     if (
-      path === "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-incidents/routes" &&
+      path ===
+        "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-incidents/routes" &&
       method === "GET"
     ) {
       await fulfillJson(route, { data: { routes: state.routes } });
@@ -143,12 +155,15 @@ function webexHandler(state: {
     }
 
     if (
-      path === "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-incidents/routes" &&
+      path ===
+        "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-incidents/routes" &&
       method === "PUT"
     ) {
       const body = await postJson(route);
       state.routeWrites.push(body);
-      state.routes = Array.isArray((body as { routes?: unknown[] } | null)?.routes)
+      state.routes = Array.isArray(
+        (body as { routes?: unknown[] } | null)?.routes,
+      )
         ? ((body as { routes: unknown[] }).routes ?? [])
         : [];
       await fulfillJson(route, { data: { routes: state.routes } });
@@ -156,7 +171,8 @@ function webexHandler(state: {
     }
 
     if (
-      path === "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-incidents/diagnostics" &&
+      path ===
+        "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-incidents/diagnostics" &&
       method === "GET"
     ) {
       await fulfillJson(route, {
@@ -204,25 +220,51 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       handlers: [webexHandler({ routeWrites, defaultsRequests, routes })],
     });
 
-    await page.goto("/admin?cat=integrations&tab=webex", { waitUntil: "domcontentloaded" });
-    await page.getByRole("tab", { name: "Onboard spaces" }).click();
+    await page.goto("/admin?cat=integrations&tab=webex", {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("region", { name: "Configure spaces" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Find spaces" }).click();
+
+    await expect(
+      page.getByRole("status", { name: /Discovered: 2/i }),
+    ).toBeVisible();
     await page
-      .getByRole("button", { name: /^(Find spaces|Find Webex Spaces with Bot Integration)$/i })
+      .getByRole("checkbox", { name: /Import Incident Bridge/i })
+      .check();
+    await page
+      .getByRole("button", { name: "Bulk team for selected rows" })
+      .click();
+    await page
+      .getByRole("option", { name: /Platform Team.*team:platform/i })
+      .click();
+    await page
+      .getByRole("button", { name: "Bulk Dynamic Agent for selected rows" })
+      .click();
+    await page
+      .getByRole("option", { name: new RegExp(workflowAgent.name, "i") })
+      .click();
+    await page
+      .getByRole("button", { name: /^Apply to 2 selected rows$/i })
       .click();
 
-    await expect(page.getByText(/bot-visible spaces discovered/i)).toBeVisible();
-    await page.getByRole("checkbox", { name: /Import Incident Bridge/i }).check();
-    await page.getByRole("button", { name: "Bulk team for selected rows" }).click();
-    await page.getByRole("option", { name: /Platform Team.*team:platform/i }).click();
-    await page.getByRole("button", { name: "Bulk Dynamic Agent for selected rows" }).click();
-    await page.getByRole("option", { name: new RegExp(workflowAgent.name, "i") }).click();
-    await page.getByRole("button", { name: /^Apply to 2 selected rows$/i }).click();
-
-    await expect(page.getByRole("button", { name: /Team for Incident Bridge/i })).toContainText("Platform Team");
-    await expect(page.getByRole("button", { name: /Dynamic Agent for Incident Bridge/i })).toContainText(workflowAgent.name);
-    await expect(page.getByRole("checkbox", { name: /Import Workflow Alerts/i })).toBeChecked();
-    await expect(page.getByRole("button", { name: /Team for Workflow Alerts/i })).toContainText("Platform Team");
-    await expect(page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i })).toContainText(workflowAgent.name);
+    await expect(
+      page.getByRole("button", { name: /Team for Incident Bridge/i }),
+    ).toContainText("Platform Team");
+    await expect(
+      page.getByRole("button", { name: /Dynamic Agent for Incident Bridge/i }),
+    ).toContainText(workflowAgent.name);
+    await expect(
+      page.getByRole("checkbox", { name: /Import Workflow Alerts/i }),
+    ).toBeChecked();
+    await expect(
+      page.getByRole("button", { name: /Team for Workflow Alerts/i }),
+    ).toContainText("Platform Team");
+    await expect(
+      page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }),
+    ).toContainText(workflowAgent.name);
     await page.getByRole("button", { name: /^Set up 2 spaces$/ }).click();
 
     await expect.poll(() => defaultsRequests.length).toBe(1);
@@ -251,13 +293,23 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     ];
 
     await installMockedRbacApp(page, {
-      isAdmin: true,
-      session: adminSession,
-      gates: { webex: true },
+      isAdmin: false,
+      session: teamMemberSession,
+      gates: {
+        webex: true,
+        settings: false,
+        teams: false,
+        users: false,
+        metrics: false,
+        health: false,
+      },
       handlers: [webexHandler({ routeWrites, defaultsRequests: [], routes })],
     });
 
-    await page.goto("/admin?cat=integrations&tab=webex", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin?cat=integrations&tab=webex", {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByText("My Webex Space Settings")).toBeVisible();
     await expect(page.getByText("Incident Bridge")).toBeVisible();
     await page.getByText("Incident Bridge").click();
     const fixButton = page.getByRole("button", {
@@ -297,7 +349,9 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       handlers: [webexHandler({ routeWrites, defaultsRequests: [], routes })],
     });
 
-    await page.goto("/admin?cat=integrations&tab=webex", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin?cat=integrations&tab=webex", {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page.getByText("My Webex Space Settings")).toBeVisible();
     await expect(
       page.getByText(
@@ -306,7 +360,9 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     ).toBeVisible();
     await page.getByText("Incident Bridge").click();
     await expect(page.getByText(workflowAgent.id)).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Onboard spaces" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Onboard spaces" })).toHaveCount(
+      0,
+    );
     await expect(page.getByRole("tab", { name: "Advanced" })).toHaveCount(0);
   });
 });
