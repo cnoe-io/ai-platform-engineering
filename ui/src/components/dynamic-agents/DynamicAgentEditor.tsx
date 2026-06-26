@@ -1541,6 +1541,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   // the PUT sends owner_team_slug + confirm_not_member.
                   setTransferRequested(true);
                   setTransferConfirmedNotMember(confirmedNotMember);
+                  // Picking a different destination clears any stale
+                  // not-a-member rejection so the inline "Confirm Transfer"
+                  // button (and its message) can't linger and refer to the
+                  // previously-chosen team.
+                  setTransferNeedsServerConfirm(false);
+                  setError(null);
                 }}
                 availableTeams={availableTeams
                   .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
@@ -1960,7 +1966,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
           {/* Error */}
           {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 space-y-2">
+            <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 space-y-2">
               <p className="text-sm text-destructive">{error}</p>
               {transferNeedsServerConfirm && (
                 <Button

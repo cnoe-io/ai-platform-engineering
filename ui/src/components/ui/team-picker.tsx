@@ -143,6 +143,8 @@ export function TeamPicker({
 }: TeamPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
+  // Stable id so the combobox trigger can point aria-controls at its listbox.
+  const listboxId = React.useId();
 
   // Reset the search every time the popover closes so the next open
   // starts on the full list — admins don't expect a stale filter to
@@ -195,6 +197,13 @@ export function TeamPicker({
         <button
           type="button"
           id={id}
+          // role=combobox so aria-invalid is honored by assistive tech — a
+          // plain button role silently drops it. Pair with the expanded/popup
+          // state so the searchable popover reads as a combobox listbox.
+          role="combobox"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
           aria-label={ariaLabel}
           aria-invalid={ariaInvalid || undefined}
           aria-describedby={ariaDescribedBy}
@@ -263,6 +272,7 @@ export function TeamPicker({
           </div>
         )}
         <div
+          id={listboxId}
           className="max-h-[260px] overflow-y-auto py-1"
           role="listbox"
           aria-label={ariaLabel || placeholder}

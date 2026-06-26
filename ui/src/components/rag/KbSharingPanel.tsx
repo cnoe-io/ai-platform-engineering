@@ -84,6 +84,7 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       setCreatorSubject(data.creator_subject ?? null);
       setTransferRequested(false);
       setTransferConfirmedNotMember(false);
+      setTransferNeedsServerConfirm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sharing");
     } finally {
@@ -153,6 +154,18 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
     setTransferConfirmedNotMember(true);
     void handleSave({ forceConfirmNotMember: true });
   }, [handleSave]);
+
+  const handleReset = React.useCallback(() => {
+    // Restore every edit, including a pending/failed ownership transfer, so the
+    // inline "Confirm Transfer" button and its error can't outlive the form.
+    setSelected(originalShared);
+    setOwnerTeamSlug(originalOwner);
+    setTransferRequested(false);
+    setTransferConfirmedNotMember(false);
+    setTransferNeedsServerConfirm(false);
+    setError(null);
+    setInfo(null);
+  }, [originalShared, originalOwner]);
 
   const isDirty = React.useMemo(() => {
     // A pending ownership transfer makes the form dirty even when the shared
@@ -251,7 +264,7 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setSelected(originalShared)}
+          onClick={handleReset}
           disabled={loading || saving || !isDirty}
         >
           Reset

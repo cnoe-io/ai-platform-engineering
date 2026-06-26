@@ -278,7 +278,7 @@ describe("MCPServerEditor credential sources", () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
+    await user.click(await screen.findByRole("combobox", { name: /agentgateway target/i }));
     await user.type(screen.getByPlaceholderText(/search targets/i), "test");
     await user.click(screen.getByRole("option", { name: /Test ArgoCD/i }));
 
@@ -314,7 +314,7 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /edit generated name/i }));
     await user.clear(screen.getByLabelText(/generated name/i));
     await user.type(screen.getByLabelText(/generated name/i), "jira-gu");
-    await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
+    await user.click(await screen.findByRole("combobox", { name: /agentgateway target/i }));
     await user.click(screen.getByRole("option", { name: /^Jira$/i }));
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
