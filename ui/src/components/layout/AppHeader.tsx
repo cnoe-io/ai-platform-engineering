@@ -14,7 +14,7 @@ PopoverTrigger,
 import { useToast } from "@/components/ui/toast";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
@@ -195,11 +195,11 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for the CAIPE API path (polls every 30 seconds)
+  // Health check for the Dynamic Agents runtime API path (polls every 30 seconds)
   const {
-    status: caipeStatus,
-    storageMode
-  } = useCAIPEHealth();
+    status: runtimeStatus,
+  } = useAgentRuntimeHealth();
+  const storageMode = config.storageMode;
 
   // Health check for RAG server (polls every 30 seconds)
   const {
@@ -244,10 +244,10 @@ export function AppHeader() {
   // dependencies mark the system as disconnected; optional RAG failures are
   // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
-    if (caipeStatus === "checking") return "checking";
+    if (runtimeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
     if (platformProbeStatus === "checking") return "checking";
-    if (caipeStatus === "disconnected") return "disconnected";
+    if (runtimeStatus === "disconnected") return "disconnected";
     if (platformProbeStatus === "down") return "disconnected";
     if (platformProbeStatus === "degraded") return "degraded";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
@@ -256,11 +256,9 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
   const combinedStatusLabel =
-    combinedStatus === "connected" ? "Connected" :
+    combinedStatus === "connected" ? "Healthy" :
     combinedStatus === "checking" ? "Checking" :
-    combinedStatus === "degraded" ? "Degraded" :
-    combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-    "Disconnected";
+    "Degraded";
   const activeCapabilities = platformCapabilities.filter(
     (capability) => capability.status !== "disabled",
   );
@@ -405,7 +403,7 @@ export function AppHeader() {
       Icon: Database,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+    storageMode === "mongodb" && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
@@ -707,7 +705,18 @@ export function AppHeader() {
                 <div className="border-b border-border/60 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-foreground">System Status</div>
+                      {isAdmin ? (
+                        <GuardedLink
+                          href="/admin?cat=platform&tab=health"
+                          className="inline-flex max-w-full items-center gap-1 rounded-sm text-sm font-semibold text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="Open Admin health status"
+                        >
+                          <span className="truncate">System Status</span>
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        </GuardedLink>
+                      ) : (
+                        <div className="text-sm font-semibold text-foreground">System Status</div>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
                       <span className={cn(

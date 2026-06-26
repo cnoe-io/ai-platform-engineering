@@ -268,6 +268,61 @@ describe("Slack channel ReBAC APIs", () => {
     ]);
   });
 
+  it("batches audit-service runtime error lookup when listing Slack channel health", async () => {
+    const secondChannelId = "C987654321";
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: secondChannelId,
+        channel_name: "triage",
+        active: true,
+      },
+    ]);
+    mockAuditQuery.mockResolvedValue([
+      {
+        component: "slack_bot",
+        outcome: "error",
+        resource_ref: `slack_channel:${workspaceAlias}--${secondChannelId}`,
+        reason_code: "OPENFGA_READ_FAILED",
+        ts: "2026-06-25T19:12:00.000Z",
+      },
+    ]);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels?health=1"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockAuditQuery).toHaveBeenCalledTimes(1);
+    expect(mockAuditQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: "slack_bot",
+        outcome: "error",
+        limit: 5000,
+        timeoutMs: 2000,
+      }),
+    );
+    expect(mockAuditQuery.mock.calls[0][0]).toEqual(
+      expect.not.objectContaining({ resourceRef: expect.anything() }),
+    );
+    const healthByChannel = Object.fromEntries(
+      body.data.channels.map((channel: { channel_id: string; health: unknown }) => [
+        channel.channel_id,
+        channel.health,
+      ]),
+    );
+    expect(healthByChannel[channelId]).toMatchObject({ last_runtime_error_ts: null });
+    expect(healthByChannel[secondChannelId]).toMatchObject({
+      last_runtime_error_ts: "2026-06-25T19:12:00.000Z",
+    });
+  });
+
   it("filters the Slack channel list to concrete channels the caller can read or manage", async () => {
     mockCollections.channel_team_mappings = createMockCollection([
       {

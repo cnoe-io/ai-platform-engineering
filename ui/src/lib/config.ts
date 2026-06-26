@@ -329,17 +329,19 @@ function validated(value: string | undefined, allowed: string[], fallback: strin
 }
 
 /**
+ * assisted-by Codex Codex-sonnet-4-6
  * Returns the internal (server-side) URL for the CAIPE supervisor.
  *
- * Use this in API routes that proxy requests to the supervisor — it resolves
- * to the Docker-internal service name, falling back to caipe-supervisor:8000.
+ * Use this in API routes that proxy requests to the chat runtime. It resolves
+ * to the Docker-internal runtime service when configured, falling back to the
+ * legacy supervisor URL for older deployments.
  * Never use caipeUrl from getServerConfig() for server-side fetches; that value
  * is the browser-facing URL and may be unreachable from inside the container.
  *
  * MUST only be called on the server (Node.js runtime).
  */
 export function getInternalA2AUrl(): string {
-  return (env('A2A_BASE_URL') || 'http://caipe-supervisor:8000').replace(/\/$/, '');
+  return (env('A2A_BASE_URL') || env('DYNAMIC_AGENTS_URL') || 'http://caipe-supervisor:8000').replace(/\/$/, '');
 }
 
 /**

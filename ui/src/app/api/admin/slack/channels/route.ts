@@ -7,7 +7,7 @@ import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import {
-computeSlackChannelHealthSummary,
+computeSlackChannelHealthSummaries,
 type SlackChannelHealthSummary,
 } from "@/lib/rbac/slack-channel-diagnostics";
 import { listSlackChannelGrants,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
@@ -134,34 +134,52 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .sort((left, right) => (left.channel_name ?? left.slack_channel_id).localeCompare(right.channel_name ?? right.slack_channel_id))
       .slice(0, 500);
 
+    const visibleRows = (
+      await Promise.all(
+        rows.map(async (row) => {
+          const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
+          const access = subject
+            ? await slackChannelAccess(subject, workspaceId, row.slack_channel_id, row.team_slug)
+            : { canRead: false, canManage: false };
+          // A Slack surface admin can see every channel row, including
+          // team_mapping rows imported (config_sync) but not yet assigned to a
+          // team — those have no per-channel OpenFGA grants yet, so canRead is
+          // false, but the admin still needs to see them in order to onboard
+          // them. Without this, an imported-but-unassigned channel is invisible
+          // in the Configured Channels tab. Non-admins still require canRead.
+          if (!access.canRead && !canManageSlackSurface) return null;
+          return { row, workspaceId, access };
+        })
+      )
+    ).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    const healthSummaries = includeHealth
+      ? await computeSlackChannelHealthSummaries(
+          visibleRows.map(({ row, workspaceId }) => ({
+            workspaceId,
+            channelId: row.slack_channel_id,
+          })),
+        ).catch(
+          () =>
+            visibleRows.map(
+              (): SlackChannelHealthSummary => ({
+                warnings_count: 0,
+                openfga_reachable: false,
+                last_runtime_error_ts: null,
+              }),
+            ),
+        )
+      : [];
+
     const channels = await Promise.all(
-      rows.map(async (row) => {
-        const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
-        const access = subject
-          ? await slackChannelAccess(subject, workspaceId, row.slack_channel_id, row.team_slug)
-          : { canRead: false, canManage: false };
-        // A Slack surface admin can see every channel row, including
-        // team_mapping rows imported (config_sync) but not yet assigned to a
-        // team — those have no per-channel OpenFGA grants yet, so canRead is
-        // false, but the admin still needs to see them in order to onboard
-        // them. Without this, an imported-but-unassigned channel is invisible
-        // in the Configured Channels tab. Non-admins still require canRead.
-        if (!access.canRead && !canManageSlackSurface) return null;
-        const [grants, routesForChannel, health] = await Promise.all([
+      visibleRows.map(async ({ row, workspaceId, access }, index) => {
+        const [grants, routesForChannel] = await Promise.all([
           listSlackChannelGrants(workspaceId, row.slack_channel_id),
           routeCollection
             .find({ workspace_id: workspaceId, channel_id: row.slack_channel_id, status: "active" } as never)
             .toArray(),
-          includeHealth
-            ? computeSlackChannelHealthSummary(workspaceId, row.slack_channel_id).catch(
-                (): SlackChannelHealthSummary => ({
-                  warnings_count: 0,
-                  openfga_reachable: false,
-                  last_runtime_error_ts: null,
-                }),
-              )
-            : Promise.resolve(undefined),
         ]);
+        const health = includeHealth ? healthSummaries[index] : undefined;
         return {
           workspace_id: workspaceId,
           channel_id: row.slack_channel_id,

@@ -1,17 +1,28 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   usePlatformHealthProbes,
   type PlatformHealthCapability,
+  type PlatformDiagnosticProbe,
 } from "@/hooks/use-platform-health-probes";
-import { useServiceHealth, type HealthStatus } from "@/hooks/use-service-health";
+import { useServiceHealth, type HealthStatus, type ServiceHealth } from "@/hooks/use-service-health";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronRight,
   CircleSlash,
+  ExternalLink,
   HelpCircle,
   Loader2,
   MessageSquare,
@@ -64,6 +75,35 @@ const GROUP_LABELS: Record<PlatformHealthCapability["group"], string> = {
   identity: "Identity",
   observability: "Observability",
   messaging: "Messaging",
+};
+
+const PROBE_GROUP_LABELS: Record<PlatformDiagnosticProbe["group"], string> = {
+  runtime: "Runtime",
+  identity: "Identity",
+  storage: "Storage",
+  knowledge: "Knowledge",
+  bootstrap: "Bootstrap",
+  observability: "Observability",
+};
+
+const CAPABILITY_PROBES: Record<string, string[]> = {
+  "chat-runtime": ["dynamic-agents-runtime", "agentgateway", "agentgateway-config-bridge", "caipe-mongodb"],
+  "dynamic-agents": ["dynamic-agents-runtime", "agentgateway", "agentgateway-config-bridge", "caipe-mongodb"],
+  "knowledge-bases": ["rag-server", "rag-redis", "milvus", "milvus-minio", "etcd", "web-ingestor"],
+  authentication: [
+    "keycloak",
+    "openfga",
+    "openfga-authz-bridge",
+    "keycloak-postgres",
+    "openfga-postgres",
+    "keycloak-bootstrap",
+    "openfga-bootstrap",
+    "rebac-migrations",
+  ],
+  metrics: [],
+  "audit-service": ["audit-service", "caipe-mongodb"],
+  "slack-integration": [],
+  "webex-integration": [],
 };
 
 interface SlackDirectoryStatus {
@@ -130,10 +170,12 @@ export function HealthTab() {
   const {
     capabilities,
     summary,
+    probes,
+    probeSummary,
     status: platformStatus,
     checkNow: refreshPlatformHealth,
     secondsUntilNextCheck,
-  } = usePlatformHealthProbes();
+  } = usePlatformHealthProbes({ diagnostics: true });
 
   const systemStatus: UiStatus =
     platformStatus === "checking" ? "unknown" : platformStatus;
@@ -146,6 +188,7 @@ export function HealthTab() {
   const [slackStatusError, setSlackStatusError] = useState<string | null>(null);
   const [webexStatus, setWebexStatus] = useState<WebexDirectoryStatus | null>(null);
   const [webexStatusError, setWebexStatusError] = useState<string | null>(null);
+  const [selectedCapability, setSelectedCapability] = useState<PlatformHealthCapability | null>(null);
 
   const agentServices = services.filter((service) => service.name.startsWith("Agent: "));
   const platformMetricServices = services.filter((service) => !service.name.startsWith("Agent: "));
@@ -189,8 +232,11 @@ export function HealthTab() {
   }, []);
 
   useEffect(() => {
-    void loadSlackStatus();
-    void loadWebexStatus();
+    const timer = window.setTimeout(() => {
+      void loadSlackStatus();
+      void loadWebexStatus();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadSlackStatus, loadWebexStatus]);
 
   const refreshAll = useCallback(() => {
@@ -204,6 +250,9 @@ export function HealthTab() {
   const webexCapability = capabilities.find((capability) => capability.id === "webex-integration") ?? null;
   const showSlack = slackStatus?.configured === true || Boolean(slackCapability);
   const showWebex = webexStatus?.configured === true || Boolean(webexCapability);
+  const selectedCapabilityProbes = selectedCapability
+    ? diagnosticsForCapability(selectedCapability.id, probes)
+    : [];
 
   return (
     <div className="space-y-4">
@@ -247,11 +296,17 @@ export function HealthTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Platform Capabilities</CardTitle>
-        </CardHeader>
+              <CardTitle>Platform Capabilities</CardTitle>
+              <CardDescription>
+                Select a capability to inspect upstream service probes.
+              </CardDescription>
+            </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex justify-end text-xs text-muted-foreground">
-            <span>Next check: {secondsUntilNextCheck}s</span>
+            <span>
+              {probeSummary ? `${probeSummary.healthy}/${probeSummary.total} probes ready · ` : null}
+              Next check: {secondsUntilNextCheck}s
+            </span>
           </div>
 
           {platformStatus === "checking" && capabilities.length === 0 ? (
@@ -261,9 +316,18 @@ export function HealthTab() {
             </div>
           ) : (
             <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
-              {capabilities.map((capability) => (
-                <CapabilityRow key={capability.id} capability={capability} />
-              ))}
+              {capabilities.map((capability) => {
+                const capabilityProbes = diagnosticsForCapability(capability.id, probes);
+                return (
+                  <CapabilityRow
+                    key={capability.id}
+                    capability={capability}
+                    probeCount={capabilityProbes.length}
+                    issueCount={capabilityProbes.filter((probe) => probe.status !== "healthy").length}
+                    onSelect={() => setSelectedCapability(capability)}
+                  />
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -367,11 +431,41 @@ export function HealthTab() {
           </CardContent>
         </Card>
       )}
+
+      <CapabilityDiagnosticsDialog
+        capability={selectedCapability}
+        probes={selectedCapabilityProbes}
+        metricServices={selectedCapability?.id === "metrics" ? platformMetricServices : []}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCapability(null);
+        }}
+      />
     </div>
   );
 }
 
-function CapabilityRow({ capability }: { capability: PlatformHealthCapability }) {
+function diagnosticsForCapability(
+  capabilityId: string,
+  probes: PlatformDiagnosticProbe[],
+): PlatformDiagnosticProbe[] {
+  const probeIds = CAPABILITY_PROBES[capabilityId] ?? [];
+  const idOrder = new Map(probeIds.map((id, index) => [id, index]));
+  return probes
+    .filter((probe) => idOrder.has(probe.id))
+    .sort((left, right) => (idOrder.get(left.id) ?? 0) - (idOrder.get(right.id) ?? 0));
+}
+
+function CapabilityRow({
+  capability,
+  probeCount,
+  issueCount,
+  onSelect,
+}: {
+  capability: PlatformHealthCapability;
+  probeCount: number;
+  issueCount: number;
+  onSelect: () => void;
+}) {
   const status = capabilityToUiStatus(capability.status);
   const cfg = STATUS_CONFIG[status];
   const Icon = cfg.icon;
@@ -385,7 +479,12 @@ function CapabilityRow({ capability }: { capability: PlatformHealthCapability })
           : null;
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 bg-muted/30 px-4 py-3">
+    <button
+      type="button"
+      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onSelect}
+      aria-label={`Inspect ${capability.label} health details`}
+    >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium">{capability.label}</p>
@@ -408,10 +507,146 @@ function CapabilityRow({ capability }: { capability: PlatformHealthCapability })
         {statusNote ? (
           <p className="mt-1 text-xs text-muted-foreground/85">{statusNote}</p>
         ) : null}
+        {probeCount > 0 ? (
+          <p className="mt-1 text-xs text-muted-foreground/85">
+            {probeCount} upstream probe{probeCount === 1 ? "" : "s"}
+            {issueCount > 0 ? ` · ${issueCount} need attention` : ""}
+          </p>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Icon className={cn("h-4 w-4", cfg.color)} />
         <span className="text-sm">{cfg.label}</span>
+        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+      </div>
+    </button>
+  );
+}
+
+function probeToUiStatus(status: PlatformDiagnosticProbe["status"]): UiStatus {
+  return status === "warning" ? "degraded" : status;
+}
+
+function CapabilityDiagnosticsDialog({
+  capability,
+  probes,
+  metricServices,
+  onOpenChange,
+}: {
+  capability: PlatformHealthCapability | null;
+  probes: PlatformDiagnosticProbe[];
+  metricServices: ServiceHealth[];
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!capability) return null;
+
+  const status = capabilityToUiStatus(capability.status);
+  const cfg = STATUS_CONFIG[status];
+  const Icon = cfg.icon;
+  const unhealthy = probes.filter((probe) => probe.status !== "healthy").length;
+
+  return (
+    <Dialog open={Boolean(capability)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Icon className={cn("h-5 w-5", cfg.color)} />
+            {capability.label}
+          </DialogTitle>
+          <DialogDescription>
+            {capability.description}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <section className="rounded-lg border border-border/70 bg-muted/25 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Capability Status</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {capability.detail}
+                  {capability.latency_ms !== null ? ` · ${capability.latency_ms}ms` : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 rounded-full border border-border bg-background px-2.5 py-1 text-xs">
+                <StatusDot status={status} />
+                {cfg.label}
+              </div>
+            </div>
+          </section>
+
+          {probes.length > 0 ? (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Upstream Probes</p>
+                  <p className="text-xs text-muted-foreground">
+                    {probes.length - unhealthy}/{probes.length} ready
+                    {unhealthy > 0 ? ` · ${unhealthy} need attention` : ""}
+                  </p>
+                </div>
+              </div>
+              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+                {probes.map((probe) => (
+                  <DiagnosticProbeRow key={probe.id} probe={probe} />
+                ))}
+              </div>
+            </section>
+          ) : metricServices.length > 0 ? (
+            <section className="space-y-3">
+              <div>
+                <p className="text-sm font-medium">Metric Signals</p>
+                <p className="text-xs text-muted-foreground">Prometheus-backed runtime signals.</p>
+              </div>
+              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+                {metricServices.map((service) => (
+                  <MetricRow key={service.name} service={service} />
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-lg border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+              No additional upstream probes are registered for this capability.
+            </section>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DiagnosticProbeRow({ probe }: { probe: PlatformDiagnosticProbe }) {
+  const status = probeToUiStatus(probe.status);
+  const cfg = STATUS_CONFIG[status];
+  const Icon = cfg.icon;
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4 bg-muted/30 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium">{probe.label}</p>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {PROBE_GROUP_LABELS[probe.group]}
+          </span>
+        </div>
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          {probe.detail}
+          {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
+        </p>
+        <p className="mt-1 break-all text-[11px] text-muted-foreground/75">{probe.target}</p>
+        {probe.remediation ? (
+          <a
+            href={probe.remediation.href}
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            {probe.remediation.label}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Icon className={cn("h-4 w-4", cfg.color)} />
+        <span className="text-sm">{probe.status === "warning" ? "Warning" : cfg.label}</span>
       </div>
     </div>
   );

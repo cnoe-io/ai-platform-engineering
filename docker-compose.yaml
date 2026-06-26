@@ -422,8 +422,8 @@ services:
       # health can show profile-enabled integrations as degraded/down even
       # when their container crashes before serving traffic.
       - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
-      # CAIPE supervisor A2A endpoint URL
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
+      # Chat runtime health endpoint URL
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://dynamic-agents:8001}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)

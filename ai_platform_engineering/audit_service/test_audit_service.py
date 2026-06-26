@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,8 @@ def _settings(tmp_path: Path, **overrides: object) -> Settings:
         "local_path": str(tmp_path),
         "local_gzip": True,
         "local_retention_days": 1,
+        "local_disk_warning_percent": 85.0,
+        "local_disk_critical_percent": 95.0,
         "queue_max_size": 10,
         "flush_batch_size": 2,
         "flush_interval_seconds": 0.05,
@@ -128,6 +131,52 @@ def test_settings_reads_local_retention_days(monkeypatch) -> None:
     settings = Settings.from_env()
 
     assert settings.local_retention_days == 3
+
+
+def test_status_reports_local_disk_pressure(tmp_path: Path, monkeypatch) -> None:
+    # assisted-by Codex Codex-sonnet-4-6
+    monkeypatch.setattr(
+        "ai_platform_engineering.audit_service.storage.shutil.disk_usage",
+        lambda _: SimpleNamespace(total=1_000, used=920, free=80),
+    )
+    app = create_app(
+        _settings(
+            tmp_path,
+            local_disk_warning_percent=85.0,
+            local_disk_critical_percent=95.0,
+        )
+    )
+
+    with TestClient(app) as client:
+        status = client.get("/v1/audit/status")
+
+    assert status.status_code == 200
+    storage = status.json()["storage"]
+    assert storage["backend"] == "local"
+    assert storage["status"] == "warning"
+    assert storage["used_percent"] == 92.0
+    assert storage["free_bytes"] == 80
+    assert "local disk 92.0% used" in storage["detail"]
+
+
+def test_status_reports_local_disk_critical(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_platform_engineering.audit_service.storage.shutil.disk_usage",
+        lambda _: SimpleNamespace(total=1_000, used=960, free=40),
+    )
+    app = create_app(
+        _settings(
+            tmp_path,
+            local_disk_warning_percent=85.0,
+            local_disk_critical_percent=95.0,
+        )
+    )
+
+    with TestClient(app) as client:
+        status = client.get("/v1/audit/status")
+
+    assert status.status_code == 200
+    assert status.json()["storage"]["status"] == "down"
 
 
 def test_local_store_purges_expired_audit_files(tmp_path: Path) -> None:

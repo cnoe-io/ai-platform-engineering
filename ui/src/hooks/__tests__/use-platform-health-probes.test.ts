@@ -47,6 +47,8 @@ describe('usePlatformHealthProbes', () => {
     expect(result.current.status).toBe('checking');
     expect(result.current.capabilities).toEqual([]);
     expect(result.current.summary).toBeNull();
+    expect(result.current.probes).toEqual([]);
+    expect(result.current.probeSummary).toBeNull();
   });
 
   // 2. Successful fetch → healthy
@@ -66,6 +68,40 @@ describe('usePlatformHealthProbes', () => {
     expect(result.current.capabilities).toHaveLength(1);
     expect(result.current.capabilities[0].id).toBe('chat-runtime');
     expect(result.current.summary).toEqual({ total: 4, healthy: 3, degraded: 0, down: 0, disabled: 1 });
+  });
+
+  it('diagnostics mode fetches probes from /api/platform/health?diagnostics=1', async () => {
+    const body = makeHealthyResponse({
+      probe_summary: { total: 1, healthy: 1, warning: 0, down: 0 },
+      probes: [
+        {
+          id: 'keycloak',
+          label: 'Keycloak',
+          group: 'identity',
+          status: 'healthy',
+          detail: 'HTTP 200',
+          target: 'http://keycloak:7080/realms/caipe/protocol/openid-connect/certs',
+          latency_ms: 12,
+        },
+      ],
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes({ diagnostics: true }));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    expect(result.current.probeSummary).toEqual({ total: 1, healthy: 1, warning: 0, down: 0 });
+    expect(result.current.probes.map((probe) => probe.id)).toEqual(['keycloak']);
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/platform/health?diagnostics=1',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 
   // 3. Successful fetch → degraded
