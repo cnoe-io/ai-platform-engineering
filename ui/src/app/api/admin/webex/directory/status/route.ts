@@ -129,6 +129,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const bot_admin = await webexBotAdminStatus();
   const platform = await webexPlatformConfigSummary();
+  const configured =
+    enabled ||
+    bot_admin.reachable ||
+    platform.spaces_onboarded > 0 ||
+    platform.routes_configured > 0;
   const space_discovery = integrationToken
     ? {
         configured: true,
@@ -146,7 +151,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       };
 
   return successResponse({
-    configured: enabled,
+    configured,
     bot_admin,
     platform,
     space_discovery,
