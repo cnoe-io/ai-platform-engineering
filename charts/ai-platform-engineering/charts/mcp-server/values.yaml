@@ -101,7 +101,15 @@ llmSecrets:
       kind: ClusterSecretStore # Use your secret store kind
     data: []
 
-# Secrets configuration for agent-specific secrets (API keys, etc.).
+# Secrets configuration for MCP server-specific secrets (API keys, etc.).
+# mcpSecrets keys take precedence over agentSecrets when both are set.
+mcpSecrets:
+  # Override any subset of agentSecrets fields here. Unset keys fall back to agentSecrets.
+  # Example: set externalSecrets.enabled: true here to enable ExternalSecret without
+  # duplicating the full agentSecrets block.
+
+# -- DEPRECATED: use mcpSecrets instead. Retained for backwards compatibility.
+# agentSecrets and mcpSecrets are deep-merged; mcpSecrets wins on conflict.
 agentSecrets:
   requiresSecret: true # if false, no agent secret is required e.g. api keys
   create: false # if false, it'll assume that the secret already exists
@@ -115,6 +123,7 @@ agentSecrets:
       kind: ClusterSecretStore # Use your secret store kind
     target: {}
     data: []
+    dataFrom: []
     dataFrom: []
 
 # MCP (Model Context Protocol) server configuration.
