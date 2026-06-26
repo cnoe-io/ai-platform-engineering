@@ -388,6 +388,9 @@ export function ProviderConnections({
           </p>
         </div>
       </button>
+      <p className="ml-8 text-xs text-muted-foreground/70">
+        Adding additional apps requires admin permissions.
+      </p>
       {!collapsed && (
         <>
           {error && <p className="text-sm text-destructive">{error}</p>}
