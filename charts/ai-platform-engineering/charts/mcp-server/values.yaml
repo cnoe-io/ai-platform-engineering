@@ -115,6 +115,7 @@ agentSecrets:
       kind: ClusterSecretStore # Use your secret store kind
     target: {}
     data: []
+    dataFrom: []
 
 # MCP (Model Context Protocol) server configuration.
 # An in-cluster MCP HTTP Deployment + Service is created when mode is "http" and
