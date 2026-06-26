@@ -103,6 +103,8 @@ def webex_event_from_wdm_activity(
             "webexRoomId": public_room_id,
             "personId": person_id,
             "personEmail": message_detail.get("personEmail"),
+            # assisted-by Codex Codex-sonnet-4-6: keep 1:1 WDM events on the direct-message path.
+            "roomType": message_detail.get("roomType"),
             "text": message_detail.get("text") or message_detail.get("markdown") or "",
             "mentionedPeople": message_detail.get("mentionedPeople") or [],
             "isSelf": bool(bot_person_id and person_id == bot_person_id),

@@ -151,6 +151,8 @@ export interface DiscoveredItem {
   id: string;
   name: string;
   secondary: string;
+  teamRequired?: boolean;
+  selectable?: boolean;
 }
 
 export interface DiscoveryPage {
@@ -166,6 +168,7 @@ export interface ConnectorAdminAdapter {
   connectorName: string;    // "Slack" | "Webex"
   itemSingular: string;     // "channel" | "space"
   itemPlural: string;       // "channels" | "spaces"
+  singlePanelView?: "channels" | "onboard" | "advanced";
 
   // ── API paths ─────────────────────────────────────────────────────────
   api: {
@@ -255,7 +258,15 @@ export interface ConnectorAdminAdapter {
   // Different connectors send different POST payloads and fire different
   // success messages. The adapter owns the request(s) and the toast text.
   applyOnboarding: (input: {
-    rows: Array<{ id: string; name?: string; teamSlug: string; agentId: string; selected: boolean }>;
+    rows: Array<{
+      id: string;
+      name?: string;
+      teamSlug: string;
+      agentId: string;
+      selected: boolean;
+      teamRequired?: boolean;
+      selectable?: boolean;
+    }>;
     defaultTeamSlug: string;
     defaultAgentId: string;
     createDefaultRoutes: boolean;
