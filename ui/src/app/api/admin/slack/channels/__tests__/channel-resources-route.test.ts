@@ -288,18 +288,20 @@ describe("Slack channel ReBAC APIs", () => {
         active: true,
       },
     ]);
-    mockAuditQuery.mockImplementation(async (query: { resourceRef?: string }) => {
-      if (query.resourceRef === `slack_channel:${workspaceAlias}--CSUPPORT`) {
-        return [
-          {
-            ts: "2026-06-25T12:00:00.000Z",
-            reason_code: "OPENFGA_READ_FAILED",
-            message: "OpenFGA tuple read failed",
-          },
-        ];
-      }
-      return [];
-    });
+    mockAuditQuery.mockResolvedValue([
+      {
+        ts: "2026-06-25T12:00:00.000Z",
+        resource_ref: `slack_channel:${workspaceAlias}--CSUPPORT`,
+        reason_code: "OPENFGA_READ_FAILED",
+        message: "OpenFGA tuple read failed",
+      },
+      {
+        ts: "2026-06-25T11:00:00.000Z",
+        resource_ref: `slack_channel:${workspaceAlias}--CIGNORED`,
+        reason_code: "OPENFGA_READ_FAILED",
+        message: "Ignored channel",
+      },
+    ]);
     const { GET } = await import("../route");
 
     const response = await GET(request("/api/admin/slack/channels?health=1"));
@@ -325,17 +327,18 @@ describe("Slack channel ReBAC APIs", () => {
         }),
       ])
     );
-    expect(mockAuditQuery).toHaveBeenCalledTimes(2);
-    for (const [query] of mockAuditQuery.mock.calls) {
-      const until = query.until as Date;
-      const since = query.since as Date;
-      expect(query).toMatchObject({
-        component: "slack_bot",
-        outcome: "error",
-        limit: 1,
-      });
-      expect(until.getTime() - since.getTime()).toBe(24 * 60 * 60 * 1000);
-    }
+    expect(mockAuditQuery).toHaveBeenCalledTimes(1);
+    const [query] = mockAuditQuery.mock.calls[0];
+    const until = query.until as Date;
+    const since = query.since as Date;
+    expect(query).toMatchObject({
+      component: "slack_bot",
+      outcome: "error",
+      limit: 5000,
+      timeoutMs: 2000,
+    });
+    expect(query.resourceRef).toBeUndefined();
+    expect(until.getTime() - since.getTime()).toBe(24 * 60 * 60 * 1000);
   });
 
   it("batches audit-service runtime error lookup when listing Slack channel health", async () => {
