@@ -7,7 +7,7 @@
  * Covers the sharing permission model:
  * - 'view' permission → shared_readonly access (cannot send messages)
  * - 'comment' permission → shared access (can send messages)
- * - Public shares → always shared_readonly
+ * - Legacy public flags no longer grant access
  * - Team shares with per-team permissions
  * - Permission changes via PATCH
  * - Backward compatibility: legacy shares without permission records default to 'comment'
@@ -227,8 +227,8 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
     });
   });
 
-  describe('public shares', () => {
-    it('returns shared_readonly (view) by default for public conversations', async () => {
+  describe('legacy public flags', () => {
+    it('does not grant access to non-owners from is_public=true', async () => {
       const conv = makeConversation({
         sharing: { is_public: true, shared_with: [], shared_with_teams: [] },
       });
@@ -236,38 +236,11 @@ describe('requireConversationAccess — readonly sharing permissions', () => {
       convsCol.findOne.mockResolvedValue(conv);
       mockCollections['conversations'] = convsCol;
 
-      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
-
-      expect(result.access_level).toBe('shared_readonly');
+      await expect(requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection))
+        .rejects.toThrow('You do not have access to this conversation.');
     });
 
-    it('returns shared_readonly when public_permission is view', async () => {
-      const conv = makeConversation({
-        sharing: { is_public: true, public_permission: 'view', shared_with: [], shared_with_teams: [] },
-      });
-      const convsCol = createMockCollection();
-      convsCol.findOne.mockResolvedValue(conv);
-      mockCollections['conversations'] = convsCol;
-
-      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
-
-      expect(result.access_level).toBe('shared_readonly');
-    });
-
-    it('returns shared when public_permission is comment', async () => {
-      const conv = makeConversation({
-        sharing: { is_public: true, public_permission: 'comment', shared_with: [], shared_with_teams: [] },
-      });
-      const convsCol = createMockCollection();
-      convsCol.findOne.mockResolvedValue(conv);
-      mockCollections['conversations'] = convsCol;
-
-      const result = await requireConversationAccess(conv._id, VIEWER_EMAIL, mockGetCollection);
-
-      expect(result.access_level).toBe('shared');
-    });
-
-    it('owner still gets owner access on public conversations', async () => {
+    it('owner still gets owner access when old public state is present', async () => {
       const conv = makeConversation({
         sharing: { is_public: true, shared_with: [], shared_with_teams: [] },
       });

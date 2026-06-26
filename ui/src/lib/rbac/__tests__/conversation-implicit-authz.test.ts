@@ -28,7 +28,6 @@ describe("conversation implicit authorization", () => {
     expect(conversationVisibilityCandidateQuery("alice@example.com")).toEqual({
       $or: [
         { owner_id: "alice@example.com" },
-        { "sharing.is_public": true },
         { "sharing.shared_with": "alice@example.com" },
         { "sharing.shared_with_teams.0": { $exists: true } },
       ],
@@ -39,7 +38,6 @@ describe("conversation implicit authorization", () => {
     expect(conversationVisibilityCandidateQuery("Alice@Example.com", ["legacy-share"])).toEqual({
       $or: [
         { owner_id: { $in: ["Alice@Example.com", "alice@example.com"] } },
-        { "sharing.is_public": true },
         { "sharing.shared_with": { $in: ["Alice@Example.com", "alice@example.com"] } },
         { _id: { $in: ["legacy-share"] } },
         { "sharing.shared_with_teams.0": { $exists: true } },
@@ -97,12 +95,12 @@ describe("conversation implicit authorization", () => {
       "owned-email",
       "direct-embedded",
       "direct-access",
-      "public",
       "shared",
     ]);
     expect(filterResourcesByPermission).toHaveBeenCalledWith(
       { sub: "alice-sub" },
       [
+        { _id: "public", owner_id: "carol@example.com", sharing: { is_public: true } },
         { _id: "shared", owner_id: "carol@example.com" },
         { _id: "denied", owner_id: "dave@example.com" },
       ],

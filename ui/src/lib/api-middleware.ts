@@ -1299,17 +1299,6 @@ export async function requireConversationAccess(
     return { conversation, access_level: 'owner' };
   }
 
-  // Check if conversation is public (shared with everyone).
-  // Default to read-only ('view') so non-owners cannot send messages in
-  // public conversations — prevents cross-user context_id collisions.
-  if (conversation.sharing?.is_public) {
-    const perm = conversation.sharing?.public_permission ?? 'view';
-    return {
-      conversation,
-      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
-    };
-  }
-
   // Check if conversation is shared with user directly
   const normalizedUserId = normalizedIdentity(userId);
   const directShareMatch = conversation.sharing?.shared_with?.some(

@@ -39,7 +39,6 @@ export function conversationVisibilityCandidateQuery(
   return {
     $or: [
       identityMatch("owner_id", identities),
-      { "sharing.is_public": true },
       identityMatch("sharing.shared_with", identities),
       ...directIdCandidate,
       // assisted-by Codex Codex-sonnet-4-6
@@ -74,7 +73,6 @@ function hasImplicitConversationVisibility(
   directShareIds: Set<string>,
 ): boolean {
   if (isImplicitConversationOwner(session, userEmail, conversation)) return true;
-  if (conversation.sharing?.is_public === true) return true;
   if (hasDirectMongoShare(userEmail, conversation)) return true;
   return directShareIds.has(conversation._id);
 }

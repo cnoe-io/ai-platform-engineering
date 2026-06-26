@@ -14,7 +14,7 @@
  * Tests:
  * - Security: private conversations never appear in the MongoDB query
  * - Security: query always includes a sharing pre-filter ($or)
- * - Security: pre-filter covers is_public, shared_with, share_link_enabled, shared_with_teams
+ * - Security: pre-filter covers direct shares, share links, and team shares
  * - Security: query scope is non-owner only (owner_id $ne)
  * - Pagination: returns paginatedResponse with correct items
  * - Pagination: total reflects pre-filtered count, not all non-owner conversations
@@ -187,7 +187,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
     expect(Array.isArray(findCall.$or)).toBe(true);
   });
 
-  it('pre-filter includes is_public to surface public conversations', async () => {
+  it('pre-filter does not include is_public because everyone sharing is disabled', async () => {
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
     mockCollections['conversations'] = convsCol;
@@ -196,7 +196,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
 
     const findCall = convsCol.find.mock.calls[0][0];
     const clauses = JSON.stringify(findCall.$or);
-    expect(clauses).toContain('sharing.is_public');
+    expect(clauses).not.toContain('sharing.is_public');
   });
 
   it('pre-filter includes caller email in shared_with to surface direct shares', async () => {
@@ -289,7 +289,7 @@ describe('visibility — OpenFGA post-filter', () => {
 
   it('passes items through filterConversationsByImplicitOrExplicitPermission', async () => {
     const sharedConv = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(1);
@@ -308,10 +308,10 @@ describe('visibility — OpenFGA post-filter', () => {
 
   it('excludes conversations rejected by OpenFGA even if they pass the pre-filter', async () => {
     const conv1 = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const conv2 = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(2);
@@ -330,7 +330,7 @@ describe('visibility — OpenFGA post-filter', () => {
 
   it('returns empty list when OpenFGA rejects all pre-filtered candidates', async () => {
     const conv = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(1);
@@ -368,7 +368,7 @@ describe('pagination', () => {
 
   it('uses pre-filtered count for total (not all non-owner conversations)', async () => {
     const conv = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     // pre-filtered count = 5, not the full non-owner count

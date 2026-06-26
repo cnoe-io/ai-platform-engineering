@@ -251,12 +251,22 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
+    // assisted-by Codex Codex-sonnet-4-6
+    // Public conversation sharing is retired; keep only a cleanup path for legacy state.
+    if (body.is_public === true || body.public_permission !== undefined) {
+      throw new ApiError(
+        'Sharing with everyone is no longer supported. Add people or teams instead.',
+        400,
+        'PUBLIC_CONVERSATION_SHARING_DISABLED',
+      );
+    }
+
     // Require at least one sharing action
     const hasUsers = body.user_emails && body.user_emails.length > 0;
     const hasTeams = body.team_ids && body.team_ids.length > 0;
-    const hasPublicToggle = body.is_public !== undefined;
-    if (!hasUsers && !hasTeams && !hasPublicToggle) {
-      throw new ApiError('At least one of user_emails, team_ids, or is_public must be provided', 400);
+    const disablesPublicSharing = body.is_public === false;
+    if (!hasUsers && !hasTeams && !disablesPublicSharing) {
+      throw new ApiError('At least one of user_emails, team_ids, or is_public=false must be provided', 400);
     }
 
     if ((hasUsers || hasTeams) && !body.permission) {
@@ -345,12 +355,8 @@ export const POST = withErrorHandler(async (
       }
     }
 
-    if (body.is_public !== undefined) {
-      update['sharing.is_public'] = body.is_public;
-    }
-
-    if (body.public_permission) {
-      update['sharing.public_permission'] = body.public_permission;
+    if (disablesPublicSharing) {
+      update['sharing.is_public'] = false;
     }
 
     if (body.enable_link !== undefined) {

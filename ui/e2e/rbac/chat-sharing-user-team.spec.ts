@@ -50,7 +50,6 @@ type ShareRequest = {
 
 type SharingInput = {
   is_public?: boolean;
-  public_permission?: SharePermission;
   shared_with?: string[];
   shared_with_teams?: string[];
   team_permissions?: Record<string, SharePermission>;
@@ -500,6 +499,13 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
   test("recipient sees team shares only in the Team home tab", async ({
     page,
   }) => {
+    const directConversation = makeConversation(
+      "direct-share-home-team-view",
+      "Direct Recipient Share",
+      {
+        shared_with: [RECIPIENT.email],
+      },
+    );
     const teamConversation = makeConversation(
       "team-share-home",
       "Team Recipient Share",
@@ -508,16 +514,9 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
         team_permissions: { [TEAM.slug]: "comment" },
       },
     );
-    const publicConversation = makeConversation(
-      "public-share-home",
-      "Everyone Recipient Share",
-      {
-        is_public: true,
-      },
-    );
     await installSharedHomeMocks(page, RECIPIENT.email, [
+      directConversation,
       teamConversation,
-      publicConversation,
     ]);
 
     await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -525,10 +524,6 @@ test.describe("mocked RBAC e2e - chat sharing users and teams", () => {
     await expect(page.getByTestId("shared-conversations")).toBeVisible();
     await page.getByTestId("shared-tab-team").click();
     await expect(page.getByText("Team Recipient Share")).toBeVisible();
-    await expect(page.getByText("Everyone Recipient Share")).not.toBeVisible();
-
-    await page.getByTestId("shared-tab-everyone").click();
-    await expect(page.getByText("Everyone Recipient Share")).toBeVisible();
-    await expect(page.getByText("Team Recipient Share")).not.toBeVisible();
+    await expect(page.getByText("Direct Recipient Share")).not.toBeVisible();
   });
 });

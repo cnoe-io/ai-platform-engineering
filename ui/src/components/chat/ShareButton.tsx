@@ -59,7 +59,6 @@ export function ShareButton({
   const shouldShowButton = isOwner || isSharedWithViewer;
   const shouldOpenDialog = isOwner || accessLevel === "shared";
   const hasSharingConfig = Boolean(
-    sharing?.is_public ||
     (sharing?.shared_with?.length ?? 0) > 0 ||
     (sharing?.shared_with_teams?.length ?? 0) > 0 ||
     sharing?.share_link_enabled,

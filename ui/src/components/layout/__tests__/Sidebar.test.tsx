@@ -146,7 +146,6 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 jest.mock('@/components/chat/ShareButton', () => ({
   ShareButton: ({ isOwner, isSharedWithViewer, sharedBy, sharing }: any) => {
     const hasSharingConfig = Boolean(
-      sharing?.is_public ||
       (sharing?.shared_with?.length ?? 0) > 0 ||
       (sharing?.shared_with_teams?.length ?? 0) > 0 ||
       sharing?.share_link_enabled
@@ -518,7 +517,7 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared', 'true')
     })
 
-    it('shows the blue shared badge for public conversations', () => {
+    it('does not treat legacy public conversations as shared', () => {
       mockConversations = [
         makeConv('conv-public', 'Public Chat', {
           owner_id: 'owner@test.com',
@@ -534,8 +533,9 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.getByText('Public Chat')).toBeInTheDocument()
-      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
       expect(screen.queryByTestId('icon-share2')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
       expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
     })
   })

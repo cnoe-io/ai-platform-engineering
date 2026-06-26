@@ -41,7 +41,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const query = {
       owner_id: { $ne: user.email },
       $or: [
-        { 'sharing.is_public': true },
         { 'sharing.shared_with': user.email },
         ...directShareCandidate,
         { 'sharing.share_link_enabled': true },

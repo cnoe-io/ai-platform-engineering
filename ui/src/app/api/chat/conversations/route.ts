@@ -98,10 +98,6 @@ async function resolveListConversationAccessLevel(
   // The list already passed ReBAC filtering; derive display-level access without refetching the row.
   if (isListConversationOwner(conversation, userEmail, session)) return 'owner';
 
-  if (conversation.sharing?.is_public) {
-    return permissionToAccessLevel(conversation.sharing.public_permission ?? 'view');
-  }
-
   const normalizedEmail = normalizeIdentity(userEmail);
   const directShareMatch = conversation.sharing?.shared_with?.some(
     (email) => normalizeIdentity(email) === normalizedEmail,
