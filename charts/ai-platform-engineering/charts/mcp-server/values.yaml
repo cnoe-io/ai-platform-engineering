@@ -103,10 +103,9 @@ llmSecrets:
 
 # Secrets configuration for MCP server-specific secrets (API keys, etc.).
 # mcpSecrets keys take precedence over agentSecrets when both are set.
-mcpSecrets:
-  # Override any subset of agentSecrets fields here. Unset keys fall back to agentSecrets.
-  # Example: set externalSecrets.enabled: true here to enable ExternalSecret without
-  # duplicating the full agentSecrets block.
+# mcpSecrets overrides agentSecrets when set. Unset keys fall back to agentSecrets values.
+# Example: set mcpSecrets.externalSecrets.enabled: true without duplicating the full block.
+mcpSecrets: {}
 
 # -- DEPRECATED: use mcpSecrets instead. Retained for backwards compatibility.
 # agentSecrets and mcpSecrets are deep-merged; mcpSecrets wins on conflict.

@@ -165,7 +165,7 @@ mcpSecrets (new) is deep-merged on top of agentSecrets (deprecated) so either ke
 Keys set in mcpSecrets take precedence; unset keys fall back to agentSecrets values.
 */}}
 {{- define "agent.effectiveSecrets" -}}
-    {{- mergeOverwrite (deepCopy .Values.agentSecrets) .Values.mcpSecrets | toYaml -}}
+    {{- mergeOverwrite (deepCopy .Values.agentSecrets) (.Values.mcpSecrets | default dict) | toYaml -}}
 {{- end -}}
 
 {{/*
