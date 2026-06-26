@@ -102,8 +102,21 @@ function hasComposeProfile(...profileNames: string[]): boolean {
   return profileNames.some((profile) => profiles.has(profile));
 }
 
-function requestOrigin(request: NextRequest): string {
-  return request.nextUrl?.origin ?? new URL(request.url).origin;
+/**
+ * Returns the internal base URL the server should use to probe its own API
+ * routes (e.g. /api/rag/healthz, /api/dynamic-agents/health).
+ *
+ * These capability checks run server-side inside the UI pod, so they must NOT
+ * use the request origin: when the page is loaded through an external ingress,
+ * the origin is the public hostname, and a pod-originated fetch to that
+ * hostname does not route back to the pod (split-horizon DNS / ingress), so
+ * the self-probe fails even though the route is healthy. Loop back to the
+ * local server on its own listen port (PORT, the var Next.js itself reads,
+ * defaulting to 3000) instead.
+ */
+function selfBaseUrl(): string {
+  const port = envValue("PORT") || "3000";
+  return `http://localhost:${port}`;
 }
 
 function slackDirectoryToken(): string | null {
@@ -1028,7 +1041,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
   const config = getServerConfig();
   const serverOnly = getServerOnlyConfig();
-  const origin = requestOrigin(request);
+  const selfBase = selfBaseUrl();
   const includeDiagnostics = new URL(request.url).searchParams.get("diagnostics") === "1";
   const capabilityResults = await Promise.all([
     probeHttpCapability({
@@ -1047,7 +1060,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "dynamic-agents",
           label: "Dynamic Agents",
           group: "runtime",
-          target: `${origin}/api/dynamic-agents/health`,
+          target: `${selfBase}/api/dynamic-agents/health`,
           required: true,
           description: "Checks Dynamic Agents when custom agent runtime is enabled.",
           healthyDetail: "Runtime reachable",
@@ -1069,7 +1082,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "knowledge-bases",
           label: "Knowledge Bases",
           group: "knowledge",
-          target: `${origin}/api/rag/healthz`,
+          target: `${selfBase}/api/rag/healthz`,
           required: false,
           description: "Checks the RAG API used by Knowledge Bases.",
           healthyDetail: "RAG API reachable",
