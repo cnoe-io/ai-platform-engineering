@@ -24,10 +24,16 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     );
   }
 
-  const body = (await request.json().catch(() => ({}))) as { seed?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    seed?: string;
+    webexMeetings?: { id: string; title: string; start: string }[];
+  };
 
   try {
-    const { runId } = await startIngestRun(tctx, { seed: body.seed ?? null });
+    const { runId } = await startIngestRun(tctx, {
+      seed: body.seed ?? null,
+      webexMeetings: body.webexMeetings,
+    });
     return successResponse({ runId });
   } catch (e) {
     if (e instanceof IngestInProgressError) {

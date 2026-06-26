@@ -46,7 +46,7 @@ export async function isIngestRunning(projectId: string): Promise<boolean> {
  */
 export async function startIngestRun(
   ctx: TomeProjectContext,
-  opts: { seed?: string | null },
+  opts: { seed?: string | null; webexMeetings?: { id: string; title: string; start: string }[] },
 ): Promise<{ runId: string }> {
   const projectId = ctx.projectId;
   if (await isIngestRunning(projectId)) {
@@ -112,11 +112,16 @@ export async function startIngestRun(
   // the per-connector MCPs. Never logged.
   const credentials = await resolveForwardedCredentials(ctx);
 
+  const meetings = opts.webexMeetings ?? [];
+  const connectorData: Record<string, unknown> =
+    meetings.length > 0 ? { webex: { meetings } } : {};
+
   const req = buildIngestRequest(ctx, {
     runId,
     reportId,
     seed: opts.seed?.trim() || null,
     isGreenfield,
+    connectorData,
     credentials,
   });
 

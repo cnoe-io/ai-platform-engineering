@@ -59,8 +59,9 @@ function sessionSub(session: unknown): string {
  */
 export async function resolveForwardedCredentials(
   ctx: TomeProjectContext,
+  overrideProviders?: Provider[],
 ): Promise<ForwardedCredentials> {
-  const providers = enabledProviders(ctx);
+  const providers = overrideProviders ?? enabledProviders(ctx);
   if (providers.length === 0) return {};
   const sub = sessionSub(ctx.session);
   if (!sub) return {};

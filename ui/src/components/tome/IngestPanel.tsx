@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
-import { Loader2, Play, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Play, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -17,6 +17,12 @@ interface RunSummary {
   finished_at: string | null;
   log_lines: number;
   error: string | null;
+}
+
+interface WebexMeeting {
+  id: string;
+  title: string;
+  start: string;
 }
 
 /**
@@ -40,6 +46,12 @@ export function IngestPanel({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Webex meeting picker
+  const [meetingsOpen, setMeetingsOpen] = useState(false);
+  const [meetings, setMeetings] = useState<WebexMeeting[] | null>(null);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [selectedMeetings, setSelectedMeetings] = useState<Set<string>>(new Set());
+
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/tome/projects/${slug}/ingests`);
@@ -62,14 +74,49 @@ export function IngestPanel({
     (r) => r.status === "running" || r.status === "queued",
   );
 
+  const loadMeetings = useCallback(async () => {
+    if (meetings !== null) return; // already fetched
+    setMeetingsLoading(true);
+    try {
+      const res = await fetch(`/api/tome/projects/${slug}/webex-meetings`);
+      if (!res.ok) throw new Error(`fetch failed (${res.status})`);
+      const json = await res.json();
+      setMeetings(json?.data?.meetings ?? []);
+    } catch {
+      setMeetings([]);
+    } finally {
+      setMeetingsLoading(false);
+    }
+  }, [slug, meetings]);
+
+  const toggleMeetingsOpen = useCallback(() => {
+    setMeetingsOpen((prev) => {
+      if (!prev) void loadMeetings();
+      return !prev;
+    });
+  }, [loadMeetings]);
+
+  const toggleMeeting = useCallback((id: string) => {
+    setSelectedMeetings((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const start = useCallback(async () => {
     setStarting(true);
     setError(null);
+    const selectedList = (meetings ?? []).filter((m) => selectedMeetings.has(m.id));
     try {
       const res = await fetch(`/api/tome/projects/${slug}/reingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seed: seed.trim() || undefined }),
+        body: JSON.stringify({
+          seed: seed.trim() || undefined,
+          webexMeetings: selectedList.length > 0 ? selectedList : undefined,
+        }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -77,6 +124,7 @@ export function IngestPanel({
       }
       const json = await res.json();
       setSeed("");
+      setSelectedMeetings(new Set());
       await load();
       onRunStarted(json.data.runId);
     } catch (e) {
@@ -84,7 +132,7 @@ export function IngestPanel({
     } finally {
       setStarting(false);
     }
-  }, [slug, seed, load, onRunStarted]);
+  }, [slug, seed, meetings, selectedMeetings, load, onRunStarted]);
 
   return (
     <ScrollArea className="h-full">
@@ -99,6 +147,65 @@ export function IngestPanel({
 
         {/* Sources the agent reads (and that scope its MCP). */}
         <ProjectAssets slug={slug} canEdit={canEdit} />
+
+        {/* Webex meeting picker — per-ingest, not saved to project config */}
+        <div className="rounded-lg border">
+          <button
+            type="button"
+            onClick={toggleMeetingsOpen}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted"
+          >
+            {meetingsOpen ? (
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+            <span>Recent recorded meetings</span>
+            {selectedMeetings.size > 0 && (
+              <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                {selectedMeetings.size} selected
+              </span>
+            )}
+          </button>
+          {meetingsOpen && (
+            <div className="border-t px-4 pb-3 pt-2">
+              <p className="mb-2 text-xs text-muted-foreground">
+                Select meetings whose transcripts and AI summaries should be
+                included in this ingest run. Selection is per-run and not saved
+                to the project.
+              </p>
+              {meetingsLoading ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                </p>
+              ) : !meetings || meetings.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No recent recorded meetings found, or Webex is not connected.
+                </p>
+              ) : (
+                <ul className="divide-y rounded-md border">
+                  {meetings.map((m) => (
+                    <li key={m.id}>
+                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted">
+                        <input
+                          type="checkbox"
+                          checked={selectedMeetings.has(m.id)}
+                          onChange={() => toggleMeeting(m.id)}
+                          disabled={!canEdit || starting}
+                          className="h-4 w-4 rounded border-input accent-primary"
+                        />
+                        <span className="flex-1 truncate font-medium">{m.title}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {new Date(m.start).toLocaleDateString()}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Reingest control */}
         <div className="rounded-lg border p-4">
