@@ -43,6 +43,7 @@ describe("/api/platform/health", () => {
     jest.clearAllMocks();
     process.env = {
       ...originalEnv,
+      NEXTAUTH_URL: "http://localhost:3000",
       A2A_BASE_URL: "http://chat-runtime:8001",
       DYNAMIC_AGENTS_ENABLED: "true",
       DYNAMIC_AGENTS_URL: "http://dynamic-agents:8001",
