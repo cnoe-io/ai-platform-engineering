@@ -95,8 +95,8 @@ const healthyProbes: Probe[] = [
     label: "Keycloak Bootstrap",
     group: "bootstrap",
     status: "healthy",
-    detail: "Realm and clients ready",
-    target: "caipe realm",
+    detail: "completed by caipe-ui-0 · 07:31 UTC",
+    target: "caipe",
     latency_ms: 13,
   },
   {
@@ -535,6 +535,64 @@ test.describe("platform health probes", () => {
     await expect
       .poll(async () => probeList.evaluate((node) => node.scrollTop > 0))
       .toBe(true);
+  });
+
+  test("keycloak-bootstrap detail shows completed pod and time when migration succeeded", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    await installStableHeaderHealthMocks(page);
+    const probes = healthyProbes.map((probe) =>
+      probe.id === "keycloak-bootstrap"
+        ? { ...probe, detail: "completed by caipe-ui-0 · 07:31 UTC" }
+        : probe,
+    );
+    await page.route("**/api/platform/health", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(platformHealthPayload(probes)),
+      });
+    });
+
+    await installSessionAndOpenHome(page, env);
+    await openSystemStatus(page);
+
+    await expect(page.getByText("Keycloak Bootstrap", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("completed by caipe-ui-0 · 07:31 UTC").first()).toBeVisible();
+  });
+
+  test("keycloak-bootstrap detail shows running state when migration is in progress on another pod", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    await installStableHeaderHealthMocks(page);
+    const probes = healthyProbes.map((probe) =>
+      probe.id === "keycloak-bootstrap"
+        ? {
+            ...probe,
+            status: "warning" as const,
+            detail: "running on caipe-ui-1 since 07:28 UTC",
+            latency_ms: 0,
+            remediation: {
+              label: "Keycloak Health",
+              href: "/admin?cat=security&tab=keycloak",
+              description: "Open Keycloak health to inspect reconciliation and admin credential setup.",
+            },
+          }
+        : probe,
+    );
+    await page.route("**/api/platform/health", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(platformHealthPayload(probes)),
+      });
+    });
+
+    await installSessionAndOpenHome(page, env);
+
+    await expect(page.getByRole("button", { name: /system status: needs attention/i })).toBeVisible();
+    await openSystemStatus(page);
+
+    await expect(page.getByText("Keycloak Bootstrap", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("running on caipe-ui-1 since 07:28 UTC").first()).toBeVisible();
   });
 
   test("pending probe results show an explicit checking state", async ({ page }) => {
