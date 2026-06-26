@@ -183,6 +183,15 @@ idp:
   pkce:
     enabled: false
     method: "S256"
+  hook:
+    # Argo CD hook semantics. GitOps installs can override these to match their
+    # sync strategy. Set argocdHookDeletePolicy to "BeforeHookCreation,HookSucceeded"
+    # when using Argo CD to prevent the init-idp Job from getting stuck with a
+    # blocking finalizer across back-to-back syncs.
+    argocdHookDeletePolicy: ""
+    # Helm CLI hook semantics. before-hook-creation,hook-succeeded ensures the
+    # old Job is removed on re-creation and cleaned up after success.
+    helmHookDeletePolicy: "before-hook-creation,hook-succeeded"
   externalSecret:
     enabled: false
     refreshInterval: "1h"
