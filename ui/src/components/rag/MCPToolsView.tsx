@@ -22,6 +22,7 @@ deleteMCPTool,
 getDataSources,
 getMCPBuiltinConfig,
 getMCPTools,
+RagApiError,
 updateMCPBuiltinConfig,
 updateMCPTool,
 type MCPBuiltinToolsConfig,
@@ -614,12 +615,20 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
     } catch (err) {
       // The destination team is one the caller can pick but is not an OpenFGA
       // member of; offer an explicit confirm-and-retry instead of only the
-      // parent's transient toast. Other errors are already toasted upstream.
+      // parent's transient toast.
       if ((err as { code?: string })?.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
         setTransferNeedsServerConfirm(true);
         setTransferConfirmError(
           'You are not a member of the destination team. Click "Confirm Transfer" to transfer ownership anyway.',
         );
+      } else {
+        // Any other failure (e.g. a 403 OWNER_TEAM_FORBIDDEN when assigning a
+        // team you're not on) gets an inline "why" right next to the form so
+        // the user isn't left with a save that silently does nothing. Prefer
+        // the server's explanation when present.
+        const serverMessage =
+          err instanceof RagApiError ? err.serverMessage : undefined;
+        setTransferConfirmError(serverMessage || "Could not save the tool. Please try again.");
       }
     } finally {
       setSaving(false);
@@ -1226,12 +1235,11 @@ export default function MCPToolsView() {
       setEditingTool(null);
       await fetchAll();
     } catch (err) {
-      // The not-a-member transfer rejection is recoverable: the dialog renders
-      // an inline "Confirm Transfer" affordance, so skip the transient toast
-      // and let the dialog drive the retry.
-      if ((err as { code?: string })?.code !== "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
-        toast(`Error: ${String(err)}`, "error");
-      }
+      // The dialog surfaces every save failure inline (the recoverable
+      // not-a-member transfer gets a "Confirm Transfer" button; other errors
+      // like a 403 OWNER_TEAM_FORBIDDEN get the server's "why" message), so
+      // re-throw and let the dialog drive the messaging instead of a redundant,
+      // reason-less toast.
       throw err;
     }
   };
