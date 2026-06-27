@@ -11,17 +11,17 @@ DEPRECATION WARNING: agentSecrets is deprecated and will be removed in a future 
 {{- if .Values.vpa.enabled }}
 NOTE: VPA is enabled. Ensure VerticalPodAutoscaler is installed in your cluster before deploying.
       Install VPA: https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/docs/installation.md
-      Retrieve recommendations: kubectl get vpa {{ include "agent.fullname" . }}-mcp -o jsonpath='{.status.recommendation}' | jq .
+      Retrieve recommendations: kubectl get vpa {{ include "agent.fullname" . }} -o jsonpath='{.status.recommendation}' | jq .
 {{- end }}
 
 {{- if include "agent.createMcpHttpServer" . | eq "true" }}
-MCP server deployed: {{ include "agent.fullname" . }}-mcp (port {{ .Values.mcp.service.port | default 8000 }}).
+MCP server deployed: {{ include "agent.fullname" . }} (port {{ .Values.mcp.service.port | default 8000 }}).
 
 Reach it in-cluster at:
-  http://{{ include "agent.fullname" . }}-mcp.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcp.service.port | default 8000 }}
+  http://{{ include "agent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcp.service.port | default 8000 }}
 
 Port-forward for local testing:
-  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "agent.fullname" . }}-mcp 8000:{{ .Values.mcp.service.port | default 8000 }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "agent.fullname" . }} 8000:{{ .Values.mcp.service.port | default 8000 }}
 {{- else }}
 This agent uses a remote/stdio MCP server; no in-cluster MCP Service was created.
 {{- end }}

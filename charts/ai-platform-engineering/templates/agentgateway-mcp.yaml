@@ -83,7 +83,7 @@ spec:
 {{- $agw := $mcp.agentgateway | default dict }}
 {{- if $agw.enabled }}
 {{- $mcpPort := $mcp.port | default 8000 }}
-{{- $mcpServiceName := printf "%s-%s-mcp" $.Release.Name $agentKey }}
+{{- $mcpServiceName := printf "%s-%s" $.Release.Name $agentKey }}
 {{- $mcpHost := printf "%s.%s.svc.cluster.local" $mcpServiceName $.Release.Namespace }}
 {{- $protocol := $agw.protocol | default "StreamableHTTP" }}
 {{- $pathPrefix := printf "/mcp/%s" $name }}
