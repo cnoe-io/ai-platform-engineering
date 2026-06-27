@@ -847,7 +847,6 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
             <Button
               variant={showStoragePanel ? "secondary" : "outline"}
               size="sm"
-              data-testid="audit-storage-settings-toggle"
               onClick={() => {
                 setShowStoragePanel((v) => !v);
                 if (!storageInfo) fetchStorageInfo().catch(() => undefined);
