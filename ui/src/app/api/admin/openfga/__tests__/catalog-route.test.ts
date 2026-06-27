@@ -54,12 +54,6 @@ beforeEach(() => {
   mockCollections.teams = [{ _id: "team-1", slug: "platform", name: "Platform" }];
   mockCollections.dynamic_agents = [];
   mockCollections.mcp_servers = [];
-  mockCollections.team_kb_ownership = [
-    {
-      kb_ids: ["src_https___cnoe_io_github_io_ai_platform_engineering__e392d7ef8e8b"],
-      kb_permissions: {},
-    },
-  ];
   mockListRebacCatalog.mockResolvedValue({ resource_types: [], actions: {}, resources: [] });
   global.fetch = jest.fn(async () => ({
     ok: true,

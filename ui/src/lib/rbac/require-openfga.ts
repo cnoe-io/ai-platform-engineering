@@ -6,7 +6,26 @@ userProfileObject,
 type AdminSurface,
 type BaselineAdminSurface,
 } from "@/lib/rbac/baseline-access";
-import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { checkOpenFgaTuple, listOpenFgaObjects } from "@/lib/rbac/openfga";
+
+/**
+ * Whether the caller administers at least one team (`team:<slug>#admin`).
+ * Team admins get read-only visibility into any user's profile (edits stay
+ * gated per-affected-team). Fail-soft: a transient PDP error returns false so
+ * the stricter org-admin path still governs.
+ */
+async function callerAdministersAnyTeam(subject: string): Promise<boolean> {
+  try {
+    const result = await listOpenFgaObjects({
+      user: `user:${subject}`,
+      relation: "admin",
+      type: "team",
+    });
+    return result.objects.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 export interface OpenFgaSessionSubject {
   sub?: string;
@@ -120,6 +139,11 @@ export async function requireUserProfileRead(
       "retry"
     );
   }
+
+  // Team admins may VIEW any user's profile (read-only). Per-team edit
+  // endpoints stay gated by `requireTeamMembershipManagementPermission`, so
+  // this only widens read visibility, never write.
+  if (await callerAdministersAnyTeam(caller)) return;
 
   throw new ApiError(
     "You do not have permission to view this user's profile.",

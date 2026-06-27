@@ -148,6 +148,23 @@ function resourceTuples(
 const MCP_TOOL_WILDCARD_SUFFIX = "_*";
 const MCP_TOOL_SLASH_WILDCARD_SUFFIX = "/*";
 
+/**
+ * Marker object recording that a team opted into the "all MCP servers" tool
+ * wildcard. AgentGateway only ever checks per-server objects (`tool:<server>/*`)
+ * so this `tool:*` object is never consulted at runtime — it exists purely so
+ * `tool_wildcard` intent lives in OpenFGA (the single source of truth) rather
+ * than the dropped `team.resources` array. A `team:<slug>#member caller tool:*`
+ * tuple is the authoritative "wildcard on" signal: the per-team resources route
+ * writes/clears it, and the MCP-server reconciler reads its callers to know
+ * which teams a freshly-added server must be auto-granted to.
+ */
+export const TEAM_TOOL_WILDCARD_SENTINEL_OBJECT = "tool:*";
+
+/** The `team:<slug>#member caller tool:*` sentinel tuple for a team. */
+export function teamToolWildcardSentinelTuple(teamSlug: string): OpenFgaTupleKey {
+  return { user: `team:${teamSlug}#member`, relation: "caller", object: TEAM_TOOL_WILDCARD_SENTINEL_OBJECT };
+}
+
 function mcpServerIdFromToolPrefix(toolId: string): string | null {
   let serverId: string | null = null;
   if (toolId.endsWith(MCP_TOOL_WILDCARD_SUFFIX)) {
@@ -881,7 +898,7 @@ async function compensateAppliedChunks(
  */
 const DEFAULT_OPENFGA_READ_CONCURRENCY = 32;
 
-function openFgaReadConcurrency(): number {
+export function openFgaReadConcurrency(): number {
   const fromEnv = Number(process.env.OPENFGA_READ_CONCURRENCY);
   if (Number.isFinite(fromEnv) && fromEnv >= 1) {
     return Math.floor(fromEnv);
@@ -895,7 +912,7 @@ function openFgaReadConcurrency(): number {
  * call (same semantics as `Promise.all`), so callers' error handling is
  * unchanged from the previous unbounded implementation.
  */
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
