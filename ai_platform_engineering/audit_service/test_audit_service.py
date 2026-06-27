@@ -28,6 +28,7 @@ def _settings(tmp_path: Path, **overrides: object) -> Settings:
         "read_default_limit": 100,
         "read_max_limit": 500,
         "read_max_days": 7,
+        "verbosity": "verbose",
     }
     values.update(overrides)
     return Settings(**values)
@@ -316,3 +317,41 @@ def test_s3_store_writes_and_reads_parquet_objects(monkeypatch) -> None:
     assert result.records[0]["correlation_id"] == "corr-1"
     assert result.records[0]["subject_ref"] == "user:alice"
     assert result.records[0]["actor_ref"] == "user:alice"
+
+
+def test_verbosity_filters_ingest(tmp_path: Path) -> None:
+    # assisted-by claude code claude-sonnet-4-6
+    settings = _settings(tmp_path, verbosity="minimal")
+    app = create_app(settings)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/audit/events",
+            json={
+                "events": [
+                    {"type": "cas_grant", "outcome": "success"},
+                    {"type": "auth", "outcome": "deny"},
+                    {"type": "tool_action", "outcome": "allow"},
+                ]
+            },
+        )
+        assert response.status_code == 202
+        # minimal only allows cas_grant and cas_reconcile
+        assert response.json()["accepted"] == 1
+
+    verbosity_response = TestClient(app).get("/v1/audit/verbosity")
+    assert verbosity_response.status_code == 200
+    data = verbosity_response.json()
+    assert data["verbosity"] == "minimal"
+    assert "cas_grant" in data["allowed_types"]
+    assert data["allow_all"] is False
+
+
+def test_verbosity_endpoint_verbose(tmp_path: Path) -> None:
+    # assisted-by claude code claude-sonnet-4-6
+    settings = _settings(tmp_path, verbosity="verbose")
+    app = create_app(settings)
+    with TestClient(app) as client:
+        data = client.get("/v1/audit/verbosity").json()
+    assert data["verbosity"] == "verbose"
+    assert data["allow_all"] is True
+    assert data["allowed_types"] == []
