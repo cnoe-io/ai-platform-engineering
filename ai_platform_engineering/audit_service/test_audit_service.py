@@ -13,6 +13,11 @@ from ai_platform_engineering.audit_service.config import Settings
 from ai_platform_engineering.audit_service.main import create_app
 from ai_platform_engineering.audit_service.queue_service import PUBLIC_FLUSH_ERROR, AuditQueueService
 from ai_platform_engineering.audit_service.storage import AuditQuery, LocalAuditStore, S3AuditStore
+from ai_platform_engineering.audit_service.verbosity import (
+    allowed_types,
+    filter_records,
+    is_event_allowed,
+)
 
 
 def _settings(tmp_path: Path, **overrides: object) -> Settings:
@@ -361,13 +366,6 @@ def test_verbosity_endpoint_verbose(tmp_path: Path) -> None:
 # New tests — verbosity, storage, S3 retention, main endpoints
 # assisted-by claude code claude-sonnet-4-6
 # ============================================================
-
-from ai_platform_engineering.audit_service.verbosity import (
-    PRESET_TYPES,
-    allowed_types,
-    filter_records,
-    is_event_allowed,
-)
 
 
 # ---------------------------------------------------------------------------
