@@ -56,11 +56,12 @@ def _storage_health(store: LocalAuditStore | S3AuditStore, settings: Settings) -
                 critical_percent=settings.local_disk_critical_percent,
             )
         return store.storage_health()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        _logger.exception("audit storage health check failed")
         health: dict[str, Any] = {
             "backend": settings.backend,
             "status": "down",
-            "detail": f"storage health check failed: {exc}",
+            "detail": "storage health check failed; see audit-service logs",
         }
         if settings.backend == "local":
             health["local_path"] = settings.local_path
@@ -184,8 +185,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service: AuditQueueService = request.app.state.audit_queue
         try:
             service.store.readiness_check()
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=503, detail=f"storage unavailable: {exc}") from exc
+        except Exception:  # noqa: BLE001
+            _logger.exception("audit storage readiness check failed")
+            raise HTTPException(status_code=503, detail="storage unavailable")
         status = service.status()
         if not status["running"]:
             raise HTTPException(status_code=503, detail="audit worker is not running")

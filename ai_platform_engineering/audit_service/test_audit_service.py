@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from ai_platform_engineering.audit_service.config import Settings
 from ai_platform_engineering.audit_service.main import create_app
+from ai_platform_engineering.audit_service.queue_service import PUBLIC_FLUSH_ERROR, AuditQueueService
 from ai_platform_engineering.audit_service.storage import AuditQuery, LocalAuditStore, S3AuditStore
 
 
@@ -177,6 +179,51 @@ def test_status_reports_local_disk_critical(tmp_path: Path, monkeypatch) -> None
 
     assert status.status_code == 200
     assert status.json()["storage"]["status"] == "down"
+
+
+def test_status_sanitizes_storage_health_errors(tmp_path: Path, monkeypatch) -> None:
+    def fail_storage_health(self: LocalAuditStore, **_: object) -> dict[str, object]:
+        raise RuntimeError("secret backend path /tmp/audit-token")
+
+    monkeypatch.setattr(LocalAuditStore, "storage_health", fail_storage_health)
+    app = create_app(_settings(tmp_path))
+
+    with TestClient(app) as client:
+        status = client.get("/v1/audit/status")
+
+    assert status.status_code == 200
+    storage = status.json()["storage"]
+    assert storage["status"] == "down"
+    assert storage["detail"] == "storage health check failed; see audit-service logs"
+    assert "secret" not in storage["detail"]
+
+
+def test_queue_status_sanitizes_flush_errors() -> None:
+    class FailingStore:
+        @property
+        def backend_name(self) -> str:
+            return "local"
+
+        def readiness_check(self) -> None:
+            return None
+
+        def write_batch(self, records: list[dict[str, object]]) -> str | None:
+            raise RuntimeError("secret stack trace payload")
+
+    service = AuditQueueService(
+        FailingStore(),
+        queue_max_size=10,
+        flush_batch_size=1,
+        flush_interval_seconds=0.01,
+    )
+
+    assert service.enqueue_many([{"type": "auth"}])
+    asyncio.run(service._flush_remaining())
+
+    status = service.status()
+    assert status["failed_flushes"] == 1
+    assert status["last_error"] == PUBLIC_FLUSH_ERROR
+    assert "secret" not in status["last_error"]
 
 
 def test_local_store_purges_expired_audit_files(tmp_path: Path) -> None:
