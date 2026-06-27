@@ -5,10 +5,11 @@ import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import {
-computeWebexSpaceHealthSummary,
+computeWebexSpaceHealthSummaries,
 type WebexSpaceHealthSummary,
 } from "@/lib/rbac/webex-space-diagnostics";
 import { listWebexSpaceGrants,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
 
 interface WebexSpaceTeamMappingDoc {
   webex_workspace_id?: string;
@@ -18,6 +19,23 @@ interface WebexSpaceTeamMappingDoc {
   team_id?: string;
   team_slug?: string;
   active?: boolean;
+}
+
+function pickPrimaryAgentId(
+  routes: Awaited<ReturnType<typeof listWebexSpaceAgentRoutes>>,
+  grants: Awaited<ReturnType<typeof listWebexSpaceGrants>>
+): string | undefined {
+  const enabledRoute = routes
+    .filter((route) => route.enabled !== false)
+    .sort(
+      (left, right) =>
+        (left.priority ?? 100) - (right.priority ?? 100) ||
+        left.agent_id.localeCompare(right.agent_id)
+    )[0];
+  if (enabledRoute?.agent_id) return enabledRoute.agent_id;
+  const agentGrant = grants.find((grant) => grant.resource?.type === "agent");
+  const grantAgentId = agentGrant?.resource?.id;
+  return typeof grantAgentId === "string" && grantAgentId.trim() ? grantAgentId.trim() : undefined;
 }
 
 async function webexSpaceAccess(
@@ -51,31 +69,51 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(500)
       .toArray();
 
+    const visibleRows = (
+      await Promise.all(
+        rows.map(async (row) => {
+          const workspaceId = webexWorkspaceRef(row.webex_workspace_id);
+          const access = subject
+            ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
+            : { canRead: false, canManage: false };
+          if (!access.canRead) return null;
+          return { row, workspaceId, access };
+        })
+      )
+    ).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    const healthSummaries = includeHealth
+      ? await computeWebexSpaceHealthSummaries(
+          visibleRows.map(({ row, workspaceId }) => ({
+            workspaceId,
+            spaceId: row.webex_space_id,
+          })),
+        ).catch(
+          () =>
+            visibleRows.map(
+              (): WebexSpaceHealthSummary => ({
+                warnings_count: 0,
+                openfga_reachable: false,
+                last_runtime_error_ts: null,
+              }),
+            ),
+        )
+      : [];
+
     const spaces = await Promise.all(
-      rows.map(async (row) => {
-        const workspaceId = webexWorkspaceRef(row.webex_workspace_id);
-        const access = subject
-          ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
-          : { canRead: false, canManage: false };
-        if (!access.canRead) return null;
-        const [grants, health] = await Promise.all([
+      visibleRows.map(async ({ row, workspaceId, access }, index) => {
+        const [grants, routes] = await Promise.all([
           listWebexSpaceGrants(workspaceId, row.webex_space_id),
-          includeHealth
-            ? computeWebexSpaceHealthSummary(workspaceId, row.webex_space_id).catch(
-                (): WebexSpaceHealthSummary => ({
-                  warnings_count: 0,
-                  openfga_reachable: false,
-                  last_runtime_error_ts: null,
-                }),
-              )
-            : Promise.resolve(undefined),
+          listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id),
         ]);
+        const health = includeHealth ? healthSummaries[index] : undefined;
         return {
           workspace_id: workspaceId,
           space_id: row.webex_space_id,
           space_name: row.space_name ?? row.space_title ?? row.webex_space_id,
           team_id: row.team_id,
           team_slug: row.team_slug,
+          primary_agent_id: pickPrimaryAgentId(routes, grants),
           active_grants: grants.length,
           can_manage: access.canManage,
           ...(health ? { health } : {}),

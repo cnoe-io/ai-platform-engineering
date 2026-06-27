@@ -1,0 +1,23 @@
+[project]
+name = "mcp-litellm"
+version = "0.1.0"
+description = "LiteLLM MCP Server"
+license = "Apache-2.0"
+authors = [
+  { name = "CNOE", email = "cnoe@example.com" },
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+  "httpx==0.28.1",
+  "python-dotenv==1.2.2",
+  "pydantic==2.12.5",
+  "mcp==1.27.1",
+  "fastmcp==3.3.1",
+  "typing-extensions==4.15.0",
+]
+
+[tool.uv]
+# Run from source (flat module layout: server.py at the project root). uv
+# installs only the dependencies, not this project as a package.
+package = false

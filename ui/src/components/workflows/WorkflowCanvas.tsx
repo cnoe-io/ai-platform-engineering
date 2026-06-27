@@ -1,7 +1,7 @@
 "use client";
 
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { useWorkflowConfigStore } from "@/store/workflow-config-store";
@@ -328,7 +328,7 @@ function WorkflowCanvasInner({
 
   // Visibility & sharing
   const [visibility, setVisibility] = useState<"private" | "team" | "global">(
-    existingConfig?.visibility || "global",
+    existingConfig?.visibility || "private",
   );
   const [sharedWithTeams, setSharedWithTeams] = useState<string[]>(
     existingConfig?.shared_with_teams || [],
@@ -562,19 +562,27 @@ function WorkflowCanvasInner({
   // Save
   // -----------------------------------------------------------------------
 
-  const persistWorkflow = useCallback(async (): Promise<string | null> => {
+  const persistWorkflow = useCallback(async (
+    overrides?: Pick<CreateWorkflowConfigInput, "visibility" | "shared_with_teams">,
+  ): Promise<string | null> => {
     if (!name || steps.length === 0) {
       toast("Workflow name and at least one step are required", "error");
       return null;
     }
+
+    const effectiveVisibility = overrides?.visibility ?? visibility;
+    const effectiveSharedWithTeams =
+      effectiveVisibility === "team"
+        ? overrides?.shared_with_teams ?? sharedWithTeams
+        : undefined;
 
     if (existingConfig?.config_driven) {
       const input: CreateWorkflowConfigInput = {
         name: `${name.trim()} (editable)`,
         description: description.trim() || undefined,
         steps,
-        visibility,
-        shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+        visibility: effectiveVisibility,
+        shared_with_teams: effectiveSharedWithTeams,
       };
       const newId = await createConfig(input);
       openEditor("edit", newId);
@@ -586,8 +594,8 @@ function WorkflowCanvasInner({
         name: name.trim(),
         description: description.trim() || undefined,
         steps,
-        visibility,
-        shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+        visibility: effectiveVisibility,
+        shared_with_teams: effectiveSharedWithTeams,
       };
       await updateConfig(existingConfig._id, updates);
       return existingConfig._id;
@@ -597,8 +605,8 @@ function WorkflowCanvasInner({
       name: name.trim(),
       description: description.trim() || undefined,
       steps,
-      visibility,
-      shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+      visibility: effectiveVisibility,
+      shared_with_teams: effectiveSharedWithTeams,
     };
     const newId = await createConfig(input);
     openEditor("edit", newId);
@@ -677,6 +685,29 @@ function WorkflowCanvasInner({
       );
     }
   }, [agentAccessGaps, doSave, toast]);
+
+  const handleSaveAsPrivate = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      const savedId = await persistWorkflow({ visibility: "private", shared_with_teams: [] });
+      if (!savedId) return;
+      setVisibility("private");
+      setSharedWithTeams([]);
+      setShowAccessModal(false);
+      setAgentAccessGaps([]);
+      isDirtyRef.current = false;
+      setUnsaved(false);
+      toast("Workflow saved as private", "success");
+    } catch (error) {
+      console.error("Failed to save workflow as private:", error);
+      toast(
+        error instanceof Error ? error.message : "Failed to save workflow",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }, [persistWorkflow, setUnsaved, toast]);
 
   // -----------------------------------------------------------------------
   // Run workflow
@@ -931,7 +962,9 @@ function WorkflowCanvasInner({
       {showAccessModal && agentAccessGaps.length > 0 && (
         <WorkflowAgentAccessModal
           gaps={agentAccessGaps}
+          visibility={visibility}
           onGrantAndSave={handleGrantAndSave}
+          onSaveAsPrivate={handleSaveAsPrivate}
           onCancel={() => { setShowAccessModal(false); setAgentAccessGaps([]); }}
         />
       )}

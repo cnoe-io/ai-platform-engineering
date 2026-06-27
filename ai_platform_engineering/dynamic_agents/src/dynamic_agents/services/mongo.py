@@ -65,10 +65,10 @@ def _inject_builtin_credential_sources(doc: dict) -> dict:
     """Self-heal: fill ``credential_sources`` for known built-in MCP servers.
 
     Read-time defense-in-depth for documents persisted before discovery
-    attached ``credential_sources``. Only fills when the stored value is
-    absent/empty, so an operator-customized list is never overwritten.
+    attached ``credential_sources``. Only fills when the field is absent;
+    an explicit empty list means the operator cleared credentials.
     """
-    if doc.get("credential_sources"):
+    if "credential_sources" in doc:
         return doc
     builtin = _builtin_credential_sources().get(doc.get("_id"))
     if builtin:

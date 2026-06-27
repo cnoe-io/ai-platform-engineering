@@ -1,12 +1,17 @@
 # AI Platform Engineering Common Utilities
 
-This package contains common utilities and base classes shared across all AI Platform Engineering agents.
+This package contains common utilities shared across AI Platform Engineering services.
 
 ## Modules
 
-### `a2a_common/` - Agent-to-Agent Protocol
+### `agui/` - AG-UI Event Helpers
 
-Common A2A (Agent-to-Agent) protocol bindings with streaming support. See [a2a_common/README.md](a2a_common/README.md) for details.
+Common event types, emitters, and encoders for AG-UI streaming responses.
+
+### `auth/` - Runtime Auth Helpers
+
+Shared Keycloak, JWKS, audit, and token-context helpers for CAIPE runtimes and
+MCP integrations.
 
 ### `prompt_templates.py` - Common Prompt Templates
 
@@ -19,12 +24,6 @@ Reusable prompt templates and building blocks for creating consistent system ins
 - Pre-defined guidelines and important notes
 - Utility functions for combining prompt components
 
-**A2A Key Features:**
-- `BaseLangGraphAgent` - Abstract base class for agents with streaming support
-- `BaseLangGraphAgentExecutor` - Abstract base class for A2A protocol handling
-- Common state definitions and helper functions
-- Built-in tracing and LLM integration
-
 ## Installation
 
 This package is designed to be used as a local dependency within the AI Platform Engineering monorepo:
@@ -33,10 +32,6 @@ This package is designed to be used as a local dependency within the AI Platform
 [tool.uv.sources]
 ai-platform-engineering-common = { path = "../../common" }
 ```
-
-## Usage
-
-See the [a2a/README.md](a2a/README.md) for detailed usage examples.
 
 ## License
 

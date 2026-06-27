@@ -4,15 +4,15 @@
 
 ```
 ai_platform_engineering/   # Python backend
-  agents/                  # Sub-agents (GitHub, ArgoCD, etc.)
+  agents/                  # Per-tool MCP servers (GitHub, ArgoCD, etc.)
+  dynamic_agents/          # Dynamic agents runtime (FastAPI, MongoDB, AG-UI/SSE)
   knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
-  mcp/                     # MCP (Model Context Protocol) integrations
-  multi_agents/            # Multi-agent orchestration (supervisor, deepagent)
+  skills_middleware/       # Skill scanning / catalog middleware
   utils/                   # Shared utilities
 ui/                        # Next.js frontend
 docs/                      # Documentation site (Docusaurus)
 docker-compose/            # Docker configs for services
-integration/               # Integration tests
+tests/                     # Repo-level + RBAC tests
 scripts/                   # Utility scripts
 charts/                    # Helm charts
 ```
@@ -51,23 +51,33 @@ AI agents operating in this repository **must** follow these rules on every comm
   - Example: `prebuild/feat/rag-batch-job-status`
 - **PR descriptions** - Follow the template in `.github/pull_request_template.md`
 
-## Issue Tracking (bd)
+## Issue Tracking
 
-This project uses **bd** (beads) for issue tracking.
+This project uses **GitHub Issues** for issue tracking.
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
+- Create follow-up work as GitHub Issues in `cnoe-io/ai-platform-engineering`.
+- Reference related issues in PR descriptions when applicable.
+- Do not use repo-local Beads or `bd` issue tracking.
 
 ## Quality Gates
 
 Before committing code changes, run relevant checks:
 - Python: `uv run ruff check`, `uv run pytest` (always use `uv run` to ensure virtual env)
 - UI: `nvm use` first (if available), then `npm run lint`, `npm run build`
+
+## Docker Compose First Install
+
+When changing `docker-compose.yaml`, `docker-compose.dev.yaml`, `.env.example`,
+release image tags, Compose profiles, Keycloak/OpenFGA/RAG defaults, or
+first-launch UX, follow `.claude/skills/docker-compose-first-install/SKILL.md`.
+The `docker-compose.yaml` + `.env.example` path must work for a first-time OSS
+user with the minimal profiles:
+
+```bash
+mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb,web_ingestor
+```
+
+Do not add Slack/Webex bots to that default path.
 
 ## Code Style
 

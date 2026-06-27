@@ -223,7 +223,7 @@ describe('Login Page', () => {
 
     // Should show loop-broken message (3rd visit = threshold hit)
     await waitFor(() => {
-      expect(screen.getByText(/a login loop was detected/i)).toBeInTheDocument()
+      expect(screen.getByText(/a sign-in loop/i)).toBeInTheDocument()
     })
 
     // Should NOT redirect (loop is broken)
@@ -241,7 +241,7 @@ describe('Login Page', () => {
 
     // Should NOT show loop message (counter was reset due to old timestamp)
     await waitFor(() => {
-      expect(screen.queryByText(/a login loop was detected/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/a sign-in loop/i)).not.toBeInTheDocument()
     })
 
     // Counter should have been reset to 1
@@ -261,7 +261,7 @@ describe('Login Page', () => {
     render(<LoginPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/a login loop was detected/i)).toBeInTheDocument()
+      expect(screen.getByText(/a sign-in loop/i)).toBeInTheDocument()
     })
 
     // Should have cleared the loop counter keys
@@ -286,7 +286,7 @@ describe('Login Page', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/session expired/i)).toBeInTheDocument()
-      expect(screen.getByText(/your authentication session has expired/i)).toBeInTheDocument()
+      expect(screen.getByText(/Please sign in again to continue/i)).toBeInTheDocument()
     })
   })
 
@@ -301,7 +301,7 @@ describe('Login Page', () => {
     render(<LoginPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/authentication failed/i)).toBeInTheDocument()
+      expect(screen.getByText(/Sign-in failed/i)).toBeInTheDocument()
     })
   })
 
@@ -324,9 +324,9 @@ describe('Login Page', () => {
 
     await waitFor(() => {
       // Loop message should show
-      expect(screen.getByText(/a login loop was detected/i)).toBeInTheDocument()
+      expect(screen.getByText(/a sign-in loop/i)).toBeInTheDocument()
       // Session expired message should NOT show (loop message takes priority)
-      expect(screen.queryByText(/your authentication session has expired/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^Session expired$/i)).not.toBeInTheDocument()
     })
   })
 
@@ -517,7 +517,7 @@ describe('Login Page', () => {
 
       // Session expired message should be visible
       expect(screen.getByText(/session expired/i)).toBeInTheDocument()
-      expect(screen.getByText(/your authentication session has expired/i)).toBeInTheDocument()
+      expect(screen.getByText(/Please sign in again to continue/i)).toBeInTheDocument()
 
       // Sign in button should be present
       fireEvent.click(screen.getByText(/sign in with sso/i))

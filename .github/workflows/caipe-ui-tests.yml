@@ -38,7 +38,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
@@ -211,7 +211,7 @@ jobs:
 
             - ✅ auth-guard.test.tsx - Route protection & authorization
             - ✅ token-expiry-guard.test.tsx - Token expiry handling
-            - ✅ a2a-sdk-client.test.ts - A2A streaming SDK
+            - ✅ dynamic-agent-client.test.ts - Dynamic Agents streaming client
             - ✅ auth-utils.test.ts - Authentication utilities (100% coverage)
             - ✅ auth-config.test.ts - OIDC configuration
 
@@ -230,7 +230,7 @@ jobs:
             <summary>⚠️ Areas Needing Tests</summary>
 
             **High Priority:**
-            - hooks/use-a2a-streaming.ts - Core streaming functionality
+            - lib/streaming/* - Core stream event handling
             - store/chat-store.ts - Chat state management
             - store/agent-skills-store.ts - Agent skills
             - lib/api-client.ts - API communication
@@ -310,7 +310,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -363,10 +363,16 @@ jobs:
         run: |
           npx playwright test \
             e2e/rbac/workflow-agent-access.spec.ts \
+            e2e/rbac/workflows-rbac-regression.spec.ts \
+            e2e/rbac/webex-workflow-agent-routes.spec.ts \
             e2e/rbac/rbac-admin-regression.spec.ts \
             e2e/rbac/mcp-openfga-tuples.spec.ts \
+            e2e/rbac/mcp-server-permission-gating.spec.ts \
+            e2e/rbac/mcp-test-modal-and-agentgateway.spec.ts \
+            e2e/rbac/credentials-workspace-regression.spec.ts \
             e2e/rbac/admin-settings-regression.spec.ts \
             e2e/rbac/identity-sync-regression.spec.ts \
+            e2e/rbac/popover-in-dialog.spec.ts \
             --config=playwright.rbac.config.ts
 
       - name: Upload Playwright artifacts
@@ -404,7 +410,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:

@@ -15,7 +15,6 @@ describe("credential foundation constants", () => {
       encryptedPayloads: "credential_encrypted_payloads",
       oauthConnectors: "oauth_connectors",
       providerConnections: "provider_connections",
-      auditEvents: "credential_audit_events",
       migrationPreviews: "credential_migration_previews",
     });
   });

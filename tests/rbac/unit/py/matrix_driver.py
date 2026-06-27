@@ -8,8 +8,8 @@ Responsibilities
 2. Parameterise over every `(route × persona)` for the **non-`ui_bff`**
    surfaces — i.e. the surfaces that pytest is responsible for. The Jest
    driver covers `ui_bff`; this driver covers
-   `supervisor`, `mcp`, `dynamic_agents`, `rag`, `slack_bot`.
-3. Provide per-surface dispatch helpers (`call_supervisor`, `call_mcp`,
+   `mcp`, `dynamic_agents`, `rag`, `slack_bot`.
+3. Provide per-surface dispatch helpers (`call_mcp`,
    `call_da`, `call_rag`, `call_slack_event`). Each helper is a thin
    wrapper over `httpx`/`pytest` that:
      a. resolves the persona's `Authorization: Bearer <token>` (or the
@@ -35,7 +35,6 @@ Surface dispatch URLs
 Default URLs are read from env (set by `make test-rbac-up`, which inlines
 host ports into `docker-compose.dev.yaml` via ${VAR:-default} substitution):
 
-* `E2E_SUPERVISOR_URL`     — default `http://localhost:28000` (e2e port band)
 * `E2E_DA_URL`             — default `http://localhost:8200`
 * `E2E_RAG_URL`            — default `http://localhost:9446`
 * `E2E_MCP_BASE_URL`       — default `http://localhost:18000`
@@ -74,7 +73,7 @@ MATRIX_YAML = REPO_ROOT / "tests" / "rbac" / "rbac-matrix.yaml"
 # drivers disjoint avoids double-execution (and double-counting in
 # the audit-log assertions).
 PYTHON_SURFACES: frozenset[str] = frozenset(
-    {"supervisor", "mcp", "dynamic_agents", "rag", "slack_bot"}
+    {"mcp", "dynamic_agents", "rag", "slack_bot"}
 )
 
 
@@ -178,8 +177,6 @@ def matrix_param_id(row: MatrixRow) -> str:
 
 def _surface_base_url(surface: str, resource: str) -> str:
     """Resolve the base URL for the given surface (and resource, for MCP)."""
-    if surface == "supervisor":
-        return os.environ.get("E2E_SUPERVISOR_URL", "http://localhost:28000").rstrip("/")
     if surface == "dynamic_agents":
         return os.environ.get("E2E_DA_URL", "http://localhost:8200").rstrip("/")
     if surface == "rag":

@@ -1,19 +1,41 @@
-import { A2AClient } from "@/lib/a2a-client";
-import { apiClient } from "@/lib/api-client";
-import { getStorageMode,shouldUseLocalStorage } from "@/lib/storage-config";
-import { getConfig } from "@/lib/config";
-import type { StreamAdapter } from "@/lib/streaming";
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { Conversation, ChatMessage, MessageFeedback, TurnStatus, getAgentId, buildParticipants } from "@/types/a2a";
 import { StreamEvent } from "@/lib/streaming/types";
 import { generateId } from "@/lib/utils";
-import { A2AEvent,ChatMessage,Conversation,MessageFeedback,TurnStatus,buildParticipants,getAgentId,isDynamicAgentConversation } from "@/types/a2a";
-import { create } from "zustand";
-import { createJSONStorage,persist } from "zustand/middleware";
+import type { StreamAdapter } from "@/lib/streaming";
+import { apiClient } from "@/lib/api-client";
+import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 
 const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
 
 export function getLastActiveConversationId(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(LAST_ACTIVE_CONVERSATION_KEY);
+}
+
+/** Best-effort chat URL: resume last active conversation when possible. */
+export function resolveChatNavigationPath(state: {
+  conversations: Conversation[];
+  activeConversationId: string | null;
+}): string {
+  const { conversations, activeConversationId } = state;
+  const lastActive = activeConversationId ?? getLastActiveConversationId();
+  if (lastActive) {
+    if (
+      conversations.length === 0 ||
+      conversations.some((conversation) => conversation.id === lastActive)
+    ) {
+      return `/chat/${lastActive}`;
+    }
+  }
+  if (conversations.length > 0) {
+    const latest = [...conversations].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+    )[0];
+    return `/chat/${latest.id}`;
+  }
+  return "/chat";
 }
 
 function persistLastActiveConversationId(id: string | null): void {
@@ -29,7 +51,8 @@ function persistLastActiveConversationId(id: string | null): void {
 interface StreamingState {
   conversationId: string;
   messageId: string;
-  client: A2AClient;
+  /** Abortable handle for the active stream (wraps the stream adapter's abort). */
+  client: { abort: () => void };
   // For Dynamic Agents: adapter reference for backend cancellation
   streamAdapter?: StreamAdapter;
 }
@@ -39,12 +62,7 @@ interface ChatState {
   activeConversationId: string | null;
   isStreaming: boolean;
   streamingConversations: Map<string, StreamingState>;
-  a2aEvents: A2AEvent[];
-  pendingMessage: string | null; // Message to auto-submit when ChatPanel mounts
-  inputDraft: string | null; // One-shot input pre-fill (spec #099 Phase 3) — fills the textbox without sending
-
-  // Per-turn event tracking: selectedTurnId per conversation
-  selectedTurnIds: Map<string, string>; // conversationId -> turnId
+  pendingMessage: string | null; // Message to auto-submit when the chat panel mounts
 
   // Conversations with new responses the user hasn't viewed yet
   unviewedConversations: Set<string>;
@@ -53,29 +71,19 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: (agentId?: string) => Promise<string>;
-  setActiveConversation: (id: string | null) => void;
-  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
+  createConversation: (agentId: string) => Promise<string>;
+  setActiveConversation: (id: string) => void;
+  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (conversationId: string, messageId: string, content: string) => void;
-  addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => void;
   setStreaming: (streaming: boolean) => void;
   setConversationStreaming: (conversationId: string, state: StreamingState | null) => void;
   isConversationStreaming: (conversationId: string) => boolean;
   cancelConversationRequest: (conversationId: string) => void;
-  addA2AEvent: (event: A2AEvent, conversationId?: string) => void;
-  clearA2AEvents: (conversationId?: string) => void;
-  getConversationEvents: (conversationId: string) => A2AEvent[];
   // Stream events (for Dynamic Agents)
   addStreamEvent: (event: StreamEvent, conversationId?: string) => void;
   clearStreamEvents: (conversationId?: string) => void;
   getConversationStreamEvents: (conversationId: string) => StreamEvent[];
-  /** @deprecated Use addStreamEvent */
-  addSSEEvent: (event: StreamEvent, conversationId?: string) => void;
-  /** @deprecated Use clearStreamEvents */
-  clearSSEEvents: (conversationId?: string) => void;
-  /** @deprecated Use getConversationStreamEvents */
-  getConversationSSEEvents: (conversationId: string) => StreamEvent[];
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
@@ -84,22 +92,9 @@ interface ChatState {
   updateConversationTitle: (conversationId: string, title: string) => Promise<void>;
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
-  loadConversationsFromServer: (options?: { source?: 'autonomous' | 'web' }) => Promise<void>; // Load conversations from server (MongoDB mode only)
-  /**
-   * Spec #099 Story 2 — synthesise autonomous-task conversations from
-   * the autonomous-agents service so the chat sidebar's Autonomous tab
-   * works regardless of storage mode (no Mongo needed). Each task
-   * becomes one Conversation; messages mirror the metadata.kind
-   * enumeration the Mongo publisher emits (creation_intent,
-   * preflight_ack, run_request/response, next_run_marker).
-   */
-  loadAutonomousConversationsFromService: () => Promise<void>;
-  setInputDraft: (draft: string | null) => void;
-  consumeInputDraft: () => string | null;
-  saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
-  recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
+  loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
+  saveMessagesToServer: (conversationId: string, options?: { skipNonFinal?: boolean }) => Promise<void>; // Save messages to MongoDB after streaming
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
-  loadTurnsFromServer: (conversationId: string) => Promise<void>; // Supervisor history loader
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
 
   // Unviewed conversation actions
@@ -111,78 +106,10 @@ interface ChatState {
   markConversationInputRequired: (conversationId: string) => void;
   clearConversationInputRequired: (conversationId: string) => void;
   isConversationInputRequired: (conversationId: string) => boolean;
-
-  // Turn selection actions for per-message event tracking
-  setSelectedTurn: (conversationId: string, turnId: string | null) => void;
-  getSelectedTurnId: (conversationId?: string) => string | null;
-  getSelectedTurnEvents: (conversationId?: string) => A2AEvent[];
-  isMessageSelectable: () => boolean;
-  getTurnCount: (conversationId?: string) => number;
-  getCurrentTurnIndex: (conversationId?: string) => number;
 }
 
-// Track loading state to prevent multiple simultaneous loads
-let isLoadingConversations = false;
-
-// Inv-E: persistence-scope denylists. The TOP_LEVEL list applies to the root
-// persisted object and to each Conversation; the RECURSIVE list applies at
-// every nesting depth. The single difference is `role`, which is legitimate
-// on ChatMessage (sender) and must survive — any future authorization-role
-// field MUST use a disambiguated name (sessionRole / authRole / userRole).
-// Kept in sync with the matching constants in chat-store.test.ts.
-const TOP_LEVEL_DENYLIST = [
-  'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
-  'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
-  'role', 'userRole',
-] as const;
-const RECURSIVE_DENYLIST = [
-  'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
-  'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
-  'userRole',
-] as const;
-
-// Inv-E runtime enforcement: strip every key in `keys` from a shallow clone of
-// `obj`. Used inside partialize so even if a future setter writes one of these
-// keys onto store state, persist will not carry it through to localStorage.
-function stripDenylistedKeys<T extends Record<string, unknown>>(
-  obj: T,
-  keys: readonly string[],
-): Partial<T> {
-  const out: Record<string, unknown> = { ...obj };
-  for (const k of keys) delete out[k];
-  return out as Partial<T>;
-}
-
-// Inv-A site 1: deterministic, NaN-safe winner selection for two persisted
-// Conversation entries that share an id at rehydrate time. Rule order:
-//   (a) source === 'autonomous' wins (consistent with Inv-B)
-//   (b) more messages wins
-//   (c) finite/valid updatedAt wins over invalid
-//   (d) most-recent valid updatedAt wins
-//   (e) lexicographic id sort (last-resort tiebreak — strictly deterministic)
-function pickRehydrateWinner(
-  a: Conversation,
-  b: Conversation,
-): Conversation {
-  // (a) autonomous-source wins
-  const aAuto = a.source === 'autonomous';
-  const bAuto = b.source === 'autonomous';
-  if (aAuto !== bAuto) return aAuto ? a : b;
-  // (b) more messages wins
-  const aLen = a.messages?.length ?? 0;
-  const bLen = b.messages?.length ?? 0;
-  if (aLen !== bLen) return aLen > bLen ? a : b;
-  // (c) finite/valid updatedAt wins
-  const aTs = a.updatedAt ? new Date(a.updatedAt).getTime() : NaN;
-  const bTs = b.updatedAt ? new Date(b.updatedAt).getTime() : NaN;
-  const aValid = Number.isFinite(aTs);
-  const bValid = Number.isFinite(bTs);
-  if (aValid !== bValid) return aValid ? a : b;
-  // (d) most-recent valid updatedAt wins
-  if (aValid && bValid && aTs !== bTs) return aTs > bTs ? a : b;
-  // (e) last-resort: lexicographic id (deterministic)
-  return a.id <= b.id ? a : b;
-}
+// Coalesce concurrent conversation-list fetches (Sidebar + /chat redirect race).
+let loadConversationsInFlight: Promise<void> | null = null;
 
 // NOTE: savedMessageIds / savedMessageState tracking removed.
 // With the upsert-based API, saveMessagesToServer sends ALL messages every
@@ -210,53 +137,6 @@ const PERIODIC_SAVE_EVENT_THRESHOLD = 20; // Save every 20 events during streami
 const pendingSaveTimestamps = new Map<string, number>();
 const PENDING_SAVE_GRACE_MS = 5000; // 5 second grace period after streaming ends
 
-function isEmptyNewConversation(conv: Conversation): boolean {
-  return (
-    conv.title === "New Conversation" &&
-    conv.messages.length === 0 &&
-    !conv.source
-  );
-}
-
-function compareConversationsForSidebar(a: Conversation, b: Conversation): number {
-  const aIsEmptyNew = isEmptyNewConversation(a);
-  const bIsEmptyNew = isEmptyNewConversation(b);
-  if (aIsEmptyNew !== bIsEmptyNew) {
-    return aIsEmptyNew ? 1 : -1;
-  }
-  return b.updatedAt.getTime() - a.updatedAt.getTime();
-}
-
-// Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
-function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
-  return {
-    id: event.id,
-    timestamp: event.timestamp,
-    type: event.type,
-    taskId: event.taskId,
-    contextId: event.contextId,
-    status: event.status,
-    isFinal: event.isFinal,
-    sourceAgent: event.sourceAgent,
-    displayName: event.displayName,
-    displayContent: event.displayContent,
-    color: event.color,
-    icon: event.icon,
-    artifact: event.artifact ? {
-      artifactId: event.artifact.artifactId,
-      name: event.artifact.name,
-      description: event.artifact.description,
-      parts: event.artifact.parts?.map(p => ({
-        kind: p.kind,
-        text: p.text,
-        ...(p.data ? { data: p.data } : {}),
-      })),
-      metadata: event.artifact.metadata,
-    } : undefined,
-    // Omit event.raw to avoid circular refs and large payloads
-  };
-}
-
 // Serialize stream event for MongoDB storage (strip raw data, preserve structured fields)
 function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
   return {
@@ -280,88 +160,22 @@ function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
   };
 }
 
-/**
- * Collapse per-token content events into one content event per tool boundary.
- *
- * During streaming, hundreds of tiny `content` events are emitted (one per LLM
- * token). For persistence we merge consecutive content events (same namespace)
- * into a single event, flushing whenever a non-content event appears or the
- * namespace changes. This preserves the interleaved content/tool ordering that
- * TimelineManager needs while reducing storage by ~95%.
- *
- * Non-content events (tool_start, tool_end, warning, error, input_required)
- * pass through unchanged.
- */
-function collapseStreamEvents(events: StreamEvent[]): StreamEvent[] {
-  const result: StreamEvent[] = [];
-  let contentBuffer = "";
-  let bufferNamespace: string[] = [];
-  let bufferTimestamp: Date | null = null;
-  let bufferId: string | null = null;
-
-  const flushContent = () => {
-    if (contentBuffer && bufferId) {
-      result.push({
-        id: bufferId,
-        timestamp: bufferTimestamp!,
-        type: "content",
-        raw: undefined,
-        namespace: bufferNamespace,
-        content: contentBuffer,
-      });
-      contentBuffer = "";
-      bufferNamespace = [];
-      bufferTimestamp = null;
-      bufferId = null;
-    }
-  };
-
-  for (const event of events) {
-    if (event.type === "content") {
-      const ns = event.namespace || [];
-      const nsKey = ns.join("/");
-      const bufNsKey = bufferNamespace.join("/");
-
-      // Flush if namespace changed
-      if (contentBuffer && nsKey !== bufNsKey) {
-        flushContent();
-      }
-
-      // Start or extend buffer
-      if (!bufferId) {
-        bufferId = event.id;
-        bufferTimestamp = event.timestamp;
-        bufferNamespace = ns;
-      }
-      contentBuffer += event.content || "";
-    } else {
-      // Non-content event: flush any pending content, then pass through
-      flushContent();
-      result.push(event);
-    }
-  }
-
-  // Flush remaining content
-  flushContent();
-
-  return result;
-}
-
 // Create store with conditional persistence
 const storeImplementation = (set: any, get: any) => ({
       conversations: [],
       activeConversationId: null,
       isStreaming: false,
       streamingConversations: new Map<string, StreamingState>(),
-      a2aEvents: [],
       pendingMessage: null,
-      inputDraft: null,
-      selectedTurnIds: new Map<string, string>(),
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: async (agentId?: string) => {
+      createConversation: async (agentId: string) => {
         const storageMode = getStorageMode();
+        const normalizedAgentId = agentId.trim();
+        if (!normalizedAgentId) {
+          throw new Error("agentId is required to create a chat conversation");
+        }
 
         let id: string;
 
@@ -370,7 +184,7 @@ const storeImplementation = (set: any, get: any) => ({
           const result = await apiClient.createConversation({
             title: 'New Conversation',
             client_type: 'webui',
-            agent_id: agentId,
+            agent_id: normalizedAgentId,
           });
           id = result.conversation._id;
         } else {
@@ -384,30 +198,26 @@ const storeImplementation = (set: any, get: any) => ({
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          a2aEvents: [],
           streamEvents: [],
-          participants: buildParticipants(agentId),
+          participants: buildParticipants(normalizedAgentId),
         };
 
         // Update local state
         set((state: ChatState) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
-          a2aEvents: [],
         }));
         persistLastActiveConversationId(id);
 
         return id;
       },
 
-      setActiveConversation: (id: string | null) => {
+      setActiveConversation: (id: string) => {
         const prev = get();
         const newUnviewed = new Set(prev.unviewedConversations);
+        newUnviewed.delete(id);
         const newInputRequired = new Set(prev.inputRequiredConversations);
-        if (id) {
-          newUnviewed.delete(id);
-          newInputRequired.delete(id);
-        }
+        newInputRequired.delete(id);
         set({
           activeConversationId: id,
           unviewedConversations: newUnviewed,
@@ -416,7 +226,7 @@ const storeImplementation = (set: any, get: any) => ({
         persistLastActiveConversationId(id);
       },
 
-      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => {
+      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp">, turnId?: string, messageId?: string) => {
         const msgId = messageId || generateId();
 
         // Generate turnId for user messages, use provided turnId for assistant messages
@@ -429,7 +239,6 @@ const storeImplementation = (set: any, get: any) => ({
           ...message,
           id: msgId,
           timestamp: new Date(),
-          events: [],
           turnId: messageTurnId,
         };
 
@@ -442,13 +251,6 @@ const storeImplementation = (set: any, get: any) => ({
           : undefined;
 
         set((state: ChatState) => {
-          // Update selectedTurnIds when a new user message is added
-          const newSelectedTurnIds = new Map(state.selectedTurnIds);
-          if (message.role === "user" && messageTurnId) {
-            newSelectedTurnIds.set(conversationId, messageTurnId);
-            console.log(`[Store] New turn started: ${messageTurnId} for conversation ${conversationId}`);
-          }
-
           return {
             conversations: state.conversations.map((conv: Conversation) =>
               conv.id === conversationId
@@ -460,7 +262,6 @@ const storeImplementation = (set: any, get: any) => ({
                   }
                 : conv
             ),
-            selectedTurnIds: newSelectedTurnIds,
           };
         });
 
@@ -500,23 +301,6 @@ const storeImplementation = (set: any, get: any) => ({
                   messages: conv.messages.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? { ...msg, content: msg.content + content }
-                      : msg
-                  ),
-                }
-              : conv
-          ),
-        }));
-      },
-
-      addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => {
-        set((state: ChatState) => ({
-          conversations: state.conversations.map((conv: Conversation) =>
-            conv.id === conversationId
-              ? {
-                  ...conv,
-                  messages: conv.messages.map((msg: ChatMessage) =>
-                    msg.id === messageId
-                      ? { ...msg, events: [...msg.events, event] }
                       : msg
                   ),
                 }
@@ -615,7 +399,7 @@ const storeImplementation = (set: any, get: any) => ({
             }
           }
 
-          // Abort the client (A2A or Dynamic Agent wrapper)
+          // Abort the active stream (Dynamic Agent wrapper)
           streamingState.client.abort();
           // Remove from streaming map
           const newMap = new Map(state.streamingConversations);
@@ -657,93 +441,6 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      addA2AEvent: (event: A2AEvent, conversationId?: string) => {
-        const convId = conversationId || get().activeConversationId;
-        const artifactName = event.artifact?.name || 'n/a';
-        const isImportant = ['execution_plan_update', 'execution_plan_status_update', 'tool_notification_start', 'tool_notification_end', 'final_result', 'partial_result'].includes(artifactName);
-        if (isImportant) {
-          const prevConv = get().conversations.find((c: Conversation) => c.id === convId);
-          console.log(`[A2A-DEBUG] ➕ addA2AEvent: ${event.type}/${artifactName} to conv=${convId?.substring(0, 8)}`, {
-            eventId: event.id,
-            prevEventCount: prevConv?.a2aEvents?.length ?? 0,
-            artifactText: event.artifact?.parts?.[0]?.text?.substring(0, 100),
-          });
-        }
-        set((prev: ChatState) => {
-          // Add to global events for current session display
-          const newGlobalEvents = [...prev.a2aEvents, event];
-
-          // Also add to the specific conversation's events if we have a convId
-          if (convId) {
-            const conv = prev.conversations.find((c: Conversation) => c.id === convId);
-            const newCount = (conv?.a2aEvents?.length ?? 0) + 1;
-            if (isImportant) {
-              console.log(`[A2A-DEBUG] ➕ addA2AEvent APPLIED: conv=${convId?.substring(0, 8)} newEventCount=${newCount}`);
-            }
-            return {
-              a2aEvents: newGlobalEvents,
-              conversations: prev.conversations.map((c: Conversation) =>
-                c.id === convId
-                  ? { ...c, a2aEvents: [...c.a2aEvents, event] }
-                  : c
-              ),
-            };
-          }
-
-          return { a2aEvents: newGlobalEvents };
-        });
-
-        // Mark conversation as input-required when a UserInputMetaData artifact arrives
-        if (convId && artifactName === 'UserInputMetaData') {
-          const current = get();
-          const newInputRequired = new Set(current.inputRequiredConversations);
-          newInputRequired.add(convId);
-          set({ inputRequiredConversations: newInputRequired });
-          console.log(`[Store] Marked conversation as input-required: ${convId.substring(0, 8)}`);
-        }
-
-        // Periodic save: trigger a background save every PERIODIC_SAVE_EVENT_THRESHOLD
-        // events to avoid data loss during long streaming sessions.
-        if (convId) {
-          const count = (eventCountSinceLastSave.get(convId) || 0) + 1;
-          eventCountSinceLastSave.set(convId, count);
-          if (count >= PERIODIC_SAVE_EVENT_THRESHOLD) {
-            eventCountSinceLastSave.set(convId, 0);
-            console.log(`[ChatStore] Periodic save triggered after ${PERIODIC_SAVE_EVENT_THRESHOLD} events for: ${convId}`);
-            get().saveMessagesToServer(convId, { skipNonFinal: true }).catch((error) => {
-              console.error('[ChatStore] Periodic save failed:', error);
-            });
-          }
-        }
-      },
-
-      clearA2AEvents: (conversationId?: string) => {
-        if (conversationId) {
-          const prevConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          const prevCount = prevConv?.a2aEvents?.length ?? 0;
-          const prevExecPlans = prevConv?.a2aEvents?.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length ?? 0;
-          const prevToolStarts = prevConv?.a2aEvents?.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length ?? 0;
-          console.log(`[A2A-DEBUG] 🧹 clearA2AEvents(${conversationId.substring(0, 8)}): clearing ${prevCount} events (${prevExecPlans} exec_plans, ${prevToolStarts} tool_starts)`);
-          // Clear events for a specific conversation
-          set((prev: ChatState) => ({
-            conversations: prev.conversations.map((conv: Conversation) =>
-              conv.id === conversationId
-                ? { ...conv, a2aEvents: [] }
-                : conv
-            ),
-          }));
-        } else {
-          console.log(`[A2A-DEBUG] 🧹 clearA2AEvents(global): clearing ${get().a2aEvents.length} global events`);
-          // Clear global session-only events
-          set({ a2aEvents: [] });
-        }
-      },
-
-      getConversationEvents: (conversationId: string) => {
-        const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
-        return conv?.a2aEvents || [];
-      },
-
       // ═══════════════════════════════════════════════════════════════
       // Stream Events (for Dynamic Agents)
       // ═══════════════════════════════════════════════════════════════
@@ -764,6 +461,27 @@ const storeImplementation = (set: any, get: any) => ({
             ),
           };
         });
+
+        // Mark conversation as input-required when an input_required event arrives
+        if (event.type === 'input_required') {
+          const current = get();
+          const newInputRequired = new Set(current.inputRequiredConversations);
+          newInputRequired.add(convId);
+          set({ inputRequiredConversations: newInputRequired });
+          console.log(`[Store] Marked conversation as input-required: ${convId.substring(0, 8)}`);
+        }
+
+        // Periodic save: trigger a background save every PERIODIC_SAVE_EVENT_THRESHOLD
+        // events to avoid data loss during long streaming sessions.
+        const count = (eventCountSinceLastSave.get(convId) || 0) + 1;
+        eventCountSinceLastSave.set(convId, count);
+        if (count >= PERIODIC_SAVE_EVENT_THRESHOLD) {
+          eventCountSinceLastSave.set(convId, 0);
+          console.log(`[ChatStore] Periodic save triggered after ${PERIODIC_SAVE_EVENT_THRESHOLD} events for: ${convId}`);
+          get().saveMessagesToServer(convId, { skipNonFinal: true }).catch((error) => {
+            console.error('[ChatStore] Periodic save failed:', error);
+          });
+        }
       },
 
       clearStreamEvents: (conversationId?: string) => {
@@ -785,11 +503,6 @@ const storeImplementation = (set: any, get: any) => ({
         const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
         return conv?.streamEvents || [];
       },
-
-      // Backwards-compatible aliases for supervisor ChatPanel
-      addSSEEvent: (event: StreamEvent, conversationId?: string) => get().addStreamEvent(event, conversationId),
-      clearSSEEvents: (conversationId?: string) => get().clearStreamEvents(conversationId),
-      getConversationSSEEvents: (conversationId: string) => get().getConversationStreamEvents(conversationId),
 
       deleteConversation: async (id: string) => {
         const storageMode = await getStorageMode();
@@ -820,7 +533,6 @@ const storeImplementation = (set: any, get: any) => ({
           return {
             conversations: newConversations,
             activeConversationId: newActiveId,
-            a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
         const nextActiveId = get().activeConversationId;
@@ -846,7 +558,6 @@ const storeImplementation = (set: any, get: any) => ({
         set({
           conversations: [],
           activeConversationId: null,
-          a2aEvents: [],
         });
         persistLastActiveConversationId(null);
       },
@@ -929,19 +640,6 @@ const storeImplementation = (set: any, get: any) => ({
         set({ pendingMessage: message });
       },
 
-      setInputDraft: (draft) => {
-        set({ inputDraft: draft });
-      },
-
-      consumeInputDraft: () => {
-        const state = get();
-        const draft = state.inputDraft;
-        if (draft) {
-          set({ inputDraft: null });
-        }
-        return draft;
-      },
-
       consumePendingMessage: () => {
         const state = get();
         const message = state.pendingMessage;
@@ -951,7 +649,7 @@ const storeImplementation = (set: any, get: any) => ({
         return message;
       },
 
-      loadConversationsFromServer: async (options?: { source?: 'autonomous' | 'web' }) => {
+      loadConversationsFromServer: async () => {
         const storageMode = getStorageMode();
 
         // Only load from server in MongoDB mode
@@ -960,19 +658,17 @@ const storeImplementation = (set: any, get: any) => ({
           return;
         }
 
-        // Prevent multiple simultaneous loads
-        if (isLoadingConversations) {
-          console.log('[ChatStore] Already loading conversations, skipping...');
-          return;
+        if (loadConversationsInFlight) {
+          console.log('[ChatStore] Joining in-flight conversation load...');
+          return loadConversationsInFlight;
         }
 
-        isLoadingConversations = true;
-
+        loadConversationsInFlight = (async () => {
         try {
-          console.log('[ChatStore] Loading conversations from MongoDB...', options);
+          console.log('[ChatStore] Loading conversations from MongoDB...');
           let response;
           try {
-            response = await apiClient.getConversations({ page_size: 100, source: options?.source });
+            response = await apiClient.getConversations({ page_size: 100 });
           } catch (apiError) {
             // Check if it's an auth error (expected when not logged in)
             const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
@@ -1059,14 +755,12 @@ const storeImplementation = (set: any, get: any) => ({
               // Preserve messages/events when streaming, already loaded, or actively
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
-              a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
               streamEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.streamEvents || []) : [],
               participants: conv.participants || [],
               owner_id: conv.owner_id,
+              accessLevel: conv.access_level,
+              isSharedWithViewer: conv.viewer_has_shared_access,
               sharing: conv.sharing,
-              source: (conv as { source?: 'web' | 'slack' | 'autonomous' }).source,
-              task_id: (conv as { task_id?: string }).task_id,
-              run_id: (conv as { run_id?: string }).run_id,
             };
           });
 
@@ -1081,7 +775,7 @@ const storeImplementation = (set: any, get: any) => ({
           const localOnlyPreserved = currentState.conversations.filter(
             conv => !serverIds.has(conv.id) && (
               currentState.streamingConversations.has(conv.id) ||
-              (conv.id === currentState.activeConversationId && !isEmptyNewConversation(conv))
+              conv.id === currentState.activeConversationId
             )
           );
 
@@ -1089,104 +783,21 @@ const storeImplementation = (set: any, get: any) => ({
             console.log(`[ChatStore] Keeping ${localOnlyPreserved.length} local-only conversations (streaming or active audit/shared)`);
           }
 
-          // Inv-A site 2: Map-based dedupe-by-id over
-          // [...serverConversations, ...localOnlyPreserved]. Server entries
-          // are authoritative for source/metadata, so on collision the
-          // server entry wins (do NOT overwrite). In practice the upstream
-          // `serverIds` filter already excludes any id that appears on the
-          // server, but this is defense in depth against a future refactor
-          // that drops that filter.
-          const dedupeMap = new Map<string, Conversation>();
-          for (const c of serverConversations) dedupeMap.set(c.id, c);
-          for (const c of localOnlyPreserved) {
-            if (!dedupeMap.has(c.id)) dedupeMap.set(c.id, c);
-          }
-          const sortedConversations = Array.from(dedupeMap.values()).sort(
-            compareConversationsForSidebar,
+          const allConversations = [...serverConversations, ...localOnlyPreserved];
+          const sortedConversations = allConversations.sort(
+            (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
           );
 
           // Check if active conversation was deleted on another device
           const activeId = currentState.activeConversationId;
+          const activeStillExists = activeId ? sortedConversations.some(c => c.id === activeId) : true;
 
-          // Inv-G: callback-form set() so any autonomous-source entries
-          // written by loadAutonomousConversationsFromService between our
-          // snapshot read (above) and this write are NOT clobbered. Two
-          // collision shapes are handled:
-          //   1. New-id case (autonomous task with no MongoDB row yet):
-          //      preserve the autonomous entry as-is via cross-loader
-          //      additions (id not in serverIdSet).
-          //   2. Same-id case (autonomous task that does have a MongoDB
-          //      row, so it appears in BOTH sortedConversations and the
-          //      live state with `source === 'autonomous'`): the server
-          //      version has `messages: []` because synth messages are
-          //      client-side only — we must keep the live entry's synth
-          //      messages / a2aEvents / streamEvents instead of letting
-          //      the empty server payload win.
-          set((state) => {
-            const stateById = new Map<string, Conversation>(
-              state.conversations.map((c) => [c.id, c] as [string, Conversation]),
-            );
-            const reconciled = sortedConversations.map((serverConv: Conversation) => {
-              const live = stateById.get(serverConv.id);
-              if (!live) return serverConv;
-              // Same-id collision: prefer live's messages/events when the
-              // live entry is autonomous-synth or actively streaming, OR
-              // when the live entry simply has more messages than the
-              // server's empty payload (defense in depth — covers any
-              // future loader that populates messages between snapshot
-              // and write).
-              const isAutonomousLive = live.source === 'autonomous';
-              const isStreamingLive = state.streamingConversations.has(
-                serverConv.id,
-              );
-              const liveHasMoreMessages =
-                live.messages.length > serverConv.messages.length;
-              if (isAutonomousLive || isStreamingLive || liveHasMoreMessages) {
-                return {
-                  ...serverConv,
-                  messages: live.messages.length > 0
-                    ? live.messages
-                    : serverConv.messages,
-                  a2aEvents: live.a2aEvents.length > 0
-                    ? live.a2aEvents
-                    : serverConv.a2aEvents,
-                  streamEvents: live.streamEvents && live.streamEvents.length > 0
-                    ? live.streamEvents
-                    : serverConv.streamEvents,
-                };
-              }
-              return serverConv;
-            });
-            const serverIdSet = new Set(reconciled.map((c) => c.id));
-            const crossLoaderAdditions = state.conversations.filter(
-              (c) =>
-                !serverIdSet.has(c.id) &&
-                (c.source === 'autonomous' ||
-                  state.streamingConversations.has(c.id)),
-            );
-            const merged = [...reconciled, ...crossLoaderAdditions];
-            const finalMap = new Map<string, Conversation>();
-            for (const c of merged) finalMap.set(c.id, c);
-            const deduped = Array.from(finalMap.values()).sort(
-              compareConversationsForSidebar,
-            );
-            const activeStillExists = activeId
-              ? deduped.some((c) => c.id === activeId)
-              : true;
-            return {
-              conversations: deduped,
-              ...(activeId && !activeStillExists
-                ? {
-                    activeConversationId:
-                      deduped.length > 0 ? deduped[0].id : null,
-                    a2aEvents: [],
-                  }
-                : {}),
-            };
+          set({
+            conversations: sortedConversations,
+            ...(activeId && !activeStillExists ? {
+              activeConversationId: sortedConversations.length > 0 ? sortedConversations[0].id : null,
+            } : {}),
           });
-          const activeStillExists = activeId
-            ? sortedConversations.some((c) => c.id === activeId)
-            : true;
 
           if (activeId && !activeStillExists) {
             persistLastActiveConversationId(get().activeConversationId);
@@ -1203,155 +814,11 @@ const storeImplementation = (set: any, get: any) => ({
           });
           // Don't clear conversations on error - preserve what we have
         } finally {
-          isLoadingConversations = false;
+          loadConversationsInFlight = null;
         }
-      },
+        })();
 
-      /**
-       * Spec #099 Story 2 — autonomous-task-as-conversation adapter.
-       *
-       * Fetches every task from the autonomous-agents service and, in
-       * parallel, its run history; synthesises a Conversation per task
-       * using ``synthesizeConversationForTask`` and merges them into the
-       * store. Existing autonomous Conversations are *replaced* by the
-       * fresh synthesis (so prompt edits / new runs / new acks land
-       * immediately); non-autonomous Conversations are preserved.
-       *
-       * Errors are swallowed and logged: a flaky autonomous-agents
-       * service must never blank the chat sidebar. Preserves existing
-       * autonomous conversations from the previous successful sync if
-       * the new fetch fails -- consistent with
-       * ``loadConversationsFromServer``'s contract.
-       */
-      loadAutonomousConversationsFromService: async () => {
-        if (!getConfig('autonomousAgentsEnabled')) {
-          set((state) => ({
-            conversations: state.conversations.filter((c) => c.source !== 'autonomous'),
-          }));
-          return;
-        }
-        // Lazy import keeps the autonomous-only deps out of the chat
-        // store's main module load, and avoids a circular import
-        // between chat-store -> autonomous-api at startup.
-        const [
-          { autonomousApi },
-          { synthesizeConversationForTask, NEVER },
-        ] = await Promise.all([
-          import('@/components/autonomous/api'),
-          import('@/components/autonomous/synthesize-conversation'),
-        ]);
-
-        let tasks;
-        try {
-          tasks = await autonomousApi.listTasks();
-        } catch (err) {
-          console.warn(
-            '[ChatStore] Failed to load autonomous tasks for sidebar:', err,
-          );
-          return;
-        }
-
-        // Pull runs per task in parallel. Each task's runs is best-effort
-        // -- a 404 / 5xx for one task should not break the rest.
-        const runsPerTask = await Promise.all(
-          tasks.map(async (task) => {
-            try {
-              const runs = await autonomousApi.listRuns(task.id);
-              return { task, runs };
-            } catch (err) {
-              console.warn(
-                `[ChatStore] Failed to load runs for autonomous task ${task.id}:`, err,
-              );
-              return { task, runs: [] };
-            }
-          }),
-        );
-
-        const synthesized = runsPerTask.map(({ task, runs }) =>
-          synthesizeConversationForTask(task, runs),
-        );
-
-        set((state) => {
-          // MERGE rather than replace: when the user has typed messages
-          // into an autonomous chat thread, those live in the existing
-          // Conversation's ``messages`` / ``a2aEvents`` arrays. A naive
-          // replace would wipe them on every 30s sidebar resync.
-          // Strategy: take the freshly-synthesised canonical messages
-          // (creation_intent, preflight_ack, run_request/response,
-          // next_run_marker — all with stable id schemas), then
-          // append any existing messages whose ids are NOT in the
-          // synthesised set (those are necessarily user-typed turns or
-          // streamed assistant replies). Sort by timestamp so the
-          // thread reads chronologically. ``a2aEvents`` and
-          // ``streamEvents`` are preserved from the existing conversation
-          // so the rich timeline / debug panel survive resync.
-          const existingAutonomous = new Map<string, Conversation>(
-            state.conversations
-              .filter((c) => c.source === 'autonomous')
-              .map((c) => [c.id, c] as const),
-          );
-
-          const merged = synthesized.map((freshConv) => {
-            const existing = existingAutonomous.get(freshConv.id);
-
-            // Monotonic floor for synth `updatedAt`. Synth returns NEVER
-            // when a task has no real signals; without a floor those
-            // rows would sink to the bottom of the sidebar each resync.
-            //   - signals + existing → max of the two (monotonic)
-            //   - signals + no existing → take it as-is
-            //   - NEVER + existing → keep the prior floor
-            //   - NEVER + no existing → mint Date.now() once (the only
-            //     place Date.now() enters the autonomous updatedAt path;
-            //     regenerates on hard refresh — a stable backend
-            //     `task.created_at` would close that gap).
-            let nextUpdatedAt = freshConv.updatedAt;
-            if (nextUpdatedAt.getTime() === NEVER.getTime()) {
-              nextUpdatedAt = existing?.updatedAt ?? new Date();
-            } else if (existing) {
-              nextUpdatedAt = new Date(
-                Math.max(
-                  nextUpdatedAt.getTime(),
-                  existing.updatedAt.getTime(),
-                ),
-              );
-            }
-
-            if (!existing) {
-              return { ...freshConv, updatedAt: nextUpdatedAt };
-            }
-
-            const synthIds = new Set(freshConv.messages.map((m) => m.id));
-            const userTyped = existing.messages.filter((m) => !synthIds.has(m.id));
-            const messages = [...freshConv.messages, ...userTyped].sort(
-              (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
-            );
-
-            return {
-              ...freshConv,
-              updatedAt: nextUpdatedAt,
-              messages,
-              a2aEvents: existing.a2aEvents,
-              streamEvents: existing.streamEvents,
-            };
-          });
-
-          const others = state.conversations.filter((c) => c.source !== 'autonomous');
-          // Inv-A site 3: Map-based dedupe by id. Insert `others` first so
-          // any same-id `merged` entry overwrites — autonomous-synth wins
-          // on collision (Inv-B). User-typed messages from the surviving
-          // non-autonomous copy are already merged in by message.id above.
-          const dedupeMap = new Map<string, Conversation>();
-          for (const c of others) dedupeMap.set(c.id, c);
-          for (const c of merged) dedupeMap.set(c.id, c);
-          const final = Array.from(dedupeMap.values()).sort(
-            compareConversationsForSidebar,
-          );
-          return { conversations: final };
-        });
-
-        console.log(
-          `[ChatStore] Synthesised ${synthesized.length} autonomous-task conversations`,
-        );
+        return loadConversationsInFlight;
       },
 
       // Save messages to MongoDB via upsert (idempotent).
@@ -1373,15 +840,10 @@ const storeImplementation = (set: any, get: any) => ({
         const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
         if (!conv || conv.messages.length === 0) return;
 
-        // Determine if this is a Dynamic Agent conversation
-        const isDynamic = isDynamicAgentConversation(conv);
-
-        // A2A events during streaming are stored at the conversation level (conv.a2aEvents)
-        // via addA2AEvent(), NOT on individual msg.events (addEventToMessage is not called).
-        // To persist events to MongoDB, we attach the conversation-level events to the
-        // last assistant message being saved (the one that was just streamed).
-        // Similarly, stream events for Dynamic Agents are stored at conv.streamEvents.
-        const convA2AEvents = conv.a2aEvents || [];
+        // Stream events during streaming are stored at the conversation level
+        // (conv.streamEvents) via addStreamEvent(). To persist them to MongoDB,
+        // we attach the conversation-level events to the last assistant message
+        // being saved (the one that was just streamed).
         const convStreamEvents = conv.streamEvents || [];
         const lastAssistantIdx = (() => {
           for (let i = conv.messages.length - 1; i >= 0; i--) {
@@ -1390,15 +852,9 @@ const storeImplementation = (set: any, get: any) => ({
           return -1;
         })();
 
-        if (isDynamic) {
-          const toolStartCount = convStreamEvents.filter((e: StreamEvent) => e.type === 'tool_start').length;
-          const toolEndCount = convStreamEvents.filter((e: StreamEvent) => e.type === 'tool_end').length;
-          console.log(`[Stream-DEBUG] saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, streamEvents=${convStreamEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), lastAssistantIdx=${lastAssistantIdx}`);
-        } else {
-          const execPlanCount = convA2AEvents.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length;
-          const toolStartCount = convA2AEvents.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length;
-          console.log(`[A2A-DEBUG] saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, convEvents=${convA2AEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}`);
-        }
+        const toolStartCount = convStreamEvents.filter((e: StreamEvent) => e.type === 'tool_start').length;
+        const toolEndCount = convStreamEvents.filter((e: StreamEvent) => e.type === 'tool_end').length;
+        console.log(`[Stream-DEBUG] saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, streamEvents=${convStreamEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), lastAssistantIdx=${lastAssistantIdx}`);
 
         let savedCount = 0;
 
@@ -1431,23 +887,11 @@ const storeImplementation = (set: any, get: any) => ({
           }
 
           try {
-            // Determine events for this message:
-            // Attach conversation-level events to the last assistant message.
-            let serializedA2AEvents: Record<string, unknown>[] | undefined;
+            // Attach conversation-level stream events to the last assistant message.
             let serializedStreamEvents: Record<string, unknown>[] | undefined;
-
-            if (isDynamic) {
-              if (idx === lastAssistantIdx && convStreamEvents.length > 0) {
-                serializedStreamEvents = convStreamEvents.map(serializeStreamEvent);
-                console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
-              }
-            } else {
-              if (msg.events?.length > 0) {
-                serializedA2AEvents = msg.events.map(serializeA2AEvent);
-              } else if (idx === lastAssistantIdx && convA2AEvents.length > 0) {
-                serializedA2AEvents = convA2AEvents.map(serializeA2AEvent);
-                console.log(`[ChatStore] Attaching ${convA2AEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
-              }
+            if (idx === lastAssistantIdx && convStreamEvents.length > 0) {
+              serializedStreamEvents = convStreamEvents.map(serializeStreamEvent);
+              console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
             }
 
             // The API does upsert on message_id — inserts on first call,
@@ -1467,11 +911,12 @@ const storeImplementation = (set: any, get: any) => ({
                 ...(msg.taskId && { task_id: msg.taskId }),
                 ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
                 ...(msg.turnStatus && { turn_status: msg.turnStatus }),
-                ...(msg.timelineSegments && msg.timelineSegments.length > 0 && {
-                  timeline_segments: msg.timelineSegments,
-                }),
+                // agent_name + latency_ms power the Insights "Favorite Agents"
+                // and response-time analytics. Set on the finalized assistant
+                // message by DynamicAgentChatPanel.finalizeStreamLoop.
+                ...(msg.agentName && { agent_name: msg.agentName }),
+                ...(msg.latencyMs != null && { latency_ms: msg.latencyMs }),
               },
-              a2a_events: serializedA2AEvents,
               stream_events: serializedStreamEvents,
             });
 
@@ -1482,118 +927,6 @@ const storeImplementation = (set: any, get: any) => ({
         }
 
         console.log(`[ChatStore] Upserted ${savedCount} messages (current turn) to MongoDB`);
-      },
-
-      // ═══════════════════════════════════════════════════════════════
-      // LEVEL 2: Task recovery — poll tasks/get for interrupted messages
-      // When a tab crashes or reloads mid-stream, the backend task may still
-      // be running (or may have completed). This action checks the task status
-      // and recovers the final result if available.
-      // ═══════════════════════════════════════════════════════════════
-      recoverInterruptedTask: async (conversationId: string, messageId: string, endpoint: string, accessToken?: string): Promise<boolean> => {
-        const state = get();
-        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
-        if (!conv) return false;
-
-        const msg = conv.messages.find((m: ChatMessage) => m.id === messageId);
-        if (!msg || !msg.taskId || !msg.isInterrupted) return false;
-
-        const taskId = msg.taskId;
-        console.log(`[ChatStore] Attempting to recover interrupted task: ${taskId} for message ${messageId} via endpoint ${endpoint}`);
-
-        // Use the legacy A2A client for tasks/get (it has the method built-in)
-        const { A2AClient } = await import("@/lib/a2a-client");
-        const client = new A2AClient({ endpoint, accessToken });
-
-        const MAX_POLLS = 30; // Max 30 polls (5 minutes at 10s intervals)
-        const POLL_INTERVAL = 10000; // 10 seconds between polls
-
-        for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-          try {
-            const result = await client.getTaskStatus(taskId) as any;
-
-            if (result?.error) {
-              // Task not found — backend may have restarted (InMemoryTaskStore lost)
-              console.log(`[ChatStore] Task ${taskId} not found on server — marking as unrecoverable`);
-              get().updateMessage(conversationId, messageId, {
-                isInterrupted: false, // Clear the interrupted flag, nothing to recover
-              });
-              return false;
-            }
-
-            const task = result?.result;
-            if (!task) {
-              console.log(`[ChatStore] Task ${taskId} returned empty result`);
-              get().updateMessage(conversationId, messageId, { isInterrupted: false });
-              return false;
-            }
-
-            const taskState = task.status?.state;
-            console.log(`[ChatStore] Task ${taskId} state: ${taskState} (poll ${attempt + 1}/${MAX_POLLS})`);
-
-            if (taskState === "completed") {
-              // Extract final content from task artifacts
-              const artifacts = task.artifacts || [];
-              let finalContent = "";
-              for (const artifact of artifacts) {
-                for (const part of artifact.parts || []) {
-                  if (part.text) {
-                    finalContent += part.text;
-                  }
-                }
-              }
-
-              if (finalContent) {
-                console.log(`[ChatStore] Recovered ${finalContent.length} chars from completed task ${taskId}`);
-                get().updateMessage(conversationId, messageId, {
-                  content: finalContent,
-                  isFinal: true,
-                  isInterrupted: false,
-                });
-                // Save recovered content to MongoDB
-                get().saveMessagesToServer(conversationId).catch((err) => {
-                  console.error('[ChatStore] Failed to save recovered message:', err);
-                });
-                return true;
-              } else {
-                console.log(`[ChatStore] Task ${taskId} completed but no content in artifacts`);
-                get().updateMessage(conversationId, messageId, { isInterrupted: false });
-                return false;
-              }
-            }
-
-            if (taskState === "failed" || taskState === "canceled" || taskState === "cancelled") {
-              console.log(`[ChatStore] Task ${taskId} ended with state: ${taskState}`);
-              get().updateMessage(conversationId, messageId, {
-                isInterrupted: false,
-                content: msg.content + `\n\n*Task ${taskState}. Use Retry to re-send the prompt.*`,
-                isFinal: true,
-              });
-              return false;
-            }
-
-            // Task is still running — wait and poll again
-            if (taskState === "working" || taskState === "submitted" || taskState === "input-required") {
-              await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-              continue;
-            }
-
-            // Unknown state — stop polling
-            console.log(`[ChatStore] Unknown task state: ${taskState} — stopping recovery`);
-            get().updateMessage(conversationId, messageId, { isInterrupted: false });
-            return false;
-          } catch (error) {
-            console.error(`[ChatStore] Error polling task ${taskId}:`, error);
-            // On network error, stop trying — the user can manually retry
-            get().updateMessage(conversationId, messageId, { isInterrupted: false });
-            return false;
-          }
-        }
-
-        // Exceeded max polls
-        console.log(`[ChatStore] Task ${taskId} recovery timed out after ${MAX_POLLS} polls`);
-        get().updateMessage(conversationId, messageId, { isInterrupted: false });
-        return false;
       },
 
       // Load messages from MongoDB when opening a conversation.
@@ -1659,13 +992,8 @@ const storeImplementation = (set: any, get: any) => ({
 
           // Convert MongoDB messages to ChatMessage format
           const messages: ChatMessage[] = rawItems.map((msg: any, idx: number) => {
-            // Deserialize A2A events
-            const events: A2AEvent[] = (msg.a2a_events || []).map((e: any) => ({
-              ...e,
-              timestamp: new Date(e.timestamp),
-            }));
-
-            // Deserialize SSE/stream events (for Dynamic Agents)
+            // Deserialize stream events (for Dynamic Agents). Legacy records may
+            // store them under `sse_events`.
             const streamEvents: StreamEvent[] = (msg.stream_events || msg.sse_events || []).map((e: any) => ({
               ...e,
               timestamp: new Date(e.timestamp),
@@ -1692,14 +1020,12 @@ const storeImplementation = (set: any, get: any) => ({
             }
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
-            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData')
-              || streamEvents.some((e: any) => e.type === 'input_required');
+            const hasHitlForm = streamEvents.some((e: any) => e.type === 'input_required');
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
               content: msg.content,
               timestamp: new Date(msg.created_at),
-              events,
               streamEvents: streamEvents.length > 0 ? streamEvents : undefined, // Only set if present
               isFinal,
               turnId: msg.metadata?.turn_id,
@@ -1721,56 +1047,39 @@ const storeImplementation = (set: any, get: any) => ({
               senderEmail: msg.sender_email,
               senderName: msg.sender_name,
               senderImage: msg.sender_image,
-              // Restore timeline segments from MongoDB metadata
-              timelineSegments: msg.metadata?.timeline_segments?.map((seg: any) => ({
-                ...seg,
-                timestamp: new Date(seg.timestamp),
-              })),
             };
 
             return chatMsg;
           });
 
-          // Reconstruct a2aEvents/streamEvents for the ContextPanel / Tasks / Debug.
+          // Reconstruct streamEvents for the timeline / Tasks / Debug panels.
           // Only use events from the LAST assistant message (current/latest turn),
-          // matching the live-streaming behavior where clearA2AEvents()/clearSSEEvents() is called
+          // matching the live-streaming behavior where clearStreamEvents() is called
           // at the start of each new turn. This prevents completed tools from
           // old turns from accumulating in the Tasks panel.
           //
           // CRITICAL: If the conversation is currently streaming, do NOT overwrite
-          // a2aEvents/streamEvents — they were cleared at the start of the new turn
-          // and are being populated from the live stream. Overwriting them with
-          // MongoDB data would restore the PREVIOUS turn's events.
+          // streamEvents — they were cleared at the start of the new turn and are
+          // being populated from the live stream. Overwriting them with MongoDB
+          // data would restore the PREVIOUS turn's events.
           const isCurrentlyStreaming = get().streamingConversations.has(conversationId);
-          const localConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          const isDynamic = localConv ? isDynamicAgentConversation(localConv) : false;
           const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
-          const lastTurnA2AEvents: A2AEvent[] = lastAssistantMsg?.events || [];
           const lastTurnStreamEvents: StreamEvent[] = lastAssistantMsg?.streamEvents || [];
 
-          if (isDynamic) {
-            const toolStartCount = lastTurnStreamEvents.filter((e: StreamEvent) => e.type === 'tool_start').length;
-            const toolEndCount = lastTurnStreamEvents.filter((e: StreamEvent) => e.type === 'tool_end').length;
-            console.log(`[Stream-DEBUG] loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnStreamEvents=${lastTurnStreamEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), isStreaming=${isCurrentlyStreaming}`);
-          } else {
-            const loadedExecPlans = lastTurnA2AEvents.filter(e => e.artifact?.name === 'execution_plan_update').length;
-            const loadedToolStarts = lastTurnA2AEvents.filter(e => e.artifact?.name === 'tool_notification_start').length;
-            console.log(`[A2A-DEBUG] 📥 loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnEvents=${lastTurnA2AEvents.length} (${loadedExecPlans} exec_plans, ${loadedToolStarts} tool_starts), isStreaming=${isCurrentlyStreaming}`, {
-              allMsgEventCounts: messages.map(m => ({ id: m.id.substring(0, 8), role: m.role, events: m.events.length })),
-              execPlanTexts: lastTurnA2AEvents.filter(e => e.artifact?.name === 'execution_plan_update').map(e => e.artifact?.parts?.[0]?.text?.substring(0, 100)),
-            });
-          }
+          const toolStartCount = lastTurnStreamEvents.filter((e: StreamEvent) => e.type === 'tool_start').length;
+          const toolEndCount = lastTurnStreamEvents.filter((e: StreamEvent) => e.type === 'tool_end').length;
+          console.log(`[Stream-DEBUG] loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnStreamEvents=${lastTurnStreamEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), isStreaming=${isCurrentlyStreaming}`);
 
           if (isCurrentlyStreaming) {
             // Conversation is actively streaming — the in-memory Zustand state is the
             // live buffer being built by the stream. Don't overwrite it with stale MongoDB
-            // data. Only merge events from MongoDB into local messages that lack them.
-            console.log(`[A2A-DEBUG] ⚠️ loadMessagesFromServer: conversation is streaming — merging events only, preserving live messages`);
+            // data. Only merge stream events from MongoDB into local messages that lack them.
+            console.log(`[Stream-DEBUG] ⚠️ loadMessagesFromServer: conversation is streaming — merging events only, preserving live messages`);
 
-            const serverEventsByMsgId = new Map<string, A2AEvent[]>();
+            const serverEventsByMsgId = new Map<string, StreamEvent[]>();
             for (const msg of messages) {
-              if (msg.events.length > 0) {
-                serverEventsByMsgId.set(msg.id, msg.events);
+              if (msg.streamEvents && msg.streamEvents.length > 0) {
+                serverEventsByMsgId.set(msg.id, msg.streamEvents);
               }
             }
 
@@ -1779,11 +1088,11 @@ const storeImplementation = (set: any, get: any) => ({
                 c.id === conversationId
                   ? {
                       ...c,
-                      // Don't overwrite a2aEvents/streamEvents during streaming
+                      // Don't overwrite conversation-level streamEvents during streaming
                       messages: c.messages.map((localMsg: ChatMessage) => {
                         const serverEvents = serverEventsByMsgId.get(localMsg.id);
-                        if (serverEvents && localMsg.events.length === 0) {
-                          return { ...localMsg, events: serverEvents };
+                        if (serverEvents && (!localMsg.streamEvents || localMsg.streamEvents.length === 0)) {
+                          return { ...localMsg, streamEvents: serverEvents };
                         }
                         return localMsg;
                       }),
@@ -1820,33 +1129,20 @@ const storeImplementation = (set: any, get: any) => ({
                 return serverMsg;
               });
 
-              // Autonomous convs: synth aggregates events across ALL
-              // runs; reducing to last-turn-only would shrink the debug
-              // panel. Keep existing a2aEvents/streamEvents, refresh
-              // only `messages`.
-              const isAutonomous =
-                (existingConv as { source?: string } | undefined)?.source ===
-                'autonomous';
-
               return {
                 conversations: state.conversations.map((c: Conversation) =>
                   c.id === conversationId
                     ? {
                         ...c,
                         messages: mergedMessages,
-                        a2aEvents: isAutonomous ? c.a2aEvents : lastTurnA2AEvents,
-                        streamEvents: isAutonomous ? c.streamEvents : lastTurnStreamEvents,
+                        streamEvents: lastTurnStreamEvents,
                       }
                     : c
                 ),
               };
             });
 
-            if (isDynamic) {
-              console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnStreamEvents.length} stream events from MongoDB for: ${conversationId}`);
-            } else {
-              console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnA2AEvents.length} events from MongoDB for: ${conversationId}`);
-            }
+            console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnStreamEvents.length} stream events from MongoDB for: ${conversationId}`);
           }
 
         } catch (error: any) {
@@ -1862,21 +1158,8 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      // ═══════════════════════════════════════════════════════════════
-      // loadTurnsFromServer
-      //
-      // Platform Engineer/Supervisor conversations are still persisted in the
-      // legacy messages collection in current deployments. Keep the public
-      // action name used by ChatContainer, but hydrate from messages so default
-      // CAIPE chat history survives refreshes just like Dynamic Agent history.
-      // ═══════════════════════════════════════════════════════════════
-      loadTurnsFromServer: async (conversationId: string) => {
-        console.log(`[ChatStore] Loading supervisor history for: ${conversationId}`);
-        await get().loadMessagesFromServer(conversationId, { force: true });
-      },
-
       // Evict content from old messages to free memory.
-      // Replaces content with a short preview and clears rawStreamContent + events.
+      // Replaces content with a short preview and clears rawStreamContent + stream events.
       // The full content can be re-loaded from MongoDB via loadMessagesFromServer.
       evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => {
         if (messageIdsToEvict.length === 0) return;
@@ -1899,7 +1182,7 @@ const storeImplementation = (set: any, get: any) => ({
                   ...msg,
                   content: preview,
                   rawStreamContent: undefined,
-                  events: [], // Clear events too — they're in MongoDB
+                  streamEvents: undefined, // Clear events too — they're in MongoDB
                 };
               }),
             };
@@ -1948,89 +1231,6 @@ const storeImplementation = (set: any, get: any) => ({
       isConversationInputRequired: (conversationId: string) => {
         return get().inputRequiredConversations.has(conversationId);
       },
-
-      // Turn selection actions for per-message event tracking
-      setSelectedTurn: (conversationId, turnId) => {
-        set((state) => {
-          const newSelectedTurnIds = new Map(state.selectedTurnIds);
-          if (turnId) {
-            newSelectedTurnIds.set(conversationId, turnId);
-          } else {
-            newSelectedTurnIds.delete(conversationId);
-          }
-          return { selectedTurnIds: newSelectedTurnIds };
-        });
-      },
-
-      getSelectedTurnId: (conversationId) => {
-        const state = get();
-        const convId = conversationId || state.activeConversationId;
-        if (!convId) return null;
-        return state.selectedTurnIds.get(convId) || null;
-      },
-
-      getSelectedTurnEvents: (conversationId) => {
-        const state = get();
-        const convId = conversationId || state.activeConversationId;
-        if (!convId) return [];
-
-        const conv = state.conversations.find((c) => c.id === convId);
-        if (!conv) return [];
-
-        const selectedTurnId = state.selectedTurnIds.get(convId);
-        if (!selectedTurnId) {
-          // No turn selected - return events from the most recent assistant message
-          const lastAssistantMsg = [...conv.messages].reverse().find((m) => m.role === "assistant");
-          return lastAssistantMsg?.events || [];
-        }
-
-        // Find the assistant message with the matching turnId
-        const assistantMessage = conv.messages.find(
-          (m) => m.role === "assistant" && m.turnId === selectedTurnId
-        );
-        return assistantMessage?.events || [];
-      },
-
-      isMessageSelectable: () => {
-        // Hard lock: no message selection while any conversation is streaming
-        const state = get();
-        return state.streamingConversations.size === 0;
-      },
-
-      getTurnCount: (conversationId) => {
-        const state = get();
-        const convId = conversationId || state.activeConversationId;
-        if (!convId) return 0;
-
-        const conv = state.conversations.find((c) => c.id === convId);
-        if (!conv) return 0;
-
-        // Count unique turnIds from user messages
-        const turnIds = new Set(
-          conv.messages.filter((m) => m.role === "user" && m.turnId).map((m) => m.turnId)
-        );
-        return turnIds.size;
-      },
-
-      getCurrentTurnIndex: (conversationId) => {
-        const state = get();
-        const convId = conversationId || state.activeConversationId;
-        if (!convId) return 0;
-
-        const conv = state.conversations.find((c) => c.id === convId);
-        if (!conv) return 0;
-
-        const selectedTurnId = state.selectedTurnIds.get(convId);
-        if (!selectedTurnId) return state.getTurnCount(convId);
-
-        // Get ordered list of turnIds
-        const turnIds = conv.messages
-          .filter((m) => m.role === "user" && m.turnId)
-          .map((m) => m.turnId!);
-
-        const index = turnIds.indexOf(selectedTurnId);
-        return index === -1 ? turnIds.length : index + 1;
-      },
 });
 
 // Export store with conditional persistence based on storage mode
@@ -2040,123 +1240,23 @@ export const useChatStore = shouldUseLocalStorage()
       persist(storeImplementation, {
         name: "caipe-chat-history",
         storage: createJSONStorage(() => localStorage),
-        // Inv-E: partialize persists conversation DATA only — never
-        // session/authorization/admin-origin signals. The two scopes below are
-        // enforced at runtime by stripDenylistedKeys (TOP_LEVEL_DENYLIST and
-        // RECURSIVE_DENYLIST), and the test gate in chat-store.test.ts walks
-        // the parsed output asserting neither denylist appears.
-        //
-        //   TOP_LEVEL_DENYLIST (root + each Conversation, 11 keys):
-        //     access_level, accessLevel, readOnlyReason, readOnly, adminOrigin,
-        //     isAdmin, canViewAdmin, sessionRole, authRole, role, userRole
-        //   RECURSIVE_DENYLIST (any nesting depth, 10 keys = top-level minus
-        //     'role' — ChatMessage.role is the legitimate non-authorization
-        //     sender field 'user' | 'assistant' | 'system' and must survive):
-        //     access_level, accessLevel, readOnlyReason, readOnly, adminOrigin,
-        //     isAdmin, canViewAdmin, sessionRole, authRole, userRole
-        //
-        // Broader principle: persist conversation data only. Transient/UI/
-        // loading/timing flags (e.g. isLoadingConversations, streamingConversations,
-        // pendingMessage, inputDraft) belong in module-level variables or
-        // component-local useState (e.g. ChatContainer's accessLevel/agentInfo),
-        // NEVER in persisted store state. Future authorization-role fields
-        // MUST use sessionRole / authRole / userRole — never bare 'role'.
         partialize: (state) => ({
-          conversations: state.conversations.map((conv) => stripDenylistedKeys({
+          conversations: state.conversations.map((conv) => ({
             ...conv,
-            a2aEvents: [], // Don't persist events (too large)
             streamEvents: [], // Don't persist stream events (too large)
-            messages: conv.messages.map((msg) => stripDenylistedKeys({
+            messages: conv.messages.map((msg) => ({
               ...msg,
-              events: [], // Don't persist events
-            }, RECURSIVE_DENYLIST)),
-          }, TOP_LEVEL_DENYLIST)),
+              streamEvents: undefined, // Don't persist per-message stream events
+            })),
+          })),
           activeConversationId: state.activeConversationId,
-          selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
         }),
         onRehydrateStorage: () => (state) => {
           if (state) {
-            // Null-state guard: if rehydration produced an unexpected shape,
-            // start empty rather than crash.
-            if (!state || !Array.isArray(state.conversations)) {
-              return;
-            }
-
-            // One-time migration: drop legacy `autonomous-${task.id}`
-            // rows so the next sync resynthesises them under canonical
-            // UUIDv5 ids that match the publisher (services/chat_history.py)
-            // and merge into a single sidebar entry. Non-autonomous
-            // rows are untouched — their non-UUID ids are valid.
-            const UUID_RE =
-              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            state.conversations = state.conversations.filter(
-              (c) => c.source !== 'autonomous' || UUID_RE.test(c.id),
-            );
-
-            // REHYDRATE DEDUPE (Inv-A site 1): heals duplicates persisted
-            // before the dedupe shipped, and makes back-to-back F5
-            // refreshes self-healing without a network call. Critical in
-            // localStorage mode + autonomousAgentsEnabled=false where
-            // neither network loader does meaningful work.
-            //
-            // Skip entries with non-string/empty ids — defends against
-            // tampered or corrupted localStorage.
-            const dedupeMap = new Map<string, Conversation>();
-            for (const conv of state.conversations) {
-              if (typeof conv.id !== 'string' || conv.id.length === 0) {
-                continue;
-              }
-              const existing = dedupeMap.get(conv.id);
-              if (!existing) {
-                dedupeMap.set(conv.id, conv);
-                continue;
-              }
-              // Deterministic, NaN-safe winner selection on collision.
-              const winner = pickRehydrateWinner(existing, conv);
-              const loser = winner === existing ? conv : existing;
-              // Merge messages from BOTH entries by message.id; winner's
-              // messages take precedence on per-id collision.
-              const msgMap = new Map<string, ChatMessage>();
-              for (const m of winner.messages) msgMap.set(m.id, m);
-              for (const m of loser.messages) {
-                if (!msgMap.has(m.id)) msgMap.set(m.id, m);
-              }
-              const mergedMessages = Array.from(msgMap.values()).sort(
-                (a, b) => {
-                  const at = new Date(a.timestamp).getTime();
-                  const bt = new Date(b.timestamp).getTime();
-                  // NaN-safe: non-finite timestamps sort to the end.
-                  const av = Number.isFinite(at)
-                    ? at
-                    : Number.POSITIVE_INFINITY;
-                  const bv = Number.isFinite(bt)
-                    ? bt
-                    : Number.POSITIVE_INFINITY;
-                  return av - bv;
-                },
-              );
-              dedupeMap.set(winner.id, {
-                ...winner,
-                messages: mergedMessages,
-              });
-            }
-            state.conversations = Array.from(dedupeMap.values());
-
-            // Clear stale activeConversationId pointing at a dropped row.
-            if (
-              state.activeConversationId &&
-              !state.conversations.some(
-                (c) => c.id === state.activeConversationId,
-              )
-            ) {
-              state.activeConversationId = null;
-            }
-
             state.conversations = state.conversations.map((conv) => ({
               ...conv,
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
-              a2aEvents: [],
               streamEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
@@ -2173,22 +1273,14 @@ export const useChatStore = shouldUseLocalStorage()
                 return {
                   ...msg,
                   timestamp: new Date(msg.timestamp),
-                  events: [],
+                  streamEvents: undefined,
                   isFinal: healed ? true : msg.isFinal,
                   isInterrupted: healed
                     ? false
                     : (msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted),
-                  // Rehydrate Date objects in timeline segments
-                  timelineSegments: msg.timelineSegments?.map((seg: any) => ({
-                    ...seg,
-                    timestamp: new Date(seg.timestamp),
-                  })),
                 };
               }),
             }));
-            state.a2aEvents = [];
-            const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
-            state.selectedTurnIds = new Map(storedArray || []);
           }
         },
       })
@@ -2225,7 +1317,7 @@ if (typeof window !== 'undefined') {
         isInterrupted: m.isInterrupted,
         taskId: m.taskId?.substring(0, 8),
         turnId: m.turnId?.substring(0, 8),
-        events: m.events?.length || 0,
+        streamEvents: m.streamEvents?.length || 0,
       })));
       return conv.messages;
     },
@@ -2263,8 +1355,8 @@ if (typeof window !== 'undefined') {
             finalMatch: local && mongo ? (Boolean(local.isFinal) === Boolean(mongo.metadata?.is_final) ? '✅' : '❌') : '—',
             localInterrupted: local?.isInterrupted,
             mongoInterrupted: mongo?.metadata?.is_interrupted,
-            localEvents: local?.events?.length || 0,
-            mongoEvents: mongo?.a2a_events?.length || 0,
+            localEvents: local?.streamEvents?.length || 0,
+            mongoEvents: mongo?.stream_events?.length || 0,
           });
         }
         console.table(rows);
@@ -2289,7 +1381,7 @@ if (typeof window !== 'undefined') {
         is_final: m.metadata?.is_final,
         is_interrupted: m.metadata?.is_interrupted,
         task_id: m.metadata?.task_id?.substring(0, 8),
-        events: m.a2a_events?.length || 0,
+        events: m.stream_events?.length || 0,
       })));
       return items;
     },

@@ -87,6 +87,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+RUN apk add --no-cache libc6-compat
+
 # Patch system packages to address CVEs
 RUN apk update && apk upgrade --no-cache && \
     rm -rf /usr/local/lib/node_modules/npm \
@@ -125,7 +127,7 @@ ENV HOSTNAME="0.0.0.0"
 # Both NEXT_PUBLIC_* and plain env vars are supported.
 CMD ["/app/entrypoint.sh"]
 
-# ---------- Stage 4: Development (hot reload) ----------
+# ---------- Stage 5: Development (hot reload) ----------
 # Opt-in via `target: dev` in docker-compose (set CAIPE_UI_BUILD_TARGET=dev,
 # typically by running `make dev-ui-hot` or exporting DEV_HOT_RELOAD=true and
 # the wrapper in docker-compose.dev.yaml). Mounts ./ui/src and ./ui/public

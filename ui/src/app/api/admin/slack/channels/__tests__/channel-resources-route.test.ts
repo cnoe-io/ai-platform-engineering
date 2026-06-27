@@ -9,6 +9,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
 // per-team Keycloak helpers from Slack channel onboarding —
 // `ensureTeamClientScope` and `selectAgentGatewayActiveTeamScope`
@@ -93,6 +94,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
   isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: (...args: unknown[]) => mockAuditQuery(...args) }),
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -188,6 +193,7 @@ beforeEach(() => {
   process.env.SLACK_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockAuditQuery.mockResolvedValue([]);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
@@ -260,6 +266,134 @@ describe("Slack channel ReBAC APIs", () => {
         active_grants: 1,
       }),
     ]);
+    expect(body.data.channels[0].health).toBeUndefined();
+    expect(mockAuditQuery).not.toHaveBeenCalled();
+  });
+
+  it("adds bounded health summaries for the configured Slack channel list when requested", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        team_slug: "platform-engineering",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: "CSUPPORT",
+        channel_name: "support",
+        team_slug: "platform-engineering",
+        active: true,
+      },
+    ]);
+    mockAuditQuery.mockResolvedValue([
+      {
+        ts: "2026-06-25T12:00:00.000Z",
+        resource_ref: `slack_channel:${workspaceAlias}--CSUPPORT`,
+        reason_code: "OPENFGA_READ_FAILED",
+        message: "OpenFGA tuple read failed",
+      },
+      {
+        ts: "2026-06-25T11:00:00.000Z",
+        resource_ref: `slack_channel:${workspaceAlias}--CIGNORED`,
+        reason_code: "OPENFGA_READ_FAILED",
+        message: "Ignored channel",
+      },
+    ]);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels?health=1"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toHaveLength(2);
+    expect(body.data.channels).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          channel_id: channelId,
+          health: expect.objectContaining({
+            openfga_reachable: true,
+            last_runtime_error_ts: null,
+          }),
+        }),
+        expect.objectContaining({
+          channel_id: "CSUPPORT",
+          health: expect.objectContaining({
+            openfga_reachable: true,
+            last_runtime_error_ts: "2026-06-25T12:00:00.000Z",
+          }),
+        }),
+      ])
+    );
+    expect(mockAuditQuery).toHaveBeenCalledTimes(1);
+    const [query] = mockAuditQuery.mock.calls[0];
+    const until = query.until as Date;
+    const since = query.since as Date;
+    expect(query).toMatchObject({
+      component: "slack_bot",
+      outcome: "error",
+      limit: 5000,
+      timeoutMs: 2000,
+    });
+    expect(query.resourceRef).toBeUndefined();
+    expect(until.getTime() - since.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("batches audit-service runtime error lookup when listing Slack channel health", async () => {
+    const secondChannelId = "C987654321";
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: secondChannelId,
+        channel_name: "triage",
+        active: true,
+      },
+    ]);
+    mockAuditQuery.mockResolvedValue([
+      {
+        component: "slack_bot",
+        outcome: "error",
+        resource_ref: `slack_channel:${workspaceAlias}--${secondChannelId}`,
+        reason_code: "OPENFGA_READ_FAILED",
+        ts: "2026-06-25T19:12:00.000Z",
+      },
+    ]);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels?health=1"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockAuditQuery).toHaveBeenCalledTimes(1);
+    expect(mockAuditQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: "slack_bot",
+        outcome: "error",
+        limit: 5000,
+        timeoutMs: 2000,
+      }),
+    );
+    expect(mockAuditQuery.mock.calls[0][0]).toEqual(
+      expect.not.objectContaining({ resourceRef: expect.anything() }),
+    );
+    const healthByChannel = Object.fromEntries(
+      body.data.channels.map((channel: { channel_id: string; health: unknown }) => [
+        channel.channel_id,
+        channel.health,
+      ]),
+    );
+    expect(healthByChannel[channelId]).toMatchObject({ last_runtime_error_ts: null });
+    expect(healthByChannel[secondChannelId]).toMatchObject({
+      last_runtime_error_ts: "2026-06-25T19:12:00.000Z",
+    });
   });
 
   it("filters the Slack channel list to concrete channels the caller can read or manage", async () => {
@@ -640,7 +774,7 @@ describe("Slack channel ReBAC APIs", () => {
         users: { enabled: true, listen: "message" },
       },
     ]);
-    mockCollections.audit_events = createMockCollection([
+    mockAuditQuery.mockResolvedValue([
       {
         type: "slack_runtime",
         component: "slack_bot",
@@ -683,7 +817,7 @@ describe("Slack channel ReBAC APIs", () => {
     });
     expect(body.data.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/stale-mongo-agent.*OpenFGA tuple is missing/i),
+        expect.stringMatching(/Stale Mongo Agent has saved routing rules that are inactive/i),
       ])
     );
     expect(body.data.warnings).not.toEqual(
@@ -718,7 +852,7 @@ describe("Slack channel ReBAC APIs", () => {
       error: "OpenFGA tuple read failed: 400",
     });
     expect(body.data.warnings).toEqual(
-      expect.arrayContaining([expect.stringMatching(/Slack bot cannot read OpenFGA tuples/i)])
+      expect.arrayContaining([expect.stringMatching(/Slack bot could not reach the authorization service/i)])
     );
   });
 

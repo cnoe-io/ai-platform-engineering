@@ -9,12 +9,15 @@ import {
 ApiError,
 getAuthFromBearerOrSession,
 getPaginationParams,
-paginatedResponse,
 successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
+import {
+  isAgentGatewayManagedEndpoint,
+  resolveAgentGatewayUpstreamEndpoint,
+} from "@/lib/rbac/agentgateway-upstream-resolver";
 import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
@@ -23,10 +26,17 @@ reconcileMcpServerRelationships,
 } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import {
 filterResourcesByPermission,
+mcpServerRowPermissionsOrDefault,
 requireResourcePermission,
+resolveMcpServerListPermissions,
 } from "@/lib/rbac/resource-authz";
-import type { MCPServerConfig,TransportType } from "@/types/dynamic-agent";
-import { NextRequest } from "next/server";
+import type {
+MCPCredentialSource,
+MCPServerConfig,
+MCPServerConfigWithPermissions,
+TransportType,
+} from "@/types/dynamic-agent";
+import { NextRequest, NextResponse } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -124,6 +134,85 @@ function validateTransportConfig(
   }
 }
 
+function isNetworkTransport(transport: TransportType): boolean {
+  return transport === "http" || transport === "sse";
+}
+
+function isLockedConfigDrivenServer(server: MCPServerConfig): boolean {
+  return server.config_driven === true && server.source !== "agentgateway";
+}
+
+function isAgentGatewayEndpoint(endpoint: string | undefined): boolean {
+  return isAgentGatewayManagedEndpoint(endpoint);
+}
+
+async function normalizeNetworkServerForAgentGateway(input: {
+  serverId: string;
+  transport: TransportType;
+  endpoint?: string;
+  existingTargetEndpoint?: string;
+  pickedTargetEndpoint?: string;
+  credentialSources?: unknown;
+}): Promise<{
+  endpoint?: string;
+  agentgateway_target_endpoint?: string;
+  source?: "agentgateway";
+  agentgateway_discovered?: boolean;
+  credential_sources?: MCPCredentialSource[];
+}> {
+  if (!isNetworkTransport(input.transport)) {
+    return {
+      endpoint: input.endpoint,
+      credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
+    };
+  }
+
+  const upstreamEndpoint = isAgentGatewayEndpoint(input.endpoint)
+    ? await resolveAgentGatewayUpstreamEndpoint({
+        endpoint: input.endpoint,
+        pickedTargetEndpoint: input.pickedTargetEndpoint,
+        existingTargetEndpoint: input.existingTargetEndpoint,
+      })
+    : normalizeMcpEndpointForServer({
+        endpoint: input.endpoint,
+        serverId: input.serverId,
+        agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
+        directEndpointDefaultPath: input.transport === "http" ? "/mcp" : undefined,
+      });
+
+  return {
+    endpoint: agentGatewayRouteFor(input.serverId),
+    agentgateway_target_endpoint: upstreamEndpoint,
+    source: "agentgateway",
+    agentgateway_discovered: false,
+    credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
+  };
+}
+
+function agentGatewayRouteFor(serverId: string): string {
+  return agentGatewayMcpEndpointUrl(`/mcp/${serverId}`);
+}
+
+function normalizeCredentialSourcesForAgentGateway(value: unknown): MCPCredentialSource[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  return value
+    .filter((source): source is MCPCredentialSource => Boolean(source) && typeof source === "object")
+    .map((source) => {
+      if (source.target !== "header") return source;
+
+      const headerName = typeof source.name === "string" ? source.name.trim() : "";
+      if (/^(authorization|x-caipe-token)$/i.test(headerName)) {
+        // assisted-by Codex Codex-sonnet-4-6
+        // Dynamic Agents must keep Authorization for the user's Keycloak token
+        // to AgentGateway. Provider secrets ride this header and the gateway
+        // rewrites it to upstream Authorization for the MCP target.
+        return { ...source, name: "X-CAIPE-Provider-Token" };
+      }
+      return source;
+    });
+}
+
 async function selfHealAgentGatewayMcpServersForList(
   collection: Awaited<ReturnType<typeof getCollection<MCPServerConfig>>>,
 ): Promise<void> {
@@ -166,12 +255,30 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, {
-      bypassForOrgAdmin: true,
-    });
+    const permissionOptions = { bypassForOrgAdmin: true as const };
+    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, permissionOptions);
     const pageItems = visibleItems.slice(skip, skip + pageSize);
+    const { rows, capabilities } = await resolveMcpServerListPermissions(
+      session,
+      pageItems.map((server) => String(server._id)),
+      permissionOptions,
+    );
+    const items: MCPServerConfigWithPermissions[] = pageItems.map((server) => ({
+      ...server,
+      permissions: mcpServerRowPermissionsOrDefault(rows, String(server._id)),
+    }));
 
-    return paginatedResponse(pageItems, visibleItems.length, page, pageSize);
+    return NextResponse.json({
+      success: true,
+      data: {
+        items,
+        capabilities,
+        total: visibleItems.length,
+        page,
+        page_size: pageSize,
+        has_more: page * pageSize < visibleItems.length,
+      },
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -231,16 +338,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       body.endpoint as string | undefined,
     );
 
-    // Normalise AgentGateway endpoints. If the admin (or the editor)
-    // sends a bare gateway URL we silently rewrite it to the
-    // target-qualified form `/mcp/<server_id>` before persisting. This
-    // prevents the "Probe → 404 from agentgateway:4000/mcp" class of
-    // bug from ever landing in Mongo. Direct upstream URLs and stdio
-    // servers are passed through unchanged.
-    const normalisedEndpoint = normalizeMcpEndpointForServer({
-      endpoint: body.endpoint as string | undefined,
+    const gatewayManaged = await normalizeNetworkServerForAgentGateway({
       serverId,
-      agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
+      transport: body.transport as TransportType,
+      endpoint: body.endpoint as string | undefined,
+      pickedTargetEndpoint:
+        typeof body.agentgateway_target_endpoint === "string"
+          ? body.agentgateway_target_endpoint
+          : undefined,
+      credentialSources: body.credential_sources,
     });
 
     // Build document with explicit field allowlist (Security VII)
@@ -250,12 +356,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       name: body.name as string,
       description: (body.description as string) ?? "",
       transport: body.transport as TransportType,
-      endpoint: normalisedEndpoint,
+      endpoint: gatewayManaged.endpoint,
       command: body.command as string | undefined,
       args: body.args as string[] | undefined,
       env: body.env as Record<string, string> | undefined,
-      credential_sources: Array.isArray(body.credential_sources) ? body.credential_sources : undefined,
+      credential_sources: gatewayManaged.credential_sources,
       enabled: (body.enabled as boolean) ?? true,
+      source: gatewayManaged.source ?? "manual",
+      agentgateway_discovered: gatewayManaged.agentgateway_discovered,
+      agentgateway_target_endpoint: gatewayManaged.agentgateway_target_endpoint,
       owner_id: user.email,
       owner_subject: ownerSubject,
       owner_team_slug: ownerTeamSlug ?? undefined,
@@ -321,7 +430,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     await requireResourcePermission(session, updateTarget);
 
     // Config-driven guard
-    if (server.config_driven) {
+    if (isLockedConfigDrivenServer(server)) {
       throw new ApiError(
         "Config-driven MCP servers cannot be modified. Update config.yaml instead.",
         403,
@@ -335,17 +444,29 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       return successResponse(server);
     }
 
-    // If the admin is updating the endpoint, run it through the same
-    // AgentGateway normaliser used on create. This means an admin who
-    // saves an existing row that already has a bad endpoint (e.g. the
-    // currently-broken Confluence row) will repair it just by hitting
-    // Save — no extra steps required.
-    if (typeof updateData.endpoint === "string") {
-      updateData.endpoint = normalizeMcpEndpointForServer({
-        endpoint: updateData.endpoint,
+    const nextTransport = (updateData.transport as TransportType | undefined) ?? server.transport;
+    if (isNetworkTransport(nextTransport)) {
+      const gatewayManaged = await normalizeNetworkServerForAgentGateway({
         serverId: String(id),
-        agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
+        transport: nextTransport,
+        endpoint:
+          typeof updateData.endpoint === "string"
+            ? updateData.endpoint
+            : (server.agentgateway_target_endpoint || server.endpoint),
+        existingTargetEndpoint: server.agentgateway_target_endpoint,
+        pickedTargetEndpoint:
+          typeof body.agentgateway_target_endpoint === "string"
+            ? body.agentgateway_target_endpoint
+            : undefined,
+        credentialSources: updateData.credential_sources ?? server.credential_sources,
       });
+      updateData.endpoint = gatewayManaged.endpoint;
+      updateData.source = gatewayManaged.source;
+      updateData.agentgateway_discovered = gatewayManaged.agentgateway_discovered;
+      updateData.agentgateway_target_endpoint = gatewayManaged.agentgateway_target_endpoint;
+      updateData.credential_sources = gatewayManaged.credential_sources;
+    } else if (updateData.credential_sources !== undefined) {
+      updateData.credential_sources = normalizeCredentialSourcesForAgentGateway(updateData.credential_sources);
     }
 
     updateData.updated_at = new Date().toISOString();
@@ -397,7 +518,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     await requireResourcePermission(session, deleteTarget);
 
     // Config-driven guard
-    if (server.config_driven) {
+    if (isLockedConfigDrivenServer(server)) {
       throw new ApiError(
         "Config-driven MCP servers cannot be deleted. Remove from config.yaml instead.",
         403,

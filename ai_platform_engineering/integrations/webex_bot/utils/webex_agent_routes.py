@@ -21,13 +21,18 @@ from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
     EscalationConfig,
     UsersConfig,
 )
+from ai_platform_engineering.integrations.webex_bot.utils.user_messages import (
+    WEBEX_DIRECT_AGENT_REQUIRED_MESSAGE,
+    WEBEX_SPACE_MENTION_REQUIRED_MESSAGE,
+    WEBEX_SPACE_SETUP_REQUIRED_MESSAGE,
+)
 
 logger = logging.getLogger("caipe.webex_bot.webex_agent_routes")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
 WebexAgentRouteMode = Literal["config", "db_prefer", "db_only"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
-AuditCollectionFactory = Callable[[], Optional[Collection[Any]]]
+AuditEventWriter = Callable[[dict[str, Any]], None]
 OpenFgaAgentIdsFactory = Callable[[str, str], list[str] | None]
 
 
@@ -51,13 +56,17 @@ def webex_agent_route_mode() -> WebexAgentRouteMode:
 
 
 def webex_workspace_ref(workspace_id: Optional[str] = None) -> str:
-    """Canonical workspace namespace for Webex ReBAC and OpenFGA subjects."""
+    """Canonical workspace namespace for Webex ReBAC and OpenFGA subjects.
 
+    Priority: explicit workspace_id > WEBEX_WORKSPACE_ALIAS > WEBEX_WORKSPACE_ID > "unknown".
+    Callers that pass workspace_id explicitly (e.g. the "unknown" legacy fallback in
+    _load_routes) get their value back unchanged so the lookup uses the right prefix.
+    """
+    if workspace_id is not None and workspace_id.strip():
+        return workspace_id.strip()
     alias = os.environ.get("WEBEX_WORKSPACE_ALIAS", "").strip()
     if alias:
         return alias
-    if workspace_id and workspace_id.strip():
-        return workspace_id.strip()
     fallback = os.environ.get("WEBEX_WORKSPACE_ID", "").strip()
     return fallback or "unknown"
 
@@ -95,12 +104,12 @@ class WebexAgentRouteResolver:
         *,
         ttl_seconds: Optional[int] = None,
         collection_factory: Optional[CollectionFactory] = None,
-        audit_collection_factory: Optional[AuditCollectionFactory] = None,
+        audit_event_writer: Optional[AuditEventWriter] = None,
         openfga_agent_ids_factory: Optional[OpenFgaAgentIdsFactory] = None,
     ) -> None:
         self._ttl = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
         self._collection_factory = collection_factory
-        self._audit_collection_factory = audit_collection_factory
+        self._audit_event_writer = audit_event_writer
         self._openfga_agent_ids_factory = openfga_agent_ids_factory
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
@@ -132,14 +141,24 @@ class WebexAgentRouteResolver:
             return None
         return client[self._db_name]["webex_space_agent_routes"]
 
-    def _get_audit_collection(self) -> Optional[Collection[Any]]:
-        if self._audit_collection_factory is not None:
-            return self._audit_collection_factory()
-
-        client = self._get_client()
-        if client is None:
-            return None
-        return client[self._db_name]["audit_events"]
+    def _write_audit_event(self, event: dict[str, Any]) -> None:
+        if self._audit_event_writer is not None:
+            self._audit_event_writer(event)
+            return
+        if os.environ.get("AUDIT_LOG_BACKEND", "service").strip().lower() != "service":
+            return
+        service_url = os.environ.get("AUDIT_SERVICE_URL", "").strip().rstrip("/")
+        if not service_url:
+            return
+        try:
+            requests.post(
+                f"{service_url}/v1/audit/events",
+                headers={"Content-Type": "application/json"},
+                json={"events": [event]},
+                timeout=1,
+            ).raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("WebexAgentRouteResolver: failed to write runtime audit event: %s", exc)
 
     def _record_runtime_error(
         self,
@@ -150,24 +169,19 @@ class WebexAgentRouteResolver:
         action: str,
         message: str,
     ) -> None:
-        collection = self._get_audit_collection()
-        if collection is None:
-            return
-        try:
-            collection.insert_one(
-                {
-                    "type": "webex_runtime",
-                    "component": "webex_bot",
-                    "outcome": "error",
-                    "action": action,
-                    "reason_code": reason_code,
-                    "resource_ref": webex_space_openfga_subject(workspace_id, space_id),
-                    "message": message,
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-        except PyMongoError as exc:
-            logger.warning("WebexAgentRouteResolver: failed to write runtime audit event: %s", exc)
+        self._write_audit_event(
+            {
+                "type": "webex_runtime",
+                "component": "webex_bot",
+                "source": "webex",
+                "outcome": "error",
+                "action": action,
+                "reason_code": reason_code,
+                "resource_ref": webex_space_openfga_subject(workspace_id, space_id),
+                "message": message,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     def _load_routes(self, workspace_id: str, space_id: str) -> list[dict[str, Any]]:
         agent_ids = self._load_openfga_agent_ids(workspace_id, space_id)
@@ -313,6 +327,7 @@ class WebexAgentRouteResolver:
         listen: Optional[str] = None,
         app_name: str = "CAIPE",
         route_required: bool = False,
+        is_direct: bool = False,
     ) -> str | None:
         """Return a user-facing explanation when a routed Webex message has no match."""
 
@@ -337,23 +352,18 @@ class WebexAgentRouteResolver:
                 "so I cannot safely dispatch this message. Please try again shortly "
                 "or ask an admin to check Webex Runtime Diagnostics."
             )
+        if is_direct:
+            return WEBEX_DIRECT_AGENT_REQUIRED_MESSAGE.format(app_name=app_name)
         if candidates and listen == "message":
-            return (
-                f"This Webex space has {app_name} agent routes, but none are configured "
-                f"to listen to plain space messages. Mention {app_name}, or set the route "
-                "Listen mode to `message` or `all` in Admin > OpenFGA ReBAC > Webex Spaces."
-            )
+            return WEBEX_SPACE_MENTION_REQUIRED_MESSAGE.format(app_name=app_name)
         if candidates and listen == "mention":
             return (
-                f"This Webex space has {app_name} agent routes, but none are configured "
-                "to listen to mentions. Set the route Listen mode to `mention` or `all` "
-                "in Admin > OpenFGA ReBAC > Webex Spaces."
+                f"I found Webex routes for this space, but none can respond to "
+                f"{app_name} mentions yet. Ask an admin to check this space's "
+                f"Webex setup in {app_name}."
             )
         if route_required:
-            return (
-                "No OpenFGA space-agent association is configured for this Webex space. "
-                "Ask an admin to add one in Admin > OpenFGA ReBAC > Webex Spaces."
-            )
+            return WEBEX_SPACE_SETUP_REQUIRED_MESSAGE.format(app_name=app_name)
         return None
 
     def invalidate(self, workspace_id: str, space_id: str) -> None:
@@ -382,12 +392,16 @@ async def resolve_webex_agent_route(
     space_id: str,
     person_id: str,
     text: str,
+    is_direct: bool = False,
     resolver: WebexAgentRouteResolver | None = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Resolve the agent for a Webex message (agent_id, deny_message)."""
 
     mode = webex_agent_route_mode()
-    listen = infer_listen_mode(text)
+    # assisted-by Codex Codex-sonnet-4-6
+    # 1:1 Webex rooms have no mention gesture, so direct messages should
+    # use any active user route for that room instead of requiring message mode.
+    listen = None if is_direct else infer_listen_mode(text)
     active = resolver or get_webex_agent_route_resolver()
 
     if mode == "config":
@@ -410,6 +424,7 @@ async def resolve_webex_agent_route(
             is_bot=False,
             user_id=person_id,
             listen=listen,
+            is_direct=is_direct,
             route_required=True,
         )
     if matches:
@@ -421,6 +436,7 @@ async def resolve_webex_agent_route(
             is_bot=False,
             user_id=person_id,
             listen=listen,
+            is_direct=is_direct,
             route_required=True,
         )
         return None, deny or "No agent route is configured for this Webex space."
@@ -434,6 +450,7 @@ async def resolve_webex_agent_route(
         is_bot=False,
         user_id=person_id,
         listen=listen,
+        is_direct=is_direct,
         route_required=not bool(agent_id),
     )
     return None, deny or "No agent route is configured for this Webex space."

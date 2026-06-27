@@ -1,15 +1,13 @@
 import { NextRequest } from "next/server";
 
 import { getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { getAuditReader } from "@/lib/audit/reader";
 import { getCollection } from "@/lib/mongodb";
 import { checkOpenFgaTuple,writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
-import {
-computeSlackChannelHealthSummary,
-type SlackChannelHealthSummary,
-} from "@/lib/rbac/slack-channel-diagnostics";
+import type { SlackChannelHealthSummary } from "@/lib/rbac/slack-channel-diagnostics";
 import { listSlackChannelGrants,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { SlackChannelAgentRouteDocument } from "@/lib/rbac/slack-channel-route-store";
@@ -31,6 +29,89 @@ interface ChannelListRow {
   team_slug?: string;
   active?: boolean;
   source: "team_mapping" | "route_metadata";
+}
+
+function pickPrimaryAgentId(routes: SlackChannelAgentRouteDocument[]): string | undefined {
+  const enabledRoute = routes
+    .filter((route) => route.enabled !== false)
+    .sort(
+      (left, right) =>
+        (left.priority ?? 100) - (right.priority ?? 100) ||
+        left.agent_id.localeCompare(right.agent_id)
+    )[0];
+  const agentId = enabledRoute?.agent_id;
+  return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
+}
+
+const SLACK_LIST_HEALTH_AUDIT_LIMIT = 5_000;
+const SLACK_LIST_HEALTH_AUDIT_TIMEOUT_MS = 2_000;
+
+function slackChannelAuditResourceRef(workspaceId: string, channelId: string): string {
+  return `slack_channel:${slackWorkspaceRef(workspaceId)}--${channelId}`;
+}
+
+function auditEventTimestamp(event: Record<string, unknown>): string | null {
+  const raw = event.ts;
+  if (raw instanceof Date) return raw.toISOString();
+  return typeof raw === "string" && raw.trim() ? raw : null;
+}
+
+function auditEventResourceRef(event: Record<string, unknown>): string | null {
+  const raw = event.resource_ref ?? event.resourceRef;
+  return typeof raw === "string" && raw.trim() ? raw : null;
+}
+
+// assisted-by Codex Codex-sonnet-4-6
+async function loadSlackListHealth(rows: ChannelListRow[]): Promise<Map<string, SlackChannelHealthSummary>> {
+  const healthByKey = new Map<string, SlackChannelHealthSummary>();
+  if (rows.length === 0) return healthByKey;
+
+  for (const row of rows) {
+    const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
+    healthByKey.set(`${workspaceId}/${row.slack_channel_id}`, {
+      warnings_count: 0,
+      openfga_reachable: true,
+      last_runtime_error_ts: null,
+    });
+  }
+
+  const until = new Date();
+  const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+  const resourceKeys = new Map(
+    rows.map((row) => {
+      const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
+      return [
+        slackChannelAuditResourceRef(workspaceId, row.slack_channel_id),
+        `${workspaceId}/${row.slack_channel_id}`,
+      ] as const;
+    })
+  );
+
+  const events = await getAuditReader().query({
+    since,
+    until,
+    component: "slack_bot",
+    outcome: "error",
+    limit: SLACK_LIST_HEALTH_AUDIT_LIMIT,
+    timeoutMs: SLACK_LIST_HEALTH_AUDIT_TIMEOUT_MS,
+  });
+
+  for (const event of events) {
+    const resourceRef = auditEventResourceRef(event);
+    if (!resourceRef) continue;
+    const key = resourceKeys.get(resourceRef);
+    if (!key) continue;
+    const ts = auditEventTimestamp(event);
+    if (!ts) continue;
+    const existing = healthByKey.get(key);
+    if (!existing) continue;
+    const current = existing.last_runtime_error_ts;
+    if (!current || Date.parse(ts) > Date.parse(current)) {
+      existing.last_runtime_error_ts = ts;
+    }
+  }
+
+  return healthByKey;
 }
 
 async function slackChannelAccess(
@@ -122,6 +203,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .sort((left, right) => (left.channel_name ?? left.slack_channel_id).localeCompare(right.channel_name ?? right.slack_channel_id))
       .slice(0, 500);
 
+    const healthByKey = includeHealth ? await loadSlackListHealth(rows) : new Map<string, SlackChannelHealthSummary>();
+
     const channels = await Promise.all(
       rows.map(async (row) => {
         const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
@@ -140,15 +223,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           routeCollection
             .find({ workspace_id: workspaceId, channel_id: row.slack_channel_id, status: "active" } as never)
             .toArray(),
-          includeHealth
-            ? computeSlackChannelHealthSummary(workspaceId, row.slack_channel_id).catch(
-                (): SlackChannelHealthSummary => ({
-                  warnings_count: 0,
-                  openfga_reachable: false,
-                  last_runtime_error_ts: null,
-                }),
-              )
-            : Promise.resolve(undefined),
+          Promise.resolve(includeHealth ? healthByKey.get(`${workspaceId}/${row.slack_channel_id}`) : undefined),
         ]);
         return {
           workspace_id: workspaceId,
@@ -156,6 +231,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           channel_name: row.channel_name ?? row.slack_channel_id,
           team_id: row.team_id,
           team_slug: row.team_slug,
+          primary_agent_id: pickPrimaryAgentId(routesForChannel),
           active_grants: Math.max(grants.length, routesForChannel.length),
           can_manage: access.canManage || canManageSlackSurface,
           ...(health ? { health } : {}),

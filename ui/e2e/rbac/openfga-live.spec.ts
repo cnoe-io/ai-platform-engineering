@@ -118,6 +118,23 @@ async function expectDecision(
   return result.body;
 }
 
+async function expectDecisionEventually(
+  page: Page,
+  input: Parameters<typeof decision>[1],
+  expected: "ALLOW" | "DENY",
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const result = await decision(page, input);
+        expect(result.status, JSON.stringify(result.body)).toBe(200);
+        return result.body.decision;
+      },
+      { timeout: 20_000, intervals: [250, 500, 1_000, 2_000, 5_000] },
+    )
+    .toBe(expected);
+}
+
 async function batchDecision(
   page: Page,
   input: {
@@ -254,8 +271,19 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       await page.goto("/", { waitUntil: "domcontentloaded" });
     }
 
+    const bootstrapResourceOwners: TupleKey[] = [
+      { user: `user:${adminSubject}`, relation: "owner", object: `agent:${readOnlyAgent}` },
+      { user: `user:${adminSubject}`, relation: "owner", object: `agent:${managedAgent}` },
+      { user: `user:${adminSubject}`, relation: "owner", object: `agent:${publicAgent}` },
+      { user: `user:${adminSubject}`, relation: "owner", object: `agent:${rawTupleAgent}` },
+      { user: `user:${adminSubject}`, relation: "owner", object: `agent:${deniedAgent}` },
+      { user: `user:${adminSubject}`, relation: "owner", object: `mcp_server:${mcpServer}` },
+    ];
+
     try {
       await installAdminSession();
+      const bootstrapOwners = await writeTuples(page, { writes: bootstrapResourceOwners });
+      expect(bootstrapOwners.status, JSON.stringify(bootstrapOwners.body)).toBe(200);
 
       await expectDecision(
         page,
@@ -295,7 +323,7 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       const grantRead = await grant(page, readGrant);
       expect(grantRead.status, JSON.stringify(grantRead.body)).toBe(200);
       await expectTuple(page, { user: `user:${secondarySubject}`, relation: "reader", object: `agent:${readOnlyAgent}` }, true);
-      await expectDecision(
+      await expectDecisionEventually(
         page,
         {
           subjectId: secondarySubject,
@@ -368,7 +396,7 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       const delegatedGrant = await grant(page, delegatedUseGrant);
       expect(delegatedGrant.status, JSON.stringify(delegatedGrant.body)).toBe(200);
       await installAdminSession();
-      await expectDecision(
+      await expectDecisionEventually(
         page,
         {
           subjectId: thirdSubject,
@@ -382,7 +410,12 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       const delegatedRevoke = await revoke(page, delegatedUseGrant);
       expect(delegatedRevoke.status, JSON.stringify(delegatedRevoke.body)).toBe(200);
       await installAdminSession();
-      await expectDecision(
+      await expectTuple(
+        page,
+        { user: `user:${thirdSubject}`, relation: "user", object: `agent:${managedAgent}` },
+        false,
+      );
+      await expectDecisionEventually(
         page,
         {
           subjectId: thirdSubject,
@@ -397,7 +430,7 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       const publicGrant = await grant(page, everyoneUseGrant);
       expect(publicGrant.status, JSON.stringify(publicGrant.body)).toBe(200);
       await expectTuple(page, { user: "user:*", relation: "user", object: `agent:${publicAgent}` }, true);
-      await expectDecision(
+      await expectDecisionEventually(
         page,
         {
           subjectId: thirdSubject,
@@ -410,7 +443,7 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
 
       const serviceGrant = await grant(page, serviceInvokeGrant);
       expect(serviceGrant.status, JSON.stringify(serviceGrant.body)).toBe(200);
-      await expectDecision(
+      await expectDecisionEventually(
         page,
         {
           subjectType: "service_account",
@@ -437,7 +470,7 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       const revokeRead = await revoke(page, readGrant);
       expect(revokeRead.status, JSON.stringify(revokeRead.body)).toBe(200);
       await expectTuple(page, { user: `user:${secondarySubject}`, relation: "reader", object: `agent:${readOnlyAgent}` }, false);
-      await expectDecision(
+      await expectDecisionEventually(
         page,
         {
           subjectId: secondarySubject,
@@ -449,6 +482,7 @@ test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {
       );
     } finally {
       await installAdminSession().catch(() => undefined);
+      await writeTuples(page, { deletes: bootstrapResourceOwners }).catch(() => undefined);
       await revoke(page, readGrant).catch(() => undefined);
       await revoke(page, manageGrant).catch(() => undefined);
       await revoke(page, delegatedUseGrant).catch(() => undefined);

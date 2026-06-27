@@ -37,7 +37,6 @@ export const DEFAULT_ADMIN_GATES: Record<string, boolean> = {
   dynamic_agent_conversations: true,
   metrics: true,
   migrations: false,
-  nps: false,
   openfga: true,
   roles: true,
   settings: true,
@@ -134,7 +133,14 @@ export async function installMockedRbacApp(page: Page, options: MockedRbacOption
     }
 
     if (path === "/api/rbac/admin-tab-gates") {
-      await fulfillJson(route, { gates });
+      const integrationPanelModes: Record<string, "full" | "self_service"> = {};
+      if (gates.slack) {
+        integrationPanelModes.slack = options.isAdmin ? "full" : "self_service";
+      }
+      if (gates.webex) {
+        integrationPanelModes.webex = options.isAdmin ? "full" : "self_service";
+      }
+      await fulfillJson(route, { gates, integration_panel_modes: integrationPanelModes });
       return;
     }
 
@@ -207,7 +213,7 @@ export async function installMockedRbacApp(page: Page, options: MockedRbacOption
       return;
     }
 
-    if (path === "/api/admin/feedback" || path === "/api/admin/nps") {
+    if (path === "/api/admin/feedback") {
       await fulfillJson(route, { success: true, data: [] });
       return;
     }

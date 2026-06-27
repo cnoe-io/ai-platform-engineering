@@ -8,7 +8,11 @@ withAuth,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
-import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
+import {
+  conversationVisibilityCandidateQuery,
+  filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
+} from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 import { deleteConversationsPermanently } from '../delete-permanently';
@@ -31,6 +35,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user, session) => {
     const { page, pageSize, skip } = getPaginationParams(request);
     const conversations = await getCollection<Conversation>('conversations');
+    const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
     // Auto-purge: permanently delete conversations that have been in the
     // archive for more than 7 days. This runs on every trash listing
@@ -50,8 +55,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Query for soft-deleted conversation candidates, then filter by ReBAC.
     const query = {
-      source: { $ne: 'slack' } as any,
-      deleted_at: { $exists: true, $ne: null },
+      $and: [
+        { source: { $ne: 'slack' } as any },
+        { deleted_at: { $exists: true, $ne: null } },
+        conversationVisibilityCandidateQuery(user.email, directShareConversationIds),
+      ],
     };
 
     const total = await conversations.countDocuments(query);
@@ -63,7 +71,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+      session,
+      user.email,
+      items,
+      'discover',
+      directShareConversationIds,
+    );
 
     return paginatedResponse(
       visibleItems,

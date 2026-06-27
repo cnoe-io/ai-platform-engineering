@@ -3,7 +3,7 @@
  */
 
 const mockGetAuthFromBearerOrSession = jest.fn();
-const mockGetCollection = jest.fn();
+const mockQuery = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -17,31 +17,23 @@ jest.mock("@/lib/feature-flags/credentials", () => ({
   getCredentialFeatureConfig: jest.fn(() => ({ enabled: true })),
 }));
 
-jest.mock("@/lib/mongodb", () => ({
-  getCollection: mockGetCollection,
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: mockQuery }),
 }));
 
 describe("/api/credentials/audit", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "alice-sub" } });
-    mockGetCollection.mockResolvedValue({
-      find: jest.fn(() => ({
-        sort: jest.fn(() => ({
-          limit: jest.fn(() => ({
-            toArray: jest.fn(async () => [
-              {
-                action: "secret.create",
-                actor: { type: "user", id: "alice-sub" },
-                resource: { type: "secret_ref", id: "secret-1" },
-                result: "success",
-                details: { value: "***REDACTED***" },
-              },
-            ]),
-          })),
-        })),
-      })),
-    });
+    mockQuery.mockResolvedValue([
+      {
+        action: "secret.create",
+        actor: { type: "user", id: "alice-sub" },
+        resource: { type: "secret_ref", id: "secret-1" },
+        result: "success",
+        details: { value: "***REDACTED***" },
+      },
+    ]);
   });
 
   it("returns redacted audit events for the authenticated actor", async () => {
@@ -52,5 +44,6 @@ describe("/api/credentials/audit", () => {
       success: true,
       data: [{ action: "secret.create", details: { value: "***REDACTED***" } }],
     });
+    expect(mockQuery).toHaveBeenCalledWith({ type: "credential_action", limit: 500 });
   });
 });

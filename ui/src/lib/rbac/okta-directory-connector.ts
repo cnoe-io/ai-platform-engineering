@@ -80,6 +80,36 @@ function oktaConfig(): OktaConnectorConfig {
 }
 
 /**
+ * The SDK's OAuth.getAccessToken always sends a DPoP header on the token
+ * request, but its use_dpop_nonce retry is unreachable: Http.errorFilter
+ * throws on 400 before the nonce check runs. This patch catches the thrown
+ * error, reads the dpop-nonce header Okta returns, and retries once with it.
+ * The guard `!dpop_nonce` prevents infinite retry if the second attempt also
+ * fails (it re-throws so the caller sees the real error).
+ */
+function patchOAuthDpopNonce(client: Client): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oauth = (client as any).oauth;
+  if (!oauth) return;
+  const original = oauth.getAccessToken.bind(oauth) as (nonce?: string | null) => Promise<unknown>;
+  oauth.getAccessToken = async function (dpop_nonce: string | null = null): Promise<unknown> {
+    if (this.accessToken) return this.accessToken;
+    try {
+      return await original(dpop_nonce);
+    } catch (err: unknown) {
+      // OktaApiError surfaces status + headers from the raw fetch response.
+      const e = err as { status?: number; headers?: { get?: (k: string) => string | null } };
+      const nonce = e?.status === 400 ? (e?.headers?.get?.("dpop-nonce") ?? null) : null;
+      if (nonce && !dpop_nonce) {
+        this.isDPoP = true;
+        return await original(nonce);
+      }
+      throw err;
+    }
+  };
+}
+
+/**
  * Build an Okta SDK client for the configured auth mode. The SDK owns
  * pagination AND rate-limit handling (it honors Okta's X-Rate-Limit-* headers
  * and retries/queues internally), which is why we no longer hand-roll backoff
@@ -92,7 +122,7 @@ function buildOktaClient(config: OktaConnectorConfig): Client {
     const privateKey: string | Record<string, unknown> = trimmed.startsWith("{")
       ? (JSON.parse(trimmed) as Record<string, unknown>)
       : trimmed;
-    return new Client({
+    const client = new Client({
       orgUrl: config.orgUrl,
       authorizationMode: "PrivateKey",
       clientId: config.oauth.clientId,
@@ -100,6 +130,8 @@ function buildOktaClient(config: OktaConnectorConfig): Client {
       privateKey,
       ...(config.oauth.keyId ? { keyId: config.oauth.keyId } : {}),
     });
+    patchOAuthDpopNonce(client);
+    return client;
   }
   return new Client({ orgUrl: config.orgUrl, token: config.apiToken });
 }

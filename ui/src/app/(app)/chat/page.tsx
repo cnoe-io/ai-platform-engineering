@@ -1,25 +1,13 @@
 "use client";
 
 import { AuthGuard } from "@/components/auth-guard";
-import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { getConfig } from "@/lib/config";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getStorageMode } from "@/lib/storage-config";
-import { getLastActiveConversationId, useChatStore } from "@/store/chat-store";
+import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
 import { useSession } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
-import React, { useEffect, useRef } from "react";
-
-async function resolveDefaultAgentId(): Promise<string | undefined> {
-  try {
-    const response = await fetch("/api/admin/platform-config");
-    const data = await response.json();
-    const agentId = data?.success ? data.data?.default_agent_id : null;
-    return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import { useRouter } from "next/navigation";
+import { useEffect,useRef,useState } from "react";
 
 /**
  * /chat landing page — resumes the last active conversation, falls back to
@@ -32,47 +20,30 @@ async function resolveDefaultAgentId(): Promise<string | undefined> {
  *  3. Create a brand-new conversation (empty history).
  *
  * Only conversations owned by the current user are considered for auto-redirect.
- * Shared/public conversations are excluded to prevent cross-user context_id
- * collisions — the conversations API returns owned + shared + public in a
- * single list, and auto-selecting a public conversation would cause multiple
- * users to unknowingly share the same A2A context_id.
+ * Shared conversations are excluded to prevent cross-user runtime context
+ * collisions — the conversations API returns owned + shared entries in a
+ * single list, and auto-selecting a shared conversation would cause multiple
+ * users to unknowingly share the same backend context.
  */
 function ChatRedirectPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { data: session, status } = useSession();
   const redirected = useRef(false);
-  const autonomousOnly = searchParams.get("source") === "autonomous";
-  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
-  const [showAutonomousEmpty, setShowAutonomousEmpty] = React.useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const createConversation = useChatStore((s) => s.createConversation);
   const loadConversationsFromServer = useChatStore((s) => s.loadConversationsFromServer);
-  const loadAutonomousConversationsFromService = useChatStore((s) => s.loadAutonomousConversationsFromService);
 
   useEffect(() => {
     if (status === "loading") return;
     if (redirected.current) return;
-    if (autonomousOnly && !autonomousAgentsEnabled) {
-      redirected.current = true;
-      router.replace("/chat");
-      return;
-    }
-    // Reset the autonomous empty-state before re-resolving on dep changes; the
-    // value is driven by the async resolve() below, so it can't be derived.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShowAutonomousEmpty(false);
 
     const resolve = async () => {
       const storageMode = getStorageMode();
 
       // In MongoDB mode, ensure conversations are loaded from the server first
       if (storageMode === "mongodb") {
-        await loadConversationsFromServer(autonomousOnly ? { source: "autonomous" } : undefined);
-      }
-
-      if (autonomousOnly) {
-        await loadAutonomousConversationsFromService();
+        await loadConversationsFromServer();
       }
 
       // Re-read from the store after potential server load
@@ -82,25 +53,20 @@ function ChatRedirectPage() {
       const userEmail = session?.user?.email;
 
       // Only consider conversations OWNED by the current user for auto-redirect.
-      // The API returns shared/public conversations in the same list; picking one
+      // The API returns shared conversations in the same list; picking one
       // of those would silently drop the user into someone else's conversation,
-      // causing all their messages to share the same A2A context_id.
+      // causing all their messages to share the same backend context.
       // In localStorage mode, owner_id is unset — include those conversations.
       const ownedConversations = userEmail
         ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
         : currentConversations;
-      const redirectCandidates = autonomousOnly
-        ? ownedConversations.filter((c) => c.source === "autonomous")
-        : ownedConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned.
-      // Gate on lastActiveConversationId (in-memory active OR persisted) so a
-      // reload — where the in-memory activeConversationId is null — still resumes
-      // the persisted conversation. Check against redirectCandidates so autonomous
-      // view only resumes autonomous threads.
+      // 1. Resume the last active conversation when it still exists in the loaded list.
+      // Prefer owned entries for auto-pick below, but an explicit last-active id from
+      // this browser should win to avoid spawning duplicate empty chats on /chat.
       if (lastActiveConversationId) {
-        const stillOwned = redirectCandidates.some((c) => c.id === lastActiveConversationId);
-        if (stillOwned) {
+        const stillExists = currentConversations.some((c) => c.id === lastActiveConversationId);
+        if (stillExists) {
           redirected.current = true;
           router.replace(`/chat/${lastActiveConversationId}`);
           return;
@@ -108,42 +74,31 @@ function ChatRedirectPage() {
       }
 
       // 2. Fall back to the most recent OWNED conversation (sorted by updatedAt)
-      if (redirectCandidates.length > 0) {
-        const latestId = redirectCandidates[0].id;
+      if (ownedConversations.length > 0) {
+        const latestId = ownedConversations[0].id;
         redirected.current = true;
         router.replace(`/chat/${latestId}`);
-      } else if (autonomousOnly) {
-        setShowAutonomousEmpty(true);
       } else {
         // 3. No owned conversations — create a new one
-        const newId = await createConversation(await resolveDefaultAgentId());
+        const newId = await createConversation(await resolveUsableChatAgentId());
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
     };
 
-    resolve().catch(async (error) => {
+    resolve().catch((error) => {
       console.error("[ChatRedirect] Failed to resolve conversation:", error);
-      // Fallback: create a new conversation
-      if (!redirected.current) {
-        const newId = await createConversation();
-        redirected.current = true;
-        router.replace(`/chat/${newId}`);
-      }
+      redirected.current = true;
+      setError(error instanceof Error ? error.message : "Failed to resolve a chat agent");
     });
-  }, [status, autonomousOnly, autonomousAgentsEnabled, createConversation, loadAutonomousConversationsFromService, loadConversationsFromServer, router, session?.user?.email]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
-  if (showAutonomousEmpty) {
+  if (error) {
     return (
-      <div className="flex-1 flex items-center justify-center h-full bg-background">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <p className="text-sm font-medium text-foreground">No autonomous task threads yet</p>
-          <p className="max-w-sm text-xs text-muted-foreground">
-            Create or run an autonomous task to generate a thread here.
-          </p>
-          <Button type="button" size="sm" onClick={() => router.push("/autonomous")}>
-            Go to Autonomous Agents
-          </Button>
+      <div className="flex-1 flex items-center justify-center h-full bg-background p-6">
+        <div className="max-w-md rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          {error}
         </div>
       </div>
     );

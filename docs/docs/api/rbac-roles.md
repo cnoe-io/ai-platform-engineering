@@ -56,7 +56,7 @@ resource policy as OpenFGA relationships and audited ReBAC change sets.
 
 ### Keycloak AuthZ resources & scopes
 
-Typed resources include `admin_ui`, `slack`, `supervisor`, `rag`, `sub_agent`, `tool`, `skill`, `a2a`, `mcp`. Scopes include `view`, `create`, `update`, `delete`, `invoke`, `admin`, `configure`, `ingest`, `query`, `audit.view`, `kb.admin`, `kb.ingest`, `kb.query`, and tool-specific scopes. The **permissions** endpoint returns effective `resource → [scopes]` from an RPT (`response_mode=permissions`).
+Typed resources include `admin_ui`, `slack`, `rag`, `sub_agent`, `tool`, `skill`, and `mcp`. Scopes include `view`, `create`, `update`, `delete`, `invoke`, `admin`, `configure`, `ingest`, `query`, `audit.view`, `kb.admin`, `kb.ingest`, `kb.query`, and tool-specific scopes. The **permissions** endpoint returns effective `resource → [scopes]` from an RPT (`response_mode=permissions`).
 
 ---
 
@@ -408,7 +408,7 @@ Returns the caller’s **effective Keycloak Authorization permissions** as a map
   "permissions": {
     "admin_ui": ["view", "audit.view"],
     "rag": ["kb.query", "kb.ingest"],
-    "supervisor": ["invoke"]
+    "skill": ["view", "invoke"]
   }
 }
 ```
@@ -670,7 +670,7 @@ Reads paginated **authorization decision** records from MongoDB collection `auth
 |-----------|------|----------|-------------|
 | `from` | string (ISO 8601) | No | Start of time range; default **now − 24h**. |
 | `to` | string (ISO 8601) | No | End of time range; default **now**. |
-| `component` | string | No | Filter by component (`admin_ui`, `rag`, `supervisor`, …). |
+| `component` | string | No | Filter by component (`admin_ui`, `rag`, `mcp`, …). |
 | `capability` | string | No | Filter by capability string. |
 | `subject_hash` | string | No | Filter by subject hash. |
 | `outcome` | string | No | `allow` or `deny` (case-insensitive). |
@@ -745,7 +745,7 @@ Paginated query across **all** audit event types (auth decisions, tool actions, 
 | `agent_name` | string | _(all)_ | Filter by agent name (exact match). |
 | `tool_name` | string | _(all)_ | Filter by tool name (exact match). |
 | `user_email` | string | _(all)_ | Filter by user email (case-insensitive substring). |
-| `component` | string | _(all)_ | Filter by component (e.g., `admin_ui`, `supervisor`). |
+| `component` | string | _(all)_ | Filter by component (e.g., `admin_ui`, `dynamic_agents`). |
 | `correlation_id` | string | _(all)_ | Filter by correlation / trace id. |
 | `page` | integer ≥ 1 | `1` | Page number. |
 | `limit` | 1–200 | `50` | Results per page. |
@@ -768,8 +768,8 @@ Paginated query across **all** audit event types (auth decisions, tool actions, 
       "duration_ms": 1234.56,
       "correlation_id": "trace-abc-def",
       "context_id": "conv-123",
-      "component": "argocd",
-      "source": "supervisor"
+      "component": "dynamic_agents",
+      "source": "dynamic_agents"
     }
   ],
   "total": 500,
@@ -794,12 +794,12 @@ Paginated query across **all** audit event types (auth decisions, tool actions, 
 Admin UI tabs are gated by deterministic BFF logic, not editable CEL. Baseline
 tabs (`users`, `teams`, `skills`, `metrics`, `health`) are visible to signed-in
 users; administrative tabs require the admin session/realm role or bootstrap
-admin email. Feature flags (`feedbackEnabled`, `npsEnabled`,
+admin email. Feature flags (`feedbackEnabled`,
 `auditLogsEnabled`, `actionAuditEnabled`) are still ANDed with the matching tab.
 
 ### `GET /api/rbac/admin-tab-gates`
 
-**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `identity_group_sync`, `slack`, `skills`, `feedback`, `nps`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `openfga`).
+**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `identity_group_sync`, `slack`, `skills`, `feedback`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `openfga`).
 
 **Authorization:** Valid NextAuth session with `user.email`. Unauthenticated → `401`.
 
@@ -840,7 +840,7 @@ admin email. Feature flags (`feedbackEnabled`, `npsEnabled`,
 | Permission check & effective permissions | `ui/src/lib/rbac/keycloak-authz.ts` |
 | Types (`RbacResource`, `RbacScope`, audit) | `ui/src/lib/rbac/types.ts` |
 | Session, admin gates, `requireRbacPermission` | `ui/src/lib/api-middleware.ts` |
-| Python audit logger (supervisor) | `ai_platform_engineering/utils/audit_logger.py` |
+| Python audit logger | `ai_platform_engineering/utils/audit_logger.py` |
 | Python audit callback handler | `ai_platform_engineering/utils/audit_callback.py` |
 | BFF dual-write (auth → audit_events) | `ui/src/lib/rbac/audit.ts` |
 | Unified audit API route | `ui/src/app/api/admin/audit-events/route.ts` |

@@ -4,7 +4,7 @@ sidebar_position: 8
 
 # Platform API
 
-Swagger-style reference for platform concerns: health and readiness across services, build/version metadata, runtime frontend configuration, user settings, debug introspection, feedback, NPS, changelog, skill templates, and workflow run history.
+Swagger-style reference for platform concerns: health and readiness across services, build/version metadata, runtime frontend configuration, user settings, debug introspection, feedback, changelog, skill templates, and workflow run history.
 
 Paths under `/api/*` are served by the **Next.js UI Backend API** (CAIPE UI). RAG and Dynamic Agents paths are on their respective service base URLs (e.g. `https://<rag-host>`, `https://<dynamic-agents-host>`).
 
@@ -381,7 +381,7 @@ Lightweight session dump plus selected env vars related to OIDC/SSO.
 
 ---
 
-## User Feedback & NPS
+## User Feedback
 
 ### POST `/api/feedback`
 
@@ -421,68 +421,6 @@ Reports whether Langfuse is configured (does not leak secrets).
 {
   "enabled": true,
   "host": "cloud.langfuse.com"
-}
-```
-
-### POST `/api/nps`
-
-**Auth:** Session required · **Service:** UI Backend API
-
-Stores an NPS response in MongoDB (`nps_responses`). Disabled when app config `npsEnabled` is false (`404` with `NPS_DISABLED`). Requires MongoDB (`503` with `MONGODB_NOT_CONFIGURED`).
-
-**Request body:**
-
-```json
-{
-  "score": 9,
-  "comment": "Great product",
-  "campaign_id": "spring-2026"
-}
-```
-
-`score` must be an integer `0`–`10`. `comment` is trimmed and capped at 1000 characters.
-
-**Response `200`:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "submitted": true
-  }
-}
-```
-
-### GET `/api/nps/active`
-
-**Auth:** Session required when NPS and MongoDB are enabled · **Service:** UI Backend API
-
-If NPS is disabled: `200` with `{ "success": false, "data": { "active": false } }` (no auth). If MongoDB missing: `503`. Otherwise returns whether a campaign is active (`nps_campaigns` where `starts_at <= now <= ends_at`).
-
-**Response `200` (no active campaign):**
-
-```json
-{
-  "success": true,
-  "data": {
-    "active": false
-  }
-}
-```
-
-**Response `200` (active campaign):**
-
-```json
-{
-  "success": true,
-  "data": {
-    "active": true,
-    "campaign": {
-      "id": "67e2b3c4d5e6f7890abcdef2",
-      "name": "Q1 2026 NPS",
-      "ends_at": "2026-04-01T00:00:00.000Z"
-    }
-  }
 }
 ```
 
@@ -541,16 +479,6 @@ Merged skills catalog: prefers proxy to Python `GET {BACKEND_SKILLS_URL}/skills`
 
 ---
 
-### POST `/api/skills/refresh`
-
-**Auth:** Session + **`requireAdmin`**.
-
-Proxies to Python `POST /skills/refresh` (catalog invalidation / supervisor graph rebuild). Requires `BACKEND_SKILLS_URL`.
-
-**Response:** Pass-through status and JSON from backend; `503` if backend URL unset; `502` if unreachable.
-
----
-
 ### POST `/api/skills/token`
 
 **Auth:** Session (`withAuth`).
@@ -560,14 +488,6 @@ Mints an HS256 JWT for programmatic catalog reads (`scope: skills:read`, `role: 
 **Body (optional):** `{ "expires_in_days": 30 | 60 | 90 }` (default 90, max 90).
 
 **Response `200`:** `{ "token", "token_type": "Bearer", "expires_in", "scope": "skills:read" }`
-
----
-
-### GET `/api/skills/supervisor-status`
-
-**Auth:** Session.
-
-Proxies to Python `GET /internal/supervisor/skills-status`. If `BACKEND_SKILLS_URL` is unset, returns `200` with null fields and an explanatory `message`.
 
 ---
 

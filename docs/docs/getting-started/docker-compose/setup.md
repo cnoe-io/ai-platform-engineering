@@ -4,139 +4,91 @@ sidebar_position: 1
 
 # Run with Docker Compose
 
-Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
+Use Docker Compose for a local CAIPE stack with the UI, Dynamic Agents, MCP
+servers, MongoDB, RBAC services, and optional RAG/tracing components.
 
 ## Prerequisites
 
-1. **Clone the repository**
+- Docker or Docker Desktop
+- Git
+- An LLM provider key
 
-   ```bash
-   git clone https://github.com/cnoe-io/ai-platform-engineering.git
-   cd ai-platform-engineering
-   ```
+## Configure
 
-2. **Configure environment variables**
+```bash
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering
+cp .env.example .env
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+Edit `.env` with your provider key:
 
-   Edit `.env` with your LLM configuration. The checked-in example is an OSS
-   all-in-one profile set that starts the supervisor, MCP servers, production UI,
-   dynamic agents, local Keycloak/RBAC, MongoDB, and RAG:
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=<token>
+```
 
-   ```bash
-   IMAGE_TAG=0.5.16
-   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+The checked-in example starts the default OSS stack:
 
-   # All-in-one mode: agents run in-process and use MCP server containers.
-   DISTRIBUTED_AGENTS=
+```bash
+COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb
+```
 
-   # Enable the tools you want the supervisor to expose.
-   ENABLE_GITHUB=true
+`mcp-servers` starts the packaged MCP server containers. Add credentials only
+for the MCP servers you plan to use, for example:
 
-   # LLM provider (openai, azure-openai, aws-bedrock)
-   LLM_PROVIDER=openai
-   OPENAI_API_KEY=<token>
+```bash
+GITHUB_PERSONAL_ACCESS_TOKEN=<token>
+ARGOCD_TOKEN=<token>
+ARGOCD_API_URL=https://argocd.example.com
+```
 
-   # GitHub MCP server token, if GitHub tools are enabled.
-   GITHUB_PERSONAL_ACCESS_TOKEN=<token>
-   ```
+For full provider details see [Configure LLMs](configure-llms.md). For service
+credentials see [Configure Agent Secrets](configure-agent-secrets.md).
 
-   For full LLM provider options see [Configure LLMs](configure-llms.md).
-   For agent-specific credentials see [Configure Agent Secrets](configure-agent-secrets.md).
-
-3. **Configure A2A Authentication (optional)**
-
-   **Option A: OAuth2 (recommended for production)**
-
-   ```bash
-   A2A_AUTH_OAUTH2=true
-   JWKS_URI=https://your-idp.com/.well-known/jwks.json
-   AUDIENCE=your-audience
-   ISSUER=https://your-idp.com
-   OAUTH2_CLIENT_ID=your-client-id
-   ```
-
-   Get a JWT token with:
-   ```bash
-   OAUTH2_CLIENT_SECRET=your-secret \
-   TOKEN_ENDPOINT=https://your-idp.com/oauth/token \
-   python ai_platform_engineering/utils/oauth/get_oauth_jwt_token.py
-   ```
-
-   **Local development with Keycloak:**
-
-   ```bash
-   cd deploy/keycloak && docker compose up
-   ```
-
-   Then set:
-   ```bash
-   A2A_AUTH_OAUTH2=true
-   JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs
-   AUDIENCE=caipe
-   ISSUER=http://localhost:7080/realms/caipe
-   OAUTH2_CLIENT_ID=caipe-cli
-   OAUTH2_CLIENT_SECRET=<from-keycloak>
-   TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
-   ```
-
-   Keycloak admin console: http://localhost:7080 (admin / admin). Switch to the `caipe` realm and create a `caipe-cli` client.
-
-   **Option B: Shared key (development / testing)**
-
-   ```bash
-   A2A_AUTH_SHARED_KEY=your-secret-key
-   ```
-
-   > If neither option is set, the agent runs without authentication — not recommended for production.
-
----
-
-## Start CAIPE
-
-Use Docker Compose **profiles** to select services. The default `.env.example`
-starts the OSS all-in-one stack:
+## Start
 
 ```bash
 docker compose up
 ```
 
-Open the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
+Open the UI at **http://localhost:3000**. The Dynamic Agents API is exposed at
+**http://localhost:8100** and is also proxied through the UI API routes.
 
-Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or
-`webex-bot` only when you want those bot integrations.
+To update `.env` to the latest published CAIPE release before starting Compose:
 
-**Primary profiles:**
+```bash
+./setup-caipe.sh update-compose-release
+```
+
+To let the setup helper update `.env` and start Compose:
+
+```bash
+./setup-caipe.sh --docker-compose
+```
+
+## Profiles
 
 | Profile | Description |
 |---------|-------------|
-| `caipe-supervisor` | Supervisor API and all-in-one agent runtime |
-| `mcp-servers` | MCP server containers used by all-in-one agents |
+| `mcp-servers` | Packaged MCP server containers |
 | `caipe-ui-prod` | Production CAIPE UI image |
-| `caipe-mongodb` | MongoDB for UI, RBAC, dynamic agents, and checkpoint data |
+| `caipe-mongodb` | MongoDB for UI state, Dynamic Agents, RBAC metadata, and checkpoints |
 | `rbac` | Local Keycloak, OpenFGA, AgentGateway, and config bridge |
-| `dynamic-agents` | Dynamic agent runtime used by the UI |
-| `rag` | Vector RAG services (Milvus, Redis, RAG server) |
+| `dynamic-agents` | Dynamic Agents runtime used by chat, skills, and custom agents |
+| `rag` | Vector RAG services |
 | `web_ingestor` / `web-ingestor` | Web datasource ingestion worker |
 | `slack-bot` | Slack bot integration service |
 | `webex-bot` | Webex bot integration service |
-| `slim` | AGNTCY Slim dataplane (set `A2A_TRANSPORT=slim`) |
-| `tracing` | Langfuse distributed tracing (Clickhouse, Postgres) |
+| `tracing` | Langfuse tracing stack |
 
-Domain profiles such as `github`, `argocd`, `jira`, `slack`, and `webex` are
-kept as compatibility aliases for individual MCP services. In all-in-one mode,
-prefer `mcp-servers` plus the matching `ENABLE_*` flags instead of starting
-remote sub-agent containers.
-
-**Examples:**
+Examples:
 
 ```bash
-# Default OSS all-in-one stack from .env
+# Default stack from .env
 docker compose up
 
-# Render the selected services without starting them
+# Render selected services without starting them
 docker compose config --services
 
 # Add tracing
@@ -148,77 +100,64 @@ docker compose --profile graph_rag up
 # Add the web ingestion worker
 docker compose --profile web_ingestor up
 
-# Build from source with the same profile set
+# Build local images from source
 docker compose -f docker-compose.dev.yaml up --build
 ```
 
-### Deployment modes
+## First-Install RBAC Defaults
 
-The supervisor mode is controlled by `DISTRIBUTED_AGENTS`:
-
-| Value | Mode |
-|-------|------|
-| empty | All-in-one; agents run in-process and call MCP server containers |
-| `all` | Fully distributed; all agents run as remote A2A containers |
-| comma-separated agent names | Hybrid; only listed agents run remotely |
+If the first launch reports Keycloak reconciliation errors, failed migrations
+with `OPENFGA_HTTP is not set`, or missing Keycloak admin credentials, make
+sure `.env` contains the local RBAC defaults:
 
 ```bash
-# All-in-one, the default in .env.example
-DISTRIBUTED_AGENTS= docker compose up
-
-# Fully distributed in the dev compose file
-DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-agents up --build
-
-# Hybrid example
-DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile argocd --profile github up --build
+KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform
+KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret
+OPENFGA_HTTP=http://openfga:8080
+OPENFGA_STORE_NAME=caipe-openfga
+AUTHZ_SERVICE_URL=http://caipe-ui:3000
 ```
 
----
+Then recreate the services that consume those settings:
 
-## Connect to the agent
-
-Once services are running, connect with the agent chat CLI:
-
-**Using Docker (host network):**
 ```bash
-docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb" \
+docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui dynamic-agents keycloak-init
 ```
 
-**Using uvx:**
+If Keycloak or OpenFGA were initialized with bad settings, reset only the local
+auth/RBAC volumes. Keep MongoDB if you want to preserve CAIPE data:
+
 ```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
+docker compose --env-file .env -f docker-compose.yaml down
+docker volume ls | grep -E 'keycloak_postgres_data|openfga_postgres_data'
+docker volume rm <keycloak_postgres_data_volume> <openfga_postgres_data_volume>
+docker compose --env-file .env -f docker-compose.yaml up -d
 ```
 
----
+## Tracing
 
-## Tracing with Langfuse
+The `tracing` profile starts Langfuse v3.
 
-The `tracing` profile starts Langfuse v3 (web UI, worker, ClickHouse, Postgres, MinIO).
+```bash
+docker compose --profile tracing up
+```
 
-1. Start with tracing:
-   ```bash
-   docker compose --profile tracing up
-   ```
+Open Langfuse at **http://localhost:3001**, create an account, copy the keys,
+then add them to `.env`:
 
-2. Open Langfuse at **http://localhost:3001**, create an account, and copy the API keys.
+```bash
+ENABLE_TRACING=true
+LANGFUSE_PUBLIC_KEY=<public-key>
+LANGFUSE_SECRET_KEY=<secret-key>
+LANGFUSE_HOST=http://langfuse-web:3000
+```
 
-3. Add to `.env` and restart:
-   ```bash
-   ENABLE_TRACING=true
-   LANGFUSE_PUBLIC_KEY=your-public-key
-   LANGFUSE_SECRET_KEY=your-secret-key
-   LANGFUSE_HOST=http://langfuse-web:3000
-   ```
+Restart the stack after changing tracing settings.
 
-<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
-  <iframe src="https://app.vidcast.io/share/embed/4882e719-fdc4-4a85-ae7e-8984e3491a53?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Getting Started Tracing using Docker Compose" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
-</div>
+## Next Steps
 
----
-
-## Next steps
-
-- [Configure LLMs](configure-llms.md) — LLM provider and API key setup
-- [Configure Agent Secrets](configure-agent-secrets.md) — Agent-specific credentials
-- [Deploy to Kubernetes](../kind/setup.md) — KinD local cluster
-- [Deploy with Helm](../helm/setup.md) — Production Kubernetes deployment
+- [Configure LLMs](configure-llms.md)
+- [Configure Agent Secrets](configure-agent-secrets.md)
+- [Run with KinD](../kind/setup.md)
+- [Deploy with Helm](../helm/setup.md)

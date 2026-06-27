@@ -65,11 +65,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         await conversations.insertOne({
           _id: conv.id,
           title: conv.title,
+          // Canonical top-level client_type (metadata.client_type is deprecated).
+          client_type: 'webui',
           owner_id: user.email,
           created_at: new Date(conv.createdAt),
           updated_at: now,
           metadata: {
-            client_type: 'ui',
             total_messages: conv.messages?.length || 0,
           },
           sharing: {
@@ -87,13 +88,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         if (conv.messages && conv.messages.length > 0) {
           const messageDocs = conv.messages.map((msg: any, index: number) => ({
             conversation_id: conv.id,
+            // Denormalized for the analytics queries that group by owner.
+            owner_id: user.email,
             role: msg.role || 'user',
             content: msg.content || '',
             created_at: msg.created_at ? new Date(msg.created_at) : now,
             metadata: {
+              // 'web' so migrated messages are counted by the admin stats route,
+              // which filters web traffic on metadata.source.
+              source: 'web',
               turn_id: msg.turn_id || `turn-${index}`,
-              model: msg.model,
-              tokens_used: msg.tokens_used,
               latency_ms: msg.latency_ms,
               agent_name: msg.agent_name,
             },

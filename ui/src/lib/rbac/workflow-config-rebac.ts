@@ -143,6 +143,12 @@ export function workflowRunAllowedByVisibility(
   }
 
   if (visibility === "team") {
+    const owner = config.owner_id?.trim().toLowerCase();
+    const email = userEmail.trim().toLowerCase();
+    if (owner && email && owner !== "system" && owner === email) {
+      return true;
+    }
+
     const shared = resolveSharedTeamSlugs(config.shared_with_teams, teamRefToSlug);
     if (shared.length === 0) {
       return false;

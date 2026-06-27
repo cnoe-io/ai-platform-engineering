@@ -84,6 +84,49 @@ ingestors: []
   #       cpu: 500m
   #       memory: 1Gi
 
+  # Example S3 Ingestor
+  # - name: s3-docs
+  #   type: s3                               # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #
+  #   # S3-specific configuration
+  #   env:
+  #     AWS_DEFAULT_REGION: us-east-2
+  #     S3_BUCKETS: "arn:aws:s3:::my-docs-bucket"  # Comma-separated bucket ARNs.
+  #                                          # Account-qualify for cross-account:
+  #                                          # "dev:arn:aws:s3:::dev-docs,prod:arn:aws:s3:::prod-docs"
+  #     AWS_ACCOUNT_LIST: ""                 # "dev:111111111111,prod:222222222222" for cross-account
+  #     CROSS_ACCOUNT_ROLE_NAME: "caipe-read-only"  # Role assumed per target account
+  #     S3_ALLOWED_FILES_AND_EXTENSIONS: "*.md,*.txt,*.rst,*.adoc,*.asciidoc"
+  #     S3_IGNORE_PREFIXES: ""               # Comma-separated relative key prefixes to skip
+  #     S3_IGNORE_REGEX: ""                  # Regex applied to full object key to skip matches
+  #     S3_MAX_FILES_PER_BUCKET: "2000"      # Hard limit per bucket; sync fails if exceeded
+  #
+  #   # AWS credentials — choose one approach:
+  #   #
+  #   # Option 1: Kubernetes Secret containing AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+  #   #   (add AWS_SESSION_TOKEN for temporary credentials)
+  #   # envFrom:
+  #   #   - secretRef:
+  #   #       name: my-aws-credentials-secret
+  #   #
+  #   # Option 2: IRSA (IAM Roles for Service Accounts) — annotate the ingestor ServiceAccount
+  #   #   with the IAM role ARN; no secret needed, credentials are injected by the EKS Pod
+  #   #   Identity webhook automatically.
+  #   # serviceAccount:
+  #   #   annotations:
+  #   #     eks.amazonaws.com/role-arn: "arn:aws:iam::111111111111:role/my-s3-reader-role"
+  #
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
   # Example K8s Ingestor (In-Cluster)
   # - name: k8s-local
   #   type: k8s                              # INGESTOR_TYPE

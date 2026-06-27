@@ -25,7 +25,7 @@ Prerequisites:
 {{- /* Scan for any agent that has mcp.agentgateway.enabled */ -}}
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
 {{- if $enabled }}
-{{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict }}
+{{- $agentValues := index $.Values (printf "mcp-%s" $name) | default dict }}
 {{- $mcp := $agentValues.mcp | default dict }}
 {{- $agw := $mcp.agentgateway | default dict }}
 {{- if $agw.enabled }}
@@ -77,7 +77,7 @@ spec:
 
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
 {{- if $enabled }}
-{{- $agentKey := printf "agent-%s" $name }}
+{{- $agentKey := printf "mcp-%s" $name }}
 {{- $agentValues := index $.Values $agentKey | default dict }}
 {{- $mcp := $agentValues.mcp | default dict }}
 {{- $agw := $mcp.agentgateway | default dict }}

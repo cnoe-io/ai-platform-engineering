@@ -22,9 +22,9 @@ the broken import was caught by ``except Exception`` in
 ``services/skills.py::load_skills``, which silently returned ``[]`` for
 every skill set — making every dynamic agent's ``SkillsMiddleware`` /
 ``StateBackend`` virtual filesystem appear empty to the LLM ("the
-filesystem appears to be empty or inaccessible"). The supervisor
-catalog and UI worked fine because they live in the same Python
-process as ``skills_middleware`` itself.
+filesystem appears to be empty or inaccessible"). The UI worked fine
+because it lives in the same Python process as ``skills_middleware``
+itself.
 
 So we vendor the policy module into the dynamic-agents package. The
 file is small and the policy is stable; cost-of-duplication is low,

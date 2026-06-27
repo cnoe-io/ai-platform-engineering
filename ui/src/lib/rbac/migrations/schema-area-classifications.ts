@@ -16,10 +16,6 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     description:
       "Skill catalog/config records. `agent_skill_openfga_reconcile_v1` aligns OpenFGA grants with Mongo `visibility` (team slugs from FGA) and revokes stale team shares on private skills.",
   },
-  audit_events: {
-    classification: "migration",
-    description: "RBAC index migration target.",
-  },
   channel_team_mappings: {
     classification: "baseline_v1",
     description: "Slack channel team mapping metadata.",
@@ -60,6 +56,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "migration",
     description: "Keycloak RBAC reconciliation migration target.",
   },
+  legacy_runtime_cleanup: {
+    classification: "migration",
+    description:
+      "Drops checkpoint collections and message metadata fields outside the current Dynamic Agents runtime contract. Not backed by a single collection — a virtual schema area tracked only by the migration framework.",
+  },
   llm_models: {
     classification: "baseline_v1",
     description: "LLM model configuration records.",
@@ -93,14 +94,6 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "metadata",
     description: "Temporary migration override control table.",
   },
-  nps_campaigns: {
-    classification: "baseline_v1",
-    description: "NPS campaign records.",
-  },
-  nps_responses: {
-    classification: "baseline_v1",
-    description: "NPS response records.",
-  },
   openfga_tuples: {
     classification: "migration",
     description:
@@ -121,6 +114,10 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   rebac_relationships: {
     classification: "baseline_v1",
     description: "Universal ReBAC relationship provenance records.",
+  },
+  rbac_indexes: {
+    classification: "migration",
+    description: "RBAC schema migration and provenance index migration target.",
   },
   schema_migrations: {
     classification: "metadata",

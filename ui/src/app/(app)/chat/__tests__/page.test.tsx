@@ -14,13 +14,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 // ============================================================================
 
 const mockReplace = jest.fn();
-const mockPush = jest.fn();
 const mockFetch = jest.fn();
-const mockSearchParams = new URLSearchParams();
+const mockResolveUsableChatAgentId = jest.fn();
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockReplace, push: mockPush }),
-  useSearchParams: () => mockSearchParams,
+  useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
 }));
 
 let mockSessionStatus: "loading" | "authenticated" | "unauthenticated" = "authenticated";
@@ -38,7 +36,6 @@ jest.mock("@/lib/config", () => ({
     if (key === "appName") return "Test App";
     if (key === "logoStyle") return "default";
     if (key === "ssoEnabled") return false;
-    if (key === "autonomousAgentsEnabled") return true;
     return undefined;
   }),
   getLogoFilterClass: jest.fn(() => ""),
@@ -48,7 +45,11 @@ jest.mock("@/lib/storage-config", () => ({
   getStorageMode: () => "mongodb",
 }));
 
-const mockCreateConversation = jest.fn().mockResolvedValue("new-conv-id");
+jest.mock("@/lib/chat-agent-selection", () => ({
+  resolveUsableChatAgentId: () => mockResolveUsableChatAgentId(),
+}));
+
+const mockCreateConversation = jest.fn(() => "new-conv-id");
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined);
 let mockConversations: any[] = [];
 let mockActiveConversationId: string | null = null;
@@ -64,8 +65,8 @@ jest.mock("@/store/chat-store", () => {
     const state = {
       createConversation: mockCreateConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,
-      conversations: [],
-      activeConversationId: null,
+      conversations: mockConversations,
+      activeConversationId: mockActiveConversationId,
     };
     return selector ? selector(state) : state;
   };
@@ -98,9 +99,7 @@ describe("Chat Redirect Page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = mockFetch;
-    mockFetch.mockResolvedValue({
-      json: async () => ({ success: true, data: { default_agent_id: "default-agent" } }),
-    });
+    mockResolveUsableChatAgentId.mockResolvedValue("default-agent");
     mockConversations = [];
     mockActiveConversationId = null;
     mockGetLastActiveConversationId.mockReturnValue(null);
@@ -135,7 +134,7 @@ describe("Chat Redirect Page", () => {
       },
       {
         id: "conv-2",
-        owner_id: "test@example.com",
+        owner_id: "other@example.com",
         updatedAt: new Date("2026-05-18T08:00:00Z"),
       },
     ];
@@ -150,18 +149,16 @@ describe("Chat Redirect Page", () => {
     render(<Chat />);
 
     await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith("default-agent"));
-    expect(mockFetch).toHaveBeenCalledWith("/api/admin/platform-config");
+    expect(mockResolveUsableChatAgentId).toHaveBeenCalled();
     expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
   });
 
-  it("falls back to supervisor when no default agent is configured", async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({ success: true, data: { default_agent_id: null } }),
-    });
+  it("uses the resolver fallback agent when no platform default is configured", async () => {
+    mockResolveUsableChatAgentId.mockResolvedValue("fallback-agent");
 
     render(<Chat />);
 
-    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith("fallback-agent"));
     expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
   });
 

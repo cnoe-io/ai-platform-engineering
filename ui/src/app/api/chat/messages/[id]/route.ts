@@ -67,10 +67,6 @@ export const PUT = withErrorHandler(async (
       }
     }
 
-    if (body.a2a_events !== undefined) {
-      update.a2a_events = body.a2a_events;
-    }
-
     if (Object.keys(update).length === 0) {
       return successResponse(message);
     }

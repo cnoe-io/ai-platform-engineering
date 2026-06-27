@@ -9,28 +9,31 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import requests
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
-from .obo_exchange import is_valid_team_slug
 from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
 
 logger = logging.getLogger("caipe.webex_bot.space_team_resolver")
-DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
-SPACE_NOT_MAPPED_MESSAGE = (
-    "This Webex space isn't assigned to a CAIPE team yet. "
-    "Ask your admin to assign it in CAIPE Admin (Teams ▸ <team> ▸ Webex spaces)."
-)
 
-USER_NOT_IN_TEAM_MESSAGE_TMPL = (
-    "You aren't a member of the team that owns this Webex space ({team_name}). "
-    "Ask your team admin to add you."
-)
+def _app_name() -> str:
+    return os.environ.get("WEBEX_INTEGRATION_APP_NAME") or os.environ.get("APP_NAME") or "CAIPE"
+
+
+def _space_not_mapped_message() -> str:
+    name = _app_name()
+    return (
+        f"This Webex space isn't assigned to a {name} team yet. "
+        f"Ask your admin to assign it in the {name} Admin panel "
+        "(Teams ▸ <team> ▸ Webex spaces)."
+    )
+
+
+SPACE_NOT_MAPPED_MESSAGE = _space_not_mapped_message()
 
 
 @dataclass
@@ -42,11 +45,10 @@ class SpaceTeamResolution:
 
 
 class WebexSpaceTeamResolver:
-    """Resolve Webex space → team slug with membership gating."""
+    """Resolve Webex space → team slug (mapping only, no membership gate)."""
 
     def __init__(self, ttl_seconds: int = 60) -> None:
         self._team_by_space: dict[str, tuple[dict[str, Any], float]] = {}
-        self._membership: dict[tuple[str, str], tuple[bool, float]] = {}
         self._ttl = ttl_seconds
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
@@ -111,14 +113,13 @@ class WebexSpaceTeamResolver:
 
     def invalidate(self, space_id: str) -> None:
         self._team_by_space.pop(space_id, None)
-        for key in [k for k in self._membership if k[0] == space_id]:
-            self._membership.pop(key, None)
 
-    async def resolve(
-        self,
-        space_id: str,
-        keycloak_user_id: str,
-    ) -> SpaceTeamResolution:
+    async def resolve(self, space_id: str) -> SpaceTeamResolution:
+        """Resolve space → team metadata for routing and logging.
+
+        User access (``can_use`` on an agent) is enforced downstream when the
+        conversation is created — not via team membership on this resolver.
+        """
         if not space_id:
             return SpaceTeamResolution(
                 team_slug=None,
@@ -153,7 +154,7 @@ class WebexSpaceTeamResolver:
 
         if not isinstance(slug, str) or not slug.strip():
             logger.error(
-                "Team %s (id=%s) has no slug; cannot apply team-member ReBAC subject",
+                "Team %s (id=%s) has no slug; cannot resolve space team metadata",
                 team_name,
                 team_id,
             )
@@ -162,145 +163,14 @@ class WebexSpaceTeamResolver:
                 team_id=team_id,
                 team_name=team_name,
                 deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="Webex space"),
-            )
-
-        slug_value = slug.strip()
-        if not is_valid_team_slug(slug_value):
-            logger.error(
-                "Team %s (id=%s) has invalid slug=%r; refusing OBO scope",
-                team_name,
-                team_id,
-                slug_value,
-            )
-            return SpaceTeamResolution(
-                team_slug=None,
-                team_id=team_id,
-                team_name=team_name,
-                deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="Webex space"),
-            )
-
-        member_key = (space_id, keycloak_user_id)
-        cached_member = self._membership.get(member_key)
-        if cached_member and now - cached_member[1] < self._ttl:
-            is_member = cached_member[0]
-        else:
-            openfga_member = await self._user_is_openfga_team_member(
-                slug_value, keycloak_user_id
-            )
-            is_member = (
-                openfga_member
-                if openfga_member is not None
-                else await self._user_is_member(team_doc, keycloak_user_id)
-            )
-            self._membership[member_key] = (is_member, now)
-
-        if not is_member:
-            return SpaceTeamResolution(
-                team_slug=None,
-                team_id=team_id,
-                team_name=team_name,
-                deny_message=USER_NOT_IN_TEAM_MESSAGE_TMPL.format(team_name=team_name),
             )
 
         return SpaceTeamResolution(
-            team_slug=slug_value,
+            team_slug=slug.strip(),
             team_id=team_id,
             team_name=team_name,
             deny_message=None,
         )
-
-    async def _user_is_openfga_team_member(
-        self, team_slug: str, keycloak_user_id: str
-    ) -> Optional[bool]:
-        return await asyncio.to_thread(
-            _check_openfga_team_member_sync, team_slug, keycloak_user_id
-        )
-
-    @staticmethod
-    async def _user_is_member(
-        team_doc: dict[str, Any], keycloak_user_id: str
-    ) -> bool:
-        members = team_doc.get("members") or []
-        if not isinstance(members, list):
-            return False
-
-        member_keys: set[str] = set()
-        for member in members:
-            if not isinstance(member, dict):
-                continue
-            uid = member.get("user_id")
-            if isinstance(uid, str) and uid:
-                member_keys.add(uid.lower())
-
-        if not member_keys:
-            return False
-
-        if keycloak_user_id.lower() in member_keys:
-            return True
-
-        try:
-            from .keycloak_admin import get_user_by_id
-
-            user = await get_user_by_id(keycloak_user_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Could not look up Keycloak user %s for membership check: %s",
-                keycloak_user_id,
-                exc,
-            )
-            return False
-
-        if not user:
-            return False
-        email = user.get("email")
-        if isinstance(email, str) and email.lower() in member_keys:
-            return True
-        username = user.get("username")
-        if isinstance(username, str) and username.lower() in member_keys:
-            return True
-        return False
-
-
-def _check_openfga_team_member_sync(
-    team_slug: str, keycloak_user_id: str
-) -> Optional[bool]:
-    base_url = os.environ.get("OPENFGA_HTTP", "").strip().rstrip("/")
-    store_id = os.environ.get("OPENFGA_STORE_ID", "").strip()
-    if not base_url and not store_id:
-        return None
-    base_url = base_url or DEFAULT_OPENFGA_HTTP
-    try:
-        if not store_id:
-            store_id = _openfga_store_id(base_url)
-        response = requests.post(
-            f"{base_url}/stores/{store_id}/check",
-            headers={"Content-Type": "application/json"},
-            json={
-                "tuple_key": {
-                    "user": f"user:{keycloak_user_id}",
-                    "relation": "member",
-                    "object": f"team:{team_slug}",
-                }
-            },
-            timeout=5,
-        )
-        response.raise_for_status()
-        return bool(response.json().get("allowed"))
-    except requests.RequestException as exc:
-        logger.warning("OpenFGA team membership check failed: %s", exc)
-        return None
-
-
-def _openfga_store_id(base_url: str) -> str:
-    store_name = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
-    response = requests.get(
-        f"{base_url}/stores", headers={"Content-Type": "application/json"}, timeout=5
-    )
-    response.raise_for_status()
-    for store in response.json().get("stores", []):
-        if store.get("name") == store_name and store.get("id"):
-            return str(store["id"])
-    raise requests.RequestException(f"OpenFGA store {store_name!r} was not found")
 
 
 _default_resolver: Optional[WebexSpaceTeamResolver] = None
@@ -313,10 +183,7 @@ def get_webex_space_team_resolver() -> WebexSpaceTeamResolver:
     return _default_resolver
 
 
-async def resolve_space_team(
-    space_id: Optional[str],
-    keycloak_user_id: str,
-) -> SpaceTeamResolution:
+async def resolve_space_team(space_id: Optional[str]) -> SpaceTeamResolution:
     if not space_id:
         return SpaceTeamResolution(
             team_slug=None,
@@ -324,4 +191,4 @@ async def resolve_space_team(
             team_name=None,
             deny_message=SPACE_NOT_MAPPED_MESSAGE,
         )
-    return await get_webex_space_team_resolver().resolve(space_id, keycloak_user_id)
+    return await get_webex_space_team_resolver().resolve(space_id)

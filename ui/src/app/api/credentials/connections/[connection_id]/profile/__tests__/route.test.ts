@@ -3,8 +3,9 @@
  */
 
 const mockGetAuthFromBearerOrSession = jest.fn();
-const mockListConnections = jest.fn();
+const mockGetConnection = jest.fn();
 const mockRefreshConnection = jest.fn();
+const mockUpdateConnectionProfileSummary = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -20,8 +21,9 @@ jest.mock("@/lib/feature-flags/credentials", () => ({
 
 jest.mock("@/lib/credentials/oauth-service-factory", () => ({
   getProviderConnectionService: jest.fn(async () => ({
-    listConnections: mockListConnections,
+    getConnection: mockGetConnection,
     refreshConnection: mockRefreshConnection,
+    updateConnectionProfileSummary: mockUpdateConnectionProfileSummary,
   })),
 }));
 
@@ -34,15 +36,14 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
     jest.clearAllMocks();
     process.env.CAIPE_CREDENTIALS_ENABLED = "true";
     mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "alice-sub" } });
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "github",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockUpdateConnectionProfileSummary.mockResolvedValue(undefined);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "github",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     mockRefreshConnection.mockResolvedValue({ accessToken: "fresh-token", expiresIn: 3600 });
     global.fetch = jest.fn(async () => ({
       ok: true,
@@ -103,15 +104,13 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
   });
 
   it("checks a connected PagerDuty user profile without returning token material", async () => {
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "pagerduty",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "pagerduty",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     global.fetch = jest.fn(async () => ({
       ok: true,
       json: async () => ({
@@ -155,15 +154,13 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
   });
 
   it("checks a connected GitLab user profile without returning token material", async () => {
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "gitlab",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "gitlab",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     global.fetch = jest.fn(async () => ({
       ok: true,
       json: async () => ({
@@ -204,15 +201,13 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
   });
 
   it("returns clean PagerDuty 403 diagnostics without repeating the HTTP failure text", async () => {
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "pagerduty",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "pagerduty",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     global.fetch = jest.fn(async () => ({
       ok: false,
       status: 403,
@@ -245,15 +240,13 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
   });
 
   it("returns Webex 403 guidance that calls out people scope and account access", async () => {
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "webex",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "webex",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     global.fetch = jest.fn(async () => ({
       ok: false,
       status: 403,
@@ -289,15 +282,13 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
   });
 
   it("falls back to Atlassian accessible resources when the User Identity profile is denied", async () => {
-    mockListConnections.mockResolvedValue([
-      {
-        id: "conn-1",
-        connectorId: "connector-1",
-        provider: "atlassian",
-        owner: { type: "user", id: "alice-sub" },
-        status: "connected",
-      },
-    ]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "atlassian",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+    });
     global.fetch = jest
       .fn()
       .mockResolvedValueOnce({
@@ -377,7 +368,13 @@ describe("/api/credentials/connections/[connection_id]/profile", () => {
   });
 
   it("denies checks for connections not owned by the signed-in user", async () => {
-    mockListConnections.mockResolvedValue([]);
+    mockGetConnection.mockResolvedValue({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "github",
+      owner: { type: "user", id: "other-sub" },
+      status: "connected",
+    });
     const { POST } = await import("../route");
 
     await expect(

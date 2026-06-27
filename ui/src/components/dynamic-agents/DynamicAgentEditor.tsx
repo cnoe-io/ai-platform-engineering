@@ -3,11 +3,12 @@
 import {
 AiReviewButton,
 AiReviewPanel,
+buildBlockingMessage,
 buildLastReview,
 useAiReview,
 } from "@/components/ai-review";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -88,7 +89,7 @@ const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.Re
     value: "team",
     label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Owner-team members can use; admins can manage. Optionally share with other teams.",
+    description: "Team members can use; you manage as creator; team admins can manage. Optionally share with other teams.",
   },
   {
     value: "global",
@@ -382,6 +383,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   // confirm_not_member.
   const [transferRequested, setTransferRequested] = React.useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
+  // When the server rejects a transfer with TRANSFER_NOT_MEMBER_UNCONFIRMED
+  // (the caller is not a member of the destination team per OpenFGA, even
+  // though the client-side picker showed it — e.g. an org admin who is not a
+  // literal team member), surface an inline "Confirm Transfer" affordance
+  // instead of a dead-end error so the user can explicitly proceed.
+  const [transferNeedsServerConfirm, setTransferNeedsServerConfirm] =
+    React.useState(false);
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
@@ -445,6 +453,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Blocking-review message, kept separate from `error` so it only renders on
+  // the Instructions step and can auto-clear the moment the review passes.
+  const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
+    null,
+  );
   const [middlewareError, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
@@ -480,6 +493,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     },
     onApplyFix: setSystemPrompt,
   });
+
+  // Clear the blocking-review banner once the review passes — including a
+  // re-run triggered from the panel (apply-all-fixes → run again), not just a
+  // Next/Save click.
+  React.useEffect(() => {
+    if (review.isPassed) setBlockingMessage(null);
+  }, [review.isPassed]);
 
   // Editor resize drag handlers
   const handleDragStart = React.useCallback((e: React.MouseEvent) => {
@@ -786,15 +806,21 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
     // no-op when the config is disabled or informational.
     if (activeStep === "instructions" && review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
-        const message = "AI Review failed — address the comments below before continuing.";
-        // assisted-by Codex Codex-sonnet-4-6
-        // A blocking review should be visible even when the footer is below the fold.
-        toast(message, "error");
-        setError(message);
+      const { passed, result } = await review.ensurePassedOrRun();
+      if (!passed) {
+        const message = buildBlockingMessage(
+          review.config,
+          result,
+          "the comments below",
+          "continuing",
+        );
+        // The banner below carries the message — visible even when the footer
+        // is below the fold.
+        setBlockingMessage(message);
         return;
       }
+      // Review passed — clear any stale blocking banner from a prior attempt.
+      setBlockingMessage(null);
     }
     if (currentStepIndex < visibleSteps.length - 1) {
       setActiveStep(visibleSteps[currentStepIndex + 1].id);
@@ -937,23 +963,40 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const canSuggest = name.trim() && modelId && !generatingField;
   const isGenerating = !!generatingField;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    opts?: { forceConfirmNotMember?: boolean },
+  ) => {
+    e?.preventDefault();
     setLoading(true);
     setError(null);
+    setTransferNeedsServerConfirm(false);
+    // `setState` is async, so a confirm-and-retry can't rely on the freshly-set
+    // `transferConfirmedNotMember`; the caller passes the value through opts.
+    const confirmNotMember = opts?.forceConfirmNotMember || transferConfirmedNotMember;
 
     // Gate save behind a passing AI Review when the admin has flagged this
     // target as "blocking". `ensurePassedOrRun` is a no-op when the config is
     // disabled or informational.
+    // Capture the freshly-run review result so the grade we persist below
+    // comes from the run we just awaited — `review.result` state lags by a
+    // render after an inline `ensurePassedOrRun`, so reading it here would
+    // stamp a stale (often null) grade onto the save.
+    let reviewResult = review.result;
     if (review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
-        const message = "AI Review failed — address the comments in the Instructions step before saving.";
-        // assisted-by Codex Codex-sonnet-4-6
-        // Return to the reviewed content so the user can see and act on comments.
-        toast(message, "error");
+      const { passed, result } = await review.ensurePassedOrRun();
+      reviewResult = result;
+      if (!passed) {
+        const message = buildBlockingMessage(
+          review.config,
+          result,
+          "the Instructions step",
+          "saving",
+        );
+        // Return to the reviewed content so the user can see and act on the
+        // inline comments; the banner below carries the message.
         setActiveStep("instructions");
-        setError(message);
+        setBlockingMessage(message);
         setLoading(false);
         return;
       }
@@ -999,7 +1042,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       // list view can show a grade badge without re-running the LLM. Only
       // emit the field when we actually have a result this session — never
       // overwrite a prior `last_review` with null.
-      const lastReview = buildLastReview(review.result, "agent-system-prompt");
+      const lastReview = buildLastReview(reviewResult, "agent-system-prompt");
 
       if (isEditing) {
         // Update existing agent
@@ -1026,7 +1069,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ...(transferRequested
             ? {
                 owner_team_slug: ownerTeamSlug,
-                confirm_not_member: transferConfirmedNotMember,
+                confirm_not_member: confirmNotMember,
               }
             : {}),
           ...(lastReview ? { last_review: lastReview } : {}),
@@ -1040,6 +1083,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
         const data = await response.json();
         if (!data.success) {
+          // The destination team is one the caller can pick in the UI but is
+          // not an OpenFGA member of (e.g. org admin). Offer an explicit
+          // confirm-and-retry instead of a dead-end error.
+          if (data.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+            const err = new Error(data.error || "Confirmation required");
+            (err as { code?: string }).code = "TRANSFER_NOT_MEMBER_UNCONFIRMED";
+            throw err;
+          }
           throw new Error(data.error || "Failed to update agent");
         }
         savedAgentId = agent._id;
@@ -1110,7 +1161,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
       onSave();
     } catch (err: any) {
-      setError(err.message || "An error occurred");
+      if (err?.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+        setTransferNeedsServerConfirm(true);
+        setError(
+          "You are not a member of the destination team. Click \"Confirm Transfer\" to transfer ownership anyway.",
+        );
+      } else {
+        setError(err.message || "An error occurred");
+      }
     } finally {
       setLoading(false);
     }
@@ -1577,6 +1635,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   // the PUT sends owner_team_slug + confirm_not_member.
                   setTransferRequested(true);
                   setTransferConfirmedNotMember(confirmedNotMember);
+                  // Picking a different destination clears any stale
+                  // not-a-member rejection so the inline "Confirm Transfer"
+                  // button (and its message) can't linger and refer to the
+                  // previously-chosen team.
+                  setTransferNeedsServerConfirm(false);
+                  setError(null);
                 }}
                 availableTeams={availableTeams
                   .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
@@ -1593,52 +1657,27 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       ? `${team.name} (${team.user_role})`
                       : team.name,
                     _id: team._id,
-                    disabled: !team.can_own_agents,
+                    disabled: team.can_own_agents === false,
                   }))}
+                ownerHelpText={
+                  <>
+                    Select a team you belong to as the owner. You manage this
+                    agent as its creator; team members can use it; team admins
+                    can manage it.
+                  </>
+                }
                 shareHelpText={
                   <>
-                    Select which teams can access this agent. Each selected
-                    team gets <code>can_use</code> and <code>can_write</code> on
-                    the agent in OpenFGA, so every member can edit it, DM it,
-                    and use it in any Slack channel or Webex space mapped to
-                    that team.
+                    Select which additional teams can access this agent. Members
+                    of a shared team can DM it and use it in any Slack channel or
+                    Webex space mapped to that team. Team admins can manage shared
+                    agents.
                   </>
-                }
-                renderGrantDetail={(slug) => (
-                  <>
-                    every member of <code>team:{slug}</code> can edit this
-                    agent, DM it in a 1:1 chat, and use it in any Slack channel
-                    or Webex space that is mapped to <code>team:{slug}</code>.
-                  </>
-                )}
-                extraGrantPreviewItems={
-                  isPlatformDefault
-                    ? [
-                        {
-                          id: "platform-default-user-wildcard",
-                          line: (
-                            <>
-                              <code>user:*</code> can use this agent (platform
-                              default)
-                            </>
-                          ),
-                          detail: (
-                            <>
-                              Every signed-in user can use this agent while it
-                              remains the platform default for new chats in Admin
-                              → Settings. This is the <code>user:* user agent</code>{" "}
-                              OpenFGA grant, in addition to any team shares below.
-                            </>
-                          ),
-                        },
-                      ]
-                    : undefined
                 }
                 ownerExtra={
-                  !isEditing &&
-                  availableTeams.every((team) => !team.can_own_agents) ? (
+                  !isEditing && availableTeams.length === 0 ? (
                     <p className="text-xs text-destructive">
-                      You need to be a platform admin or a team admin to create a team-owned agent.
+                      You must belong to at least one team to create a team-owned agent.
                     </p>
                   ) : null
                 }
@@ -1685,23 +1724,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     {visibility === "global" && (
                       <div
                         role="note"
-                        aria-label="Global visibility OpenFGA grant"
-                        className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+                        aria-label="Global visibility summary"
+                        className="space-y-1 rounded-lg border bg-muted/30 p-3 text-xs"
                         data-testid="global-visibility-grant-preview"
                       >
-                        <div className="mb-2 font-medium">
-                          On save, this OpenFGA grant will be written:
+                        <div className="font-medium text-foreground">
+                          Everyone can use this agent
+                          {isPlatformDefault ? " (it is also the platform default)" : ""}.
                         </div>
-                        <ul className="space-y-1.5">
-                          <li>
-                            <code>user:*</code> can use this agent
-                            {isPlatformDefault ? " (global + platform default)" : " (global visibility)"}
-                            <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
-                              Every signed-in user receives <code>can_use</code> on
-                              this agent via the <code>user:* user agent</code> tuple.
-                            </span>
-                          </li>
-                        </ul>
+                        <p className="text-muted-foreground">
+                          When you save, every signed-in user will be able to chat
+                          with this agent. Owner-team admins still manage it.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1936,8 +1970,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
                 <p className="text-sm text-muted-foreground">
                   Define your agent&apos;s behavior, personality, and capabilities.
-                  You can paste content from an AGENTS.md file here.
                 </p>
+
+                {blockingMessage && (
+                  <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                    <p className="text-sm text-destructive">{blockingMessage}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2033,8 +2072,22 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
           {/* Error */}
           {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+            <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 space-y-2">
               <p className="text-sm text-destructive">{error}</p>
+              {transferNeedsServerConfirm && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={loading}
+                  onClick={() => {
+                    setTransferConfirmedNotMember(true);
+                    void handleSubmit(undefined, { forceConfirmNotMember: true });
+                  }}
+                >
+                  Confirm Transfer
+                </Button>
+              )}
             </div>
           )}
           </fieldset>

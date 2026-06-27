@@ -9,6 +9,7 @@ Covers:
   - Non-DM channel → chat_postEphemeral (UX-2)
   - Rate-limiting (cooldown still active → no nudge)
   - Non-relevant rbac_status values → no-op, returns True
+  - is_explicit_invocation=False → nudges suppressed for passive channel posts
 
 Importable without slack_sdk: apply_unlinked_fallback lives in
 utils/unlinked_fallback.py which has no slack_bolt dependency.
@@ -114,6 +115,7 @@ class TestMintSuccess:
                 last_sent=0.0,
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         assert result is True
@@ -133,6 +135,7 @@ class TestMintSuccess:
                 last_sent=0.0,
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         ctx["client"].chat_postEphemeral.assert_called_once()
@@ -155,6 +158,7 @@ class TestMintSuccess:
                 last_sent=0.0,
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         ctx["client"].chat_postMessage.assert_called_once()
@@ -176,6 +180,7 @@ class TestMintSuccess:
                 last_sent=0.0,
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         ctx["client"].chat_postEphemeral.assert_called_once()
@@ -197,6 +202,7 @@ class TestMintSuccess:
                 last_sent=now - 10,  # 10s ago, well within 3600s cooldown
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         assert result is True
@@ -219,6 +225,7 @@ class TestMintSuccess:
                 last_sent=0.0,
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         assert result is True
@@ -271,7 +278,7 @@ class TestMintFailure:
         assert "obo_token" not in ctx
 
     def test_mint_none_sends_stop_nudge(self) -> None:
-        """When SA unavailable, nudge is sent (not suppressed)."""
+        """When SA unavailable and explicitly invoked, nudge is sent."""
         ctx = _make_context()
         _run(
             apply_unlinked_fallback(
@@ -284,6 +291,7 @@ class TestMintFailure:
                 last_sent=0.0,
                 linking_prompt_cooldown=3600.0,
                 is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
             )
         )
         ctx["client"].chat_postEphemeral.assert_called_once()
@@ -307,3 +315,75 @@ class TestMintFailure:
         )
         assert result is False
         ctx["client"].chat_postEphemeral.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Passive channel posts (is_explicit_invocation=False)
+# ---------------------------------------------------------------------------
+
+
+class TestPassiveChannelPosts:
+    """Nudges must be suppressed when the user did not address the bot."""
+
+    def test_passive_mint_success_no_nudge_but_proceeds(self) -> None:
+        """Passive message + token acquired → proceed silently, no nudge."""
+        ctx = _make_context()
+        result = _run(
+            apply_unlinked_fallback(
+                rbac_status="unlinked",
+                slack_user_id=_SLACK_USER,
+                channel=_CHANNEL,
+                context=ctx,
+                mint_fn=_mint_ok,
+                linking_url_fn=_linking_url,
+                last_sent=0.0,
+                linking_prompt_cooldown=3600.0,
+                is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=False,
+            )
+        )
+        assert result is True
+        assert ctx["obo_token"] == _UNLINKED_TOKEN
+        assert ctx["unlinked_fallback"] is True
+        ctx["client"].chat_postEphemeral.assert_not_called()
+        ctx["client"].chat_postMessage.assert_not_called()
+
+    def test_passive_mint_none_no_nudge_aborts(self) -> None:
+        """Passive message + SA unavailable → ABORT silently, no nudge."""
+        ctx = _make_context()
+        result = _run(
+            apply_unlinked_fallback(
+                rbac_status="unlinked",
+                slack_user_id=_SLACK_USER,
+                channel=_CHANNEL,
+                context=ctx,
+                mint_fn=_mint_none,
+                linking_url_fn=_linking_url,
+                last_sent=0.0,
+                linking_prompt_cooldown=3600.0,
+                is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=False,
+            )
+        )
+        assert result is False
+        ctx["client"].chat_postEphemeral.assert_not_called()
+        ctx["client"].chat_postMessage.assert_not_called()
+
+    def test_explicit_mention_sends_nudge(self) -> None:
+        """Explicit @mention → nudge IS sent (default / explicit True)."""
+        ctx = _make_context()
+        _run(
+            apply_unlinked_fallback(
+                rbac_status="unlinked",
+                slack_user_id=_SLACK_USER,
+                channel=_CHANNEL,
+                context=ctx,
+                mint_fn=_mint_ok,
+                linking_url_fn=_linking_url,
+                last_sent=0.0,
+                linking_prompt_cooldown=3600.0,
+                is_dm_channel_fn=_is_dm,
+                is_explicit_invocation=True,
+            )
+        )
+        ctx["client"].chat_postEphemeral.assert_called_once()

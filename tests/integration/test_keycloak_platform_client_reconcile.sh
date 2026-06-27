@@ -17,7 +17,7 @@
 #   4. Runs init-idp.sh a SECOND time with the same value to assert
 #      idempotency.
 #   5. Mints a client_credentials access token using the new secret to
-#      prove the supervisor's runtime flow still works after rotation.
+#      prove the platform client flow still works after rotation.
 #   6. Mints a client_credentials access token using the OLD placeholder
 #      to prove it is now rejected (invalid_client).
 #

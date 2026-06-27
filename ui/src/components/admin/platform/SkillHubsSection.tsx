@@ -430,13 +430,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   };
 
   const handleRefresh = async () => {
-    if (isAdmin) {
-      try {
-        await fetch("/api/skills/refresh", { method: "POST" });
-      } catch {
-        /* best-effort — backend may be unavailable */
-      }
-    }
     try {
       await fetch("/api/skills?include_content=false");
     } catch {}

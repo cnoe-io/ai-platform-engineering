@@ -38,12 +38,14 @@ Every Python subpackage with its own `pyproject.toml` ships a committed `uv.lock
 
 | Component | Lock file |
 |-----------|-----------|
-| Supervisor agent | `uv.lock` (repo root) |
+| Dynamic Agents | `ai_platform_engineering/dynamic_agents/uv.lock` |
 | RAG server | `ai_platform_engineering/knowledge_bases/rag/server/uv.lock` |
 | RAG ingestors | `ai_platform_engineering/knowledge_bases/rag/ingestors/uv.lock` |
 | RAG common | `ai_platform_engineering/knowledge_bases/rag/common/uv.lock` |
 | RAG ontology agent | `ai_platform_engineering/knowledge_bases/rag/agent_ontology/uv.lock` |
-| Each A2A/MCP agent | `ai_platform_engineering/agents/<name>/{a2a,mcp}/uv.lock` |
+| MCP servers | `ai_platform_engineering/mcp/<name>/uv.lock` |
+| Bot integrations | `ai_platform_engineering/integrations/<name>_bot/uv.lock` |
+| Shared utilities | `ai_platform_engineering/utils/uv.lock` |
 
 **Enforcement:** The [`uv-lock-check`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/uv-lock-check.yml) CI gate runs `scripts/check_uv_lock_sync.sh` on every PR and `main` push. It re-runs `uv lock --check` across all subpackages and fails if any lock file is out of sync with its `pyproject.toml`.
 
@@ -82,7 +84,7 @@ Runs on every version tag push (e.g., `0.2.3`) and via `workflow_dispatch`. Scan
 | `fail-build` | `false` | Informational — results visible in Security tab, do not block tagging |
 | `output-format` | `sarif` | Uploaded to Code Scanning per image for independent tracking |
 
-Container images scanned include all A2A sub-agents, MCP servers, the supervisor, UI, RAG components, and bots. Each image gets its own SARIF category (e.g., `grype-agent-github`, `grype-caipe-ui`) for independent tracking in GitHub Code Scanning.
+Container images scanned include Dynamic Agents, MCP servers, the UI, RAG components, support services, and bots. Each image gets its own SARIF category (for example, `grype-mcp-argocd` or `grype-caipe-ui`) for independent tracking in GitHub Code Scanning.
 
 ### Trigger matrix
 
@@ -99,7 +101,7 @@ GitHub's CodeQL engine runs on every PR and `main` push, covering all four langu
 
 | Language | Scope |
 |----------|-------|
-| `python` | Supervisor agent, sub-agents, MCP servers, RAG stack |
+| `python` | Dynamic Agents, MCP servers, RAG stack, bot integrations, support services |
 | `javascript-typescript` | CAIPE UI (Next.js / React), bot frontends |
 | `go` | Go-based tooling and utilities |
 | `actions` | GitHub Actions workflow files |

@@ -63,7 +63,7 @@ jobs:
 
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
@@ -71,9 +71,10 @@ jobs:
       - name: Check build eligibility
         id: eligibility
         shell: bash
+        env:
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             BASE="$BASE_SHA"
@@ -103,10 +104,11 @@ jobs:
         if: steps.eligibility.outputs.should_build == 'true'
         id: compute_tag
         shell: bash
+        env:
+          BRANCH: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
         run: |
-          BRANCH="${{ inputs.head_ref || github.head_ref }}"
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"

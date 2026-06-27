@@ -8,7 +8,14 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
+import {
+createJsonResponseCacheStore,
+envTtlMs,
+withJsonResponseCache,
+} from '@/lib/server-response-cache';
 import { NextRequest,NextResponse } from 'next/server';
+
+const adminStatsCache = createJsonResponseCacheStore();
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
 function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {
@@ -56,6 +63,13 @@ function andInto(target: Record<string, unknown>, clause: Record<string, unknown
 
 // GET /api/admin/stats
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  return withJsonResponseCache(request, adminStatsCache, () => getAdminStats(request), {
+    ttlMs: envTtlMs('ADMIN_STATS_CACHE_TTL_MS', 15_000),
+    maxEntries: 512,
+  });
+});
+
+async function getAdminStats(request: NextRequest) {
   if (!isMongoDBConfigured) {
     return NextResponse.json(
       {
@@ -273,8 +287,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           const sharedFilter: Record<string, unknown> = { ...convSourceFilter };
           andInto(sharedFilter, {
             $or: [
-              { 'sharing.is_public': true },
               { 'sharing.shared_with.0': { $exists: true } },
+              { 'sharing.shared_with_teams.0': { $exists: true } },
               { 'sharing.share_link_enabled': true },
             ],
           });
@@ -289,7 +303,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // ═══════════════════════════════════════════════════════════════
     // PARALLEL BATCH — all independent aggregations in one shot
     // ═══════════════════════════════════════════════════════════════
-    const feedbackColl = await getCollection('feedback');
+    const feedbackColl = await getCollection('feedback'); // collection ref is instant; fetch inside the batch below
 
     const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
     if (sourceFilter === 'web') fbFilter.source = 'web';
@@ -890,4 +904,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...(slack ? { slack } : {}),
       available_channels: availableChannels.sort(),
     });
-});
+}

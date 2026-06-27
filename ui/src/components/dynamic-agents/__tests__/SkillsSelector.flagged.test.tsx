@@ -4,9 +4,8 @@
  * The agent-builder picker (Step 4 of the custom-agents wizard)
  * historically dropped `scan_status` when projecting CatalogSkill →
  * AgentSkill, which let users attach flagged skills to their custom
- * agents. The agent would then fail to load those skills at runtime
- * because the supervisor's scan_gate enforces the same rule. These
- * tests pin the picker behavior so the leak doesn't regress:
+ * agents. Runtime execution enforces the same scan gate, so these tests
+ * pin the picker behavior before the user can attach a blocked skill:
  *
  *   1. Catalog responses with `scan_status: "flagged"` are surfaced as
  *      disabled rows -- visible (so admins know they exist) but

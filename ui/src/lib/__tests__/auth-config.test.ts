@@ -3,6 +3,17 @@
  * Tests OIDC configuration, token refresh, and group authorization
  */
 
+// Mock the token store so tests don't require a MongoDB/ESM environment.
+// Provides a simple in-memory Map that behaves identically to the real L1 path.
+const _mockTokenStore = new Map<string, import('../auth-token-store').StoredTokens>()
+jest.mock('../auth-token-store', () => ({
+  getStoredTokens: jest.fn(async (sub: string | undefined) => _mockTokenStore.get(sub ?? '') ?? undefined),
+  storeTokens: jest.fn(async (sub: string | undefined, tokens: import('../auth-token-store').StoredTokens) => {
+    if (sub) _mockTokenStore.set(sub, tokens)
+  }),
+  resetTokenStore: jest.fn(() => { _mockTokenStore.clear() }),
+}))
+
 // Mock jose so we can control decodeJwt in group re-evaluation tests
 jest.mock('jose', () => ({
   decodeJwt: jest.fn(),

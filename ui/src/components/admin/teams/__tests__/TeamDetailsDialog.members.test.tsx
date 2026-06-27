@@ -35,50 +35,60 @@ function jsonResponse(payload: unknown): Response {
   } as Response;
 }
 
+// Build a paginated members payload mirroring GET /api/admin/teams/[id]/members.
+function membersPayload(
+  members: Array<{
+    user_email: string;
+    role: "owner" | "admin" | "member";
+    source_types?: string[];
+    idp_managed?: boolean;
+  }>,
+): Response {
+  return jsonResponse({
+    success: true,
+    data: {
+      members: members.map((m) => ({
+        identity_key: m.user_email,
+        user_email: m.user_email,
+        role: m.role,
+        source_types: m.source_types ?? ["manual"],
+        idp_managed: m.idp_managed ?? false,
+        added_at: "2026-01-02T00:00:00.000Z",
+      })),
+      total: members.length,
+      page: 1,
+      page_size: 25,
+      has_more: false,
+    },
+  });
+}
+
+function isMembersGet(url: string, init?: RequestInit): boolean {
+  return (
+    url.startsWith("/api/admin/teams/team-1/members") &&
+    (!init?.method || init.method === "GET")
+  );
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
 });
 
-it("renders active canonical membership sources when embedded team members are empty", async () => {
-  const teamWithoutEmbeddedMembers: Team = {
-    ...baseTeam,
-    members: [],
-    membership_sources: [
-      {
-        team_id: "team-1",
-        team_slug: "platform",
-        user_email: "alice@example.com",
-        relationship: "member",
-        source_type: "active_directory",
-        managed: true,
-        status: "active",
-        created_at: "2026-01-02T00:00:00.000Z",
-      },
-    ],
-  };
-
-  fetchMock.mockImplementation(async (url: string) => {
-    if (url === "/api/admin/identity-group-sync/teams/team-1/membership-sources") {
-      return jsonResponse({
-        success: true,
-        data: {
-          sources: teamWithoutEmbeddedMembers.membership_sources,
-        },
-      });
+it("renders members from the paginated members endpoint", async () => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (isMembersGet(url, init)) {
+      return membersPayload([
+        { user_email: "alice@example.com", role: "member", source_types: ["active_directory"], idp_managed: true },
+      ]);
     }
-    return jsonResponse({
-      success: true,
-      data: {
-        team: teamWithoutEmbeddedMembers,
-        membership_sources: teamWithoutEmbeddedMembers.membership_sources,
-      },
-    });
+    // Team detail (OpenFGA diagnostic) — harmless empty.
+    return jsonResponse({ success: true, data: { team: baseTeam } });
   });
 
   render(
     <TeamDetailsDialog
-      team={teamWithoutEmbeddedMembers}
+      team={baseTeam}
       mode="members"
       open
       onOpenChange={jest.fn()}
@@ -95,23 +105,24 @@ it("calls onTeamMutated (not onTeamUpdated) when a member is added", async () =>
   const onTeamMutated = jest.fn();
   const onTeamUpdated = jest.fn();
 
-  // Server returns the patched team document.
-  const updatedTeam: Team = {
-    ...baseTeam,
-    members: [
-      ...baseTeam.members,
-      {
-        user_id: "bob@example.com",
-        role: "member",
-        added_at: new Date("2026-01-03"),
-      },
-    ],
-  };
+  const updatedTeam: Team = { ...baseTeam };
+  let added = false;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/admin/teams/team-1/members" && init?.method === "POST") {
+      added = true;
       return jsonResponse({ success: true, data: { team: updatedTeam } });
     }
-    // Secondary background hydrate calls (refreshTeam) — return harmless empties.
+    if (isMembersGet(url, init)) {
+      // Bob shows up once the add has gone through.
+      return membersPayload(
+        added
+          ? [
+              { user_email: "alice@example.com", role: "member" },
+              { user_email: "bob@example.com", role: "member" },
+            ]
+          : [{ user_email: "alice@example.com", role: "member" }],
+      );
+    }
     return jsonResponse({ success: true, data: { team: updatedTeam } });
   });
 
@@ -156,16 +167,21 @@ it("shows an inline confirm row instead of window.confirm when removing a member
   const onTeamMutated = jest.fn();
   const onTeamUpdated = jest.fn();
 
-  const updatedTeam: Team = {
-    ...baseTeam,
-    members: baseTeam.members.filter((m) => m.user_id !== "alice@example.com"),
-  };
+  const updatedTeam: Team = { ...baseTeam };
+  let removed = false;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (
       url.startsWith("/api/admin/teams/team-1/members") &&
       init?.method === "DELETE"
     ) {
+      removed = true;
       return jsonResponse({ success: true, data: { team: updatedTeam } });
+    }
+    if (isMembersGet(url, init)) {
+      // After the delete, the server no longer returns alice.
+      return membersPayload(
+        removed ? [] : [{ user_email: "alice@example.com", role: "member" }],
+      );
     }
     return jsonResponse({ success: true, data: { team: updatedTeam } });
   });
@@ -191,7 +207,7 @@ it("shows an inline confirm row instead of window.confirm when removing a member
   );
 
   // First click: stages the inline confirm row, does NOT fire the API.
-  const removeButton = screen.getByRole("button", {
+  const removeButton = await screen.findByRole("button", {
     name: /^Remove alice@example.com$/i,
   });
   fireEvent.click(removeButton);
@@ -237,9 +253,14 @@ it("cancels the inline confirm row without calling the API", async () => {
   const onTeamMutated = jest.fn();
   const onTeamUpdated = jest.fn();
 
-  fetchMock.mockImplementation(async () =>
-    jsonResponse({ success: true, data: {} }),
-  );
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (isMembersGet(url, init)) {
+      return membersPayload([
+        { user_email: "alice@example.com", role: "member" },
+      ]);
+    }
+    return jsonResponse({ success: true, data: {} });
+  });
 
   render(
     <TeamDetailsDialog
@@ -253,7 +274,7 @@ it("cancels the inline confirm row without calling the API", async () => {
   );
 
   fireEvent.click(
-    screen.getByRole("button", { name: /^Remove alice@example.com$/i }),
+    await screen.findByRole("button", { name: /^Remove alice@example.com$/i }),
   );
 
   // Confirm row visible.
@@ -293,20 +314,15 @@ it("cancels the inline confirm row without calling the API", async () => {
 it("falls back to onTeamUpdated when onTeamMutated is not provided (legacy behaviour)", async () => {
   const onTeamUpdated = jest.fn();
 
-  const updatedTeam: Team = {
-    ...baseTeam,
-    members: [
-      ...baseTeam.members,
-      {
-        user_id: "charlie@example.com",
-        role: "member",
-        added_at: new Date("2026-01-04"),
-      },
-    ],
-  };
+  const updatedTeam: Team = { ...baseTeam };
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/admin/teams/team-1/members" && init?.method === "POST") {
       return jsonResponse({ success: true, data: { team: updatedTeam } });
+    }
+    if (isMembersGet(url, init)) {
+      return membersPayload([
+        { user_email: "alice@example.com", role: "member" },
+      ]);
     }
     return jsonResponse({ success: true, data: { team: updatedTeam } });
   });

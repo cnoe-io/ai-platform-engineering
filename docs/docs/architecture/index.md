@@ -4,55 +4,73 @@ sidebar_position: 1
 
 # Solution Architecture
 
-CAIPE (Community AI Platform Engineering) Architecture evolution
+CAIPE (Community AI Platform Engineering) uses Dynamic Agents as the default agent runtime.
+Users interact through the web UI, Backstage, bots, or API clients; the UI/BFF proxies requests to
+Dynamic Agents, and Dynamic Agents call MCP tools through AgentGateway with Keycloak/OpenFGA
+authorization.
 
-1. **Simple ReAct Agent**
-   ![Simple ReAct Agent](images/1_react_agent.svg)
-   *Our journey began with a simple ReAct agent. It could reason about a task and take the right action to deliver an outcome end-to-end. This was our seed — a proof point that agents could reliably support platform operations with a focused persona.*
+![Solution Architecture](images/6_solution_architecture.svg)
 
-2. **Tooling Up: Agent + MCP Tools**
-   ![Image 2](images/2_agent_using_mcp_tools.svg)
-   *We then added more Platform Services like ArgoCD, GitHub, Jira, and Kubernetes, connected via the MCP protocol. This empowered the agent to create pull requests, manage tickets, trigger deployments, and interact directly with the platform ecosystem.*
+## Runtime Flow
 
-3. **Orchestration: Supervisor Agent**
-   ![Image 3](images/3_mas_multi_agent_system.svg)
-   *As requirements expanded, a single agent was no longer sufficient. We introduced a supervisor agent to coordinate multiple specialized sub-agents. This orchestration gave rise to a CAIPE Multi-Agent System, where the supervisor agent could plan, delegate, and integrate results into consistent workflows.*
-
-4. **Distributed Agents: Hierarchical Supervisor over A2A**
-   ![Image 4](images/4_caipe-a2a-peer-to-peer.svg)
-   *To support scale and resilience, we distributed sub-agents and enabled agent-to-agent communication through the A2A protocol. This created a hierarchical structure of distributed sub-agents, able to securely exchange tasks across environments and adapt to organizational needs.*
-
-5. **Enterprise CAIPE: Gateway Transport + OAuth Agent Identity**
-   ![Image 5](images/5_caipe-architecture-a2a-over-gateway.svg)
-   *We adopted Gateway (SLIM/Agentgateway) as the transport between agents, and introduced OAuth based Agent Identity to enforce Authentication and Authorization.*
-
-6. **Enterprise CAIPE: Advanced Integrations**
-   ![Image 6](images/6_solution_architecture.svg)
-   *Along with distributed tracing, policy enforcement, knowledge retrieval, and integration with Backstage, and use in Visual Studio Code, CAIPE became a secure, scalable, open-source reference system for platform engineering teams.*
+1. **Client request**
+   Users send chat, skill, or admin requests through a supported client.
+2. **BFF and identity boundary**
+   The CAIPE UI/BFF validates session context, forwards user tokens, and applies route-level RBAC.
+3. **Dynamic Agents runtime**
+   Dynamic Agents loads the selected agent profile, prompt, model, skills, and allowed MCP tools.
+4. **Tool access**
+   AgentGateway validates MCP calls and delegates authorization to OpenFGA-backed policies.
+5. **Knowledge and integrations**
+   RAG, MCP servers, and downstream SaaS/platform APIs execute with scoped user or service credentials.
+6. **Observability and governance**
+   Audit logs, metrics, tracing, and admin controls cover runtime activity and tool access.
 
 ---
 
-## Sub-Agent Architecture
+## Request Path
 
 ```mermaid
 flowchart TD
-  subgraph Client Layer
-    A[User Client A2A]
-  end
-  subgraph Agent Transport Layer
-    B[Google A2A]
-  end
-  subgraph Agent Graph Layer
-    C[LangGraph ReAct Agent]
-  end
-  subgraph Tools Layer
-    D[LangChain MCP Adapter]
-    E[ArgoCD MCP Server]
-    F[ArgoCD API Server]
+  subgraph Clients
+    A[Web UI]
+    B[Backstage]
+    C[Slack / Webex]
+    D[API Clients]
   end
 
-  A --> B --> C --> D --> E --> F
-  F --> E --> D --> C --> B --> A
+  subgraph CAIPE
+    E[CAIPE UI / BFF]
+    F[Dynamic Agents Runtime]
+    G[Skills Catalog]
+    H[Audit / Metrics]
+  end
+
+  subgraph Security
+    I[Keycloak]
+    J[OpenFGA]
+    K[AgentGateway]
+  end
+
+  subgraph ToolsAndData["Tools and Data"]
+    L[MCP Servers]
+    M[RAG]
+    N[Downstream APIs]
+  end
+
+  A --> E
+  B --> E
+  C --> E
+  D --> E
+  E --> F
+  E --> I
+  F --> G
+  F --> K
+  K --> J
+  K --> L
+  F --> M
+  L --> N
+  F --> H
 ```
 
 ---

@@ -209,6 +209,7 @@ charts/*/tmp/*
 ## Only allow svg
 *.png
 !ai_platform_engineering/knowledge_bases/rag/webui/src/assets/icons/*.png
+!docs/screenshots/*.png
 *.jpg
 *.jpeg
 
@@ -330,3 +331,4 @@ COMMIT_BODY.md
 
 # GitHub App credentials (never commit)
 .github-apps-credentials/
+reports/

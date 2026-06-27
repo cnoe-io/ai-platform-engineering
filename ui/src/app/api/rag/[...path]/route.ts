@@ -42,7 +42,7 @@ import { NextRequest,NextResponse } from 'next/server';
  * authoritative source (OIDC provider's userinfo endpoint).
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
+ *   /api/rag/healthz -> RAG_SERVER_URL/healthz (readiness probe, no Bearer token)
  *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  *
  * The Web UI backend enforces coarse RAG access before proxying and
@@ -316,7 +316,7 @@ async function requireMcpToolCallPermission(
 
   // Principal: an agent-initiated call carries `agent:<id>`; otherwise the
   // session user. The agent id is conveyed via the `X-Agent-Id` header set by
-  // the supervisor when proxying tool calls on an agent's behalf.
+  // the dynamic-agent runtime when proxying tool calls on an agent's behalf.
   const agentId = normalizeString(headers['X-Agent-Id'] ?? headers['x-agent-id']);
   const subject = normalizeString(session.sub);
   const principal = agentId ? `agent:${agentId}` : subject ? `user:${subject}` : null;
@@ -819,6 +819,16 @@ export async function GET(
     searchParams.forEach((value, key) => {
       targetUrl.searchParams.append(key, value);
     });
+
+    if (request.method === 'GET' && targetPath === 'healthz') {
+      // assisted-by Codex Codex-sonnet-4-6
+      // Health is a readiness probe, not a data operation. Keep KB/query/admin
+      // routes RBAC-gated, but let UI status checks verify that RAG is up even
+      // when the browser session has no downstream Keycloak access token.
+      const response = await fetch(targetUrl.toString(), { method: 'GET' });
+      const data = await response.json();
+      return NextResponse.json(data, { status: response.status });
+    }
 
     const { headers, session } = await getAuthorizedRagContext('GET', path, request);
     const response = await fetch(targetUrl.toString(), {

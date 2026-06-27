@@ -1,54 +1,29 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+
+// assisted-by claude code claude-sonnet-4-6
 
 import { CredentialsWorkspace } from "../CredentialsWorkspace";
 
-const replace = jest.fn();
-let searchParams = new URLSearchParams();
-
-jest.mock("next/navigation", () => ({
-  usePathname: () => "/credentials",
-  useRouter: () => ({ replace }),
-  useSearchParams: () => searchParams,
-}));
-
 jest.mock("../SecretsManager", () => ({
-  SecretsManager: () => <div>My Secrets content</div>,
+  SecretsManager: () => <div>Saved Secrets content</div>,
 }));
 
 jest.mock("../ProviderConnections", () => ({
-  ProviderConnections: () => <div>My Connections content</div>,
-}));
-
-jest.mock("../CredentialAuditPanel", () => ({
-  CredentialAuditPanel: () => <div>Credential Audit content</div>,
+  ProviderConnections: () => <div>Connected Apps content</div>,
 }));
 
 describe("CredentialsWorkspace", () => {
-  beforeEach(() => {
-    replace.mockClear();
-    searchParams = new URLSearchParams();
-  });
-
-  it("separates user secrets and connections into tabs", async () => {
-    const user = userEvent.setup();
+  it("renders secrets and connections in a single pane", () => {
     render(<CredentialsWorkspace />);
 
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["My Connections", "My Secrets"]);
-    expect(screen.getByText("My Connections content")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: /my secrets/i }));
-    expect(replace).toHaveBeenCalledWith("/credentials?tab=secrets", { scroll: false });
-    expect(screen.getByText("My Secrets content")).toBeInTheDocument();
+    expect(screen.getByText("Saved Secrets content")).toBeInTheDocument();
+    expect(screen.getByText("Connected Apps content")).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
-  it("opens the deep-linked secrets tab", () => {
-    searchParams = new URLSearchParams("tab=secrets");
-
+  it("renders the Credentials heading", () => {
     render(<CredentialsWorkspace />);
 
-    expect(screen.getByText("My Secrets content")).toBeInTheDocument();
-    expect(screen.queryByText("Credential Audit content")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /credentials/i })).toBeInTheDocument();
   });
 });

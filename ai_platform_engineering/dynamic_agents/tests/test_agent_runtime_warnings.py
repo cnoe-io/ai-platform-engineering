@@ -58,3 +58,24 @@ def test_events_mixed_keeps_classes_distinct():
     events = _mcp_warning_events(permanent=["github"], transient=["argocd"])
     assert any("will not work" in e and "github" in e for e in events)
     assert any("starting up" in e and "argocd" in e for e in events)
+
+
+def test_mcp_credential_connect_warning_copy():
+    from dynamic_agents.services.mcp_client import (
+        CALLER_PROVIDER_NOT_CONNECTED,
+        McpCredentialUnavailableError,
+        mcp_credential_connect_warning,
+    )
+
+    warning = mcp_credential_connect_warning(
+        McpCredentialUnavailableError(
+            "missing",
+            reason=CALLER_PROVIDER_NOT_CONNECTED,
+            provider="atlassian",
+            server_name="Jira",
+        )
+    )
+    assert warning == (
+        "Jira needs your Atlassian account connected. "
+        "[Connect Atlassian](/credentials?tab=connections) — then start a new chat."
+    )

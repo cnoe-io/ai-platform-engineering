@@ -121,13 +121,11 @@ jest.mock('@/lib/config', () => ({
     const enabledKeys = new Set([
       'ssoEnabled',
       'feedbackEnabled',
-      'npsEnabled',
       'ragEnabled',
       'auditEnabled',
     ]);
     return enabledKeys.has(key);
   },
-  getInternalA2AUrl: () => 'http://localhost:8000',
   getServerConfig: () => ({ auditLogsEnabled: true }),
 }));
 
@@ -166,7 +164,7 @@ interface MatrixExpectation {
 
 interface MatrixRoute {
   id: string;
-  surface: 'ui_bff' | 'supervisor' | 'mcp' | 'rag' | 'dynamic_agents' | 'slack_bot';
+  surface: 'ui_bff' | 'mcp' | 'rag' | 'dynamic_agents' | 'slack_bot' | 'webex_bot';
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   resource: string;

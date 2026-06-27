@@ -32,11 +32,10 @@ _ACTION_LABELS: dict[str, str] = {
     "rag#tool.delete": "delete RAG tools",
     "rag#kb.admin": "administer knowledge bases",
     "rag#query": "query knowledge bases",
-    "supervisor#invoke": "use the assistant",
+    "dynamic_agents#invoke": "use the assistant",
     "tool#invoke": "invoke tools",
     "mcp#invoke": "invoke MCP tools",
     "skill#invoke": "execute skills",
-    "a2a#create": "create agent tasks",
     "slack#invoke": "run this command",
 }
 

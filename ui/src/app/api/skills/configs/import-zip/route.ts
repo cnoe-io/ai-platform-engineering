@@ -62,7 +62,6 @@ import type { AgentSkill,ScanStatus } from "@/types/agent-skill";
  */
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
-const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
 /** 50 MB matches our MAX_TOTAL_UNCOMPRESSED_BYTES; raw upload cap. */
 const MAX_RAW_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -132,17 +131,6 @@ interface RunZipImportArgs {
   /** Concrete authorization hook for overwriting an existing skill. */
   canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
   grantTeamAccess?: (teamRefs: string[], skillIds: string[]) => Promise<void>;
-}
-
-function triggerSupervisorRefresh(): void {
-  if (!SUPERVISOR_URL) return;
-  const url = `${SUPERVISOR_URL}/skills/refresh?include_hubs=false`;
-  fetch(url, {
-    method: "POST",
-    signal: AbortSignal.timeout(30_000),
-  }).catch((err) => {
-    console.warn("[ImportZip] Background supervisor refresh failed:", err);
-  });
 }
 
 /**
@@ -695,10 +683,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         }
       },
     });
-
-    if (result.phase === "import") {
-      triggerSupervisorRefresh();
-    }
 
     return successResponse(result);
   });

@@ -100,6 +100,9 @@ interface CommonPickerProps {
    *  Use inside modal dialogs so focus traps keep the search input usable.
    */
   portalled?: boolean;
+  /** Popover placement relative to the trigger. Prefer `top` when the trigger
+   *  sits low on the page (e.g. MCP server editor) so the list is not clipped. */
+  contentSide?: "top" | "bottom";
 }
 
 // ---------------------------------------------------------------------------
@@ -134,11 +137,14 @@ export function TeamPicker({
   ariaDescribedBy,
   hideSlugSuffix = false,
   portalled = true,
+  contentSide = "bottom",
   toggleOnReselect = false,
   helperText,
 }: TeamPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
+  // Stable id so the combobox trigger can point aria-controls at its listbox.
+  const listboxId = React.useId();
 
   // Reset the search every time the popover closes so the next open
   // starts on the full list — admins don't expect a stale filter to
@@ -186,10 +192,18 @@ export function TeamPicker({
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
+      <div className="w-full min-w-0">
       <PopoverTrigger asChild>
         <button
           type="button"
           id={id}
+          // role=combobox so aria-invalid is honored by assistive tech — a
+          // plain button role silently drops it. Pair with the expanded/popup
+          // state so the searchable popover reads as a combobox listbox.
+          role="combobox"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
           aria-label={ariaLabel}
           aria-invalid={ariaInvalid || undefined}
           aria-describedby={ariaDescribedBy}
@@ -201,16 +215,24 @@ export function TeamPicker({
             triggerClassName,
           )}
         >
-          <div className="flex-1 min-w-0">
+          <div className="flex flex-1 min-w-0 items-center gap-2">
             {selected ? (
-              <span className="flex items-center gap-2">
-                <span className="truncate">{labelOf(selected)}</span>
+              <>
+                <span
+                  className="truncate"
+                  style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {labelOf(selected)}
+                </span>
                 {!hideSlugSuffix && (
-                  <code className="shrink-0 text-[10px] text-muted-foreground">
+                  <code
+                    className="truncate text-[10px] text-muted-foreground"
+                    style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     team:{selected.slug}
                   </code>
                 )}
-              </span>
+              </>
             ) : (
               <span className="text-muted-foreground">{placeholder}</span>
             )}
@@ -226,8 +248,10 @@ export function TeamPicker({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
+      </div>
       <PopoverContent
         align="start"
+        side={contentSide}
         className={cn("w-[min(360px,90vw)] p-0", contentClassName)}
         portalled={portalled}
       >
@@ -248,6 +272,7 @@ export function TeamPicker({
           </div>
         )}
         <div
+          id={listboxId}
           className="max-h-[260px] overflow-y-auto py-1"
           role="listbox"
           aria-label={ariaLabel || placeholder}
@@ -281,11 +306,17 @@ export function TeamPicker({
                     )}
                     aria-hidden="true"
                   />
-                  <span className="flex-1 min-w-0 truncate">
+                  <span
+                    className="truncate"
+                    style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     {labelOf(option)}
                   </span>
                   {!hideSlugSuffix && (
-                    <code className="shrink-0 text-[10px] text-muted-foreground">
+                    <code
+                      className="truncate text-[10px] text-muted-foreground"
+                      style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
                       team:{option.slug}
                     </code>
                   )}
@@ -585,9 +616,17 @@ function OptionRow({
           <Check className="h-3 w-3 text-primary-foreground" aria-hidden="true" />
         )}
       </span>
-      <span className="flex-1 min-w-0 truncate">{labelOf(option)}</span>
+      <span
+        className="truncate"
+        style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+      >
+        {labelOf(option)}
+      </span>
       {!hideSlugSuffix && (
-        <code className="shrink-0 text-[10px] text-muted-foreground">
+        <code
+          className="truncate text-[10px] text-muted-foreground"
+          style={{ flexShrink: 9999, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
           team:{option.slug}
         </code>
       )}

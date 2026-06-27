@@ -29,6 +29,12 @@ export interface Team {
   updated_at: Date;
   members: TeamMember[];
   membership_sources?: TeamMembershipSource[];
+  /**
+   * Distinct active member count, decorated by GET /api/admin/teams from the
+   * canonical `team_membership_sources` store. Optional because locally-built
+   * Team objects (pre server round-trip) won't have it.
+   */
+  member_count?: number;
   keycloak_roles?: string[];
   /**
    * Optional Baseline FGA profile overrides. When present, login and admin

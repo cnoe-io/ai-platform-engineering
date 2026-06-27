@@ -42,6 +42,14 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       target: "header",
     },
   ],
+  confluence: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "atlassian",
+      target: "header",
+    },
+  ],
   pagerduty: [
     {
       kind: "provider_connection",
@@ -246,7 +254,7 @@ export function toAgentGatewayMcpServerDocument(
     transport: "http",
     endpoint: target.endpoint,
     enabled: true,
-    config_driven: true,
+    config_driven: false,
     // Attach the built-in credential sources for transform-based routes so the
     // Dynamic Agents probe/runtime forward a usable upstream token (e.g. the
     // caller JWT for knowledge-base/RAG). Without this the gateway emits an

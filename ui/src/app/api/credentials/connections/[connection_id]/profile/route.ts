@@ -7,6 +7,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
+import { buildProviderProfileSummary } from "@/lib/credentials/provider-connection-summary";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
 type Provider = "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
@@ -279,10 +280,8 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   }
 
   const service = await getProviderConnectionService();
-  const connection = (await service.listConnections({ type: "user", id: ownerId })).find(
-    (candidate) => candidate.id === connectionId,
-  );
-  if (!connection) {
+  const connection = await service.getConnection(connectionId);
+  if (connection.owner.type !== "user" || connection.owner.id !== ownerId) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
   if (!["github", "atlassian", "webex", "pagerduty", "gitlab"].includes(connection.provider)) {
@@ -322,6 +321,12 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
           safeAtlassianResource(resource as Record<string, unknown>),
         );
         diagnostics.push(atlassianResourcesDiagnostic(accessibleResources));
+        await persistConnectionProfileSummary({
+          connectionId,
+          ownerId,
+          provider,
+          accessibleResources,
+        });
         return successResponse({
           provider,
           ok: true,
@@ -352,11 +357,33 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
       diagnostics.push(scopeDiagnostic);
     }
   }
+  const profile = safeProfile(provider, profilePayload);
+  let accessibleResources: Array<Record<string, unknown>> | undefined;
+  if (provider === "atlassian") {
+    const resourcesResponse = await fetch(atlassianAccessibleResourcesEndpoint(), {
+      headers: profileHeaders(provider, token.accessToken),
+    });
+    const resourcesPayload = await resourcesResponse.json().catch(() => []);
+    if (resourcesResponse.ok && Array.isArray(resourcesPayload)) {
+      accessibleResources = resourcesPayload.map((resource) =>
+        safeAtlassianResource(resource as Record<string, unknown>),
+      );
+      diagnostics.push(atlassianResourcesDiagnostic(accessibleResources));
+    }
+  }
+  await persistConnectionProfileSummary({
+    connectionId,
+    ownerId,
+    provider,
+    profile,
+    accessibleResources,
+  });
   return successResponse({
     provider,
     ok: true,
     checked_at: new Date().toISOString(),
-    profile: safeProfile(provider, profilePayload),
+    profile,
+    ...(accessibleResources ? { accessible_resources: accessibleResources } : {}),
     diagnostics,
     next_action: "No action needed.",
   });
@@ -370,6 +397,27 @@ function safeAtlassianResource(payload: Record<string, unknown>): Record<string,
     scopes: Array.isArray(payload.scopes) ? payload.scopes.map(String) : undefined,
     avatarUrl: payload.avatarUrl,
   };
+}
+
+async function persistConnectionProfileSummary(input: {
+  connectionId: string;
+  ownerId: string;
+  provider: Provider;
+  profile?: Record<string, unknown>;
+  accessibleResources?: Array<Record<string, unknown>>;
+}): Promise<void> {
+  const profileSummary = buildProviderProfileSummary(
+    input.provider,
+    input.profile,
+    input.accessibleResources,
+  );
+  if (!profileSummary) return;
+  const service = await getProviderConnectionService();
+  await service.updateConnectionProfileSummary({
+    connectionId: input.connectionId,
+    owner: { type: "user", id: input.ownerId },
+    profileSummary,
+  });
 }
 
 function summarizeAtlassianResources(resources: Array<Record<string, unknown>>): string {

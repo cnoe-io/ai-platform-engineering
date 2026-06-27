@@ -16,10 +16,9 @@ from pathlib import Path
 
 
 PARENT_EXPECTED_IMAGE_NAMES = (
-    "ai-platform-engineering",
-    "agent-argocd",
     "mcp-argocd",
     "caipe-ui",
+    "caipe-audit-service",
     "caipe-dynamic-agents",
     "caipe-slack-bot",
     "caipe-webex-bot",
@@ -35,6 +34,8 @@ RAG_EXPECTED_IMAGE_NAMES = (
 )
 
 
+# mcp-argocd is rendered by `tags.basic=true`, so it is covered by
+# PARENT_HELM_ARGS and validated under PARENT_EXPECTED_IMAGE_NAMES.
 PARENT_HELM_ARGS = (
     "--set",
     "tags.basic=true",
@@ -85,6 +86,27 @@ def render_chart(chart: Path, helm_args: tuple[str, ...], *extra_args: str) -> s
         stderr=subprocess.PIPE,
     )
     return result.stdout
+
+
+def chart_app_version(chart: Path) -> str:
+    chart_yaml = chart / "Chart.yaml"
+    for line in chart_yaml.read_text().splitlines():
+        if line.startswith("appVersion:"):
+            return line.split(":", 1)[1].split("#", 1)[0].strip().strip('"')
+    raise ValueError(f"appVersion not found in {chart_yaml}")
+
+
+def default_image_prefix(chart: Path) -> str:
+    app_version = chart_app_version(chart)
+    if re.search(r"(?:^|[-.])(dev|rc|hotfix)(?:[-.]|$)", app_version):
+        return "ghcr.io/cnoe-io/pre-release"
+    return "ghcr.io/cnoe-io"
+
+
+def opposite_image_prefix(prefix: str) -> str:
+    if prefix == "ghcr.io/cnoe-io":
+        return "ghcr.io/cnoe-io/pre-release"
+    return "ghcr.io/cnoe-io"
 
 
 def rendered_images(manifest: str) -> set[str]:
@@ -151,23 +173,25 @@ def main() -> int:
     default_rag_images = render_rag_subcharts(args.rag_chart)
     auto_rag_images = render_rag_subcharts(args.rag_chart, "--set", "global.image.channel=auto")
     release_rag_images = render_rag_subcharts(args.rag_chart, "--set", "global.image.channel=release")
+    default_prefix = default_image_prefix(args.chart)
+    forbidden_default_prefix = opposite_image_prefix(default_prefix)
 
     missing_default = require_images(
         default_images,
-        "ghcr.io/cnoe-io/pre-release",
+        default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + require_images(
         default_rag_images,
-        "ghcr.io/cnoe-io/pre-release",
+        default_prefix,
         RAG_EXPECTED_IMAGE_NAMES,
     )
     missing_auto = require_images(
         auto_images,
-        "ghcr.io/cnoe-io/pre-release",
+        default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + require_images(
         auto_rag_images,
-        "ghcr.io/cnoe-io/pre-release",
+        default_prefix,
         RAG_EXPECTED_IMAGE_NAMES,
     )
     missing_release = require_images(
@@ -181,20 +205,20 @@ def main() -> int:
     )
     forbidden_default = forbid_images(
         default_images,
-        "ghcr.io/cnoe-io",
+        forbidden_default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + forbid_images(
         default_rag_images,
-        "ghcr.io/cnoe-io",
+        forbidden_default_prefix,
         RAG_EXPECTED_IMAGE_NAMES,
     )
     forbidden_auto = forbid_images(
         auto_images,
-        "ghcr.io/cnoe-io",
+        forbidden_default_prefix,
         PARENT_EXPECTED_IMAGE_NAMES,
     ) + forbid_images(
         auto_rag_images,
-        "ghcr.io/cnoe-io",
+        forbidden_default_prefix,
         RAG_EXPECTED_IMAGE_NAMES,
     )
     forbidden_release = forbid_images(
@@ -216,19 +240,19 @@ def main() -> int:
         or forbidden_release
     ):
         if missing_default:
-            print("Missing default pre-release images:", file=sys.stderr)
+            print("Missing default-channel images:", file=sys.stderr)
             print("\n".join(f"  - {image}" for image in missing_default), file=sys.stderr)
         if missing_auto:
-            print("Missing auto-channel pre-release images:", file=sys.stderr)
+            print("Missing auto-channel images:", file=sys.stderr)
             print("\n".join(f"  - {image}" for image in missing_auto), file=sys.stderr)
         if missing_release:
             print("Missing release-channel images:", file=sys.stderr)
             print("\n".join(f"  - {image}" for image in missing_release), file=sys.stderr)
         if forbidden_default:
-            print("Default channel rendered release images:", file=sys.stderr)
+            print("Default channel rendered wrong-channel images:", file=sys.stderr)
             print("\n".join(f"  - {image}" for image in forbidden_default), file=sys.stderr)
         if forbidden_auto:
-            print("Auto channel rendered release images:", file=sys.stderr)
+            print("Auto channel rendered wrong-channel images:", file=sys.stderr)
             print("\n".join(f"  - {image}" for image in forbidden_auto), file=sys.stderr)
         if forbidden_release:
             print("Release channel rendered pre-release images:", file=sys.stderr)

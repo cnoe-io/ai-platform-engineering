@@ -25,62 +25,6 @@ import { ArrowDownToLine,Brain,Bug,Check,ChevronDown,ChevronRight,ChevronUp,Cloc
 import { signIn,signOut,useSession } from "next-auth/react";
 import React,{ useCallback,useEffect,useRef,useState } from "react";
 
-// Tech Stack Data
-interface TechItem {
-  name: string;
-  description: string;
-  url: string;
-  category: "platform" | "protocol" | "frontend" | "backend" | "community";
-}
-
-// Helper to get platform name dynamically — uses config.appName
-// since techStack is defined at module level (outside component scope).
-function getPlatformName(): string {
-  return config.appName;
-}
-
-// Helper to get platform description dynamically — uses hardcoded defaults
-// since techStack is defined at module level (outside component scope).
-// The actual values shown in the dialog will come from the config module.
-function getPlatformDescription(): string {
-  return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
-}
-
-const techStack: TechItem[] = [
-  { get name() { return getPlatformName(); }, get description() { return getPlatformDescription(); }, url: "https://caipe.io", category: "platform" },
-  { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
-  { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
-  { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },
-  { name: "Next.js 15", description: "React framework with App Router and Server Components", url: "https://nextjs.org/", category: "frontend" },
-  { name: "React 19", description: "JavaScript library for building user interfaces", url: "https://react.dev/", category: "frontend" },
-  { name: "TypeScript", description: "Typed superset of JavaScript for better developer experience", url: "https://www.typescriptlang.org/", category: "frontend" },
-  { name: "Tailwind CSS", description: "Utility-first CSS framework for rapid UI development", url: "https://tailwindcss.com/", category: "frontend" },
-  { name: "Radix UI", description: "Unstyled, accessible UI components for React", url: "https://www.radix-ui.com/", category: "frontend" },
-  { name: "Zustand", description: "Lightweight state management for React applications", url: "https://zustand-demo.pmnd.rs/", category: "frontend" },
-  { name: "Framer Motion", description: "Production-ready animation library for React", url: "https://www.framer.com/motion/", category: "frontend" },
-  { name: "Sigma.js", description: "JavaScript library for graph visualization and analysis", url: "https://www.sigmajs.org/", category: "frontend" },
-  { name: "NextAuth.js", description: "Authentication for Next.js applications with OAuth 2.0 support", url: "https://next-auth.js.org/", category: "frontend" },
-  { name: "LangGraph", description: "Framework for building stateful, multi-actor applications with LLMs", url: "https://langchain-ai.github.io/langgraph/", category: "backend" },
-  { name: "Python 3.11+", description: "Backend agent implementation with asyncio support", url: "https://www.python.org/", category: "backend" },
-  { name: "CNOE", description: "Cloud Native Operational Excellence - Open source IDP reference implementations", url: "https://cnoe.io/", category: "community" },
-];
-
-const categoryLabels: Record<TechItem["category"], string> = {
-  platform: "Platform",
-  protocol: "Protocols",
-  frontend: "Frontend",
-  backend: "Backend",
-  community: "Community",
-};
-
-const categoryColors: Record<TechItem["category"], string> = {
-  platform: "gradient-primary-br",
-  protocol: "bg-gradient-to-br from-purple-500 to-purple-600",
-  frontend: "bg-gradient-to-br from-blue-500 to-blue-600",
-  backend: "bg-gradient-to-br from-orange-500 to-orange-600",
-  community: "bg-gradient-to-br from-green-500 to-green-600",
-};
-
 /**
  * Config debug display: render a key-value row for the debug tab.
  */
@@ -1190,7 +1134,7 @@ export function UserMenu() {
                     <span className="text-sm font-semibold">Services</span>
                   </div>
                   <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
-                    <ConfigRow label={`${config.appName} URL`} value={config.caipeUrl} />
+                    <ConfigRow label="Dynamic Agents URL" value={config.dynamicAgentsUrl} />
                     <ConfigRow label="RAG URL" value={config.ragUrl} />
                     <ConfigRow label="Environment" value={config.isDev ? "development" : config.isProd ? "production" : "unknown"} />
                   </div>
@@ -1230,7 +1174,8 @@ export function UserMenu() {
         </DialogContent>
       </Dialog>
 
-      {/* About Dialog — Built With + Changelog */}
+      {/* assisted-by Codex Codex-sonnet-4-6 */}
+      {/* About Dialog — Changelog */}
       <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
         <DialogContent className="max-w-3xl max-h-[85vh] p-0">
           <DialogHeader className="p-6 pb-4 border-b border-border">
@@ -1245,73 +1190,7 @@ export function UserMenu() {
             </div>
           </DialogHeader>
 
-          <Tabs defaultValue="built-with" className="w-full">
-            <div className="px-6 pt-2 border-b border-border">
-              <TabsList className="bg-transparent h-auto p-0 gap-4">
-                <TabsTrigger
-                  value="built-with"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <Layers className="h-3.5 w-3.5 mr-1.5" />
-                  Built With
-                </TabsTrigger>
-                <TabsTrigger
-                  value="changelog"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <FileText className="h-3.5 w-3.5 mr-1.5" />
-                  Changelog
-                </TabsTrigger>
-              </TabsList>
-            </div>
-
-            <TabsContent value="built-with" className="mt-0">
-              <div className="p-6 overflow-y-auto max-h-[50vh]">
-                {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => {
-                  const items = techStack.filter(item => item.category === category);
-                  if (items.length === 0) return null;
-                  return (
-                    <div key={category} className="mb-6 last:mb-0">
-                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                        {categoryLabels[category]}
-                      </h3>
-                      <div className="space-y-2">
-                        {items.map((tech) => (
-                          <a
-                            key={tech.name}
-                            href={tech.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors group border border-transparent hover:border-border"
-                          >
-                            <div className={cn(
-                              "w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-white text-xs font-bold",
-                              categoryColors[tech.category]
-                            )}>
-                              {tech.name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-sm group-hover:text-primary transition-colors">
-                                  {tech.name}
-                                </span>
-                                <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </div>
-                              <p className="text-xs text-muted-foreground leading-relaxed">
-                                {tech.description}
-                              </p>
-                            </div>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="changelog" className="mt-0">
-              <div className="flex flex-col max-h-[60vh]">
+          <div className="flex flex-col max-h-[60vh]">
                 {changelogLoading && (
                   <div className="flex items-center justify-center py-12 px-6">
                     <div className="flex flex-col items-center gap-3">
@@ -1456,8 +1335,6 @@ export function UserMenu() {
                   </>
                 )}
               </div>
-            </TabsContent>
-          </Tabs>
 
           <div className="p-4 border-t border-border bg-muted/20">
             <p className="text-xs text-center text-muted-foreground">

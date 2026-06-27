@@ -21,12 +21,9 @@
  *   alice_admin           → 200 (sees Keycloak-sourced user list)
  *   {bob,carol,dave,eve}  → 403 with PDP-denied reason and admin_ui#view capability code
  *
- * Acceptance scenario 6 (audit-log row) is verified by a single check
- * after each request — we tail the e2e Mongo's `authz_decisions`
- * collection via the test-only audit endpoint exposed by the
- * supervisor (`/_test/audit?route=...`). If that endpoint isn't reachable
- * the audit assertion is skipped (the row is still verified by the
- * pytest matrix-driver — this is defense-in-depth).
+ * Acceptance scenario 6 (audit-log row) is covered by the shared RBAC audit
+ * helpers, which query audit-service. This browser spec keeps the UI gate
+ * focused on response behavior.
  *
  * The spec is tagged `@rbac` so `make test-rbac-e2e`
  * (`npx playwright test --grep @rbac`) picks it up.

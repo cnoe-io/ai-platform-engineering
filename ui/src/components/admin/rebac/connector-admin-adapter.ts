@@ -15,6 +15,8 @@ export interface ItemSummary {
   item_id: string;
   item_name: string;
   team_slug?: string;
+  /** Highest-priority enabled route agent, when the list API provides it. */
+  primary_agent_id?: string;
   active_grants: number;
   can_manage?: boolean;
   health?: {
@@ -149,12 +151,16 @@ export interface DiscoveredItem {
   id: string;
   name: string;
   secondary: string;
+  teamRequired?: boolean;
+  selectable?: boolean;
 }
 
 export interface DiscoveryPage {
   items: DiscoveredItem[];
   nextCursor: string | null;
   hasMore: boolean;
+  /** Present when the BFF filters a cached snapshot (Webex/Slack discovery routes). */
+  totalMatches?: number;
 }
 
 export interface ConnectorAdminAdapter {
@@ -162,14 +168,15 @@ export interface ConnectorAdminAdapter {
   connectorName: string;    // "Slack" | "Webex"
   itemSingular: string;     // "channel" | "space"
   itemPlural: string;       // "channels" | "spaces"
+  singlePanelView?: "channels" | "onboard" | "advanced";
 
   // ── API paths ─────────────────────────────────────────────────────────
   api: {
     list: string;                                                    // GET ?health=1
     // Returns the paged discovery URL for the given page index + cursor.
     // Slack: /api/admin/slack/available-channels?member_only=1&limit=500[&cursor=…]
-    // Webex: /api/admin/webex/available-spaces?limit=500[&refresh=1][&cursor=…]
-    discoveryUrl: (page: number, cursor: string | null) => string;
+    // Webex: /api/admin/webex/available-spaces?limit=200[&cursor=…][&q=…]
+    discoveryUrl: (page: number, cursor: string | null, q?: string) => string;
     defaults: string;                                                // GET / PUT / POST
     runtimeStatus: string;
     runtimeReload: string;
@@ -242,11 +249,24 @@ export interface ConnectorAdminAdapter {
   // auto-selected in the wizard. Webex uses this; Slack does not.
   discoveryAutoSelectNewItems?: boolean;
 
+  /** When true, fetch one discovery page at a time and merge with configured rows. Webex only. */
+  discoveryPaginated?: boolean;
+  /** When true, debounced search queries the BFF `q=` param instead of client filtering. Webex only. */
+  discoveryServerSearch?: boolean;
+
   // ── Onboarding apply ─────────────────────────────────────────────────
   // Different connectors send different POST payloads and fire different
   // success messages. The adapter owns the request(s) and the toast text.
   applyOnboarding: (input: {
-    rows: Array<{ id: string; name?: string; teamSlug: string; agentId: string; selected: boolean }>;
+    rows: Array<{
+      id: string;
+      name?: string;
+      teamSlug: string;
+      agentId: string;
+      selected: boolean;
+      teamRequired?: boolean;
+      selectable?: boolean;
+    }>;
     defaultTeamSlug: string;
     defaultAgentId: string;
     createDefaultRoutes: boolean;
@@ -291,6 +311,19 @@ export interface ConnectorAdminAdapter {
   fixDiagnosticRoute: (input: {
     item: ItemSummary;
     route: DiagnosticRoute;
+    routes: ItemAgentRoute[];
+  }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
+
+  /** When true, show a batch Fix routing issues action for this channel/space. */
+  diagnosticIssuesBatchFixable?: (input: {
+    diagnostics: ItemDiagnostics;
+    routes: ItemAgentRoute[];
+  }) => boolean;
+
+  /** Apply safe automatic fixes for common routing diagnostics issues. */
+  fixAllDiagnosticIssues?: (input: {
+    item: ItemSummary;
+    diagnostics: ItemDiagnostics;
     routes: ItemAgentRoute[];
   }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
 

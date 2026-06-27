@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -22,6 +23,48 @@ logger = logging.getLogger("caipe.webex_bot.webex_wdm")
 
 WEBEX_API_BASE_URL = "https://webexapis.com/v1"
 WEBEX_WDM_DEVICES_URL = "https://wdm-a.wbx2.com/wdm/api/v1/devices"
+# Mercury rejects stale or throttled registrations with these HTTP statuses during
+# the WebSocket upgrade; delete and re-register the WDM device before retrying.
+WDM_HANDSHAKE_REFRESH_STATUSES = frozenset({401, 403, 404, 429})
+MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS = 3
+
+
+def websocket_handshake_status(exc: BaseException) -> int | None:
+    """Return the HTTP status code when a WebSocket handshake fails."""
+
+    try:
+        from websockets.exceptions import InvalidStatus
+    except ImportError:  # pragma: no cover - older websockets
+        from websockets import InvalidStatus  # type: ignore[attr-defined,no-redef]
+
+    if not isinstance(exc, InvalidStatus):
+        return None
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return int(status_code) if status_code is not None else None
+
+
+def should_refresh_wdm_device_on_handshake(status_code: int | None) -> bool:
+    """Return True when Mercury indicates the cached WDM registration is unusable."""
+
+    return status_code in WDM_HANDSHAKE_REFRESH_STATUSES
+
+
+def websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, Any]:
+    """Build version-compatible auth header kwargs for websockets.connect()."""
+
+    import websockets
+
+    connect = websockets.connect
+    try:
+        params = inspect.signature(connect).parameters
+    except (TypeError, ValueError):
+        return {"extra_headers": headers}
+    if "additional_headers" in params:
+        return {"additional_headers": headers}
+    if "extra_headers" in params:
+        return {"extra_headers": headers}
+    return {"extra_headers": headers}
 
 
 def base64_encode_webex_id(raw_id: str | None, resource_type: str) -> str | None:
@@ -60,6 +103,8 @@ def webex_event_from_wdm_activity(
             "webexRoomId": public_room_id,
             "personId": person_id,
             "personEmail": message_detail.get("personEmail"),
+            # assisted-by Codex Codex-sonnet-4-6: keep 1:1 WDM events on the direct-message path.
+            "roomType": message_detail.get("roomType"),
             "text": message_detail.get("text") or message_detail.get("markdown") or "",
             "mentionedPeople": message_detail.get("mentionedPeople") or [],
             "isSelf": bool(bot_person_id and person_id == bot_person_id),
@@ -101,6 +146,13 @@ class WebexWdmRuntime:
         self._seen_message_ids: deque[str] = deque()
         self._seen_message_id_set: set[str] = set()
         self._seen_message_limit = 512
+        self._handshake_refresh_attempts = 0
+
+    def _rest_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._access_token}",
+            "Content-Type": "application/json",
+        }
 
     async def run_forever(self) -> None:
         """Connect to Webex WDM and reconnect with capped exponential backoff."""
@@ -108,10 +160,8 @@ class WebexWdmRuntime:
         import aiohttp
         import websockets
 
-        headers = {
-            "Authorization": f"Bearer {self._access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = self._rest_headers()
+        connect_kwargs = websocket_connect_header_kwargs(headers)
         retry_delay = 1
         async with aiohttp.ClientSession(headers=headers) as session:
             await self._load_bot_identity(session)
@@ -122,8 +172,14 @@ class WebexWdmRuntime:
                         logger.error("Webex WDM did not return a websocket URL")
                         return
                     logger.info("Connecting to Webex WDM websocket")
-                    async with websockets.connect(websocket_url, ping_interval=20) as websocket:
+                    async with websockets.connect(
+                        websocket_url,
+                        ping_interval=20,
+                        open_timeout=30,
+                        **connect_kwargs,
+                    ) as websocket:
                         retry_delay = 1
+                        self._handshake_refresh_attempts = 0
                         await websocket.send(
                             json.dumps(
                                 {
@@ -139,13 +195,11 @@ class WebexWdmRuntime:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - reconnect on transport failures
-                    logger.warning(
-                        "Webex WDM websocket connection lost (type=%s); retrying in %ss",
-                        type(exc).__name__,
+                    retry_delay = await self._handle_connection_failure(
+                        session,
+                        exc,
                         retry_delay,
                     )
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, 60)
 
     async def _load_bot_identity(self, session: Any) -> None:
         async with session.get(f"{WEBEX_API_BASE_URL}/people/me") as response:
@@ -160,6 +214,68 @@ class WebexWdmRuntime:
                 payload.get("displayName"),
                 bool(self._bot_person_id),
             )
+
+    async def _handle_connection_failure(
+        self,
+        session: Any,
+        exc: BaseException,
+        retry_delay: int,
+    ) -> int:
+        """Log a reconnectable transport failure and optionally refresh WDM state."""
+
+        status_code = websocket_handshake_status(exc)
+        if status_code is not None:
+            logger.warning(
+                "Webex WDM websocket handshake failed status=%s; retrying in %ss",
+                status_code,
+                retry_delay,
+            )
+            if (
+                should_refresh_wdm_device_on_handshake(status_code)
+                and self._handshake_refresh_attempts < MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+            ):
+                self._handshake_refresh_attempts += 1
+                await self._refresh_wdm_device(session)
+                if status_code == 429:
+                    retry_delay = max(retry_delay, 5)
+            elif (
+                should_refresh_wdm_device_on_handshake(status_code)
+                and self._handshake_refresh_attempts >= MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+            ):
+                logger.error(
+                    "Webex WDM device refresh limit reached after %s attempt(s); "
+                    "continuing backoff without deleting devices",
+                    MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS,
+                )
+        else:
+            logger.warning(
+                "Webex WDM websocket connection lost (type=%s); retrying in %ss",
+                type(exc).__name__,
+                retry_delay,
+            )
+
+        await asyncio.sleep(retry_delay)
+        return min(retry_delay * 2, 60)
+
+    async def _refresh_wdm_device(self, session: Any) -> None:
+        """Delete cached WDM registrations so the next connect registers fresh."""
+
+        device_urls: set[str] = set()
+        if self._device_url:
+            device_urls.add(self._device_url)
+            self._device_url = None
+        for device in await self._list_own_devices(session):
+            url = device.get("url")
+            if url:
+                device_urls.add(str(url))
+        for device_url in device_urls:
+            await self._delete_device(session, device_url)
+        logger.info(
+            "Refreshed Webex WDM device registration after failed Mercury handshake "
+            "(attempt %s/%s)",
+            self._handshake_refresh_attempts,
+            MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS,
+        )
 
     async def _get_websocket_url(self, session: Any) -> str | None:
         # Reuse an existing WDM registration instead of creating a brand-new

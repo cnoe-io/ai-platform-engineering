@@ -4,6 +4,16 @@ import { cn } from "@/lib/utils";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
+/**
+ * Consumed by PopoverContent to portal into the nearest dialog element instead
+ * of document.body.  Radix Dialog's DismissableLayer prevents pointer events
+ * on nodes outside its DOM subtree — portalling to body makes the popover
+ * invisible to Radix, so scroll and focus are swallowed.  DialogContent
+ * provides itself as the container so the popover stays inside the Radix
+ * FocusScope while position:fixed lets it escape overflow-y:auto clipping.
+ */
+export const PortalContainerContext = React.createContext<HTMLElement | null>(null);
+
 interface PopoverProps {
   children: React.ReactNode;
   open?: boolean;
@@ -120,19 +130,27 @@ interface PopoverContentProps {
 }
 
 /**
- * Popover content rendered via React portal to `document.body`.
+ * Popover content rendered via React portal — to `document.body` by default,
+ * or into a `PortalContainerContext` element (e.g. a Radix Dialog) when one is
+ * present.
  *
  * The previous implementation used `position: absolute` inside the trigger's
  * relative parent, which meant any ancestor with `overflow: hidden` (e.g. a
  * narrow resizable panel like the Skill workspace Files tree) clipped the
- * popover. Portalling to body + computing fixed-position coordinates from
- * the trigger's `getBoundingClientRect()` lets the popover escape those
- * clipping contexts and stay anchored under any layout. We also clamp the
- * final coordinates to the viewport so a narrow panel can never push the
- * popover off-screen — the bug that motivated this change.
+ * popover. Portalling + computing fixed-position coordinates from the
+ * trigger's `getBoundingClientRect()` lets the popover escape those clipping
+ * contexts and stay anchored under any layout. We also clamp the final
+ * coordinates to the viewport so a narrow panel can never push the popover
+ * off-screen — the bug that motivated this change.
+ *
+ * When portalled into a container that has a CSS transform (Radix Dialog uses
+ * `translate-*-[-50%]` to center itself), that container — not the viewport —
+ * becomes the containing block for our `position: fixed` node, so we translate
+ * the viewport coordinates into the container's frame (see computeCoords).
  *
  * Recomputed on open, on resize, and on scroll so it tracks the trigger
- * even when the user resizes the workspace pane while the popover is open.
+ * even when the user resizes the workspace pane or scrolls a dialog body
+ * while the popover is open.
  */
 const VIEWPORT_PADDING = 8;
 
@@ -146,6 +164,7 @@ export function PopoverContent({
   portalled = true,
 }: PopoverContentProps) {
   const { open, setOpen, triggerRef } = React.useContext(PopoverStateContext);
+  const portalContainer = React.useContext(PortalContainerContext);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = React.useState(false);
@@ -166,9 +185,19 @@ export function PopoverContent({
     let top = 0;
     let left = 0;
 
-    if (side === "top") {
+    let effectiveSide = side;
+    const spaceBelow = vh - tRect.bottom - sideOffset - VIEWPORT_PADDING;
+    const spaceAbove = tRect.top - sideOffset - VIEWPORT_PADDING;
+
+    if (side === "bottom" && cRect.height > spaceBelow && spaceAbove > spaceBelow) {
+      effectiveSide = "top";
+    } else if (side === "top" && cRect.height > spaceAbove && spaceBelow > spaceAbove) {
+      effectiveSide = "bottom";
+    }
+
+    if (effectiveSide === "top") {
       top = tRect.top - cRect.height - sideOffset;
-    } else if (side === "bottom") {
+    } else if (effectiveSide === "bottom") {
       top = tRect.bottom + sideOffset;
     } else if (side === "left") {
       left = tRect.left - cRect.width - sideOffset;
@@ -176,7 +205,7 @@ export function PopoverContent({
       left = tRect.right + sideOffset;
     }
 
-    if (side === "top" || side === "bottom") {
+    if (effectiveSide === "top" || effectiveSide === "bottom") {
       if (align === "start") left = tRect.left + alignOffset;
       else if (align === "end") left = tRect.right - cRect.width - alignOffset;
       else left = tRect.left + tRect.width / 2 - cRect.width / 2;
@@ -197,8 +226,34 @@ export function PopoverContent({
       Math.min(top, vh - cRect.height - VIEWPORT_PADDING),
     );
 
+    const availableHeight = vh - 2 * VIEWPORT_PADDING;
+    if (cRect.height > availableHeight) {
+      content.style.maxHeight = `${availableHeight}px`;
+      content.style.overflowY = "auto";
+    } else {
+      content.style.maxHeight = "";
+      content.style.overflowY = "";
+    }
+
+    // `top`/`left` above are viewport coordinates, correct for a
+    // `position: fixed` element whose containing block IS the viewport.  But
+    // when we portal into a `portalContainer` (a Dialog), that container has a
+    // CSS transform (`translate-*-[-50%]`), which makes it — not the viewport —
+    // the containing block for our fixed element.  A fixed element trapped by a
+    // transformed ancestor behaves like `absolute`: it resolves against the
+    // container's padding box AND lives in the container's *scrolled* content
+    // space.  So we (1) subtract the container's padding-box origin and
+    // (2) add back its scroll offset.  Adding scrollTop makes the result
+    // scroll-independent, so the popover rides the dialog's native scroll in
+    // lockstep with the trigger instead of drifting by the scroll delta.
+    if (portalContainer) {
+      const pRect = portalContainer.getBoundingClientRect();
+      top -= pRect.top + portalContainer.clientTop - portalContainer.scrollTop;
+      left -= pRect.left + portalContainer.clientLeft - portalContainer.scrollLeft;
+    }
+
     setCoords({ top, left });
-  }, [align, alignOffset, side, sideOffset, triggerRef]);
+  }, [align, alignOffset, side, sideOffset, triggerRef, portalContainer]);
 
   React.useLayoutEffect(() => {
     if (!open) {
@@ -278,5 +333,5 @@ export function PopoverContent({
     </div>
   );
 
-  return createPortal(node, document.body);
+  return createPortal(node, portalContainer ?? document.body);
 }

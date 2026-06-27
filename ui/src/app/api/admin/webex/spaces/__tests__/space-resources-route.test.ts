@@ -10,6 +10,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
 // space onboarding flow no longer calls `ensureTeamClientScope` or
 // `selectAgentGatewayActiveTeamScope` — team identity is derived
@@ -94,6 +95,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
   isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: (...args: unknown[]) => mockAuditQuery(...args) }),
 }));
 
 jest.mock("@/lib/rbac/mongo-collections", () => {
@@ -213,6 +218,7 @@ beforeEach(() => {
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockAuditQuery.mockResolvedValue([]);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
@@ -363,64 +369,6 @@ describe("Webex space ReBAC resource APIs", () => {
           object: "agent:stale-agent",
         },
       ],
-    });
-  });
-
-  it("checks both space grants and user resource grants", async () => {
-    mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
-    const { POST } = await import("../[workspaceId]/[spaceId]/access-check/route");
-
-    const response = await POST(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/access-check`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId, spaceId }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: true,
-      space_allowed: true,
-      user_allowed: true,
-      reason: "allowed",
-    });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subject: { type: "webex_space", id: `${workspaceAlias}--${spaceId}` },
-      })
-    );
-  });
-
-  it("denies Webex access when the OpenFGA space tuple was removed", async () => {
-    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: false });
-    const { POST } = await import("../[workspaceId]/[spaceId]/access-check/route");
-
-    const response = await POST(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/access-check`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId, spaceId }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: false,
-      space_allowed: false,
-      reason: "missing_space_grant",
     });
   });
 
@@ -724,7 +672,7 @@ describe("Webex space ReBAC resource APIs", () => {
         status: "active",
       },
     ]);
-    mockCollections.audit_events = createMockCollection([
+    mockAuditQuery.mockResolvedValue([
       {
         component: "webex_bot",
         outcome: "error",

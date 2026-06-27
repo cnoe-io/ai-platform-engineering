@@ -13,10 +13,16 @@ normalizeDiscoveryCacheTtlMinutes,
 } from '@/lib/rbac/discovery-cache-config';
 import { writeOpenFgaTuples,type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import { requireResourcePermission } from '@/lib/rbac/resource-authz';
+import {
+createJsonResponseCacheStore,
+envTtlMs,
+withJsonResponseCache,
+} from '@/lib/server-response-cache';
 import { NextRequest,NextResponse } from 'next/server';
 
 const CONFIG_ID = 'platform_settings';
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+const platformConfigCache = createJsonResponseCacheStore();
 
 interface PlatformConfigDoc {
   _id?: string;
@@ -67,41 +73,25 @@ async function reconcileDefaultAgentGrant(previousAgentId: string | null, nextAg
   await writeOpenFgaTuples({ writes, deletes });
 }
 
-function normalizeReleaseVersion(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const version = value.trim().replace(/^v/, '');
-  return version || null;
-}
-
-function announcementIdFor(version: string | null, revision: number): string {
-  return `${version || 'release'}:revision-${revision}`;
-}
-
+// Release notes is a single platform-wide on/off switch. The announcement
+// always targets the currently deployed version, and dismissal is permanent
+// per-version, so there is no version/revision/toast/CTA config to store.
 function normalizeReleaseNotesConfig(input: unknown = {}) {
   const source = isRecord(input) ? input : {};
-  const releaseVersion = normalizeReleaseVersion(source.release_version);
-  const revision = Number.isFinite(Number(source.announcement_revision))
-    ? Math.max(1, Math.floor(Number(source.announcement_revision)))
-    : 1;
-  const toastDuration = Number.isFinite(Number(source.toast_duration_ms))
-    ? Math.max(0, Math.floor(Number(source.toast_duration_ms)))
-    : 5000;
-
   return {
     enabled: source.enabled !== false,
-    release_version: releaseVersion,
-    announcement_revision: revision,
-    announcement_id:
-      typeof source.announcement_id === 'string' && source.announcement_id.trim()
-        ? source.announcement_id.trim()
-        : announcementIdFor(releaseVersion, revision),
-    show_toast: source.show_toast === true,
-    toast_duration_ms: toastDuration,
-    show_migration_cta: source.show_migration_cta !== false,
   };
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
+  return withJsonResponseCache(request, platformConfigCache, () => getPlatformConfig(request), {
+    ttlMs: envTtlMs('PLATFORM_CONFIG_CACHE_TTL_MS', 10_000),
+    cacheableStatus: (status) => status === 200 || status === 403,
+    maxEntries: 512,
+  });
+});
+
+async function getPlatformConfig(request: NextRequest) {
   return await withAuth(request, async (_req, _user, session) => {
     await requireResourcePermission(session, {
       type: 'system_config',
@@ -133,7 +123,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       },
     });
   });
-});
+}
 
 export const PATCH = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, user, session) => {
@@ -242,6 +232,8 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       },
       { upsert: true },
     );
+    platformConfigCache.responses.clear();
+    platformConfigCache.inflight.clear();
 
     return NextResponse.json({
       success: true,

@@ -1,15 +1,16 @@
 """Spec 102 T027 — unit tests for `audit.log_authz_decision`.
 
 Covers:
-  - successful Mongo write                   → document persisted
-  - Mongo write failure                      → does NOT raise (FR-007)
+  - successful audit-service write           → event batch posted
+  - audit-service write failure              → does NOT raise (FR-007)
   - invalid `reason`                         → silently dropped (defensive)
-  - persisted document validates against the JSON schema in
+  - decision document validates against the JSON schema in
     `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/contracts/audit-event.schema.json`
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -26,121 +27,103 @@ _SCHEMA_PATH = (
 )
 
 
-def test_successful_write_persists_doc() -> None:
-    captured: dict[str, Any] = {}
+def _call_log(**overrides: Any) -> None:
+    kwargs: dict[str, Any] = {
+        "user_id": "alice-sub",
+        "resource": "admin_ui",
+        "scope": "view",
+        "allowed": True,
+        "reason": "OK",
+        "service": "ui",
+        "user_email": "alice@example.com",
+        "route": "GET /api/admin/users",
+        "request_id": "req-123",
+        "pdp": "keycloak",
+    }
+    kwargs.update(overrides)
+    audit.log_authz_decision(**kwargs)
 
-    fake_collection = MagicMock()
-    fake_collection.insert_one.side_effect = lambda doc: captured.update(doc) or MagicMock()
 
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
+def test_successful_write_posts_service_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIT_LOG_BACKEND", "service")
+    monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
 
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
+    with patch("httpx.Client", return_value=mock_client):
+        _call_log()
 
-    with patch("pymongo.MongoClient", return_value=fake_client):
-        audit.log_authz_decision(
-            user_id="alice-sub",
-            resource="admin_ui",
-            scope="view",
-            allowed=True,
-            reason="OK",
-            service="ui",
-            user_email="alice@example.com",
-            route="GET /api/admin/users",
-            request_id="req-123",
-            pdp="keycloak",
-        )
+    mock_client.post.assert_called_once()
+    url, = mock_client.post.call_args.args
+    payload = mock_client.post.call_args.kwargs["json"]
+    captured = payload["events"][0]
 
+    assert url == "http://audit-service:8010/v1/audit/events"
     assert captured["userId"] == "alice-sub"
     assert captured["userEmail"] == "alice@example.com"
     assert captured["resource"] == "admin_ui"
     assert captured["scope"] == "view"
     assert captured["allowed"] is True
     assert captured["reason"] == "OK"
-    assert captured["source"] == "py"
+    assert captured["source"] == "ui"
     assert captured["service"] == "ui"
     assert captured["route"] == "GET /api/admin/users"
     assert captured["requestId"] == "req-123"
     assert captured["pdp"] == "keycloak"
+    assert captured["type"] == "auth"
+    assert captured["tenant_id"] == "default"
+    assert captured["subject_hash"].startswith("sha256:")
+    assert captured["action"] == "admin_ui#view"
+    assert captured["outcome"] == "allow"
+    assert captured["correlation_id"] == "req-123"
     assert "ts" in captured
+    mock_client.post.return_value.raise_for_status.assert_called_once()
 
 
-def test_mongo_failure_does_not_raise() -> None:
-    fake_collection = MagicMock()
-    fake_collection.insert_one.side_effect = RuntimeError("mongo down")
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
+def test_service_failure_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIT_LOG_BACKEND", "service")
+    monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.post.side_effect = RuntimeError("audit-service down")
 
-    with patch("pymongo.MongoClient", return_value=fake_client):
-        # Must NOT raise — FR-007.
-        audit.log_authz_decision(
+    with patch("httpx.Client", return_value=mock_client):
+        _call_log(
             user_id="bob-sub",
             resource="rag",
             scope="retrieve",
             allowed=False,
             reason="DENY_NO_CAPABILITY",
             service="rag_server",
+            user_email=None,
+            route=None,
+            request_id=None,
+            pdp=None,
         )
 
 
-def test_invalid_reason_is_silently_dropped() -> None:
-    fake_collection = MagicMock()
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
+def test_invalid_reason_is_silently_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
 
-    with patch("pymongo.MongoClient", return_value=fake_client):
-        audit.log_authz_decision(
-            user_id="carol-sub",
-            resource="rag",
-            scope="ingest",
-            allowed=False,
-            reason="GIBBERISH",  # not in the closed enum
-            service="rag_server",
-        )
+    with patch("httpx.Client") as mock_client_cls:
+        _call_log(reason="GIBBERISH")
 
-    fake_collection.insert_one.assert_not_called()
+    mock_client_cls.assert_not_called()
 
 
-def test_document_validates_against_schema() -> None:
-    """Sanity check that what we write matches the contract schema."""
+def test_document_validates_against_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sanity check that the legacy-compatible payload still matches the contract schema."""
     pytest.importorskip("jsonschema")
     import json
     import jsonschema  # type: ignore[import-untyped]
 
     schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
 
     captured: dict[str, Any] = {}
-    fake_collection = MagicMock()
-    fake_collection.insert_one.side_effect = lambda doc: captured.update(doc) or MagicMock()
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
 
-    with patch("pymongo.MongoClient", return_value=fake_client):
-        audit.log_authz_decision(
-            user_id="alice-sub",
-            resource="admin_ui",
-            scope="view",
-            allowed=True,
-            reason="OK",
-            service="ui",
-            user_email="alice@example.com",
-            route="GET /api/admin/users",
-            pdp="keycloak",
-        )
-
-    # The contract schema declares `ts` as either an ISO-8601 string (when
-    # serialized) or a BSON Date object (when stored in Mongo). For the in-memory
-    # validator we serialize datetime to ISO-8601 before checking — this mirrors
-    # what bson.json_util would emit for any consumer reading `authz_decisions`
-    # over the network.
-    from datetime import datetime
+    with patch.object(audit, "_write_service_event", side_effect=lambda doc: captured.update(doc)):
+        _call_log()
 
     if isinstance(captured.get("ts"), datetime):
         captured["ts"] = captured["ts"].isoformat().replace("+00:00", "Z")

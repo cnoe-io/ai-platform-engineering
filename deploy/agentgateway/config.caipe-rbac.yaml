@@ -49,26 +49,10 @@ binds:
           - name: backstage
             mcp: { host: http://mcp-backstage:8000/mcp }
     - matches: [{ path: { pathPrefix: /mcp/confluence } }]
-      policies: *mcpAuthzPolicy
-      backends:
-      - mcp:
-          targets:
-          - name: confluence
-            mcp: { host: http://mcp-confluence:8000/mcp }
-    # GitHub/GitLab authenticate per-request: Dynamic Agents forwards the
-    # caller's OAuth token (or the static org PAT fallback) on
-    # X-CAIPE-Provider-Token, and this transformation rewrites it into the
-    # upstream Authorization: Bearer header. No static backendAuth PAT lives in
-    # the gateway anymore. Policies are inlined (not the *mcpAuthzPolicy alias)
-    # because AgentGateway's YAML parser supports anchors but not merge keys (<<).
-    # Keep in sync with deploy/agentgateway/config_bridge.py.
-    - matches: [{ path: { pathPrefix: /mcp/github } }]
       policies:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
-          # Caller-keyed per-tool check needs the request body; keep in sync with
-          # the &mcpAuthzPolicy anchor and config_bridge.py. See #36.
           includeRequestBody:
             maxRequestBytes: 65536
             allowPartialMessage: false
@@ -84,11 +68,20 @@ binds:
           request:
             set:
               authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
       backends:
       - mcp:
           targets:
-          - name: github
-            mcp: { host: http://github-mcp-server:8082/mcp }
+          - name: confluence
+            mcp: { host: http://mcp-confluence:8000/mcp }
+    # GitLab authenticates per-request: Dynamic Agents forwards the caller's
+    # OAuth token (or the static org PAT fallback) on X-CAIPE-Provider-Token,
+    # and this transformation rewrites it into the upstream Authorization:
+    # Bearer header. GitHub is handled by the GitHub agent's gh CLI-backed tools,
+    # so no static /mcp/github bootstrap route is configured here. Policies are
+    # inlined (not the *mcpAuthzPolicy alias) because AgentGateway's YAML parser
+    # supports anchors but not merge keys (<<).
+    # Keep in sync with deploy/agentgateway/config_bridge.py.
     - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
       policies:
         extAuthz:
@@ -111,13 +104,33 @@ binds:
           request:
             set:
               authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
       backends:
       - mcp:
           targets:
           - name: gitlab
             mcp: { host: http://mcp-gitlab:8000/mcp }
     - matches: [{ path: { pathPrefix: /mcp/jira } }]
-      policies: *mcpAuthzPolicy
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
       backends:
       - mcp:
           targets:

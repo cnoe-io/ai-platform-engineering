@@ -11,9 +11,14 @@ from typing import Any
 import pytest
 
 from ai_platform_engineering.integrations.webex_bot.webex_wdm import (
+    MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS,
     WebexWdmRuntime,
+    should_refresh_wdm_device_on_handshake,
     webex_event_from_wdm_activity,
+    websocket_connect_header_kwargs,
+    websocket_handshake_status,
 )
+from ai_platform_engineering.integrations.webex_bot.app import parse_webex_event
 from ai_platform_engineering.integrations.webex_bot.utils.webex_ids import (
     canonicalize_webex_space_id,
     public_webex_room_id_from_uuid,
@@ -46,6 +51,7 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
         "roomId": PUBLIC_ROOM_ID,
         "personId": "person-public-id",
         "personEmail": "user@example.com",
+        "roomType": "direct",
         "text": "neo-coder hello",
         "mentionedPeople": ["bot-person-id"],
     }
@@ -65,11 +71,15 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
             "webexRoomId": PUBLIC_ROOM_ID,
             "personId": "person-public-id",
             "personEmail": "user@example.com",
+            "roomType": "direct",
             "text": "neo-coder hello",
             "mentionedPeople": ["bot-person-id"],
             "isSelf": False,
         },
     }
+    parsed = parse_webex_event(event)
+    assert parsed is not None
+    assert parsed.is_direct is True
 
 
 # ── WDM device reuse + message dedup ───────────────────────────────────────
@@ -217,3 +227,131 @@ def test_handle_websocket_message_dedupes_redelivered_activity() -> None:
 
     # The same Webex message id is processed exactly once despite redelivery.
     assert len(calls) == 1
+
+
+def test_should_refresh_wdm_device_on_handshake_for_stale_or_throttled_codes() -> None:
+    assert should_refresh_wdm_device_on_handshake(404) is True
+    assert should_refresh_wdm_device_on_handshake(429) is True
+    assert should_refresh_wdm_device_on_handshake(401) is True
+    assert should_refresh_wdm_device_on_handshake(500) is False
+    assert should_refresh_wdm_device_on_handshake(None) is False
+
+
+def test_websocket_connect_header_kwargs_prefers_additional_headers() -> None:
+    headers = {"Authorization": "Bearer test-token"}
+    kwargs = websocket_connect_header_kwargs(headers)
+
+    assert "additional_headers" in kwargs or "extra_headers" in kwargs
+    assert kwargs.get("additional_headers") == headers or kwargs.get("extra_headers") == headers
+
+
+def test_websocket_handshake_status_reads_invalid_status_response() -> None:
+    try:
+        from websockets.exceptions import InvalidStatus
+    except ImportError:
+        from websockets import InvalidStatus  # type: ignore[attr-defined]
+
+    class _Response:
+        status_code = 429
+
+    assert websocket_handshake_status(InvalidStatus(_Response())) == 429
+    assert websocket_handshake_status(RuntimeError("boom")) is None
+
+
+def test_refresh_wdm_device_deletes_cached_and_extra_devices() -> None:
+    runtime = _runtime()
+    runtime._device_url = "https://wdm/devices/tracked"
+    session = _FakeSession(
+        devices=[
+            {
+                "name": "CAIPE-Webex-Bot",
+                "url": "https://wdm/devices/extra",
+                "webSocketUrl": "wss://mercury/extra",
+            }
+        ]
+    )
+
+    asyncio.run(runtime._refresh_wdm_device(session))
+
+    assert runtime._device_url is None
+    assert set(session.deleted) == {
+        "https://wdm/devices/tracked",
+        "https://wdm/devices/extra",
+    }
+
+
+def test_handle_connection_failure_refreshes_device_on_invalid_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        from websockets.exceptions import InvalidStatus
+    except ImportError:
+        from websockets import InvalidStatus  # type: ignore[attr-defined]
+
+    class _Response:
+        status_code = 404
+
+    async def _instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+
+    runtime = _runtime()
+    runtime._device_url = "https://wdm/devices/stale"
+    session = _FakeSession(
+        devices=[
+            {
+                "name": "CAIPE-Webex-Bot",
+                "url": "https://wdm/devices/stale",
+                "webSocketUrl": "wss://mercury/stale",
+            }
+        ],
+        new_device={"url": "https://wdm/devices/fresh", "webSocketUrl": "wss://mercury/fresh"},
+    )
+
+    async def _run() -> int:
+        return await runtime._handle_connection_failure(session, InvalidStatus(_Response()), 1)
+
+    retry_delay = asyncio.run(_run())
+
+    assert session.deleted == ["https://wdm/devices/stale"]
+    assert runtime._handshake_refresh_attempts == 1
+    assert retry_delay == 2
+
+
+def test_handle_connection_failure_stops_refreshing_after_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        from websockets.exceptions import InvalidStatus
+    except ImportError:
+        from websockets import InvalidStatus  # type: ignore[attr-defined]
+
+    class _Response:
+        status_code = 429
+
+    async def _instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+
+    runtime = _runtime()
+    runtime._handshake_refresh_attempts = MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+    runtime._device_url = "https://wdm/devices/stale"
+    session = _FakeSession(
+        devices=[
+            {
+                "name": "CAIPE-Webex-Bot",
+                "url": "https://wdm/devices/stale",
+                "webSocketUrl": "wss://mercury/stale",
+            }
+        ]
+    )
+
+    async def _run() -> None:
+        await runtime._handle_connection_failure(session, InvalidStatus(_Response()), 4)
+
+    asyncio.run(_run())
+
+    assert session.deleted == []
+    assert runtime._handshake_refresh_attempts == MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS

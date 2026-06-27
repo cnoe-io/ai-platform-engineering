@@ -73,6 +73,11 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
     });
     const doc = toAgentGatewayMcpServerDocument(target);
     if (target.status === "legacy") {
+      const existing = await collection.findOne({ _id: target.id } as never);
+      const existingCredentialSources = existing?.credential_sources;
+      if (Array.isArray(existingCredentialSources) && existingCredentialSources.length > 0) {
+        doc.credential_sources = existingCredentialSources;
+      }
       await collection.updateOne({ _id: target.id } as never, { $set: doc } as never);
       migrated.push(target.id);
     } else {

@@ -19,20 +19,65 @@ type TestCredentials = {
   sub?: string;
 };
 
+type SharePermission = "view" | "comment";
+
+type ChatShareUserSearchResult = {
+  email: string;
+  name: string;
+  avatar_url?: string;
+};
+
+type ChatShareTeamSearchResult = {
+  _id: string;
+  slug: string;
+  name: string;
+  description?: string;
+};
+
 type ChatBootMocksOptions = {
   conversationId?: string;
   ownerEmail?: string;
+  title?: string;
+  /** When true (default), GET /api/chat/conversations returns the fixture conversation. */
+  seedExistingConversation?: boolean;
+  /** Artificial delay for the conversation list GET (simulates Sidebar + /chat racing). */
+  conversationListDelayMs?: number;
+  /** When set, seeds an agent participant on the conversation fixture. */
+  agentId?: string;
+  sharing?: {
+    is_public?: boolean;
+    public_permission?: SharePermission;
+    shared_with?: string[];
+    shared_with_teams?: string[];
+    team_permissions?: Record<string, SharePermission>;
+    share_link_enabled?: boolean;
+  };
+  userPermissions?: Record<string, SharePermission>;
+  userSearchResults?: ChatShareUserSearchResult[];
+  teamSearchResults?: ChatShareTeamSearchResult[];
+  viewerHasSharedAccess?: boolean;
+  accessLevel?: "owner" | "shared" | "shared_readonly" | "admin_audit";
   onConversationListRequest?: (url: URL) => void;
+  onConversationCreate?: () => void;
+  onShareRequest?: (request: { method: string; body: unknown; url: URL }) => void;
 };
 
-function chatConversationFixture(id: string, ownerEmail: string) {
+function chatConversationFixture(
+  id: string,
+  ownerEmail: string,
+  agentId?: string,
+  options: Pick<
+    ChatBootMocksOptions,
+    "accessLevel" | "sharing" | "title" | "viewerHasSharedAccess"
+  > = {},
+) {
   const now = new Date().toISOString();
   return {
     _id: id,
-    title: "RBAC E2E Conversation",
+    title: options.title ?? "RBAC E2E Conversation",
     client_type: "webui",
     owner_id: ownerEmail,
-    participants: [],
+    participants: agentId ? [{ type: "agent", id: agentId }] : [],
     created_at: now,
     updated_at: now,
     metadata: { client_type: "webui", total_messages: 0 },
@@ -41,7 +86,10 @@ function chatConversationFixture(id: string, ownerEmail: string) {
       shared_with: [],
       shared_with_teams: [],
       share_link_enabled: false,
+      ...options.sharing,
     },
+    viewer_has_shared_access: options.viewerHasSharedAccess,
+    access_level: options.accessLevel,
     tags: [],
     is_archived: false,
     is_pinned: false,
@@ -56,16 +104,141 @@ export async function installChatBootMocks(
 ): Promise<void> {
   const conversationId = options.conversationId ?? "rbac-e2e-conversation";
   const ownerEmail = options.ownerEmail ?? env.user.email;
-  const conversation = chatConversationFixture(conversationId, ownerEmail);
-  let created = false;
+  const conversation = chatConversationFixture(conversationId, ownerEmail, options.agentId, {
+    accessLevel: options.accessLevel,
+    sharing: options.sharing,
+    title: options.title,
+    viewerHasSharedAccess: options.viewerHasSharedAccess,
+  });
+  const seedExistingConversation = options.seedExistingConversation !== false;
+  const conversationListDelayMs = options.conversationListDelayMs ?? 0;
+  let created = seedExistingConversation;
+  const directSharePermission = options.accessLevel === "shared_readonly" ? "view" : "comment";
+  const userPermissions: Record<string, SharePermission> = {
+    ...(conversation.sharing.shared_with ?? []).reduce<Record<string, SharePermission>>((acc, email) => {
+      acc[email] = directSharePermission;
+      return acc;
+    }, {}),
+    ...(options.userPermissions ?? {}),
+  };
+  conversation.sharing.team_permissions = { ...(conversation.sharing.team_permissions ?? {}) };
+  const shareableTeams = options.teamSearchResults ?? [];
+
+  const updateConversationSharing = (sharingUpdate: typeof conversation.sharing) => {
+    conversation.sharing = {
+      is_public: Boolean(sharingUpdate.is_public),
+      public_permission: sharingUpdate.public_permission,
+      shared_with: [...(sharingUpdate.shared_with ?? [])],
+      shared_with_teams: [...(sharingUpdate.shared_with_teams ?? [])],
+      team_permissions: { ...(sharingUpdate.team_permissions ?? {}) },
+      share_link_enabled: Boolean(sharingUpdate.share_link_enabled),
+    };
+  };
+
+  const accessList = () =>
+    (conversation.sharing.shared_with ?? []).map((email: string) => ({
+      conversation_id: conversationId,
+      granted_by: ownerEmail,
+      granted_to: email,
+      permission: userPermissions[email] ?? directSharePermission,
+      granted_at: new Date().toISOString(),
+    }));
 
   await page.route("**/api/admin/platform-config", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ success: true, data: { default_agent_id: null } }),
+      body: JSON.stringify({
+        success: true,
+        data: {
+          default_agent_id: options.agentId ?? null,
+          release_notes: { enabled: false },
+        },
+      }),
     });
   });
+
+  await page.route("**/api/users/search**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const query = (requestUrl.searchParams.get("q") ?? "").trim().toLowerCase();
+    const matches = (options.userSearchResults ?? []).filter((user) =>
+      `${user.name} ${user.email}`.toLowerCase().includes(query),
+    );
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: matches }),
+    });
+  });
+
+  if (options.agentId) {
+    const agent = {
+      _id: options.agentId,
+      name: "RBAC E2E Agent",
+      description: "Mocked dynamic agent for chat browser regressions",
+      enabled: true,
+      skills: [],
+      ui: {},
+    };
+
+    await page.route("**/api/dynamic-agents**", async (route) => {
+      const request = route.request();
+      const requestUrl = new URL(request.url());
+      const method = request.method();
+      const path = requestUrl.pathname;
+
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: shareableTeams }),
+        });
+        return;
+      }
+
+      if (path === "/api/dynamic-agents/available" && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: [agent] }),
+        });
+        return;
+      }
+
+      if (path === `/api/dynamic-agents/agents/${options.agentId}` && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: agent }),
+        });
+        return;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: true,
+            data: { items: [agent], total: 1, page: 1, page_size: 20 },
+          }),
+        });
+        return;
+      }
+
+      await route.continue();
+    });
+  }
+
+  if (shareableTeams.length > 0) {
+    await page.route("**/api/dynamic-agents/teams**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: shareableTeams }),
+      });
+    });
+  }
 
   await page.route("**/api/chat/conversations**", async (route) => {
     const request = route.request();
@@ -75,7 +248,10 @@ export async function installChatBootMocks(
 
     if (path === "/api/chat/conversations" && method === "GET") {
       options.onConversationListRequest?.(requestUrl);
-      const items = created ? [conversation] : [];
+      if (conversationListDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, conversationListDelayMs));
+      }
+      const items = created || seedExistingConversation ? [conversation] : [];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -94,6 +270,7 @@ export async function installChatBootMocks(
     }
 
     if (path === "/api/chat/conversations" && method === "POST") {
+      options.onConversationCreate?.();
       created = true;
       await route.fulfill({
         status: 201,
@@ -107,6 +284,98 @@ export async function installChatBootMocks(
     }
 
     if (path === `/api/chat/conversations/${conversationId}` && method === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: conversation }),
+      });
+      return;
+    }
+
+    if (path === `/api/chat/conversations/${conversationId}/share` && method === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            sharing: conversation.sharing,
+            access_list: accessList(),
+          },
+        }),
+      });
+      return;
+    }
+
+    if (path === `/api/chat/conversations/${conversationId}/share` && method === "POST") {
+      const body = route.request().postDataJSON() as {
+        user_emails?: string[];
+        team_ids?: string[];
+        permission?: SharePermission;
+        is_public?: boolean;
+        public_permission?: SharePermission;
+        enable_link?: boolean;
+      };
+      options.onShareRequest?.({ method, body, url: requestUrl });
+      const permission = body.permission ?? "comment";
+
+      if (Array.isArray(body.user_emails)) {
+        const next = new Set(conversation.sharing.shared_with ?? []);
+        for (const email of body.user_emails) {
+          next.add(email);
+          userPermissions[email] = permission;
+        }
+        conversation.sharing.shared_with = [...next];
+      }
+
+      if (Array.isArray(body.team_ids)) {
+        const next = new Set(conversation.sharing.shared_with_teams ?? []);
+        const nextTeamPermissions = { ...(conversation.sharing.team_permissions ?? {}) };
+        for (const teamId of body.team_ids) {
+          next.add(teamId);
+          nextTeamPermissions[teamId] = permission;
+        }
+        conversation.sharing.shared_with_teams = [...next];
+        conversation.sharing.team_permissions = nextTeamPermissions;
+      }
+
+      if (typeof body.is_public === "boolean") {
+        conversation.sharing.is_public = body.is_public;
+      }
+      if (body.public_permission) {
+        conversation.sharing.public_permission = body.public_permission;
+      }
+      if (typeof body.enable_link === "boolean") {
+        conversation.sharing.share_link_enabled = body.enable_link;
+      }
+      updateConversationSharing(conversation.sharing);
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: conversation }),
+      });
+      return;
+    }
+
+    if (path === `/api/chat/conversations/${conversationId}/share` && method === "PATCH") {
+      const body = route.request().postDataJSON() as {
+        email?: string;
+        team_id?: string;
+        permission?: SharePermission;
+      };
+      options.onShareRequest?.({ method, body, url: requestUrl });
+
+      if (body.permission && body.email) {
+        userPermissions[body.email] = body.permission;
+      }
+      if (body.permission && body.team_id) {
+        conversation.sharing.team_permissions = {
+          ...(conversation.sharing.team_permissions ?? {}),
+          [body.team_id]: body.permission,
+        };
+      }
+
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -136,23 +405,43 @@ export async function installChatBootMocks(
 }
 
 export async function dismissReleaseUpgradeDialog(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: /what's new/i });
-  if (!(await dialog.isVisible({ timeout: 3_000 }).catch(() => false))) return;
+  const dialog = page.getByRole("dialog", { name: /what'?s new/i });
 
-  await page.keyboard.press("Escape").catch(() => undefined);
-  if (await dialog.isHidden({ timeout: 1_000 }).catch(() => false)) return;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (!(await dialog.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      return;
+    }
 
-  const closeButton = dialog.getByRole("button", { name: /^close$/i });
-  if (await closeButton.isVisible().catch(() => false)) {
-    await closeButton.click({ force: true });
-    await expect(dialog).toBeHidden({ timeout: 5_000 });
-    return;
-  }
+    const skipButton = dialog.getByRole("button", { name: /skip until next login/i });
+    if (await skipButton.isVisible().catch(() => false)) {
+      await skipButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 3_000 }).catch(() => false)) {
+        return;
+      }
+    }
 
-  const skipButton = dialog.getByRole("button", { name: /skip until next login|do not show again/i });
-  if (await skipButton.isVisible().catch(() => false)) {
-    await skipButton.click({ force: true });
-    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    const dismissButton = dialog.getByRole("button", { name: /do not show again/i });
+    if (await dismissButton.isVisible().catch(() => false)) {
+      await dismissButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 5_000 }).catch(() => false)) {
+        return;
+      }
+    }
+
+    const closeButton = dialog.getByRole("button", { name: /^close$/i });
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 3_000 }).catch(() => false)) {
+        return;
+      }
+    }
+
+    await page.keyboard.press("Escape").catch(() => undefined);
+    if (await dialog.isHidden({ timeout: 1_000 }).catch(() => false)) {
+      return;
+    }
+
+    await page.waitForTimeout(250);
   }
 }
 
@@ -160,20 +449,27 @@ export async function expectChatComposerReady(
   page: Page,
   timeoutMs = 30_000,
 ): Promise<void> {
-  const textbox = page.getByRole("textbox");
+  const composer = page.locator("textarea").first();
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     await dismissReleaseUpgradeDialog(page);
-    if (await textbox.isVisible({ timeout: 500 }).catch(() => false)) {
-      await expect(textbox).toBeVisible();
+
+    const pathname = new URL(page.url()).pathname;
+    if (pathname === "/chat") {
+      await page.waitForURL(/\/chat\/[^/]+/, { timeout: 2_000 }).catch(() => undefined);
+    }
+
+    if (await composer.isVisible({ timeout: 500 }).catch(() => false)) {
+      await expect(composer).toBeVisible();
       return;
     }
+
     await page.waitForTimeout(250);
   }
 
   await dismissReleaseUpgradeDialog(page);
-  await expect(textbox).toBeVisible({ timeout: 1_000 });
+  await expect(composer).toBeVisible({ timeout: 1_000 });
 }
 
 export function isDuoSecurityHost(hostname: string): boolean {

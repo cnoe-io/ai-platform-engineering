@@ -157,7 +157,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     createConversation,
     addMessage,
     updateMessage,
-    // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
     appendToMessage,
     addStreamEvent,
     clearStreamEvents,
@@ -166,13 +165,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     cancelConversationRequest,
     updateMessageFeedback,
     consumePendingMessage,
-    // recoverInterruptedTask, // A2A recovery logic - keep or remove?
-    // The A2A recovery logic relies on tasks/get which might not exist for Dynamic Agents yet.
-    // The plan says "Phase 2... survives pod restarts".
-    // "Phase 3... Persistent History... history loads from checkpointer".
-    // For Phase 1 (UI), let's keep it simple and maybe comment out A2A recovery if it's specific to A2A endpoints.
-    // Dynamic Agents don't have a /tasks/get endpoint in the same way, or at least the client usage might differ.
-    // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
     loadMessagesFromServer,
     updateConversationTitle,
@@ -246,6 +238,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const isThisConversationStreaming = activeConversationId
     ? isConversationStreaming(activeConversationId)
     : false;
+  const hasAssistantMessageForInterruptCheck = conversation?.messages?.some((message) => message.role === "assistant") ?? false;
 
   // Check if user is near the bottom of the scroll area
   const isNearBottom = useCallback(() => {
@@ -343,8 +336,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     return () => cancelAnimationFrame(raf);
   }, [activeConversationId, scrollToBottom]);
 
-  // RECOVERY LOGIC REMOVED (A2A specific)
-  const recoveringMessageId = null; 
+  const recoveringMessageId = null;
 
   // ═══════════════════════════════════════════════════════════════
   // CHECK HITL INTERRUPT STATE from checkpointer (messages loaded by ChatContainer)
@@ -357,7 +349,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // this effect can fire before ChatContainer finishes loading messages
     // from MongoDB, causing lastMsg to be undefined and recovery to fail)
     if (isLoadingMessages) return;
-    
+    if (isThisConversationStreaming) return;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Empty chats have no assistant turn to attach restored HITL state to.
+    if (!hasAssistantMessageForInterruptCheck) return;
+
     // Skip if already checked this conversation
     if (interruptCheckedRef.current.has(conversationId)) return;
     
@@ -366,11 +362,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const checkInterruptState = async () => {
       setCheckingInterrupt(true);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 5000);
       try {
         // Check for pending HITL interrupt state (lightweight call to checkpointer)
         // Messages are already loaded by ChatContainer - we only check interrupt state here
         const interruptResponse = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`
+          `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`,
+          { signal: controller.signal },
         );
         
         if (interruptResponse.ok) {
@@ -439,12 +438,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // Non-fatal: HITL state check failed
         console.warn("[ChatPanel] Failed to check interrupt state:", interruptError);
       } finally {
+        window.clearTimeout(timeoutId);
         setCheckingInterrupt(false);
       }
     };
 
     checkInterruptState();
-  }, [conversationId, agentId, isLoadingMessages]);
+  }, [conversationId, agentId, isLoadingMessages, isThisConversationStreaming, hasAssistantMessageForInterruptCheck]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
@@ -598,8 +598,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Don't restore if user explicitly dismissed the form for this message
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
 
-    // Check for SSE "input_required" events
-    // Note: Only streamEvents have the input_required type. Message events (A2A) don't.
+    // HITL state is restored from persisted stream events.
     const streamEventsFromConv = conversation.streamEvents || [];
     
     // Find the last input_required event
@@ -662,6 +661,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     hitlFormRequested: boolean;
     hasError: boolean;
     errorMessage?: string;
+    /** Epoch ms when the turn was submitted — used to derive latency_ms. */
+    startedAt?: number;
   }
 
   // Get the protocol-agnostic adapter config
@@ -892,6 +893,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         ? "interrupted"
         : "done";
 
+    // Client-measured end-to-end latency for the turn. Only recorded on a
+    // clean completion (a HITL pause or error would skew response-time stats).
+    const latencyMs =
+      isFinal && !state.hasError && state.startedAt != null
+        ? Date.now() - state.startedAt
+        : undefined;
+
     updateMessage(conversationId, assistantMsgId, {
       content: state.accumulatedText,
       rawStreamContent: state.rawStreamContent,
@@ -899,10 +907,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       turnStatus,
       ...(state.errorMessage ? { error: state.errorMessage } : {}),
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
+      // Persisted to metadata.agent_name / metadata.latency_ms for Insights.
+      ...(agentName && { agentName }),
+      ...(latencyMs != null && { latencyMs }),
     });
     setConversationStreaming(conversationId, null);
     // Store's setConversationStreaming(null) hook auto-saves after 500ms.
-  }, [updateMessage, setConversationStreaming]);
+  }, [updateMessage, setConversationStreaming, agentName]);
 
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
@@ -971,6 +982,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: "",
       hitlFormRequested: false,
       hasError: false,
+      startedAt: Date.now(),
     };
     const toolCallIdToName = new Map<string, string>();
 
@@ -1271,6 +1283,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: "",
       hitlFormRequested: false,
       hasError: false,
+      startedAt: Date.now(),
     };
     const toolCallIdToName = new Map<string, string>();
 
@@ -1347,10 +1360,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const clientContext: Record<string, unknown> = { source: "webui" };
 
-    // Build resume payload — use batched decisions format
+    // Build resume payload using the format expected by the runtime.
     let resumePayload: Record<string, unknown>;
     if (newDecisions.length === 1) {
-      // Single tool — use legacy format for backwards compat
+      // Single-decision payload keeps the common approval path compact.
       const d = newDecisions[0];
       if (d.decision === "edit" && d.editedArgs) {
         resumePayload = { type: "tool_approval", decision: "edit", edited_args: d.editedArgs };
@@ -1383,6 +1396,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: "",
       hitlFormRequested: false,
       hasError: false,
+      startedAt: Date.now(),
     };
     const toolCallIdToName = new Map<string, string>();
 
@@ -1462,7 +1476,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         }
       }, 0);
     } else if (cmd.category === "skill") {
-      // Skill: send a rich prompt so the supervisor recognizes the skill invocation
+      // Skill: send a rich prompt so the runtime recognizes the skill invocation.
       setInput("");
       const skillPrompt = `Execute skill: ${cmd.value}\n\nRead and follow the instructions in the SKILL.md file for the "${cmd.value}" skill.`;
       submitMessage(skillPrompt).then(() => {
@@ -1656,7 +1670,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                         // Completed message with persisted events
                         turnEvents = msg.streamEvents;
                       } else {
-                        // Fall back to timestamp-based filtering (legacy/edge cases)
+                        // Fall back when a message has no persisted stream events.
                         turnEvents = filterEventsForTurn(
                           conversation?.streamEvents ?? [],
                           msg,
@@ -1949,8 +1963,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
  * Filter SSE events for a specific message turn based on timestamps.
  * Returns events that occurred between this message and the next user message.
  * 
- * NOTE: This is a fallback for legacy messages. Prefer using msg.streamEvents directly
- * for completed messages, as the message timestamp may be after all events finished.
+ * Prefer msg.streamEvents for completed assistant messages because message
+ * timestamps can be after all events finished.
  */
 function filterEventsForTurn(
   streamEvents: StreamEvent[],

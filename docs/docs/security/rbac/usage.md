@@ -104,7 +104,7 @@ never enable it in staging or production.
 but new UI auth paths should consume the dev auth provider rather than checking
 the env var directly.
 
-> **Heads-up: `caipe-ui` host port is hard-pinned to `3000`.** Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and login fails with `Invalid redirect_uri`. The spec-102 e2e lane (`make test-rbac-up`) honours this — it remaps Mongo (`28017`) and supervisor (`28000`) to a `28xxx` band, but leaves `caipe-ui:3000` and Keycloak (`7080/7443`) untouched. See [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) for the full table and env-var contract.
+> **Heads-up: `caipe-ui` host port is hard-pinned to `3000`.** Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and login fails with `Invalid redirect_uri`. The spec-102 e2e lane (`make test-rbac-up`) honours this — it remaps Mongo (`28017`) to a `28xxx` band, but leaves `caipe-ui:3000` and Keycloak (`7080/7443`) untouched. See [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) for the full table and env-var contract.
 
 ---
 
@@ -348,17 +348,17 @@ at the Web UI backend, and runtime start/invoke/resume repeat that check inside
 Dynamic Agents.
 If existing team data was seeded with email principals, both layers fallback to
 `user:<email> can_use agent:<agent_id>` after the subject check fails.
-The v1 chat routes and plain `/api/chat/stream` proxy also require write access
-to the target conversation using implicit Mongo owner identity first and explicit
-OpenFGA `conversation:<id>` relationships for non-owner access. Browser cookie
-sessions are converted back into `Authorization: Bearer <accessToken>` when the
-plain SSE proxy calls the supervisor backend.
+The v1 chat routes also require write access to the target conversation using
+implicit Mongo owner identity first and explicit OpenFGA `conversation:<id>`
+relationships for non-owner access. Browser cookie sessions are converted back
+into `Authorization: Bearer <accessToken>` when proxying to the dynamic-agents
+runtime.
 
 The RBAC Audit tab records OpenFGA results as `OpenFGA ReBAC`. Filter by type
 `OpenFGA ReBAC` to see `webui_backend` `dynamic_agent#use` checks, Dynamic Agents
 runtime `dynamic_agent#use` checks, AgentGateway bridge `mcp#can_call` checks, and
 admin graph/check/relationship activity from the OpenFGA ReBAC panel. The Admin UI
-reads MongoDB `audit_events`, so this view works without Jaeger. To keep the
+reads audit-service, so this view works without Jaeger. To keep the
 default feed useful, routine `admin_ui#view` checks are hidden unless the user
 explicitly selects the `Authorization` type filter. The same default filter
 applies to `admin_ui#audit.view` checks generated while viewing the audit page.
@@ -434,9 +434,11 @@ underlying tuple list when needed.
 
 ### Authz Audit Storage
 
-Authorization audit is MongoDB-backed in local dev. Use Admin → Security &
-Policy → RBAC Audit as the durable view for OpenFGA checks and authorization
-decisions; the dev compose stack does not start a separate trace backend.
+Authorization audit is owned by `audit-service`. UI, Dynamic Agents, bots, and
+the OpenFGA bridge post JSON event batches to the service; the service owns
+local/S3 storage and the Admin → Security & Policy → RBAC Audit read path. In
+local dev the service uses local disk unless configured for S3. The dev compose
+stack does not start a separate trace backend.
 
 See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5-dynamic-agents--the-workshop-floor) for the full env var table and what each one does.
 
@@ -1103,7 +1105,7 @@ The comprehensive RBAC test matrix (helper unit tests + matrix-driver tests + Pl
 # Lint everything (matrix YAML, jest, ruff)
 make test-rbac-lint
 
-# Boot the full stack with the e2e port band (UI:3000, mongo:28017, supervisor:28000)
+# Boot the full stack with the e2e port band (UI:3000, mongo:28017)
 make test-rbac-up
 
 # Run helper unit tests + the YAML-driven matrix tests (Python + Jest)
@@ -1122,8 +1124,8 @@ Full details — port band rationale, the `E2E_COMPOSE_ENV` contract, and how th
 For `caipe-ui` unit coverage, run `npm test -- --coverage --runInBand` from
 `ui/`. The Jest coverage scope tracks the UI/BFF code that can be exercised
 deterministically in unit tests and excludes heavyweight browser-only graph,
-timeline, task-builder, RAG ingestion, and external admin-client shells that
-belong in integration or browser tests.
+timeline, RAG ingestion, and external admin-client shells that belong in
+integration or browser tests.
 
 ---
 

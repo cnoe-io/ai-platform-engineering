@@ -128,7 +128,6 @@ describe("AgentGateway MCP discovery", () => {
           "argocd",
           "backstage",
           "confluence",
-          "github",
           "gitlab",
           "jira",
           "knowledge-base",
@@ -299,6 +298,17 @@ describe("AgentGateway MCP discovery", () => {
         provider: "github",
         target: "header",
         fallback_env: "GITHUB_PERSONAL_ACCESS_TOKEN",
+      },
+    ]);
+  });
+
+  it("attaches built-in provider_connection credential source for confluence", () => {
+    expect(builtinCredentialSourcesFor("confluence")).toEqual([
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "atlassian",
+        target: "header",
       },
     ]);
   });

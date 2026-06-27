@@ -1,3 +1,317 @@
+## 0.5.26 (2026-06-26)
+
+### Fix
+
+- **slack**: suppress ephemeral nudges for passive channel posts (#2045)
+
+## 0.5.25 (2026-06-26)
+
+### Feat
+
+- **health**: refactor platform health probes to capabilities with profile-aware integration status (#2005)
+
+### Fix
+
+- **ui**: improve sharing/transfer UX and consolidate KB ownership (#2041)
+- **slack**: batch configured channel health audit lookup (#2043)
+- **ui**: cache session auth for repeated api calls
+- **keycloak**: add memory headroom for slack admin loads (#2038)
+- **ui**: actually use the seedConfig source for mcp
+- **webex**: simplify space onboarding and direct routing
+- **mcp**: stabilize tool schema and health scans
+- **chat**: restore user and team share visibility (#2031)
+- **admin**: collapse long user team lists (#2034)
+
+## 0.5.24 (2026-06-26)
+
+### Feat
+
+- **mcp**: add mcpSecrets alias with deprecation of agentSecrets
+
+### Fix
+
+- **mcp**: set mcpSecrets default to empty map, guard against nil
+- **mcp**: guard ExternalSecret data/dataFrom to prevent empty-list rejection
+- **chart**: wire AGENTGATEWAY_TARGETS_TOKEN into caipe-ui and add dev-mode default (#2007)
+- **chat**: stabilize shared conversation list access
+- **chat**: show recipient share permissions
+- **chat**: use shared icon for share control
+- **chat**: preserve owner share controls
+- **chat**: respect shared conversation edit affordance
+- **chat**: show shared-by affordance to recipients
+- **chat**: mark shared recipients in sidebar
+- **chat**: enable team conversation sharing
+- **chat**: show shared badge to recipients
+- **chat**: preserve shared chat UI indicators
+- **chat**: prevent private conversation visibility leak
+- **slack-bot**: log SA name alongside sub in dispatch_identity (SDPL-1984)
+- **slack-bot**: use None fallback for event ts (SDPL-1984)
+- **slack-bot**: match bot allowlist by name OR user ID (SDPL-1984)
+- **slack-bot**: skip Keycloak identity resolution in middleware for bot messages (SDPL-1984)
+
+## 0.5.23 (2026-06-25)
+
+### Fix
+
+- **audit**: run store.query in thread and narrow health-check lookback to 24h (#2026)
+- **okta-sync**: handle DPoP nonce requirement automatically (#2023)
+- **ci**: use github token for ui ghcr push (#2024)
+- **ci**: use github token for ui tag detection (#2022)
+
+## 0.5.22 (2026-06-25)
+
+### Feat
+
+- **ui**: make release notes user-scoped under General and simplify config (#2017)
+
+### Fix
+
+- **ci**: resolve remaining zizmor findings (#2010)
+
+## 0.5.21-dev.4 (2026-06-25)
+
+### Feat
+
+- **admin**: replace low-level FGA admin tools with team-based user access view (#2016)
+
+### Fix
+
+- **webex**: gate space access on agent assignment, not team membership (#1763)
+
+## 0.5.21-dev.3 (2026-06-24)
+
+### Fix
+
+- **ai-review**: persist grade on create, align AI Suggest to rubric, and fix blocking-message UX (#2014)
+
+## 0.5.21-dev.2 (2026-06-24)
+
+### Feat
+
+- **core**: remove legacy supervisor model and A2A standalone agents (#1728)
+
+## 0.5.21-dev.1 (2026-06-24)
+
+### Feat
+
+- **slack-bot**: bold-italic footer hint and env.example comment cleanup (#2011)
+
+### Fix
+
+- **rbac**: filter OpenFGA tuples server-side in slack channel diagnostics (#2009)
+- **ci**: scope sync-release-branches write perms to the sync job
+- **ci**: scope overly-broad workflow permissions to jobs
+- **ci**: resolve zizmor template-injection and unpinned-action findings
+
+## 0.5.21 (2026-06-23)
+
+### Feat
+
+- **dynamic-agents**: add INVOKE_PERSIST_HISTORY env var to compose
+
+### Fix
+
+- **tests**: update tests to match new fallback and wildcard behaviour
+- **rbac**: add findOneAndUpdate to migration lock test mock
+- **mcp**: allow fallback_env when provider connection is unavailable
+- **service-accounts**: always show wildcard in SA tool picker
+- **rbac**: atomically acquire migration lock to prevent multi-replica race
+
+## 0.5.20 (2026-06-23)
+
+## 0.5.19-dev.3 (2026-06-23)
+
+### Feat
+
+- **admin,mcp**: self-service integration panel modes, bulk onboarding, and credential relink (#1985)
+
+### Fix
+
+- **docker-compose**: Update to wire openfga into first install ui (#1907)
+- **caipe-ui**: replace per-pod token Map with MongoDB-backed L1+L2 store (#1987)
+
+## 0.5.19-dev.2 (2026-06-23)
+
+### Feat
+
+- **admin**: improve health and integration diagnostics (#1992)
+- **mcp**: default servers to streamable HTTP
+
+### Fix
+
+- **ui**: scope /api/chat/shared pre-filter to sharing-configured conversations
+
+## 0.5.19-dev.1 (2026-06-22)
+
+### Fix
+
+- **ui,chart**: handle Kubernetes tcp:// port env vars and wire platform health probe hosts (#1983)
+
+## 0.5.19 (2026-06-22)
+
+### Fix
+
+- **mcp**: route Confluence provider tokens through AgentGateway
+- **identity-sync**: remove proactive Okta credential health check on page load (#1975)
+
+## 0.5.18-dev.1 (2026-06-22)
+
+## 0.5.18 (2026-06-22)
+
+### Fix
+
+- **charts**: default AUDIT_SERVICE_URL to release-scoped audit-service
+- **workflows**: allow workflow CRUD with view permission at BFF gate
+- **workflows**: let non-admins save workflows without global agent grants
+
+## 0.5.17-dev.11 (2026-06-22)
+
+### Feat
+
+- **credentials**: fail closed on caller-scoped MCP OAuth with chat warnings
+- **credentials**: pin provider connections on custom MCP servers
+- **credentials**: improve provider connection profile and OAuth lifecycle
+- **rbac**: wire agent context HMAC for Helm and document follow-up gaps
+- **workflows**: include run_url in workflow status tool responses
+- **workflows**: poll run status and harden chat workflow UX
+- **workflows**: improve Webex workflow run tool responses and guidance
+- **credentials**: harden secret dialog and add workspace regression e2e
+- **workflows**: delegate workflow BFF calls to invoking user bearer
+- **rbac**: reconcile platform MCP and agent OpenFGA tuples on startup
+- **agents**: scope ownership checks and tighten team member grants
+- **mcp**: add list permissions and gate MCP server actions in UI
+- **agentgateway**: propagate MCP credential headers through bridge
+- **mcp**: add AgentGateway upstream resolver and credential helpers
+- **credentials**: integrate secrets UX with AgentGateway MCP routing
+
+### Fix
+
+- **ci**: address github-code-quality findings on PR #1967
+- **credentials**: guard OAuth callback when auth user metadata is absent
+- **ci**: align UI tests and e2e lint with login and chat nav changes
+- **ui**: satisfy TypeScript checks in dynamic-agents list route
+- **agentgateway**: repair config bridge tests after credential gating
+- **ci**: stabilize workflow e2e probes and agentgateway credential forwarding
+- **ci**: stabilize webex tests and gitleaks for jira JWT fixture
+- **mcp**: revert #1926 AgentGateway routing opt-out
+- **webex**: reduce duplicate pairing prompts and harden identity lookup
+- **jira**: harden MCP API client error handling
+- **webex**: improve WDM reconnection and device registration handling
+- **ui**: flip popovers when viewport space is limited
+- **rbac**: allow team workflow owners to run without team membership
+- **mcp**: promote custom servers to agentgateway routes (#1926)
+- **mcp**: promote custom servers to agentgateway routes
+- **mcp**: cover agentgateway acceptance gaps
+- **mcp**: promote custom servers to agentgateway routes
+- **compose**: use canonical caipe-ui image tag
+- **rbac**: address admin and chat regressions (#1950)
+
+## 0.5.17-dev.10 (2026-06-21)
+
+### Fix
+
+- **deps**: update torch for rag embeddings (#1962)
+
+## 0.5.17-dev.9 (2026-06-21)
+
+### Perf
+
+- **ui**: cache health and RBAC gate checks (#1949)
+
+## 0.5.17-dev.8 (2026-06-20)
+
+### Feat
+
+- **audit**: read connector diagnostics from audit service
+- **audit**: add audit-service read UI
+
+### Fix
+
+- **security**: remove agntcy slim sdk usage (#1955)
+- **helm**: keep MCP servers while disabling A2A agents
+
+## 0.5.17-dev.7 (2026-06-20)
+
+### Fix
+
+- **deps**: resolve dependabot security alerts (#1872)
+
+## 0.5.17-dev.6 (2026-06-20)
+
+### Fix
+
+- **ci**: satisfy zizmor security scan
+
+### Refactor
+
+- **audit**: route producers through audit service
+
+## 0.5.17-dev.5 (2026-06-20)
+
+### Feat
+
+- **github**: use gh cli-backed file contents tool (#1721)
+
+## 0.5.17-dev.4 (2026-06-20)
+
+### Feat
+
+- **audit**: add lightweight audit service runtime (#1946)
+
+## 0.5.17-dev.3 (2026-06-20)
+
+## 0.5.17-dev.2 (2026-06-20)
+
+### Fix
+
+- **credentials**: allow team sharing authz
+- **ui**: address platform health review comments
+
+## 0.5.17-dev.1 (2026-06-19)
+
+### Feat
+
+- **rag**: add S3 document ingestor (#1875)
+- **ui**: add dynamic agents probe; make RAG group non-critical
+- **ui**: remove NPS score page, survey, and settings (#1919)
+
+### Fix
+
+- **setup-caipe**: Missing AGENTGATEWAY_TARGETS_TOKEN (#1914)
+- **rbac**: replace unsupported $facet in team members pagination for DocumentDB (#1924)
+- **ui**: stable health badge — no pulse, no flicker, debounced bad status
+- **ui**: handle Kubernetes tcp:// port env vars in health probes
+- **ci**: drop GitHub App token from release-finalize
+- **ci**: use GITHUB_TOKEN for release publish steps
+
+## 0.5.17 (2026-06-18)
+
+### Feat
+
+- **ui**: add platform health probes (#1909)
+- **ui**: paginate admin teams/members/IdP-sync history + self-heal OpenFGA drift (#1916)
+
+## 0.5.16-dev.2 (2026-06-18)
+
+### Feat
+
+- **rbac**: add background scheduler for IdP directory sync (#1901)
+
+### Fix
+
+- **ui**: prefer exact changelog release prompts
+- **admin**: align superadmin access surfaces
+- **rbac**: unblock superadmin conversations and tool grants
+- **workflows**: portal visibility dropdown and fix runs-to-workflows nav (#1900)
+
+## 0.5.16-dev.1 (2026-06-17)
+
+### Fix
+
+- **slack**: remove ephemeral identity verification error message (#1902)
+
+## 0.5.16 (2026-06-17)
+
 ## 0.5.15-dev.8 (2026-06-17)
 
 ### Fix
@@ -4286,7 +4600,7 @@ Closes: #324
 - with latest changes
 - create protocol_bindings directory for acp/a2a/mcp
 - **external-secrets**: improve secret name handling and update configuration examples
-- **monorepo**: rename mas->multi_agents, use separate mcp python project
+- **monorepo**: rename mas->multi_agents, use seperate mcp python project
 - **agent-argocd**: collapse to ai-platform-engineering
 - clean-up old code and update docs (#38)
 - docker support, clean-up, new chat client interface (#13)

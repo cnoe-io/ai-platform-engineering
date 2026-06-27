@@ -24,7 +24,6 @@ jest.mock("@/lib/mongodb", () => ({
 const mockGetConfig = jest.fn((key: string) =>
   ({
     feedbackEnabled: true,
-    npsEnabled: true,
     auditLogsEnabled: true,
     actionAuditEnabled: true,
     credentialsEnabled: true,
@@ -36,8 +35,14 @@ jest.mock("@/lib/config", () => ({
 
 const mockCheckOpenFgaTuple = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockListOpenFgaObjects = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
+  batchCheckOpenFgaTuples: async (tuples: unknown[]) => {
+    const results = await Promise.all(tuples.map((tuple) => mockCheckOpenFgaTuple(tuple)));
+    return results.map((result) => result?.allowed === true);
+  },
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
@@ -53,7 +58,6 @@ describe("GET /api/rbac/admin-tab-gates", () => {
     mockGetConfig.mockImplementation((key: string) =>
       ({
         feedbackEnabled: true,
-        npsEnabled: true,
         auditLogsEnabled: true,
         actionAuditEnabled: true,
         credentialsEnabled: true,
@@ -63,6 +67,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       throw new Error("admin_tab_policies should not be read");
     });
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
   });
 
@@ -95,6 +100,10 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       migrations: true,
     });
     expect(body.gates).not.toHaveProperty("policy");
+    expect(body.integration_panel_modes).toEqual({
+      slack: "full",
+      webex: "full",
+    });
   });
 
   it("does not use organization admin alone for privileged tab visibility", async () => {
@@ -351,6 +360,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       webex: false,
       openfga: false,
     });
+    expect(body.integration_panel_modes).toEqual({ slack: "self_service" });
   });
 
   it("can simulate admin tab gates for a real team userset", async () => {
@@ -399,6 +409,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       openfga: false,
       migrations: false,
     });
+    expect(body.integration_panel_modes).toEqual({ slack: "full" });
   });
 
   it("rejects simulation requests from non-admin actors", async () => {

@@ -2,195 +2,79 @@
 sidebar_position: 3
 ---
 
-# Deploy CAIPE on EKS
+# Configure LLMs for EKS
 
-This guide shows how to deploy the ai-platform-engineering helm chart to your EKS cluster using ArgoCD.
+Dynamic Agents and RAG read provider credentials from Kubernetes Secrets. The
+standard chart path uses a shared `llm-secret`.
 
-**Prerequisites**: Ensure you have completed the previous sections:
-- ArgoCD is deployed on your cluster
-- Agent secrets are configured
-
-## Step 1: Create ArgoCD Application
-
-Copy the ArgoCD application template:
+## OpenAI
 
 ```bash
-cp deploy/eks/argocd-application.yaml.example argocd-application.yaml
+kubectl create secret generic llm-secret \
+  -n ai-platform-engineering \
+  --from-literal=LLM_PROVIDER=openai \
+  --from-literal=OPENAI_API_KEY=<token> \
+  --from-literal=OPENAI_MODEL_NAME=gpt-4o
 ```
-
-## Step 2: Configure Your Deployment
-
-Create a new branch to customize your deployment configuration. You can see an example at [example-argocd-deploy-values branch](https://github.com/cnoe-io/ai-platform-engineering/compare/main...example-argocd-deploy-values).
-
-### Enable Desired Agents
-
-Edit `helm/values.yaml` to enable the agents you want to deploy:
-
-```diff
-# Agent configurations
-agent-argocd:
--  enabled: false
-+  enabled: true
-   nameOverride: "agent-argocd"
-   image:
-     repository: "ghcr.io/cnoe-io/agent-argocd"
-
-agent-pagerduty:
--  enabled: false
-+  enabled: true
-   nameOverride: "agent-pagerduty"
-   image:
-     repository: "ghcr.io/cnoe-io/agent-pagerduty"
-
-agent-github:
-   enabled: false  # Only enable what you need
-
-# ... configure other agents as needed
-```
-
-### Configure Agent Communication Transport
-
-:::note
-This section is optional and the chart is configured to use peer-to-peer communication by default. Skip if you do not want to use SLIM.
-:::
-
-Choose between peer-to-peer (default) or centralized communication via [AGNTCY Secure Low-Latency Interactive Messaging (SLIM)](https://docs.agntcy.org/messaging/slim-core/). This configuration affects how agents communicate with each other during multi-agent workflows.
-
-#### Option 1: Peer-to-Peer Communication (Default)
-
-Direct agent-to-agent communication using the a2a (agent-to-agent) protocol:
 
 ```yaml
-# Default configuration in helm/values.yaml
 global:
-  slim:
-    enabled: false  # Peer-to-peer is default
+  llmSecrets:
+    secretName: llm-secret
 
-ai-platform-engineering:
-  multiAgentConfig:
-    protocol: "a2a"
+dynamic-agents:
+  llmSecret: llm-secret
 ```
 
-**Characteristics:**
-- **Latency**: Lower latency for direct agent interactions
-- **Architecture**: Distributed, no central coordination point
-- **Network**: Requires mesh connectivity between agents
+## Azure OpenAI
 
-#### Option 2: Centralized Communication via Agntcy Slim
+```bash
+kubectl create secret generic llm-secret \
+  -n ai-platform-engineering \
+  --from-literal=LLM_PROVIDER=azure-openai \
+  --from-literal=AZURE_OPENAI_API_KEY=<token> \
+  --from-literal=AZURE_OPENAI_ENDPOINT=https://example.openai.azure.com \
+  --from-literal=AZURE_OPENAI_API_VERSION=2025-03-01-preview \
+  --from-literal=AZURE_OPENAI_DEPLOYMENT=gpt-4o
+```
 
-Centralized communication through the agntcy slim transport layer:
+## AWS Bedrock
+
+```bash
+kubectl create secret generic llm-secret \
+  -n ai-platform-engineering \
+  --from-literal=LLM_PROVIDER=aws-bedrock \
+  --from-literal=AWS_ACCESS_KEY_ID=<access-key> \
+  --from-literal=AWS_SECRET_ACCESS_KEY=<secret-key> \
+  --from-literal=AWS_REGION=us-east-1 \
+  --from-literal=AWS_BEDROCK_MODEL_ID=us.amazon.nova-pro-v1:0 \
+  --from-literal=AWS_BEDROCK_PROVIDER=amazon
+```
+
+## Seed Models in the UI
+
+Use `caipe-ui.appConfig.models` when you want model options to be available
+without manual admin setup:
 
 ```yaml
-# Enable slim transport in helm/values.yaml
-global:
-  slim:
-    enabled: true
-    endpoint: "http://ai-platform-engineering-slim:46357"
-    transport: "slim"
-
-ai-platform-engineering:
-  multiAgentConfig:
-    protocol: "a2a"  # Still uses a2a but routes through slim
+caipe-ui:
+  appConfig:
+    models:
+      - model_id: gpt-4o
+        name: GPT-4o
+        provider: openai
+        enabled: true
 ```
 
-**Characteristics:**
-- **Coordination**: Centralized message routing and coordination
-- **Network**: Simplified network topology (hub-and-spoke)
-- **Overhead**: Additional hop introduces minimal latency
+## RAG Embeddings
 
-## Step 3: Configure Secret Management
+If RAG uses a different provider than chat, add the embedding keys to the same
+secret or to the RAG chart's configured secret. Keep the provider-specific key
+names unchanged so the workload can read them directly.
 
-Choose one of the following approaches based on how you've set up your secrets in the [Configure Agent Secrets](./configure-agent-secrets.md) section.
-
-### Option A: Using Manual Secrets
-
-If you created secrets manually in the previous step, edit `helm/values-existing-secrets.yaml` to reference your secret names:
-
-```diff
-# Secret for your global LLM provider
-global:
-  secrets:
--    secretName: ""
-+    secretName: "llm-secret"
-
-# Agent specific secrets
-agent-argocd:
-  secrets:
--    secretName: ""
-+    secretName: "argocd-secret"
-
-agent-pagerduty:
-  secrets:
--    secretName: ""
-+    secretName: "pagerduty-secret"
-
-# ... configure other agent secrets as needed
-```
-
-### Option B: Using External Secrets
-
-If you're using external secret management (e.g., AWS Secrets Manager, HashiCorp Vault):
+## Verify
 
 ```bash
-cp helm/values-external-secrets.yaml.example helm/values-external-secrets.yaml
+kubectl get secret llm-secret -n ai-platform-engineering
+kubectl logs -n ai-platform-engineering -l app.kubernetes.io/name=dynamic-agents
 ```
-
-Then edit the file to configure your external secret management solution with the appropriate providers and secret references.
-
-## Step 3: Update ArgoCD Application
-
-Edit your `argocd-application.yaml` file:
-
-### Set Target Branch
-```yaml
-    - repoURL: https://github.com/cnoe-io/ai-platform-engineering.git
-      targetRevision: <YOUR BRANCH NAME>  # Replace with your branch name
-      ref: values
-```
-
-### Set Chart Version
-Find the current chart version in `helm/Chart.yaml` and update:
-```yaml
-  sources:
-    # Main chart from GHCR
-    - chart: ai-platform-engineering
-      repoURL: ghcr.io/cnoe-io/charts
-      targetRevision: <CHART VERSION>  # Replace with your chart version
-```
-
-## Step 4: Commit and Push Changes
-
-```bash
-git add .
-git commit -m "Configure ai-platform-engineering deployment"
-git push origin your-branch-name
-```
-
-## Step 5: Deploy with ArgoCD
-
-Apply the ArgoCD application:
-
-```bash
-kubectl apply -f argocd-application.yaml
-```
-
-## Step 6: Verify Deployment
-
-Check the ArgoCD UI or use kubectl to verify your deployment:
-
-```bash
-# Check ArgoCD applications
-kubectl get applications -n argocd
-
-# Check deployed pods
-kubectl get pods -n ai-platform-engineering
-
-# Check application sync status
-kubectl describe application ai-platform-engineering -n argocd
-```
-
-## Troubleshooting
-
-- **Application not syncing**: Check that your branch name and chart version are correct in the ArgoCD application
-- **Pods not starting**: Verify that all required secrets are created and contain valid values
-- **Agent connection issues**: Check the logs of individual agent pods for authentication or configuration errors

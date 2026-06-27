@@ -59,7 +59,7 @@ export interface FixtureMessage {
   role: "user" | "assistant";
   content: string;
   timestamp?: Date;
-  events?: any[];
+  streamEvents?: any[];
   turnId?: string;
   isFinal?: boolean;
 }
@@ -70,7 +70,7 @@ export interface FixtureConversation {
   createdAt: Date;
   updatedAt: Date;
   messages: FixtureMessage[];
-  a2aEvents: any[];
+  streamEvents: any[];
 }
 
 /**
@@ -111,7 +111,7 @@ export function generateConversation(
       role: "user",
       content: USER_QUESTIONS[i % USER_QUESTIONS.length](topic),
       timestamp: userTime,
-      events: [],
+      streamEvents: [],
       turnId,
       isFinal: true,
     });
@@ -121,7 +121,7 @@ export function generateConversation(
       role: "assistant",
       content: generateAssistantContent(topic, i, messageSize),
       timestamp: assistantTime,
-      events: [],
+      streamEvents: [],
       turnId,
       isFinal: true,
     });
@@ -133,7 +133,7 @@ export function generateConversation(
     createdAt: baseTime,
     updatedAt: now,
     messages,
-    a2aEvents: [],
+    streamEvents: [],
   };
 }
 

@@ -7,18 +7,32 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
+from datetime import datetime
 from typing import Any, Protocol
 
 import httpx
 
-from .a2a_client import SSEEventType, WebexSSEClient, space_message_to_conversation_id
+from .a2a_client import (
+    AgentAccessDeniedError,
+    SSEEventType,
+    WebexSSEClient,
+    space_message_to_conversation_id,
+)
 from .app import WebexMessageResult
 from .utils.chat_envelope import augment_webex_client_context
 from .utils.user_messages import FRIENDLY_REASON_MESSAGES, GENERIC_REQUEST_DENIED_MESSAGE
+from .utils.webex_runtime_policy import should_post_denial_notice
 
 logger = logging.getLogger("caipe.webex_bot.webex_responder")
 
 WEBEX_API_BASE_URL = "https://webexapis.com/v1"
+# Avoid spamming duplicate 1:1 linking cards when the user retries before completing SSO.
+# Webex link HMACs expire after 10 minutes in the UI BFF. Keep the resend
+# guard shorter so we never point users at an expired card.
+# assisted-by Codex Codex-sonnet-4-6
+_LINKING_CARD_COOLDOWN_SECONDS = 9 * 60
+_recent_linking_cards_sent: dict[str, float] = {}
 
 
 class WebexApiProtocol(Protocol):
@@ -163,6 +177,17 @@ class WebexResponder:
             await self._reply_with_private_linking_card(event, room_id=room_id, parent_id=parent_id, result=result)
             return
 
+        if not should_post_denial_notice(
+            silence_env=False,
+            explicit_invocation=result.explicit_invocation,
+        ):
+            logger.info(
+                "Suppressing Webex denial reply reason=%s explicit_invocation=%s",
+                result.reason_code,
+                result.explicit_invocation,
+            )
+            return
+
         markdown = _markdown_for_result(result)
         if not markdown:
             return
@@ -195,6 +220,22 @@ class WebexResponder:
             )
             return
 
+        now = time.time()
+        last_sent = _recent_linking_cards_sent.get(person_id)
+        if (
+            last_sent is not None and now - last_sent < _LINKING_CARD_COOLDOWN_SECONDS
+        ) or await self._recent_linking_card_exists(room_id=room_id, app_name=app_name, now=now):
+            await self._reply_to_thread(
+                room_id=room_id,
+                parent_id=parent_id,
+                markdown=(
+                    f"Your Webex account still needs to be linked to {app_name}. "
+                    "Open your **1:1 chat with me** and tap **Link with SSO** on the card I sent earlier "
+                    "(links expire after 10 minutes). After linking, retry here — no need to wait for a new card."
+                ),
+            )
+            return
+
         try:
             await asyncio.to_thread(
                 self._webex_api.create_message,
@@ -202,6 +243,7 @@ class WebexResponder:
                 markdown=f"Link your {app_name} account to Webex to continue.",
                 attachments=[_linking_card(app_name, result.linking_url)],
             )
+            _recent_linking_cards_sent[person_id] = now
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not send Webex 1:1 linking card (type=%s)", type(exc).__name__)
             await self._reply_to_thread(
@@ -222,6 +264,29 @@ class WebexResponder:
                 "Complete linking there, then retry your request."
             ),
         )
+
+    async def _recent_linking_card_exists(self, *, room_id: str, app_name: str, now: float) -> bool:
+        # assisted-by Codex Codex-sonnet-4-6
+        # Webex WDM can replay messages across reconnects or across duplicate
+        # bot instances. The in-memory person cache is still fast, but checking
+        # the 1:1 room history prevents another card after a local restart.
+        try:
+            messages = await asyncio.to_thread(
+                self._webex_api.list_messages,
+                room_id=room_id,
+                max_messages=20,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not inspect Webex room for recent linking cards (type=%s)", type(exc).__name__)
+            return False
+
+        for message in messages:
+            if not _looks_like_linking_message(message, app_name=app_name):
+                continue
+            created_at = _message_created_at(message)
+            if created_at is not None and now - created_at <= _LINKING_CARD_COOLDOWN_SECONDS:
+                return True
+        return False
 
     async def _reply_to_thread(self, *, room_id: str, parent_id: str, markdown: str) -> None:
         await asyncio.to_thread(
@@ -338,6 +403,24 @@ class WebexThreadedStreamDispatcher:
                         markdown=_agent_reply_markdown(agent_id, message),
                     )
                     return
+        except AgentAccessDeniedError as exc:
+            logger.info(
+                "Agent access denied for Webex thread space=%s agent=%s",
+                space_id,
+                exc.agent_id,
+            )
+            self._webex_api.update_message(
+                message_id=reply_id,
+                room_id=room_id,
+                markdown=_agent_reply_markdown(
+                    agent_id,
+                    (
+                        f"You don't have permission to use agent `{exc.agent_id}`. "
+                        f"Ask an admin to grant you access in {_app_name()}."
+                    ),
+                ),
+            )
+            return
         except Exception as exc:
             logger.warning("Webex threaded stream dispatch failed (type=%s)", type(exc).__name__)
             self._webex_api.update_message(
@@ -402,10 +485,7 @@ def _linking_card(app_name: str, linking_url: str | None) -> dict[str, Any]:
                 },
                 {
                     "type": "TextBlock",
-                    "text": (
-                        "Verify with enterprise SSO so this Webex identity can use "
-                        f"{app_name} agents on your behalf."
-                    ),
+                    "text": f"Verify your identity to interface with {app_name} agents.",
                     "wrap": True,
                 },
                 {
@@ -424,6 +504,48 @@ def _linking_card(app_name: str, linking_url: str | None) -> dict[str, Any]:
             ],
         },
     }
+
+
+def _message_created_at(message: dict[str, Any]) -> float | None:
+    raw = message.get("created") or message.get("createdAt") or message.get("created_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return datetime.fromisoformat(raw.strip().replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _looks_like_linking_message(message: dict[str, Any], *, app_name: str) -> bool:
+    expected_title = f"Link {app_name} to Webex"
+    markdown = str(message.get("markdown") or message.get("text") or "")
+    if expected_title in markdown or f"Link your {app_name} account to Webex" in markdown:
+        return True
+
+    attachments = message.get("attachments")
+    if not isinstance(attachments, list):
+        return False
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        content = attachment.get("content")
+        if not isinstance(content, dict):
+            continue
+        if _card_contains_text(content.get("body"), expected_title):
+            return True
+        if _card_contains_text(content.get("actions"), "Link with SSO"):
+            return True
+    return False
+
+
+def _card_contains_text(value: object, expected: str) -> bool:
+    if isinstance(value, str):
+        return expected in value
+    if isinstance(value, dict):
+        return any(_card_contains_text(child, expected) for child in value.values())
+    if isinstance(value, list):
+        return any(_card_contains_text(child, expected) for child in value)
+    return False
 
 
 def _app_name() -> str:

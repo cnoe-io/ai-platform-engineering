@@ -19,9 +19,8 @@ mandatory when:
 This module exposes a single ``async def impersonate_user(user_token,
 target_audience)`` helper. It caches results per ``(user_sub, audience)``
 with a 30s safety margin before expiry. The cache is in-memory and
-per-process, which is consistent with the supervisor's OBO cache; a
-shared Redis cache is tracked as a follow-up in spec 102's
-``research.md`` "Open follow-ups" section.
+per-process; a shared Redis cache is tracked as a follow-up in spec
+102's ``research.md`` "Open follow-ups" section.
 
 Env vars consumed:
 

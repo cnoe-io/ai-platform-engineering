@@ -13,6 +13,7 @@ from .utils.identity_linker import WebexIdentityLinker
 from .utils.obo_exchange import OboExchangeError, OboToken, impersonate_user
 from .utils.space_team_resolver import SpaceTeamResolution, WebexSpaceTeamResolver
 from .utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
+from .utils.webex_agent_routes import infer_listen_mode
 from .utils.webex_ids import (
     canonicalize_webex_space_id,
     is_valid_webex_person_id,
@@ -22,6 +23,12 @@ from .utils.webex_ids import (
 from .utils.webex_rebac import WebexRebacEvaluator, WebexSpaceRebacDecision
 
 logger = logging.getLogger("caipe.webex_bot")
+
+APP_NAME = (
+    os.environ.get("WEBEX_INTEGRATION_APP_NAME")
+    or os.environ.get("APP_NAME")
+    or "CAIPE"
+)
 
 REASON_IGNORED_BOT = "WEBEX_IGNORED_BOT"
 REASON_IGNORED_SELF = "WEBEX_IGNORED_SELF"
@@ -77,6 +84,7 @@ class WebexMessageResult:
     team_slug: Optional[str] = None
     agent_id: Optional[str] = None
     keycloak_user_id: Optional[str] = None
+    explicit_invocation: bool = False
 
 
 class IdentityLinkerProtocol(Protocol):
@@ -90,8 +98,8 @@ class IdentityLinkerProtocol(Protocol):
 
 
 class TeamResolverProtocol(Protocol):
-    async def resolve(self, space_id: str, keycloak_user_id: str) -> SpaceTeamResolution:
-        """Resolve the active team for ``space_id`` / ``keycloak_user_id``."""
+    async def resolve(self, space_id: str) -> SpaceTeamResolution:
+        """Resolve the active team for ``space_id`` (mapping only)."""
         raise NotImplementedError
 
 
@@ -106,16 +114,15 @@ class OboExchangerProtocol(Protocol):
 
 
 class RebacCheckerProtocol(Protocol):
-    def check_agent_access(
+    def check_space_grant(
         self,
         *,
         workspace_id: str,
         space_id: str,
         agent_id: str,
-        team_slug: Optional[str],
-        obo_token: str,
+        obo_token: Optional[str],
     ) -> WebexSpaceRebacDecision:
-        """Decide whether the caller may invoke ``agent_id`` in this space."""
+        """Decide whether ``space_id`` has ``agent_id`` assigned."""
         raise NotImplementedError
 
 
@@ -127,6 +134,7 @@ class RouteResolverProtocol(Protocol):
         space_id: str,
         person_id: str,
         text: str,
+        is_direct: bool = False,
     ) -> WebexRouteResolution:
         """Resolve the agent route to dispatch this message to."""
         raise NotImplementedError
@@ -310,6 +318,7 @@ def _deny(
     rebac_reason: Optional[str] = None,
     keycloak_user_id: Optional[str] = None,
     team_slug: Optional[str] = None,
+    explicit_invocation: bool = False,
 ) -> WebexMessageResult:
     return WebexMessageResult(
         allowed=False,
@@ -321,6 +330,7 @@ def _deny(
         rebac_reason=rebac_reason,
         keycloak_user_id=keycloak_user_id,
         team_slug=team_slug,
+        explicit_invocation=explicit_invocation,
     )
 
 
@@ -348,6 +358,7 @@ class _WebexAgentRouteResolver:
         space_id: str,
         person_id: str,
         text: str,
+        is_direct: bool = False,
     ) -> WebexRouteResolution:
         from .utils.webex_agent_routes import resolve_webex_agent_route
 
@@ -356,6 +367,7 @@ class _WebexAgentRouteResolver:
             space_id=space_id,
             person_id=person_id,
             text=text,
+            is_direct=is_direct,
         )
         return WebexRouteResolution(agent_id=agent_id, deny_message=deny_message)
 
@@ -484,7 +496,10 @@ async def handle_webex_message(
             linking_url=linking_url,
         )
 
-    team_resolution = await resolver.resolve(parsed.space_id, keycloak_user_id)
+    explicit_invocation = parsed.is_direct or infer_listen_mode(parsed.text) == "mention"
+    require_space_mapping = not explicit_invocation and not parsed.is_direct
+
+    team_resolution = await resolver.resolve(parsed.space_id)
     if not team_resolution.team_slug:
         from .utils.webex_agent_routes import get_webex_agent_route_resolver
         from .utils.webex_space_auto_assign import get_webex_space_auto_assigner
@@ -496,7 +511,7 @@ async def handle_webex_message(
         )
         if auto_assign.assigned:
             get_webex_agent_route_resolver().invalidate(parsed.workspace_id, parsed.space_id)
-            team_resolution = await resolver.resolve(parsed.space_id, keycloak_user_id)
+            team_resolution = await resolver.resolve(parsed.space_id)
         elif auto_assign.reason not in {"disabled", "existing_mapping"}:
             logger.warning(
                 "Webex space auto-assignment skipped space=%s reason=%s",
@@ -504,7 +519,7 @@ async def handle_webex_message(
                 auto_assign.reason,
             )
 
-    if not team_resolution.team_slug:
+    if not team_resolution.team_slug and require_space_mapping:
         log_webex_authz_decision(
             tenant_id=tenant_id,
             sub=keycloak_user_id,
@@ -517,6 +532,7 @@ async def handle_webex_message(
             REASON_SPACE_TEAM_NOT_FOUND,
             deny_message=team_resolution.deny_message,
             keycloak_user_id=keycloak_user_id,
+            explicit_invocation=explicit_invocation,
         )
 
     team_slug = team_resolution.team_slug
@@ -590,6 +606,7 @@ async def handle_webex_message(
         space_id=parsed.space_id,
         person_id=parsed.person_id,
         text=parsed.text,
+        is_direct=parsed.is_direct,
     )
     agent_id = route.agent_id
     if not agent_id:
@@ -606,16 +623,16 @@ async def handle_webex_message(
             deny_message=route.deny_message,
             keycloak_user_id=keycloak_user_id,
             team_slug=team_slug,
+            explicit_invocation=explicit_invocation,
         )
 
-    rebac_decision = rebac.check_agent_access(
+    rebac_decision = rebac.check_space_grant(
         workspace_id=parsed.workspace_id,
         space_id=parsed.space_id,
         agent_id=agent_id,
-        team_slug=team_slug,
         obo_token=obo_token.access_token,
     )
-    if not rebac_decision.allowed:
+    if not rebac_decision.space_allowed:
         audit_reason = (
             "DENY_PDP_UNAVAILABLE"
             if rebac_decision.reason == "pdp_unavailable"
@@ -630,15 +647,22 @@ async def handle_webex_message(
             webex_space_id=parsed.space_id,
             resource_ref=f"agent:{agent_id}",
         )
+        if not explicit_invocation:
+            logger.info(
+                "Webex space grant denied for ambient message space=%s agent=%s — silently dropping",
+                parsed.space_id,
+                agent_id,
+            )
         return _deny(
             rebac_decision.reason,
             deny_message=(
-                "This Webex space is not authorized to use that CAIPE resource, "
-                "or your team does not have access."
+                f"Agent *{agent_id}* is not assigned to this Webex space. "
+                f"Ask an admin to add it in the {APP_NAME} Admin panel."
             ),
             rebac_reason=rebac_decision.reason,
             keycloak_user_id=keycloak_user_id,
             team_slug=team_slug,
+            explicit_invocation=explicit_invocation,
         )
 
     if dispatcher is not None:

@@ -24,9 +24,6 @@ description: "Create an rc/hotfix tag on a release/* branch and trigger a coordi
 # To force-rebuild every container image fresh (bypass retag for unchanged
 # components), run each ci-*.yml individually via workflow_dispatch with
 # force_build=true after this workflow has created the tag.
-# A2A sub-agent images are skipped by default. Set repository variable
-# CAIPE_BUILD_A2A_AGENT_IMAGES=true before pushing the tag, or dispatch
-# ci-a2a-sub-agent.yml manually with build_a2a_agents=true, to publish them.
 
 on:
   workflow_dispatch:
@@ -76,7 +73,7 @@ jobs:
       # The workflow file itself comes from main (dispatch ref); code comes from
       # the release branch.
       - name: 📥 Checkout release branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.release_branch }}
           fetch-depth: 0
@@ -159,7 +156,7 @@ jobs:
           echo "✅ rc_tag=${RC_TAG}  chart_tag=${CHART_TAG}"
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
@@ -263,18 +260,12 @@ jobs:
           The tag push triggers these required CI workflows automatically:
           - \`ci-caipe-ui\`
           - \`ci-dynamic-agents\`
-          - \`ci-supervisor-agent\`
           - \`ci-slack-bot\`
           - \`ci-webex-bot\`
           - \`ci-skill-scanner\`
           - \`ci-mcp-sub-agent\`
-          - \`ci-a2a-rag\`
+          - \`ci-rag\`
           - \`ci-helm\` (also dispatched explicitly with \`force_build=true\`)
-
-          A2A sub-agent images are skipped by default. To publish them, set
-          repository variable \`CAIPE_BUILD_A2A_AGENT_IMAGES=true\` before this
-          workflow creates the tag, or dispatch \`ci-a2a-sub-agent.yml\`
-          manually with \`build_a2a_agents=true\` and \`tag_version=${RC_TAG}\`.
 
           > To force-rebuild every image fresh (bypass retag for unchanged components),
           > run each \`ci-*.yml\` manually via **workflow_dispatch** with

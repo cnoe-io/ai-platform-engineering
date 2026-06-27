@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { AlertTriangle,CheckCircle2,KeyRound,Loader2,Settings } from "lucide-react";
 import React from "react";
 
@@ -157,9 +159,9 @@ function ProviderCredentialDialog({
       <form onSubmit={handleSave} className="w-full max-w-2xl rounded-lg border border-border bg-card p-5 shadow-xl space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-medium">Configure {provider.name}</h2>
+            <h2 className="text-lg font-medium">Connect {provider.name}</h2>
             <p className="text-sm text-muted-foreground">
-              Values are stored as your credential secrets. Existing secrets are not overwritten.
+              Values are saved as protected secrets. Existing secrets are left unchanged.
             </p>
           </div>
           <button type="button" className="text-sm text-muted-foreground" onClick={onClose}>
@@ -188,7 +190,7 @@ function ProviderCredentialDialog({
         <div className="flex gap-2">
           <Button type="submit" disabled={saving || Object.values(values).every((value) => !value.trim())}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Provider Credentials
+            Save Connection
           </Button>
           <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
             Cancel
@@ -245,9 +247,9 @@ export function LLMProvidersTab() {
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle>LLM Providers</CardTitle>
+              <CardTitle>Model Providers</CardTitle>
               <CardDescription>
-                Configure provider credentials using the shared Connections & Secrets store.
+                Save the provider keys agents need to use each model.
               </CardDescription>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
@@ -278,7 +280,7 @@ export function LLMProvidersTab() {
                       {configured ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400">
                           <CheckCircle2 className="h-3.5 w-3.5" />
-                          Credential secret configured
+                          Ready
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs text-amber-600 dark:text-amber-400">
@@ -291,16 +293,16 @@ export function LLMProvidersTab() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <p className="text-xs text-muted-foreground">
-                      Expected secrets: {provider.fields.map((field) => secretName(provider.id, field.id)).join(", ")}
+                      Saved as: {provider.fields.map((field) => secretName(provider.id, field.id)).join(", ")}
                     </p>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      aria-label={`Configure ${provider.name}`}
+                      aria-label={`Connect ${provider.name}`}
                       onClick={() => setEditingProvider(provider)}
                     >
-                      Configure credentials
+                      Connect provider
                     </Button>
                   </CardContent>
                 </Card>

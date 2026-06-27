@@ -40,6 +40,12 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
 }));
 
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: jest.fn(async () => ({
+    findOne: jest.fn(async () => null),
+  })),
+}));
+
 function request(body: unknown, headers: Record<string, string> = {}) {
   return {
     headers: new Headers(headers),

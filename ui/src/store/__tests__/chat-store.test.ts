@@ -40,17 +40,11 @@ jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
 }));
 
-jest.mock('@/lib/timeline-manager', () => ({
-  SupervisorTimelineManager: {
-    buildFromEvents: jest.fn().mockReturnValue([]),
-  },
-}));
-
 // ============================================================================
 // Imports — after mocks
 // ============================================================================
 
-import { getLastActiveConversationId, useChatStore } from '../chat-store';
+import { getLastActiveConversationId, resolveChatNavigationPath, useChatStore } from '../chat-store';
 import { apiClient } from '@/lib/api-client';
 import type { Conversation, ChatMessage } from '@/types/a2a';
 
@@ -90,7 +84,6 @@ function resetStore() {
     isStreaming: false,
     streamingConversations: new Map(),
     pendingMessage: null,
-    selectedTurnIds: new Map(),
     unviewedConversations: new Set(),
     inputRequiredConversations: new Set(),
   });
@@ -133,6 +126,34 @@ describe('chat-store', () => {
       useChatStore.getState().clearAllConversations();
 
       expect(getLastActiveConversationId()).toBeNull();
+    });
+  });
+
+  describe('resolveChatNavigationPath', () => {
+    it('returns the persisted last-active id before the conversation list hydrates', () => {
+      window.localStorage.setItem('caipe-chat-last-active-conversation', 'conv-persisted');
+
+      expect(
+        resolveChatNavigationPath({
+          conversations: [],
+          activeConversationId: null,
+        }),
+      ).toBe('/chat/conv-persisted');
+    });
+
+    it('prefers the active conversation when it is still in the list', () => {
+      const conv = makeConversation({ id: 'conv-active' });
+      useChatStore.setState({
+        conversations: [conv],
+        activeConversationId: 'conv-active',
+      });
+
+      expect(
+        resolveChatNavigationPath({
+          conversations: [conv],
+          activeConversationId: 'conv-active',
+        }),
+      ).toBe('/chat/conv-active');
     });
   });
 
@@ -724,12 +745,12 @@ describe('chat-store', () => {
   });
 
   // --------------------------------------------------------------------------
-  // loadTurnsFromServer
+  // loadMessagesFromServer — history hydration
   // --------------------------------------------------------------------------
 
-  describe('loadTurnsFromServer', () => {
-    it('hydrates supervisor conversations from the messages collection', async () => {
-      const conv = makeConversation({ id: 'supervisor-history' });
+  describe('loadMessagesFromServer — history hydration', () => {
+    it('hydrates conversations from the messages collection', async () => {
+      const conv = makeConversation({ id: 'conv-history' });
       useChatStore.setState({ conversations: [conv] });
 
       mockApiClient.getMessages.mockResolvedValue({
@@ -737,20 +758,20 @@ describe('chat-store', () => {
           {
             _id: 'mongo-user',
             message_id: 'msg-user',
-            conversation_id: 'supervisor-history',
+            conversation_id: 'conv-history',
             role: 'user',
             content: 'What changed in prod?',
             created_at: '2025-01-01T00:00:00Z',
-            metadata: { turn_id: 'turn-supervisor' },
+            metadata: { turn_id: 'turn-1' },
           },
           {
             _id: 'mongo-assistant',
             message_id: 'msg-assistant',
-            conversation_id: 'supervisor-history',
+            conversation_id: 'conv-history',
             role: 'assistant',
             content: 'Here is the summary.',
             created_at: '2025-01-01T00:00:01Z',
-            metadata: { turn_id: 'turn-supervisor', is_final: true },
+            metadata: { turn_id: 'turn-1', is_final: true },
           },
         ],
         total: 2,
@@ -759,15 +780,15 @@ describe('chat-store', () => {
         has_more: false,
       });
 
-      await useChatStore.getState().loadTurnsFromServer('supervisor-history');
+      await useChatStore.getState().loadMessagesFromServer('conv-history', { force: true });
 
       expect(mockApiClient.getMessages).toHaveBeenCalledWith(
-        'supervisor-history',
+        'conv-history',
         { page_size: 100 },
       );
 
       const updatedConv = useChatStore.getState().conversations.find(
-        c => c.id === 'supervisor-history',
+        c => c.id === 'conv-history',
       );
       expect(updatedConv!.messages).toHaveLength(2);
       expect(updatedConv!.messages[1].content).toBe('Here is the summary.');
@@ -779,6 +800,49 @@ describe('chat-store', () => {
   // --------------------------------------------------------------------------
 
   describe('loadConversationsFromServer — deletion sync', () => {
+    it('coalesces concurrent loadConversationsFromServer calls', async () => {
+      let resolveGet: (value: {
+        items: Array<{ _id: string; title: string; created_at: string; updated_at: string }>;
+        total: number;
+        page: number;
+        page_size: number;
+        has_more: boolean;
+      }) => void;
+      const getPromise = new Promise<{
+        items: Array<{ _id: string; title: string; created_at: string; updated_at: string }>;
+        total: number;
+        page: number;
+        page_size: number;
+        has_more: boolean;
+      }>((resolve) => {
+        resolveGet = resolve;
+      });
+      mockApiClient.getConversations.mockReturnValue(getPromise);
+
+      const first = useChatStore.getState().loadConversationsFromServer();
+      const second = useChatStore.getState().loadConversationsFromServer();
+
+      expect(mockApiClient.getConversations).toHaveBeenCalledTimes(1);
+
+      resolveGet!({
+        items: [
+          {
+            _id: 'shared-load',
+            title: 'Shared load',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await Promise.all([first, second]);
+      expect(useChatStore.getState().conversations.map((c) => c.id)).toContain('shared-load');
+    });
+
     it('removes conversations that exist locally but not on server', async () => {
       // Local state has 3 conversations
       const conv1 = makeConversation({ id: 'keep-1', title: 'Keep Me' });
@@ -971,6 +1035,31 @@ describe('chat-store', () => {
 
       const newConv = useChatStore.getState().conversations.find(c => c.id === 'new-conv');
       expect(newConv!.messages).toHaveLength(0);
+    });
+
+    it('maps the server viewer sharing flag into local conversations', async () => {
+      useChatStore.setState({ conversations: [] });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: 'shared-recipient',
+            title: 'Shared Recipient',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            viewer_has_shared_access: true,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const sharedConv = useChatStore.getState().conversations.find(c => c.id === 'shared-recipient');
+      expect(sharedConv!.isSharedWithViewer).toBe(true);
     });
 
     it('does not preserve non-active non-streaming local-only conversations', async () => {
@@ -1181,7 +1270,7 @@ describe('chat-store', () => {
 
   describe('createConversation', () => {
     it('creates conversation on server in MongoDB mode', async () => {
-      const id = await useChatStore.getState().createConversation();
+      const id = await useChatStore.getState().createConversation('agent-1');
 
       expect(id).toBe('server-generated-id');
       expect(useChatStore.getState().conversations).toHaveLength(1);
@@ -1191,6 +1280,7 @@ describe('chat-store', () => {
         expect.objectContaining({
           title: 'New Conversation',
           client_type: 'webui',
+          agent_id: 'agent-1',
         })
       );
     });
@@ -1200,12 +1290,18 @@ describe('chat-store', () => {
 
       // The store is already created, but createConversation checks
       // getStorageMode() internally on each call
-      const id = await useChatStore.getState().createConversation();
+      const id = await useChatStore.getState().createConversation('agent-1');
 
       expect(id).toBeDefined();
       expect(useChatStore.getState().conversations).toHaveLength(1);
       // In localStorage mode, should not call server
       expect(mockApiClient.createConversation).not.toHaveBeenCalled();
+    });
+
+    it('rejects missing agent id', async () => {
+      await expect(useChatStore.getState().createConversation('')).rejects.toThrow(
+        'agentId is required',
+      );
     });
   });
 
@@ -1466,7 +1562,7 @@ describe('chat-store', () => {
       expect(updated!.messages[0].rawStreamContent).toBeUndefined();
     });
 
-    it('clears events from evicted messages', () => {
+    it('clears stream events from evicted messages', () => {
       const conv = makeConversation({ id: 'events-evict' });
       conv.messages = [
         makeMessage({
@@ -1480,7 +1576,7 @@ describe('chat-store', () => {
       useChatStore.getState().evictOldMessageContent('events-evict', ['msg-with-events']);
 
       const updated = useChatStore.getState().conversations.find(c => c.id === 'events-evict');
-      expect(updated!.messages[0].events).toEqual([]);
+      expect(updated!.messages[0].streamEvents).toBeUndefined();
     });
 
     it('does nothing when messageIdsToEvict is empty', () => {
@@ -1547,7 +1643,7 @@ describe('chat-store', () => {
       const updated = useChatStore.getState().conversations.find(c => c.id === 'short-content');
       // Content shorter than 80 chars should remain as-is (slice returns full string)
       expect(updated!.messages[0].content).toBe('Short');
-      expect(updated!.messages[0].events).toEqual([]);
+      expect(updated!.messages[0].streamEvents).toBeUndefined();
     });
 
     it('handles non-existent message IDs gracefully (no crash)', () => {

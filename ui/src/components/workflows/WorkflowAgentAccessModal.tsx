@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Lock, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,16 +15,22 @@ import type { AgentAccessGap } from "@/app/api/workflow-configs/check-agent-acce
 
 interface WorkflowAgentAccessModalProps {
   gaps: AgentAccessGap[];
+  visibility: "private" | "team" | "global";
   onGrantAndSave: () => Promise<void>;
+  onSaveAsPrivate: () => Promise<void>;
   onCancel: () => void;
 }
 
 export function WorkflowAgentAccessModal({
   gaps,
+  visibility,
   onGrantAndSave,
+  onSaveAsPrivate,
   onCancel,
 }: WorkflowAgentAccessModalProps) {
   const [isGranting, setIsGranting] = useState(false);
+  const [isSavingPrivate, setIsSavingPrivate] = useState(false);
+  const busy = isGranting || isSavingPrivate;
 
   const handleGrant = async () => {
     setIsGranting(true);
@@ -35,6 +41,20 @@ export function WorkflowAgentAccessModal({
     }
   };
 
+  const handleSaveAsPrivate = async () => {
+    setIsSavingPrivate(true);
+    try {
+      await onSaveAsPrivate();
+    } finally {
+      setIsSavingPrivate(false);
+    }
+  };
+
+  const sharingLabel =
+    visibility === "global"
+      ? "everyone in the organization"
+      : "the teams this workflow is shared with";
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent className="max-w-md">
@@ -44,8 +64,9 @@ export function WorkflowAgentAccessModal({
             Agent access required
           </DialogTitle>
           <DialogDescription>
-            The following agents are not accessible to all teams this workflow is shared with.
-            Grant access to let those teams run this workflow.
+            To share this workflow with {sharingLabel}, each step agent must be accessible
+            to those users. Granting that access requires manage permission on each agent.
+            If you only need a personal workflow, save as private instead.
           </DialogDescription>
         </DialogHeader>
 
@@ -61,13 +82,22 @@ export function WorkflowAgentAccessModal({
           ))}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onCancel} disabled={isGranting}>
-            Cancel
-          </Button>
-          <Button onClick={handleGrant} disabled={isGranting} className="gap-2">
+        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+          <Button onClick={handleGrant} disabled={busy} className="gap-2 w-full sm:w-auto">
             <ShieldCheck className="h-4 w-4" />
             {isGranting ? "Granting access…" : "Grant access and save"}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleSaveAsPrivate}
+            disabled={busy}
+            className="gap-2 w-full sm:w-auto"
+          >
+            <Lock className="h-4 w-4" />
+            {isSavingPrivate ? "Saving…" : "Save as private instead"}
+          </Button>
+          <Button variant="outline" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
+            Cancel
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -93,7 +93,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v5.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v5.0.0
 
       - name: Set up Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
@@ -103,7 +103,7 @@ jobs:
           cache-dependency-path: 'ui/package-lock.json'
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.0.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -194,7 +194,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      COMPOSE_PROFILES: "rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"
+      COMPOSE_PROFILES: "rbac,caipe-ui,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"
       RBAC_E2E: "1"
     steps:
       - name: 🔒 Harden runner
@@ -203,7 +203,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v5.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v5.0.0
 
       - name: Set up Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
@@ -213,7 +213,7 @@ jobs:
           cache-dependency-path: 'ui/package-lock.json'
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.0.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 

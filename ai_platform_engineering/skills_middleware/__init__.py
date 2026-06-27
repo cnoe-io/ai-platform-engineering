@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Skills Middleware — shared skill catalog for CAIPE supervisor and UI.
+Skills Middleware — shared skill catalog for the CAIPE UI and dynamic agents.
 
 Aggregates skills from filesystem (SKILLS_DIR), MongoDB agent_skills,
 and registered GitHub hubs.  Applies deterministic precedence
@@ -10,7 +10,7 @@ and registered GitHub hubs.  Applies deterministic precedence
 
 The catalog also writes normalized SKILL.md files into a ``StateBackend``
 so the upstream ``deepagents.middleware.skills.SkillsMiddleware`` can
-inject them into the supervisor's system prompt with progressive disclosure.
+inject them into an agent's system prompt with progressive disclosure.
 """
 
 from ai_platform_engineering.skills_middleware.catalog import (

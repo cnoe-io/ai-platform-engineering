@@ -1,16 +1,19 @@
 // API middleware for Next.js API routes
 // Provides authentication, error handling, and validation
 
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
+import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
+import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import {
   getDevAnonymousSession,
   getDevAnonymousUser,
@@ -138,6 +141,112 @@ export interface GetAuthenticatedUserOptions {
   allowAnonymous?: boolean;
 }
 
+type SessionAuthSession = Record<string, unknown> & {
+  user?: Record<string, unknown> | null;
+};
+
+type SessionAuthPayload = {
+  user: {
+    email: string;
+    name: string;
+    role: string;
+  };
+  session: SessionAuthSession;
+};
+
+type SessionAuthCacheEntry = SessionAuthPayload & {
+  expiresAt: number;
+};
+
+const DEFAULT_SESSION_AUTH_CACHE_TTL_MS = 10_000;
+const MAX_SESSION_AUTH_CACHE_ENTRIES = 500;
+const sessionAuthCache = new Map<string, SessionAuthCacheEntry>();
+
+function getSessionAuthCacheTtlMs(): number {
+  const raw = process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS;
+  if (!raw) {
+    return DEFAULT_SESSION_AUTH_CACHE_TTL_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_SESSION_AUTH_CACHE_TTL_MS;
+  }
+
+  return Math.min(parsed, 60_000);
+}
+
+function getSessionAuthCacheKey(request: NextRequest): string | null {
+  const cookie = request.headers.get('cookie')?.trim();
+  if (!cookie) {
+    return null;
+  }
+
+  return createHash('sha256').update(cookie).digest('hex');
+}
+
+function cloneSessionAuthPayload(value: SessionAuthPayload): SessionAuthPayload {
+  const sessionUser = value.session.user;
+  return {
+    user: { ...value.user },
+    session: {
+      ...value.session,
+      user: sessionUser ? { ...sessionUser } : sessionUser,
+    },
+  };
+}
+
+// assisted-by Codex Codex-sonnet-4-6
+function readCachedSessionAuth(request: NextRequest): SessionAuthPayload | null {
+  const key = getSessionAuthCacheKey(request);
+  if (!key) {
+    return null;
+  }
+
+  const entry = sessionAuthCache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    sessionAuthCache.delete(key);
+    return null;
+  }
+
+  sessionAuthCache.delete(key);
+  sessionAuthCache.set(key, entry);
+  return cloneSessionAuthPayload(entry);
+}
+
+function writeCachedSessionAuth(request: NextRequest, value: SessionAuthPayload): void {
+  const ttlMs = getSessionAuthCacheTtlMs();
+  if (ttlMs === 0) {
+    return;
+  }
+
+  const key = getSessionAuthCacheKey(request);
+  if (!key) {
+    return;
+  }
+
+  while (sessionAuthCache.size >= MAX_SESSION_AUTH_CACHE_ENTRIES) {
+    const oldestKey = sessionAuthCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    sessionAuthCache.delete(oldestKey);
+  }
+
+  sessionAuthCache.set(key, {
+    ...cloneSessionAuthPayload(value),
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+export function clearSessionAuthCacheForTests(): void {
+  sessionAuthCache.clear();
+}
+
 function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
@@ -205,6 +314,11 @@ export async function getAuthenticatedUser(
   request: NextRequest,
   options: GetAuthenticatedUserOptions = {}
 ) {
+  const cached = readCachedSessionAuth(request);
+  if (cached) {
+    return cached;
+  }
+
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
@@ -247,7 +361,9 @@ export async function getAuthenticatedUser(
 
   await persistKeycloakSubMapping(session, user);
 
-  return { user, session: { ...session, role } };
+  const authenticated = { user, session: { ...session, role } };
+  writeCachedSessionAuth(request, authenticated);
+  return cloneSessionAuthPayload(authenticated);
 }
 
 /**
@@ -265,13 +381,12 @@ interface RouteRbacPolicy {
 // `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
 // helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
 // capability mappings here while older routes are migrated off the wrapper.
-// Unknown routes fail toward admin UI capabilities instead of the old generic
-// supervisor umbrella so audit rows stay explicit.
+// Unknown routes fail toward admin UI capabilities so audit rows stay explicit.
 //
 // See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
 // for the migration plan that replaces this resolver with a per-route
 // capability map and adds dedicated OpenFGA relations
-// (`self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc.).
+// (`self_profile#read`, `chat#invoke`, `feedback#submit`, etc.).
 // New routes should call the appropriate `require*Permission` helper
 // directly rather than relying on this legacy gate.
 function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
@@ -314,16 +429,15 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'user_settings', scope: 'read' }
       : { resource: 'user_settings', scope: 'write' };
   }
-  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+  if (pathname.startsWith('/api/feedback')) {
     return { resource: 'feedback', scope: 'submit' };
   }
   if (
     pathname.startsWith('/api/chat') ||
-    pathname.startsWith('/api/a2a') ||
     pathname === '/api/dynamic-agents/models' ||
     pathname === '/api/dynamic-agents/available'
   ) {
-    return { resource: 'chat_supervisor', scope: 'invoke' };
+    return { resource: 'chat', scope: 'invoke' };
   }
   if (pathname.startsWith('/api/files')) {
     return method === 'GET'
@@ -337,15 +451,11 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
     return { resource: 'credential_vault', scope: 'use' };
   }
 
-  if (pathname.startsWith('/api/task-configs')) {
-    return method === 'GET'
-      ? { resource: 'dynamic_agent', scope: 'view' }
-      : { resource: 'dynamic_agent', scope: 'manage' };
-  }
   if (pathname.startsWith('/api/workflow-configs')) {
-    return method === 'GET'
-      ? { resource: 'dynamic_agent', scope: 'view' }
-      : { resource: 'dynamic_agent', scope: 'manage' };
+    // Workflow CRUD is gated in route handlers (owner / task#write). The legacy
+    // gate only requires workflow discovery access so non-admin users can create
+    // and edit their own private workflows without dynamic_agent#manage.
+    return { resource: 'dynamic_agent', scope: 'view' };
   }
   if (pathname.startsWith('/api/workflow-runs')) {
     return method === 'GET'
@@ -431,7 +541,7 @@ export async function getAuthFromBearerOrSession(
   const authHeader = request.headers.get('Authorization');
   const catalogKey = request.headers.get('X-Caipe-Catalog-Key');
 
-  // Path 0: Catalog API key (supervisor-minted, read-only skills access)
+  // Path 0: Catalog API key (BFF-minted, read-only skills access)
   if (catalogKey) {
     return {
       user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
@@ -588,7 +698,7 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'user_directory') {
     return 'can_search_directory';
   }
-  if (resource === 'chat_supervisor') {
+  if (resource === 'chat') {
     return 'can_chat';
   }
   if (resource === 'feedback') {
@@ -948,7 +1058,17 @@ export async function requireRbacPermission(
  * Handle API errors and return appropriate response
  */
 export function handleApiError(error: unknown): NextResponse {
-  console.error('API Error:', error);
+  const statusCode =
+    error !== null &&
+    typeof error === 'object' &&
+    typeof (error as { statusCode?: unknown }).statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : error instanceof CredentialError
+        ? error.status
+        : 500;
+  if (statusCode >= 500 || process.env.API_ERROR_LOG_4XX === 'true') {
+    console.error('API Error:', error);
+  }
 
   if (
     error instanceof ApiError ||
@@ -1190,19 +1310,55 @@ export function requireOwnership(ownerId: string, userId: string) {
 
 /**
  * Resolve all team IDs that a user belongs to.
- * Looks up the teams collection for teams where the user is a member.
+ * Uses canonical team_membership_sources and falls back to legacy teams.members[].
  */
 export async function getUserTeamIds(userEmail: string): Promise<string[]> {
+  const refs = new Set<string>();
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  if (!normalizedEmail) return [];
+
+  try {
+    // assisted-by Codex Codex-sonnet-4-6
+    // Chat team shares must follow the canonical membership store, not stale embedded team members.
+    const sources = await getRbacCollection<TeamMembershipSource>('teamMembershipSources');
+    const rows = await sources
+      .find({ status: 'active', user_email: normalizedEmail })
+      .project({ team_id: 1, team_slug: 1 })
+      .toArray();
+
+    for (const row of rows) {
+      if (typeof row.team_id === 'string' && row.team_id.trim()) {
+        refs.add(row.team_id.trim());
+      }
+      if (typeof row.team_slug === 'string' && row.team_slug.trim()) {
+        refs.add(row.team_slug.trim());
+      }
+    }
+  } catch {
+    // Fall through to the legacy embedded-members lookup below.
+  }
+
   try {
     const teams = await getCollection('teams');
+    const emailClauses = Array.from(new Set([userEmail.trim(), normalizedEmail].filter(Boolean)));
     const userTeams = await teams
-      .find({ 'members.user_id': userEmail })
-      .project({ _id: 1 })
+      .find({ $or: emailClauses.map((email) => ({ 'members.user_id': email })) })
+      .project({ _id: 1, slug: 1 })
       .toArray();
-    return userTeams.map((t: any) => t._id.toString());
+
+    for (const team of userTeams) {
+      if (team?._id !== undefined && team?._id !== null) {
+        refs.add(team._id.toString());
+      }
+      if (typeof team?.slug === 'string' && team.slug.trim()) {
+        refs.add(team.slug.trim());
+      }
+    }
   } catch {
-    return [];
+    // Ignore legacy lookup failures; sharing should fail closed for non-matches.
   }
+
+  return Array.from(refs);
 }
 
 export type ConversationAccessLevel = 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
@@ -1210,6 +1366,24 @@ export type ConversationAccessLevel = 'owner' | 'shared' | 'shared_readonly' | '
 interface ConversationAccessResult {
   conversation: any;
   access_level: ConversationAccessLevel;
+}
+
+function normalizedIdentity(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function sessionSubject(session: { sub?: unknown } | undefined): string {
+  return typeof session?.sub === 'string' ? session.sub.trim() : '';
+}
+
+function isConversationOwnerForAccess(
+  conversation: { owner_id?: unknown; owner_subject?: unknown },
+  userId: string,
+  session?: { sub?: unknown },
+): boolean {
+  const subject = sessionSubject(session);
+  if (subject && conversation.owner_subject === subject) return true;
+  return Boolean(normalizedIdentity(userId) && normalizedIdentity(conversation.owner_id) === normalizedIdentity(userId));
 }
 
 /**
@@ -1223,7 +1397,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<any>,
-  session?: { role?: string }
+  session?: { role?: string; sub?: string }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -1232,28 +1406,23 @@ export async function requireConversationAccess(
     throw new ApiError('Conversation not found', 404, 'NOT_FOUND');
   }
 
-  // Check if user is owner
-  if (conversation.owner_id === userId) {
+  // Check if user is owner. Newer conversations may carry owner_subject; older
+  // records rely on owner_id email and should be compared case-insensitively.
+  // assisted-by Codex Codex-sonnet-4-6
+  if (isConversationOwnerForAccess(conversation, userId, session)) {
     return { conversation, access_level: 'owner' };
   }
 
-  // Check if conversation is public (shared with everyone).
-  // Default to read-only ('view') so non-owners cannot send messages in
-  // public conversations — prevents cross-user context_id collisions.
-  if (conversation.sharing?.is_public) {
-    const perm = conversation.sharing?.public_permission ?? 'view';
-    return {
-      conversation,
-      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
-    };
-  }
-
   // Check if conversation is shared with user directly
-  if (conversation.sharing?.shared_with?.includes(userId)) {
+  const normalizedUserId = normalizedIdentity(userId);
+  const directShareMatch = conversation.sharing?.shared_with?.some(
+    (email: unknown) => normalizedIdentity(email) === normalizedUserId,
+  );
+  if (directShareMatch) {
     const sharingAccess = await getCollectionFn('sharing_access');
     const accessRecord = await sharingAccess.findOne({
       conversation_id: conversationId,
-      granted_to: userId,
+      granted_to: { $in: [userId, normalizedUserId] },
       revoked_at: null,
     });
     // Default to 'comment' (full access) for backward compatibility with

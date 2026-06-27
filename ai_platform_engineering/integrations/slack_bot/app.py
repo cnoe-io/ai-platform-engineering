@@ -38,7 +38,9 @@ from utils.chat_envelope import augment_slack_client_context  # noqa: E402
 
 from sse_client import AgentAccessDeniedError, SSEClient, set_obo_token
 from utils.session_manager import SessionManager
-from utils.scoring import submit_feedback_score
+
+from utils.scoring import submit_feedback_score, regenerate_requested
+
 from utils.config_models import ChannelConfig, get_escalation_config  # noqa: E402
 from utils.platform_settings import (  # noqa: E402
     resolve_default_agent_id,
@@ -472,7 +474,7 @@ def _agent_listens_to(agent_listen, requested):
   return agent_listen == "all" or agent_listen == requested
 
 
-def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, listen=None):
+def _match_agents(channel_config, is_bot, bot_username=None, bot_user_id=None, user_id=None, listen=None):
   """Return all agents configured for this sender type and listen mode."""
   matched = []
   for agent in channel_config.agents:
@@ -481,8 +483,10 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
         continue
       if listen and not _agent_listens_to(agent.bots.listen, listen):
         continue
-      if agent.bots.bot_list is not None and bot_username not in agent.bots.bot_list:
-        continue
+      if agent.bots.bot_list is not None:
+        # Allow matching by name (e.g. "GitLab") OR by U-prefixed user ID.
+        if bot_username not in agent.bots.bot_list and bot_user_id not in agent.bots.bot_list:
+          continue
       matched.append(agent)
     elif not is_bot and agent.users:
       if not agent.users.enabled:
@@ -514,6 +518,7 @@ def _match_channel_agents(
   channel_config,
   is_bot,
   bot_username=None,
+  bot_user_id=None,
   user_id=None,
   listen=None,
   workspace_id=None,
@@ -527,6 +532,7 @@ def _match_channel_agents(
     channel_config,
     is_bot=is_bot,
     bot_username=bot_username,
+    bot_user_id=bot_user_id,
     user_id=user_id,
     listen=listen,
   )
@@ -1031,6 +1037,54 @@ def rbac_global_middleware(body, context, next, logger):
         next()
         return
 
+    # Bot messages: skip Keycloak resolution and nudge; mint unlinked SA token
+    # directly as a baseline. Bots have no Keycloak account so resolution always
+    # fails, and the nudge path tries to DM the bot which also fails noisily.
+    #
+    # We still need a baseline obo_token in context so that obo_user routes
+    # have something to carry (service_account routes will overwrite it in
+    # _route_to_agent anyway). The bot's Slack user ID and bot_id are recorded
+    # so downstream logging and the allowlist check in _match_agents work as
+    # normal.
+    if event.get("bot_id"):
+        # Resolve the bot's U-prefixed user ID via bots.info (mirrors the
+        # pattern in _route_to_agent lines 1518-1519), falling back to the
+        # raw bot_id only if the lookup fails.
+        _, _bot_user_id = utils.get_bot_info_by_id(event.get("bot_id"))
+        bot_slack_user_id = _bot_user_id or event.get("user") or event.get("bot_id")
+        slack_team_id = (
+            body.get("team_id")
+            or event.get("team")
+            or os.environ.get("SLACK_WORKSPACE_ID")
+        )
+        channel = (
+            event.get("channel")
+            or body.get("channel", {}).get("id")
+            or body.get("channel_id")
+        )
+        context["rbac_enabled"] = True
+        context["slack_user_id"] = bot_slack_user_id
+        context["is_bot"] = True
+        context["slack_workspace_id"] = slack_workspace_ref(str(slack_team_id) if slack_team_id else None)
+        context["surface_kind"] = "dm" if is_dm_channel(channel) else "channel"
+        bot_loop = None
+        try:
+            bot_loop = asyncio.new_event_loop()
+            unlinked_token = bot_loop.run_until_complete(_mint_unlinked_obo_token())
+        except Exception as exc:
+            logger.warning("[{}] rbac_global_middleware: unlinked SA mint failed for bot={}: {}", event.get("ts"), bot_slack_user_id, exc)
+            unlinked_token = None
+        finally:
+            if bot_loop is not None:
+                bot_loop.close()
+        if unlinked_token is None:
+            logger.warning("[{}] rbac_global_middleware: no unlinked SA available, dropping bot message from {}", event.get("ts"), bot_slack_user_id)
+            return _HANDLED_200
+        context["obo_token"] = unlinked_token
+        context["unlinked_fallback"] = True
+        next()
+        return
+
     slack_user_id = (
         event.get("user")
         or body.get("user", {}).get("id")
@@ -1111,6 +1165,7 @@ def rbac_global_middleware(body, context, next, logger):
                     last_sent=last_sent,
                     linking_prompt_cooldown=_LINKING_PROMPT_COOLDOWN,
                     is_dm_channel_fn=is_dm_channel,
+                    is_explicit_invocation=is_mention or is_command or is_dm_channel(channel),
                 )
             )
         except Exception as exc:
@@ -1232,6 +1287,7 @@ def handle_mention(event, say, client, context=None):
         should_proceed = apply_execution_identity(
           run_as_mode=exec_id.mode,
           sa_sub=exec_id.service_account_sub,
+          sa_name=exec_id.service_account_name,
           agent_id=agent_id,
           context=context,
           event=event,
@@ -1454,6 +1510,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
             should_proceed = apply_execution_identity(
                 run_as_mode=exec_id.mode,
                 sa_sub=exec_id.service_account_sub,
+                sa_name=exec_id.service_account_name,
                 agent_id=agent_match.agent_id,
                 context=context,
                 event=event,
@@ -1941,8 +1998,9 @@ def handle_message_events(body, say, client, context=None):
     return
 
   bot_username = None
+  sender_bot_user_id = None
   if is_bot:
-    bot_username = utils.get_username_by_bot_id(bot_id)
+    bot_username, sender_bot_user_id = utils.get_bot_info_by_id(bot_id)
 
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_channel_agents(
@@ -1950,6 +2008,7 @@ def handle_message_events(body, say, client, context=None):
     channel_config,
     is_bot=is_bot,
     bot_username=bot_username,
+    bot_user_id=sender_bot_user_id,
     user_id=sender_user_id,
     listen="message",
     workspace_id=_event_workspace_id(event),
@@ -2103,104 +2162,12 @@ def handle_caipe_feedback(ack, body, client):
 
 @app.action("caipe_feedback_more_detail")
 def handle_feedback_more_detail(ack, body, client):
-  ack()
-  try:
-    user_id = body.get("user", {}).get("id")
-    action = body.get("actions", [{}])[0]
-    parts = action.get("value", "").split("|")
-    channel_id = parts[0] if len(parts) > 0 else None
-    thread_ts = parts[1] if len(parts) > 1 else None
-    message_ts = parts[2] if len(parts) > 2 else None
-    agent_id = parts[3] if len(parts) > 3 else ""
-    if not channel_id or not thread_ts:
-      return
-
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
-
-    submit_feedback_score(
-      thread_ts=thread_ts,
-      user_id=user_id,
-      channel_id=channel_id,
-      feedback_value="needs_detail",
-      slack_client=client,
-      session_manager=session_manager,
-      config=config,
-      conversation_id=conversation_id,
-      message_ts=message_ts,
-    )
-
-    client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for more detail...")
-
-    team_id = body.get("team", {}).get("id")
-
-    channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
-
-    _call_ai(
-      client=client,
-      channel_id=channel_id,
-      thread_ts=thread_ts,
-      message_text="The user wants more detail on your previous answer. Search for at least 5 additional sources beyond what you already cited. Keep your response to 2-3 short paragraphs. Focus on details you left out the first time. End with sources and links.",
-      user_id=user_id,
-      team_id=team_id,
-      agent_id=agent_id,
-      conversation_id=conversation_id,
-      additional_footer=f"More detail requested by <@{user_id}>",
-      escalation_config=esc_config,
-    )
-  except Exception as e:
-    logger.exception(f"Error handling more detail feedback: {e}")
+  _open_feedback_modal(ack, body, client, feedback_type="needs_detail")
 
 
 @app.action("caipe_feedback_less_verbose")
 def handle_feedback_less_verbose(ack, body, client):
-  ack()
-  try:
-    user_id = body.get("user", {}).get("id")
-    action = body.get("actions", [{}])[0]
-    parts = action.get("value", "").split("|")
-    channel_id = parts[0] if len(parts) > 0 else None
-    thread_ts = parts[1] if len(parts) > 1 else None
-    message_ts = parts[2] if len(parts) > 2 else None
-    agent_id = parts[3] if len(parts) > 3 else ""
-    if not channel_id or not thread_ts:
-      return
-
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
-
-    submit_feedback_score(
-      thread_ts=thread_ts,
-      user_id=user_id,
-      channel_id=channel_id,
-      feedback_value="too_verbose",
-      slack_client=client,
-      session_manager=session_manager,
-      config=config,
-      conversation_id=conversation_id,
-      message_ts=message_ts,
-    )
-
-    client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for a more concise response...")
-
-    team_id = body.get("team", {}).get("id")
-
-    channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
-
-    _call_ai(
-      client=client,
-      channel_id=channel_id,
-      thread_ts=thread_ts,
-      message_text="Please provide a more concise response. Summarize the key points briefly. Be direct and to the point.",
-      user_id=user_id,
-      team_id=team_id,
-      agent_id=agent_id,
-      conversation_id=conversation_id,
-      additional_footer=f"Shorter response requested by <@{user_id}>",
-      escalation_config=esc_config,
-    )
-  except Exception as e:
-    logger.exception(f"Error handling less verbose feedback: {e}")
+  _open_feedback_modal(ack, body, client, feedback_type="too_verbose")
 
 
 @app.action("caipe_retry")
@@ -2420,6 +2387,42 @@ def handle_delete_message(ack, body, client):
   except Exception as e:
     logger.exception(f"Error handling message delete: {e}")
 
+_FEEDBACK_MODAL_COPY = {
+  "needs_detail": {
+    "title": "More detail",
+    "comment_label": "What detail is missing?",
+    "comment_placeholder": "e.g., 'Explain how the retry backoff is configured'",
+  },
+  "too_verbose": {
+    "title": "Briefer response",
+    "comment_label": "Anything to focus on?",
+    "comment_placeholder": "e.g., 'Just give me the command'",
+  },
+  "wrong_answer": {
+    "title": "What was wrong?",
+    "comment_label": "What should be corrected?",
+    "comment_placeholder": "e.g., 'The API endpoint mentioned doesn't exist'",
+  },
+  "other": {
+    "title": "Feedback",
+    "comment_label": "Tell us more",
+    "comment_placeholder": "Describe the issue",
+  },
+}
+
+_REGEN_INSTRUCTIONS = {
+  "needs_detail": (
+    "The user wants more detail on your previous answer. Search for at least 5 "
+    "additional sources beyond what you already cited. Keep your response to 2-3 "
+    "short paragraphs. Focus on details you left out the first time. End with "
+    "sources and links."
+  ),
+  "too_verbose": (
+    "Please provide a more concise response. Summarize the key points briefly. "
+    "Be direct and to the point."
+  ),
+}
+
 
 def _open_feedback_modal(ack, body, client, feedback_type):
   ack()
@@ -2428,27 +2431,46 @@ def _open_feedback_modal(ack, body, client, feedback_type):
     action = body.get("actions", [{}])[0]
     value = action.get("value", "")
 
+    copy = _FEEDBACK_MODAL_COPY.get(feedback_type, _FEEDBACK_MODAL_COPY["other"])
+
     client.views_open(
       trigger_id=trigger_id,
       view={
         "type": "modal",
-        "callback_id": "caipe_wrong_answer_modal",
+        "callback_id": "caipe_feedback_modal",
         "private_metadata": f"{value}|{feedback_type}",
-        "title": {"type": "plain_text", "text": "What was wrong?"},
+        "title": {"type": "plain_text", "text": copy["title"]},
         "submit": {"type": "plain_text", "text": "Submit"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
-          {"type": "section", "text": {"type": "mrkdwn", "text": f"Tell {APP_NAME} what went wrong and it'll try again right away."}},
+          {"type": "section", "text": {"type": "mrkdwn", "text": f"Your feedback is recorded either way. {APP_NAME} will only generate a new response if you tick the box below."}},
           {
             "type": "input",
             "block_id": "correction_input",
+            "optional": True,
             "element": {
               "type": "plain_text_input",
               "action_id": "correction_text",
               "multiline": True,
-              "placeholder": {"type": "plain_text", "text": "e.g., 'The API endpoint mentioned doesn't exist'"},
+              "placeholder": {"type": "plain_text", "text": copy["comment_placeholder"]},
             },
-            "label": {"type": "plain_text", "text": "What should be corrected?"},
+            "label": {"type": "plain_text", "text": copy["comment_label"]},
+          },
+          {
+            "type": "input",
+            "block_id": "regen_input",
+            "optional": True,
+            "element": {
+              "type": "checkboxes",
+              "action_id": "regen",
+              "options": [
+                {
+                  "text": {"type": "plain_text", "text": "Attempt to regenerate a response based on feedback?"},
+                  "value": "regenerate",
+                },
+              ],
+            },
+            "label": {"type": "plain_text", "text": "Generate new response"},
           },
         ],
       },
@@ -2467,8 +2489,30 @@ def handle_feedback_other(ack, body, client):
   _open_feedback_modal(ack, body, client, feedback_type="other")
 
 
-@app.view("caipe_wrong_answer_modal")
-def handle_wrong_answer_submission(ack, body, client, view):
+def _regen_message_text(feedback_type: str, comment: str) -> str:
+  """Build the agent instruction for an opted-in regeneration.
+
+  For wrong_answer/other the user's comment is the substance of the request;
+  for needs_detail/too_verbose a fixed instruction drives the rewrite and the
+  comment (if any) is appended as extra context.
+  """
+  if feedback_type in ("wrong_answer", "other"):
+    if comment:
+      return (
+        f'The user indicated your previous response needed work and provided the '
+        f'following IMPORTANT context: "{comment}"\n\nPlease carefully review this '
+        f'feedback and provide a corrected response.'
+      )
+    return "The user indicated your previous response needed work. Please review it and provide a corrected response."
+
+  instruction = _REGEN_INSTRUCTIONS.get(feedback_type, "")
+  if comment:
+    return f'{instruction}\n\nAdditional context from the user: "{comment}"'
+  return instruction
+
+
+@app.view("caipe_feedback_modal")
+def handle_feedback_modal_submission(ack, body, client, view):
   ack()
   try:
     user_id = body.get("user", {}).get("id")
@@ -2480,15 +2524,17 @@ def handle_wrong_answer_submission(ack, body, client, view):
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
     agent_id = parts[3] if len(parts) > 3 else ""
-    feedback_type = parts[4] if len(parts) > 4 else "wrong_answer"
+    feedback_type = parts[4] if len(parts) > 4 else "other"
 
     if not channel_id or not thread_ts:
       return
 
     values = view.get("state", {}).get("values", {})
-    correction_text = values.get("correction_input", {}).get("correction_text", {}).get("value", "")
-    if not correction_text:
-      return
+    comment = values.get("correction_input", {}).get("correction_text", {}).get("value", "") or ""
+
+    # Opt-in: feedback is always recorded; the bot only regenerates if the user
+    # ticked the (off-by-default) "Attempt to regenerate" checkbox.
+    regenerate = regenerate_requested(values)
 
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
@@ -2501,19 +2547,21 @@ def handle_wrong_answer_submission(ack, body, client, view):
       session_manager=session_manager,
       config=config,
       conversation_id=conversation_id,
-      comment=correction_text,
+      comment=comment or None,
       message_ts=message_ts,
     )
 
-    client.chat_postEphemeral(
-      channel=channel_id,
-      user=user_id,
-      thread_ts=thread_ts,
-      text=f"Got it! Asking {APP_NAME} to correct the response based on your feedback...",
-    )
+    if not regenerate:
+      client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        thread_ts=thread_ts,
+        text="Got it! Your feedback was recorded.",
+      )
+      return
 
-    correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
-
+    # No acknowledgment ephemeral here: the user explicitly ticked the box, and
+    # the regenerated response arriving in-thread is self-evident.
     channel_config = config.channels.get(channel_id)
     esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
 
@@ -2521,16 +2569,16 @@ def handle_wrong_answer_submission(ack, body, client, view):
       client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
-      message_text=correction_prompt,
+      message_text=_regen_message_text(feedback_type, comment),
       user_id=user_id,
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
-      additional_footer=f"Correction requested by <@{user_id}>",
+      additional_footer=f"New response requested by <@{user_id}>",
       escalation_config=esc_config,
     )
   except Exception as e:
-    logger.exception(f"Error handling wrong answer submission: {e}")
+    logger.exception(f"Error handling feedback modal submission: {e}")
 
 
 @app.event("reaction_added")

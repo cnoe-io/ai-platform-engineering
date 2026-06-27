@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.5.16 -f your-values.yaml';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.5.26 -f your-values.yaml';
 const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
 
 function DemoGif() {
@@ -79,13 +79,13 @@ const HOME_FEATURES = [
   {
     icon: '🤖',
     title: 'Multi-Agent Orchestration',
-    description: '10+ agents and MCP servers with a deterministic task builder.',
+    description: 'Dynamic agents connected to first-party and external MCP servers.',
     to: '/features',
   },
   {
     icon: '🎨',
     title: 'Rich Web UI',
-    description: 'Streaming chat, agent builder, task builder, and skills gateway.',
+    description: 'Streaming chat, agent builder, skills gateway, and admin controls.',
     to: '/features',
   },
   {
@@ -126,8 +126,8 @@ const HOME_FEATURES = [
   },
   {
     icon: '🔌',
-    title: 'BYO A2A & MCP',
-    description: 'Plug in your own A2A agents or MCP servers as first-class participants.',
+    title: 'BYO MCP Servers',
+    description: 'Plug in external MCP servers and custom Dynamic Agents as first-class participants.',
     to: '/features',
   },
   {
@@ -257,7 +257,7 @@ function HeroSection() {
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
                   {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-                  {'    --version 0.5.16 -f your-values.yaml'}
+                  {'    --version 0.5.26 -f your-values.yaml'}
                 </code>
               </pre>
             </div>
@@ -383,7 +383,7 @@ function AgentsSection() {
   return (
     <section className={styles.integrations}>
       <p className={styles.integrationsTitle}>
-        Pre-built agents for your platform stack — or bring your own A2A agent, MCP server, and build custom agents
+        Pre-built integrations for your platform stack — or bring your own MCP server and build custom agents
       </p>
       <div className={styles.integrationsList}>
         {AGENTS.map((a) => (
@@ -422,7 +422,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.5.16 -f your-values.yaml'}
+              {'    --version 0.5.26 -f your-values.yaml'}
             </code>
           </pre>
         </div>

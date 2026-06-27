@@ -193,8 +193,10 @@ describe("MigrationTab", () => {
     render(<MigrationTab isAdmin />);
     await openAdvancedControls();
 
-    expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
-    expect(await screen.findByText(/Runtime migration release/i)).toBeInTheDocument();
+    expect(await screen.findByText("Platform Data Updates")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /0\.5\.1/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\.5\.1 Schema Migrations/i)).not.toBeInTheDocument();
+    expect(await screen.findByText("Update Status")).toBeInTheDocument();
     expect(await screen.findByText("conversations")).toBeInTheDocument();
     const conversationsCard = screen.getByText("conversations").parentElement;
     expect(conversationsCard).not.toHaveClass("bg-amber-50");
@@ -229,7 +231,7 @@ describe("MigrationTab", () => {
               { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
               { schema_area: "messaging_rebac_indexes", current_version: null, target_version: 2, status: "unknown" },
               { schema_area: "conversation_bookmarks", current_version: 2, target_version: 2, status: "current" },
-              { schema_area: "audit_events", current_version: null, target_version: null, status: "unknown" },
+              { schema_area: "rbac_indexes", current_version: null, target_version: null, status: "unknown" },
             ],
             migrations: [],
             completed_migrations: [],
@@ -259,12 +261,12 @@ describe("MigrationTab", () => {
     const messagingCard = screen.getByText("messaging_rebac_indexes").closest(".rounded-lg");
     expect(messagingCard?.querySelector("svg")).toHaveClass("text-amber-600");
     expect(screen.queryByText("conversation_bookmarks")).not.toBeInTheDocument();
-    expect(screen.queryByText("audit_events")).not.toBeInTheDocument();
+    expect(screen.queryByText("rbac_indexes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText(/Show collections without pending migrations/i));
+    fireEvent.click(screen.getByLabelText(/Show areas already up to date/i));
 
     expect(await screen.findByText("conversation_bookmarks")).toBeInTheDocument();
-    expect(screen.getByText("audit_events")).toBeInTheDocument();
+    expect(screen.getByText("rbac_indexes")).toBeInTheDocument();
   });
 
   it("lets admins initialize all version-only schema areas to v1", async () => {
@@ -317,8 +319,8 @@ describe("MigrationTab", () => {
 
     render(<MigrationTab isAdmin />);
 
-    expect(await screen.findByText(/1 schema areas are missing version metadata/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Initialize all to v1/i }));
+    expect(await screen.findByText(/1 data area\(s\) need update status/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Prepare all/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -340,7 +342,7 @@ describe("MigrationTab", () => {
     await openAdvancedControls();
 
     fireEvent.click(await screen.findByText("Universal ReBAC team resources"));
-    expect(screen.getByText("Selected migration:")).toBeInTheDocument();
+    expect(screen.getByText("Selected update:")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /^Dry run$/i })[1]);
 
     expect(await screen.findByText("MIGRATE team_resources TO v2")).toBeInTheDocument();
@@ -385,8 +387,8 @@ describe("MigrationTab", () => {
     render(<MigrationTab isAdmin />);
     await openAdvancedControls();
 
-    expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
-    fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
+    expect(await screen.findByText("Platform Data Updates")).toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/Select all pending updates/i));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -398,8 +400,8 @@ describe("MigrationTab", () => {
         { method: "POST" },
       );
     });
-    expect(await screen.findByText(/Bulk migration preview/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/6 migrations selected/i).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Selected updates preview/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/6 updates selected/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Preview selected/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Copy bulk confirmation/i }));
@@ -430,7 +432,7 @@ describe("MigrationTab", () => {
         }),
       );
     });
-    expect(await screen.findByText(/Applied 6 selected migration/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Applied 6 selected update/i)).toBeInTheDocument();
   });
 
   it("initializes missing schema metadata before applying selected migrations", async () => {
@@ -513,9 +515,9 @@ describe("MigrationTab", () => {
     render(<MigrationTab isAdmin />);
     await openAdvancedControls();
 
-    expect(await screen.findByText(/1 schema areas are missing version metadata/i)).toBeInTheDocument();
-    fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
-    await screen.findByText(/Bulk migration preview/i);
+    expect(await screen.findByText(/1 data area\(s\) need update status/i)).toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/Select all pending updates/i));
+    await screen.findByText(/Selected updates preview/i);
     fireEvent.change(screen.getByLabelText(/Type bulk confirmation/i), {
       target: { value: "APPLY SELECTED MIGRATIONS" },
     });
@@ -571,7 +573,7 @@ describe("MigrationTab", () => {
     await openAdvancedControls();
 
     expect((await screen.findAllByText("Conversation owner identity v2")).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: /Refresh migrations/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Refresh updates/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/admin/rebac/migrations");
@@ -629,17 +631,16 @@ describe("MigrationTab", () => {
     render(<MigrationTab isAdmin />);
     await openAdvancedControls();
 
-    expect(await screen.findByText(/No active migrations/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No pending updates/i)).toBeInTheDocument();
     expect(screen.queryByText("Conversation owner identity v2")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText(/Show completed migrations/i));
+    fireEvent.click(screen.getByLabelText(/Show completed updates/i));
 
-    const completeCheckbox = await screen.findByRole("checkbox", { name: /Migration complete/i });
+    const completeCheckbox = await screen.findByRole("checkbox", { name: /Update complete/i });
     expect(completeCheckbox).toBeChecked();
     expect(screen.getAllByText("Conversation owner identity v2").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Migration complete/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText(/Show collections without pending migrations/i));
+    fireEvent.click(screen.getByLabelText(/Show areas already up to date/i));
 
     expect(screen.getByText(/v2 -> v2/i)).toBeInTheDocument();
     expect(screen.getByText("current")).toHaveClass("text-emerald-700");

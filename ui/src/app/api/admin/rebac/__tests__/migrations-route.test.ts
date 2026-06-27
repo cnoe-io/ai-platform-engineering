@@ -4,6 +4,13 @@
 
 import { NextRequest } from "next/server";
 
+import { ACTIVE_RELEASES } from "@/lib/rbac/migrations/registry";
+
+// The runtime always reports the newest active release (the tail of
+// ACTIVE_RELEASES). Derive it from the source of truth so adding a future
+// migration release never breaks these assertions.
+const LATEST_RELEASE = ACTIVE_RELEASES[ACTIVE_RELEASES.length - 1];
+
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
@@ -262,6 +269,53 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
+  it("keeps a completed run actionable when the schema version is still behind", async () => {
+    collections.schema_migrations = createCollection([
+      {
+        _id: "rbac_indexes_v1",
+        release: "0.5.1",
+        schema_area: "rbac_indexes",
+        status: "completed",
+        completed_at: "2026-06-19T12:00:00.000Z",
+      },
+    ]);
+    collections.data_schema_versions = createCollection([
+      { _id: "rbac_indexes", version: 1, last_migration_id: "schema_version_bootstrap_v1" },
+    ]);
+    const { GET } = await import("../migrations/route");
+
+    const response = await GET(request("/api/admin/rebac/migrations"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.migrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rbac_indexes_v1",
+          schema_area: "rbac_indexes",
+          current_version: 1,
+          target_version: 2,
+          status: "not_started",
+        }),
+      ]),
+    );
+    expect(body.data.completed_migrations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "rbac_indexes_v1" }),
+      ]),
+    );
+    expect(body.data.schema_versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          schema_area: "rbac_indexes",
+          current_version: 1,
+          target_version: 2,
+          status: "behind",
+        }),
+      ]),
+    );
+  });
+
   it("returns blocking migration status and records super-admin overrides", async () => {
     collections.data_schema_versions = createCollection([{ _id: "conversations", version: 1 }]);
     const statusRoute = await import("../migrations/status/route");
@@ -276,9 +330,8 @@ describe("admin ReBAC migrations API", () => {
     expect(statusBody.data.is_blocking).toBe(true);
     expect(statusBody.data.runtime).toEqual(
       expect.objectContaining({
-        // The runtime reports the latest active release; the 0.5.8 manifest
-        // adds the unified shareable-resource RBAC backfills.
-        migration_release: "0.5.8",
+        // The runtime reports the latest active release (tail of ACTIVE_RELEASES).
+        migration_release: LATEST_RELEASE,
       }),
     );
 
@@ -293,10 +346,10 @@ describe("admin ReBAC migrations API", () => {
     expect(overrideResponse.status).toBe(200);
     expect(overrideBody.data.override_active).toBe(true);
     expect(collections.migration_overrides.updateOne).toHaveBeenCalledWith(
-      { _id: "0.5.8:admin@example.com" },
+      { _id: `${LATEST_RELEASE}:admin@example.com` },
       expect.objectContaining({
         $set: expect.objectContaining({
-          release: "0.5.8",
+          release: LATEST_RELEASE,
           reason: "Emergency production verification",
           status: "active",
           created_by: "admin@example.com",
@@ -433,9 +486,9 @@ describe("admin ReBAC migrations API", () => {
 
     expect(response.status).toBe(200);
     expect(mockRequireResourcePermission).not.toHaveBeenCalled();
-    // Latest active release (the 0.5.8 manifest adds the shareable-resource
-    // RBAC backfills on top of the 0.5.1 entries).
-    expect(body.data.release).toBe("0.5.8");
+    // Latest active release (tail of ACTIVE_RELEASES) — derived so new
+    // migration releases don't require editing this assertion.
+    expect(body.data.release).toBe(LATEST_RELEASE);
     expect(body.data.migrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -694,7 +747,7 @@ describe("admin ReBAC migrations API", () => {
     const response = await POST(
       request("/api/admin/rebac/migrations/rbac_indexes_v1/apply", {
         method: "POST",
-        body: JSON.stringify({ confirmation: "MIGRATE audit_events TO v2" }),
+        body: JSON.stringify({ confirmation: "MIGRATE rbac_indexes TO v2" }),
       }),
       { params: Promise.resolve({ migrationId: "rbac_indexes_v1" }) },
     );

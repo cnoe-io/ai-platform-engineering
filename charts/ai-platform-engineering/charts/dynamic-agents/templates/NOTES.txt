@@ -14,6 +14,8 @@
 */ -}}
 {{- $kcUrl := default "" (index .Values.config "KEYCLOAK_URL") }}
 {{- $oidcIssuer := default "" (index .Values.config "OIDC_ISSUER") }}
+{{- $agMcpIds := default "all" (index .Values.config "AGENT_GATEWAY_MCP_SERVER_IDS") }}
+{{- $hmacSecretName := default "" .Values.agentContext.existingSecret.name }}
 
 dynamic-agents installed.
 
@@ -68,5 +70,24 @@ dynamic-agents installed.
       dynamic-agents:
         config:
           KEYCLOAK_URL: "http://{{ .Release.Name }}-keycloak:8080"
+
+{{- end }}
+
+{{- if and (ne (toString $agMcpIds) "") (eq (toString $hmacSecretName) "") }}
+
+⚠️  WARNING — CAIPE_AGENT_CONTEXT_HMAC_SECRET is NOT wired for dynamic-agents.
+
+    AGENT_GATEWAY_MCP_SERVER_IDS is {{ $agMcpIds | quote }}, so MCP tool calls
+    route through AgentGateway. Without the shared HMAC secret, dynamic-agents
+    cannot sign per-agent context headers and the bridge enforces only the coarse
+    user-level mcp_gateway:list gate — per-agent tool calls may 403.
+
+    Wire the same secret used by openfga-authz-bridge, e.g.:
+
+      dynamic-agents:
+        agentContext:
+          existingSecret:
+            name: "caipe-ui-secret"
+            key: "CAIPE_AGENT_CONTEXT_HMAC_SECRET"
 
 {{- end }}

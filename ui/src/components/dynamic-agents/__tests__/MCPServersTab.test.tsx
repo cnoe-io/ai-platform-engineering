@@ -12,6 +12,7 @@ const jiraServer = {
   enabled: true,
   created_at: "2026-05-17T00:00:00.000Z",
   updated_at: "2026-05-17T00:00:00.000Z",
+  permissions: { can_manage: true, can_invoke: true, can_discover: true },
 };
 
 const agentGatewayRagServer = {
@@ -26,9 +27,12 @@ const agentGatewayRagServer = {
   agentgateway_target_endpoint: "http://rag-server:9446/mcp",
   created_at: "2026-05-17T00:00:00.000Z",
   updated_at: "2026-05-17T00:00:00.000Z",
+  permissions: { can_manage: false, can_invoke: true, can_discover: true },
 };
 
-describe("MCPServersTab AgentGateway sync", () => {
+const listCapabilities = { repair_agentgateway: true };
+
+describe("MCPServersTab AgentGateway repair", () => {
   let serverItems: Record<string, unknown>[];
 
   beforeEach(() => {
@@ -41,6 +45,7 @@ describe("MCPServersTab AgentGateway sync", () => {
             success: true,
             data: {
               items: serverItems,
+              capabilities: listCapabilities,
             },
           }),
         } as Response);
@@ -67,15 +72,60 @@ describe("MCPServersTab AgentGateway sync", () => {
           }),
         } as Response);
       }
+      if (url === "/api/mcp-servers/probe?id=jira" && init?.method === "POST") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              server_id: "jira",
+              success: true,
+              tools: [
+                {
+                  name: "version",
+                  namespaced_name: "version",
+                  description: "Return the MCP server version.",
+                },
+                {
+                  name: "search",
+                  namespaced_name: "search",
+                  description: "Search Jira issues using JQL.",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      jql: {
+                        type: "string",
+                        description: "JQL query.",
+                      },
+                    },
+                    required: ["jql"],
+                  },
+                },
+              ],
+            },
+          }),
+        } as Response);
+      }
+      if (url === "/api/mcp-servers/test-tool" && init?.method === "POST") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              success: true,
+              status: 200,
+              result: { content: [{ type: "text", text: "1.2.3" }] },
+            },
+          }),
+        } as Response);
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as unknown as typeof fetch;
   });
 
-  it("syncs AgentGateway MCP servers in one click and shows migration conflicts", async () => {
+  it("repairs AgentGateway MCP server registrations and shows migration conflicts", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
-    fireEvent.click(screen.getByRole("button", { name: /Sync with AgentGateway/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Repair AgentGateway/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -109,6 +159,125 @@ describe("MCPServersTab AgentGateway sync", () => {
 
     expect(screen.getByText("AgentGateway")).toBeInTheDocument();
     expect(screen.getByText(/Target: http:\/\/rag-server:9446\/mcp/i)).toBeInTheDocument();
+  });
+
+  it("opens a test modal and invokes a saved MCP tool", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/Test MCP tools/i);
+    expect(await screen.findByRole("option", { name: "version" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fields" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add parameter" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/test-tool",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            serverId: "jira",
+            toolName: "version",
+            params: {},
+          }),
+        }),
+      );
+    });
+    expect(await screen.findByText(/Tool call succeeded/i)).toBeInTheDocument();
+    expect(screen.getByText(/1.2.3/i)).toBeInTheDocument();
+  });
+
+  it("renders schema parameters as fields and sends them as JSON", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    const toolSelect = await screen.findByLabelText("Tool");
+    fireEvent.change(toolSelect, { target: { value: "search" } });
+
+    expect(await screen.findByLabelText("Value for jql")).toBeInTheDocument();
+    expect(screen.getByText("Required")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Value for jql"), { target: { value: "project = MERAKI" } });
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/test-tool",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            serverId: "jira",
+            toolName: "search",
+            params: { jql: "project = MERAKI" },
+          }),
+        }),
+      );
+    });
+  });
+
+  it("accepts free-form parameter rows when a tool has no advertised schema", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    await screen.findByRole("option", { name: "version" });
+    fireEvent.change(screen.getByLabelText("Parameter value 1"), { target: { value: "5" } });
+    fireEvent.change(screen.getByPlaceholderText("parameter_name"), { target: { value: "limit" } });
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/test-tool",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            serverId: "jira",
+            toolName: "version",
+            params: { limit: 5 },
+          }),
+        }),
+      );
+    });
+  });
+
+  it("adds extra parameter rows with the + button", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    const toolSelect = await screen.findByLabelText("Tool");
+    fireEvent.change(toolSelect, { target: { value: "search" } });
+
+    fireEvent.change(await screen.findByLabelText("Value for jql"), {
+      target: { value: "project = MERAKI" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add parameter" }));
+
+    fireEvent.change(await screen.findByLabelText("Parameter value 2"), { target: { value: "50" } });
+    fireEvent.change(screen.getAllByPlaceholderText("parameter_name")[1], {
+      target: { value: "maxResults" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/test-tool",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            serverId: "jira",
+            toolName: "search",
+            params: { jql: "project = MERAKI", maxResults: 50 },
+          }),
+        }),
+      );
+    });
   });
 
   it("refreshes the mounted list when servers are added outside the tab", async () => {
@@ -167,5 +336,141 @@ describe("MCPServersTab AgentGateway sync", () => {
 
     unmount();
     jest.useRealTimers();
+  });
+
+  it("hides repair, probe, test, and delete actions when row permissions deny them", async () => {
+    serverItems = [
+      {
+        ...jiraServer,
+        permissions: { can_manage: false, can_invoke: false, can_discover: false },
+      },
+    ];
+    global.fetch = jest.fn((url: string) => {
+      if (url === "/api/mcp-servers?page_size=100") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              items: serverItems,
+              capabilities: { repair_agentgateway: false },
+            },
+          }),
+        } as Response);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    expect(screen.queryByRole("button", { name: /Repair AgentGateway/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Probe tools for Jira/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /test mcp tools for jira/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Delete Jira/i })).not.toBeInTheDocument();
+  });
+
+  it("opens the create editor when Add Server is clicked", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: "Add Server" }));
+    expect(await screen.findByText("Add MCP Server")).toBeInTheDocument();
+  });
+
+  it("shows repair, probe, test, and delete when list permissions allow them", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    expect(screen.getByRole("button", { name: /Repair AgentGateway/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Probe tools for Jira/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /test mcp tools for jira/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Delete Jira/i })).toBeInTheDocument();
+  });
+
+  it("opens a read-only editor when the caller lacks can_manage", async () => {
+    serverItems = [
+      {
+        ...jiraServer,
+        permissions: { can_manage: false, can_invoke: true, can_discover: true },
+      },
+    ];
+
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByText("Jira"));
+    expect(await screen.findByText("View MCP Server")).toBeInTheDocument();
+    expect(screen.queryByText("Edit MCP Server")).not.toBeInTheDocument();
+  });
+
+  it("does not issue update requests when toggling enabled without can_manage", async () => {
+    serverItems = [
+      {
+        ...jiraServer,
+        permissions: { can_manage: false, can_invoke: true, can_discover: true },
+      },
+    ];
+    const putCalls: string[] = [];
+    global.fetch = jest.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers?page_size=100") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              items: serverItems,
+              capabilities: listCapabilities,
+            },
+          }),
+        } as Response);
+      }
+      if (typeof url === "string" && url.startsWith("/api/mcp-servers?id=") && init?.method === "PUT") {
+        putCalls.push(url);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    const toggle = screen.getByTitle("You do not have permission to modify this server");
+    expect(toggle).toBeDisabled();
+    fireEvent.click(toggle);
+    expect(putCalls).toHaveLength(0);
+  });
+
+  it("uses inline delete confirmation instead of a browser confirm dialog", async () => {
+    const confirmSpy = jest.spyOn(window, "confirm").mockImplementation(() => true);
+    const deleteCalls: string[] = [];
+    global.fetch = jest.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers?page_size=100") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              items: serverItems,
+              capabilities: listCapabilities,
+            },
+          }),
+        } as Response);
+      }
+      if (typeof url === "string" && url.startsWith("/api/mcp-servers?id=jira") && init?.method === "DELETE") {
+        deleteCalls.push(url);
+        return Promise.resolve({ json: async () => ({ success: true }) } as Response);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /Delete Jira/i }));
+    expect(screen.getByText(/Delete Jira\?/i)).toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm delete Jira/i }));
+    await waitFor(() => expect(deleteCalls).toHaveLength(1));
+    expect(deleteCalls[0]).toContain("id=jira");
+
+    confirmSpy.mockRestore();
   });
 });

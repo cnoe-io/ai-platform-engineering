@@ -57,11 +57,9 @@ RBAC_PATHS: tuple[str, ...] = (
     "ai_platform_engineering/utils/auth/",
     # Dynamic Agents auth surface
     "ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/",
-    # Supervisor auth middleware bound into the A2A app
-    "ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/main.py",
     # Slack bot Keycloak / JIT path
-    "ai_platform_engineering/agents/slack/agent_slack/keycloak_admin.py",
-    "ai_platform_engineering/agents/slack/agent_slack/jit_user.py",
+    "ai_platform_engineering/integrations/slack_bot/utils/keycloak_admin.py",
+    "ai_platform_engineering/integrations/slack_bot/utils/identity_linker.py",
     # Agent Gateway ext_authz configuration
     "deploy/agentgateway/config.yaml.j2",
     # BFF auth surface

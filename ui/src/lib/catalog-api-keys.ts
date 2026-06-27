@@ -2,12 +2,12 @@
  * MongoDB-backed catalog API keys for Skills Gateway (FR-018).
  *
  * Mirrors `ai_platform_engineering/skills_middleware/api_keys_store.py` so the
- * BFF can mint/list/revoke keys without proxying to the supervisor.
+ * BFF and Skills Gateway use the same key format.
  *
- * Key format: `{key_id}.{secret}`. Only HMAC-SHA256(pepper, secret) is stored.
+ * Key format: `{key_id}.{secret}`. Only a versioned scrypt digest is stored.
  */
 
-import { createHmac,randomInt } from "crypto";
+import { randomInt,scrypt,timingSafeEqual } from "crypto";
 
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 
@@ -17,6 +17,15 @@ const KEY_ID_RANDOM_LEN = 12;
 const SECRET_LEN = 32;
 const ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+// assisted-by Codex Codex-sonnet-4-6
+const SCRYPT_PREFIX = "scrypt:v1";
+const SCRYPT_KEY_LEN = 32;
+const SCRYPT_OPTIONS = {
+  N: 16384,
+  r: 8,
+  p: 1,
+  maxmem: 32 * 1024 * 1024,
+};
 
 interface CatalogApiKeyDocument {
   key_id: string;
@@ -45,9 +54,43 @@ function catalogApiKeyPepper(): string {
   );
 }
 
-function hashCatalogApiKeySecret(secret: string): string {
+async function deriveCatalogApiKeyDigest(secret: string,salt: string): Promise<Buffer> {
+  return new Promise((resolve,reject) => {
+    scrypt(secret,salt,SCRYPT_KEY_LEN,SCRYPT_OPTIONS,(error,derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(derivedKey);
+    });
+  });
+}
+
+async function hashCatalogApiKeySecret(
+  keyId: string,
+  secret: string,
+): Promise<string> {
   const pepper = catalogApiKeyPepper();
-  return createHmac("sha256", pepper).update(secret, "utf8").digest("hex");
+  const digest = await deriveCatalogApiKeyDigest(`${pepper}:${secret}`,keyId);
+  return `${SCRYPT_PREFIX}:${digest.toString("base64url")}`;
+}
+
+function safeStringEqual(left: string,right: string): boolean {
+  const leftBytes = Buffer.from(left,"utf8");
+  const rightBytes = Buffer.from(right,"utf8");
+  return (
+    leftBytes.length === rightBytes.length &&
+    timingSafeEqual(leftBytes,rightBytes)
+  );
+}
+
+async function isCatalogApiKeySecretMatch(
+  keyId: string,
+  secret: string,
+  storedHash: string,
+): Promise<boolean> {
+  const expectedHash = await hashCatalogApiKeySecret(keyId,secret);
+  return safeStringEqual(storedHash,expectedHash);
 }
 
 function randomAlphanumeric(length: number): string {
@@ -89,7 +132,7 @@ export async function createCatalogApiKey(
 
   const doc: CatalogApiKeyDocument = {
     key_id: keyId,
-    key_hash: hashCatalogApiKeySecret(secret),
+    key_hash: await hashCatalogApiKeySecret(keyId,secret),
     owner_user_id: ownerUserId,
     scopes,
     created_at: now,
@@ -178,7 +221,10 @@ export async function verifyCatalogApiKey(
     { key_id: keyId, revoked_at: null },
     { projection: { key_hash: 1, owner_user_id: 1 } },
   );
-  if (!doc || doc.key_hash !== hashCatalogApiKeySecret(secret)) {
+  if (
+    !doc ||
+    !(await isCatalogApiKeySecretMatch(keyId,secret,doc.key_hash))
+  ) {
     return null;
   }
 

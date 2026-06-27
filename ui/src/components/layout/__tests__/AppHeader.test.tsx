@@ -9,10 +9,10 @@
  * - Active tab styling based on pathname
  *
  * Connection status badge (getCombinedStatus):
- * - "connected"        → both supervisor & RAG online (green)
+ * - "connected"        → platform and RAG probes online (green)
  * - "checking"         → either service is checking (amber spinner)
- * - "rag-disconnected" → supervisor online, RAG offline (amber warning)
- * - "disconnected"     → supervisor offline (red), regardless of RAG
+ * - "rag-disconnected" → platform online, RAG offline (amber warning)
+ * - "disconnected"     → platform offline (red), regardless of RAG
  */
 
 import React from 'react'
@@ -69,26 +69,27 @@ let mockStreamingConversations = new Map<string, any>()
 let mockUnviewedConversations = new Set<string>()
 let mockInputRequiredConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
+  resolveChatNavigationPath: jest.fn(
+    ({ activeConversationId }: { activeConversationId?: string | null }) =>
+      activeConversationId ? `/chat/${activeConversationId}` : '/chat',
+  ),
   useChatStore: jest.fn(() => ({
     isStreaming: mockStreamingConversations.size > 0,
     streamingConversations: mockStreamingConversations,
     unviewedConversations: mockUnviewedConversations,
     inputRequiredConversations: mockInputRequiredConversations,
+    conversations: [],
+    activeConversationId: null,
   })),
 }))
 
-// Mock CAIPE health hook — status and storageMode are mutable per test
+// Mock Dynamic Agents runtime health — status is mutable per test
 let mockStorageMode = 'mongodb'
-let mockCaipeStatus: 'connected' | 'disconnected' | 'checking' = 'connected'
-jest.mock('@/hooks/use-caipe-health', () => ({
-  useCAIPEHealth: () => ({
-    status: mockCaipeStatus,
-    url: 'http://localhost:8080',
-    secondsUntilNextCheck: 30,
-    agents: [],
-    tags: [],
-    mongoDBStatus: 'connected',
-    storageMode: mockStorageMode,
+let mockRuntimeStatus: 'connected' | 'disconnected' | 'checking' = 'connected'
+jest.mock('@/hooks/use-agent-runtime-health', () => ({
+  useAgentRuntimeHealth: () => ({
+    status: mockRuntimeStatus,
+    checkNow: jest.fn(),
   }),
 }))
 
@@ -105,6 +106,47 @@ jest.mock('@/hooks/use-rag-health', () => ({
   }),
 }))
 
+let mockPlatformProbeStatus: 'healthy' | 'degraded' | 'down' | 'checking' = 'healthy'
+type MockPlatformProbe = {
+  id: string
+  label: string
+  group: 'core' | 'identity' | 'storage' | 'rag' | 'bootstrap'
+  status: 'healthy' | 'warning' | 'down'
+  detail: string
+  target: string
+  latency_ms: number
+  remediation?: {
+    label: string
+    href: string
+    description: string
+  }
+}
+let mockPlatformProbes: MockPlatformProbe[] = [
+  {
+    id: 'keycloak',
+    label: 'Keycloak',
+    group: 'identity',
+    status: 'healthy',
+    detail: 'HTTP 200',
+    target: 'http://keycloak:7080',
+    latency_ms: 12,
+  },
+]
+jest.mock('@/hooks/use-platform-health-probes', () => ({
+  usePlatformHealthProbes: () => ({
+    status: mockPlatformProbeStatus,
+    probes: mockPlatformProbes,
+    summary: {
+      total: mockPlatformProbes.length,
+      healthy: mockPlatformProbes.filter((p) => p.status === 'healthy').length,
+      warning: mockPlatformProbes.filter((p) => p.status === 'warning').length,
+      down: mockPlatformProbes.filter((p) => p.status === 'down').length,
+    },
+    secondsUntilNextCheck: 30,
+    checkNow: jest.fn(),
+  }),
+}))
+
 // Mock version hook
 jest.mock('@/hooks/use-version', () => ({
   useVersion: () => ({
@@ -116,12 +158,8 @@ const mockReleasePrompt = {
   open: false,
   isAdmin: false,
   releaseVersion: null as string | null,
-  announcementId: null as string | null,
   release: null as any,
-  showMigrationCta: true,
-  toastNotification: null as any,
-  markToastShown: jest.fn(),
-  openMigrationAssistant: jest.fn(),
+  releaseMarkdown: null as any,
   skipUntilNextLogin: jest.fn(),
   dismissPermanently: jest.fn(),
   isLoading: false,
@@ -163,7 +201,6 @@ jest.mock('@/components/ui/toast', () => ({
 
 // Mock config
 let mockReportProblemEnabled = false
-let mockDynamicAgentsEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -174,8 +211,7 @@ jest.mock('@/lib/config', () => ({
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
     envBadge: '',
-    autonomousAgentsEnabled: true,
-    get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
+    get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
   },
@@ -184,8 +220,7 @@ jest.mock('@/lib/config', () => ({
       appName: 'Test App',
       ssoEnabled: true,
       envBadge: '',
-      autonomousAgentsEnabled: true,
-      get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
+      get storageMode() { return mockStorageMode },
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
     }
@@ -334,9 +369,8 @@ describe('AppHeader — nav tabs', () => {
     mockIsAdmin = false
     mockCanAccessDynamicAgents = false
     mockRagEnabled = false
-    mockDynamicAgentsEnabled = true
     mockReportProblemEnabled = false
-    mockCaipeStatus = 'connected'
+    mockRuntimeStatus = 'connected'
     mockRagStatus = 'connected'
     setHeaderNavConstrained(false)
     mockStreamingConversations = new Map()
@@ -347,11 +381,8 @@ describe('AppHeader — nav tabs', () => {
     mockReleasePrompt.open = false
     mockReleasePrompt.isAdmin = false
     mockReleasePrompt.releaseVersion = null
-    mockReleasePrompt.announcementId = null
     mockReleasePrompt.release = null
-    mockReleasePrompt.showMigrationCta = true
-    mockReleasePrompt.toastNotification = null
-    mockReleasePrompt.markToastShown.mockClear()
+    mockReleasePrompt.releaseMarkdown = null
   })
 
   describe('Insights tab removed from nav', () => {
@@ -414,7 +445,6 @@ describe('AppHeader — nav tabs', () => {
     it('collapses nav items into More dropdown and keeps right cluster intact on narrow widths', () => {
       setHeaderNavConstrained(true)
       mockStorageMode = 'mongodb'
-      mockDynamicAgentsEnabled = true
       mockIsAdmin = true
       mockReportProblemEnabled = true
 
@@ -459,15 +489,14 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
     })
 
-    it('shows Agents when Dynamic Agents are enabled even without legacy AD group access', () => {
+    it('shows Agents in MongoDB mode even without AD group access', () => {
       mockCanAccessDynamicAgents = false
       mockStorageMode = 'mongodb'
-      mockDynamicAgentsEnabled = true
 
       render(<AppHeader />)
 
-      expect(screen.getByText('Agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toHaveTextContent('Agents')
     })
   })
 
@@ -567,8 +596,20 @@ describe('AppHeader — connection status badge', () => {
     mockPathname = '/chat'
     mockIsAdmin = false
     mockRagEnabled = false
-    mockCaipeStatus = 'connected'
+    mockRuntimeStatus = 'connected'
     mockRagStatus = 'connected'
+    mockPlatformProbeStatus = 'healthy'
+    mockPlatformProbes = [
+      {
+        id: 'keycloak',
+        label: 'Keycloak',
+        group: 'identity',
+        status: 'healthy',
+        detail: 'HTTP 200',
+        target: 'http://keycloak:7080',
+        latency_ms: 12,
+      },
+    ]
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -578,7 +619,7 @@ describe('AppHeader — connection status badge', () => {
 
   describe('green — Connected', () => {
     it('shows icon-only green button with correct popover content when all systems are up', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'connected'
       render(<AppHeader />)
@@ -592,21 +633,52 @@ describe('AppHeader — connection status badge', () => {
       // Popover content reflects healthy state
       expect(screen.getByText('All Systems Live')).toBeInTheDocument()
       expect(screen.getByText('All systems operational')).toBeInTheDocument()
+      expect(screen.getByText('Platform Health')).toBeInTheDocument()
+      expect(screen.getAllByText('Identity & Authz').length).toBeGreaterThan(0)
+    })
+
+    it('links admins to the full platform health dashboard', () => {
+      mockIsAdmin = true
+      mockRuntimeStatus = 'connected'
+      render(<AppHeader />)
+
+      fireEvent.click(screen.getByRole('button', { name: /full health report/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+
+      mockRouterPush.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: /all systems live/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+
+      mockRouterPush.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: /1\/1 ready/i }))
+      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+    })
+
+    it('hides the health dashboard link for non-admins', () => {
+      mockIsAdmin = false
+      mockRuntimeStatus = 'connected'
+      render(<AppHeader />)
+
+      expect(screen.queryByRole('button', { name: /full health report/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /open health dashboard/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /all systems live/i })).not.toBeInTheDocument()
+      expect(screen.getByText('All Systems Live')).toBeInTheDocument()
+      expect(screen.getByText('1/1 Ready')).toBeInTheDocument()
     })
   })
 
   describe('amber — Checking', () => {
     // The button AND popover badge both render "Checking" when in checking state,
     // so we use getAllByText and confirm the status button specifically.
-    it('shows "Checking" when supervisor is in checking state', () => {
-      mockCaipeStatus = 'checking'
+    it('shows "Checking" when the platform probe is in checking state', () => {
+      mockRuntimeStatus = 'checking'
       render(<AppHeader />)
       const matches = screen.getAllByText('Checking')
       expect(matches.length).toBeGreaterThan(0)
     })
 
     it('shows "Checking" when RAG is enabled and in checking state', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'checking'
       render(<AppHeader />)
@@ -614,8 +686,17 @@ describe('AppHeader — connection status badge', () => {
       expect(matches.length).toBeGreaterThan(0)
     })
 
+    it('shows "Checking" when platform probes are still checking', () => {
+      mockRuntimeStatus = 'connected'
+      mockPlatformProbeStatus = 'checking'
+      mockPlatformProbes = []
+      render(<AppHeader />)
+      const matches = screen.getAllByText('Checking')
+      expect(matches.length).toBeGreaterThan(0)
+    })
+
     it('Checking status button has amber styling', () => {
-      mockCaipeStatus = 'checking'
+      mockRuntimeStatus = 'checking'
       render(<AppHeader />)
       // Find the status button (the one that is a <button> element)
       const statusButton = screen.getAllByText('Checking')
@@ -624,8 +705,8 @@ describe('AppHeader — connection status badge', () => {
       expect(statusButton?.className).toContain('amber')
     })
 
-    it('supervisor checking takes priority over RAG connected', () => {
-      mockCaipeStatus = 'checking'
+    it('platform checking takes priority over RAG connected', () => {
+      mockRuntimeStatus = 'checking'
       mockRagEnabled = true
       mockRagStatus = 'connected'
       render(<AppHeader />)
@@ -633,12 +714,12 @@ describe('AppHeader — connection status badge', () => {
       expect(matches.length).toBeGreaterThan(0)
     })
 
-    it('supervisor checking takes priority over RAG disconnected', () => {
-      mockCaipeStatus = 'checking'
+    it('platform checking takes priority over RAG disconnected', () => {
+      mockRuntimeStatus = 'checking'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      // Still "Checking" — supervisor check takes priority
+      // Still "Checking" — the platform probe takes priority.
       const matches = screen.getAllByText('Checking')
       expect(matches.length).toBeGreaterThan(0)
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
@@ -646,9 +727,9 @@ describe('AppHeader — connection status badge', () => {
     })
   })
 
-  describe('amber — RAG Disconnected (supervisor up, RAG down)', () => {
-    it('shows "RAG Disconnected" when supervisor is online but RAG is offline', () => {
-      mockCaipeStatus = 'connected'
+  describe('amber — RAG Disconnected (platform up, RAG down)', () => {
+    it('shows "RAG Disconnected" when the platform is online but RAG is offline', () => {
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -656,7 +737,7 @@ describe('AppHeader — connection status badge', () => {
     })
 
     it('RAG Disconnected badge has amber styling, not red', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -666,7 +747,7 @@ describe('AppHeader — connection status badge', () => {
     })
 
     it('does NOT show "Disconnected" when only RAG is offline', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -674,7 +755,7 @@ describe('AppHeader — connection status badge', () => {
     })
 
     it('does NOT show "RAG Disconnected" when RAG is disabled (even if status is disconnected)', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = false
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -683,16 +764,16 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
     })
 
-    it('popover header shows "RAG Offline" when supervisor up but RAG down', () => {
-      mockCaipeStatus = 'connected'
+    it('popover header shows "RAG Offline" when the platform is up but RAG is down', () => {
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
       expect(screen.getByText('RAG Offline')).toBeInTheDocument()
     })
 
-    it('popover footer shows "RAG server unavailable" when supervisor up but RAG down', () => {
-      mockCaipeStatus = 'connected'
+    it('popover footer shows "RAG server unavailable" when the platform is up but RAG is down', () => {
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -700,7 +781,7 @@ describe('AppHeader — connection status badge', () => {
     })
 
     it('does NOT show "Issues Detected" when only RAG is offline', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -708,23 +789,43 @@ describe('AppHeader — connection status badge', () => {
     })
   })
 
-  describe('red — Disconnected (supervisor down)', () => {
-    it('shows "Disconnected" when supervisor is offline', () => {
-      mockCaipeStatus = 'disconnected'
+  describe('red — Disconnected (platform down)', () => {
+    it('shows "Disconnected" when the platform is offline', () => {
+      mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
       expect(screen.getByText('Disconnected')).toBeInTheDocument()
     })
 
+    it('shows "Disconnected" when a platform dependency probe is down', () => {
+      mockRuntimeStatus = 'connected'
+      mockPlatformProbeStatus = 'down'
+      mockPlatformProbes = [
+        {
+          id: 'openfga',
+          label: 'OpenFGA',
+          group: 'identity',
+          status: 'down',
+          detail: 'HTTP 503',
+          target: 'http://openfga:8080/healthz',
+          latency_ms: 20,
+        },
+      ]
+      render(<AppHeader />)
+      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.getAllByText('OpenFGA').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Down').length).toBeGreaterThan(0)
+    })
+
     it('Disconnected badge has red styling', () => {
-      mockCaipeStatus = 'disconnected'
+      mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
       const badge = screen.getByText('Disconnected').closest('button')
       expect(badge?.className).toContain('red')
       expect(badge?.className).not.toContain('amber')
     })
 
-    it('shows "Disconnected" (red) when supervisor is offline even if RAG is online', () => {
-      mockCaipeStatus = 'disconnected'
+    it('shows "Disconnected" (red) when the platform is offline even if RAG is online', () => {
+      mockRuntimeStatus = 'disconnected'
       mockRagEnabled = true
       mockRagStatus = 'connected'
       render(<AppHeader />)
@@ -732,8 +833,8 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
     })
 
-    it('shows "Disconnected" (red) when both supervisor and RAG are offline', () => {
-      mockCaipeStatus = 'disconnected'
+    it('shows "Disconnected" (red) when both the platform and RAG are offline', () => {
+      mockRuntimeStatus = 'disconnected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -741,22 +842,22 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
     })
 
-    it('popover header shows "Issues Detected" when supervisor is offline', () => {
-      mockCaipeStatus = 'disconnected'
+    it('popover header shows "Issues Detected" when the platform is offline', () => {
+      mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
       expect(screen.getByText('Issues Detected')).toBeInTheDocument()
     })
 
-    it('popover footer shows "Check logs for details" when supervisor is offline', () => {
-      mockCaipeStatus = 'disconnected'
+    it('popover footer shows "Check logs for details" when the platform is offline', () => {
+      mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
       expect(screen.getByText('Check logs for details')).toBeInTheDocument()
     })
   })
 
   describe('status priority ordering', () => {
-    it('checking > disconnected: supervisor checking beats RAG disconnected', () => {
-      mockCaipeStatus = 'checking'
+    it('checking > disconnected: platform checking beats RAG disconnected', () => {
+      mockRuntimeStatus = 'checking'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -764,8 +865,8 @@ describe('AppHeader — connection status badge', () => {
       expect(matches.length).toBeGreaterThan(0)
     })
 
-    it('supervisor-disconnected > rag-disconnected: full outage beats partial', () => {
-      mockCaipeStatus = 'disconnected'
+    it('platform-disconnected > rag-disconnected: full outage beats partial', () => {
+      mockRuntimeStatus = 'disconnected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -774,7 +875,7 @@ describe('AppHeader — connection status badge', () => {
     })
 
     it('rag-disconnected > connected: partial outage beats healthy', () => {
-      mockCaipeStatus = 'connected'
+      mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
@@ -795,7 +896,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     mockPathname = '/skills'
     mockIsAdmin = false
     mockRagEnabled = false
-    mockCaipeStatus = 'connected'
+    mockRuntimeStatus = 'connected'
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
@@ -937,31 +1038,10 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(screen.getByTestId('release-upgrade-dialog')).toHaveTextContent('0.5.1 admin')
   })
 
-  it('shows the managed release notes toast once when configured', () => {
-    mockReleasePrompt.releaseVersion = '0.6.0'
-    mockReleasePrompt.toastNotification = {
-      id: '0.6.0:revision-2',
-      message: 'Release notes for 0.6.0 are available.',
-      duration: 12000,
-    }
-
-    render(<AppHeader />)
-
-    expect(mockToast).toHaveBeenCalledWith(
-      'Release notes for 0.6.0 are available.',
-      'info',
-      12000,
-    )
-    expect(mockReleasePrompt.markToastShown).toHaveBeenCalled()
-  })
-
   // ---------------------------------------------------------------------------
-  // Unified admin alerts popover — replaces both the four per-source chips
-  // that used to crowd the header right cluster AND the earlier "single
-  // deep-link to the highest-severity source" pill. The new pill is a
-  // popover trigger; clicking it opens a list of every active alert with
-  // its own GuardedLink to the relevant admin tab so users can choose
-  // exactly which one they want to fix.
+  // Unified admin alerts popover — the pill is a popover trigger; clicking
+  // it opens a list of every active alert with its own GuardedLink to the
+  // relevant admin tab so users can choose exactly which one they want to fix.
   // ---------------------------------------------------------------------------
 
   // The trigger is now a <button> (Popover trigger), not a link. We give
@@ -1104,9 +1184,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(title).toContain('Version metadata needed: 1')
 
     // Both rows must be navigable from the popover, each linking to its
-    // own admin tab. This is the regression fix for "clicking Alerts only
-    // navigates to one place": previously, the version-metadata source
-    // was silently suppressed in favor of the keycloak deep-link.
+    // own admin tab so lower-severity alerts remain visible and actionable.
     const keycloakRow = findAlertRow('Keycloak realm caipe unreachable')
     expect(keycloakRow).not.toBeNull()
     expect(keycloakRow?.className ?? '').toMatch(/text-red-500/)
@@ -1311,7 +1389,7 @@ describe('AppHeader — Report a Problem button', () => {
     mockIsAdmin = false
     mockRagEnabled = false
     mockReportProblemEnabled = false
-    mockCaipeStatus = 'connected'
+    mockRuntimeStatus = 'connected'
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()

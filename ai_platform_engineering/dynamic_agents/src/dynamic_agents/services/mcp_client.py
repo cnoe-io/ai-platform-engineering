@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -11,6 +12,7 @@ import random
 import re
 import ssl
 import time
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import httpx
@@ -28,11 +30,68 @@ from dynamic_agents.services.mcp_endpoint_normalizer import (
 logger = logging.getLogger(__name__)
 
 
-def _gateway_mcp_server_ids() -> set[str]:
-    """Return MCP server IDs that should be reached through AgentGateway."""
-    raw = os.getenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
-    values = {item.strip() for item in raw.split(",") if item.strip()}
-    return values or {"jira"}
+CALLER_PROVIDER_NOT_CONNECTED = "caller_provider_not_connected"
+PINNED_PROVIDER_UNAVAILABLE = "pinned_provider_unavailable"
+TOP_LEVEL_UNION_SCHEMA_KEYS = ("oneOf", "anyOf", "allOf")
+
+_PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "atlassian": "Atlassian",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "pagerduty": "PagerDuty",
+    "webex": "Webex",
+}
+
+
+class McpCredentialUnavailableError(RuntimeError):
+    """MCP credential could not be resolved for this server/caller."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "mcp_credential_unavailable",
+        provider: str | None = None,
+        server_id: str | None = None,
+        server_name: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.provider = provider
+        self.server_id = server_id
+        self.server_name = server_name
+
+
+def mcp_credential_connect_warning(error: McpCredentialUnavailableError) -> str:
+    """Build a user-facing warning when a caller-scoped provider is not connected."""
+    server_label = error.server_name or error.server_id or "MCP server"
+    provider = error.provider or "provider"
+    provider_label = _PROVIDER_DISPLAY_NAMES.get(provider, provider.replace("_", " ").title())
+    if error.reason == CALLER_PROVIDER_NOT_CONNECTED:
+        return (
+            f"{server_label} needs your {provider_label} account connected. "
+            f"[Connect {provider_label}](/credentials?tab=connections) — then start a new chat."
+        )
+    return str(error)
+
+
+@dataclass
+class McpCredentialResolutionResult:
+    """Credential resolution output: connectable servers and structured failures."""
+
+    connections: dict[str, dict[str, Any]]
+    failures: dict[str, McpCredentialUnavailableError] = field(default_factory=dict)
+
+
+def _effective_connection_scope(source: Any) -> str:
+    scope = getattr(source, "connection_scope", None)
+    if scope in ("caller", "pinned"):
+        return scope
+    provider_connection_id = (getattr(source, "provider_connection_id", None) or "").strip()
+    provider = (getattr(source, "provider", None) or "").strip()
+    if provider_connection_id and not provider:
+        return "pinned"
+    return "caller"
 
 
 def _agent_gateway_base_url() -> str | None:
@@ -118,21 +177,34 @@ def build_agent_context_headers(agent_id: str, *, now: int | None = None) -> dic
     }
 
 
+def warn_if_agent_gateway_missing_hmac() -> None:
+    """Log when AgentGateway routing is enabled without the shared HMAC secret."""
+    gateway_url = _agent_gateway_base_url()
+    if not gateway_url:
+        return
+    if os.getenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip():
+        return
+    logger.warning(
+        "AGENT_GATEWAY_URL is set (%s) but CAIPE_AGENT_CONTEXT_HMAC_SECRET is unset; "
+        "AgentGateway will enforce only coarse mcp_gateway:list checks and per-agent "
+        "tool calls may 403. Set the same shared secret on dynamic-agents and "
+        "openfga-authz-bridge.",
+        gateway_url,
+    )
+
+
 def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
     """Build an httpx.AsyncClient factory that injects the per-request user JWT.
 
-    Spec 102 Phase 8 / T106. Mirror of the supervisor's
-    ``base_langgraph_agent._build_httpx_client_factory``: each MCP HTTP
-    connection opened by ``langchain-mcp-adapters`` calls this factory,
-    which reads ``current_user_token`` (set by ``JwtAuthMiddleware``)
-    and forwards it as ``Authorization: Bearer <token>``. This is the
-    fix for the live HTTP 401 from agentgateway because the runtime no
-    longer relies on the (token-less) X-User-Context header for
-    outbound auth.
+    Spec 102 Phase 8 / T106. Each MCP HTTP connection opened by
+    ``langchain-mcp-adapters`` calls this factory, which reads
+    ``current_user_token`` (set by ``JwtAuthMiddleware``) and forwards
+    it as ``Authorization: Bearer <token>``. This is the fix for the
+    live HTTP 401 from agentgateway because the runtime no longer relies
+    on the (token-less) X-User-Context header for outbound auth.
 
     Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
-    ``SSL_CERT_FILE`` and ``SSL_VERIFY=false`` for parity with the
-    supervisor stack.
+    ``SSL_CERT_FILE`` and ``SSL_VERIFY=false``.
     """
     ca_bundle = (
         os.getenv("CUSTOM_CA_BUNDLE")
@@ -268,9 +340,6 @@ def build_mcp_connections(
     connections: dict[str, dict[str, Any]] = {}
 
     server_map = {s.id: s for s in servers}
-    gateway_ids = _gateway_mcp_server_ids() if agent_gateway_url else set()
-    gateway_all = "all" in gateway_ids
-
     for server_id in server_ids:
         server = server_map.get(server_id)
         if not server:
@@ -280,12 +349,12 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
+        # assisted-by Codex Codex-sonnet-4-6
+        # In normal product mode AgentGateway is the MCP policy enforcement
+        # point, so every network MCP server routes through it when configured.
         use_gateway = bool(
             agent_gateway_url
-            and (
-                server_id in gateway_ids
-                or (gateway_all and _is_gateway_managed_server(server, agent_gateway_url))
-            )
+            and server.transport in (TransportType.HTTP, TransportType.SSE)
         )
         connections[server_id] = build_mcp_connection_config(
             server,
@@ -426,22 +495,55 @@ async def resolve_mcp_credential_refs(
                 if credential:
                     origin = "secret_ref"
             elif source.kind == "provider_connection":
-                if source.provider:
-                    exchanged = await credential_client.exchange_provider_connection_by_provider(
-                        source.provider,
-                        intended_use="mcp_server",
+                scope = _effective_connection_scope(source)
+                pinned = scope == "pinned"
+                exchanged: dict[str, Any] = {}
+                try:
+                    if pinned and source.provider_connection_id:
+                        exchanged = await credential_client.exchange_provider_connection(
+                            source.provider_connection_id,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                    elif source.provider:
+                        exchanged = await credential_client.exchange_provider_connection_by_provider(
+                            source.provider,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                    elif source.provider_connection_id:
+                        exchanged = await credential_client.exchange_provider_connection(
+                            source.provider_connection_id,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                except Exception as exc:
+                    if pinned:
+                        raise McpCredentialUnavailableError(
+                            f"Pinned provider connection unavailable for server={server.id}",
+                            reason=PINNED_PROVIDER_UNAVAILABLE,
+                            server_id=server.id,
+                            server_name=server.name,
+                        ) from exc
+                    logger.debug(
+                        "credential exchange for server=%s source=%s failed (%s); "
+                        "falling back to static credential if configured",
+                        server.id,
+                        source.name,
+                        type(exc).__name__,
                     )
-                elif source.provider_connection_id:
-                    exchanged = await credential_client.exchange_provider_connection(
-                        source.provider_connection_id,
-                        intended_use="mcp_server",
-                    )
-                else:
                     exchanged = {}
                 access_token = exchanged.get("access_token")
                 if isinstance(access_token, str) and access_token:
                     credential = access_token
-                    origin = "per_user_oauth"
+                    origin = "per_user_oauth" if not pinned else "pinned_provider_connection"
+                elif pinned:
+                    raise McpCredentialUnavailableError(
+                        f"Pinned provider connection unavailable for server={server.id}",
+                        reason=PINNED_PROVIDER_UNAVAILABLE,
+                        server_id=server.id,
+                        server_name=server.name,
+                    )
             elif source.kind == "caller_token":
                 # Forward the caller's own Keycloak JWT so the backend can enforce
                 # per-user RBAC (e.g. RAG group-based access). Prefer the explicitly
@@ -453,6 +555,8 @@ async def resolve_mcp_credential_refs(
                 if isinstance(user_jwt, str) and user_jwt:
                     credential = user_jwt
                     origin = "user_jwt"
+        except McpCredentialUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 - fall back to static credential below
             logger.debug(
                 "credential exchange for server=%s source=%s failed (%s); "
@@ -464,7 +568,7 @@ async def resolve_mcp_credential_refs(
 
         # Static service-account fallback: keeps shared-token MCP servers
         # (e.g. GitHub/GitLab) working for callers without a personal connection.
-        if not credential and source.fallback_env:
+        if not credential and source.fallback_env and _effective_connection_scope(source) != "pinned":
             env_value = os.getenv(source.fallback_env, "").strip()
             if env_value:
                 credential = env_value
@@ -480,6 +584,24 @@ async def resolve_mcp_credential_refs(
                 origin = "client_credentials"
 
         if not credential:
+            if source.kind == "provider_connection":
+                scope = _effective_connection_scope(source)
+                if scope == "pinned":
+                    raise McpCredentialUnavailableError(
+                        f"Pinned provider connection unavailable for server={server.id}",
+                        reason=PINNED_PROVIDER_UNAVAILABLE,
+                        server_id=server.id,
+                        server_name=server.name,
+                    )
+                if scope == "caller" and source.provider and not source.fallback_env:
+                    raise McpCredentialUnavailableError(
+                        f"Caller has no connected provider for server={server.id} "
+                        f"provider={source.provider}",
+                        reason=CALLER_PROVIDER_NOT_CONNECTED,
+                        provider=source.provider,
+                        server_id=server.id,
+                        server_name=server.name,
+                    )
             logger.info(
                 "MCP credential resolve: server=%s source=%s -> no credential "
                 "(per-user not connected and no fallback)",
@@ -518,32 +640,43 @@ async def resolve_mcp_connections_credential_refs(
     *,
     credential_client: CredentialExchangeClient | Any | None,
     caller_token: str | None = None,
-) -> dict[str, dict[str, Any]]:
+) -> McpCredentialResolutionResult:
     """Resolve credential refs across a connection map.
 
     ``caller_token`` (the runtime's request-entry ``self._auth_bearer``) is
     forwarded to each server's resolution so the ``caller_token`` credential
     source uses the real caller JWT even when the ``current_user_token``
     ContextVar is empty at this call site (#64).
+
+    Servers that fail caller-scoped or pinned credential resolution are omitted
+    from ``connections`` and recorded in ``failures`` with structured reasons.
     """
 
     if credential_client is None or not _use_impersonation_tokens():
-        return connections
+        return McpCredentialResolutionResult(connections=dict(connections))
 
     server_map = {server.id: server for server in servers}
     resolved: dict[str, dict[str, Any]] = {}
+    failures: dict[str, McpCredentialUnavailableError] = {}
     for server_id, config in connections.items():
         server = server_map.get(server_id)
         if server is None:
             resolved[server_id] = config
             continue
-        resolved[server_id] = await resolve_mcp_credential_refs(
-            server,
-            config,
-            credential_client=credential_client,
-            caller_token=caller_token,
-        )
-    return resolved
+        try:
+            resolved[server_id] = await resolve_mcp_credential_refs(
+                server,
+                config,
+                credential_client=credential_client,
+                caller_token=caller_token,
+            )
+        except McpCredentialUnavailableError as exc:
+            if exc.server_id is None:
+                exc.server_id = server_id
+            if exc.server_name is None:
+                exc.server_name = server.name
+            failures[server_id] = exc
+    return McpCredentialResolutionResult(connections=resolved, failures=failures)
 
 
 def filter_tools_by_allowed(
@@ -1026,6 +1159,130 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _json_schema_dict(schema: Any) -> dict[str, Any] | None:
+    """Return a JSON-schema dict for Pydantic model classes or schema dicts."""
+    if isinstance(schema, dict):
+        return copy.deepcopy(schema)
+
+    if isinstance(schema, type):
+        model_json_schema = getattr(schema, "model_json_schema", None)
+        if callable(model_json_schema):
+            return copy.deepcopy(model_json_schema())
+        schema_method = getattr(schema, "schema", None)
+        if callable(schema_method):
+            return copy.deepcopy(schema_method())
+
+    return None
+
+
+def _resolve_local_schema_ref(ref: str, root: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve local JSON-schema refs like ``#/$defs/Foo``."""
+    if not ref.startswith("#/"):
+        return None
+
+    node: Any = root
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+
+    return copy.deepcopy(node) if isinstance(node, dict) else None
+
+
+def _dereference_schema(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        resolved = _resolve_local_schema_ref(ref, root)
+        if resolved is not None:
+            return resolved
+    return schema
+
+
+def _object_shape_from_schema(schema: dict[str, Any], root: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+    """Extract object properties and required fields from a schema branch."""
+    schema = _dereference_schema(schema, root)
+    properties: dict[str, Any] = {}
+    required: set[str] = set()
+
+    for key in TOP_LEVEL_UNION_SCHEMA_KEYS:
+        branches = schema.get(key)
+        if not isinstance(branches, list):
+            continue
+
+        branch_required_sets: list[set[str]] = []
+        for branch in branches:
+            if not isinstance(branch, dict):
+                continue
+            branch_properties, branch_required = _object_shape_from_schema(branch, root)
+            properties.update(branch_properties)
+            branch_required_sets.append(branch_required)
+
+        if key == "allOf":
+            for branch_required in branch_required_sets:
+                required.update(branch_required)
+        elif branch_required_sets:
+            required.update(set.intersection(*branch_required_sets))
+
+    branch_properties = schema.get("properties")
+    if isinstance(branch_properties, dict):
+        properties.update(copy.deepcopy(branch_properties))
+
+    branch_required = schema.get("required")
+    if isinstance(branch_required, list):
+        required.update(item for item in branch_required if isinstance(item, str))
+
+    return properties, required
+
+
+def _collapse_top_level_union_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Collapse a top-level union/intersection schema into a provider-safe object."""
+    properties, required = _object_shape_from_schema(schema, schema)
+    collapsed: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
+    for metadata_key in ("title", "description"):
+        value = schema.get(metadata_key)
+        if isinstance(value, str) and value:
+            collapsed[metadata_key] = value
+
+    if required:
+        collapsed["required"] = sorted(required)
+
+    return collapsed
+
+
+def _model_safe_args_schema(tool: BaseTool, agent_name: str) -> Any:
+    """Return an args schema that model providers can accept for tool binding."""
+    try:
+        schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))
+    except Exception as exc:  # noqa: BLE001 - schema inspection should not drop a tool
+        logger.debug("[%s] Could not inspect tool schema for '%s': %s", agent_name, tool.name, exc)
+        return tool.args_schema
+
+    if not schema:
+        return tool.args_schema
+
+    top_level_keys = [key for key in TOP_LEVEL_UNION_SCHEMA_KEYS if key in schema]
+    if not top_level_keys:
+        return tool.args_schema
+
+    # assisted-by Codex Codex-sonnet-4-6
+    # Bedrock Converse rejects top-level oneOf/anyOf/allOf in tool input
+    # schemas. Collapse just the root into an object while preserving known
+    # properties so one bad MCP schema cannot prevent quick chat from starting.
+    logger.warning(
+        "[%s] Sanitizing Bedrock-incompatible top-level schema for tool '%s' (keys=%s)",
+        agent_name,
+        tool.name,
+        ",".join(top_level_keys),
+    )
+    return _collapse_top_level_union_schema(schema)
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "agent",
@@ -1079,7 +1336,7 @@ def wrap_tools_with_error_handling(
         new_tool = StructuredTool(
             name=tool.name,
             description=tool.description or "",
-            args_schema=tool.args_schema,
+            args_schema=_model_safe_args_schema(tool, agent_name),
             coroutine=_safe_coro,
             response_format=resp_fmt,
             metadata=tool.metadata,

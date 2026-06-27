@@ -29,25 +29,21 @@ Browse available versions (stable releases only, no RCs):
 ai-platform-engineering/        # Parent chart
 ├── README.md                   # Full parameter reference
 └── charts/
-    ├── supervisor-agent/       # Orchestrator / LangGraph supervisor
+    ├── dynamic-agents/         # Dynamic-agent chat runtime
     │   └── README.md
-    ├── agent/                  # Generic agent subchart (aliased per integration)
-    ├── langgraph-redis/        # Redis Stack for persistence (optional)
+    ├── mcp-server/             # Generic MCP server subchart (aliased per integration)
     │   └── README.md
     ├── caipe-ui/               # CAIPE web UI (optional)
-    ├── rag-stack/              # RAG pipeline (optional)
-    └── slim/ slim-control-plane/  # AGNTCY SLIM dataplane (optional)
+    └── rag-stack/              # RAG pipeline (optional)
 ```
 
 Full parameter tables for each chart (auto-generated — regenerate with `make docs-helm-charts`):
 
 - [ai-platform-engineering](./helm-charts/ai-platform-engineering/) — parent chart (global values, agent selection)
-- [supervisor-agent](./helm-charts/ai-platform-engineering/supervisor-agent-chart) — orchestrator values, persistence, LLM secrets
-- [agent](./helm-charts/ai-platform-engineering/agent-chart) — individual agent subchart
+- [mcp-server](./helm-charts/ai-platform-engineering/mcp-server-chart) — per-integration MCP server subchart
 - [caipe-ui](./helm-charts/ai-platform-engineering/caipe-ui-chart) — UI subchart values
 - [caipe-ui-mongodb](./helm-charts/ai-platform-engineering/caipe-ui-mongodb-chart) — MongoDB for UI persistence
 - [dynamic-agents](./helm-charts/ai-platform-engineering/dynamic-agents-chart) — dynamic agent builder service
-- [langgraph-redis](./helm-charts/ai-platform-engineering/langgraph-redis-chart) — Redis Stack subchart values
 - [slack-bot](./helm-charts/ai-platform-engineering/slack-bot-chart) — Slack bot integration
 - [rag-stack](./helm-charts/rag-stack/) — RAG knowledge base (parent chart)
 - [rag-server](./helm-charts/rag-stack/rag-server-chart) — RAG server
@@ -84,8 +80,8 @@ If your secrets are already in the cluster:
 
 ```yaml
 # values.yaml
-agent-argocd:
-  secrets:
+mcp-argocd:
+  agentSecrets:
     secretName: "my-existing-secret"
 ```
 
@@ -98,24 +94,24 @@ cp ai-platform-engineering/values-external-secrets.yaml.example values-external-
 
 ## Step 3 — Choose agents
 
-Agents are enabled via Helm tags. Common profiles:
+MCP integrations are enabled via Helm tags. Common profiles:
 
-| Tag | Agents included |
+| Tag | MCP integrations included |
 |---|---|
 | `basic` | argocd, backstage, github |
-| `complete` | all agents |
-| Individual | `agent-argocd`, `agent-github`, `agent-jira`, `agent-slack`, … |
+| `complete` | broad MCP set |
+| Individual | `mcp-argocd`, `mcp-github`, `mcp-jira`, `mcp-slack`, ... |
 
 ## Step 4 — Install
 
 ```bash
-# Minimal (in-memory, no persistence)
+# Minimal chart install
 helm install ai-platform-engineering \
   oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml
 
-# With basic agents
+# With basic MCP integrations
 helm install ai-platform-engineering \
   oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
   --version <VERSION> \
@@ -143,13 +139,13 @@ Wait for pods to reach `Running` / `1/1 Ready`.
 ### Port-forward (quickest)
 
 ```bash
-kubectl port-forward service/ai-platform-engineering-supervisor-agent 8000:8000
+kubectl port-forward service/ai-platform-engineering-dynamic-agents 8001:8001
 ```
 
-Then connect with the agent chat CLI:
+Then access the runtime health endpoint:
 
 ```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a --host localhost --port 8000
+curl http://localhost:8001/health
 ```
 
 ### Ingress (domain access)
@@ -166,7 +162,7 @@ helm upgrade ai-platform-engineering \
   --values ai-platform-engineering/values-ingress.yaml.example
 
 # Add Minikube IP to /etc/hosts
-echo "$(minikube ip) supervisor-agent.local" | sudo tee -a /etc/hosts
+echo "$(minikube ip) dynamic-agents.local" | sudo tee -a /etc/hosts
 ```
 
 ## Upgrade and uninstall
@@ -200,29 +196,23 @@ helm install ai-platform-engineering \
 
 ## Persistence
 
-See the [Persistence](./persistence.md) page for full options (in-memory default, Redis, Postgres, MongoDB, fact extraction).
+See the [Persistence](./persistence.md) page for MongoDB-backed chat and dynamic-agent runtime state.
 
-### Quick start — Redis persistence
+### Quick start
 
 ```yaml
 # values-persistence.yaml
-global:
-  langgraphRedis:
+tags:
+  caipe-ui: true
+  dynamic-agents: true
+
+caipe-ui:
+  mongodb:
     enabled: true
 
-supervisor-agent:
-  checkpointPersistence:
-    type: redis
-    redis:
-      autoDiscoverService: langgraph-redis
-
-  memoryPersistence:
-    type: redis
-    redis:
-      autoDiscoverService: langgraph-redis
-    enableFactExtraction: true
-    maxMemories: 50
-    maxSummaries: 10
+dynamic-agents:
+  config:
+    MONGODB_DATABASE: caipe
 ```
 
 ```bash
@@ -240,12 +230,10 @@ helm install ai-platform-engineering \
   oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
   --version <VERSION> \
   --values values-secrets.yaml \
-  --set global.langgraphRedis.enabled=true \
-  --set supervisor-agent.checkpointPersistence.type=redis \
-  --set supervisor-agent.checkpointPersistence.redis.autoDiscoverService=langgraph-redis \
-  --set supervisor-agent.memoryPersistence.type=redis \
-  --set supervisor-agent.memoryPersistence.redis.autoDiscoverService=langgraph-redis \
-  --set supervisor-agent.memoryPersistence.enableFactExtraction=true
+  --set tags.caipe-ui=true \
+  --set tags.dynamic-agents=true \
+  --set caipe-ui.mongodb.enabled=true \
+  --set dynamic-agents.config.MONGODB_DATABASE=caipe
 ```
 
 ## Optional components
@@ -254,8 +242,7 @@ helm install ai-platform-engineering \
 |---|---|---|
 | RAG stack | `--set tags.rag-stack=true` | Milvus, Langfuse, embedding server |
 | CAIPE UI | `--set tags.caipe-ui=true` | Web chat UI |
-| SLIM dataplane | `--set global.slim.enabled=true` | AGNTCY SLIM transport |
-| Redis persistence | `--set global.langgraphRedis.enabled=true` | See [Persistence](./persistence.md) |
+| MongoDB persistence | `--set caipe-ui.mongodb.enabled=true` | See [Persistence](./persistence.md) |
 | Slack bot | `--set tags.slack-bot=true` | Slack client (not an agent) |
 
 ## Security notes

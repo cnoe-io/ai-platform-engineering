@@ -6,6 +6,7 @@ type ConnectorRouteMetadata,
 type ConnectorRuntimeRouteDiagnostic,
 computeConnectorDiagnostics,
 computeConnectorHealthSummary,
+computeConnectorHealthSummaries,
 } from "@/lib/rbac/connector-diagnostics";
 import {
 listOpenFgaWebexSpaceAgentIds,
@@ -22,6 +23,11 @@ export interface WebexSpaceDiagnostics extends Omit<ConnectorDiagnostics, "item_
 }
 
 export type WebexSpaceHealthSummary = ConnectorHealthSummary;
+
+export interface WebexSpaceHealthSummaryTarget {
+  workspaceId: string;
+  spaceId: string;
+}
 
 function buildExtraRouteWarnings(route: ConnectorRuntimeRouteDiagnostic): string[] {
   // Webex surfaces explicit listen-mode warnings at the per-route
@@ -59,7 +65,7 @@ const WEBEX_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
   },
   buildExtraRouteWarnings,
   shouldSurfaceLastRuntimeError: (lastError, openfgaError) => {
-    // The Webex bot logs OPENFGA_READ_FAILED into audit_events when
+    // The Webex bot logs OPENFGA_READ_FAILED through audit-service when
     // tuple reads fail. Once OpenFGA is reachable again, the stored
     // error is stale — suppress it so the diagnostics panel doesn't
     // light up red after the underlying issue cleared.
@@ -88,4 +94,13 @@ export async function computeWebexSpaceHealthSummary(
   spaceId: string,
 ): Promise<WebexSpaceHealthSummary> {
   return computeConnectorHealthSummary(WEBEX_DIAGNOSTICS_ADAPTER, workspaceId, spaceId);
+}
+
+export async function computeWebexSpaceHealthSummaries(
+  targets: WebexSpaceHealthSummaryTarget[],
+): Promise<WebexSpaceHealthSummary[]> {
+  return computeConnectorHealthSummaries(
+    WEBEX_DIAGNOSTICS_ADAPTER,
+    targets.map((target) => ({ workspaceId: target.workspaceId, itemId: target.spaceId })),
+  );
 }

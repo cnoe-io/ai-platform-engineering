@@ -16,6 +16,25 @@ const adminSession = {
   canViewAdmin: true,
 };
 
+// The `running` run a manual trigger records. Served from both `/status`
+// (summary cards + poller) and `/runs` (the paginated Sync History table) so
+// the mock mirrors the real backend, where the freshly-triggered run is the
+// newest row and lands on page 1 of history.
+const runningRun = {
+  id: "run-okta-manual",
+  provider_id: "okta",
+  status: "running",
+  started_at: "2026-06-17T00:01:00.000Z",
+  triggered_by: "manual",
+  triggered_by_user: adminSession.email,
+  group_filter: "",
+  groups_fetched: 2,
+  membership_sources_added: 0,
+  membership_sources_removed: 0,
+  progress_scanned: 1,
+  progress_total: 2,
+};
+
 function identitySyncStatus(runs: unknown[] = []) {
   return {
     success: true,
@@ -53,29 +72,25 @@ async function installIdentitySyncMock(page: Page) {
 
     if (path.endsWith("/status") && method === "GET") {
       statusCalls += 1;
-      await fulfillJson(
-        route,
-        identitySyncStatus(
-          triggered
-            ? [
-                {
-                  id: "run-okta-manual",
-                  provider_id: "okta",
-                  status: "running",
-                  started_at: "2026-06-17T00:01:00.000Z",
-                  triggered_by: "manual",
-                  triggered_by_user: adminSession.email,
-                  group_filter: "",
-                  groups_fetched: 2,
-                  membership_sources_added: 0,
-                  membership_sources_removed: 0,
-                  progress_scanned: 1,
-                  progress_total: 2,
-                },
-              ]
-            : [],
-        ),
-      );
+      await fulfillJson(route, identitySyncStatus(triggered ? [runningRun] : []));
+      return true;
+    }
+
+    // Paginated Sync History. The table renders from here (not `/status`), so
+    // the triggered `running` run shows up on page 1 just like in production.
+    if (path.endsWith("/runs") && method === "GET") {
+      const runs = triggered ? [runningRun] : [];
+      await fulfillJson(route, {
+        success: true,
+        data: {
+          provider: "okta",
+          runs,
+          total: runs.length,
+          page: 1,
+          page_size: 10,
+          has_more: false,
+        },
+      });
       return true;
     }
 
@@ -147,7 +162,7 @@ test.describe("mocked identity sync browser regression", () => {
       "true",
     );
     await expect(page.getByText("Okta Connector Status")).toBeVisible();
-    await expect(page.getByText("Verified")).toBeVisible();
+    await expect(page.getByText("Configured")).toBeVisible();
     await expect(page.getByText("Every hour").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Run sync now" }).click();

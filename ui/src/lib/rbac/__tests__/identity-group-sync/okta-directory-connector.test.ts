@@ -10,6 +10,11 @@ const clientCtor = jest.fn();
 let mockGroups: unknown[] = [];
 let mockUsersByGroup: Record<string, unknown[]> = {};
 let listGroupsError: Error | null = null;
+// When set, the mock oauth.getAccessToken throws this on the first call (no nonce).
+let mockDpopNonceError: (Error & { status?: number; headers?: { get: (k: string) => string | null } }) | null = null;
+
+// Captures the last Client instance so tests can inspect oauth state after a call.
+let lastClientInstance: { oauth?: { isDPoP: boolean; accessToken: unknown } } | null = null;
 
 function makeCollection<T>(items: T[]) {
   return {
@@ -31,10 +36,31 @@ jest.mock(
         listGroups: (args?: unknown) => Promise<unknown>;
         listGroupUsers: (args: { groupId: string }) => Promise<unknown>;
       };
+      oauth: { isDPoP: boolean; accessToken: unknown; getAccessToken: (nonce?: string | null) => Promise<unknown> };
       constructor(config: unknown) {
         clientCtor(config);
+        // Simulate the SDK's OAuth object. patchOAuthDpopNonce wraps getAccessToken,
+        // so we set up the real-looking shape here. mockDpopNonceError lets tests
+        // inject a use_dpop_nonce failure on the first (no-nonce) call.
+        this.oauth = {
+          isDPoP: false,
+          accessToken: null,
+          getAccessToken: async function (nonce?: string | null) {
+            if (this.accessToken) return this.accessToken;
+            if (mockDpopNonceError && !nonce) throw mockDpopNonceError;
+            const tokenType = mockDpopNonceError ? "DPoP" : "Bearer";
+            this.accessToken = { access_token: "mock-token", token_type: tokenType };
+            return this.accessToken;
+          },
+        };
+        lastClientInstance = this as typeof lastClientInstance;
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        const self = this;
         this.groupApi = {
+          // Simulate the SDK calling oauth.getAccessToken before each request,
+          // so tests can exercise the DPoP patch without the real HTTP layer.
           listGroups: async (args?: unknown) => {
+            await self.oauth.getAccessToken();
             listGroupsCalls.push((args ?? {}) as Record<string, unknown>);
             if (listGroupsError) throw listGroupsError;
             return makeCollection(mockGroups);
@@ -57,7 +83,9 @@ describe("Okta directory connector (SDK-based)", () => {
     mockGroups = [];
     mockUsersByGroup = {};
     listGroupsError = null;
+    mockDpopNonceError = null;
     listGroupsCalls.length = 0;
+    lastClientInstance = null;
     process.env = {
       ...originalEnv,
       IDENTITY_SYNC_OKTA_ORG_URL: "https://example.okta.com",
@@ -200,6 +228,44 @@ describe("Okta directory connector (SDK-based)", () => {
     await expect(fetchOktaExternalGroups({ providerId: "okta-main" })).rejects.toThrow(
       "Okta directory connector is not configured"
     );
+  });
+
+  describe("DPoP nonce retry (patchOAuthDpopNonce)", () => {
+    const oauthEnv = {
+      IDENTITY_SYNC_OKTA_ORG_URL: "https://example.okta.com",
+      IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID: "0oaclient",
+      IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+    };
+
+    it("retries with the nonce and sets isDPoP=true when Okta returns use_dpop_nonce (400 + dpop-nonce header)", async () => {
+      process.env = { ...originalEnv, ...oauthEnv };
+      mockGroups = [];
+      // Inject a use_dpop_nonce error that carries the nonce in its headers.
+      // patchOAuthDpopNonce catches this, reads the nonce, retries, and sets isDPoP.
+      mockDpopNonceError = Object.assign(new Error("use_dpop_nonce"), {
+        status: 400,
+        headers: { get: (k: string) => (k === "dpop-nonce" ? "server-nonce-xyz" : null) },
+      });
+
+      const { fetchOktaExternalGroups } = await import("../../okta-directory-connector");
+      // Should not throw: the patch retries with the nonce successfully.
+      await expect(fetchOktaExternalGroups({ providerId: "okta-main" })).resolves.toEqual([]);
+      // isDPoP must be set so subsequent API calls use DPoP-bound auth.
+      expect(lastClientInstance?.oauth?.isDPoP).toBe(true);
+    });
+
+    it("does not retry and re-throws when the 400 has no dpop-nonce header", async () => {
+      process.env = { ...originalEnv, ...oauthEnv };
+      mockGroups = [];
+      // 400 error but no nonce header — should not retry, should propagate.
+      mockDpopNonceError = Object.assign(new Error("Bad Request"), {
+        status: 400,
+        headers: { get: () => null },
+      });
+
+      const { fetchOktaExternalGroups } = await import("../../okta-directory-connector");
+      await expect(fetchOktaExternalGroups({ providerId: "okta-main" })).rejects.toThrow("Bad Request");
+    });
   });
 
   describe("checkOktaConnectorHealth", () => {

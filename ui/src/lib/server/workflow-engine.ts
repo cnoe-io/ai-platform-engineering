@@ -461,6 +461,7 @@ async function executeSteps(
       const fsNamespace = [workflowConfigId, runId, "filesystem"];
       const { toolCalls, fullOutput } = await extractStepArtifacts(sourceId);
       await writeStepArtifactsToFs(fsNamespace, i, step.agent_id, renderedPrompt, toolCalls, fullOutput, authHeaders);
+      const stepResponse = await resolveStepResponseText(sourceId, result.text);
 
       await col.updateOne(
         { _id: runId },
@@ -469,7 +470,7 @@ async function executeSteps(
             status: "waiting_for_input",
             [`steps.${i}.status`]: "waiting_for_input",
             [`steps.${i}.interrupt`]: result.interrupt,
-            [`steps.${i}.response`]: result.text || null,
+            [`steps.${i}.response`]: stepResponse,
             [`steps.${i}.conversation_id`]: lastConversationId,
           },
         },
@@ -491,8 +492,9 @@ async function executeSteps(
 
       if (step.on_error === "skip") {
         // Only "skip" continues to next step
+        const stepResponse = await resolveStepResponseText(sourceId, result.text);
         completedSteps.push({
-          output: result.text,
+          output: stepResponse,
           display_text: step.display_text,
           agent_id: step.agent_id,
           status: "failed",
@@ -513,19 +515,20 @@ async function executeSteps(
     }
 
     // Success
+    const stepResponse = await resolveStepResponseText(sourceId, result.text);
     await col.updateOne(
       { _id: runId },
       {
         $set: {
           [`steps.${i}.status`]: "completed",
-          [`steps.${i}.response`]: result.text,
+          [`steps.${i}.response`]: stepResponse,
           [`steps.${i}.completed_at`]: new Date(),
         },
       },
     );
 
     completedSteps.push({
-      output: result.text,
+      output: stepResponse,
       display_text: step.display_text,
       agent_id: step.agent_id,
       status: "completed",
@@ -607,6 +610,7 @@ async function resumeAndContinue(
   activeAbortControllers.delete(runId);
 
   if (result.interrupted) {
+    const stepResponse = await resolveStepResponseText(sourceId, result.text);
     await col.updateOne(
       { _id: runId },
       {
@@ -614,7 +618,7 @@ async function resumeAndContinue(
           status: "waiting_for_input",
           [`steps.${stepIndex}.status`]: "waiting_for_input",
           [`steps.${stepIndex}.interrupt`]: result.interrupt,
-          [`steps.${stepIndex}.response`]: result.text || null,
+          [`steps.${stepIndex}.response`]: stepResponse,
         },
       },
     );
@@ -651,12 +655,13 @@ async function resumeAndContinue(
         return;
       }
     } else {
+      const stepResponse = await resolveStepResponseText(sourceId, result.text);
       await col.updateOne(
         { _id: runId },
         {
           $set: {
             [`steps.${stepIndex}.status`]: "completed",
-            [`steps.${stepIndex}.response`]: result.text,
+            [`steps.${stepIndex}.response`]: stepResponse,
             [`steps.${stepIndex}.completed_at`]: new Date(),
           },
         },
@@ -687,11 +692,13 @@ async function extractStepArtifacts(sourceId: string): Promise<{
   toolCalls: string[];
   filesWritten: string[];
   fullOutput: string;
+  toolResults: string[];
 }> {
   const events = await readEvents("workflow_step", sourceId);
   const toolStarts = new Map<string, { name: string; args: Record<string, unknown> }>();
   const toolCalls: string[] = [];
   const filesWritten: string[] = [];
+  const toolResults: string[] = [];
   let fullOutput = "";
 
   for (const ev of events) {
@@ -716,9 +723,29 @@ async function extractStepArtifacts(sourceId: string): Promise<{
           filesWritten.push(String(start.args.path));
         }
       }
+      if (ev.toolData.result?.trim()) {
+        toolResults.push(ev.toolData.result.trim());
+      }
     }
   }
-  return { toolCalls, filesWritten, fullOutput };
+  return { toolCalls, filesWritten, fullOutput, toolResults };
+}
+
+/** Pick the richest step output from stream text, content events, and tool results. */
+async function resolveStepResponseText(
+  sourceId: string,
+  streamText: string | undefined | null,
+): Promise<string | null> {
+  const { fullOutput, toolResults } = await extractStepArtifacts(sourceId);
+  const candidates = [
+    streamText?.trim(),
+    fullOutput.trim(),
+    ...toolResults.map((result) => result.trim()),
+  ].filter((value): value is string => Boolean(value));
+  if (candidates.length === 0) return null;
+  return candidates.reduce((longest, current) =>
+    current.length > longest.length ? current : longest,
+  );
 }
 
 /**
