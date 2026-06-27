@@ -101,11 +101,51 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     });
   }
 
+  // Enrich with Tome wiki metadata (page count + last ingest).
+  // Both aggregations are scoped to the visible project set — no N+1.
+  const projectIds = results.map((p) => String(p._id));
+  const pageCountMap = new Map<string, number>();
+  const lastIngestMap = new Map<string, Date | null>();
+
+  if (projectIds.length > 0) {
+    try {
+      const [pageRevisions, ingestRuns] = await Promise.all([
+        getCollection("tome_page_revisions"),
+        getCollection("tome_ingest_runs"),
+      ]);
+      const [pageCounts, lastIngests] = await Promise.all([
+        pageRevisions.aggregate([
+          { $match: { project_id: { $in: projectIds }, deleted: { $ne: true } } },
+          { $sort: { project_id: 1, path: 1, created_at: -1 } },
+          { $group: { _id: { project_id: "$project_id", path: "$path" } } },
+          { $group: { _id: "$_id.project_id", count: { $sum: 1 } } },
+        ]).toArray(),
+        ingestRuns.aggregate([
+          { $match: { project_id: { $in: projectIds }, status: "succeeded" } },
+          { $group: { _id: "$project_id", last_ingested_at: { $max: "$finished_at" } } },
+        ]).toArray(),
+      ]);
+      for (const row of pageCounts) {
+        pageCountMap.set(String(row._id), row.count as number);
+      }
+      for (const row of lastIngests) {
+        lastIngestMap.set(String(row._id), row.last_ingested_at as Date);
+      }
+    } catch {
+      // Tome collections not present — enrichment is optional
+    }
+  }
+
   return successResponse({
-    projects: results.map((p) => ({
-      ...p,
-      _id: String(p._id),
-    })),
+    projects: results.map((p) => {
+      const id = String(p._id);
+      return {
+        ...p,
+        _id: id,
+        page_count: pageCountMap.get(id) ?? null,
+        last_ingested_at: lastIngestMap.get(id) ?? null,
+      };
+    }),
   });
 });
 
