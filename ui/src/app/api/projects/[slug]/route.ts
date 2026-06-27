@@ -1,6 +1,7 @@
 // assisted-by Cursor Composer
 
 import { NextRequest } from "next/server";
+import { ObjectId } from "mongodb";
 
 import {
   ApiError,
@@ -11,9 +12,51 @@ import {
 import { projectCatalogBundleYaml } from "@/lib/projects/backstage-catalog";
 import { runOnboardingDeletes, runOnboardingUpdates } from "@/lib/projects/onboarding-providers";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
+import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import type { ProjectDocument } from "@/types/projects";
+import type { Team } from "@/types/teams";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
+
+/**
+ * Resolve a team by Mongo `_id` (string) or `slug`. Returns the team with a
+ * stringified `_id`, or null when not found.
+ */
+async function resolveTeamByIdOrSlug(
+  idOrSlug: string,
+): Promise<(Team & { _id: string }) | null> {
+  const teams = await getCollection<Team>("teams");
+  let team: Team | null = null;
+  if (ObjectId.isValid(idOrSlug)) {
+    team = await teams.findOne({ _id: new ObjectId(idOrSlug) as unknown as string });
+  }
+  if (!team) team = await teams.findOne({ slug: idOrSlug });
+  return team ? { ...team, _id: String(team._id) } : null;
+}
+
+/**
+ * May `actorEmail` assign a project to `team`? True for org admins, or when the
+ * actor has an active canonical membership row for the target team. Mirrors the
+ * gate used by `/api/dynamic-agents/teams` (the selector source).
+ */
+async function canAssignToTeam(
+  team: Team & { _id: string },
+  actorEmail: string | undefined,
+  isOrgAdmin: boolean,
+): Promise<boolean> {
+  if (isOrgAdmin) return true;
+  const email = actorEmail?.trim().toLowerCase();
+  if (!email || !team.slug) return false;
+  const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+  const row = await sources.findOne({
+    status: "active",
+    user_email: email,
+    team_slug: team.slug,
+  });
+  return Boolean(row);
+}
 
 export const GET = withErrorHandler(
   async (_request: NextRequest, context: { params: Promise<{ slug: string }> }) => {
@@ -111,6 +154,9 @@ export const PATCH = withErrorHandler(
     const body = (await request.json()) as {
       title?: string;
       description?: string;
+      initiatives?: string[];
+      swimlanes?: string[];
+      team_id?: string;
       sources?: {
         repos?: string[];
         confluence_url?: string;
@@ -124,6 +170,36 @@ export const PATCH = withErrorHandler(
     }
     if (typeof body.description === "string") {
       $set["description"] = body.description.trim();
+    }
+    // Label dimensions (BHAG/Initiative + Swim Lane). Dot-path writes preserve
+    // `labels.domain`, which isn't editable here.
+    if (Array.isArray(body.initiatives)) {
+      $set["labels.initiatives"] = cleanLabelList(body.initiatives);
+    }
+    if (Array.isArray(body.swimlanes)) {
+      $set["labels.swimlanes"] = cleanLabelList(body.swimlanes);
+    }
+    // Team reassignment — only when it actually changes, and only if the actor
+    // is allowed to move the project into the target team. Updates the team
+    // triple (id/slug/name) that drives RBAC visibility.
+    if (typeof body.team_id === "string" && body.team_id.trim()) {
+      const target = await resolveTeamByIdOrSlug(body.team_id.trim());
+      if (!target) {
+        throw new ApiError("Target team not found", 404, "TEAM_NOT_FOUND");
+      }
+      if (target._id !== project.team_id && target.slug !== project.team_slug) {
+        const allowed = await canAssignToTeam(target, user.email, isOrgAdmin);
+        if (!allowed) {
+          throw new ApiError(
+            "You are not allowed to move this project into that team",
+            403,
+            "FORBIDDEN_TEAM_ASSIGNMENT",
+          );
+        }
+        $set["team_id"] = target._id;
+        $set["team_slug"] = target.slug ?? target._id;
+        $set["team_name"] = target.name;
+      }
     }
     if (body.sources) {
       if (Array.isArray(body.sources.repos)) {

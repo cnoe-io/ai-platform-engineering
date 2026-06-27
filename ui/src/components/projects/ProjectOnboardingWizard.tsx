@@ -25,6 +25,7 @@ import {
 } from "react";
 
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { SourcePicker } from "@/components/projects/source-pickers";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
@@ -599,25 +600,27 @@ export function ProjectOnboardingWizard({
                   <div className="space-y-4">
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">BHAG / Initiatives</span>
-                      <ComboBox
+                      <LabelComboBox
                         ariaLabel="BHAG / Initiatives"
                         value={initiativesRaw}
                         onChange={setInitiativesRaw}
                         options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
                         placeholder="Agentic-2026, Platform Modernization"
                         multi
+                        inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                       <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Swim Lanes</span>
-                      <ComboBox
+                      <LabelComboBox
                         ariaLabel="Swim Lanes"
                         value={swimlanesRaw}
                         onChange={setSwimlanesRaw}
                         options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
                         placeholder="Now, Next, Later"
                         multi
+                        inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                       <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
@@ -869,94 +872,3 @@ export function ProjectOnboardingWizard({
   );
 }
 
-/** Replace the active token (last comma/newline segment) for multi-value fields. */
-function applyComboSelection(current: string, selected: string, multi: boolean): string {
-  if (!multi) return selected;
-  const lastDelim = Math.max(current.lastIndexOf(","), current.lastIndexOf("\n"));
-  const head = lastDelim >= 0 ? current.slice(0, lastDelim + 1) : "";
-  return `${head ? head.trimEnd() + " " : ""}${selected}, `;
-}
-
-/**
- * Styled, scrollable combobox: a text input with a filtered dropdown of
- * suggestions that stays inside the dialog (unlike the native <datalist>).
- * Free-text is always allowed; `multi` appends comma-separated selections.
- */
-function ComboBox({
-  value,
-  onChange,
-  options,
-  placeholder,
-  multi = false,
-  onType,
-  ariaLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  placeholder?: string;
-  multi?: boolean;
-  onType?: (v: string) => void;
-  ariaLabel?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-
-  const lastToken = (multi ? (value.split(/[\n,]/).pop() ?? "") : value).trim().toLowerCase();
-  const filtered = options
-    .filter(
-      (o) =>
-        !lastToken ||
-        o.label.toLowerCase().includes(lastToken) ||
-        o.value.toLowerCase().includes(lastToken),
-    )
-    .slice(0, 50);
-
-  return (
-    <div ref={ref} className="relative">
-      <input
-        aria-label={ariaLabel}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          onType?.(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-      />
-      {open && filtered.length > 0 ? (
-        <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-auto rounded-xl border border-border/60 bg-card shadow-xl">
-          {filtered.map((o) => (
-            <button
-              type="button"
-              key={o.value}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChange(applyComboSelection(value, o.value, multi));
-                onType?.("");
-                setOpen(false);
-              }}
-              className="block w-full px-3 py-2 text-left transition hover:bg-accent/60"
-            >
-              <span className="block truncate text-sm">{o.label}</span>
-              {o.label !== o.value ? (
-                <span className="block truncate text-xs text-muted-foreground">{o.value}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
