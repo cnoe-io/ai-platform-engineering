@@ -16,7 +16,6 @@ import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
 import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
-import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
@@ -223,7 +222,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -231,7 +230,6 @@ const MOVED_ADMIN_TAB_MAP = {
 const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
   slack: 'slack',
   webex: 'webex',
-  rag: 'rag-access',
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
@@ -260,7 +258,6 @@ const CATEGORIES: Category[] = [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
-      { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
       { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
     ],
@@ -1479,12 +1476,6 @@ function AdminPage() {
               {tabGateValues.credentials && (
                 <TabsContent value="credentials" className="space-y-4">
                   <AdminCredentialManagementPanel />
-                </TabsContent>
-              )}
-
-              {tabGateValues.openfga && (
-                <TabsContent value="rag-access" className="space-y-4">
-                  <RagTeamAccessPanel isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

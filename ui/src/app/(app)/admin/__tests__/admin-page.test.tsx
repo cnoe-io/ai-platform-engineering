@@ -10,6 +10,8 @@
  * - Data rendering (stats cards, user list, team list)
  */
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import React from 'react';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
@@ -123,11 +125,6 @@ jest.mock('@/components/admin/rebac/WebexSpaceRebacPanel', () => ({
     </div>
   ),
 }));
-
-jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
-  RagTeamAccessPanel: () => <div data-testid="rag-team-access-panel">RagTeamAccessPanel</div>,
-}));
-
 
 jest.mock('@/components/admin/security/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
@@ -749,7 +746,6 @@ describe('Admin Dashboard Page', () => {
         'General',
         'AI Review',
         'Credentials',
-        'Knowledge Bases',
         'Skills',
         'Service Accounts',
       ]);
@@ -758,7 +754,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /knowledge bases/i })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /knowledge bases/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /rag team access/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
@@ -854,7 +850,6 @@ describe('Admin Dashboard Page', () => {
     it.each([
       ['settings', 'settings', /^General$/i],
       ['settings', 'ai-review', /^AI Review$/i],
-      ['settings', 'rag-access', /^Knowledge Bases$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
       ['people', 'teams', /^Teams$/i],
@@ -908,49 +903,56 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
 
-    it('moves Knowledge Bases under Settings', async () => {
+    it('falls back from removed Settings Knowledge Bases links to General', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Knowledge Bases$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('rag-team-access-panel')).toBeInTheDocument();
-    });
-
-    it('canonicalizes legacy OpenFGA RAG deep links to Settings Knowledge Bases', async () => {
-      currentSearchParams = new URLSearchParams('cat=security&tab=openfga&subtab=rag&openfgaTab=rag');
-
-      render(<AdminPage />);
-
-      expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Knowledge Bases$/i })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      );
-      expect(screen.getByTestId('rag-team-access-panel')).toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
+      expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
         scroll: false,
       });
     });
 
-    it('canonicalizes legacy Resources Knowledge Base links to Settings', async () => {
+    it('keeps legacy OpenFGA RAG deep links on the Policy Graph category', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=openfga&subtab=rag&openfgaTab=rag');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Policy Graph$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
+        scroll: false,
+      });
+    });
+
+    it('canonicalizes legacy Resources Knowledge Base links to Settings General', async () => {
       currentSearchParams = new URLSearchParams('cat=resources&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Knowledge Bases$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
+      expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
         scroll: false,
       });
     });
