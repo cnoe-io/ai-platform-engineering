@@ -49,10 +49,12 @@ jest.mock('@/lib/mongodb', () => ({
 // `withAuth`. Force SSO=on so missing sessions reliably 401, mirroring
 // production.
 let mockAutonomousAgentsEnabled = true;
+let mockAutonomousAgentsAdminOnly = false;
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => {
     if (key === 'ssoEnabled') return true;
     if (key === 'autonomousAgentsEnabled') return mockAutonomousAgentsEnabled;
+    if (key === 'autonomousAgentsAdminOnly') return mockAutonomousAgentsAdminOnly;
     return undefined;
   },
 }));
@@ -129,6 +131,7 @@ function okJsonResponse(body: unknown) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockAutonomousAgentsEnabled = true;
+  mockAutonomousAgentsAdminOnly = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -147,6 +150,43 @@ describe('GET /api/autonomous/[...path] — deployment + auth guards', () => {
   it('401 when there is no session', async () => {
     mockGetServerSession.mockResolvedValue(null);
     const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
+    expect(res.status).toBe(401);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin-only switch (AUTONOMOUS_AGENTS_ADMIN_ONLY=true).
+// ---------------------------------------------------------------------------
+
+describe('AUTONOMOUS_AGENTS_ADMIN_ONLY gate', () => {
+  it('403s an authenticated non-admin and does not forward upstream', async () => {
+    mockAutonomousAgentsAdminOnly = true;
+    mockGetServerSession.mockResolvedValue(plainUserSession());
+
+    const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
+
+    expect(res.status).toBe(403);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('forwards an admin when the admin-only gate is on', async () => {
+    mockAutonomousAgentsAdminOnly = true;
+    mockGetServerSession.mockResolvedValue(adminSession());
+    mockFetch.mockResolvedValue(okJsonResponse({ ok: true }));
+
+    const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
+
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still 401s an anonymous caller before the admin gate is considered', async () => {
+    mockAutonomousAgentsAdminOnly = true;
+    mockGetServerSession.mockResolvedValue(null);
+
+    const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
+
     expect(res.status).toBe(401);
     expect(mockFetch).not.toHaveBeenCalled();
   });

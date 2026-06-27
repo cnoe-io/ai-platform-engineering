@@ -78,6 +78,31 @@ def _assert_task_access(task: TaskDefinition, caller_email: str | None, is_admin
     if task.owner_id != caller_email:
         raise HTTPException(status_code=403, detail="Access denied")
 
+
+def _filter_runs_for_caller(
+    runs: list[TaskRun], caller_email: str | None, is_admin: bool
+) -> list[TaskRun]:
+    """Drop run records the caller is not allowed to see.
+
+    Mirrors :func:`_assert_task_access` semantics so run-history reads
+    apply the *same* ownership boundary as the task CRUD verbs:
+
+    * ``is_admin`` -> full visibility (admins audit any task's runs).
+    * ``caller_email is None`` -> no gateway header (direct service call
+      without the proxy, e.g. unit tests / seeding) -> allow, for compat.
+    * otherwise -> only runs whose ``owner_id`` matches the caller.
+      Orphaned runs (``owner_id is None``, produced before per-user
+      ownership existed) are admin-only, matching the orphaned-task rule.
+
+    Without this, any authenticated user could read another user's run
+    history (prompts, response previews, errors, captured events) just by
+    knowing or guessing a task id (Codex P1, PR #1588).
+    """
+    if is_admin or caller_email is None:
+        return runs
+    return [run for run in runs if run.owner_id == caller_email]
+
+
 # Maximum runs returned by /tasks/{id}/runs.
 _MAX_TASK_RUNS = 500
 
@@ -169,13 +194,30 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
     if task.last_ack is not None:
         task = task.model_copy(update={"last_ack": None})
 
-    # Stamp owner_id from the gateway-injected header if the client didn't
-    # set one. The proxy always injects this header for authenticated
-    # callers; the field stays None only for legacy direct calls (e.g.
-    # seeding scripts running against the service without the Next.js proxy).
-    caller_email, _ = _get_caller(request)
-    if caller_email and task.owner_id is None:
-        task = task.model_copy(update={"owner_id": caller_email})
+    # Bind owner_id to the trusted gateway-injected identity. Ownership is
+    # the authorization boundary for every other verb, so we must not let a
+    # client choose it: a non-admin POSTing ``owner_id`` set to another
+    # user's email would otherwise store the task under that user (appearing
+    # in their list, attributing the audit trail to them) while the real
+    # creator dodges ownership. So for an authenticated non-admin caller we
+    # always overwrite owner_id with the header, ignoring whatever the body
+    # carried. Admins may legitimately create a task on behalf of another
+    # user, so their explicit owner_id is honored; an admin who omits it
+    # defaults to their own email. The field stays None only for legacy
+    # direct calls with no gateway header (e.g. seeding scripts). (Codex P2,
+    # PR #1588.)
+    caller_email, is_admin = _get_caller(request)
+    if caller_email:
+        if not is_admin:
+            if task.owner_id is not None and task.owner_id != caller_email:
+                logger.warning(
+                    "Rejected client-supplied owner_id %r from non-admin caller %r; "
+                    "binding task ownership to the authenticated caller",
+                    task.owner_id, caller_email,
+                )
+            task = task.model_copy(update={"owner_id": caller_email})
+        elif task.owner_id is None:
+            task = task.model_copy(update={"owner_id": caller_email})
 
     store = get_task_store()
     try:
@@ -344,15 +386,35 @@ async def delete_task(task_id: str, request: Request) -> None:
 
 
 @router.get("/tasks/{task_id}/runs", response_model=list[TaskRun])
-async def get_task_runs(task_id: str) -> list[TaskRun]:
-    """Return run history for a specific task."""
+async def get_task_runs(task_id: str, request: Request) -> list[TaskRun]:
+    """Return run history for a specific task, scoped to the caller.
+
+    Ownership is enforced here exactly like the task CRUD verbs: when the
+    task still exists we run ``_assert_task_access`` so a non-owner gets a
+    403; when it has been deleted (history can outlive its definition) we
+    fall back to filtering the run records by ``owner_id`` so a non-admin
+    only ever sees their own runs. Without this gate any authenticated user
+    could read another user's prompts, response previews, errors, and
+    captured events by guessing a task id (Codex P1, PR #1588).
+    """
+    caller_email, is_admin = _get_caller(request)
+    task = await get_task_store().get(task_id)
+    if task is not None:
+        _assert_task_access(task, caller_email, is_admin)
+
     history = await get_run_store().list_by_task(task_id, limit=_MAX_TASK_RUNS)
-    if history:
-        return history
-    # Only 404 when there is BOTH no history AND no current task definition
-    # Could be used to inspect runs of tasks which has been deleted and id not reused yet.
-    if await get_task_store().get(task_id) is None:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    if task is None:
+        # Task definition is gone (deleted, id not reused). History may still
+        # exist for audit. 404 only when there is BOTH no history AND no
+        # current definition; otherwise return the caller-visible subset so
+        # deleted-task runs stay inspectable without leaking across users.
+        if not history:
+            raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+        return _filter_runs_for_caller(history, caller_email, is_admin)
+
+    # Task exists and access was asserted above: every run for this task
+    # belongs to its owner, so the whole history is the caller's to see.
     return history
 
 
@@ -377,6 +439,14 @@ async def trigger_task_manually(task_id: str, request: Request) -> dict:
 
 
 @router.get("/runs", response_model=list[TaskRun])
-async def list_all_runs() -> list[TaskRun]:
-    """Return the full run history across all tasks."""
-    return await get_run_store().list_all()
+async def list_all_runs(request: Request) -> list[TaskRun]:
+    """Return run history across tasks, scoped to the caller.
+
+    Admins see every task's runs; a non-admin user sees only runs they own.
+    Previously this returned the full cross-task history to any authenticated
+    caller, exposing other users' prompts/responses/errors (Codex P1,
+    PR #1588).
+    """
+    caller_email, is_admin = _get_caller(request)
+    runs = await get_run_store().list_all()
+    return _filter_runs_for_caller(runs, caller_email, is_admin)

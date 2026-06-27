@@ -19,6 +19,7 @@ import pytest
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from autonomous_agents.models import (
     Acknowledgement,
@@ -103,13 +104,36 @@ class _RecordingStore:
         return self._runs[:limit]
 
 
-def _make_run(run_id: str, task_id: str = "t1") -> TaskRun:
+def _make_run(
+    run_id: str, task_id: str = "t1", owner_id: str | None = None
+) -> TaskRun:
     return TaskRun(
         run_id=run_id,
         task_id=task_id,
         task_name=f"task {task_id}",
         status=TaskStatus.SUCCESS,
         started_at=datetime.now(timezone.utc),
+        owner_id=owner_id,
+    )
+
+
+def _fake_request(headers: dict[str, str] | None = None) -> Request:
+    """Build a minimal Starlette ``Request`` for direct route-function calls.
+
+    The run-history handlers read caller identity from
+    ``X-Authenticated-User-*`` headers via ``_get_caller``; tests that
+    invoke them as plain awaitables (rather than through ``TestClient``)
+    need a request object carrying those headers.
+    """
+    raw = [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "query_string": b"",
+            "headers": raw,
+        }
     )
 
 
@@ -546,7 +570,7 @@ class TestRunHistory:
         store = _swap_run_store(_RecordingStore([_make_run(f"r{i}") for i in range(120)]))
         await _seed_tasks([_make_task("t1")])
 
-        runs = await get_task_runs("t1")
+        runs = await get_task_runs("t1", _fake_request())
 
         assert store.list_by_task_calls == [("t1", _MAX_TASK_RUNS)]
         assert _MAX_TASK_RUNS >= 500, "raise this guard if the cap shrinks"
@@ -560,7 +584,7 @@ class TestRunHistory:
         await _seed_tasks([])
 
         with pytest.raises(HTTPException) as exc:
-            await get_task_runs("ghost")
+            await get_task_runs("ghost", _fake_request())
         assert exc.value.status_code == 404
 
     async def test_get_task_runs_returns_history_for_removed_tasks(self, _swap_run_store):
@@ -568,7 +592,7 @@ class TestRunHistory:
         store = _swap_run_store(_RecordingStore([_make_run("old", task_id="removed")]))
         await _seed_tasks([])
 
-        runs = await get_task_runs("removed")
+        runs = await get_task_runs("removed", _fake_request())
 
         assert len(runs) == 1
         assert store.list_by_task_calls == [("removed", _MAX_TASK_RUNS)]
@@ -578,10 +602,102 @@ class TestRunHistory:
         store = _swap_run_store(_RecordingStore([_make_run("r1")]))
         await _seed_tasks([])
 
-        runs = await list_all_runs()
+        runs = await list_all_runs(_fake_request())
 
         assert len(runs) == 1
         assert store.list_all_calls == [500]
+
+
+class TestRunHistoryOwnership:
+    """Codex P1: run-history reads are scoped by task ownership.
+
+    Without these gates any authenticated user could read another user's
+    prompts, response previews, errors and captured events by guessing a
+    task id (``/tasks/{id}/runs``) or by hitting the cross-task
+    ``/runs`` endpoint.
+    """
+
+    async def test_list_all_runs_filters_to_caller_for_non_admin(self, _swap_run_store):
+        """``/runs`` returns only the non-admin caller's own runs."""
+        store = _swap_run_store(
+            _RecordingStore(
+                [
+                    _make_run("r-alice", task_id="t-alice", owner_id="alice@example.com"),
+                    _make_run("r-bob", task_id="t-bob", owner_id="bob@example.com"),
+                    _make_run("r-orphan", task_id="t-old", owner_id=None),
+                ]
+            )
+        )
+        await _seed_tasks([])
+
+        runs = await list_all_runs(_fake_request(_user_headers("bob@example.com")))
+
+        assert [r.run_id for r in runs] == ["r-bob"]
+        assert store is store  # store retained for symmetry with sibling tests
+
+    async def test_list_all_runs_returns_everything_for_admin(self, _swap_run_store):
+        """Admins audit every task's runs, including orphaned ones."""
+        _swap_run_store(
+            _RecordingStore(
+                [
+                    _make_run("r-alice", task_id="t-alice", owner_id="alice@example.com"),
+                    _make_run("r-bob", task_id="t-bob", owner_id="bob@example.com"),
+                    _make_run("r-orphan", task_id="t-old", owner_id=None),
+                ]
+            )
+        )
+        await _seed_tasks([])
+
+        runs = await list_all_runs(_fake_request(_admin_headers()))
+
+        assert {r.run_id for r in runs} == {"r-alice", "r-bob", "r-orphan"}
+
+    async def test_list_all_runs_unfiltered_without_gateway_header(self, _swap_run_store):
+        """A direct service call (no gateway header) is treated as trusted/compat."""
+        _swap_run_store(
+            _RecordingStore(
+                [
+                    _make_run("r-alice", task_id="t-alice", owner_id="alice@example.com"),
+                    _make_run("r-bob", task_id="t-bob", owner_id="bob@example.com"),
+                ]
+            )
+        )
+        await _seed_tasks([])
+
+        runs = await list_all_runs(_fake_request())
+
+        assert {r.run_id for r in runs} == {"r-alice", "r-bob"}
+
+    async def test_get_task_runs_403_when_task_owned_by_other(self, _swap_run_store):
+        """A non-owner gets 403 for an existing task's run history."""
+        from fastapi import HTTPException
+
+        _swap_run_store(
+            _RecordingStore([_make_run("r1", task_id="t1", owner_id="alice@example.com")])
+        )
+        alice_task = _make_task("t1")
+        alice_task = alice_task.model_copy(update={"owner_id": "alice@example.com"})
+        await _seed_tasks([alice_task])
+
+        with pytest.raises(HTTPException) as exc:
+            await get_task_runs("t1", _fake_request(_user_headers("bob@example.com")))
+        assert exc.value.status_code == 403
+
+    async def test_get_task_runs_for_removed_task_filters_to_caller(self, _swap_run_store):
+        """Deleted-task history is filtered to the caller's own runs."""
+        _swap_run_store(
+            _RecordingStore(
+                [
+                    _make_run("r-alice", task_id="gone", owner_id="alice@example.com"),
+                    _make_run("r-bob", task_id="gone", owner_id="bob@example.com"),
+                ]
+            )
+        )
+        await _seed_tasks([])  # task "gone" no longer exists
+
+        runs = await get_task_runs("gone", _fake_request(_user_headers("bob@example.com")))
+
+        assert [r.run_id for r in runs] == ["r-bob"]
 
 
 class TestDynamicAgentRouting:
@@ -724,6 +840,44 @@ class TestTaskOwnership:
         assert resp.status_code == 201
         listed = client.get("/api/v1/tasks", headers=_admin_headers()).json()
         assert listed[0]["owner_id"] is None
+
+    def test_non_admin_cannot_spoof_owner_id_on_create(self, client: TestClient):
+        """Codex P2: a non-admin POSTing another user's owner_id is overridden.
+
+        Ownership is the authorization boundary, so a client-supplied
+        owner_id must never let a non-admin file a task under someone
+        else's account. The trusted header wins.
+        """
+        body = _cron_task("t1")
+        body["owner_id"] = "victim@example.com"
+        resp = client.post(
+            "/api/v1/tasks", json=body, headers=_user_headers("attacker@example.com")
+        )
+        assert resp.status_code == 201
+        assert resp.json()["owner_id"] == "attacker@example.com"
+        listed = client.get("/api/v1/tasks", headers=_admin_headers()).json()
+        assert listed[0]["owner_id"] == "attacker@example.com"
+
+    def test_admin_can_set_owner_id_on_create(self, client: TestClient):
+        """An admin may deliberately create a task on behalf of another user."""
+        body = _cron_task("t1")
+        body["owner_id"] = "carol@example.com"
+        resp = client.post("/api/v1/tasks", json=body, headers=_admin_headers())
+        assert resp.status_code == 201
+        assert resp.json()["owner_id"] == "carol@example.com"
+
+    def test_admin_create_without_owner_id_defaults_to_self(self, client: TestClient):
+        """An admin who omits owner_id is recorded as the owner."""
+        resp = client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers={
+                "X-Authenticated-User-Email": "admin@example.com",
+                "X-Authenticated-User-Is-Admin": "true",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["owner_id"] == "admin@example.com"
 
     def test_admin_sees_all_tasks(self, client: TestClient):
         """Admin users see tasks owned by any user."""

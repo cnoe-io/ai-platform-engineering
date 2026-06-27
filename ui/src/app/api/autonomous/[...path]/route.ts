@@ -31,13 +31,17 @@ import { getConfig } from '@/lib/config';
  *      backend physically runs.
  *
  * Authorization model (per-user ownership, plan 2026-05-25):
- *   - Every authenticated user is allowed through this proxy. There is
- *     no blanket admin gate at the Next.js boundary; the backend's
- *     `_assert_task_access` decides per-task access using the headers
- *     injected below. A regular user can create/read/edit/delete/run
+ *   - By default every authenticated user is allowed through this proxy;
+ *     the backend's `_assert_task_access` decides per-task access using the
+ *     headers injected below. A regular user can create/read/edit/delete/run
  *     their own tasks; admins can act on any task; read-only audit on
  *     other users' autonomous chat threads is enforced by
  *     `requireConversationAccess` on the chat-side routes.
+ *   - Operators can optionally tighten this to admins-only by setting
+ *     `AUTONOMOUS_AGENTS_ADMIN_ONLY=true`, which makes this proxy reject
+ *     non-admin callers with a 403 before any forwarding happens. This is a
+ *     coarse switch; finer group-level access is handled by OpenFGA resource
+ *     checks elsewhere in the BFF.
  *   - Admin detection here resolves through `getAuthenticatedUser`,
  *     which reads the post-promotion session role. NextAuth's jwt /
  *     session callbacks promote Mongo-flagged or OIDC-group admins
@@ -116,6 +120,16 @@ async function forward(
   }
 
   return await withAuth(request, async (_req, user, session) => {
+    // Optional "admins only" switch (AUTONOMOUS_AGENTS_ADMIN_ONLY=true). Lets
+    // operators turn the feature on platform-wide while restricting who can
+    // actually drive it. Enforced here at the BFF boundary -- the FastAPI
+    // service is not publicly reachable, so this proxy is the entry point.
+    // Group-level access stays the job of OpenFGA resource checks; this is
+    // just the coarse admin gate (see suwhang review on PR #1588).
+    if (getConfig('autonomousAgentsAdminOnly') && session.role !== 'admin') {
+      throw new ApiError('Autonomous agents are restricted to administrators', 403);
+    }
+
     const targetUrl = buildTargetUrl(request, pathSegments);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
