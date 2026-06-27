@@ -190,6 +190,9 @@ CAIPE_DOMAIN_DEFAULT="${CAIPE_DOMAIN_DEFAULT:-caipe.local.me}"
 CAIPE_DOMAIN=""
 TLS_CERT_FILE=""
 TLS_KEY_FILE=""
+TLS_SELF_SIGNED=""
+OIDC_VERIFY_SSL="${OIDC_VERIFY_SSL:-}"
+INGESTOR_OIDC_VERIFY_SSL="${INGESTOR_OIDC_VERIFY_SSL:-}"
 ENV_FILE=""
 UI_ENV_FILE=""
 COMPOSE_ENV_FILE=""
@@ -2083,6 +2086,7 @@ setup_tls() {
       -subj "/CN=${CAIPE_DOMAIN}/O=CAIPE" \
       -addext "subjectAltName=${_san}" \
       2>/dev/null
+    TLS_SELF_SIGNED=true
     log "Self-signed cert generated (valid 365 days)"
   fi
 
@@ -3552,6 +3556,10 @@ create_namespace_and_secrets() {
     log "Added EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL} to llm-secret (Ollama init container pull)"
   fi
 
+  if [[ -n "$OIDC_VERIFY_SSL" ]]; then
+    secret_args+=(--from-literal=OIDC_VERIFY_SSL="$OIDC_VERIFY_SSL")
+  fi
+
   kubectl create secret generic llm-secret -n caipe \
     "${secret_args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
@@ -4138,6 +4146,12 @@ post_deploy_patches() {
         kubectl patch deploy caipe-caipe-ui -n caipe --type=merge \
           -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"${_ningx_ip}\",\"hostnames\":[\"${CAIPE_DOMAIN}\"]}]}}}}" &>/dev/null \
           && log "caipe-ui hostAliases: ${CAIPE_DOMAIN} -> ${_ningx_ip} (in-cluster ingress; fixes SSO callback)"
+
+        if kubectl get deploy rag-server -n caipe &>/dev/null; then
+          kubectl patch deploy rag-server -n caipe --type=merge \
+            -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"${_ningx_ip}\",\"hostnames\":[\"${CAIPE_DOMAIN}\"]}]}}}}" &>/dev/null \
+            && log "rag-server hostAliases: ${CAIPE_DOMAIN} -> ${_ningx_ip} (in-cluster ingress; fixes SSO/OIDC token verification)"
+        fi
       fi
     fi
 
@@ -4386,10 +4400,17 @@ JSON
   fi
 
   # Store in k8s secret so both rag-server and web-ingestor can mount it via envFrom
+  local verify_ssl_val="true"
+  if [[ -n "$INGESTOR_OIDC_VERIFY_SSL" ]]; then
+    verify_ssl_val="$INGESTOR_OIDC_VERIFY_SSL"
+  elif [[ -n "$OIDC_VERIFY_SSL" ]]; then
+    verify_ssl_val="$OIDC_VERIFY_SSL"
+  fi
   kubectl create secret generic rag-ingestor-secret -n caipe \
     --from-literal=INGESTOR_OIDC_ISSUER="${issuer}" \
     --from-literal=INGESTOR_OIDC_CLIENT_ID="${client_id}" \
     --from-literal=INGESTOR_OIDC_CLIENT_SECRET="${client_secret}" \
+    --from-literal=INGESTOR_OIDC_VERIFY_SSL="${verify_ssl_val}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "RAG ingestor client: credentials stored in rag-ingestor-secret (issuer=${issuer})"
   RAG_INGESTOR_SECRET_READY=true
@@ -5889,6 +5910,25 @@ deploy_caipe() {
   # surprised by H2-backed Keycloak losing realm state on restart.
   _warn_if_chart_lacks_keycloak_db
 
+  # Determine Node TLS validation settings based on OIDC_VERIFY_SSL and self-signed certs.
+  # If OIDC_VERIFY_SSL is explicitly set to false/0/no, or if we generated a self-signed
+  # certificate, we mount the caipe-tls secret to the caipe-ui pod and set NODE_EXTRA_CA_CERTS
+  # to point to it, rather than disabling TLS validation globally via NODE_TLS_REJECT_UNAUTHORIZED.
+  local trust_self_signed_cert="false"
+  local oidc_verify_ssl_normalized=""
+  if [[ -n "$OIDC_VERIFY_SSL" ]]; then
+    case "$(printf '%s' "$OIDC_VERIFY_SSL" | tr '[:upper:]' '[:lower:]')" in
+      true|1|yes) oidc_verify_ssl_normalized="true" ;;
+      false|0|no) oidc_verify_ssl_normalized="false" ;;
+      *) err "OIDC_VERIFY_SSL must be true/false, 1/0, or yes/no"; exit 1 ;;
+    esac
+    if [[ "$oidc_verify_ssl_normalized" == "false" ]]; then
+      trust_self_signed_cert="true"
+    fi
+  elif [[ "${TLS_SELF_SIGNED:-false}" == "true" ]]; then
+    trust_self_signed_cert="true"
+  fi
+
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
@@ -5900,6 +5940,23 @@ deploy_caipe() {
     # talks to dynamic-agents directly — chat streaming is proxied through the
     # Next.js BFF — so there is no public base URL to set.
   )
+
+  # Mount the generated self-signed certificate into the caipe-ui pod and set NODE_EXTRA_CA_CERTS
+  # so Node.js trusts the local cert specifically.
+  if [[ "$trust_self_signed_cert" == "true" ]]; then
+    if kubectl get secret caipe-tls -n caipe &>/dev/null; then
+      helm_args+=(
+        --set "caipe-ui.volumes[0].name=caipe-tls"
+        --set "caipe-ui.volumes[0].secret.secretName=caipe-tls"
+        --set "caipe-ui.volumeMounts[0].name=caipe-tls"
+        --set "caipe-ui.volumeMounts[0].mountPath=/etc/caipe-tls"
+        --set "caipe-ui.volumeMounts[0].readOnly=true"
+        --set "caipe-ui.config.NODE_EXTRA_CA_CERTS=/etc/caipe-tls/tls.crt"
+      )
+    else
+      warn "OIDC_VERIFY_SSL is disabled, but 'caipe-tls' secret was not found. Cannot mount certificate."
+    fi
+  fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
   # patched in provision_ui_secret; here we flip the server-side flag too)
@@ -8160,6 +8217,16 @@ BANNER
     if _env_true "$(_env_get "$ENV_FILE" ENABLE_RAG)"; then ENABLE_RAG=true; fi
     if _env_true "$(_env_get "$ENV_FILE" ENABLE_GRAPH_RAG)"; then ENABLE_GRAPH_RAG=true; ENABLE_RAG=true; fi
     if _env_true "$(_env_get "$ENV_FILE" ENABLE_TRACING)"; then ENABLE_TRACING=true; fi
+    local _env_oidc_verify
+    _env_oidc_verify=$(_env_get "$ENV_FILE" OIDC_VERIFY_SSL)
+    if [[ -n "$_env_oidc_verify" ]]; then
+      OIDC_VERIFY_SSL="$_env_oidc_verify"
+    fi
+    local _env_ingestor_oidc_verify
+    _env_ingestor_oidc_verify=$(_env_get "$ENV_FILE" INGESTOR_OIDC_VERIFY_SSL)
+    if [[ -n "$_env_ingestor_oidc_verify" ]]; then
+      INGESTOR_OIDC_VERIFY_SSL="$_env_ingestor_oidc_verify"
+    fi
     # The slack/webex MCP agents (ENABLE_SLACK/ENABLE_WEBEX) and the chat-bot
     # surfaces share the same .env. docker-compose.dev.yaml runs the bot
     # surfaces via the slack-bot/webex-bot profiles, so treat ENABLE_SLACK_BOT/
