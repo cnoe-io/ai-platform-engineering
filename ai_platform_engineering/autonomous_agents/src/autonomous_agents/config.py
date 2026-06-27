@@ -43,13 +43,13 @@ class Settings(BaseSettings):
     port: int = 8002
     debug: bool = False
 
-    # LLM (passed through to agents via A2A)
+    # LLM default for tasks that don't pin one (informational only; the
+    # dynamic agent's own model config governs execution).
     llm_provider: str = "anthropic-claude"
 
-    # Supervisor A2A endpoint — autonomous agents send tasks here
-    supervisor_url: str = "http://localhost:8000"
-
-    # Dynamic-agents
+    # Dynamic-agents runtime — the single execution backend for autonomous
+    # tasks. Every task targets a dynamic_agent_id and runs through this
+    # service (its tools / system prompt / model / middleware).
     dynamic_agents_url: str | None = None
     dynamic_agents_system_email: str = "autonomous@system"
     dynamic_agents_timeout_seconds: float = Field(default=300.0, gt=0)
@@ -57,15 +57,7 @@ class Settings(BaseSettings):
         default=10.0, gt=0
     )
 
-    # A2A streaming call timeout (seconds) for the supervisor request.
-    # Streaming calls can run for the full timeout; the circuit breaker's
-    # stale-trial leak guard auto-derives from this so a healthy-but-slow
-    # call isn't reclaimed mid-flight (see ``services/circuit_breaker.py``
-    # ``get_circuit_breaker``). Overridable per task via ``timeout_seconds``.
-    a2a_timeout_seconds: float = Field(default=300.0, gt=0)
-
     @field_validator(
-        "a2a_timeout_seconds",
         "dynamic_agents_timeout_seconds",
         "dynamic_agents_preflight_timeout_seconds",
     )
@@ -194,50 +186,6 @@ class Settings(BaseSettings):
     # operators actively rely on the audit trail for older
     # deliveries.
     trigger_instance_ttl_days: int = Field(default=7, ge=1)
-
-    # Circuit breaker around the supervisor A2A call.
-    circuit_breaker_enabled: bool = True
-    circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
-
-    # How long the breaker stays OPEN before letting a single trial
-    # request through (HALF_OPEN). 30s is long enough that a crashed
-    # supervisor has a real chance to come back, short enough that a
-    # transient outage doesn't wedge scheduled runs for minutes.
-    circuit_breaker_cooldown_seconds: float = Field(default=30.0, gt=0)
-
-    # Leak-guard threshold for HALF_OPEN trials. If a trial caller
-    # never reports back (crashed mid-call, killed, etc.) the breaker
-    # reclaims the slot after this many seconds so a healthy caller
-    # can probe.
-    #
-    # When ``None`` the factory in ``services/circuit_breaker.py``
-    # auto-derives it as ``max(2 * cooldown, a2a_timeout * 1.5)``.
-    # Auto-derivation matters for the streaming A2A path: streaming
-    # calls can legitimately run for minutes (default
-    # ``a2a_timeout_seconds=300``), and a hardcoded ``2 * cooldown``
-    # bound would reclaim a still-healthy trial mid-flight, defeating
-    # the breaker's single-flight invariant during recovery.
-    # Operators only set this explicitly to override the default
-    # (e.g. running a much shorter timeout and wanting the leak guard
-    # tightened to match).
-    circuit_breaker_stale_trial_seconds: float | None = Field(default=None, gt=0)
-
-    @field_validator(
-        "circuit_breaker_cooldown_seconds",
-        "circuit_breaker_stale_trial_seconds",
-    )
-    @classmethod
-    def _reject_nonfinite_cb_cooldown(cls, v: float | None) -> float | None:
-        # Same hardening as ``a2a_*`` knobs: ``inf`` would wedge the
-        # breaker permanently OPEN, ``nan`` would compare false against
-        # everything and silently disable the cooldown gate. ``None``
-        # is allowed for ``stale_trial_seconds`` (factory derives a
-        # default) so explicitly skip the check when unset.
-        if v is None:
-            return v
-        if v != v or v in (float("inf"), float("-inf")):
-            raise ValueError("must be a finite number")
-        return v
 
     # IMP-13 — chat history publishing.
     #

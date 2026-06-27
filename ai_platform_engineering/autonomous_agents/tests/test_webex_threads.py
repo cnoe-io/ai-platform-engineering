@@ -103,7 +103,7 @@ def webhook_task() -> TaskDefinition:
     return TaskDefinition(
         id="wh-1",
         name="Webhook task",
-        agent="webex",
+        dynamic_agent_id="agent-x",
         prompt="Acknowledge on Webex.",
         trigger=WebhookTrigger(secret=None),
     )
@@ -241,7 +241,7 @@ class TestSchedulerPostRunHook:
         """Successful runs persist ``(messageId, roomId)`` pairs in the thread map."""
         events = _make_post_message_events(("MSG_42", "ROOM_X"))
         with patch(
-            "autonomous_agents.services.task_runner.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=AsyncMock(return_value=("acknowledged", events)),
         ):
             run = await execute_task(webhook_task)
@@ -261,7 +261,7 @@ class TestSchedulerPostRunHook:
     ):
         """A run that never calls Webex leaves the thread map untouched."""
         with patch(
-            "autonomous_agents.services.task_runner.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=AsyncMock(return_value=("done", [])),
         ):
             await execute_task(webhook_task)
@@ -276,7 +276,7 @@ class TestSchedulerPostRunHook:
     ):
         """FAILED runs must not record any thread entries."""
         with patch(
-            "autonomous_agents.services.task_runner.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=AsyncMock(side_effect=RuntimeError("boom")),
         ):
             run = await execute_task(webhook_task)
@@ -294,7 +294,7 @@ class TestSchedulerPostRunHook:
         events = _make_post_message_events(("MSG_42", "ROOM_X"))
 
         with patch(
-            "autonomous_agents.services.task_runner.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=AsyncMock(return_value=("acknowledged", events)),
         ):
             run = await execute_task(webhook_task)
@@ -319,7 +319,7 @@ class TestSchedulerPostRunHook:
         events = _make_post_message_events(("MSG_42", "ROOM_X"))
 
         with patch(
-            "autonomous_agents.services.task_runner.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=AsyncMock(return_value=("acknowledged", events)),
         ):
             run = await execute_task(webhook_task)

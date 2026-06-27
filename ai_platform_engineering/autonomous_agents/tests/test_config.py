@@ -1,4 +1,4 @@
-"""Tests for ``Settings`` validation (A2A timeout + CORS safety)."""
+"""Tests for ``Settings`` validation (dynamic-agents timeouts + CORS safety)."""
 
 import pydantic
 import pytest
@@ -6,25 +6,30 @@ import pytest
 from autonomous_agents.config import Settings
 
 
-class TestA2ASettings:
-    """Defaults and bounds for the A2A timeout field."""
+class TestDynamicAgentsTimeoutSettings:
+    """Defaults and bounds for the dynamic-agents timeout fields."""
 
-    def test_a2a_settings_have_sensible_defaults(self):
+    def test_timeout_defaults_are_sensible(self):
         """Defaults match the documented production values."""
         s = Settings()
-        assert s.a2a_timeout_seconds == 300.0
+        assert s.dynamic_agents_timeout_seconds == 300.0
+        assert s.dynamic_agents_preflight_timeout_seconds == 10.0
 
-    def test_a2a_timeout_must_be_positive(self):
-        """``a2a_timeout_seconds`` must be strictly positive."""
+    def test_timeouts_must_be_positive(self):
+        """Dynamic-agents timeouts must be strictly positive."""
         for bad in (0, -1, -0.5):
             with pytest.raises(pydantic.ValidationError):
-                Settings(a2a_timeout_seconds=bad)
+                Settings(dynamic_agents_timeout_seconds=bad)
+            with pytest.raises(pydantic.ValidationError):
+                Settings(dynamic_agents_preflight_timeout_seconds=bad)
 
-    def test_a2a_settings_reject_inf_and_nan(self):
-        """``inf`` / ``-inf`` / ``nan`` are rejected on the timeout."""
+    def test_timeouts_reject_inf_and_nan(self):
+        """``inf`` / ``-inf`` / ``nan`` are rejected on the timeouts."""
         for bad in (float("inf"), float("-inf"), float("nan")):
             with pytest.raises(pydantic.ValidationError):
-                Settings(a2a_timeout_seconds=bad)
+                Settings(dynamic_agents_timeout_seconds=bad)
+            with pytest.raises(pydantic.ValidationError):
+                Settings(dynamic_agents_preflight_timeout_seconds=bad)
 
 
 class TestCorsOrigins:

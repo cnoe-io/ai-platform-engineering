@@ -20,7 +20,6 @@ from autonomous_agents.config import get_settings
 from autonomous_agents.services.dynamic_agents_client import (
     DynamicAgentsClientError,
     DynamicAgentsNotConfiguredError,
-    _build_preflight_context_header,
     _build_user_context_header,
     invoke_dynamic_agent,
     invoke_dynamic_agent_streaming,
@@ -87,15 +86,6 @@ class TestUserContextHeaders:
         assert decoded["email"] == "alice@example.com"
         assert decoded["is_admin"] is False
         assert decoded["is_authorized"] is True
-
-    def test_preflight_context_header_uses_system_email_not_admin(self, configured):
-        """_build_preflight_context_header uses the system email with is_admin=False."""
-        raw = _build_preflight_context_header()
-        decoded = json.loads(base64.b64decode(raw))
-        assert decoded["email"] == "autonomous@system"
-        assert decoded["is_admin"] is False
-        assert decoded["is_authorized"] is True
-
 
 class TestInvokeDynamicAgent:
     """``invoke_dynamic_agent`` (non-streaming) request and response handling."""
@@ -185,7 +175,13 @@ class TestInvokeDynamicAgent:
 
 
 class TestPreflightDynamicAgent:
-    """``preflight_dynamic_agent`` returns an ``Acknowledgement`` for every outcome."""
+    """``preflight_dynamic_agent`` is a config-level check (no network call).
+
+    The dynamic-agents service exposes no read-only agent endpoint, so
+    preflight only verifies ``DYNAMIC_AGENTS_URL`` is configured and records
+    the routing target; agent existence and authorization are enforced at
+    run time by the dynamic-agents ``/chat`` endpoints.
+    """
 
     @pytest.mark.asyncio
     async def test_unconfigured_returns_application_failure(self, unconfigured):
@@ -195,45 +191,17 @@ class TestPreflightDynamicAgent:
         assert "DYNAMIC_AGENTS_URL is not configured" in (ack.ack_detail or "")
 
     @pytest.mark.asyncio
-    async def test_happy_path_returns_ok(self, configured):
-        """Probe returning enabled agent yields ``ack_status=ok``."""
-        factory, client = _mock_async_client(
-            _resp(200, {"id": "agent-x", "name": "My Agent", "enabled": True})
-        )
+    async def test_configured_returns_ok_without_network_call(self, configured):
+        """Configured yields ``ack_status=ok`` recording the routing target and makes no HTTP call."""
+        factory, client = _mock_async_client(_resp(200, {}))
         with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
             ack = await preflight_dynamic_agent(agent_id="agent-x")
         assert ack.ack_status == "ok"
         assert ack.routed_to == "agent-x"
-        assert "My Agent" in (ack.dry_run_summary or "")
-        call_url = client.get.await_args.args[0]
-        assert call_url.endswith("/api/v1/agents/agent-x/probe")
-
-    @pytest.mark.asyncio
-    async def test_disabled_agent_returns_warn(self, configured):
-        """Probe returning ``enabled=False`` yields ``ack_status=warn``."""
-        factory, _ = _mock_async_client(
-            _resp(200, {"id": "agent-x", "name": "Off", "enabled": False})
-        )
-        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
-            ack = await preflight_dynamic_agent(agent_id="agent-x")
-        assert ack.ack_status == "warn"
-
-    @pytest.mark.asyncio
-    async def test_404_returns_application_failure(self, configured):
-        """404 yields ``ack_status=failed`` carrying the error detail."""
-        factory, _ = _mock_async_client(_resp(404, {"detail": "not found"}))
-        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
-            ack = await preflight_dynamic_agent(agent_id="agent-x")
-        assert ack.ack_status == "failed"
-        assert "not found" in (ack.ack_detail or "").lower()
-
-    @pytest.mark.asyncio
-    async def test_transport_failure_returns_pending_ack(self, configured):
-        """Transport failure yields ``ack_status=pending`` so the UI retries on next touch."""
-        factory, _ = _mock_async_client(httpx.ConnectError("refused"))
-        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
-            ack = await preflight_dynamic_agent(agent_id="agent-x")
-        assert ack.ack_status == "pending"
+        assert "agent-x" in (ack.dry_run_summary or "")
+        # Config-level preflight must not hit the network.
+        client.get.assert_not_called()
+        client.post.assert_not_called()
 
 
 def _stream_response(status: int, sse_lines: list[str]):

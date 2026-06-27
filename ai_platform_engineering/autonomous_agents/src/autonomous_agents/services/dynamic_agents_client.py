@@ -1,26 +1,21 @@
 """HTTP client for the dynamic-agents service.
 
-This is the second outbound path the autonomous-agents service supports
-(the first is ``a2a_client`` against the supervisor). When a
-``TaskDefinition`` carries ``dynamic_agent_id``, the scheduler and the
-preflight bg-job route through here so the prompt is actually executed
-by the user's custom agent (its tools / system prompt / middleware)
-rather than being silently swallowed by the supervisor's permissive LLM
-router.
+This is the autonomous-agents service's only outbound execution path: every
+task carries a ``dynamic_agent_id`` and the scheduler / preflight route
+through here so the prompt runs through that custom agent (its tools /
+system prompt / model / middleware) on the dynamic-agents runtime.
 
-Why this is its own module rather than living in ``a2a_client``:
+Notes on the wire contract:
 
-* The dynamic-agents service is not A2A. It exposes plain HTTP
-  ``/chat/invoke`` (sync) and ``/chat/stream/start`` (SSE), so the
-  JSON-RPC + ``message/stream`` plumbing in ``a2a_client`` does not
-  apply.
-* It expects a gateway-injected ``X-User-Context`` header. Every
-  scheduled run is system-driven (no human user attached), so we mint
-  a synthetic header here rather than threading user context through
-  the scheduler.
-* Preflight is a different shape: a simple ``GET /agents/{id}/probe``
-  reachability check, not the supervisor's MAS-subagent registry
-  lookup.
+* The dynamic-agents service exposes plain HTTP ``/api/v1/chat/invoke``
+  (sync) and ``/api/v1/chat/stream/start`` (SSE).
+* It expects a gateway-injected ``X-User-Context`` header carrying the task
+  owner's identity. Each scheduled run is system-driven, so we mint that
+  header from the task's ``owner_id`` here (per-user attribution + access).
+* Preflight is config-level only: the service exposes no read-only agent
+  endpoint, so we verify configuration and defer existence / authorization
+  to run time (``mongo.get_agent`` + ``require_agent_use_permission`` on the
+  ``/chat`` endpoints).
 """
 
 from __future__ import annotations
@@ -37,7 +32,6 @@ import httpx
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.models import Acknowledgement
-from autonomous_agents.services.a2a_client import build_prompt_with_routing
 
 logger = logging.getLogger("autonomous_agents")
 
@@ -48,6 +42,18 @@ __all__ = [
     "invoke_dynamic_agent_streaming",
     "preflight_dynamic_agent",
 ]
+
+
+def _build_prompt_with_context(prompt: str, context: dict[str, Any] | None) -> str:
+    """Append a JSON context block to the prompt for webhook/scheduler runs.
+
+    Mirrors the ``Context:\\n{...}`` layout the chat-history publisher and UI
+    expect so a webhook-triggered run reads the same on the wire and in chat.
+    Returns the prompt unchanged when no context is supplied.
+    """
+    if not context:
+        return prompt
+    return f"{prompt}\n\nContext:\n{json.dumps(context, indent=2)}"
 
 
 class DynamicAgentsClientError(RuntimeError):
@@ -96,30 +102,6 @@ def _task_headers(owner_email: str) -> dict[str, str]:
     """Return HTTP headers for an autonomous task invocation."""
     return {
         "X-User-Context": _build_user_context_header(owner_email),
-        "Content-Type": "application/json",
-    }
-
-
-def _build_preflight_context_header() -> str:
-    """Build X-User-Context for preflight probe calls (agent existence check only).
-
-    Preflight calls do not create or read conversations — they only call
-    GET /agents/{id}/probe to check the agent is registered. We use the
-    system email here with is_admin=False to avoid any privilege escalation.
-    """
-    settings = get_settings()
-    payload = {
-        "email": settings.dynamic_agents_system_email,
-        "name": "Autonomous Agent Preflight",
-        "is_admin": False,
-        "is_authorized": True,
-    }
-    return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
-
-
-def _preflight_headers() -> dict[str, str]:
-    return {
-        "X-User-Context": _build_preflight_context_header(),
         "Content-Type": "application/json",
     }
 
@@ -196,7 +178,7 @@ async def invoke_dynamic_agent(
     # env-var stays a plain base URL aligned with all other consumers
     # (UI proxy, slack-bot SSE client).
     url = f"{base}/api/v1/chat/invoke"
-    full_prompt = build_prompt_with_routing(prompt, agent=None, context=context)
+    full_prompt = _build_prompt_with_context(prompt, context)
     body = {
         "message": full_prompt,
         "conversation_id": conversation_id,
@@ -309,9 +291,9 @@ async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[tuple[str,
         \\n
 
     Empty line terminates a frame. Lines that don't match ``event:`` /
-    ``data:`` are ignored. Malformed JSON is skipped (consistent with
-    ``a2a_client.invoke_agent_streaming``'s tolerance for partial
-    chunks). Returns the event name (defaulting to "message" if the
+    ``data:`` are ignored. Malformed JSON chunks are skipped (partial
+    frames are tolerated rather than aborting the stream). Returns the
+    event name (defaulting to "message" if the
     sender omitted ``event:``) so the caller can dispatch on it.
     """
     current_event: str | None = None
@@ -329,8 +311,7 @@ async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[tuple[str,
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                # Ignore malformed chunks — same tolerance as the
-                # supervisor SSE consumer in a2a_client.
+                # Ignore malformed chunks -- tolerate partial frames.
                 continue
             if not isinstance(data, dict):
                 continue
@@ -485,7 +466,7 @@ async def invoke_dynamic_agent_streaming(
 
     base = _normalize_base_url(settings.dynamic_agents_url)
     url = f"{base}/api/v1/chat/stream/start"
-    full_prompt = build_prompt_with_routing(prompt, agent=None, context=context)
+    full_prompt = _build_prompt_with_context(prompt, context)
     body = {
         "message": full_prompt,
         "conversation_id": conversation_id,
@@ -600,25 +581,20 @@ async def preflight_dynamic_agent(
     agent_id: str,
     timeout: float | None = None,
 ) -> Acknowledgement:
-    """Probe the dynamic-agents service to verify ``agent_id`` exists.
+    """Confirm the autonomous service is configured to dispatch ``agent_id``.
 
-    Mirrors ``services.supervisor_preflight.preflight`` for the dynamic-agent
-    routing path so the UI's "Ack" badge means the same thing
-    regardless of which routing path a task uses.
-
-    NEVER raises -- every failure mode maps to an :class:`Acknowledgement`
-    so the caller can persist it unconditionally. ``ack_status`` semantics
-    match the supervisor path:
-
-    * ``ok``       -- agent exists in the dynamic-agents service.
-    * ``failed``   -- service reachable but agent unknown / config error.
-    * ``pending``  -- service unreachable; will retry on next task touch.
+    The dynamic-agents service exposes no read-only agent endpoint, so this
+    is a configuration-level preflight rather than a live existence probe: it
+    verifies ``DYNAMIC_AGENTS_URL`` is set and records the routing target.
+    Agent existence and per-user authorization are enforced at run time by
+    the dynamic-agents ``/api/v1/chat`` endpoints (``mongo.get_agent`` +
+    ``require_agent_use_permission``); a missing or unpermitted agent surfaces
+    as a failed run with a clear error. NEVER raises -- every outcome maps to
+    an :class:`Acknowledgement` so the caller can persist it unconditionally.
 
     Args:
         agent_id: Dynamic-agents service agent id.
-        timeout: Per-call HTTP timeout in seconds. Defaults to
-            ``Settings.dynamic_agents_preflight_timeout_seconds`` when
-            ``None``.
+        timeout: Accepted for call-site compatibility; unused (no network call).
     """
     settings = get_settings()
     if not settings.dynamic_agents_url:
@@ -627,91 +603,26 @@ async def preflight_dynamic_agent(
             "service; dynamic-agent tasks cannot be dispatched until it is set."
         )
 
-    effective_timeout = (
-        timeout
-        if timeout is not None
-        else settings.dynamic_agents_preflight_timeout_seconds
-    )
-
-    base = _normalize_base_url(settings.dynamic_agents_url)
-    url = f"{base}/api/v1/agents/{agent_id}/probe"
-
     logger.info(
-        "dynamic_agents_client.preflight: agent=%s url=%s timeout=%.1fs",
+        "dynamic_agents_client.preflight: agent=%s url=%s (config-level)",
         agent_id,
-        url,
-        effective_timeout,
+        settings.dynamic_agents_url,
     )
-
-    try:
-        async with httpx.AsyncClient(timeout=effective_timeout) as client:
-            resp = await client.get(url, headers=_preflight_headers())
-    except (httpx.TimeoutException, httpx.TransportError) as exc:
-        logger.warning(
-            "dynamic_agents_client.preflight: transport failure for agent=%s: %s",
-            agent_id,
-            exc,
-        )
-        return Acknowledgement.transport_failure(
-            f"dynamic-agents service at {settings.dynamic_agents_url} did not "
-            f"respond: {exc}"
-        )
-
-    if resp.status_code == 404:
-        return Acknowledgement.application_failure(
-            f"Dynamic agent '{agent_id}' was not found in the dynamic-agents "
-            "service. Re-create it from the Custom Agent editor or pick a "
-            "different target."
-        )
-    if resp.status_code >= 400:
-        return Acknowledgement.application_failure(
-            f"dynamic-agents service returned HTTP {resp.status_code} when "
-            f"probing agent '{agent_id}'."
-        )
-
-    try:
-        body = resp.json()
-    except ValueError:
-        return Acknowledgement.application_failure(
-            "dynamic-agents service returned a non-JSON probe response."
-        )
-
-    name = (body or {}).get("name") or agent_id
-    enabled = bool((body or {}).get("enabled", True))
-
-    if not enabled:
-        # The probe endpoint reports a ``disabled`` flag for completeness
-        # even though the dynamic-agents service does not currently gate
-        # on it. We surface this as a soft failure so operators see why
-        # nothing is happening.
-        return Acknowledgement(
-            ack_status="warn",
-            ack_detail=(
-                f"Dynamic agent '{name}' is registered but disabled; "
-                "scheduled runs will be invoked but the agent itself may "
-                "refuse them."
-            ),
-            routed_to=agent_id,
-            tools=[],
-            available_agents=[],
-            credentials_status={},
-            dry_run_summary=(
-                f"Will route to dynamic agent '{name}' (currently disabled)."
-            ),
-            ack_at=datetime.now(timezone.utc),
-        )
 
     return Acknowledgement(
         ack_status="ok",
-        ack_detail="Dynamic agent reachable; ready for scheduled execution.",
+        ack_detail=(
+            "Autonomous service is configured to dispatch this task to the "
+            "dynamic-agents runtime; agent existence and access are verified "
+            "at run time."
+        ),
         routed_to=agent_id,
         tools=[],
         available_agents=[],
         credentials_status={},
         dry_run_summary=(
             f"At each scheduled run the prompt will be POSTed to the dynamic-"
-            f"agents service /chat/invoke endpoint as agent '{name}' "
-            f"(id={agent_id})."
+            f"agents service /api/v1/chat endpoints as agent '{agent_id}'."
         ),
         ack_at=datetime.now(timezone.utc),
     )

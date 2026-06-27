@@ -165,29 +165,41 @@ class TaskDefinition(BaseModel):
     agent: str | None = Field(
         default=None,
         description=(
-            "Optional routing hint using sub-agent id. "
-            "When set, supervisor skips LLM routing and dispatches directly. "
-            "When omitted, the supervisor's LLM picks a sub-agent based on "
-            "the prompt."
+            "Deprecated supervisor sub-agent hint. The supervisor was removed "
+            "upstream; this field is ignored for routing and retained only so "
+            "task definitions persisted before the dynamic-only model still "
+            "load. Use dynamic_agent_id instead."
         ),
     )
     dynamic_agent_id: str | None = Field(
         default=None,
         description=(
-            "Dynamic-agents service agent id. When set, scheduler and "
-            "preflight target the dynamic-agents service instead of the "
-            "supervisor so the prompt runs through that custom agent."
+            "Dynamic-agents service agent id. Required for new tasks: the "
+            "dynamic-agents runtime is the only execution backend, so every "
+            "task runs the prompt through this custom agent (its tools / "
+            "system prompt / model / middleware). Optional on the model only "
+            "so legacy rows load; creation rejects tasks without it."
         ),
     )
     prompt: str = Field(..., description="Prompt sent to the agent when this task fires")
     trigger: CronTrigger | IntervalTrigger | WebhookTrigger = Field(..., discriminator="type")
-    llm_provider: str | None = Field(None, description="Override global LLM provider for this task")
+    llm_provider: str | None = Field(
+        None,
+        description=(
+            "Deprecated. The dynamic agent's own model configuration governs "
+            "execution; this field is ignored and kept only for backward "
+            "compatibility with persisted task definitions."
+        ),
+    )
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: float | None = Field(
         default=None,
         gt=0,
-        description="Override A2A_TIMEOUT_SECONDS for this task (seconds, > 0).",
+        description=(
+            "Override the dynamic-agents call timeout for this task "
+            "(seconds, > 0). Defaults to DYNAMIC_AGENTS_TIMEOUT_SECONDS."
+        ),
     )
     owner_id: str | None = Field(
         default=None,
@@ -210,19 +222,15 @@ class TaskDefinition(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _reconcile_agent_routing(self) -> "TaskDefinition":
-        """Keep task routing pointed at one execution backend.
+    def _drop_deprecated_agent_hint(self) -> "TaskDefinition":
+        """Clear the deprecated ``agent`` hint when a dynamic agent is set.
 
-        If data carries both ``agent`` and ``dynamic_agent_id``, drop the
-        supervisor hint and prioritize the ``dynamic_agent_id``.
+        ``agent`` is a no-op legacy field (the supervisor it routed to was
+        removed). When a task also carries ``dynamic_agent_id`` we drop the
+        stale hint so persisted definitions converge on the dynamic-only
+        routing model.
         """
         if self.dynamic_agent_id and self.agent:
-            import logging
-            logging.getLogger("autonomous_agents").warning(
-                "task %s has both agent=%r and dynamic_agent_id=%r; "
-                "preferring dynamic_agent_id and dropping agent hint.",
-                self.id, self.agent, self.dynamic_agent_id,
-            )
             object.__setattr__(self, "agent", None)
         return self
 
@@ -237,7 +245,7 @@ class TaskDefinition(BaseModel):
     last_ack: Any | None = Field(
         default=None,
         description=(
-            "Most recent supervisor pre-flight acknowledgement for this task. "
+            "Most recent pre-flight acknowledgement for this task. "
             "Server-managed; client-supplied values are ignored on POST/PUT."
         ),
     )
@@ -314,10 +322,9 @@ class TaskRun(BaseModel):
     # back to the originating webhook payload metadata. ``None`` for
     # cron / interval / manual-trigger runs.
     trigger_instance_id: str | None = None
-    # Spec #099 Phase B — full supervisor response and captured A2A
-    # streaming events. Populated when the run uses the streaming code
-    # path (``invoke_agent_streaming``); ``None`` / empty for legacy
-    # blocking calls and for runs persisted before this field existed.
+    # Full agent response and captured streaming events from the
+    # dynamic-agents run (``invoke_dynamic_agent_streaming``). ``None`` /
+    # empty for runs persisted before this field existed.
     # The chat-thread synthesiser in the UI replays ``events`` so past
     # scheduled fires render with the same plan + tools + timeline a
     # typed chat reply gets, rather than the 500-char ``response_preview``

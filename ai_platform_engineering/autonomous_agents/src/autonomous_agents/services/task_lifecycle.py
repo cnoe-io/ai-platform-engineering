@@ -36,7 +36,6 @@ from autonomous_agents.services.scheduler import (
     register_scheduler_task,
     unregister_scheduler_task,
 )
-from autonomous_agents.services.supervisor_preflight import preflight
 from autonomous_agents.services.task_runner import get_chat_history_publisher
 from autonomous_agents.services.webhook_runtime import (
     register_webhook_task,
@@ -111,21 +110,17 @@ def detach_task_from_runtime(task_id: str) -> None:
 def ack_relevant_changed(old: TaskDefinition | None, new: TaskDefinition) -> bool:
     """Return True if a re-ack is warranted for a task update.
 
-    Re-ack on prompt / agent / dynamic_agent_id / llm_provider changes —
-    those affect what the supervisor (or the dynamic-agents service)
-    would do at run time, including the routing target itself.
-    Trigger / enabled / metadata changes don't change routing or tool
-    availability so we keep the existing ack to avoid an unnecessary
-    backend round-trip on every enable/disable toggle.
+    Re-ack on prompt or dynamic_agent_id changes -- those change what the
+    dynamic-agents runtime would do at run time, including the routing
+    target itself. Trigger / enabled / metadata changes don't affect
+    routing so we keep the existing ack to avoid an unnecessary backend
+    round-trip on every enable/disable toggle.
     """
     if old is None:
         return True
     return (
         old.prompt != new.prompt
-        or old.agent != new.agent
-        or getattr(old, "dynamic_agent_id", None)
-        != getattr(new, "dynamic_agent_id", None)
-        or old.llm_provider != new.llm_provider
+        or old.dynamic_agent_id != new.dynamic_agent_id
     )
 
 
@@ -145,23 +140,17 @@ async def _run_preflight_and_persist(task_id: str) -> None:
         # Nothing to persist; nothing to log loudly.
         return
     try:
-        if task.dynamic_agent_id:
-            # Custom (dynamic) agent path: probe the dynamic-agents
-            # service for agent reachability instead of asking the
-            # supervisor to look the id up in its MAS sub-agent
-            # registry (which would always return ack_status="failed"
-            # because the supervisor has zero awareness of dynamic
-            # agents).
-            ack = await preflight_dynamic_agent(
-                agent_id=task.dynamic_agent_id,
+        if not task.dynamic_agent_id:
+            # Every task must target a dynamic agent. Surface an actionable
+            # ack rather than dispatching a task that has no execution
+            # backend (the run would fail at fire time otherwise).
+            ack = Acknowledgement.application_failure(
+                "Task has no dynamic_agent_id; edit the task and select a "
+                "custom agent so the autonomous service can dispatch it to "
+                "the dynamic-agents runtime."
             )
         else:
-            ack = await preflight(
-                task_id=task.id,
-                prompt=task.prompt,
-                agent=task.agent,
-                llm_provider=task.llm_provider,
-            )
+            ack = await preflight_dynamic_agent(agent_id=task.dynamic_agent_id)
     except Exception:
         # Defensive: preflight() is contractually no-raise but if a future
         # code change regresses that we still don't want to nuke the task.

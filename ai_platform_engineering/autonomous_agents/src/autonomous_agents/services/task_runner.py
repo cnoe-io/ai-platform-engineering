@@ -26,7 +26,6 @@ from autonomous_agents.models import (
     TaskRun,
     TaskStatus,
 )
-from autonomous_agents.services.a2a_client import invoke_agent_streaming
 from autonomous_agents.services.chat_history import (
     ChatHistoryPublisher,
     NoopChatHistoryPublisher,
@@ -341,43 +340,30 @@ async def execute_task(
     response_text: str | None = None
     error_text: str | None = None
     try:
-        if effective_task.dynamic_agent_id:
-            # Custom (dynamic) agent path: invoke the dynamic-agents
-            # service via SSE streaming so we capture per-step events
-            # (tool_start / tool_end / accumulated content) translated
-            # to the supervisor-flavoured A2A artifact-update shape.
-            # Persisting these on TaskRun.events lets the autonomous-
-            # task chat thread replay the same Tools / Final-answer
-            # breakdown a supervisor-targeted run gets, instead of a
-            # bare text bubble. See ux-3 in the IMPROVEMENTS tracker
-            # for the rationale and translation contract; the legacy
-            # blocking ``invoke_dynamic_agent`` (which returned
-            # ``events=[]``) is retained in the client module for
-            # callers that explicitly want a non-streaming path.
-            response, events = await invoke_dynamic_agent_streaming(
-                prompt=effective_task.prompt,
-                task_id=effective_task.id,
-                agent_id=effective_task.dynamic_agent_id,
-                owner_email=_owner_email,
-                conversation_id=conversation_id,
-                context=context,
-                timeout=effective_task.timeout_seconds,
+        if not effective_task.dynamic_agent_id:
+            # Every autonomous task runs against a dynamic agent. A task
+            # without a dynamic_agent_id predates the dynamic-only routing
+            # model (or targeted the now-removed supervisor) and has no
+            # execution backend -- fail fast with an actionable message
+            # rather than silently doing nothing.
+            raise ValueError(
+                "Task has no dynamic_agent_id; autonomous tasks must target a "
+                "dynamic agent. Edit the task and select a custom agent."
             )
-        else:
-            # Phase B (spec #099 Story 2): use the streaming variant so we
-            # capture every supervisor A2A event (execution_plan_update,
-            # tool_notification_*, final_result, etc.) — persisted on the
-            # TaskRun and replayed by the UI synthesiser so past scheduled
-            # fires render with the same rich plan + tools + timeline a
-            # typed chat reply gets.
-            response, events = await invoke_agent_streaming(
-                prompt=effective_task.prompt,
-                task_id=effective_task.id,
-                agent=effective_task.agent,
-                llm_provider=effective_task.llm_provider,
-                context=context,
-                timeout_seconds=effective_task.timeout_seconds,
-            )
+        # Dynamic-agent execution: invoke the dynamic-agents service via SSE
+        # streaming so we capture per-step events (tool_start / tool_end /
+        # accumulated content). Persisting these on TaskRun.events lets the
+        # autonomous-task chat thread replay the Tools / Final-answer
+        # breakdown instead of a bare text bubble.
+        response, events = await invoke_dynamic_agent_streaming(
+            prompt=effective_task.prompt,
+            task_id=effective_task.id,
+            agent_id=effective_task.dynamic_agent_id,
+            owner_email=_owner_email,
+            conversation_id=conversation_id,
+            context=context,
+            timeout=effective_task.timeout_seconds,
+        )
         response_text = response
         run.status = TaskStatus.SUCCESS
         run.response_preview = response[:500]
@@ -412,11 +398,9 @@ async def execute_task(
             context,
             response=response_text,
             error=error_text,
-            # For dynamic-agent runs, surface the dynamic agent id as
-            # the routing label so the chat sidebar shows the same
-            # routing target as the autonomous tab. Falls back to the
-            # supervisor sub-agent hint for legacy tasks.
-            agent=task.dynamic_agent_id or task.agent,
+            # Surface the dynamic agent id as the routing label so the chat
+            # sidebar shows the same routing target as the autonomous tab.
+            agent=task.dynamic_agent_id,
         )
         # Webex thread map: only worth scanning on a successful run --
         # a FAILED run usually didn't get far enough to call any
@@ -470,8 +454,8 @@ def _prompt_for_publish(
 ) -> str:
     """Reconstruct the user-visible prompt for chat-history publishing.
 
-    Mirrors the augmentation that ``services.a2a_client.invoke_agent_streaming``
-    applies before sending to the supervisor: when a webhook supplies
+    Mirrors the augmentation that ``dynamic_agents_client`` applies before
+    dispatching to the dynamic-agents runtime: when a webhook supplies
     a context payload, the actual prompt the agent saw is
     ``f"{prompt}\n\nContext:\n{json}"``. Showing the same string in
     chat keeps the conversation honest — otherwise a webhook-triggered

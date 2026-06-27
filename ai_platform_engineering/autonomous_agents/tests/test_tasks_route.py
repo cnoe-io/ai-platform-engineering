@@ -141,7 +141,7 @@ def _make_task(task_id: str = "t1") -> TaskDefinition:
     return TaskDefinition(
         id=task_id,
         name=f"task {task_id}",
-        agent="github",
+        dynamic_agent_id="agent-x",
         prompt="x",
         trigger=CronTrigger(schedule="0 9 * * *"),
     )
@@ -151,7 +151,7 @@ def _cron_task(task_id: str = "t1", *, enabled: bool = True) -> dict:
     return {
         "id": task_id,
         "name": f"Task {task_id}",
-        "agent": "github",
+        "dynamic_agent_id": "agent-x",
         "prompt": "do the thing",
         "trigger": {"type": "cron", "schedule": "0 9 * * *"},
         "enabled": enabled,
@@ -162,7 +162,7 @@ def _interval_task(task_id: str = "t1", *, seconds: int = 30) -> dict:
     return {
         "id": task_id,
         "name": f"Task {task_id}",
-        "agent": "github",
+        "dynamic_agent_id": "agent-x",
         "prompt": "do the thing",
         "trigger": {"type": "interval", "seconds": seconds},
         "enabled": True,
@@ -173,7 +173,7 @@ def _webhook_task(task_id: str = "hook1", *, secret: str | None = None) -> dict:
     payload = {
         "id": task_id,
         "name": f"Webhook {task_id}",
-        "agent": "github",
+        "dynamic_agent_id": "agent-x",
         "prompt": "respond",
         "trigger": {"type": "webhook"},
         "enabled": True,
@@ -333,14 +333,18 @@ class TestCreate:
         response = client.post("/api/v1/tasks", json=bad)
         assert response.status_code == 422
 
-    def test_succeeds_when_agent_omitted(self, client: TestClient):
-        """``agent`` is optional and persists as null."""
+    def test_requires_dynamic_agent_id(self, client: TestClient):
+        """Creating a task without ``dynamic_agent_id`` is rejected with 400.
+
+        Every autonomous task must target a dynamic agent (the dynamic-agents
+        runtime is the only execution backend), so a definition without one
+        can never run and is refused at creation.
+        """
         body = _cron_task("t-no-agent")
-        del body["agent"]
+        del body["dynamic_agent_id"]
         response = client.post("/api/v1/tasks", json=body)
-        assert response.status_code == 201
-        payload = response.json()
-        assert payload["agent"] is None
+        assert response.status_code == 400
+        assert "dynamic_agent_id is required" in response.json()["detail"]
 
     def test_rolls_back_when_scheduler_sync_fails(self, client: TestClient):
         """Malformed cron expression rolls back the persisted row so retry works."""
@@ -704,7 +708,7 @@ class TestDynamicAgentRouting:
     """Tasks with ``dynamic_agent_id`` route through the dynamic-agents preflight, not the supervisor's."""
 
     async def test_routes_dynamic_agent_to_dynamic_preflight(self):
-        """``dynamic_agent_id`` set => dynamic preflight runs and supervisor preflight does not."""
+        """``dynamic_agent_id`` set => the dynamic-agents preflight runs."""
         store = _DictTaskStore()
         set_task_store(store)
         await store.create(
@@ -718,21 +722,17 @@ class TestDynamicAgentRouting:
         )
 
         da_preflight = AsyncMock(return_value=_ok_ack())
-        sup_preflight = AsyncMock(return_value=_ok_ack())
 
-        # ``_run_preflight_and_persist`` lives in ``services.task_lifecycle``
-        # after PR3; that module owns the imports of ``preflight`` and
-        # ``preflight_dynamic_agent`` so the patch target follows the
-        # function. Patching ``routes.tasks.preflight*`` would be a dead
-        # patch (same lesson PR1 paid for with the supervisor invokers).
-        with (
-            patch("autonomous_agents.services.task_lifecycle.preflight_dynamic_agent", new=da_preflight),
-            patch("autonomous_agents.services.task_lifecycle.preflight", new=sup_preflight),
+        # ``_run_preflight_and_persist`` lives in ``services.task_lifecycle``;
+        # that module owns the ``preflight_dynamic_agent`` import so the patch
+        # target follows the function.
+        with patch(
+            "autonomous_agents.services.task_lifecycle.preflight_dynamic_agent",
+            new=da_preflight,
         ):
             await _run_preflight_and_persist("custom-task")
 
         da_preflight.assert_awaited_once()
-        sup_preflight.assert_not_awaited()
         assert da_preflight.await_args.kwargs["agent_id"] == "agent-x"
 
         refreshed = await store.get("custom-task")
@@ -740,14 +740,16 @@ class TestDynamicAgentRouting:
         assert refreshed.last_ack is not None
         assert refreshed.last_ack.ack_status == "ok"
 
-    async def test_routes_supervisor_task_to_supervisor_preflight(self):
-        """No ``dynamic_agent_id`` => supervisor preflight runs."""
+    async def test_task_without_dynamic_agent_id_acks_failed(self):
+        """A legacy task with no ``dynamic_agent_id`` gets a failed ack without a backend call."""
         store = _DictTaskStore()
         set_task_store(store)
+        # Bypass the create route (which now rejects this) to simulate a row
+        # persisted before the dynamic-only routing model.
         await store.create(
             TaskDefinition(
-                id="supervisor-task",
-                name="Supervisor Task",
+                id="legacy-task",
+                name="Legacy Task",
                 agent="github",
                 prompt="open a PR",
                 trigger=CronTrigger(schedule="0 9 * * *"),
@@ -755,17 +757,19 @@ class TestDynamicAgentRouting:
         )
 
         da_preflight = AsyncMock(return_value=_ok_ack())
-        sup_preflight = AsyncMock(return_value=_ok_ack())
-
-        # Patch target follows the function -- see sibling test above.
-        with (
-            patch("autonomous_agents.services.task_lifecycle.preflight_dynamic_agent", new=da_preflight),
-            patch("autonomous_agents.services.task_lifecycle.preflight", new=sup_preflight),
+        with patch(
+            "autonomous_agents.services.task_lifecycle.preflight_dynamic_agent",
+            new=da_preflight,
         ):
-            await _run_preflight_and_persist("supervisor-task")
+            await _run_preflight_and_persist("legacy-task")
 
-        sup_preflight.assert_awaited_once()
+        # No dynamic_agent_id => we never call the backend; the ack is a
+        # clear application failure telling the operator to pick an agent.
         da_preflight.assert_not_awaited()
+        refreshed = await store.get("legacy-task")
+        assert refreshed is not None
+        assert refreshed.last_ack is not None
+        assert refreshed.last_ack.ack_status == "failed"
 
     def test_serialize_task_round_trips_dynamic_agent_id(self):
         """``_serialize_task`` echoes ``dynamic_agent_id`` for the UI label."""

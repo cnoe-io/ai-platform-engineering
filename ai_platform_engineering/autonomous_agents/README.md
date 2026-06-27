@@ -8,22 +8,19 @@ Part of the [CAIPE (Community AI Platform Engineering)](https://cnoe-io.github.i
 
 ## Overview
 
-While the main CAIPE supervisor handles on-demand, chat-driven tasks, Autonomous Agents handles **scheduled and event-driven** tasks:
+While the CAIPE UI handles on-demand, chat-driven work, Autonomous Agents handles **scheduled and event-driven** tasks:
 
 - Run an agent on a **cron schedule** (e.g. daily security scan at 09:00 UTC)
 - Run an agent at a fixed **interval** (e.g. health check every 30 minutes)
 - Run an agent when an external system fires a **webhook** (e.g. GitHub PR opened)
 
-All tasks are defined in a single `config.yaml` file. No code changes needed to add or modify tasks.
+Tasks are managed through the CAIPE UI (persisted to MongoDB) or the service's REST API. No code changes needed to add or modify tasks.
 
 ---
 
 ## Architecture
 
 ```
-config.yaml (task definitions)
-        |
-        v
   +--------------------------+
   |  Autonomous Agents       |  FastAPI :8002
   |  +------------+          |
@@ -34,25 +31,31 @@ config.yaml (task definitions)
   |  | Task Runner|          |
   |  +-----+------+          |
   +---------|-----------------+
-            |  A2A protocol
+            |  HTTP (/api/v1/chat/stream/start, SSE)
             v
   +--------------------------+
-  |  CAIPE Supervisor        |  :8000
-  |  (LangGraph ReAct agent) |
+  |  Dynamic Agents          |  :8001
+  |  (deepagents / LangGraph)|
   +--------------------------+
             |
             v
-  Sub-agents: GitHub, ArgoCD, Jira, PagerDuty ...
+  MCP tools: GitHub, ArgoCD, Jira, PagerDuty ...
 ```
 
-Tasks are loaded at startup from `config.yaml` (or MongoDB once the CRUD UI has been used). Each task is sent to the CAIPE supervisor via the [A2A protocol](https://google.github.io/A2A/) when its trigger fires.
+Task definitions live in MongoDB and are managed through the UI's admin-gated
+`/api/autonomous` proxy. Every task targets a **dynamic agent** (by
+`dynamic_agent_id`): when a trigger fires, the Task Runner POSTs the prompt to
+the dynamic-agents service's `/api/v1/chat/stream/start` endpoint, which runs
+it through that custom agent (its tools / system prompt / model / middleware).
 
-How the supervisor picks a sub-agent (see *Routing the agent hint* below):
+Identity and access:
 
-- The supervisor today is a Deep Agent whose router is an LLM. It reads the **prompt text** to choose a sub-agent and does **not** read `message.metadata.agent`.
-- When a task specifies `agent: "github"`, the autonomous-agents service therefore prepends a short `[Routing directive: ...]` line to the prompt. That tells the supervisor LLM to delegate to the named sub-agent.
-- The directive is permissive (`unless the request cannot be fulfilled by it`), so a typo'd agent name degrades gracefully into normal LLM routing instead of failing the run.
-- The structured `metadata.agent` / `metadata.llm_provider` keys are still sent on the wire — they're forward-compat for a future supervisor change that adds structured fast-path routing.
+- Each run carries the task owner's identity in the gateway `X-User-Context`
+  header, so the dynamic-agents service attributes the conversation to the
+  owner and enforces per-user / per-group authorization (OpenFGA) on the
+  target agent.
+- A missing or unauthorized agent surfaces as a failed run with a clear
+  error rather than silently doing nothing.
 
 ---
 
@@ -71,9 +74,10 @@ autonomous_agents/
       tasks.py            # GET /api/v1/tasks, /runs, POST /tasks/{id}/run
       webhooks.py         # POST /api/v1/hooks/{task_id}
     services/
-      task_loader.py      # Parses config.yaml into TaskDefinition objects
-      a2a_client.py       # Sends prompts to CAIPE supervisor via A2A
-  config.yaml             # Task definitions
+      task_lifecycle.py        # Task store, runtime hot-reload, preflight
+      task_runner.py           # Per-run execution pipeline
+      dynamic_agents_client.py # Runs prompts on the dynamic-agents service
+      mongo.py                 # MongoDB-backed task + run stores
   pyproject.toml
   Dockerfile
 ```
@@ -115,69 +119,47 @@ trigger:
 
 ## Configuration
 
-### config.yaml
+### Task definition schema
 
-Full task definition schema:
+A task (the shape stored in MongoDB / accepted by `POST /api/v1/tasks`,
+shown here as YAML for readability):
 
 ```yaml
 tasks:
   - id: "my-task"                    # unique identifier (used in API + webhook URL)
     name: "My Task"                  # human-readable label
     description: "Optional"
-    agent: "github"                  # CAIPE sub-agent to delegate to (must be enabled in supervisor).
-                                     # Surfaced to the supervisor as an in-band routing directive on
-                                     # the prompt -- see "Routing the agent hint" below. This field is
-                                     # currently required by the task schema; set it to "" (empty
-                                     # string) or whitespace to skip the directive and let the
-                                     # supervisor LLM pick a sub-agent from prompt text instead.
+    dynamic_agent_id: "agent-123"    # REQUIRED: the dynamic agent that runs this
+                                     # task. The prompt executes through that
+                                     # agent's tools / system prompt / model.
     prompt: |                        # prompt sent to the agent
       Check all open PRs and flag any that have been open for more than 7 days.
     trigger:
       type: cron
       schedule: "0 9 * * *"
-    llm_provider: "aws-bedrock"      # optional: sent as message metadata (currently informational --
-                                     # the supervisor uses its own configured LLM, see "Routing the
-                                     # agent hint" below).
     enabled: true
-    timeout_seconds: 600             # optional: override A2A_TIMEOUT_SECONDS for this task
+    timeout_seconds: 600             # optional: override DYNAMIC_AGENTS_TIMEOUT_SECONDS
 ```
 
-#### Routing the agent hint
-
-The CAIPE supervisor is a Deep Agent whose router is an LLM that reads the **prompt text**, not the A2A message metadata. To make the per-task `agent` choice actually take effect (rather than being decorative on the UI), `services/a2a_client.py` prepends a short directive to the outgoing prompt whenever `agent` is set:
-
-```
-[Routing directive: This task is targeted at the `github` sub-agent. Delegate to that sub-agent unless the request cannot be fulfilled by it.]
-
-<your task prompt>
-
-Context:
-{ ... optional structured payload, e.g. webhook body ... }
-```
-
-Notes:
-
-- The directive is **permissive**. If the task name doesn't match a registered sub-agent (typo, decommissioned agent, etc.), the supervisor falls back to normal LLM routing instead of failing the run.
-- `agent` is a **required** task field (`TaskDefinition.agent`). To give no routing hint, set it to an empty string (`""`) or whitespace; the directive is skipped entirely and the supervisor chooses from prompt text alone.
-- The agent identifier is sanitised before interpolation: only `[A-Za-z0-9._-]` survives (real agent ids are simple identifiers like `github`, `argo-cd`, `aws_bedrock`). This prevents a malformed or hostile agent value from breaking out of the directive and injecting extra instructions into the supervisor prompt.
-- `llm_provider` and the **sanitised** `agent` are also sent as `message.metadata` for forward-compat. Today the supervisor only reads `metadata.user_id` / `metadata.user_email` from incoming messages, so the current routing effect comes entirely from the prompt directive above; structured fast-path routing on `metadata.agent` would be a separate, future supervisor change.
+> **Note:** the legacy `agent` (sub-agent hint) and `llm_provider` fields are
+> deprecated no-ops kept only so task definitions persisted before the
+> dynamic-only routing model still load. The dynamic agent's own configuration
+> governs which tools and model a task uses; pick the behaviour by selecting
+> the right `dynamic_agent_id`.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `SUPERVISOR_URL` | `http://localhost:8000` | CAIPE supervisor A2A endpoint |
-| `TASK_CONFIG_PATH` | `config.yaml` | Path to task definitions file |
-| `LLM_PROVIDER` | `anthropic-claude` | Default LLM provider |
+| `DYNAMIC_AGENTS_URL` | `None` | Dynamic-agents service base URL (e.g. `http://dynamic-agents:8001`). Required to run tasks. |
+| `DYNAMIC_AGENTS_TIMEOUT_SECONDS` | `300` | Per-call timeout for the dynamic-agents streaming call. Overridable per task via `timeout_seconds`. |
+| `DYNAMIC_AGENTS_PREFLIGHT_TIMEOUT_SECONDS` | `10` | Timeout budget for the preflight check. |
+| `DYNAMIC_AGENTS_SYSTEM_EMAIL` | `autonomous@system` | Fallback identity for tasks created before per-user ownership existed. |
+| `LLM_PROVIDER` | `anthropic-claude` | Informational default; the dynamic agent's own model config governs execution. |
 | `HOST` | `0.0.0.0` | Server bind host |
 | `PORT` | `8002` | Server port |
 | `WEBHOOK_SECRET` | `None` | Global HMAC secret for webhook validation |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `A2A_TIMEOUT_SECONDS` | `300` | Per-call timeout for the supervisor SSE stream. Overridable per task via `timeout_seconds`. See *Supervisor call reliability*. |
-| `CIRCUIT_BREAKER_ENABLED` | `True` | Master kill-switch for the supervisor circuit breaker. See *Supervisor circuit breaker*. |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive failures that trip the breaker per supervisor URL. The streaming path has no retries, so each transient blip counts as one failure. |
-| `CIRCUIT_BREAKER_COOLDOWN_SECONDS` | `30` | Seconds the breaker stays OPEN before transitioning to HALF_OPEN; only one trial caller is allowed through at a time. |
-| `CIRCUIT_BREAKER_STALE_TRIAL_SECONDS` | *auto* | Leak-guard window for HALF_OPEN trials. When unset, auto-derived as `max(2 × cooldown, A2A_TIMEOUT_SECONDS × 1.5)` so a long-but-healthy streaming trial isn't reclaimed mid-flight. Override only if you've shortened `A2A_TIMEOUT_SECONDS` and want a tighter bound. |
 | `MONGODB_URI` | `None` | Optional. Enables MongoDB-backed run history. See *Run History Persistence*. |
 | `MONGODB_DATABASE` | `None` | Optional. MongoDB database name. Required together with `MONGODB_URI`. |
 | `MONGODB_COLLECTION` | `autonomous_runs` | MongoDB collection name for run history. |
@@ -247,7 +229,7 @@ chats and *autonomous* runs without a separate page.
 | Document | Collection | Deterministic key | Notes |
 |---|---|---|---|
 | Conversation (1 per run) | `CHAT_HISTORY_CONVERSATIONS_COLLECTION` (default `conversations`) | `_id = uuid5(run_id)` — deterministic UUID, satisfies the UI route validator | `source: "autonomous"`, `task_id`, `run_id` set; `owner_id = CHAT_HISTORY_OWNER_EMAIL` |
-| User message | `CHAT_HISTORY_MESSAGES_COLLECTION` (default `messages`) | `message_id = f"{run_id}-user"` | Reconstructed prompt sent to the supervisor. Webhook context is **redacted** by default (`Context: <redacted N keys>`) — set `CHAT_HISTORY_INCLUDE_CONTEXT=true` to inline the raw payload. Mongo `_id` stays as the default `ObjectId`. |
+| User message | `CHAT_HISTORY_MESSAGES_COLLECTION` (default `messages`) | `message_id = f"{run_id}-user"` | Reconstructed prompt sent to the dynamic agent. Webhook context is **redacted** by default (`Context: <redacted N keys>`) — set `CHAT_HISTORY_INCLUDE_CONTEXT=true` to inline the raw payload. Mongo `_id` stays as the default `ObjectId`. |
 | Assistant message | same | `message_id = f"{run_id}-assistant"` | Final response on success, the error message on failure, a placeholder while the run is still `RUNNING`. Mongo `_id` stays as the default `ObjectId`. |
 
 The conversation write is an upsert keyed on the deterministic `_id`;
@@ -286,100 +268,26 @@ no-op implementation, so the rest of the service is unaffected:
 
 ---
 
-## Supervisor call reliability
+## Task call reliability
 
-Each task run makes a single A2A *streaming* call to the supervisor. That
-call is treated as a normal HTTP dependency: it can be slow, restart, or
-briefly fall over behind a load balancer. The streaming endpoint is
-deliberately **not** retried -- SSE isn't safely resumable mid-flight,
-and pre-stream retries against an unhealthy supervisor would just
-multiply load. Sustained outages are caught by the *Supervisor circuit
-breaker* (next section); single transient blips fail the run cleanly and
-the next scheduled fire is a fresh attempt.
+Each task run makes a single streaming call to the dynamic-agents service.
+That call is treated as a normal HTTP dependency: it can be slow, restart,
+or briefly fall over. The streaming endpoint is deliberately **not** retried
+-- SSE isn't safely resumable mid-flight. A transient blip fails the run
+cleanly and the next scheduled fire is a fresh attempt.
 
-How the streaming caller classifies failures (mirrored in the breaker --
-see next section):
+How the streaming caller classifies failures:
 
-| Failure mode | Outcome | Why |
-|---|---|---|
-| `httpx.TransportError` (connect refused, DNS, read timeout) | Failure → counts toward breaker | Supervisor never produced a response. |
-| HTTP 5xx | Failure → counts toward breaker | Supervisor responded but is unhealthy. |
-| HTTP 4xx | Failure → released (no count) | Caller-fault (auth, validation, unknown route). Counting it would let a misconfigured task self-DoS its own URL. |
-| In-band JSON-RPC error over a successful HTTP stream | Failure → released (no count) | HTTP succeeded → supervisor connectivity is healthy; the failure is application-level. |
-| Anything else (e.g. `ValueError`) | Surfaces immediately | Real bugs aren't masked. |
+| Failure mode | Outcome |
+|---|---|
+| Transport error (connect refused, DNS, read timeout) | Run recorded `FAILED` with a "did not respond" message. |
+| HTTP 4xx / 5xx | Run recorded `FAILED` with the status and target agent. |
+| In-band SSE `error` event | Run recorded `FAILED` with the streamed error. |
+| Missing / unauthorized agent | Run recorded `FAILED` with an actionable message. |
 
-The single per-task override on `TaskDefinition`:
+The per-task override on `TaskDefinition`:
 
 - `timeout_seconds`: raise it for known long-running synthesis prompts.
-
-### Supervisor circuit breaker
-
-The autonomous-agents subsystem fires N scheduled tasks per cycle into a
-single supervisor URL. When that supervisor is unhealthy, every scheduled
-fire piles on the same broken target — turning a localised outage into a
-self-inflicted DoS from the scheduler. A circuit breaker exists to short-
-circuit those calls during a sustained outage.
-
-The breaker sits in front of `invoke_agent_streaming` (the production
-A2A call path). The state machine is the canonical one:
-
-```
-CLOSED ── N consecutive failures ──► OPEN
-   ▲                                    │
-   │                                    │ cooldown elapses
-   │                                    ▼
-   └─── success on trial ─────── HALF_OPEN ── failure ─► OPEN
-```
-
-Key contracts:
-
-- **No retry layer in front of the breaker.** The streaming path is not
-  safely resumable mid-flight (SSE), and pre-stream retries are a
-  deliberate non-feature: a single transient pre-stream error (TLS
-  reset, brief 503, DNS hiccup) consumes one breaker failure directly.
-  With the default `CIRCUIT_BREAKER_FAILURE_THRESHOLD=5` the breaker
-  absorbs occasional flakes; sustained failures trip it after 5 in a
-  row, which is the intended behaviour.
-- **5xx and transport errors count toward the threshold.** These are
-  the supervisor-sick signals.
-- **4xx never trips the breaker.** Caller-fault responses (bad payload,
-  bad auth, unknown route) are not a sign that the supervisor is
-  unhealthy, so a misconfigured task can't self-DoS its own URL. The
-  HALF_OPEN trial slot is released without a state change.
-- **In-band JSON-RPC errors over a successful HTTP stream don't trip
-  either.** HTTP succeeded → supervisor connectivity is fine; the
-  failure is application-level. Same release-trial treatment as 4xx.
-- **Per-URL.** Tracked separately for each `SUPERVISOR_URL`, so one
-  bad URL never poisons the breaker entry for another.
-- **OPEN short-circuits without a connection.** A blocked call raises
-  `CircuitBreakerOpenError` immediately, carries the URL and the
-  remaining cooldown, and is recorded as a normal failed run with a
-  diagnostic message — much more actionable than a generic timeout.
-- **Single-flight HALF_OPEN trial.** When the cooldown expires the
-  *first* caller flips OPEN → HALF_OPEN and is the trial; concurrent
-  callers see HALF_OPEN-with-trial-in-flight and are blocked until
-  that trial resolves. Without this, the instant cooldown expires we
-  would fan a real outage's worth of concurrent traffic at the
-  recovering supervisor — exactly what the breaker is meant to
-  prevent.
-- **Stale-trial leak guard.** If a trial caller dies without reporting
-  back (process killed, network unplugged), the trial slot is
-  reclaimed after `CIRCUIT_BREAKER_STALE_TRIAL_SECONDS` so a healthy
-  caller can probe. The default auto-derives to
-  `max(2 × cooldown, A2A_TIMEOUT_SECONDS × 1.5)` so a long-but-
-  healthy streaming call (which can run for the full
-  `A2A_TIMEOUT_SECONDS`, default 300s) isn't reclaimed mid-flight.
-  Override only if you've shortened the streaming timeout.
-- **Emergency bypass / kill-switch.** The breaker is enabled by
-  default. Set `CIRCUIT_BREAKER_ENABLED=0` to bypass the feature
-  entirely (every method becomes a no-op) only as a temporary
-  measure if it ever misbehaves in production while you diagnose.
-
-Tune `CIRCUIT_BREAKER_FAILURE_THRESHOLD` and
-`CIRCUIT_BREAKER_COOLDOWN_SECONDS` together: lower thresholds /
-shorter cooldowns trip more aggressively (good when the supervisor
-is fast to recover); higher thresholds / longer cooldowns avoid
-false positives on brief restarts.
 
 ---
 
@@ -389,7 +297,7 @@ false positives on brief restarts.
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
-- A running CAIPE supervisor (see root [README](../../../../README.md))
+- A running dynamic-agents service (see root [README](../../../../README.md))
 
 ### Install and Run Locally
 
@@ -402,9 +310,7 @@ uv pip install -e .
 
 # Configure
 cp ../../.env .env
-echo "SUPERVISOR_URL=http://localhost:8000" >> .env
-
-# Edit config.yaml - set enabled: true on at least one task
+echo "DYNAMIC_AGENTS_URL=http://localhost:8001" >> .env
 
 # Run
 uv run uvicorn autonomous_agents.main:app --port 8002 --reload
@@ -430,8 +336,7 @@ docker run \
   --pids-limit=256 \
   --memory=512m --cpus=1 \
   -p 8002:8002 \
-  -e SUPERVISOR_URL=http://host.docker.internal:8000 \
-  -e LLM_PROVIDER=anthropic-claude \
+  -e DYNAMIC_AGENTS_URL=http://host.docker.internal:8001 \
   autonomous-agents
 ```
 
@@ -442,7 +347,7 @@ Notes:
   `APP_GID` build args, use those numeric IDs (or just `app:app`,
   since the username resolves inside the container either way).
 - `--read-only` is what makes `/app` effectively immutable at runtime.
-  The application source and `config.yaml` are root-owned with
+  The application source files are root-owned with
   default 644 perms (the `app` user can read but not write them even
   without `--read-only`). Only `/app/.venv` is `app`-owned, and it
   isn't mutated during normal operation.
@@ -470,25 +375,21 @@ Once running, the interactive API docs are at `http://localhost:8002/docs`.
 
 ## Adding a New Task
 
-1. Open `config.yaml`
-2. Add a new entry under `tasks:`
-3. Set `enabled: true`
-4. Restart the service (or it will pick up changes on next restart)
-
-No code changes required.
+Tasks are managed through the CAIPE UI's admin-gated **Autonomous** tab
+(backed by the `/api/autonomous` proxy and persisted to MongoDB) or by
+POSTing a `TaskDefinition` to `POST /api/v1/tasks`. Each task must set a
+`dynamic_agent_id`; new definitions without one are rejected. No code or
+service restart is required — the scheduler hot-reloads on create/update.
 
 ---
 
-## Supported LLM Providers
+## LLM provider / model
 
-Per task via the `llm_provider` field, or globally via `LLM_PROVIDER` env var:
-
-| Value | Provider |
-|---|---|
-| `anthropic-claude` | Anthropic Claude API |
-| `aws-bedrock` | AWS Bedrock |
-| `openai` | OpenAI API |
-| `azure-openai` | Azure OpenAI |
+The model a task uses is part of the **dynamic agent** it targets
+(`dynamic_agent_id`), configured in the dynamic-agents service. The
+autonomous-agents service does not pick a model itself; the per-task
+`llm_provider` field is a deprecated no-op retained only for backward
+compatibility with older task definitions.
 
 ---
 

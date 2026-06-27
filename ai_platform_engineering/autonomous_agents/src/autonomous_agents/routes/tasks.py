@@ -188,9 +188,22 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
     task would sit in MongoDB unschedulable while every retry POST
     bounced with 409 (PR #5 review, Codex P2).
     """
+    # Every autonomous task runs against a dynamic agent (the dynamic-agents
+    # runtime is the only execution backend; the legacy supervisor /
+    # sub-agent routing was removed upstream). Reject creation without a
+    # dynamic_agent_id so a task can never be persisted with no way to run.
+    if not task.dynamic_agent_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "dynamic_agent_id is required: every autonomous task must "
+                "target a dynamic agent. Select a custom agent for this task."
+            ),
+        )
+
     # last_ack is server-managed (spec #099 FR-002). Scrub any value the
     # caller supplied so a malicious or buggy client cannot pre-populate
-    # a green "Ack OK" badge for a task the supervisor has not seen.
+    # a green "Ack OK" badge for a task the runtime has not seen.
     if task.last_ack is not None:
         task = task.model_copy(update={"last_ack": None})
 
