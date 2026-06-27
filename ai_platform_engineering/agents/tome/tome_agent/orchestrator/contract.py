@@ -98,6 +98,11 @@ class IngestRequest(BaseModel):
     connector_data: dict[str, Any] = Field(default_factory=dict)
     snapshot: ProjectSnapshot
     is_greenfield: bool
+    seed_stable_pages: bool = False
+    """Opt-in (default false), greenfield only. When true the agent writes a
+    best-effort DRAFT into the stable pages (charter/objectives/roadmap),
+    clearly marked for human review. When false, stable pages are human-owned
+    and the agent never writes them."""
     report_id: UUID
     """Backend pre-creates the `Report` row so persist-hook callbacks can
     tag revisions with it. Agent never invents these IDs."""

@@ -46,7 +46,17 @@ export async function isIngestRunning(projectId: string): Promise<boolean> {
  */
 export async function startIngestRun(
   ctx: TomeProjectContext,
-  opts: { seed?: string | null; webexMeetings?: { id: string; title: string; start: string }[] },
+  opts: {
+    seed?: string | null;
+    webexMeetings?: { id: string; title: string; start: string }[];
+    /**
+     * Greenfield only, opt-in (default false). When true the ingest agent is
+     * authorized to write a best-effort DRAFT into the stable pages (charter /
+     * objectives / roadmap). When false, stable pages stay human-owned and the
+     * agent never touches them — they keep their empty founding templates.
+     */
+    seedStablePages?: boolean;
+  },
 ): Promise<{ runId: string }> {
   const projectId = ctx.projectId;
   if (await isIngestRunning(projectId)) {
@@ -88,8 +98,10 @@ export async function startIngestRun(
   };
   await runs.insertOne(run);
 
-  // Greenfield: seed the stable pages deterministically from their founding
-  // templates (agent is told not to touch them). charter ← project.description.
+  // Greenfield: always seed the stable pages from their founding templates so
+  // the pages exist (with their `## section` scaffold) for humans to fill in.
+  // charter ← project.description. Whether the AGENT then drafts content over
+  // these is the separate, opt-in `seedStablePages` flag passed to the agent.
   if (isGreenfield) {
     const seeds: Record<string, string> = stableSeedTemplates();
     const desc = (ctx.project.description ?? "").trim();
@@ -123,6 +135,8 @@ export async function startIngestRun(
     isGreenfield,
     connectorData,
     credentials,
+    // Opt-in only, and only meaningful on greenfield.
+    seedStablePages: isGreenfield && opts.seedStablePages === true,
   });
 
   const task = driveIngest(projectId, runId, reportId, req).finally(() =>

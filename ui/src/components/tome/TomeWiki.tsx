@@ -152,7 +152,6 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
-  const [seeding, setSeeding] = useState(false);
   // First-run onboarding: project title (for the modal copy) + open state.
   const [projectTitle, setProjectTitle] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -303,20 +302,6 @@ export function TomeWiki({ slug }: { slug: string }) {
     },
     [writeMarkdown, load],
   );
-
-  const handleSeed = useCallback(async () => {
-    setSeeding(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/tome/projects/${slug}/pages`, { method: "POST" });
-      if (!res.ok) throw new Error(`seed failed (${res.status})`);
-      await load();
-    } catch (e) {
-      setError(String((e as Error)?.message ?? e));
-    } finally {
-      setSeeding(false);
-    }
-  }, [slug, load]);
 
   const crumbs = useMemo<Crumb[]>(() => {
     switch (view.kind) {
@@ -575,8 +560,8 @@ export function TomeWiki({ slug }: { slug: string }) {
                 ) : isEmpty ? (
                   <div className="px-2 py-2 text-xs text-muted-foreground">
                     <p className="mb-2">No wiki pages yet.</p>
-                    <Button size="sm" onClick={handleSeed} disabled={seeding}>
-                      {seeding ? "Seeding…" : "Seed wiki"}
+                    <Button size="sm" onClick={() => navigate({ kind: "ingest" })}>
+                      Run an ingest
                     </Button>
                   </div>
                 ) : (

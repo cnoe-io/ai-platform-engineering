@@ -298,9 +298,17 @@ export function TalkPanel({ slug }: { slug: string }) {
           {loading && messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p>
           ) : messages.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-40" />
-              No messages yet. Start the conversation about this project.
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <MessagesSquare className="h-6 w-6 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold">Talk about {slug}</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                The project&apos;s talk page — discussion about{" "}
+                <span className="font-medium">{slug}</span>, powered by Mycelium. People and
+                agents post decisions, questions, and updates here. The wiki holds the durable
+                context; this holds the conversation that shapes it.
+              </p>
             </div>
           ) : (
             messages.map((m, i) => {

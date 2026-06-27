@@ -111,6 +111,12 @@ export interface AgentIngestRequest {
   connector_data: Record<string, unknown>;
   snapshot: ProjectSnapshot;
   is_greenfield: boolean;
+  /**
+   * Opt-in (default false), greenfield only. Authorizes the agent to write a
+   * best-effort DRAFT into the stable pages (charter/objectives/roadmap).
+   * When false, stable pages stay human-owned and untouched.
+   */
+  seed_stable_pages: boolean;
   report_id: string;
   /** Same as `AgentChatRequest.credentials`. */
   credentials: ForwardedCredentials;
@@ -281,6 +287,7 @@ export function buildIngestRequest(
     isGreenfield: boolean;
     connectorData?: Record<string, unknown>;
     credentials?: ForwardedCredentials;
+    seedStablePages?: boolean;
   },
 ): AgentIngestRequest {
   return {
@@ -290,6 +297,7 @@ export function buildIngestRequest(
     connector_data: opts.connectorData ?? {},
     snapshot: buildSnapshot(ctx),
     is_greenfield: opts.isGreenfield,
+    seed_stable_pages: opts.seedStablePages ?? false,
     credentials: opts.credentials ?? {},
   };
 }

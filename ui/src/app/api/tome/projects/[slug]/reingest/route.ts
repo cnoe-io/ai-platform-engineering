@@ -27,12 +27,14 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const body = (await request.json().catch(() => ({}))) as {
     seed?: string;
     webexMeetings?: { id: string; title: string; start: string }[];
+    seedStablePages?: boolean;
   };
 
   try {
     const { runId } = await startIngestRun(tctx, {
       seed: body.seed ?? null,
       webexMeetings: body.webexMeetings,
+      seedStablePages: body.seedStablePages,
     });
     return successResponse({ runId });
   } catch (e) {

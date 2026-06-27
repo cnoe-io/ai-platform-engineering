@@ -10,6 +10,7 @@ import {
   Loader2,
   Play,
   Search,
+  Sprout,
   Square,
   XCircle,
 } from "lucide-react";
@@ -43,7 +44,14 @@ interface WebexMeeting {
 interface ProjectSources {
   repos: string[];
   confluence_url: string;
-  webex_rooms: Array<{ id: string; title?: string }>;
+  // Stored shape is { room_id, name, slug }; tolerate older { id, title } too.
+  webex_rooms: Array<{
+    room_id?: string;
+    name?: string;
+    slug?: string;
+    id?: string;
+    title?: string;
+  }>;
 }
 
 interface SourceRow {
@@ -88,11 +96,14 @@ function sourcesFromProject(s: Partial<ProjectSources>): SourceRow[] {
     });
   }
   const rooms = Array.isArray(s.webex_rooms) ? s.webex_rooms : [];
-  if (rooms.length > 0) {
+  const roomLabels = rooms
+    .map((r) => r.name || r.title || r.room_id || r.id || "")
+    .filter(Boolean);
+  if (roomLabels.length > 0) {
     rows.push({
       kind: "webex",
       label: "Webex",
-      items: rooms.map((r) => r.title ?? r.id),
+      items: roomLabels,
       connectorKey: "webex",
     });
   }
@@ -225,6 +236,10 @@ export function IngestPanel({
   const [connectedKeys, setConnectedKeys] = useState<Set<string>>(new Set());
   const [sourcesLoading, setSourcesLoading] = useState(true);
 
+  // Greenfield seeding — opt-in. Off by default: stable pages stay human-owned
+  // unless the user explicitly authorizes a best-effort agent draft.
+  const [seedPages, setSeedPages] = useState(false);
+
   // Meeting picker
   const [meetingsOpen, setMeetingsOpen] = useState(false);
   const [meetings, setMeetings] = useState<WebexMeeting[] | null>(null);
@@ -346,6 +361,8 @@ export function IngestPanel({
     }
   }, [activeRun, slug, loadRuns]);
 
+  const isGreenfield = runs !== null && runs.length === 0;
+
   const start = useCallback(async () => {
     setStarting(true);
     setError(null);
@@ -357,6 +374,7 @@ export function IngestPanel({
         body: JSON.stringify({
           seed: seed.trim() || undefined,
           webexMeetings: selectedList.length > 0 ? selectedList : undefined,
+          seedStablePages: isGreenfield ? seedPages : undefined,
         }),
       });
       if (!res.ok) {
@@ -373,7 +391,7 @@ export function IngestPanel({
     } finally {
       setStarting(false);
     }
-  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted]);
+  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages]);
 
   const lastRun = runs?.[0] ?? null;
   const filteredMeetings = (meetings ?? []).filter((m) =>
@@ -573,6 +591,42 @@ export function IngestPanel({
                 className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
               />
             </div>
+
+            {/* First ingest — stable-page seeding (greenfield only) */}
+            {isGreenfield && (
+              <div className="rounded-lg border border-emerald-800/30 bg-emerald-950/20 px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <Sprout className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <div className="flex-1 space-y-2.5">
+                    <div>
+                      <p className="text-sm font-medium text-emerald-300">First ingest</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        No previous ingests for this project — the agent will build the wiki from
+                        scratch.
+                      </p>
+                    </div>
+                    <label className="flex cursor-pointer items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={seedPages}
+                        onChange={(e) => setSeedPages(e.target.checked)}
+                        disabled={!canEdit || starting}
+                        className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                      />
+                      <span className="text-sm">
+                        Let the agent draft the stable pages
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          By default Charter, Objectives, and Roadmap stay yours to write. Check this
+                          to let the agent take a best-effort first pass at them from your sources,
+                          clearly marked as a draft. Only safe if a human reviews and edits the
+                          result afterward — the agent can be wrong.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Run bar */}

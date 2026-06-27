@@ -189,6 +189,7 @@ async def ingest_endpoint(body: IngestRequest):
                 connector_data=body.connector_data,
                 snapshot=body.snapshot,
                 is_greenfield=body.is_greenfield,
+                seed_stable_pages=body.seed_stable_pages,
                 report_id=body.report_id,
             ):
                 yield _sse_format(event)

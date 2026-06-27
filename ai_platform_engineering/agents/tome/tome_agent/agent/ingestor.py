@@ -67,6 +67,7 @@ def _build_system_prompt(
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
     connector_extras: dict[str, Any] | None = None,
+    seed_stable_pages: bool = False,
 ) -> str:
     """Compose the ingest agent's system prompt by iterating REGISTRY."""
     top_level = format_pages(report_schema.DEFAULT_PAGES)
@@ -99,22 +100,40 @@ def _build_system_prompt(
             + "\n\n"
         )
 
-    # Stable pages are pre-created by the backend (founding templates) and are
-    # human-owned — the agent must never write them. On greenfield it writes
-    # only the dynamic/report/hidden pages.
+    # Stable pages (charter/objectives/roadmap) are pre-created by the backend as
+    # empty founding templates and are human-owned by default. Three modes:
+    #   - incremental: never touch them (humans own them; preserve).
+    #   - greenfield, opt-in OFF (default): leave them as empty templates for the
+    #     team to fill; write only the other seed pages.
+    #   - greenfield, opt-in ON: the team explicitly authorized a best-effort
+    #     first-pass DRAFT — read each, then overwrite with sourced content,
+    #     clearly framed as an agent draft for human review.
     stable_paths = ", ".join(f"`{p}`" for p in report_schema.default_stable_paths())
-    mode_block = (
-        "MODE: GREENFIELD. The wiki is empty except for the stable pages "
-        f"({stable_paths}), which are pre-created and human-owned — do NOT "
-        "write, edit, or overwrite them. Write every OTHER seed page listed "
-        "above (dynamic/report/hidden) with its declared kind in the YAML "
-        "frontmatter."
-        if is_greenfield
-        else (
+    if not is_greenfield:
+        mode_block = (
             "MODE: INCREMENTAL. Apply the page-kind rules above against the existing pages. "
             "Read every page first; rewrite dynamic/report pages, preserve stable/hidden."
         )
-    )
+    elif seed_stable_pages:
+        mode_block = (
+            "MODE: GREENFIELD, STABLE-PAGE SEEDING ENABLED. The project team has explicitly "
+            f"opted in to a best-effort agent draft of the stable pages ({stable_paths}). These "
+            "pages currently hold empty founding templates on disk. For EACH stable page: Read "
+            "it first, then OVERWRITE it with a best-effort draft synthesized from the available "
+            "sources (README, CLAUDE.md, repo docs, recent activity) — fill the existing "
+            "`## section` headers, keep the YAML frontmatter and its declared kind. Begin each "
+            "stable page body with a one-line italic note marking it an agent-generated draft for "
+            "the team to review and refine — never present it as authoritative. Also write every "
+            "dynamic/report/hidden seed page listed above with its declared kind."
+        )
+    else:
+        mode_block = (
+            "MODE: GREENFIELD. The wiki is empty except for the stable pages "
+            f"({stable_paths}), which are pre-created and human-owned — do NOT "
+            "write, edit, or overwrite them. Write every OTHER seed page listed "
+            "above (dynamic/report/hidden) with its declared kind in the YAML "
+            "frontmatter."
+        )
 
     phase = snapshot.phase or "(unset)"
     cadence = snapshot.cadence or "(unset)"
@@ -163,6 +182,7 @@ async def stream_ingest(
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
     report_id: UUID,
+    seed_stable_pages: bool = False,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run an ingest as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
@@ -185,7 +205,9 @@ async def stream_ingest(
 
     options = build_agent_options(
         snapshot=snapshot,
-        system_prompt=_build_system_prompt(snapshot, is_greenfield, extras),
+        system_prompt=_build_system_prompt(
+            snapshot, is_greenfield, extras, seed_stable_pages=seed_stable_pages
+        ),
         model=_ingest_model(),
         max_turns=MAX_TURNS,
         persist_author="ttt-pipeline",
