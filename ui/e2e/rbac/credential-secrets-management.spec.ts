@@ -253,7 +253,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
@@ -285,7 +285,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
@@ -342,7 +342,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByText("GitHub token")).toBeVisible({ timeout: 30_000 });
 
@@ -367,7 +367,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByText("GitHub token")).toBeVisible({ timeout: 30_000 });
 
@@ -492,7 +492,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     });
 
     await signIn(page, env);
-    await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
       timeout: 30_000,

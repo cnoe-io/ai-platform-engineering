@@ -321,7 +321,7 @@ test.describe("mocked credentials workspace browser regression", () => {
       await relayPage.waitForLoadState("domcontentloaded");
       await relayPage.close().catch(() => undefined);
 
-      await expect(page).toHaveURL(/\/credentials\?tab=connections$/);
+      await expect(page).toHaveURL(/\/credentials$/);
       await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
       await expect(page.getByText("Atlassian Cloud")).toBeVisible();
       await expect(page.getByText("healthy")).toBeVisible();
