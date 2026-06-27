@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from abc import abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Protocol
+
+logger = logging.getLogger(__name__)
+
+# assisted-by Codex Codex-sonnet-4-6
+PUBLIC_FLUSH_ERROR = "audit flush failed; see audit-service logs"
 
 
 class AuditStore(Protocol):
@@ -160,9 +166,10 @@ class AuditQueueService:
             self.flushed_events += len(batch)
             self.last_flush_at = _utc_now_iso()
             self.last_error = None
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             self.failed_flushes += 1
-            self.last_error = str(exc)
+            self.last_error = PUBLIC_FLUSH_ERROR
+            logger.exception("failed to flush audit batch")
         finally:
             for _ in batch:
                 self.queue.task_done()
