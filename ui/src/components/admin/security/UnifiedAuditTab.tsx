@@ -10,23 +10,21 @@ import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import type { AuditEventType,UnifiedAuditEvent,UnifiedAuditOutcome } from "@/lib/rbac/types";
 import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  CircleHelp,
-  Clock,
-  Database,
-  Download,
+ChevronDown,
+ChevronLeft,
+ChevronRight,
+ChevronUp,
+CircleHelp,
+Clock,
+Database,
+Download,
   GitBranch,
   KeyRound,
   Loader2,
   Network,
   RefreshCw,
   RotateCcw,
-  Save,
   Search,
-  Settings2,
   Shield,
   UserPlus,
   Wrench,
@@ -57,37 +55,6 @@ interface AuditStorageConfig {
   readsWarning?: string;
   storageBackend?: string;
   storageLabel?: string;
-}
-
-interface AuditStorageInfo {
-  storage: {
-    backend?: string;
-    audit_bytes?: number;
-    audit_bytes_human?: string;
-    total_bytes?: number;
-    total_bytes_human?: string;
-    object_count?: number;
-    capped?: boolean;
-    local_path?: string;
-    retention_days?: number;
-  } | null;
-  retention: {
-    backend?: string;
-    retention_days?: number;
-    configurable?: boolean;
-    note?: string;
-    bucket?: string;
-    prefix?: string;
-  } | null;
-  verbosity: {
-    verbosity?: string;
-    label?: string;
-    description?: string;
-    allowed_types?: string[];
-    allow_all?: boolean;
-    available_presets?: { name: string; label: string; description: string; allowed_types: string[]; allow_all: boolean }[];
-  } | null;
-  errors: string[];
 }
 
 const TIME_WINDOW_OPTIONS = [
@@ -556,11 +523,6 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [auditConfig, setAuditConfig] = useState<AuditStorageConfig | null>(null);
-  const [storageInfo, setStorageInfo] = useState<AuditStorageInfo | null>(null);
-  const [showStoragePanel, setShowStoragePanel] = useState(false);
-  const [retentionInput, setRetentionInput] = useState("");
-  const [retentionSaving, setRetentionSaving] = useState(false);
-  const [retentionSaveMsg, setRetentionSaveMsg] = useState<string | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const auditConfigRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -629,43 +591,6 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
     }
   }, [isAdmin]);
 
-  const fetchStorageInfo = useCallback(async () => {
-    if (!isAdmin) return;
-    try {
-      const res = await fetch("/api/admin/audit-storage");
-      if (res.ok) {
-        setStorageInfo((await res.json()) as AuditStorageInfo);
-      }
-    } catch {
-      // best-effort
-    }
-  }, [isAdmin]);
-
-  const saveRetention = useCallback(async () => {
-    const days = parseInt(retentionInput, 10);
-    if (isNaN(days) || days < 0) return;
-    setRetentionSaving(true);
-    setRetentionSaveMsg(null);
-    try {
-      const res = await fetch("/api/admin/audit-storage/retention", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ days }),
-      });
-      const data = (await res.json()) as Record<string, unknown>;
-      if (!res.ok) {
-        setRetentionSaveMsg(`Error: ${data.error ?? res.status}`);
-      } else {
-        setRetentionSaveMsg(`Saved — lifecycle rule set to ${days} day${days !== 1 ? "s" : ""}.`);
-        await fetchStorageInfo();
-      }
-    } catch (err) {
-      setRetentionSaveMsg(`Error: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setRetentionSaving(false);
-    }
-  }, [retentionInput, fetchStorageInfo]);
-
   const downloadEvents = useCallback(async () => {
     setExporting(true);
     setError(null);
@@ -729,11 +654,10 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   useEffect(() => {
     if (!isAdmin) return;
     fetchAuditConfig().catch(() => undefined);
-    fetchStorageInfo().catch(() => undefined);
     return () => {
       if (auditConfigRetryRef.current) clearTimeout(auditConfigRetryRef.current);
     };
-  }, [isAdmin, fetchAuditConfig, fetchStorageInfo]);
+  }, [isAdmin, fetchAuditConfig]);
 
   useEffect(() => {
     if (autoRefresh) {
@@ -844,147 +768,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
               <RotateCcw className="h-3.5 w-3.5" />
               Refresh
             </Button>
-            <Button
-              variant={showStoragePanel ? "secondary" : "outline"}
-              size="sm"
-              onClick={() => {
-                setShowStoragePanel((v) => !v);
-                if (!storageInfo) fetchStorageInfo().catch(() => undefined);
-              }}
-              className="gap-1.5"
-              title="Storage usage, retention, and verbosity settings"
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              Settings
-            </Button>
           </div>
         </div>
       </CardHeader>
-
-      {/* Storage & Retention Panel */}
-      {showStoragePanel && (
-        <div className="mx-6 mb-4 rounded-lg border border-border/60 bg-muted/30 p-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            {/* Storage Usage */}
-            <div>
-              <div className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Storage Usage</div>
-              {storageInfo?.storage ? (
-                <div className="text-sm space-y-0.5">
-                  <div>
-                    <span className="text-muted-foreground">Backend: </span>
-                    <span className="font-medium">{storageInfo.storage.backend ?? "—"}</span>
-                  </div>
-                  {storageInfo.storage.backend === "local" && (
-                    <>
-                      <div>
-                        <span className="text-muted-foreground">Audit dir size: </span>
-                        <span className="font-medium">{storageInfo.storage.audit_bytes_human ?? "—"}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate" title={storageInfo.storage.local_path}>
-                        {storageInfo.storage.local_path}
-                      </div>
-                    </>
-                  )}
-                  {storageInfo.storage.backend === "s3" && (
-                    <>
-                      <div>
-                        <span className="text-muted-foreground">Objects: </span>
-                        <span className="font-medium">
-                          {storageInfo.storage.object_count?.toLocaleString() ?? "—"}
-                          {storageInfo.storage.capped ? "+" : ""}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Size: </span>
-                        <span className="font-medium">{storageInfo.storage.total_bytes_human ?? "—"}</span>
-                        {storageInfo.storage.capped && (
-                          <span className="ml-1 text-xs text-muted-foreground">(partial scan)</span>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">{storageInfo ? "Unavailable" : "Loading…"}</div>
-              )}
-            </div>
-
-            {/* Retention */}
-            <div>
-              <div className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Retention</div>
-              {storageInfo?.retention ? (
-                <div className="text-sm space-y-1.5">
-                  <div>
-                    <span className="text-muted-foreground">Current: </span>
-                    <span className="font-medium">
-                      {storageInfo.retention.retention_days
-                        ? `${storageInfo.retention.retention_days} day${storageInfo.retention.retention_days !== 1 ? "s" : ""}`
-                        : "Not set"}
-                    </span>
-                  </div>
-                  {storageInfo.retention.configurable ? (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min={0}
-                        placeholder="days (0 = off)"
-                        value={retentionInput}
-                        onChange={(e) => setRetentionInput(e.target.value)}
-                        className="h-7 w-28 text-sm"
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 gap-1 text-xs"
-                        disabled={retentionSaving || retentionInput === ""}
-                        onClick={saveRetention}
-                      >
-                        {retentionSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                        Save
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">{storageInfo.retention.note}</div>
-                  )}
-                  {retentionSaveMsg && (
-                    <div className={`text-xs ${retentionSaveMsg.startsWith("Error") ? "text-destructive" : "text-green-600 dark:text-green-400"}`}>
-                      {retentionSaveMsg}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">{storageInfo ? "Unavailable" : "Loading…"}</div>
-              )}
-            </div>
-
-            {/* Verbosity */}
-            <div>
-              <div className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Log Verbosity</div>
-              {storageInfo?.verbosity ? (
-                <div className="text-sm space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <Badge variant="outline" className="text-[11px]">
-                      {storageInfo.verbosity.verbosity ?? "—"}
-                    </Badge>
-                  </div>
-                  <div className="text-xs text-muted-foreground">{storageInfo.verbosity.description}</div>
-                  {!storageInfo.verbosity.allow_all && storageInfo.verbosity.allowed_types && storageInfo.verbosity.allowed_types.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {storageInfo.verbosity.allowed_types.map((t) => (
-                        <span key={t} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{t}</span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="text-xs text-muted-foreground mt-1">Set <code className="font-mono">AUDIT_LOG_VERBOSITY</code> to change preset.</div>
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">{storageInfo ? "Unavailable" : "Loading…"}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       <CardContent>
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-4">

@@ -76,10 +76,6 @@ spec:
             - name: AUDIT_SERVICE_S3_ENDPOINT_URL
               value: {{ .Values.storage.s3.endpointUrl | quote }}
             {{- end }}
-            - name: AUDIT_SERVICE_S3_RETENTION_DAYS
-              value: {{ .Values.storage.s3.retentionDays | default 0 | quote }}
-            - name: AUDIT_LOG_VERBOSITY
-              value: {{ .Values.verbosity | default "minimal" | quote }}
             - name: AUDIT_SERVICE_QUEUE_MAX_SIZE
               value: {{ .Values.queue.maxSize | quote }}
             - name: AUDIT_SERVICE_FLUSH_BATCH_SIZE
