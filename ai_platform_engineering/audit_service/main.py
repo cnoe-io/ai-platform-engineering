@@ -14,6 +14,12 @@ from ai_platform_engineering.audit_service.config import Settings
 from ai_platform_engineering.audit_service.models import AuditEvent, IngestResponse, QueryResponse
 from ai_platform_engineering.audit_service.queue_service import AuditQueueService
 from ai_platform_engineering.audit_service.storage import AuditQuery, LocalAuditStore, S3AuditStore
+from ai_platform_engineering.audit_service.verbosity import (
+    PRESET_DESCRIPTIONS,
+    PRESET_LABELS,
+    PRESET_TYPES,
+    filter_records,
+)
 
 _WINDOWS: dict[str, timedelta] = {
     "5m": timedelta(minutes=5),
@@ -212,7 +218,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/audit/events", response_model=IngestResponse, status_code=202)
     async def ingest_events(request: Request, payload: Any = Body(...)) -> IngestResponse:
         service: AuditQueueService = request.app.state.audit_queue
+        current_settings: Settings = request.app.state.audit_settings
         events = _normalize_payload(payload)
+        events = filter_records(events, current_settings.verbosity)
+        if not events:
+            return IngestResponse(accepted=0, queued=service.queue.qsize())
         if not service.enqueue_many(events):
             raise HTTPException(status_code=503, detail="audit queue full")
         return IngestResponse(accepted=len(events), queued=service.queue.qsize())
@@ -281,7 +291,112 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         result = await asyncio.to_thread(store.query, audit_query)
         return QueryResponse(records=result.records, total=result.total, limit=query_limit, truncated=result.truncated)
 
+    @app.get("/v1/audit/verbosity")
+    async def get_verbosity(request: Request) -> dict[str, Any]:
+        current_settings: Settings = request.app.state.audit_settings
+        v = current_settings.verbosity
+        allowed = sorted(PRESET_TYPES.get(v, frozenset()))
+        return {
+            "verbosity": v,
+            "label": PRESET_LABELS.get(v, v),
+            "description": PRESET_DESCRIPTIONS.get(v, ""),
+            "allowed_types": allowed,
+            "allow_all": len(PRESET_TYPES.get(v, frozenset())) == 0,
+            "available_presets": [
+                {
+                    "name": name,
+                    "label": PRESET_LABELS[name],
+                    "description": PRESET_DESCRIPTIONS[name],
+                    "allowed_types": sorted(types) if types else [],
+                    "allow_all": len(types) == 0,
+                }
+                for name, types in PRESET_TYPES.items()
+            ],
+        }
+
+    @app.get("/v1/audit/storage")
+    async def get_storage_usage(request: Request) -> dict[str, Any]:
+        store = request.app.state.audit_store
+        current_settings: Settings = request.app.state.audit_settings
+        if isinstance(store, LocalAuditStore):
+            audit_bytes = await asyncio.to_thread(store.audit_dir_bytes)
+            return {
+                "backend": "local",
+                "audit_bytes": audit_bytes,
+                "audit_bytes_human": _format_bytes_local(audit_bytes),
+                "local_path": current_settings.local_path,
+                "retention_days": current_settings.local_retention_days,
+            }
+        if isinstance(store, S3AuditStore):
+            usage = await asyncio.to_thread(store.storage_usage)
+            return {
+                "backend": "s3",
+                **usage,
+                "bucket": current_settings.s3_bucket,
+                "prefix": current_settings.s3_prefix,
+            }
+        return {"backend": "unknown"}
+
+    @app.get("/v1/audit/retention")
+    async def get_retention(request: Request) -> dict[str, Any]:
+        store = request.app.state.audit_store
+        current_settings: Settings = request.app.state.audit_settings
+        if isinstance(store, LocalAuditStore):
+            return {
+                "backend": "local",
+                "retention_days": current_settings.local_retention_days,
+                "configurable": False,
+                "note": "Set AUDIT_SERVICE_LOCAL_RETENTION_DAYS and restart to change.",
+            }
+        if isinstance(store, S3AuditStore):
+            days = await asyncio.to_thread(store.get_s3_retention_days)
+            return {
+                "backend": "s3",
+                "retention_days": days,
+                "configurable": True,
+                "bucket": current_settings.s3_bucket,
+                "prefix": current_settings.s3_prefix,
+            }
+        return {"backend": "unknown", "configurable": False}
+
+    @app.put("/v1/audit/retention")
+    async def set_retention(request: Request, body: Any = Body(...)) -> dict[str, Any]:
+        store = request.app.state.audit_store
+        current_settings: Settings = request.app.state.audit_settings
+        if not isinstance(store, S3AuditStore):
+            raise HTTPException(
+                status_code=400,
+                detail="Retention can only be updated at runtime for the S3 backend. "
+                "For local disk, set AUDIT_SERVICE_LOCAL_RETENTION_DAYS and restart.",
+            )
+        if not isinstance(body, dict) or "days" not in body:
+            raise HTTPException(status_code=400, detail='body must be {"days": N}')
+        try:
+            days = int(body["days"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="days must be an integer") from exc
+        if days < 0:
+            raise HTTPException(status_code=400, detail="days must be >= 0 (use 0 to disable lifecycle rule)")
+        await asyncio.to_thread(store.set_s3_retention_days, days)
+        _logger.info("S3 audit retention updated: bucket=%s days=%d", current_settings.s3_bucket, days)
+        return {
+            "backend": "s3",
+            "retention_days": days,
+            "bucket": current_settings.s3_bucket,
+            "prefix": current_settings.s3_prefix,
+            "note": "S3 lifecycle rule updated. Objects created before this change are not affected.",
+        }
+
     return app
+
+
+def _format_bytes_local(value: int) -> str:
+    amount = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return f"{amount:.1f} TiB"
 
 
 app = create_app()
