@@ -148,7 +148,7 @@ export async function writeTeamMembershipTuples(
  * Convenience: map the role we store in Mongo (`'owner' | 'admin' | 'member'`)
  * onto the OpenFGA relations that grant equivalent access. The OpenFGA `team`
  * type only has `member` and `admin`; `owner` is a Mongo-side concept used to
- * pin the creator. We grant the creator both relations so:
+ * pin the creator. Admins need both relations so:
  *
  *   - `team:<slug>#can_use`     resolves true (member OR admin → ok)
  *   - `team:<slug>#can_manage`  resolves true (admin → ok)
@@ -164,7 +164,9 @@ export function mongoRoleToOpenFgaRelations(
       // Creator: full management AND day-to-day membership rights.
       return ["admin", "member"];
     case "admin":
-      return ["admin"];
+      // assisted-by Codex Codex-sonnet-4-6
+      // Team admins inherit day-to-day member access in the OpenFGA model.
+      return ["admin", "member"];
     case "member":
     default:
       return ["member"];

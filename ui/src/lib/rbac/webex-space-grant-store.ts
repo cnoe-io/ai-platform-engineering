@@ -104,6 +104,20 @@ export async function replaceWebexSpaceGrants(
   return listWebexSpaceGrants(workspaceRef, spaceId);
 }
 
+// assisted-by Codex Codex-sonnet-4-6
+export async function deleteWebexSpaceGrants(
+  workspaceId: string,
+  spaceId: string
+): Promise<number> {
+  const collection = await getRbacCollection<WebexSpaceGrantDocument>("webexSpaceGrants");
+  const workspaceRef = webexWorkspaceRef(workspaceId);
+  const result = await collection.deleteMany({
+    workspace_id: workspaceRef,
+    space_id: spaceId,
+  } as never);
+  return result.deletedCount ?? 0;
+}
+
 export async function ensureRouteOwnedAgentGrants(
   workspaceId: string,
   spaceId: string,
