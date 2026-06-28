@@ -5935,7 +5935,7 @@ deploy_caipe() {
   # key (patched in create_namespace_and_secrets), so both sides share the token.
   if $ENABLE_AGENTGATEWAY; then
     helm_args+=(
-      --set "global.agentgateway.static.configBridge.bff.existingSecret.name=caipe-ui-secret"
+      --set "global.agentgateway.static.configBridge.ui.existingSecret.name=caipe-ui-secret"
       --set "openfga-authz-bridge.agentContext.existingSecret.name=caipe-ui-secret"
       --set "dynamic-agents.agentContext.existingSecret.name=caipe-ui-secret"
     )
