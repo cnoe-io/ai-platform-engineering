@@ -45,12 +45,10 @@ jest.mock('framer-motion', () => ({
 
 let mockConversations: any[] = []
 let mockActiveConversationId: string | null = null
-let mockAutonomousAgentsEnabled = true
 const mockSetActiveConversation = jest.fn()
 const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
-const mockLoadAutonomousConversationsFromService = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn((_id: string) => false)
 const mockHasUnviewedMessages = jest.fn((_id: string) => false)
@@ -70,7 +68,6 @@ jest.mock('@/store/chat-store', () => {
       createConversation: mockCreateConversation,
       deleteConversation: mockDeleteConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,
-      loadAutonomousConversationsFromService: mockLoadAutonomousConversationsFromService,
       loadMessagesFromServer: mockLoadMessagesFromServer,
       isConversationStreaming: mockIsConversationStreaming,
       hasUnviewedMessages: mockHasUnviewedMessages,
@@ -106,8 +103,6 @@ jest.mock('lucide-react', () => ({
   Users: (props: any) => <span data-testid="icon-users" {...props} />,
   TrendingUp: (props: any) => <span data-testid="icon-trending-up" {...props} />,
   RefreshCw: (props: any) => <span data-testid="icon-refresh" {...props} />,
-  Globe: (props: any) => <span data-testid="icon-globe" {...props} />,
-  Bot: (props: any) => <span data-testid="icon-bot" {...props} />,
 }))
 
 jest.mock('@/components/ui/button', () => ({
@@ -132,10 +127,6 @@ jest.mock('@/components/ui/toast', () => ({
 jest.mock('@/lib/storage-config', () => ({
   getStorageMode: () => 'mongodb',
   getStorageModeDisplay: () => 'MongoDB',
-}))
-
-jest.mock('@/lib/config', () => ({
-  getConfig: (key: string) => key === 'autonomousAgentsEnabled' ? mockAutonomousAgentsEnabled : undefined,
 }))
 
 jest.mock('@/lib/utils', () => ({
@@ -232,8 +223,6 @@ describe('Sidebar — Live Status Indicator', () => {
     jest.clearAllMocks()
     mockConversations = []
     mockActiveConversationId = null
-    mockAutonomousAgentsEnabled = true
-    mockLoadAutonomousConversationsFromService.mockResolvedValue(undefined)
     mockIsConversationStreaming.mockImplementation(() => false)
     mockHasUnviewedMessages.mockImplementation(() => false)
     mockIsConversationInputRequired.mockImplementation(() => false)
@@ -591,56 +580,6 @@ describe('Sidebar — Live Status Indicator', () => {
       fireEvent.click(screen.getByText('Clickable Chat'))
 
       expect(mockSetActiveConversation).toHaveBeenCalledWith('conv-click')
-    })
-  })
-
-  // --------------------------------------------------------------------------
-  // Autonomous filter routing
-  // --------------------------------------------------------------------------
-
-  describe('autonomous filter routing', () => {
-    it('hides the autonomous chip and autonomous rows when the feature is disabled', () => {
-      mockAutonomousAgentsEnabled = false
-      mockConversations = [
-        makeConv('normal-1', 'Normal Chat'),
-        makeConv('auto-1', 'Autonomous Task', { source: 'autonomous' }),
-      ]
-
-      render(<Sidebar {...defaultProps} />)
-
-      expect(screen.queryByRole('button', { name: /autonomous/i })).not.toBeInTheDocument()
-      expect(screen.getByText('Normal Chat')).toBeInTheDocument()
-      expect(screen.queryByText('Autonomous Task')).not.toBeInTheDocument()
-      expect(mockLoadAutonomousConversationsFromService).not.toHaveBeenCalled()
-    })
-
-    it('switches from a normal active chat to the first autonomous thread without routing to bare /chat', () => {
-      mockConversations = [
-        makeConv('normal-1', 'Normal Chat'),
-        makeConv('auto-1', 'Autonomous Task', { source: 'autonomous' }),
-      ]
-      mockActiveConversationId = 'normal-1'
-
-      render(<Sidebar {...defaultProps} />)
-
-      fireEvent.click(screen.getByRole('button', { name: /autonomous/i }))
-
-      expect(mockSetActiveConversation).toHaveBeenCalledWith('auto-1')
-      expect(mockPush).toHaveBeenCalledWith('/chat/auto-1')
-      expect(mockPush).not.toHaveBeenCalledWith('/chat')
-    })
-
-    it('routes to the autonomous empty state when no autonomous threads exist', () => {
-      mockConversations = [makeConv('normal-1', 'Normal Chat')]
-      mockActiveConversationId = 'normal-1'
-
-      render(<Sidebar {...defaultProps} />)
-
-      fireEvent.click(screen.getByRole('button', { name: /autonomous/i }))
-
-      expect(mockSetActiveConversation).toHaveBeenCalledWith(null)
-      expect(mockPush).toHaveBeenCalledWith('/chat?source=autonomous')
-      expect(mockPush).not.toHaveBeenCalledWith('/chat')
     })
   })
 
