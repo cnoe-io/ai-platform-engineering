@@ -36,6 +36,7 @@ import {
   type McpToolRelationshipInput,
   type ShareableResourceInput,
 } from "./openfga-owned-resources";
+import { openFgaResourceId } from "./openfga-resource-ids";
 
 export { OpenFgaReconcileRequiredError } from "@/lib/authz";
 
@@ -190,6 +191,24 @@ export async function reconcileLlmModelRelationships(
   input: LlmModelRelationshipInput,
 ): Promise<OpenFgaReconcileResult> {
   return reconcileOwnedResource(buildLlmModelRelationshipTupleDiff(input));
+}
+
+export async function deleteAllLlmModelRelationshipTuples(
+  modelId: string,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
+  if (!isOpenFgaReconciliationEnabled()) {
+    throw new OpenFgaReconcileRequiredError();
+  }
+
+  const object = `llm_model:${openFgaResourceId("llm_model", modelId)}`;
+  const deletes = await readAllTuplesForObject(object);
+  const diff = { writes: [] as OpenFgaTupleKey[], deletes: uniqueTuples(deletes) };
+  assertReconciliationEnabled(diff);
+  return reconcileTupleDiff(diff, {
+    ...ctx,
+    source: ctx?.source ?? "llm_model_delete",
+  });
 }
 
 export async function reconcileConfigDrivenLlmModelRelationships(

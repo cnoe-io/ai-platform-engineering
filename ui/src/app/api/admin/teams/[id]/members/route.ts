@@ -313,10 +313,9 @@ export const POST = withErrorHandler(async (
     let keycloakSubject: string | undefined;
     if (teamSlug) {
       keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
-      // POST /members only adds a single relation (member or admin) to the
-      // existing team — never both. The team-creation route is the only
-      // caller that writes both `admin` and `member` for the creator.
-      await writeTeamMembershipTuples(keycloakSubject, teamSlug, [role], 'assign');
+      // assisted-by Codex Codex-sonnet-4-6
+      // Admin membership also writes inherited member access for runtime checks.
+      await writeTeamMembershipTuples(keycloakSubject, teamSlug, mongoRoleToOpenFgaRelations(role), 'assign');
       await upsertTeamMembershipSource(
         manualMembershipSource({
           teamId: params.id,

@@ -293,6 +293,7 @@ export function TeamDetailsDialog({
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourcesSaving, setResourcesSaving] = useState(false);
   const [resourcesNotice, setResourcesNotice] = useState<string | null>(null);
+  const resourcesLoadedTeamIdRef = useRef<string | null>(null);
 
   // Spec 098 US9 — Slack channels tab state
   const [channelsData, setChannelsData] = useState<SlackChannelsPayload | null>(null);
@@ -330,6 +331,7 @@ export function TeamDetailsDialog({
       setMemberSearch("");
       setMembersLoading(false);
       setResourcesData(null);
+      resourcesLoadedTeamIdRef.current = null;
       setResourcesNotice(null);
       setChannelsData(null);
       setEditedChannels([]);
@@ -411,6 +413,7 @@ export function TeamDetailsDialog({
       activeMode === "skills" ||
       activeMode === "workflows";
     if (!open || !usesResourcesEndpoint || !currentTeam) return;
+    if (resourcesLoadedTeamIdRef.current === currentTeam._id && resourcesData) return;
     let cancelled = false;
     setResourcesLoading(true);
     setError(null);
@@ -428,6 +431,7 @@ export function TeamDetailsDialog({
           setSelectedAgentAdmins(new Set(payload.resources.agent_admins ?? []));
           setSelectedTools(new Set(payload.resources.tools ?? []));
           setToolWildcard(Boolean(payload.resources.tool_wildcard));
+          resourcesLoadedTeamIdRef.current = currentTeam._id;
         }
       })
       .catch((err: unknown) => {
@@ -441,7 +445,7 @@ export function TeamDetailsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, activeMode, currentTeam]);
+  }, [open, activeMode, currentTeam, resourcesData]);
 
   // Spec 098 US9 — load this team's channel assignments + bindable agents
   // when the Slack Channels tab opens. Mirrors the resources tab:
