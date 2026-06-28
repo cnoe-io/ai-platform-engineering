@@ -119,7 +119,6 @@ function seedTeamsCollection(rows: Array<Record<string, unknown>>, total: number
     findOne: jest.fn().mockResolvedValue(null),
   };
   mockCollections.teams = teamsCol;
-  mockCollections.team_kb_ownership = createMockCollection();
   return { teamsCol, calls };
 }
 

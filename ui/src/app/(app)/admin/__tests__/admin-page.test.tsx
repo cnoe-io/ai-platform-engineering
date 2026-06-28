@@ -1037,45 +1037,14 @@ describe('Admin Dashboard Page', () => {
       confirmSpy.mockRestore();
     });
 
-    it('shows a compact Chat chip for combined Slack channels and Webex spaces', async () => {
-      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
-      setupFetchMock({
-        teams: {
-          success: true,
-          data: {
-            teams: [
-              {
-                _id: 'team-integrations',
-                name: 'Integration Team',
-                description: 'Owns chat surfaces',
-                owner_id: 'admin@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-                slack_channels: [
-                  { slack_channel_id: 'C111', channel_name: 'alerts' },
-                ],
-                webex_spaces: [
-                  { space_id: 'space-1', space_name: 'Support Room' },
-                  { space_id: 'space-2', space_name: 'Incident Room' },
-                ],
-              },
-            ],
-          },
-        },
-      });
+    // The team card was decluttered to four high-signal chips (Members,
+    // Agents, MCPs, KBs); the Slack/Webex "Chat" chip was dropped — those
+    // surfaces remain reachable via the team-management dialog tabs.
 
-      render(<AdminPage />);
-
-      expect(await screen.findByText('Integration Team')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /3 chat integrations/i })).toBeInTheDocument();
-      expect(screen.getByText(/^Chat$/i)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /3 integrations/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /1 channels/i })).not.toBeInTheDocument();
-    });
-
-    it('shows the KB chip count from team resources', async () => {
+    it('shows the KB chip count from the server-decorated kb_count', async () => {
+      // KB grants are sourced from OpenFGA and decorated onto each team as
+      // `kb_count` by GET /api/admin/teams; the card no longer derives the
+      // count from a `resources.knowledge_bases` array.
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
       setupFetchMock({
         teams: {
@@ -1089,9 +1058,7 @@ describe('Admin Dashboard Page', () => {
                 created_at: new Date().toISOString(),
                 member_count: 1,
                 members: [],
-                resources: {
-                  knowledge_bases: ['kb-1', 'kb-2'],
-                },
+                kb_count: 2,
               },
             ],
           },
