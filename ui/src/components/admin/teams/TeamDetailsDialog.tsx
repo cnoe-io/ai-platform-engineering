@@ -31,7 +31,6 @@ Loader2,
 Lock,
 MessageSquare,
 Pencil,
-Plus,
 RefreshCw,
 Search,
 Shield,
@@ -45,35 +44,29 @@ X,
 } from "lucide-react";
 import React,{ useCallback,useEffect,useRef,useState } from "react";
 
-// Server response shape — mirrors TeamMembershipSyncReport in
-// @/lib/rbac/team-openfga-sync-status.ts (kept local to avoid forcing
-// the page bundle to import server-side modules).
-//
-// Only the team-wide `summary` is consumed here (the post-Reconcile banner).
-// Per-member status is delivered separately as `sync_status` on each row of
-// the paginated members list, so we don't model the report's `entries`.
+// Per-member access-sync state, delivered as `sync_status` on each row of the
+// paginated members list and shown as a small badge in the Members tab.
 type TeamMembershipSyncState = "synced" | "pending" | "drifted" | "unknown";
 
-interface TeamMembershipSyncSummary {
-  total: number;
-  synced: number;
-  pending: number;
-  drifted: number;
-  unknown: number;
-  needs_attention: boolean;
-  openfga_available: boolean;
-}
-
-interface TeamMembershipSyncReport {
-  team_slug: string;
-  summary: TeamMembershipSyncSummary;
-}
-
-export type DialogMode = "details" | "members" | "resources" | "kbs" | "channels" | "webex";
-
-const TEAM_SLACK_DISCOVERY_PAGE_SIZE = 50;
+export type DialogMode =
+  | "details"
+  | "members"
+  | "resources"
+  | "mcp"
+  | "skills"
+  | "workflows"
+  | "kbs"
+  | "channels"
+  | "webex";
 
 interface ResourceOption {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** Read-only resource grant (workflows, skills) surfaced with a resolved name. */
+interface NamedResource {
   id: string;
   name: string;
   description?: string;
@@ -85,6 +78,11 @@ interface ResourcesPayload {
     agent_admins: string[];
     tools: string[];
     tool_wildcard: boolean;
+    // Read-only grants surfaced for visibility; not editable from this dialog.
+    // Workflows are shared from the workflow editor, skills from the skill
+    // editor — each has its own single writer.
+    workflows?: NamedResource[];
+    skills?: NamedResource[];
   };
   available: { agents: ResourceOption[]; tools: ResourceOption[] };
 }
@@ -101,25 +99,6 @@ interface SlackChannelsPayload {
   channels: TeamSlackChannel[];
 }
 
-interface DiscoveredSlackChannel {
-  id: string;
-  name: string;
-  is_private: boolean;
-  is_member: boolean;
-  num_members: number;
-}
-
-interface DiscoveryPayload {
-  channels: DiscoveredSlackChannel[];
-  total_matches: number;
-  total_visible: number;
-  next_cursor: string | null;
-  has_more: boolean;
-  cached: boolean;
-  fetched_at: number;
-  query: { q: string; member_only: boolean; limit: number };
-}
-
 interface TeamWebexSpace {
   webex_space_id: string;
   space_name: string;
@@ -129,24 +108,6 @@ interface TeamWebexSpace {
 interface WebexSpacesPayload {
   team_id: string;
   spaces: TeamWebexSpace[];
-}
-
-interface DiscoveredWebexSpace {
-  id: string;
-  name: string;
-  type: string;
-  is_locked: boolean;
-}
-
-interface WebexDiscoveryPayload {
-  spaces: DiscoveredWebexSpace[];
-  total_matches: number;
-  total_visible: number;
-  next_cursor: string | null;
-  has_more: boolean;
-  cached: boolean;
-  fetched_at: number;
-  query: { q: string; limit: number };
 }
 
 // One row of the paginated member list (GET /api/admin/teams/[id]/members).
@@ -339,43 +300,15 @@ export function TeamDetailsDialog({
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsSaving, setChannelsSaving] = useState(false);
   const [channelsNotice, setChannelsNotice] = useState<string | null>(null);
-  const [discovery, setDiscovery] = useState<DiscoveryPayload | null>(null);
-  const [discoveryLoading, setDiscoveryLoading] = useState(false);
-  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  // Server-side search/paging controls. Default to bot-member-only because
-  // workspaces routinely have thousands of channels but the bot is in a
-  // handful — those are the actionable ones for routing.
-  const [discoverySearch, setDiscoverySearch] = useState("");
-  const [discoveryMemberOnly, setDiscoveryMemberOnly] = useState(true);
-  const [discoveryLoadingMore, setDiscoveryLoadingMore] = useState(false);
-  const [manualChannelId, setManualChannelId] = useState("");
-  const [manualChannelName, setManualChannelName] = useState("");
 
   const [webexSpacesData, setWebexSpacesData] = useState<WebexSpacesPayload | null>(null);
   const [editedWebexSpaces, setEditedWebexSpaces] = useState<TeamWebexSpace[]>([]);
   const [webexSpacesLoading, setWebexSpacesLoading] = useState(false);
   const [webexSpacesSaving, setWebexSpacesSaving] = useState(false);
   const [webexSpacesNotice, setWebexSpacesNotice] = useState<string | null>(null);
-  const [webexDiscovery, setWebexDiscovery] = useState<WebexDiscoveryPayload | null>(null);
-  const [webexDiscoveryLoading, setWebexDiscoveryLoading] = useState(false);
-  const [webexDiscoveryError, setWebexDiscoveryError] = useState<string | null>(null);
-  const [webexDiscoverySearch, setWebexDiscoverySearch] = useState("");
-  const [webexDiscoveryLoadingMore, setWebexDiscoveryLoadingMore] = useState(false);
-  const [manualSpaceId, setManualSpaceId] = useState("");
-  const [manualSpaceName, setManualSpaceName] = useState("");
 
   // Current team data (may be refreshed after mutations)
   const [currentTeam, setCurrentTeam] = useState<Team | null>(team);
-  // OpenFGA sync diagnostic — populated from the GET /api/admin/teams/[id]
-  // response (top-level `openfga_sync` field). `canReconcile` controls
-  // visibility of the Reconcile button; we only know that the request
-  // succeeded, so we infer permission by attempting the POST and
-  // surfacing 403 errors inline rather than hiding the button.
-  const [openFgaSync, setOpenFgaSync] = useState<TeamMembershipSyncReport | null>(null);
-  const [reconciling, setReconciling] = useState(false);
-  const [reconcileError, setReconcileError] = useState<string | null>(null);
-  const [reconcileNotice, setReconcileNotice] = useState<string | null>(null);
-  const slackDiscoveryAutoLoadedTeamRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (open && team) {
@@ -401,49 +334,11 @@ export function TeamDetailsDialog({
       setChannelsData(null);
       setEditedChannels([]);
       setChannelsNotice(null);
-      setDiscovery(null);
-      setDiscoveryError(null);
-      setDiscoverySearch("");
-      setDiscoveryMemberOnly(true);
-      slackDiscoveryAutoLoadedTeamRef.current = null;
-      setManualChannelId("");
-      setManualChannelName("");
       setWebexSpacesData(null);
       setEditedWebexSpaces([]);
       setWebexSpacesNotice(null);
-      setWebexDiscovery(null);
-      setWebexDiscoveryError(null);
-      setWebexDiscoverySearch("");
-      setManualSpaceId("");
-      setManualSpaceName("");
-      setOpenFgaSync(null);
-      setReconcileError(null);
-      setReconcileNotice(null);
     }
   }, [open, team, mode]);
-
-  // Fetch the OpenFGA sync status once per dialog open. The user picked
-  // "on open" refresh (not "on every mutation") so we deliberately do
-  // NOT re-fetch after add/remove member — the next dialog open will
-  // pick up the new state.
-  useEffect(() => {
-    if (!open || !currentTeam?._id) return;
-    let cancelled = false;
-    fetch(`/api/admin/teams/${currentTeam._id}`)
-      .then(async (res) => {
-        const data = await res.json();
-        if (cancelled || !data.success) return;
-        if (data.data?.openfga_sync) {
-          setOpenFgaSync(data.data.openfga_sync as TeamMembershipSyncReport);
-        }
-      })
-      .catch((err: unknown) => {
-        console.error("[TeamDetails] Failed to load team detail:", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, currentTeam?._id]);
 
   // Debounced typeahead against the Keycloak realm. We require ≥2
   // characters to avoid sending broad regex scans on every keystroke.
@@ -508,7 +403,14 @@ export function TeamDetailsDialog({
   // picker reflects newly-created agents/MCP servers without requiring a
   // dialog close.
   useEffect(() => {
-    if (!open || activeMode !== "resources" || !currentTeam) return;
+    // The read-only Skills & Workflows tabs are served by the same resources
+    // endpoint as the editable Agents and MCP tabs, so load for all of them.
+    const usesResourcesEndpoint =
+      activeMode === "resources" ||
+      activeMode === "mcp" ||
+      activeMode === "skills" ||
+      activeMode === "workflows";
+    if (!open || !usesResourcesEndpoint || !currentTeam) return;
     let cancelled = false;
     setResourcesLoading(true);
     setError(null);
@@ -609,138 +511,6 @@ export function TeamDetailsDialog({
     };
   }, [open, activeMode, currentTeam]);
 
-  // Discovery: first page is fetched whenever search/member-only changes
-  // (debounced below). The first call against a fresh cache walks the entire
-  // workspace channel list once on the server; subsequent filters/pages are
-  // served from the in-process cache, so search-as-you-type stays snappy.
-  const fetchDiscoveryPage = useCallback(
-    async (opts: {
-      q: string;
-      memberOnly: boolean;
-      cursor?: string | null;
-      forceRefresh?: boolean;
-      append: boolean;
-    }) => {
-      const { q, memberOnly, cursor, forceRefresh, append } = opts;
-      if (append) setDiscoveryLoadingMore(true);
-      else setDiscoveryLoading(true);
-      setDiscoveryError(null);
-      try {
-        const params = new URLSearchParams();
-        if (q) params.set("q", q);
-        params.set("member_only", memberOnly ? "1" : "0");
-        params.set("limit", String(TEAM_SLACK_DISCOVERY_PAGE_SIZE));
-        if (cursor) params.set("cursor", cursor);
-        if (forceRefresh) params.set("refresh", "1");
-        const res = await fetch(
-          `/api/admin/slack/available-channels?${params.toString()}`
-        );
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.error || `Failed (${res.status})`);
-        }
-        const payload = data.data as DiscoveryPayload;
-        setDiscovery((prev) =>
-          append && prev
-            ? {
-                ...payload,
-                channels: [...prev.channels, ...payload.channels],
-              }
-            : payload
-        );
-      } catch (err: unknown) {
-        setDiscoveryError(
-          err instanceof Error ? err.message : "Discovery failed"
-        );
-      } finally {
-        if (append) setDiscoveryLoadingMore(false);
-        else setDiscoveryLoading(false);
-      }
-    },
-    []
-  );
-
-  const loadDiscovery = useCallback(
-    (forceRefresh = false) =>
-      fetchDiscoveryPage({
-        q: discoverySearch.trim(),
-        memberOnly: discoveryMemberOnly,
-        forceRefresh,
-        append: false,
-      }),
-    [fetchDiscoveryPage, discoverySearch, discoveryMemberOnly]
-  );
-
-  useEffect(() => {
-    if (!open || activeMode !== "channels" || !currentTeam?._id || discovery || discoveryLoading) {
-      return;
-    }
-    if (slackDiscoveryAutoLoadedTeamRef.current === currentTeam._id) return;
-    slackDiscoveryAutoLoadedTeamRef.current = currentTeam._id;
-    loadDiscovery(false);
-  }, [open, activeMode, currentTeam?._id, discovery, discoveryLoading, loadDiscovery]);
-
-  const loadMoreDiscovery = useCallback(() => {
-    if (!discovery?.next_cursor) return;
-    void fetchDiscoveryPage({
-      q: discovery.query.q,
-      memberOnly: discovery.query.member_only,
-      cursor: discovery.next_cursor,
-      append: true,
-    });
-  }, [discovery, fetchDiscoveryPage]);
-
-  // Debounced re-fetch when the admin is actively in the Slack tab and
-  // tweaks the search box or the member-only toggle. We only auto-fetch
-  // after the user has clicked "Discover" once (i.e. `discovery` is
-  // populated) so we don't make Slack API calls on every keystroke for
-  // panels the admin never engages with.
-  useEffect(() => {
-    if (activeMode !== "channels") return;
-    if (!discovery) return; // wait for explicit Discover click
-    const handle = setTimeout(() => {
-      void fetchDiscoveryPage({
-        q: discoverySearch.trim(),
-        memberOnly: discoveryMemberOnly,
-        append: false,
-      });
-    }, 250);
-    return () => clearTimeout(handle);
-    // We intentionally do NOT depend on `discovery` here — that would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [discoverySearch, discoveryMemberOnly, activeMode, fetchDiscoveryPage]);
-
-  const handleAddChannelFromDiscovery = (c: DiscoveredSlackChannel) => {
-    setEditedChannels((prev) => {
-      if (prev.some((p) => p.slack_channel_id === c.id)) return prev;
-      return [
-        ...prev,
-        {
-          slack_channel_id: c.id,
-          channel_name: c.name,
-        },
-      ];
-    });
-  };
-
-  const handleAddChannelManual = () => {
-    const id = manualChannelId.trim();
-    const name = manualChannelName.trim() || id;
-    if (!id) return;
-    setEditedChannels((prev) => {
-      if (prev.some((p) => p.slack_channel_id === id)) return prev;
-      return [
-        ...prev,
-        {
-          slack_channel_id: id,
-          channel_name: name,
-        },
-      ];
-    });
-    setManualChannelId("");
-    setManualChannelName("");
-  };
-
   const handleRemoveChannel = (id: string) => {
     setEditedChannels((prev) => prev.filter((c) => c.slack_channel_id !== id));
   };
@@ -776,112 +546,6 @@ export function TeamDetailsDialog({
     } finally {
       setChannelsSaving(false);
     }
-  };
-
-  const fetchWebexDiscoveryPage = useCallback(
-    async (opts: {
-      q: string;
-      cursor?: string | null;
-      forceRefresh?: boolean;
-      append: boolean;
-    }) => {
-      const { q, cursor, forceRefresh, append } = opts;
-      if (append) setWebexDiscoveryLoadingMore(true);
-      else setWebexDiscoveryLoading(true);
-      setWebexDiscoveryError(null);
-      try {
-        const params = new URLSearchParams();
-        if (q) params.set("q", q);
-        params.set("limit", "200");
-        if (cursor) params.set("cursor", cursor);
-        if (forceRefresh) params.set("refresh", "1");
-        const res = await fetch(`/api/admin/webex/available-spaces?${params.toString()}`);
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.error || `Failed (${res.status})`);
-        }
-        const payload = data.data as WebexDiscoveryPayload;
-        setWebexDiscovery((prev) =>
-          append && prev
-            ? {
-                ...payload,
-                spaces: [...prev.spaces, ...payload.spaces],
-              }
-            : payload
-        );
-      } catch (err: unknown) {
-        setWebexDiscoveryError(
-          err instanceof Error ? err.message : "Webex space discovery failed"
-        );
-      } finally {
-        if (append) setWebexDiscoveryLoadingMore(false);
-        else setWebexDiscoveryLoading(false);
-      }
-    },
-    []
-  );
-
-  const loadWebexDiscovery = useCallback(
-    (forceRefresh = false) =>
-      fetchWebexDiscoveryPage({
-        q: webexDiscoverySearch.trim(),
-        forceRefresh,
-        append: false,
-      }),
-    [fetchWebexDiscoveryPage, webexDiscoverySearch]
-  );
-
-  const loadMoreWebexDiscovery = useCallback(() => {
-    if (!webexDiscovery?.next_cursor) return;
-    void fetchWebexDiscoveryPage({
-      q: webexDiscovery.query.q,
-      cursor: webexDiscovery.next_cursor,
-      append: true,
-    });
-  }, [webexDiscovery, fetchWebexDiscoveryPage]);
-
-  useEffect(() => {
-    if (activeMode !== "webex") return;
-    if (!webexDiscovery) return;
-    const handle = setTimeout(() => {
-      void fetchWebexDiscoveryPage({
-        q: webexDiscoverySearch.trim(),
-        append: false,
-      });
-    }, 250);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [webexDiscoverySearch, activeMode, fetchWebexDiscoveryPage]);
-
-  const handleAddSpaceFromDiscovery = (space: DiscoveredWebexSpace) => {
-    setEditedWebexSpaces((prev) => {
-      if (prev.some((p) => p.webex_space_id === space.id)) return prev;
-      return [
-        ...prev,
-        {
-          webex_space_id: space.id,
-          space_name: space.name,
-        },
-      ];
-    });
-  };
-
-  const handleAddSpaceManual = () => {
-    const id = manualSpaceId.trim();
-    const name = manualSpaceName.trim() || id;
-    if (!id) return;
-    setEditedWebexSpaces((prev) => {
-      if (prev.some((p) => p.webex_space_id === id)) return prev;
-      return [
-        ...prev,
-        {
-          webex_space_id: id,
-          space_name: name,
-        },
-      ];
-    });
-    setManualSpaceId("");
-    setManualSpaceName("");
   };
 
   const handleRemoveWebexSpace = (id: string) => {
@@ -990,11 +654,6 @@ export function TeamDetailsDialog({
       if (payload.team) {
         setCurrentTeam(payload.team);
       }
-      setOpenFgaSync(
-        payload.openfga_sync
-          ? (payload.openfga_sync as TeamMembershipSyncReport)
-          : null
-      );
     } catch (err) {
       console.error("[TeamDetails] Failed to refresh team:", err);
       setError(err instanceof Error ? err.message : "Failed to refresh team");
@@ -1194,56 +853,6 @@ export function TeamDetailsDialog({
     }
   };
 
-  const handleReconcileOpenFga = async () => {
-    if (!currentTeam) return;
-    setReconciling(true);
-    setReconcileError(null);
-    setReconcileNotice(null);
-    try {
-      const res = await fetch(
-        `/api/admin/teams/${currentTeam._id}/openfga/reconcile`,
-        { method: "POST" }
-      );
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || "Failed to reconcile OpenFGA");
-      }
-      // Server returns the freshly-computed report so we don't have to
-      // make a second round-trip.
-      if (data.data?.openfga_sync) {
-        setOpenFgaSync(data.data.openfga_sync as TeamMembershipSyncReport);
-      }
-      const summary = data.data?.summary as
-        | { tuple_writes?: number; resolved_subjects?: number; unresolved_emails?: string[] }
-        | undefined;
-      if (summary) {
-        const parts: string[] = [];
-        if (summary.resolved_subjects && summary.resolved_subjects > 0) {
-          parts.push(`resolved ${summary.resolved_subjects} new Keycloak subject(s)`);
-        }
-        if (summary.tuple_writes && summary.tuple_writes > 0) {
-          parts.push(`wrote ${summary.tuple_writes} OpenFGA tuple(s)`);
-        }
-        if (summary.unresolved_emails && summary.unresolved_emails.length > 0) {
-          parts.push(
-            `${summary.unresolved_emails.length} email(s) still missing in Keycloak`
-          );
-        }
-        setReconcileNotice(
-          parts.length === 0
-            ? "Already in sync — no changes needed."
-            : `Reconcile complete: ${parts.join(", ")}.`
-        );
-      }
-    } catch (err: unknown) {
-      setReconcileError(
-        err instanceof Error ? err.message : "Failed to reconcile OpenFGA"
-      );
-    } finally {
-      setReconciling(false);
-    }
-  };
-
   if (!currentTeam) return null;
 
   // Member count for the tab/Details badges. Prefer the server total from the
@@ -1265,13 +874,15 @@ export function TeamDetailsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Mode Tabs */}
-        <div className="flex items-center gap-1 border-b pb-2">
+        {/* Mode Tabs. The tab row can exceed the dialog width (many
+            integrations), so it scrolls horizontally instead of spilling out
+            of the box. `shrink-0` on each button keeps labels on one line. */}
+        <div className="flex items-center gap-1 border-b pb-2 overflow-x-auto">
           <Button
             variant={activeMode === "details" ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveMode("details")}
-            className="text-xs"
+            className="text-xs shrink-0"
           >
             Details
           </Button>
@@ -1279,23 +890,47 @@ export function TeamDetailsDialog({
             variant={activeMode === "members" ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveMode("members")}
-            className="text-xs"
+            className="text-xs shrink-0"
           >
-            Members ({memberCount})
+            Members
           </Button>
           <Button
             variant={activeMode === "resources" ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveMode("resources")}
-            className="text-xs"
+            className="text-xs shrink-0"
           >
-            Agents & MCP
+            Agents
+          </Button>
+          <Button
+            variant={activeMode === "mcp" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveMode("mcp")}
+            className="text-xs shrink-0"
+          >
+            MCPs
+          </Button>
+          <Button
+            variant={activeMode === "skills" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveMode("skills")}
+            className="text-xs shrink-0"
+          >
+            Skills
+          </Button>
+          <Button
+            variant={activeMode === "workflows" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveMode("workflows")}
+            className="text-xs shrink-0"
+          >
+            Workflows
           </Button>
           <Button
             variant={activeMode === "kbs" ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveMode("kbs")}
-            className="text-xs"
+            className="text-xs shrink-0"
           >
             Knowledge Bases
           </Button>
@@ -1303,7 +938,7 @@ export function TeamDetailsDialog({
             variant={activeMode === "channels" ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveMode("channels")}
-            className="text-xs"
+            className="text-xs shrink-0"
           >
             Slack Channels
           </Button>
@@ -1311,7 +946,7 @@ export function TeamDetailsDialog({
             variant={activeMode === "webex" ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveMode("webex")}
-            className="text-xs"
+            className="text-xs shrink-0"
           >
             Webex Spaces
           </Button>
@@ -1324,7 +959,7 @@ export function TeamDetailsDialog({
             size="sm"
             onClick={() => void refreshTeam()}
             disabled={refreshingTeam}
-            className="ml-auto h-7 w-7 p-0"
+            className="ml-auto h-7 w-7 p-0 shrink-0"
             title="Refresh this team"
             aria-label="Refresh this team"
           >
@@ -1421,105 +1056,6 @@ export function TeamDetailsDialog({
                   </div>
                 </div>
 
-                {/* OpenFGA sync status banner. Surfaces whether the tuple
-                    state on `team:<slug>` matches what Mongo expects. The
-                    four-state model (synced / drifted / pending / unknown)
-                    is defined in lib/rbac/team-openfga-sync-status.ts.
-
-                    The team-detail GET no longer computes a whole-team report
-                    (that read the entire tuple set and falsely flagged drift
-                    on huge teams), so `openFgaSync` is null until the admin
-                    runs Reconcile. Until then we show a neutral banner and
-                    point at the per-member badges in the Members tab, which
-                    ARE accurate (computed page-scoped). After Reconcile the
-                    server returns a fresh report and we show its counts. */}
-                <div
-                  className={
-                    "rounded-lg border p-3 space-y-2 " +
-                    (openFgaSync && openFgaSync.summary.drifted > 0
-                      ? "border-destructive/40 bg-destructive/5"
-                      : openFgaSync && openFgaSync.summary.unknown > 0
-                        ? "border-amber-500/40 bg-amber-500/5"
-                        : openFgaSync
-                          ? "border-emerald-500/30 bg-emerald-500/5"
-                          : "border-border bg-muted/30")
-                  }
-                >
-                  <div className="flex items-start gap-2">
-                    {!openFgaSync ? (
-                      <Shield className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                    ) : openFgaSync.summary.drifted > 0 ? (
-                      <ShieldAlert className="h-4 w-4 mt-0.5 text-destructive" />
-                    ) : openFgaSync.summary.unknown > 0 ? (
-                      <ShieldQuestion className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400" />
-                    ) : (
-                      <ShieldCheck className="h-4 w-4 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-                    )}
-                    <div className="flex-1 text-sm">
-                      <p className="font-medium">
-                        OpenFGA authorization sync
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {!openFgaSync ? (
-                          "Per-member status is shown in the Members tab. Run Reconcile to repair any drift and see a team-wide summary."
-                        ) : openFgaSync.summary.total === 0 ? (
-                          "No active membership sources tracked for this team."
-                        ) : (
-                          <>
-                            {openFgaSync.summary.synced}/
-                            {openFgaSync.summary.total} member(s) synced
-                            {openFgaSync.summary.drifted > 0
-                              ? `, ${openFgaSync.summary.drifted} drifted`
-                              : ""}
-                            {openFgaSync.summary.pending > 0
-                              ? `, ${openFgaSync.summary.pending} pending Keycloak link`
-                              : ""}
-                            {openFgaSync.summary.unknown > 0
-                              ? `, ${openFgaSync.summary.unknown} unknown`
-                              : ""}
-                            .
-                          </>
-                        )}
-                      </p>
-                      {openFgaSync && !openFgaSync.summary.openfga_available && (
-                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                          OpenFGA was unreachable. Tuple state cannot be
-                          verified right now.
-                        </p>
-                      )}
-                    </div>
-                    {/* Reconcile button. We show it whenever the report
-                        is loaded — the server gates the action on
-                        team-admin or platform-admin and will return 403
-                        if the caller is not permitted. We surface that
-                        inline rather than hiding the button (cheaper than
-                        a separate "can-i-reconcile" probe). */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleReconcileOpenFga}
-                      disabled={reconciling}
-                      className="gap-1 shrink-0"
-                    >
-                      {reconciling ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      )}
-                      Reconcile
-                    </Button>
-                  </div>
-                  {reconcileError && (
-                    <p className="text-xs text-destructive">
-                      {reconcileError}
-                    </p>
-                  )}
-                  {reconcileNotice && (
-                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                      {reconcileNotice}
-                    </p>
-                  )}
-                </div>
                 <Button
                   size="sm"
                   variant="outline"
@@ -1872,14 +1408,15 @@ export function TeamDetailsDialog({
           </div>
         )}
 
-        {/* Agents & MCP access (Spec 104 — team-scoped RBAC) */}
+        {/* Agents access (Spec 104 — team-scoped RBAC). Agents and MCP are
+            separate tabs but share one resources payload + save handler, so
+            switching tabs preserves unsaved edits on either side and a single
+            Save persists both. */}
         {activeMode === "resources" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
               Grant this team access to <span className="font-medium text-foreground">dynamic agents</span>{" "}
-              (who can chat with or manage each agent) and{" "}
-              <span className="font-medium text-foreground">MCP servers</span> (which tool integrations
-              appear in Dynamic Agents and skills). Saving writes OpenFGA relationships for this team.
+              — who can chat with (Use) or manage each agent. Changes apply to every member of this team.
             </p>
 
             {resourcesNotice && (
@@ -1895,7 +1432,7 @@ export function TeamDetailsDialog({
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
+              <div className="flex-1 min-h-0">
                 <AgentList
                   options={resourcesData.available.agents}
                   selectedUsers={selectedAgents}
@@ -1903,6 +1440,45 @@ export function TeamDetailsDialog({
                   onToggleUser={toggleAgent}
                   onToggleAdmin={toggleAgentAdmin}
                 />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <SaveButton
+                onSave={handleSaveResources}
+                saving={resourcesSaving}
+                dirty
+                hideDirtyBadge
+                disabled={resourcesLoading || !resourcesData}
+                ariaLabel="Save agent access"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* MCP servers access (Spec 104 — team-scoped RBAC). Shares the
+            resources payload + save handler with the Agents tab above. */}
+        {activeMode === "mcp" && (
+          <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
+            <p className="text-xs text-muted-foreground">
+              Grant this team access to <span className="font-medium text-foreground">MCP servers</span>{" "}
+              — which tool integrations appear in Dynamic Agents and skills. Changes apply to every member of this team.
+            </p>
+
+            {resourcesNotice && (
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3">
+                <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                  {resourcesNotice}
+                </p>
+              </div>
+            )}
+
+            {resourcesLoading || !resourcesData ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="flex-1 min-h-0">
                 <ToolList
                   options={resourcesData.available.tools}
                   selected={selectedTools}
@@ -1920,20 +1496,41 @@ export function TeamDetailsDialog({
                 dirty
                 hideDirtyBadge
                 disabled={resourcesLoading || !resourcesData}
-                ariaLabel="Save agents and MCP access"
+                ariaLabel="Save MCP access"
               />
             </div>
           </div>
+        )}
+
+        {/* Read-only Skills tab. Skill team grants are written by the skill
+            editor (skill-team-grants.ts), so this view only reflects them. */}
+        {activeMode === "skills" && (
+          <ReadOnlyResourceList
+            loading={resourcesLoading || !resourcesData}
+            items={resourcesData?.resources.skills ?? []}
+            emptyLabel="No skills are shared with this team yet."
+            description="Skills shared with this team (owned + shared). Manage sharing from the skill editor."
+          />
+        )}
+
+        {/* Read-only Workflows tab. Workflow team grants are written by the
+            workflow editor (workflow-config-rebac.ts). */}
+        {activeMode === "workflows" && (
+          <ReadOnlyResourceList
+            loading={resourcesLoading || !resourcesData}
+            items={resourcesData?.resources.workflows ?? []}
+            emptyLabel="No workflows are shared with this team yet."
+            description="Workflows shared with this team (owned + shared). Manage sharing from the workflow editor."
+          />
         )}
 
         {/* Slack Channels Mode (Spec 098 US9 — channel ↔ team binding) */}
         {activeMode === "channels" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
-              Bind Slack channels to this team. The Slack bot uses{" "}
-              <code className="font-mono">channel_team_mappings</code> to
-              decide which team&apos;s RBAC applies to in-channel requests.
-              Agent route access is granted from Integrations → Slack.
+              Slack channels bound to this team. Requests made in these channels
+              use this team&apos;s access. To assign more channels, go to
+              Integrations &rarr; Slack.
             </p>
 
             {channelsNotice && (
@@ -1951,23 +1548,7 @@ export function TeamDetailsDialog({
             ) : (
               <SlackChannelsPanel
                 assigned={editedChannels}
-                discovery={discovery}
-                discoveryLoading={discoveryLoading}
-                discoveryLoadingMore={discoveryLoadingMore}
-                discoveryError={discoveryError}
-                discoverySearch={discoverySearch}
-                discoveryMemberOnly={discoveryMemberOnly}
-                onSearchChange={setDiscoverySearch}
-                onMemberOnlyChange={setDiscoveryMemberOnly}
-                onLoadDiscovery={loadDiscovery}
-                onLoadMoreDiscovery={loadMoreDiscovery}
-                onAddFromDiscovery={handleAddChannelFromDiscovery}
-                onAddManual={handleAddChannelManual}
                 onRemove={handleRemoveChannel}
-                manualChannelId={manualChannelId}
-                manualChannelName={manualChannelName}
-                onManualIdChange={setManualChannelId}
-                onManualNameChange={setManualChannelName}
               />
             )}
 
@@ -1987,10 +1568,9 @@ export function TeamDetailsDialog({
         {activeMode === "webex" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
-              Bind Webex spaces to this team. The Webex bot uses{" "}
-              <code className="font-mono">webex_space_team_mappings</code> to decide which
-              team&apos;s RBAC applies to in-space requests. Agent and resource access is
-              granted from Security &amp; Policy → OpenFGA ReBAC → Webex Spaces.
+              Webex spaces bound to this team. Requests made in these spaces use
+              this team&apos;s access. To assign more spaces, go to Integrations
+              &rarr; Webex.
             </p>
 
             {webexSpacesNotice && (
@@ -2008,21 +1588,7 @@ export function TeamDetailsDialog({
             ) : (
               <WebexSpacesPanel
                 assigned={editedWebexSpaces}
-                discovery={webexDiscovery}
-                discoveryLoading={webexDiscoveryLoading}
-                discoveryLoadingMore={webexDiscoveryLoadingMore}
-                discoveryError={webexDiscoveryError}
-                discoverySearch={webexDiscoverySearch}
-                onSearchChange={setWebexDiscoverySearch}
-                onLoadDiscovery={loadWebexDiscovery}
-                onLoadMoreDiscovery={loadMoreWebexDiscovery}
-                onAddFromDiscovery={handleAddSpaceFromDiscovery}
-                onAddManual={handleAddSpaceManual}
                 onRemove={handleRemoveWebexSpace}
-                manualSpaceId={manualSpaceId}
-                manualSpaceName={manualSpaceName}
-                onManualIdChange={setManualSpaceId}
-                onManualNameChange={setManualSpaceName}
               />
             )}
 
@@ -2083,6 +1649,52 @@ export function TeamDetailsDialog({
  * UI mirrors this so admins don't end up with the visually-confusing
  * state of "manage but cannot use".
  */
+/**
+ * Read-only list of resource grants (skills, workflows). These resource types
+ * have their own single writer (the skill / workflow editor), so the team
+ * dialog only surfaces them for visibility — there are no edit affordances.
+ */
+function ReadOnlyResourceList({
+  loading,
+  items,
+  emptyLabel,
+  description,
+}: {
+  loading: boolean;
+  items: NamedResource[];
+  emptyLabel: string;
+  description: string;
+}) {
+  return (
+    <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
+      <p className="text-xs text-muted-foreground">{description}</p>
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-6">{emptyLabel}</p>
+      ) : (
+        <ScrollArea className="flex-1 rounded-md border p-2" style={{ maxHeight: "320px" }}>
+          <ul className="space-y-1">
+            {items.map((item) => (
+              <li
+                key={item.id}
+                className="rounded-md px-3 py-2 hover:bg-muted/40"
+              >
+                <p className="text-sm font-medium">{item.name}</p>
+                {item.description ? (
+                  <p className="text-xs text-muted-foreground">{item.description}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
+
 function AgentList({
   options,
   selectedUsers,
@@ -2148,7 +1760,7 @@ function AgentList({
                   <div className="flex items-center gap-3 mt-0.5">
                     <label
                       className="flex items-center cursor-pointer"
-                      title="OpenFGA user agent:<id> — chat with this agent"
+                      title="Can use this agent. Team members can chat with it."
                     >
                       <input
                         type="checkbox"
@@ -2163,7 +1775,7 @@ function AgentList({
                     </label>
                     <label
                       className="flex items-center cursor-pointer"
-                      title="OpenFGA manager agent:<id> — edit/configure this agent"
+                      title="Can manage this agent. Team admins can edit and configure it."
                     >
                       <input
                         type="checkbox"
@@ -2274,548 +1886,121 @@ function ToolList({
 }
 
 /**
- * Spec 098 US9 — Slack channels picker.
+ * Spec 098 US9 — Slack channels list (read + unassign).
  *
- * Two-column layout:
- *   Left  — channels currently assigned to the team (editable: change bound
- *           agent, remove)
- *   Right — bot-member channel discovery (live Slack `users.conversations`) +
- *           manual channel-ID entry as fallback when SLACK_BOT_TOKEN is unset
- *           or the channel isn't visible to the bot yet
- *
- * The bound-agent dropdown is intentionally limited to the team's
- * `resources.agents` so admins can't accidentally bind a channel to an
- * agent the team doesn't otherwise have access to (the backend enforces
- * this too).
+ * Shows only the channels currently assigned to this team. Channel discovery
+ * and assignment live under Integrations → Slack; here an admin can review
+ * what's bound and remove a channel, then Save to apply.
  */
 function SlackChannelsPanel({
   assigned,
-  discovery,
-  discoveryLoading,
-  discoveryLoadingMore,
-  discoveryError,
-  discoverySearch,
-  discoveryMemberOnly,
-  onSearchChange,
-  onMemberOnlyChange,
-  onLoadDiscovery,
-  onLoadMoreDiscovery,
-  onAddFromDiscovery,
-  onAddManual,
   onRemove,
-  manualChannelId,
-  manualChannelName,
-  onManualIdChange,
-  onManualNameChange,
 }: {
   assigned: TeamSlackChannel[];
-  discovery: DiscoveryPayload | null;
-  discoveryLoading: boolean;
-  discoveryLoadingMore: boolean;
-  discoveryError: string | null;
-  discoverySearch: string;
-  discoveryMemberOnly: boolean;
-  onSearchChange: (v: string) => void;
-  onMemberOnlyChange: (v: boolean) => void;
-  onLoadDiscovery: (forceRefresh?: boolean) => void;
-  onLoadMoreDiscovery: () => void;
-  onAddFromDiscovery: (c: DiscoveredSlackChannel) => void;
-  onAddManual: () => void;
   onRemove: (id: string) => void;
-  manualChannelId: string;
-  manualChannelName: string;
-  onManualIdChange: (v: string) => void;
-  onManualNameChange: (v: string) => void;
 }) {
-  const assignedIds = new Set(assigned.map((c) => c.slack_channel_id));
-  // We keep already-assigned channels visible in the discovery list (with an
-  // "Assigned" pill and disabled +) instead of hiding them, so that
-  // server-side page counts stay coherent and the admin understands why a
-  // channel they searched for doesn't have a + button.
-  const discoveryChannels = discovery?.channels ?? [];
-  const trimmedSearch = discoverySearch.trim();
-  const totalBotVisibleChannels = discovery?.total_matches ?? 0;
-  const shownBotVisibleChannels = discoveryChannels.length;
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
-      {/* LEFT — assigned channels */}
-      <div className="rounded-md border flex flex-col min-h-0">
-        <div className="px-3 py-2 border-b bg-muted/30">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Assigned channels ({assigned.length})
+    <div className="rounded-md border flex flex-col min-h-0 flex-1">
+      <div className="px-3 py-2 border-b bg-muted/30">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Assigned channels ({assigned.length})
+        </p>
+      </div>
+      <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
+        {assigned.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No channels assigned. Assign channels under Integrations &rarr; Slack.
           </p>
-        </div>
-        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
-          {assigned.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No channels assigned. Pick from the right →
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {assigned.map((c) => (
-                <li
-                  key={c.slack_channel_id}
-                  className="rounded border p-2 space-y-2 bg-background"
-                >
-                  <div className="flex items-start gap-2">
-                    <Hash className="h-3.5 w-3.5 mt-1 text-muted-foreground shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">
-                        {c.channel_name}
-                      </div>
-                      <div className="text-[11px] font-mono text-muted-foreground truncate">
-                        {c.slack_channel_id}
-                      </div>
+        ) : (
+          <ul className="space-y-2">
+            {assigned.map((c) => (
+              <li
+                key={c.slack_channel_id}
+                className="rounded border p-2 space-y-2 bg-background"
+              >
+                <div className="flex items-start gap-2">
+                  <Hash className="h-3.5 w-3.5 mt-1 text-muted-foreground shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">
+                      {c.channel_name}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                      onClick={() => onRemove(c.slack_channel_id)}
-                      title="Remove from team"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="text-[11px] font-mono text-muted-foreground truncate">
+                      {c.slack_channel_id}
+                    </div>
                   </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </ScrollArea>
-      </div>
-
-      {/* RIGHT — discovery + manual entry */}
-      <div className="rounded-md border flex flex-col min-h-0">
-        <div className="px-3 py-2 border-b bg-muted/30 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Available channels
-              {discovery && (
-                <span className="ml-1 normal-case font-normal">
-                  ({discovery.channels.length}
-                  {discovery.has_more
-                    ? ` of ${discovery.total_matches}`
-                    : ""}
-                  )
-                </span>
-              )}
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-[11px] gap-1"
-              onClick={() => onLoadDiscovery(Boolean(discovery))}
-              disabled={discoveryLoading}
-              title={
-                discovery
-                  ? "Re-fetch channel list from Slack (invalidates cache)"
-                  : "Discover channels from Slack"
-              }
-            >
-              {discoveryLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-              Refresh bot channels
-            </Button>
-          </div>
-
-          <div className="relative">
-            <Search className="h-3 w-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
-            <Input
-              value={discoverySearch}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search bot-member channels..."
-              className="h-7 text-xs pl-6"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            {discovery ? (
-              <span>
-                {totalBotVisibleChannels} bot-member channels found. Showing {shownBotVisibleChannels}.
-              </span>
-            ) : (
-              <span>Loading bot-member channels...</span>
-            )}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={discoveryMemberOnly}
-                onChange={(e) => onMemberOnlyChange(e.target.checked)}
-                className="h-3 w-3"
-              />
-              <span>Only channels the bot is a member of</span>
-              {discovery && !discoveryMemberOnly && (
-                <span className="text-amber-600 dark:text-amber-400">
-                  · including {discovery.total_visible} workspace channels
-                </span>
-              )}
-            </label>
-          </div>
-        </div>
-
-        {discoveryError && (
-          <div className="px-3 py-2 border-b bg-amber-500/5">
-            <p className="text-[11px] text-amber-700 dark:text-amber-400">
-              Discovery failed: {discoveryError}. You can still add channels
-              manually below.
-            </p>
-          </div>
-        )}
-
-        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "260px" }}>
-          {!discovery && !discoveryLoading ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              Loading channels the bot can see...
-            </p>
-          ) : discovery && discoveryChannels.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              {trimmedSearch
-                ? `No channels match "${trimmedSearch}".`
-                : discoveryMemberOnly
-                  ? "The bot isn't a member of any channels. Untick the filter to see all workspace channels, or invite the bot in Slack and refresh."
-                  : "No channels available."}
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {discoveryChannels.map((c) => {
-                const alreadyAssigned = assignedIds.has(c.id);
-                return (
-                  <li
-                    key={c.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50"
-                  >
-                    {c.is_private ? (
-                      <Lock className="h-3 w-3 text-muted-foreground shrink-0" />
-                    ) : (
-                      <Hash className="h-3 w-3 text-muted-foreground shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm truncate">{c.name}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        <span className="font-mono">{c.id}</span>
-                        {c.num_members > 0 && (
-                          <span> · {c.num_members} members</span>
-                        )}
-                        {!c.is_member && (
-                          <span className="text-amber-600 dark:text-amber-400">
-                            {" "}
-                            · bot not a member
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {alreadyAssigned ? (
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] h-5 px-1.5 shrink-0"
-                      >
-                        Assigned
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 w-6 p-0 shrink-0"
-                        onClick={() => onAddFromDiscovery(c)}
-                        title="Assign to team"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-              {discovery?.has_more && (
-                <li className="pt-2 flex justify-center">
                   <Button
-                    size="sm"
                     variant="ghost"
-                    className="h-7 text-[11px] gap-1"
-                    onClick={onLoadMoreDiscovery}
-                    disabled={discoveryLoadingMore}
+                    size="sm"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => onRemove(c.slack_channel_id)}
+                    title="Remove from team"
                   >
-                    {discoveryLoadingMore ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : null}
-                    Load more (
-                    {discovery.total_matches - discoveryChannels.length}{" "}
-                    remaining)
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
-                </li>
-              )}
-            </ul>
-          )}
-        </ScrollArea>
-
-        <div className="px-3 py-2 border-t bg-muted/20 space-y-1">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Or add by ID
-          </Label>
-          <div className="flex gap-1">
-            <Input
-              value={manualChannelId}
-              onChange={(e) => onManualIdChange(e.target.value)}
-              placeholder="C0ASAQMEZ4M"
-              className="h-7 text-xs font-mono flex-1 min-w-0"
-            />
-            <Input
-              value={manualChannelName}
-              onChange={(e) => onManualNameChange(e.target.value)}
-              placeholder="#display-name"
-              className="h-7 text-xs flex-1 min-w-0"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 shrink-0"
-              onClick={onAddManual}
-              disabled={!manualChannelId.trim()}
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ScrollArea>
     </div>
   );
 }
 
+/**
+ * Webex spaces list (read + unassign). Mirrors {@link SlackChannelsPanel}:
+ * shows only the team's currently-assigned spaces. Space discovery and
+ * assignment live under Integrations &rarr; Webex.
+ */
 function WebexSpacesPanel({
   assigned,
-  discovery,
-  discoveryLoading,
-  discoveryLoadingMore,
-  discoveryError,
-  discoverySearch,
-  onSearchChange,
-  onLoadDiscovery,
-  onLoadMoreDiscovery,
-  onAddFromDiscovery,
-  onAddManual,
   onRemove,
-  manualSpaceId,
-  manualSpaceName,
-  onManualIdChange,
-  onManualNameChange,
 }: {
   assigned: TeamWebexSpace[];
-  discovery: WebexDiscoveryPayload | null;
-  discoveryLoading: boolean;
-  discoveryLoadingMore: boolean;
-  discoveryError: string | null;
-  discoverySearch: string;
-  onSearchChange: (v: string) => void;
-  onLoadDiscovery: (forceRefresh?: boolean) => void;
-  onLoadMoreDiscovery: () => void;
-  onAddFromDiscovery: (space: DiscoveredWebexSpace) => void;
-  onAddManual: () => void;
   onRemove: (id: string) => void;
-  manualSpaceId: string;
-  manualSpaceName: string;
-  onManualIdChange: (v: string) => void;
-  onManualNameChange: (v: string) => void;
 }) {
-  const assignedIds = new Set(assigned.map((s) => s.webex_space_id));
-  const discoverySpaces = discovery?.spaces ?? [];
-  const trimmedSearch = discoverySearch.trim();
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
-      <div className="rounded-md border flex flex-col min-h-0">
-        <div className="px-3 py-2 border-b bg-muted/30">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Assigned spaces ({assigned.length})
+    <div className="rounded-md border flex flex-col min-h-0 flex-1">
+      <div className="px-3 py-2 border-b bg-muted/30">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Assigned spaces ({assigned.length})
+        </p>
+      </div>
+      <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
+        {assigned.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No spaces assigned. Assign spaces under Integrations &rarr; Webex.
           </p>
-        </div>
-        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
-          {assigned.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No spaces assigned. Pick from the right →
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {assigned.map((space) => (
-                <li
-                  key={space.webex_space_id}
-                  className="rounded border p-2 space-y-2 bg-background"
-                >
-                  <div className="flex items-start gap-2">
-                    <MessageSquare className="h-3.5 w-3.5 mt-1 text-muted-foreground shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">{space.space_name}</div>
-                      <div className="text-[11px] font-mono text-muted-foreground truncate">
-                        {space.webex_space_id}
-                      </div>
+        ) : (
+          <ul className="space-y-2">
+            {assigned.map((space) => (
+              <li
+                key={space.webex_space_id}
+                className="rounded border p-2 space-y-2 bg-background"
+              >
+                <div className="flex items-start gap-2">
+                  <MessageSquare className="h-3.5 w-3.5 mt-1 text-muted-foreground shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">{space.space_name}</div>
+                    <div className="text-[11px] font-mono text-muted-foreground truncate">
+                      {space.webex_space_id}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                      onClick={() => onRemove(space.webex_space_id)}
-                      title="Remove from team"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </ScrollArea>
-      </div>
-
-      <div className="rounded-md border flex flex-col min-h-0">
-        <div className="px-3 py-2 border-b bg-muted/30 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Available spaces
-              {discovery && (
-                <span className="ml-1 normal-case font-normal">
-                  ({discovery.spaces.length}
-                  {discovery.has_more ? ` of ${discovery.total_matches}` : ""})
-                </span>
-              )}
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-[11px] gap-1"
-              onClick={() => onLoadDiscovery(Boolean(discovery))}
-              disabled={discoveryLoading}
-              title={
-                discovery
-                  ? "Re-fetch space list from Webex (invalidates cache)"
-                  : "Discover spaces from Webex"
-              }
-            >
-              {discoveryLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-              {discovery ? "Refresh cache" : "Discover"}
-            </Button>
-          </div>
-          {discovery && (
-            <div className="relative">
-              <Search className="h-3 w-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
-              <Input
-                value={discoverySearch}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search by title…"
-                className="h-7 text-xs pl-6"
-              />
-            </div>
-          )}
-        </div>
-
-        {discoveryError && (
-          <div className="px-3 py-2 border-b bg-amber-500/5">
-            <p className="text-[11px] text-amber-700 dark:text-amber-400">
-              Discovery failed: {discoveryError}. You can still add spaces manually below.
-            </p>
-          </div>
-        )}
-
-        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "260px" }}>
-          {!discovery && !discoveryLoading ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              Click <strong>Discover</strong> to list Webex spaces the bot can see.
-            </p>
-          ) : discovery && discoverySpaces.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              {trimmedSearch
-                ? `No spaces match "${trimmedSearch}".`
-                : "No Webex spaces available."}
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {discoverySpaces.map((space) => {
-                const alreadyAssigned = assignedIds.has(space.id);
-                return (
-                  <li
-                    key={space.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50"
-                  >
-                    {space.is_locked ? (
-                      <Lock className="h-3 w-3 text-muted-foreground shrink-0" />
-                    ) : (
-                      <MessageSquare className="h-3 w-3 text-muted-foreground shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm truncate">{space.name}</div>
-                      <div className="text-[11px] text-muted-foreground font-mono truncate">
-                        {space.id}
-                      </div>
-                    </div>
-                    {alreadyAssigned ? (
-                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0">
-                        Assigned
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 w-6 p-0 shrink-0"
-                        onClick={() => onAddFromDiscovery(space)}
-                        title="Assign to team"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-              {discovery?.has_more && (
-                <li className="pt-2 flex justify-center">
                   <Button
-                    size="sm"
                     variant="ghost"
-                    className="h-7 text-[11px] gap-1"
-                    onClick={onLoadMoreDiscovery}
-                    disabled={discoveryLoadingMore}
+                    size="sm"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => onRemove(space.webex_space_id)}
+                    title="Remove from team"
                   >
-                    {discoveryLoadingMore ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    Load more ({discovery.total_matches - discoverySpaces.length} remaining)
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
-                </li>
-              )}
-            </ul>
-          )}
-        </ScrollArea>
-
-        <div className="px-3 py-2 border-t bg-muted/20 space-y-1">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Or add by space ID
-          </Label>
-          <div className="flex gap-1">
-            <Input
-              value={manualSpaceId}
-              onChange={(e) => onManualIdChange(e.target.value)}
-              placeholder="Y2lzY29zcGFyazov..."
-              className="h-7 text-xs font-mono flex-1 min-w-0"
-            />
-            <Input
-              value={manualSpaceName}
-              onChange={(e) => onManualNameChange(e.target.value)}
-              placeholder="Space title"
-              className="h-7 text-xs flex-1 min-w-0"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 shrink-0"
-              onClick={onAddManual}
-              disabled={!manualSpaceId.trim()}
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ScrollArea>
     </div>
   );
 }

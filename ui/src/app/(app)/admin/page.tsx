@@ -16,13 +16,13 @@ import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
 import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
-import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
 import { MigrationTab } from "@/components/admin/security/MigrationTab";
-import { OpenFgaRebacTab } from "@/components/admin/security/OpenFgaRebacTab";
+import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab";
+import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
@@ -58,7 +58,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -171,12 +171,20 @@ interface Team {
   // and is no longer read by the page badge — only kept on the type
   // so older fixtures and dialog state shapes continue to compile.
   member_count?: number;
-  // Server-decorated count of distinct KBs assigned to the team, sourced
-  // from the canonical `team_kb_ownership` collection (see
-  // GET /api/admin/teams). The legacy `resources.knowledge_bases` array on
-  // the team document is almost always empty, so the team-card KBs badge
-  // must prefer this field.
+  // Server-decorated count of distinct KBs the team can access, sourced live
+  // from OpenFGA `knowledge_base` grants (the single source of truth; see
+  // GET /api/admin/teams). Drives the team-card KBs badge.
   kb_count?: number;
+  // Owned + shared agent/skill/workflow counts, server-decorated from OpenFGA
+  // (the single source of truth for team↔resource grants). Drive the team-card
+  // StatChip counts; the legacy `resources` array is gone.
+  agent_count?: number;
+  skill_count?: number;
+  workflow_count?: number;
+  // Per-server MCP tool grant count + wildcard flag, server-decorated from
+  // OpenFGA (`tool:<server>/*` caller grants; `tool:*` sentinel = all servers).
+  tool_count?: number;
+  tool_wildcard?: boolean;
   // Distinct IdP membership source types (okta / oidc_claim / ...) present on
   // the team, server-decorated from team_membership_sources. Drives the
   // "synced from <IdP>" badge so synced teams are distinguishable from manual.
@@ -191,15 +199,6 @@ interface Team {
     role: string;
     added_at: Date;
   }>;
-  // Spec 104 — surfaced on the team card via StatChip counts. Optional
-  // because legacy team docs may not have been migrated yet.
-  resources?: {
-    agents?: string[];
-    agent_admins?: string[];
-    tools?: string[];
-    knowledge_bases?: string[];
-    tool_wildcard?: boolean;
-  };
   // Spec 098 US9 — denormalised channel count for the team-card StatChip.
   // Source of truth is `channel_team_mappings`, but we mirror a thin array
   // onto the team document so the card doesn't need an extra round-trip.
@@ -223,15 +222,15 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
+  openfga: 'access-explorer',
 } as const;
 const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
   slack: 'slack',
   webex: 'webex',
-  rag: 'rag-access',
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
@@ -260,7 +259,6 @@ const CATEGORIES: Category[] = [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
-      { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
       { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
     ],
@@ -309,7 +307,8 @@ const CATEGORIES: Category[] = [
     icon: Shield,
     tabs: [
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
-      { value: 'openfga', label: 'Policy Graph', icon: Shield, gateKey: 'openfga' },
+      { value: 'access-explorer', label: 'Access Explorer', icon: Shield, gateKey: 'openfga' },
+      { value: 'rbac-self-check', label: 'Self Check', icon: ListChecks, gateKey: 'openfga' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
       { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
       { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
@@ -568,7 +567,7 @@ function AdminPage() {
     const movedDeepLinkTab = movedOpenFgaDeepLinkTab(requestedOpenFgaSubtab);
     const movedTab = movedAdminTab(requestedTab);
     const tabFromUrl = shouldOpenOpenFgaDeepLink
-      ? 'openfga'
+      ? 'access-explorer'
       : movedDeepLinkTab ?? movedTab ?? (isValidTab(requestedTab) ? requestedTab : null);
     const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
     const defaultCategory = categoryForTab(defaultTab);
@@ -614,7 +613,7 @@ function AdminPage() {
       const params = new URLSearchParams(searchParams.toString());
       params.set('cat', nextCategory);
       params.set('tab', nextTab);
-      if (nextTab !== 'openfga') {
+      if (nextTab !== 'access-explorer') {
         params.delete('subtab');
         params.delete('openfgaTab');
       }
@@ -645,7 +644,7 @@ function AdminPage() {
         const params = new URLSearchParams(searchParams.toString());
         params.set('cat', catKey);
         params.set('tab', firstVisible.value);
-        if (firstVisible.value !== 'openfga') {
+        if (firstVisible.value !== 'access-explorer') {
           params.delete('subtab');
           params.delete('openfgaTab');
         }
@@ -1217,29 +1216,29 @@ function AdminPage() {
           crawl of the session. */}
       <CrawlConsoleDialog />
       <ScrollArea className="h-full">
-          <div className="p-6 space-y-6 max-w-7xl mx-auto">
+          <div className="p-6 space-y-4 max-w-7xl mx-auto">
             {/* Header */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold">Admin</h1>
-                {!isAdmin && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                    <Eye className="h-3.5 w-3.5" />
-                    Read-Only
-                  </span>
-                )}
-                {/* Always-visible status pill that opens the
-                    Crawl Console dialog. Hidden until at least
-                    one crawl has happened in this session, so
-                    the header doesn't gain a permanent "0 crawls"
-                    chip on freshly-loaded pages. */}
-                <CrawlConsoleHeaderPill />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="flex min-w-0 flex-wrap items-baseline">
+                <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
+                <span className="ml-1 text-sm text-muted-foreground">
+                  {isAdmin
+                    ? ', Manage access, teams, health, and platform settings'
+                    : ', View access, teams, health, and platform settings'}
+                </span>
               </div>
-              <p className="text-muted-foreground">
-                {isAdmin
-                  ? 'Manage access, teams, health, and platform settings'
-                  : 'View access, teams, health, and platform settings'}
-              </p>
+              {!isAdmin && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                  <Eye className="h-3.5 w-3.5" />
+                  Read-Only
+                </span>
+              )}
+              {/* Always-visible status pill that opens the
+                  Crawl Console dialog. Hidden until at least
+                  one crawl has happened in this session, so
+                  the header doesn't gain a permanent "0 crawls"
+                  chip on freshly-loaded pages. */}
+              <CrawlConsoleHeaderPill />
             </div>
 
             {/* Tabbed Content */}
@@ -1250,7 +1249,7 @@ function AdminPage() {
               const params = new URLSearchParams(searchParams.toString());
               params.set('cat', categoryForTab(tab));
               params.set('tab', tab);
-              if (tab !== 'openfga') {
+              if (tab !== 'access-explorer') {
                 params.delete('subtab');
                 params.delete('openfgaTab');
               }
@@ -1482,12 +1481,6 @@ function AdminPage() {
                 </TabsContent>
               )}
 
-              {tabGateValues.openfga && (
-                <TabsContent value="rag-access" className="space-y-4">
-                  <RagTeamAccessPanel isAdmin={isAdmin} />
-                </TabsContent>
-              )}
-
               {tabGateValues.slack && (
                 <TabsContent value="slack" className="space-y-4">
                   <SlackChannelRebacPanel
@@ -1608,9 +1601,6 @@ function AdminPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {gridTeams.map((team) => {
-                      const chatIntegrationCount =
-                        (team.slack_channels?.length ?? 0) + (team.webex_spaces?.length ?? 0);
-
                       return (
                       <Card key={team._id}>
                         <CardHeader>
@@ -1658,12 +1648,13 @@ function AdminPage() {
                             </button>
                           </div>
 
-                          {/* Quick stats — 5 chips give an at-a-glance summary
-                              and double as deep-links into the right tab in
-                              the team-management dialog. Counts that we
-                              don't have on the Team object yet (KBs) just
-                              hide the number and show an icon. */}
-                          <div className="grid grid-cols-5 gap-1.5 mt-3">
+                          {/* Quick stats — the four highest-signal chips
+                              (Members, Agents, MCP, KBs). They double as
+                              deep-links into the matching tab in the
+                              team-management dialog. Skills, Workflows, and
+                              Chat were dropped from the card to keep it
+                              uncluttered; they remain available as tabs. */}
+                          <div className="grid grid-cols-4 gap-1.5 mt-3">
                             <StatChip
                               icon={<Users className="h-3.5 w-3.5" />}
                               label="Members"
@@ -1673,36 +1664,20 @@ function AdminPage() {
                             <StatChip
                               icon={<Bot className="h-3.5 w-3.5" />}
                               label="Agents"
-                              count={team.resources?.agents?.length ?? 0}
+                              count={team.agent_count ?? 0}
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
-                              label="MCP"
-                              count={
-                                team.resources?.tool_wildcard
-                                  ? "*"
-                                  : (team.resources?.tools?.length ?? 0)
-                              }
-                              onClick={() => openTeamDialog(team, "resources")}
+                              label="MCPs"
+                              count={team.tool_wildcard ? "*" : (team.tool_count ?? 0)}
+                              onClick={() => openTeamDialog(team, "mcp")}
                             />
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
                               label="KBs"
-                              count={
-                                team.kb_count ??
-                                team.resources?.knowledge_bases?.length ??
-                                0
-                              }
+                              count={team.kb_count ?? 0}
                               onClick={() => openTeamDialog(team, "kbs")}
-                            />
-                            <StatChip
-                              icon={<MessageSquare className="h-3.5 w-3.5" />}
-                              label="Chat"
-                              count={chatIntegrationCount}
-                              ariaLabel={`${chatIntegrationCount} chat integration${chatIntegrationCount === 1 ? "" : "s"}`}
-                              title="Manage chat integrations"
-                              onClick={() => openTeamDialog(team, "channels")}
                             />
                           </div>
 
@@ -2789,8 +2764,14 @@ function AdminPage() {
               )}
 
               {tabGateValues.openfga && (
-                <TabsContent value="openfga" className="space-y-4">
-                  <OpenFgaRebacTab isAdmin={isAdmin} />
+                <TabsContent value="access-explorer" className="space-y-4">
+                  <AccessExplorerTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.openfga && (
+                <TabsContent value="rbac-self-check" className="space-y-4">
+                  <RbacSelfCheckTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

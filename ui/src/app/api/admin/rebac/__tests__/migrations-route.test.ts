@@ -264,7 +264,7 @@ describe("admin ReBAC migrations API", () => {
     expect(body.data.schema_versions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ schema_area: "conversations", current_version: 2, target_version: 2, status: "current" }),
-        expect.objectContaining({ schema_area: "team_resources", current_version: 1, target_version: 2, status: "behind" }),
+        expect.objectContaining({ schema_area: "team_resources", current_version: 1, target_version: 3, status: "behind" }),
       ]),
     );
   });

@@ -5,12 +5,19 @@
  * user reach, and which team granted it?" view that replaced the low-level
  * Permissions Tool.
  *
+ * Grants are read LIVE from OpenFGA `list-objects` (the single source of truth
+ * — the `team.resources` array and `team_kb_ownership` collection are both gone),
+ * so these tests seed grants by mocking `listOpenFgaObjects` keyed on
+ * (`team:<slug>#member`|`#admin`, relation, type) for team grants — including KB
+ * grants on type `knowledge_base` — and (`user:<sub>`, owner, type) for
+ * owner-direct grants.
+ *
  * Covers:
- *  - aggregates agents/tools/skills/tasks/KBs from the user's active teams;
- *  - admin role unlocks agent_admins (manage) and members do not;
+ *  - aggregates agents/tools/skills/workflows/KBs from the user's active teams;
+ *  - admin role unlocks agent manage (`#admin manager`) and members do not;
  *  - the same resource granted by two teams merges into one item with two
  *    `via` entries;
- *  - tool_wildcard surfaces an "all tools" item;
+ *  - personally-owned (non-team) resources surface with `kind: "owned"`;
  *  - a user with no email / no memberships returns empty access;
  *  - 503 when MongoDB is not configured.
  */
@@ -23,9 +30,21 @@ const mockGetRealmUserById = jest.fn();
 const mockMembershipFind = jest.fn();
 const mockTeamsFind = jest.fn();
 const mockAgentsFind = jest.fn();
-const mockKbOwnershipFind = jest.fn();
+const mockListOpenFgaObjects = jest.fn();
 
 let mongoConfigured = true;
+
+/**
+ * OpenFGA `list-objects` stub driven by a simple grant table. Each entry maps a
+ * (user, relation, type) tuple key to the object ids granted under it. Tests set
+ * `grantTable` per scenario; unlisted lookups return no objects.
+ */
+type GrantTable = Record<string, string[]>;
+let grantTable: GrantTable = {};
+
+function grantKey(user: string, relation: string, type: string): string {
+  return `${user}|${relation}|${type}`;
+}
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -48,9 +67,6 @@ jest.mock("@/lib/mongodb", () => ({
         find: (...a: unknown[]) => ({ toArray: () => mockAgentsFind(...a) }),
       };
     }
-    if (name === "team_kb_ownership") {
-      return { find: (...a: unknown[]) => ({ toArray: () => mockKbOwnershipFind(...a) }) };
-    }
     throw new Error(`unexpected getCollection(${name})`);
   },
 }));
@@ -72,6 +88,16 @@ jest.mock("@/lib/rbac/mongo-collections", () => ({
   }),
 }));
 
+// Grants flow through listOpenFgaObjects (directly for owner-direct grants, and
+// transitively via team-resource-listing's batch/cache helpers for team grants).
+jest.mock("@/lib/rbac/openfga", () => {
+  const actual = jest.requireActual("@/lib/rbac/openfga");
+  return {
+    ...actual,
+    listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+  };
+});
+
 function request(id: string) {
   const req = new NextRequest(
     new URL(`/api/admin/users/${id}/access`, "http://localhost:3000"),
@@ -83,6 +109,7 @@ function request(id: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   mongoConfigured = true;
+  grantTable = {};
   mockGetAuth.mockResolvedValue({ session: { sub: "admin-sub" } });
   mockRequireUserProfileRead.mockResolvedValue(undefined);
   mockGetRealmUserById.mockResolvedValue({
@@ -93,7 +120,11 @@ beforeEach(() => {
     { _id: "agent-github", name: "GitHub agent" },
     { _id: "agent-jira", name: "Jira agent" },
   ]);
-  mockKbOwnershipFind.mockResolvedValue([]);
+  mockListOpenFgaObjects.mockImplementation(
+    async ({ user, relation, type }: { user: string; relation: string; type: string }) => ({
+      objects: grantTable[grantKey(user, relation, type)] ?? [],
+    }),
+  );
 });
 
 describe("GET /api/admin/users/[id]/access", () => {
@@ -102,20 +133,15 @@ describe("GET /api/admin/users/[id]/access", () => {
       { team_slug: "platform", relationship: "admin" },
     ]);
     mockTeamsFind.mockResolvedValue([
-      {
-        _id: "t1",
-        slug: "platform",
-        name: "Platform",
-        resources: {
-          agents: ["agent-github"],
-          agent_admins: ["agent-jira"],
-          tools: ["jira_*"],
-          knowledge_bases: ["kb-runbooks"],
-          skills: ["skill-summarize"],
-          tasks: [],
-        },
-      },
+      { _id: "t1", slug: "platform", name: "Platform" },
     ]);
+    grantTable = {
+      [grantKey("team:platform#member", "user", "agent")]: ["agent:agent-github"],
+      [grantKey("team:platform#admin", "manager", "agent")]: ["agent:agent-jira"],
+      [grantKey("team:platform#member", "caller", "tool")]: ["tool:jira/*"],
+      [grantKey("team:platform#member", "user", "skill")]: ["skill:skill-summarize"],
+      [grantKey("team:platform#member", "reader", "knowledge_base")]: ["knowledge_base:kb-runbooks"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -129,29 +155,29 @@ describe("GET /api/admin/users/[id]/access", () => {
       expect.objectContaining({ id: "agent-github", name: "GitHub agent", capability: "use" }),
       expect.objectContaining({ id: "agent-jira", name: "Jira agent", capability: "manage" }),
     ]);
-    expect(access.tools[0]).toMatchObject({ id: "jira_*", capability: "call" });
+    expect(access.tools[0]).toMatchObject({ id: "jira/*", capability: "call" });
     expect(access.knowledge_bases[0]).toMatchObject({ id: "kb-runbooks", capability: "read" });
     expect(access.skills[0]).toMatchObject({ id: "skill-summarize", capability: "use" });
     // The "why" is the granting team.
     expect(access.agents[0].via).toEqual([
-      { team_slug: "platform", team_name: "Platform", role: "admin" },
+      { kind: "team", team_slug: "platform", team_name: "Platform", role: "admin" },
     ]);
   });
 
-  it("reads KB access from team_kb_ownership with per-KB permissions", async () => {
+  it("reads KB access from OpenFGA grants with per-KB permissions", async () => {
     mockMembershipFind.mockResolvedValue([
       { team_slug: "platform", relationship: "admin" },
     ]);
     mockTeamsFind.mockResolvedValue([
-      { _id: "t1", slug: "platform", name: "Platform", resources: {} },
+      { _id: "t1", slug: "platform", name: "Platform" },
     ]);
-    mockKbOwnershipFind.mockResolvedValue([
-      {
-        team_id: "t1",
-        kb_ids: ["kb-runbooks", "kb-secrets"],
-        kb_permissions: { "kb-runbooks": "ingest", "kb-secrets": "admin" },
-      },
-    ]);
+    // kb-runbooks via `member ingestor` (→ ingest), kb-secrets via `admin
+    // manager` (→ admin). The strongest-permission merge in listTeamKbGrants
+    // surfaces each at its granted level.
+    grantTable = {
+      [grantKey("team:platform#member", "ingestor", "knowledge_base")]: ["knowledge_base:kb-runbooks"],
+      [grantKey("team:platform#admin", "manager", "knowledge_base")]: ["knowledge_base:kb-secrets"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -171,15 +197,16 @@ describe("GET /api/admin/users/[id]/access", () => {
       { team_slug: "platform", relationship: "member" },
     ]);
     mockTeamsFind.mockResolvedValue([
-      { _id: "t1", slug: "platform", name: "Platform", resources: {} },
+      { _id: "t1", slug: "platform", name: "Platform" },
     ]);
-    mockKbOwnershipFind.mockResolvedValue([
-      {
-        team_id: "t1",
-        kb_ids: ["kb-runbooks", "kb-secrets"],
-        kb_permissions: { "kb-runbooks": "read", "kb-secrets": "admin" },
-      },
-    ]);
+    // The team holds both a member reader grant and an admin manager grant.
+    // listTeamKbGrants surfaces both objects; the route's role gate must drop
+    // the admin-level grant for a plain member (roleSatisfies), so kb-secrets
+    // never reaches the response even though the tuple exists.
+    grantTable = {
+      [grantKey("team:platform#member", "reader", "knowledge_base")]: ["knowledge_base:kb-runbooks"],
+      [grantKey("team:platform#admin", "manager", "knowledge_base")]: ["knowledge_base:kb-secrets"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -193,18 +220,17 @@ describe("GET /api/admin/users/[id]/access", () => {
     expect(kbs).not.toContain("kb-secrets:admin");
   });
 
-  it("does not grant agent_admins (manage) to a plain member", async () => {
+  it("does not grant agent manage to a plain member", async () => {
     mockMembershipFind.mockResolvedValue([
       { team_slug: "platform", relationship: "member" },
     ]);
     mockTeamsFind.mockResolvedValue([
-      {
-        _id: "t1",
-        slug: "platform",
-        name: "Platform",
-        resources: { agents: ["agent-github"], agent_admins: ["agent-jira"] },
-      },
+      { _id: "t1", slug: "platform", name: "Platform" },
     ]);
+    grantTable = {
+      [grantKey("team:platform#member", "user", "agent")]: ["agent:agent-github"],
+      [grantKey("team:platform#admin", "manager", "agent")]: ["agent:agent-jira"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -224,9 +250,13 @@ describe("GET /api/admin/users/[id]/access", () => {
       { team_slug: "payments", relationship: "member" },
     ]);
     mockTeamsFind.mockResolvedValue([
-      { _id: "t1", slug: "platform", name: "Platform", resources: { agents: ["agent-github"] } },
-      { _id: "t2", slug: "payments", name: "Payments", resources: { agents: ["agent-github"] } },
+      { _id: "t1", slug: "platform", name: "Platform" },
+      { _id: "t2", slug: "payments", name: "Payments" },
     ]);
+    grantTable = {
+      [grantKey("team:platform#member", "user", "agent")]: ["agent:agent-github"],
+      [grantKey("team:payments#member", "user", "agent")]: ["agent:agent-github"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -239,13 +269,41 @@ describe("GET /api/admin/users/[id]/access", () => {
     );
   });
 
-  it("surfaces tool_wildcard as an all-tools item", async () => {
+  it("surfaces personally-owned (non-team) resources with kind: owned", async () => {
+    // No team memberships — only owner-direct grants keyed on the subject.
+    mockMembershipFind.mockResolvedValue([]);
+    grantTable = {
+      [grantKey("user:user-1", "owner", "agent")]: ["agent:agent-github"],
+      [grantKey("user:user-1", "owner", "skill")]: ["skill:my-skill"],
+      [grantKey("user:user-1", "owner", "task")]: ["task:my-workflow"],
+    };
+
+    const { GET } = await import("../route");
+    const { req, context } = request("user-1");
+    const res = await GET(req, context);
+    const body = await res.json();
+
+    const { access } = body.data;
+    // Owner implies manage for agents, use for skills/workflows.
+    expect(access.agents[0]).toMatchObject({ id: "agent-github", capability: "manage" });
+    expect(access.agents[0].via).toEqual([
+      { kind: "owned", team_slug: "", team_name: "", role: "admin" },
+    ]);
+    expect(access.skills[0]).toMatchObject({ id: "my-skill", capability: "use" });
+    expect(access.workflows[0]).toMatchObject({ id: "my-workflow", capability: "use" });
+    expect(access.workflows[0].via[0].kind).toBe("owned");
+  });
+
+  it("surfaces the tool:* wildcard sentinel as an all-tools item", async () => {
     mockMembershipFind.mockResolvedValue([
       { team_slug: "platform", relationship: "member" },
     ]);
     mockTeamsFind.mockResolvedValue([
-      { _id: "t1", slug: "platform", name: "Platform", resources: { tool_wildcard: true } },
+      { _id: "t1", slug: "platform", name: "Platform" },
     ]);
+    grantTable = {
+      [grantKey("team:platform#member", "caller", "tool")]: ["tool:*"],
+    };
 
     const { GET } = await import("../route");
     const { req, context } = request("user-1");
@@ -272,7 +330,7 @@ describe("GET /api/admin/users/[id]/access", () => {
       tools: [],
       knowledge_bases: [],
       skills: [],
-      tasks: [],
+      workflows: [],
     });
     expect(mockTeamsFind).not.toHaveBeenCalled();
   });

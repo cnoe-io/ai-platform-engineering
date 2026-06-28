@@ -59,12 +59,12 @@ const platformTeam = {
   owner_id: adminSession.email,
   description: "Platform team fixture",
   member_count: 2,
-  resources: {
-    agents: ["agent-keep"],
-    agent_admins: [],
-    tools: ["mcp-confluence-mcp_*"],
-    tool_wildcard: false,
-  },
+  // The team-card chips read server-decorated counts (OpenFGA-sourced) now that
+  // the legacy `resources` array is gone. The grant lists themselves come from
+  // the per-team resources GET below.
+  agent_count: 1,
+  tool_count: 1,
+  tool_wildcard: false,
 };
 
 type TeamResourcePutBody = {
@@ -543,9 +543,9 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(platformTeam.name)).toBeVisible();
 
-    await page.getByRole("button", { name: /1\s+MCP/i }).click();
+    await page.getByRole("button", { name: /1\s+MCPs/i }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Agents & MCP", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "MCPs", exact: true })).toBeVisible();
     await expect(page.getByText("mcp-confluence-mcp_*")).toBeVisible();
 
     const putResponse = page.waitForResponse(
@@ -553,7 +553,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
         response.request().method() === "PUT" &&
         /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
     );
-    await page.getByRole("button", { name: "Save agents and MCP access" }).click();
+    await page.getByRole("button", { name: "Save MCP access" }).click();
     await putResponse;
 
     await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
