@@ -929,19 +929,26 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('keeps legacy OpenFGA RAG deep links on the Policy Graph category', async () => {
+    it('canonicalizes legacy OpenFGA RAG deep links to Access Explorer', async () => {
       currentSearchParams = new URLSearchParams('cat=security&tab=openfga&subtab=rag&openfgaTab=rag');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Policy Graph$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
       expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      // assisted-by Codex Codex-sonnet-4-6
+      // Preserve the legacy OpenFGA deep-link markers for the Access Explorer route.
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=security&tab=access-explorer&subtab=rag&openfgaTab=rag',
+        { scroll: false },
+      );
       expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
         scroll: false,
       });
