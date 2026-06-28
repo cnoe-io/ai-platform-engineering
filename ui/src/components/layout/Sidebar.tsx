@@ -23,7 +23,6 @@ ArchiveRestore,
 ChevronLeft,
 ChevronRight,
 Database,
-Globe,
 HardDrive,
 History,
 MessageCircleQuestion,
@@ -34,8 +33,7 @@ RefreshCw,
 Shield,
 Sparkles,
 TrendingUp,
-Users,
-Users2
+Users
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -355,13 +353,32 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
                 {conversations.map((conv, index) => {
-                  // Check if conversation is shared
-                  const isShared = conv.sharing && (
-                    conv.sharing.is_public ||
-                    (conv.sharing.shared_with && conv.sharing.shared_with.length > 0) ||
-                    (conv.sharing.shared_with_teams && conv.sharing.shared_with_teams.length > 0) ||
-                    conv.sharing.share_link_enabled
+                  const currentUserEmail = session?.user?.email?.trim().toLowerCase();
+                  const ownerEmail = conv.owner_id?.trim().toLowerCase();
+                  const viewerIsKnownOwner =
+                    conv.accessLevel === "owner" ||
+                    Boolean(ownerEmail && currentUserEmail && ownerEmail === currentUserEmail);
+                  const hasSharingConfig = Boolean(
+                    (conv.sharing?.shared_with?.length ?? 0) > 0 ||
+                    (conv.sharing?.shared_with_teams?.length ?? 0) > 0 ||
+                    conv.sharing?.share_link_enabled
                   );
+                  const sharedByKnownDifferentOwner = Boolean(
+                    ownerEmail &&
+                    currentUserEmail &&
+                    ownerEmail !== currentUserEmail &&
+                    hasSharingConfig
+                  );
+                  // assisted-by Codex Codex-sonnet-4-6
+                  // The badge is viewer-facing, so prefer the server's per-viewer sharing signal.
+                  const isSharedWithViewer = !viewerIsKnownOwner && (
+                    conv.isSharedWithViewer === true ||
+                    conv.accessLevel === "shared" ||
+                    conv.accessLevel === "shared_readonly" ||
+                    sharedByKnownDifferentOwner
+                  );
+                  const sharedByLabel = conv.owner_id?.trim();
+                  const canManageSharing = viewerIsKnownOwner || (!ownerEmail && !isSharedWithViewer);
 
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
@@ -387,7 +404,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               ? "bg-blue-500/5 border border-blue-500/25"
                               : activeConversationId === conv.id
                                 ? "bg-primary/10 border border-primary/30"
-                                : isShared
+                                : isSharedWithViewer
                                   ? "hover:bg-muted/50 border border-blue-500/20"
                                   : "hover:bg-muted/50 border border-transparent"
                       )}
@@ -452,26 +469,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
-                            {isShared && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    {conv.sharing?.is_public ? (
-                                      <Globe className="h-3 w-3 text-green-500 shrink-0" />
-                                    ) : (
-                                      <Users2 className="h-3 w-3 text-blue-500 shrink-0" />
-                                    )}
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    <p className="text-xs">
-                                      {conv.sharing?.is_public
-                                        ? 'Shared with everyone'
-                                        : 'Shared conversation'}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
                           </div>
                           <p className={cn(
                             "text-xs truncate",
@@ -498,11 +495,22 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div
+                            className={cn(
+                              "transition-opacity",
+                              activeConversationId === conv.id || hasSharingConfig || isSharedWithViewer
+                                ? "opacity-100"
+                                : "opacity-0 group-hover:opacity-100",
+                            )}
+                          >
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={!conv.owner_id || conv.owner_id === session?.user?.email}
+                              isOwner={canManageSharing}
+                              isSharedWithViewer={isSharedWithViewer}
+                              sharedBy={sharedByLabel}
+                              sharing={conv.sharing}
+                              accessLevel={conv.accessLevel}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>

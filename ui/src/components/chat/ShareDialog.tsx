@@ -4,17 +4,50 @@ import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import type { UserPublicInfo } from "@/types/mongodb";
 import type { Team } from "@/types/teams";
-import { Check,Copy,Globe,Mail,Trash2,Users,X } from "lucide-react";
+import { Check,Copy,Mail,Trash2,Users,X } from "lucide-react";
 import { useEffect,useState } from "react";
 import { createPortal } from "react-dom";
 
 type SharePermission = 'view' | 'comment';
+const TEAM_SHARE_SEARCH_ENDPOINT = '/api/dynamic-agents/teams';
+
+type SharingSnapshot = {
+  is_public?: boolean;
+  shared_with?: string[];
+  shared_with_teams?: string[];
+  team_permissions?: Record<string, SharePermission>;
+  share_link_enabled?: boolean;
+};
 
 interface ShareDialogProps {
   conversationId: string;
   conversationTitle: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canManageSharing?: boolean;
+  sharedBy?: string;
+  initialSharing?: SharingSnapshot;
+}
+
+function teamShareRef(team: Team): string {
+  return team.slug?.trim() || String(team._id);
+}
+
+function teamAliases(team: Team): string[] {
+  return Array.from(new Set([team.slug, team._id].map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function isTeamAlreadyShared(team: Team, sharedTeamRefs: string[]): boolean {
+  const sharedRefs = new Set(sharedTeamRefs.map((value) => String(value).trim()).filter(Boolean));
+  return teamAliases(team).some((alias) => sharedRefs.has(alias));
+}
+
+async function fetchShareableTeams(): Promise<Team[]> {
+  const teamsResponse = await fetch(TEAM_SHARE_SEARCH_ENDPOINT);
+  if (!teamsResponse.ok) return [];
+  const teamsData = await teamsResponse.json();
+  if (Array.isArray(teamsData.data)) return teamsData.data;
+  return teamsData.data?.teams || [];
 }
 
 export function ShareDialog({
@@ -22,6 +55,9 @@ export function ShareDialog({
   conversationTitle,
   open,
   onOpenChange,
+  canManageSharing = true,
+  sharedBy,
+  initialSharing,
 }: ShareDialogProps) {
   const updateConversationSharing = useChatStore((state) => state.updateConversationSharing);
   const [searchInput, setSearchInput] = useState("");
@@ -35,21 +71,28 @@ export function ShareDialog({
   const [copied, setCopied] = useState(false);
   const [noResults, setNoResults] = useState(false);
   const [isLegacyConversation, setIsLegacyConversation] = useState(false);
-  const [isPublic, setIsPublic] = useState(false);
-  const [togglingPublic, setTogglingPublic] = useState(false);
   const [userPermissions, setUserPermissions] = useState<Record<string, SharePermission>>({});
   const [teamPermissions, setTeamPermissions] = useState<Record<string, SharePermission>>({});
   const [defaultPermission, setDefaultPermission] = useState<SharePermission>('comment');
-  const [publicPermission, setPublicPermission] = useState<SharePermission>('comment');
 
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/chat/${conversationId}`;
+  const sharedByLabel = sharedBy?.trim();
+
+  const applySharingSnapshot = (sharing?: SharingSnapshot) => {
+    setSharedWith(sharing?.shared_with || []);
+    const teamIds = sharing?.shared_with_teams || [];
+    setSharedWithTeams(teamIds);
+    setTeamPermissions(sharing?.team_permissions || {});
+    setUserPermissions({});
+  };
 
   // Load current sharing info
   useEffect(() => {
     if (open) {
+      applySharingSnapshot(initialSharing);
       loadSharingInfo();
     }
-  }, [open, conversationId]);
+  }, [open, conversationId, canManageSharing]);
 
   const loadSharingInfo = async () => {
     try {
@@ -60,7 +103,6 @@ export function ShareDialog({
         setSharedWith(sharing?.shared_with || []);
         const teamIds = sharing?.shared_with_teams || [];
         setSharedWithTeams(teamIds);
-        setIsPublic(sharing?.is_public || false);
         setIsLegacyConversation(false);
 
         // Build per-user permission map from access_list
@@ -76,13 +118,10 @@ export function ShareDialog({
         // Build per-team permission map from sharing.team_permissions
         setTeamPermissions(sharing?.team_permissions || {});
 
-        // Load public share permission
-        setPublicPermission(sharing?.public_permission || 'comment');
-
         // Update store with sharing info so Sidebar shows icon immediately
         if (sharing) {
           updateConversationSharing(conversationId, {
-            is_public: sharing.is_public,
+            is_public: false,
             shared_with: sharing.shared_with,
             shared_with_teams: sharing.shared_with_teams,
             share_link_enabled: sharing.share_link_enabled,
@@ -92,18 +131,16 @@ export function ShareDialog({
         // Load team names for display
         if (teamIds.length > 0) {
           try {
-            const teamsResponse = await fetch('/api/admin/teams');
-            if (teamsResponse.ok) {
-              const teamsData = await teamsResponse.json();
-              const allTeams = teamsData.data?.teams || [];
-              const namesMap: Record<string, string> = {};
-              allTeams.forEach((team: Team) => {
-                if (teamIds.includes(team._id)) {
-                  namesMap[team._id] = team.name;
+            const allTeams = await fetchShareableTeams();
+            const namesMap: Record<string, string> = {};
+            allTeams.forEach((team: Team) => {
+              for (const alias of teamAliases(team)) {
+                if (teamIds.includes(alias)) {
+                  namesMap[alias] = team.name;
                 }
-              });
-              setTeamNames(namesMap);
-            }
+              }
+            });
+            setTeamNames(namesMap);
           } catch (err) {
             console.error("Failed to load team names:", err);
           }
@@ -132,6 +169,13 @@ export function ShareDialog({
   // Search users and teams as they type
   useEffect(() => {
     const searchPeopleAndTeams = async () => {
+      if (!canManageSharing) {
+        setUserResults([]);
+        setTeamResults([]);
+        setNoResults(false);
+        return;
+      }
+
       if (searchInput.length < 2) {
         setUserResults([]);
         setTeamResults([]);
@@ -149,37 +193,22 @@ export function ShareDialog({
 
         // Search teams (may require admin access - handle gracefully)
         try {
-          const teamsResponse = await fetch('/api/admin/teams');
-          if (teamsResponse.ok) {
-            const teamsData = await teamsResponse.json();
-            const allTeams = teamsData.data?.teams || [];
-            // Filter teams by name/description matching search input
-            const searchLower = searchInput.toLowerCase();
-            const matchingTeams = allTeams.filter((team: Team) => {
-              const nameMatch = team.name.toLowerCase().includes(searchLower);
-              const descMatch = team.description?.toLowerCase().includes(searchLower);
-              const notAlreadyShared = !sharedWithTeams.includes(team._id);
-              return (nameMatch || descMatch) && notAlreadyShared;
-            });
-            setTeamResults(matchingTeams);
-            
-            // Show no results message if both are empty
-            if (filteredUsers.length === 0 && matchingTeams.length === 0 && searchInput.length >= 2) {
-              setNoResults(true);
-            }
-          } else if (teamsResponse.status === 403) {
-            // Admin access required - teams search not available
-            setTeamResults([]);
-            // Still check user results
-            if (filteredUsers.length === 0 && searchInput.length >= 2) {
-              setNoResults(true);
-            }
-          } else {
-            // Other error - still check user results
-            setTeamResults([]);
-            if (filteredUsers.length === 0 && searchInput.length >= 2) {
-              setNoResults(true);
-            }
+          const allTeams = await fetchShareableTeams();
+          // assisted-by Codex Codex-sonnet-4-6
+          // Team chat sharing uses the member-visible team endpoint, not the admin grid API.
+          const searchLower = searchInput.toLowerCase();
+          const matchingTeams = allTeams.filter((team: Team) => {
+            const nameMatch = team.name.toLowerCase().includes(searchLower);
+            const slugMatch = team.slug?.toLowerCase().includes(searchLower);
+            const descMatch = team.description?.toLowerCase().includes(searchLower);
+            const notAlreadyShared = !isTeamAlreadyShared(team, sharedWithTeams);
+            return (nameMatch || slugMatch || descMatch) && notAlreadyShared;
+          });
+          setTeamResults(matchingTeams);
+
+          // Show no results message if both are empty
+          if (filteredUsers.length === 0 && matchingTeams.length === 0 && searchInput.length >= 2) {
+            setNoResults(true);
           }
         } catch (teamErr) {
           console.error("Team search failed:", teamErr);
@@ -201,9 +230,10 @@ export function ShareDialog({
 
     const timer = setTimeout(searchPeopleAndTeams, 300);
     return () => clearTimeout(timer);
-  }, [searchInput, sharedWith, sharedWithTeams]);
+  }, [searchInput, sharedWith, sharedWithTeams, canManageSharing]);
 
   const handleShareUser = async (email: string) => {
+    if (!canManageSharing) return;
     setLoading(true);
     try {
       const updatedConversation = await apiClient.shareConversation(conversationId, {
@@ -217,7 +247,7 @@ export function ShareDialog({
       // Update store with new sharing info so Sidebar shows icon immediately
       if (updatedConversation?.sharing) {
         updateConversationSharing(conversationId, {
-          is_public: updatedConversation.sharing.is_public,
+          is_public: false,
           shared_with: updatedConversation.sharing.shared_with,
           shared_with_teams: updatedConversation.sharing.shared_with_teams,
           share_link_enabled: updatedConversation.sharing.share_link_enabled,
@@ -244,6 +274,7 @@ export function ShareDialog({
   };
 
   const handleShareTeam = async (teamId: string) => {
+    if (!canManageSharing) return;
     setLoading(true);
     try {
       // Update conversation to include team in shared_with_teams
@@ -276,7 +307,7 @@ export function ShareDialog({
       // Update store with new sharing info so Sidebar shows icon immediately
       if (updatedConversation?.sharing) {
         updateConversationSharing(conversationId, {
-          is_public: updatedConversation.sharing.is_public,
+          is_public: false,
           shared_with: updatedConversation.sharing.shared_with,
           shared_with_teams: updatedConversation.sharing.shared_with_teams,
           share_link_enabled: updatedConversation.sharing.share_link_enabled,
@@ -300,6 +331,7 @@ export function ShareDialog({
 
   // Handle sharing by email directly (for users not yet in system)
   const handleShareByEmail = async () => {
+    if (!canManageSharing) return;
     // Simple email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(searchInput)) {
@@ -324,6 +356,7 @@ export function ShareDialog({
     target: { email?: string; team_id?: string },
     newPermission: SharePermission
   ) => {
+    if (!canManageSharing) return;
     try {
       const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
         method: 'PATCH',
@@ -342,63 +375,6 @@ export function ShareDialog({
     }
   };
 
-  const handlePublicPermissionChange = async (newPermission: SharePermission) => {
-    try {
-      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_public: true, public_permission: newPermission }),
-      });
-      if (response.ok) {
-        setPublicPermission(newPermission);
-      }
-    } catch (err) {
-      console.error('Failed to update public permission:', err);
-    }
-  };
-
-  const handleTogglePublic = async () => {
-    setTogglingPublic(true);
-    const newPublicState = !isPublic;
-    try {
-      const response = await fetch(`/api/chat/conversations/${conversationId}/share`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_public: newPublicState }),
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to update sharing';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch {
-          errorMessage = response.statusText || errorMessage;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const responseData = await response.json();
-      const updatedConversation = responseData.data;
-
-      setIsPublic(newPublicState);
-
-      if (updatedConversation?.sharing) {
-        updateConversationSharing(conversationId, {
-          is_public: updatedConversation.sharing.is_public,
-          shared_with: updatedConversation.sharing.shared_with,
-          shared_with_teams: updatedConversation.sharing.shared_with_teams,
-          share_link_enabled: updatedConversation.sharing.share_link_enabled,
-        });
-      }
-    } catch (err: any) {
-      console.error("Failed to toggle public sharing:", err);
-      alert(`Failed to update sharing: ${err?.message || 'Unknown error'}`);
-    } finally {
-      setTogglingPublic(false);
-    }
-  };
-
   if (!open || typeof document === 'undefined') return null;
 
   // Render modal as a portal at document body level
@@ -414,12 +390,17 @@ export function ShareDialog({
     >
       <div 
         className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 mx-auto my-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-dialog-title"
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside dialog
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold">Share Conversation</h2>
+            <h2 id="share-dialog-title" className="text-lg font-semibold">
+              {canManageSharing ? 'Share Conversation' : 'Shared Conversation'}
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {conversationTitle}
             </p>
@@ -462,6 +443,13 @@ export function ShareDialog({
           </div>
         ) : (
           <>
+            {!canManageSharing && sharedByLabel && (
+              <div className="mb-4 rounded-md border bg-muted/40 px-3 py-2">
+                <div className="text-xs text-muted-foreground">Shared by</div>
+                <div className="text-sm font-medium truncate">{sharedByLabel}</div>
+              </div>
+            )}
+
             {/* Copy link section */}
         <div className="mb-6">
           <label className="text-sm font-medium mb-2 block">Share Link</label>
@@ -491,47 +479,8 @@ export function ShareDialog({
           </div>
         </div>
 
-        {/* Share with everyone toggle */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between p-3 border rounded-md">
-            <div className="flex items-center gap-3">
-              <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                isPublic
-                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                  : 'bg-muted text-muted-foreground'
-              }`}>
-                <Globe className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="text-sm font-medium">Share with everyone</div>
-                <div className="text-xs text-muted-foreground">
-                  {isPublic
-                    ? `Anyone in the organization can ${publicPermission === 'comment' ? 'view and edit' : 'view'} this conversation`
-                    : 'Only people and teams you add can access'}
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={handleTogglePublic}
-              disabled={togglingPublic}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                isPublic ? 'bg-green-500' : 'bg-muted-foreground/30'
-              } ${togglingPublic ? 'opacity-50 cursor-not-allowed' : ''}`}
-              role="switch"
-              aria-checked={isPublic}
-              aria-label="Share with everyone"
-              data-testid="share-public-toggle"
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  isPublic ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-
         {/* Add people and teams section */}
+        {canManageSharing && (
         <div className="mb-6">
           <label className="text-sm font-medium mb-2 block">
             People, Teams
@@ -588,8 +537,8 @@ export function ShareDialog({
                     <div className="text-xs font-medium text-muted-foreground px-2 py-1">Teams</div>
                     {teamResults.map((team) => (
                       <button
-                        key={team._id}
-                        onClick={() => handleShareTeam(team._id)}
+                        key={teamShareRef(team)}
+                        onClick={() => handleShareTeam(teamShareRef(team))}
                         disabled={loading}
                         className="w-full px-3 py-2 text-left hover:bg-muted flex items-center gap-2 text-sm rounded-md"
                       >
@@ -642,36 +591,15 @@ export function ShareDialog({
             )}
           </div>
         </div>
+        )}
 
         {/* People and Teams with access */}
-        {(sharedWith.length > 0 || sharedWithTeams.length > 0 || isPublic) && (
+        {(sharedWith.length > 0 || sharedWithTeams.length > 0) && (
           <div>
             <label className="text-sm font-medium mb-2 block">
-              Access ({isPublic ? 'Everyone' : `${sharedWith.length + sharedWithTeams.length} ${sharedWith.length + sharedWithTeams.length === 1 ? 'person/team' : 'people/teams'}`})
+              Access ({`${sharedWith.length + sharedWithTeams.length} ${sharedWith.length + sharedWithTeams.length === 1 ? 'person/team' : 'people/teams'}`})
             </label>
             <div className="space-y-2 max-h-48 overflow-y-auto">
-              {/* Everyone indicator */}
-              {isPublic && (
-                <div className="flex items-center justify-between py-2 px-3 bg-green-500/5 border border-green-500/20 rounded-md">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-green-500/10 flex items-center justify-center text-green-600 dark:text-green-400">
-                      <Globe className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium">Everyone</div>
-                      <div className="text-xs text-muted-foreground">All organization members</div>
-                    </div>
-                  </div>
-                  <select
-                    value={publicPermission}
-                    onChange={(e) => handlePublicPermissionChange(e.target.value as SharePermission)}
-                    className="text-xs bg-transparent border border-green-500/30 rounded px-1.5 py-1 text-muted-foreground hover:text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  >
-                    <option value="view">Can view</option>
-                    <option value="comment">Can edit</option>
-                  </select>
-                </div>
-              )}
               {/* People */}
               {sharedWith.map((email) => (
                 <div
@@ -684,6 +612,7 @@ export function ShareDialog({
                     </div>
                     <div className="text-sm truncate">{email}</div>
                   </div>
+                  {canManageSharing ? (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <select
                       value={userPermissions[email] || 'view'}
@@ -703,6 +632,11 @@ export function ShareDialog({
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {(userPermissions[email] || 'view') === 'comment' ? 'Can edit' : 'Can view'}
+                    </span>
+                  )}
                 </div>
               ))}
               {/* Teams */}
@@ -719,6 +653,7 @@ export function ShareDialog({
                       {teamNames[teamId] || `Team: ${teamId}`}
                     </div>
                   </div>
+                  {canManageSharing ? (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <select
                       value={teamPermissions[teamId] || 'view'}
@@ -738,6 +673,11 @@ export function ShareDialog({
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {(teamPermissions[teamId] || 'view') === 'comment' ? 'Can edit' : 'Can view'}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

@@ -203,6 +203,16 @@ describe("grant parsing", () => {
     ).toThrow(HttpAuthzError);
   });
 
+  it("parseGrantIntent blocks everyone grants for conversation discovery", () => {
+    expect(() =>
+      parseGrantIntent({
+        resource: { type: "conversation", id: "conv-1" },
+        grantee: { type: "everyone" },
+        capability: "discover",
+      }),
+    ).toThrow(HttpAuthzError);
+  });
+
   it("parseGrantIntent allows everyone use grants for global workflow agent access", () => {
     expect(parseGrantIntent({ resource: { type: "agent", id: "pe" }, grantee: { type: "everyone" }, capability: "use" })).toEqual({
       resource: { type: "agent", id: "pe" },

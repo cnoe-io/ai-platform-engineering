@@ -163,15 +163,43 @@ global:
           tag: ""              # defaults to agentgateway subchart appVersion
           pullPolicy: IfNotPresent
         pollSeconds: 5
-        bff:
+        # gRPC host:port of the OpenFGA authz bridge used as ext_authz on every MCP route.
+        # Defaults to <release>-openfga-authz-bridge:9100 (matches the Helm-rendered service name).
+        authzHost: ""
+        # Supply a pre-existing Secret instead of the plain authzHost value above.
+        # When name is set, authzHost is ignored and the value is read from the Secret.
+        authzHostSecret:
+          name: ""           # name of the Secret
+          key: AGENTGATEWAY_AUTHZ_HOST  # key inside the Secret
+        ui:
           # Internal BFF route that publishes sanitized AgentGateway MCP targets.
           url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets
           existingSecret:
-            # Name of the Kubernetes Secret containing AGENTGATEWAY_TARGETS_TOKEN.
-            # Mount the same key into caipe-ui (via caipe-ui.existingSecret or
-            # caipe-ui.externalSecrets) so the BFF and bridge share the token.
+            # REQUIRED when configBridge is enabled and externalSecret is not used.
+            # Name of a pre-existing Secret containing AGENTGATEWAY_TARGETS_TOKEN.
+            # The same secret must be accessible to caipe-ui (via caipe-ui.existingSecret
+            # or caipe-ui.externalSecrets) so both sides share the token.
+            # Generate and create:
+            #   TOKEN=$(openssl rand -base64 32)
+            #   kubectl create secret generic <name> --from-literal=AGENTGATEWAY_TARGETS_TOKEN=$TOKEN
             name: ""
             key: AGENTGATEWAY_TARGETS_TOKEN
+          # ESO alternative: when enabled, the External Secrets Operator creates the
+          # token secret from an external store (Vault, AWS SM, etc.).
+          # existingSecret.name is not required when this is enabled.
+          # Independent of global.externalSecrets.enabled.
+          externalSecret:
+            enabled: false
+            # apiVersion: v1beta1        # defaults to global.externalSecrets.apiVersion
+            # refreshInterval: "1h"
+            # secretStoreRef:            # defaults to global.externalSecrets.secretStoreRef
+            #   name: vault
+            #   kind: ClusterSecretStore
+            data: []
+            # - secretKey: AGENTGATEWAY_TARGETS_TOKEN
+            #   remoteRef:
+            #     key: dev/agentgateway-config-bridge
+            #     property: AGENTGATEWAY_TARGETS_TOKEN
         # securityContext: {}  # optional; defaults to agentgateway.securityContext
         # resources: {}        # optional; defaults to agentgateway.resources
         extraEnv: []
@@ -1059,7 +1087,7 @@ slack-bot:
     SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false" # Opt-in first-message channel onboarding
     SLACK_DEFAULT_TEAM_SLUG: ""                # Required when auto-assignment is enabled
     SLACK_DEFAULT_AGENT_ID: ""                 # Required when auto-assignment is enabled
-    SLACK_ADMIN_API_ENABLED: "false"           # Internal admin API for route status/reload/config sync
+    SLACK_ADMIN_API_ENABLED: "true"            # Internal admin API when tags.slack-bot=true
     SLACK_ADMIN_API_HOST: "0.0.0.0"
     SLACK_ADMIN_API_PORT: "3001"
     SLACK_ADMIN_JWT_ISSUER: ""                 # Set to Keycloak/OIDC issuer when admin API is enabled
@@ -1155,7 +1183,7 @@ webex-bot:
     WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
     WEBEX_DEFAULT_TEAM_SLUG: ""
     WEBEX_DEFAULT_AGENT_ID: ""
-    WEBEX_ADMIN_API_ENABLED: "true"
+    WEBEX_ADMIN_API_ENABLED: "false"
     WEBEX_ADMIN_API_HOST: "0.0.0.0"
     WEBEX_ADMIN_API_PORT: "3002"
     WEBEX_ADMIN_JWT_ISSUER: ""

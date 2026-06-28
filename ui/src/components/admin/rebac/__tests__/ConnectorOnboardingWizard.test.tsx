@@ -15,6 +15,8 @@ function makeRow(overrides: Partial<ConnectorOnboardingRow>): ConnectorOnboardin
     teamSlug: overrides.teamSlug ?? "",
     agentId: overrides.agentId ?? "",
     isExisting: overrides.isExisting ?? false,
+    teamRequired: overrides.teamRequired,
+    selectable: overrides.selectable,
     importLabel: `Import ${name}`,
     teamLabel: `Team for ${name}`,
     agentLabel: `Dynamic Agent for ${name}`,
@@ -34,6 +36,7 @@ function renderWizard(rows: ConnectorOnboardingRow[], onApply = jest.fn()) {
       description="desc"
       discoveryStatusText="status"
       discoveredCount={rows.length}
+      configuredCount={rows.filter((r) => r.isExisting).length}
       newCount={rows.length}
       selectedCount={rows.filter((r) => r.selected && r.teamSlug && r.agentId).length}
       rows={rows}
@@ -92,4 +95,28 @@ it("disables Set up when nothing is selected", () => {
 
   expect(screen.getByRole("button", { name: "Set up 0 spaces" })).toBeDisabled();
   expect(screen.getByText("Select at least one space to set up.")).toBeInTheDocument();
+});
+
+it("shows non-team direct rooms as personal DMs instead of team-assigned rows", () => {
+  renderWizard([
+    makeRow({
+      id: "direct",
+      name: "Sri Aradhyula",
+      secondary: "direct-room · direct",
+      selected: true,
+      teamSlug: "team-a",
+      agentId: "agent-a",
+      teamRequired: false,
+      selectable: false,
+    }),
+  ]);
+
+  const checkbox = screen.getByRole("checkbox", { name: "Import Sri Aradhyula" });
+  expect(checkbox).toBeDisabled();
+  expect(checkbox).not.toBeChecked();
+  expect(screen.queryByLabelText("Team for Sri Aradhyula")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Dynamic Agent for Sri Aradhyula")).not.toBeInTheDocument();
+  expect(screen.getAllByText("Personal DM")).toHaveLength(2);
+  expect(screen.getByText("Direct user routing")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Set up 0 spaces" })).toBeDisabled();
 });

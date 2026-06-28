@@ -35,6 +35,17 @@ def _float_env(name: str, default: float, *, minimum: float = 0.001) -> float:
     return max(value, minimum)
 
 
+def _percent_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return min(max(value, 0.0), 100.0)
+
+
 @dataclass(frozen=True)
 class Settings:
     """Audit service settings sourced from environment variables."""
@@ -43,6 +54,8 @@ class Settings:
     local_path: str = "/var/lib/caipe-audit-service"
     local_gzip: bool = True
     local_retention_days: int = 1
+    local_disk_warning_percent: float = 85.0
+    local_disk_critical_percent: float = 95.0
     s3_bucket: str = ""
     s3_prefix: str = "audit"
     s3_region: str = "us-east-1"
@@ -57,11 +70,18 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         # assisted-by Codex Codex-sonnet-4-6
+        disk_warning_percent = _percent_env("AUDIT_SERVICE_LOCAL_DISK_WARNING_PERCENT", 85.0)
+        disk_critical_percent = max(
+            disk_warning_percent,
+            _percent_env("AUDIT_SERVICE_LOCAL_DISK_CRITICAL_PERCENT", 95.0),
+        )
         return cls(
             backend=os.getenv("AUDIT_SERVICE_BACKEND", "local").strip().lower(),
             local_path=os.getenv("AUDIT_SERVICE_LOCAL_PATH", "/var/lib/caipe-audit-service"),
             local_gzip=_bool_env("AUDIT_SERVICE_LOCAL_GZIP", True),
             local_retention_days=_int_env("AUDIT_SERVICE_LOCAL_RETENTION_DAYS", 1),
+            local_disk_warning_percent=disk_warning_percent,
+            local_disk_critical_percent=disk_critical_percent,
             s3_bucket=os.getenv("AUDIT_SERVICE_S3_BUCKET", ""),
             s3_prefix=os.getenv("AUDIT_SERVICE_S3_PREFIX", "audit"),
             s3_region=os.getenv("AUDIT_SERVICE_S3_REGION", "us-east-1"),

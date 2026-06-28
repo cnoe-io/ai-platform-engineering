@@ -6,6 +6,7 @@ type ConnectorRouteMetadata,
 type ConnectorRuntimeRouteDiagnostic,
 computeConnectorDiagnostics,
 computeConnectorHealthSummary,
+computeConnectorHealthSummaries,
 } from "@/lib/rbac/connector-diagnostics";
 import {
 listOpenFgaWebexSpaceAgentIds,
@@ -22,6 +23,11 @@ export interface WebexSpaceDiagnostics extends Omit<ConnectorDiagnostics, "item_
 }
 
 export type WebexSpaceHealthSummary = ConnectorHealthSummary;
+
+export interface WebexSpaceHealthSummaryTarget {
+  workspaceId: string;
+  spaceId: string;
+}
 
 function buildExtraRouteWarnings(route: ConnectorRuntimeRouteDiagnostic): string[] {
   // Webex surfaces explicit listen-mode warnings at the per-route
@@ -88,4 +94,13 @@ export async function computeWebexSpaceHealthSummary(
   spaceId: string,
 ): Promise<WebexSpaceHealthSummary> {
   return computeConnectorHealthSummary(WEBEX_DIAGNOSTICS_ADAPTER, workspaceId, spaceId);
+}
+
+export async function computeWebexSpaceHealthSummaries(
+  targets: WebexSpaceHealthSummaryTarget[],
+): Promise<WebexSpaceHealthSummary[]> {
+  return computeConnectorHealthSummaries(
+    WEBEX_DIAGNOSTICS_ADAPTER,
+    targets.map((target) => ({ workspaceId: target.workspaceId, itemId: target.spaceId })),
+  );
 }

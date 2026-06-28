@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from ai_platform_engineering.audit_service.config import Settings
 from ai_platform_engineering.audit_service.main import create_app
+from ai_platform_engineering.audit_service.queue_service import PUBLIC_FLUSH_ERROR, AuditQueueService
 from ai_platform_engineering.audit_service.storage import AuditQuery, LocalAuditStore, S3AuditStore
 
 
@@ -17,6 +20,8 @@ def _settings(tmp_path: Path, **overrides: object) -> Settings:
         "local_path": str(tmp_path),
         "local_gzip": True,
         "local_retention_days": 1,
+        "local_disk_warning_percent": 85.0,
+        "local_disk_critical_percent": 95.0,
         "queue_max_size": 10,
         "flush_batch_size": 2,
         "flush_interval_seconds": 0.05,
@@ -128,6 +133,97 @@ def test_settings_reads_local_retention_days(monkeypatch) -> None:
     settings = Settings.from_env()
 
     assert settings.local_retention_days == 3
+
+
+def test_status_reports_local_disk_pressure(tmp_path: Path, monkeypatch) -> None:
+    # assisted-by Codex Codex-sonnet-4-6
+    monkeypatch.setattr(
+        "ai_platform_engineering.audit_service.storage.shutil.disk_usage",
+        lambda _: SimpleNamespace(total=1_000, used=920, free=80),
+    )
+    app = create_app(
+        _settings(
+            tmp_path,
+            local_disk_warning_percent=85.0,
+            local_disk_critical_percent=95.0,
+        )
+    )
+
+    with TestClient(app) as client:
+        status = client.get("/v1/audit/status")
+
+    assert status.status_code == 200
+    storage = status.json()["storage"]
+    assert storage["backend"] == "local"
+    assert storage["status"] == "warning"
+    assert storage["used_percent"] == 92.0
+    assert storage["free_bytes"] == 80
+    assert "local disk 92.0% used" in storage["detail"]
+
+
+def test_status_reports_local_disk_critical(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_platform_engineering.audit_service.storage.shutil.disk_usage",
+        lambda _: SimpleNamespace(total=1_000, used=960, free=40),
+    )
+    app = create_app(
+        _settings(
+            tmp_path,
+            local_disk_warning_percent=85.0,
+            local_disk_critical_percent=95.0,
+        )
+    )
+
+    with TestClient(app) as client:
+        status = client.get("/v1/audit/status")
+
+    assert status.status_code == 200
+    assert status.json()["storage"]["status"] == "down"
+
+
+def test_status_sanitizes_storage_health_errors(tmp_path: Path, monkeypatch) -> None:
+    def fail_storage_health(self: LocalAuditStore, **_: object) -> dict[str, object]:
+        raise RuntimeError("secret backend path /tmp/audit-token")
+
+    monkeypatch.setattr(LocalAuditStore, "storage_health", fail_storage_health)
+    app = create_app(_settings(tmp_path))
+
+    with TestClient(app) as client:
+        status = client.get("/v1/audit/status")
+
+    assert status.status_code == 200
+    storage = status.json()["storage"]
+    assert storage["status"] == "down"
+    assert storage["detail"] == "storage health check failed; see audit-service logs"
+    assert "secret" not in storage["detail"]
+
+
+def test_queue_status_sanitizes_flush_errors() -> None:
+    class FailingStore:
+        @property
+        def backend_name(self) -> str:
+            return "local"
+
+        def readiness_check(self) -> None:
+            return None
+
+        def write_batch(self, records: list[dict[str, object]]) -> str | None:
+            raise RuntimeError("secret stack trace payload")
+
+    service = AuditQueueService(
+        FailingStore(),
+        queue_max_size=10,
+        flush_batch_size=1,
+        flush_interval_seconds=0.01,
+    )
+
+    assert service.enqueue_many([{"type": "auth"}])
+    asyncio.run(service._flush_remaining())
+
+    status = service.status()
+    assert status["failed_flushes"] == 1
+    assert status["last_error"] == PUBLIC_FLUSH_ERROR
+    assert "secret" not in status["last_error"]
 
 
 def test_local_store_purges_expired_audit_files(tmp_path: Path) -> None:

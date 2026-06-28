@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,15 @@ _PARQUET_INDEX_FIELDS = (
 )
 _AUDIT_KEY_TS_RE = re.compile(r"audit-(\d{8}T\d{6}Z)-")
 _KEY_TIME_PRUNE_TOLERANCE = timedelta(minutes=2)
+
+
+def _format_bytes(value: int) -> str:
+    amount = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return f"{amount:.1f} TiB"
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -196,17 +206,42 @@ class LocalAuditStore:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink(missing_ok=True)
 
+    def storage_health(self, *, warning_percent: float = 85.0, critical_percent: float = 95.0) -> dict[str, Any]:
+        # assisted-by Codex Codex-sonnet-4-6
+        self.readiness_check()
+        usage = shutil.disk_usage(self.root)
+        used_percent = round((usage.used / usage.total) * 100, 2) if usage.total else 100.0
+        if used_percent >= critical_percent:
+            status = "down"
+        elif used_percent >= warning_percent:
+            status = "warning"
+        else:
+            status = "healthy"
+
+        return {
+            "backend": self.backend_name,
+            "status": status,
+            "detail": f"local disk {used_percent:.1f}% used ({_format_bytes(usage.free)} free)",
+            "local_path": str(self.root),
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+            "used_percent": used_percent,
+            "warning_percent": warning_percent,
+            "critical_percent": critical_percent,
+        }
+
     def write_batch(self, records: list[dict[str, Any]]) -> str | None:
         if not records:
             return None
 
-        now = datetime.now(timezone.utc)
-        yyyy, mm, dd = _day_parts(now)
+        partition_time = _batch_partition_time(records)
+        yyyy, mm, dd = _day_parts(partition_time)
         day_dir = self.root / yyyy / mm / dd
         day_dir.mkdir(parents=True, exist_ok=True)
 
         suffix = ".ndjson.gz" if self.gzip_enabled else ".ndjson"
-        filename = f"audit-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:12]}{suffix}"
+        filename = f"audit-{partition_time.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:12]}{suffix}"
         path = day_dir / filename
         tmp_path = day_dir / f".{filename}.tmp"
 
@@ -332,6 +367,20 @@ class S3AuditStore:
 
     def readiness_check(self) -> None:
         self._client.head_bucket(Bucket=self.bucket)
+
+    def storage_health(self) -> dict[str, Any]:
+        # assisted-by Codex Codex-sonnet-4-6
+        self.readiness_check()
+        target = f"s3://{self.bucket}/{self.prefix}".rstrip("/")
+        return {
+            "backend": self.backend_name,
+            "status": "healthy",
+            "detail": f"S3 bucket reachable at {target}",
+            "bucket": self.bucket,
+            "prefix": self.prefix,
+            "region": self.region,
+            "endpoint_url": self.endpoint_url,
+        }
 
     def write_batch(self, records: list[dict[str, Any]]) -> str | None:
         if not records:

@@ -304,6 +304,12 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+      # Pass the active Compose profile set through to the UI so product
+      # health can show profile-enabled integrations as degraded/down even
+      # when their container crashes before serving traffic.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
+      # Chat runtime health endpoint URL
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://dynamic-agents:8001}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
@@ -888,6 +894,13 @@ services:
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
       - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
+      - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-true}
+      - SLACK_ADMIN_API_HOST=${SLACK_ADMIN_API_HOST:-0.0.0.0}
+      - SLACK_ADMIN_API_PORT=${SLACK_ADMIN_API_PORT:-3001}
+      - SLACK_ADMIN_JWT_ISSUER=${SLACK_ADMIN_JWT_ISSUER:-http://keycloak:7080/realms/caipe}
+      - SLACK_ADMIN_JWKS_URL=${SLACK_ADMIN_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      - SLACK_ADMIN_JWT_AUDIENCE=${SLACK_ADMIN_JWT_AUDIENCE:-caipe-slack-bot-admin}
+      - SLACK_ADMIN_ALLOWED_CLIENT_IDS=${SLACK_ADMIN_ALLOWED_CLIENT_IDS:-caipe-ui}
       # Spec 103: JIT user creation. See docker-compose.dev.yaml for full
       # description. Defaults to true so first-time DMs work out-of-box.
       - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
@@ -1020,8 +1033,9 @@ services:
       # Cap JVM heap so KC plays nicely on a busy dev laptop. Default
       # `start-dev` lets the JVM scale to 25% of host memory, which on a
       # heavily-loaded compose stack can trip Docker Desktop's OOM killer
-      # during schema init (exit 137). 768m headroom is plenty for dev.
-      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=256m"
+      # during schema init (exit 137). Keep a bounded heap, but leave enough
+      # room for RBAC/AuthZ warmup so admin pages do not stall on Keycloak.
+      JAVA_OPTS_KC_HEAP: "${KEYCLOAK_JAVA_OPTS_KC_HEAP:--Xms256m -Xmx1024m -XX:MaxMetaspaceSize=384m}"
     # `--import-realm` is still safe with a durable DB: KC only imports on
     # an empty realm, so subsequent boots become idempotent no-ops and your
     # runtime mutations (teams, role assignments, identity links) survive.

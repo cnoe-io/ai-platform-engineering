@@ -1,5 +1,5 @@
-name: "[Prebuild][MCP] Sub-Agents MCP Docker Build and Push"
-description: "Build and push MCP Docker images for sub-agents"
+name: "[Prebuild][MCP] MCP Servers Docker Build and Push"
+description: "Build and push MCP server Docker images"
 
 on:
   pull_request:
@@ -52,7 +52,7 @@ jobs:
       mcp_build_args: ${{ steps.read-config.outputs.mcp_build_args }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           sparse-checkout: .github/agents.json
@@ -80,7 +80,7 @@ jobs:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
@@ -157,7 +157,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
@@ -279,7 +279,7 @@ jobs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           sparse-checkout: .github/agents.json
           sparse-checkout-cone-mode: false

@@ -56,8 +56,22 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  annotateConversationsWithViewerSharing: (_session: unknown, userEmail: string, items: Array<{ owner_id?: string }>) =>
+    items.map((item) => ({
+      ...item,
+      viewer_has_shared_access: item.owner_id?.toLowerCase() !== userEmail.toLowerCase(),
+    })),
+  conversationVisibilityCandidateQuery: (userEmail: string, directShareConversationIds: string[] = []) => ({
+    $or: [
+      { owner_id: userEmail },
+      { "sharing.shared_with": userEmail },
+      ...(directShareConversationIds.length > 0 ? [{ _id: { $in: directShareConversationIds } }] : []),
+      { "sharing.shared_with_teams.0": { $exists: true } },
+    ],
+  }),
   filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversationsByImplicitOrExplicitPermission(...args),
+  getDirectSharingAccessConversationIds: jest.fn(async () => []),
 }));
 
 jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
@@ -87,7 +101,7 @@ describe("POST /api/chat/conversations agent authorization", () => {
     );
   });
 
-  it("lists candidate conversations without legacy team prefiltering before OpenFGA filtering", async () => {
+  it("lists bounded conversation candidates before OpenFGA filtering", async () => {
     const candidate = {
       _id: "conv-openfga-only",
       title: "OpenFGA Only",
@@ -109,14 +123,24 @@ describe("POST /api/chat/conversations agent authorization", () => {
     expect(response.status).toBe(200);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
     expect(countDocuments).toHaveBeenCalledWith(
-      expect.not.objectContaining({
-        $or: expect.any(Array),
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          {
+            $or: [
+              { owner_id: "alice@example.com" },
+              { "sharing.shared_with": "alice@example.com" },
+              { "sharing.shared_with_teams.0": { $exists: true } },
+            ],
+          },
+        ]),
       }),
     );
     expect(mockFilterConversationsByImplicitOrExplicitPermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       "alice@example.com",
       [candidate],
+      "discover",
+      [],
     );
   });
 

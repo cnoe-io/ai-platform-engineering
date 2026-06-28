@@ -46,7 +46,6 @@ const PUBLIC_GRANTABLE_EVERYONE_RESOURCE_ACTIONS: ReadonlySet<string> = new Set(
   "agent:discover",
   "agent:use",
   "audit_log:discover",
-  "conversation:discover",
   "data_source:discover",
   "document:discover",
   "external_group:discover",

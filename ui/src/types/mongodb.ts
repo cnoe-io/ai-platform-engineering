@@ -81,14 +81,22 @@ export interface Conversation {
     };
   };
   sharing: {
+    /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
     is_public: boolean;
-    public_permission?: 'view' | 'comment'; // Permission for public shares (default: comment)
+    /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
+    public_permission?: 'view' | 'comment';
     shared_with: string[]; // Array of user emails
     shared_with_teams: string[]; // Array of team IDs
     team_permissions?: Record<string, 'view' | 'comment'>; // Per-team permission
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
+  // assisted-by Codex Codex-sonnet-4-6
+  // Response-only: current viewer reached this conversation through sharing, not ownership.
+  viewer_has_shared_access?: boolean;
+  // assisted-by Codex Codex-sonnet-4-6
+  // Response-only: current viewer's effective access level for UI affordances.
+  access_level?: 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;
@@ -314,11 +322,13 @@ export interface PatchConversationMetadataRequest {
 export interface ShareConversationRequest {
   user_emails?: string[];
   team_ids?: string[];
-  permission: 'view' | 'comment';
+  permission?: 'view' | 'comment';
   enable_link?: boolean;
   link_expires?: string; // ISO date string
+  /** @deprecated Only is_public=false is accepted to clear legacy public state. */
   is_public?: boolean;
-  public_permission?: 'view' | 'comment'; // Permission when is_public is true
+  /** @deprecated Public/everyone conversation sharing is rejected by the API. */
+  public_permission?: 'view' | 'comment';
 }
 
 // Message API

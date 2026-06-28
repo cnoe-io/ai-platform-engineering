@@ -32,6 +32,106 @@ test.describe("mocked Slack Run as browser regression", () => {
     );
   });
 
+  test("loads configured channel health through the batched list request", async ({ page }) => {
+    const listRequests: string[] = [];
+
+    const slackHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/admin/slack/channels" && method === "GET") {
+        listRequests.push(url.search);
+        await fulfillJson(route, {
+          data: {
+            channels: [
+              {
+                workspace_id: "CAIPE",
+                channel_id: "C0INCIDENTS",
+                channel_name: "incidents",
+                team_slug: "platform-engineering",
+                primary_agent_id: "incident-agent",
+                active_grants: 1,
+                can_manage: true,
+                health: {
+                  warnings_count: 1,
+                  openfga_reachable: true,
+                  last_runtime_error_ts: "2026-06-25T18:00:00.000Z",
+                },
+              },
+              {
+                workspace_id: "CAIPE",
+                channel_id: "C0SUPPORT",
+                channel_name: "support",
+                team_slug: "platform-engineering",
+                primary_agent_id: "support-agent",
+                active_grants: 1,
+                can_manage: true,
+                health: {
+                  warnings_count: 0,
+                  openfga_reachable: true,
+                  last_runtime_error_ts: null,
+                },
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            items: [
+              { _id: "incident-agent", name: "Incident Agent" },
+              { _id: "support-agent", name: "Support Agent" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/teams" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            teams: [
+              { _id: "team-platform", slug: "platform-engineering", name: "Platform Engineering" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/runtime/status" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            route_mode: "db_prefer",
+            static_config: { channels: 2, routes: 2 },
+            route_cache: { ttl_seconds: 60, cache_size: 2 },
+          },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      gates: { slack: true },
+      handlers: [slackHandler],
+    });
+
+    await page.goto("/admin?cat=integrations&tab=slack", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByRole("tab", { name: "Configured channels" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /#incidents/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /#support/ })).toBeVisible();
+    await expect(page.getByText("1 issue")).toBeVisible();
+    await expect(page.getByText("healthy")).toBeVisible();
+    expect(listRequests.length).toBeGreaterThan(0);
+    expect(new Set(listRequests)).toEqual(new Set(["?health=1"]));
+  });
+
   test("saves a Slack route that runs as a selected service account", async ({ page }) => {
     const routeWrites: unknown[] = [];
     let routes: unknown[] = [];
@@ -150,7 +250,7 @@ test.describe("mocked Slack Run as browser regression", () => {
 
     await expect(page.getByRole("tab", { name: "Configured channels" })).toBeVisible();
     await page.getByRole("button", { name: /#incidents/ }).click();
-    await expect(page.getByRole("button", { name: "Team for #incidents" })).toContainText(
+    await expect(page.getByRole("combobox", { name: "Team for #incidents" })).toContainText(
       "team:platform-engineering",
     );
 
@@ -767,7 +867,7 @@ test.describe("mocked Slack Run as browser regression", () => {
     await expect(page.getByRole("tab", { name: "Onboard channels" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Advanced" })).toBeVisible();
     await page.getByRole("button", { name: /#admin-overrides-channel/ }).click();
-    await expect(page.getByRole("button", { name: "Team for #admin-overrides-channel" })).toBeEnabled();
+    await expect(page.getByRole("combobox", { name: "Team for #admin-overrides-channel" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Add Agent" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Edit agent:locked-agent" })).toBeEnabled();
 

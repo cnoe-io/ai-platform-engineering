@@ -160,14 +160,24 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 {{- end -}}
 
 {{/*
+Resolve the effective MCP secrets config.
+mcpSecrets (new) is deep-merged on top of agentSecrets (deprecated) so either key works.
+Keys set in mcpSecrets take precedence; unset keys fall back to agentSecrets values.
+*/}}
+{{- define "agent.effectiveSecrets" -}}
+    {{- mergeOverwrite (deepCopy .Values.agentSecrets) (.Values.mcpSecrets | default dict) | toYaml -}}
+{{- end -}}
+
+{{/*
 Get agentSecrets.create with global fallback
 Always false when requiresSecret is false
 */}}
 {{- define "agent.agentSecrets.create" -}}
-    {{- if not .Values.agentSecrets.requiresSecret -}}
+    {{- $s := fromYaml (include "agent.effectiveSecrets" .) -}}
+    {{- if not $s.requiresSecret -}}
         {{- false -}}
     {{- else -}}
-        {{- $create := .Values.agentSecrets.create -}}
+        {{- $create := $s.create -}}
         {{- with .Values.global -}}
             {{- with .agentSecrets -}}
                 {{- if hasKey . "create" -}}
@@ -183,10 +193,11 @@ Always false when requiresSecret is false
 Determine if external secrets are enabled for agentSecrets - prioritize global
 */}}
 {{- define "agent.agentSecrets.externalSecrets.enabled" -}}
-    {{- if not .Values.agentSecrets.requiresSecret -}}
+    {{- $s := fromYaml (include "agent.effectiveSecrets" .) -}}
+    {{- if not $s.requiresSecret -}}
         {{- false -}}
     {{- else -}}
-        {{- $enabled := (default false .Values.agentSecrets.externalSecrets.enabled) -}}
+        {{- $enabled := (default false $s.externalSecrets.enabled) -}}
         {{- with .Values.global -}}
             {{- with .externalSecrets -}}
                 {{- if and (hasKey . "enabled") .enabled -}}
@@ -209,7 +220,8 @@ Determine if external secrets are enabled for agentSecrets - prioritize global
 Get agentSecrets.externalSecrets.secretStoreRef with global fallback
 */}}
 {{- define "agent.agentSecrets.externalSecrets.secretStoreRef" -}}
-    {{- $ref := .Values.agentSecrets.externalSecrets.secretStoreRef -}}
+    {{- $s := fromYaml (include "agent.effectiveSecrets" .) -}}
+    {{- $ref := $s.externalSecrets.secretStoreRef -}}
     {{- with .Values.global -}}
         {{- with .externalSecrets -}}
             {{- if hasKey . "secretStoreRef" -}}
@@ -224,9 +236,10 @@ Get agentSecrets.externalSecrets.secretStoreRef with global fallback
 Get agentSecrets.secretName - if empty assume no secret, if not append agent.name as prefix
 */}}
 {{- define "agent.agentSecrets.secretName" -}}
-    {{- if .Values.agentSecrets.requiresSecret -}}
-        {{- if .Values.agentSecrets.secretName -}}
-            {{- .Values.agentSecrets.secretName -}}
+    {{- $s := fromYaml (include "agent.effectiveSecrets" .) -}}
+    {{- if $s.requiresSecret -}}
+        {{- if $s.secretName -}}
+            {{- $s.secretName -}}
         {{- else -}}
             {{- printf "%s-secret" (include "agent.name" .) -}}
         {{- end -}}
@@ -239,9 +252,10 @@ Get agentSecrets.secretName - if empty assume no secret, if not append agent.nam
 Get agentSecrets.externalSecrets.name - if empty assume no secret, if not append agent.name as prefix
 */}}
 {{- define "agent.agentSecrets.externalSecrets.name" -}}
-    {{- if .Values.agentSecrets.requiresSecret -}}
-        {{- if .Values.agentSecrets.externalSecrets.name -}}
-            {{- .Values.agentSecrets.externalSecrets.name -}}
+    {{- $s := fromYaml (include "agent.effectiveSecrets" .) -}}
+    {{- if $s.requiresSecret -}}
+        {{- if $s.externalSecrets.name -}}
+            {{- $s.externalSecrets.name -}}
         {{- else -}}
             {{- printf "%s-secret" (include "agent.name" .) -}}
         {{- end -}}

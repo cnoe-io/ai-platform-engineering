@@ -34,7 +34,7 @@ jobs:
       rag_components: ${{ steps.read-config.outputs.rag_components }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           sparse-checkout: .github/agents.json
           sparse-checkout-cone-mode: false
@@ -58,6 +58,7 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
@@ -67,7 +68,7 @@ jobs:
           permission-contents: read
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
 
@@ -76,7 +77,10 @@ jobs:
         uses: ./.github/actions/determine-release-tag
         with:
           manual_tag: ${{ inputs.tag_version }}
-          token: ${{ steps.app-token.outputs.token }}
+          # assisted-by Codex Codex-sonnet-4-6
+          # Pull request runs, including Dependabot, do not receive repository
+          # app secrets. They only need read access for tag detection.
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Detect changed paths
         id: filter
@@ -202,6 +206,7 @@ jobs:
 
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
@@ -239,7 +244,7 @@ jobs:
           df -h
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
       - name: Log in to GitHub Container Registry
@@ -435,7 +440,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4

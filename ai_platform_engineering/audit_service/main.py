@@ -47,6 +47,36 @@ async def _run_local_retention_cleanup(store: LocalAuditStore, retention_days: i
         await _purge_local_retention(store, retention_days)
 
 
+def _storage_health(store: LocalAuditStore | S3AuditStore, settings: Settings) -> dict[str, Any]:
+    # assisted-by Codex Codex-sonnet-4-6
+    try:
+        if isinstance(store, LocalAuditStore):
+            return store.storage_health(
+                warning_percent=settings.local_disk_warning_percent,
+                critical_percent=settings.local_disk_critical_percent,
+            )
+        return store.storage_health()
+    except Exception:  # noqa: BLE001
+        _logger.exception("audit storage health check failed")
+        health: dict[str, Any] = {
+            "backend": settings.backend,
+            "status": "down",
+            "detail": "storage health check failed; see audit-service logs",
+        }
+        if settings.backend == "local":
+            health["local_path"] = settings.local_path
+        elif settings.backend == "s3":
+            health.update(
+                {
+                    "bucket": settings.s3_bucket,
+                    "prefix": settings.s3_prefix,
+                    "region": settings.s3_region,
+                    "endpoint_url": settings.s3_endpoint_url,
+                }
+            )
+        return health
+
+
 def _parse_datetime(value: str | None, *, default: datetime) -> datetime:
     if value is None:
         return default
@@ -155,8 +185,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service: AuditQueueService = request.app.state.audit_queue
         try:
             service.store.readiness_check()
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=503, detail=f"storage unavailable: {exc}") from exc
+        except Exception:  # noqa: BLE001
+            _logger.exception("audit storage readiness check failed")
+            raise HTTPException(status_code=503, detail="storage unavailable")
         status = service.status()
         if not status["running"]:
             raise HTTPException(status_code=503, detail="audit worker is not running")
@@ -168,6 +199,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         current_settings: Settings = request.app.state.audit_settings
         return {
             **service.status(),
+            "storage": _storage_health(service.store, current_settings),
             "local_path": current_settings.local_path if current_settings.backend == "local" else None,
             "local_gzip": current_settings.local_gzip if current_settings.backend == "local" else None,
             "local_retention_days": current_settings.local_retention_days
