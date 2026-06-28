@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 
-import { OpenFgaRebacTab } from "../OpenFgaRebacTab";
+import { AccessExplorerTab } from "../AccessExplorerTab";
+
+// assisted-by Codex Codex-sonnet-4-6
 
 const fetchMock = jest.fn();
 
@@ -28,14 +30,6 @@ beforeEach(() => {
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   fetchMock.mockImplementation(async (url: string) => {
-    if (url === "/api/admin/openfga/catalog") {
-      return jsonResponse({
-        data: {
-          status: { configured: true, reconcile_enabled: true, store_name: "caipe-openfga" },
-          teams: [{ id: "team-1", slug: "platform", name: "Platform" }],
-        },
-      });
-    }
     if (url.startsWith("/api/admin/rebac/graph")) {
       return jsonResponse({
         data: {
@@ -53,35 +47,21 @@ beforeEach(() => {
   });
 });
 
-it("renders the read-only policy graph with summary metrics", async () => {
-  render(<OpenFgaRebacTab isAdmin />);
-
-  await waitFor(() => {
-    expect(screen.getByText("Policy Graph")).toBeInTheDocument();
-  });
-
-  // Summary reflects the loaded graph (2 nodes, 1 relationship).
-  expect(screen.getByText("Relationships")).toBeInTheDocument();
-  expect(screen.getByText("OpenFGA reconciliation enabled")).toBeInTheDocument();
+it("renders the access explorer search bar", () => {
+  render(<AccessExplorerTab isAdmin />);
+  expect(screen.queryByRole("heading", { name: "Access Explorer" })).not.toBeInTheDocument();
+  expect(screen.getByPlaceholderText(/Search users, teams, agents/i)).toBeInTheDocument();
 });
 
-it("does not expose any grant-editing affordances", async () => {
-  render(<OpenFgaRebacTab isAdmin />);
+it("does not expose any grant-editing affordances", () => {
+  render(<AccessExplorerTab isAdmin />);
 
-  await waitFor(() => {
-    expect(screen.getByText("Policy Graph")).toBeInTheDocument();
-  });
-
-  // The editor surfaces (palette, staging, save) are gone.
   expect(screen.queryByTestId("openfga-graph-resource-palette")).not.toBeInTheDocument();
   expect(screen.queryByText(/Validate and save/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/Stage revoke/i)).not.toBeInTheDocument();
-  expect(screen.queryByRole("tab", { name: /OpenFGA Tuples/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole("tab", { name: /Policy Manifest/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole("tab", { name: /Default FGA Grants/i })).not.toBeInTheDocument();
 });
 
 it("requires admin access", () => {
-  render(<OpenFgaRebacTab isAdmin={false} />);
+  render(<AccessExplorerTab isAdmin={false} />);
   expect(screen.getByText("Admin access required.")).toBeInTheDocument();
 });

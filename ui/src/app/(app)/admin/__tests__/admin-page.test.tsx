@@ -15,6 +15,8 @@
 import React from 'react';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
+// assisted-by Codex Codex-sonnet-4-6
+
 // ============================================================================
 // Mocks
 // ============================================================================
@@ -98,8 +100,12 @@ jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
   CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
-jest.mock('@/components/admin/security/OpenFgaRebacTab', () => ({
-  OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
+jest.mock('@/components/admin/security/AccessExplorerTab', () => ({
+  AccessExplorerTab: () => <div data-testid="access-explorer-tab">AccessExplorerTab</div>,
+}));
+
+jest.mock('@/components/admin/security/RbacSelfCheckTab', () => ({
+  RbacSelfCheckTab: () => <div data-testid="rbac-self-check-tab">RbacSelfCheckTab</div>,
 }));
 
 jest.mock('@/components/admin/rebac/SlackChannelRebacPanel', () => ({
@@ -687,7 +693,8 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByText('Security & Policy'));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'RBAC Audit',
-        'Policy Graph',
+        'Access Explorer',
+        'Self Check',
         'Chat Audit',
         'Keycloak',
         'Migrations',
@@ -859,7 +866,8 @@ describe('Admin Dashboard Page', () => {
       ['insights', 'feedback', /^Feedback$/i],
       ['platform', 'metrics', /^Metrics$/i],
       ['platform', 'health', /^Health$/i],
-      ['security', 'openfga', /^Policy Graph$/i],
+      ['security', 'access-explorer', /^Access Explorer$/i],
+      ['security', 'rbac-self-check', /^Self Check$/i],
       ['security', 'keycloak', /^Keycloak$/i],
       ['security', 'action-audit', /^RBAC Audit$/i],
       ['security', 'audit-logs', /^Chat Audit$/i],
@@ -921,19 +929,26 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('keeps legacy OpenFGA RAG deep links on the Policy Graph category', async () => {
+    it('canonicalizes legacy OpenFGA RAG deep links to Access Explorer', async () => {
       currentSearchParams = new URLSearchParams('cat=security&tab=openfga&subtab=rag&openfgaTab=rag');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Policy Graph$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
       expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      // assisted-by Codex Codex-sonnet-4-6
+      // Preserve the legacy OpenFGA deep-link markers for the Access Explorer route.
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=security&tab=access-explorer&subtab=rag&openfgaTab=rag',
+        { scroll: false },
+      );
       expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
         scroll: false,
       });
@@ -974,7 +989,40 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('opens the requested category sub-tab from the query string', async () => {
+    it('opens the requested Access Explorer sub-tab from the query string', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=access-explorer');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=security&tab=openfga', {
+        scroll: false,
+      });
+    });
+
+    it('opens the requested RBAC Self Check sub-tab from the query string', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=rbac-self-check');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Self Check$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('rbac-self-check-tab')).toBeInTheDocument();
+    });
+
+    it('canonicalizes legacy OpenFGA tab links to Access Explorer', async () => {
       currentSearchParams = new URLSearchParams('cat=security&tab=openfga');
 
       render(<AdminPage />);
@@ -982,11 +1030,14 @@ describe('Admin Dashboard Page', () => {
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Policy Graph$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('openfga-rebac-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=security&tab=access-explorer', {
+        scroll: false,
+      });
     });
 
     it('canonicalizes legacy OpenFGA Slack deep links to Integrations Slack', async () => {
