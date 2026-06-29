@@ -110,37 +110,35 @@ let mockPlatformProbeStatus: 'healthy' | 'degraded' | 'down' | 'checking' = 'hea
 type MockPlatformProbe = {
   id: string
   label: string
-  group: 'core' | 'identity' | 'storage' | 'rag' | 'bootstrap'
-  status: 'healthy' | 'warning' | 'down'
+  group: 'runtime' | 'knowledge' | 'identity' | 'observability' | 'messaging'
+  status: 'healthy' | 'degraded' | 'down' | 'disabled'
+  required: boolean
+  description: string
   detail: string
-  target: string
-  latency_ms: number
-  remediation?: {
-    label: string
-    href: string
-    description: string
-  }
+  latency_ms: number | null
 }
 let mockPlatformProbes: MockPlatformProbe[] = [
   {
-    id: 'keycloak',
-    label: 'Keycloak',
-    group: 'identity',
+    id: 'chat-runtime',
+    label: 'Chat Runtime',
+    group: 'runtime',
     status: 'healthy',
-    detail: 'HTTP 200',
-    target: 'http://keycloak:7080',
+    required: true,
+    description: 'Checks the runtime health endpoint used by the chat experience.',
+    detail: 'Runtime reachable',
     latency_ms: 12,
   },
 ]
 jest.mock('@/hooks/use-platform-health-probes', () => ({
   usePlatformHealthProbes: () => ({
     status: mockPlatformProbeStatus,
-    probes: mockPlatformProbes,
+    capabilities: mockPlatformProbes,
     summary: {
       total: mockPlatformProbes.length,
       healthy: mockPlatformProbes.filter((p) => p.status === 'healthy').length,
-      warning: mockPlatformProbes.filter((p) => p.status === 'warning').length,
+      degraded: mockPlatformProbes.filter((p) => p.status === 'degraded').length,
       down: mockPlatformProbes.filter((p) => p.status === 'down').length,
+      disabled: mockPlatformProbes.filter((p) => p.status === 'disabled').length,
     },
     secondsUntilNextCheck: 30,
     checkNow: jest.fn(),
@@ -439,7 +437,7 @@ describe('AppHeader — nav tabs', () => {
     it('always shows Skills and Chat tabs', () => {
       render(<AppHeader />)
       expect(screen.getByText('Skills')).toBeInTheDocument()
-      expect(screen.getByText(/Chat/)).toBeInTheDocument()
+      expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
     })
 
     it('collapses nav items into More dropdown and keeps right cluster intact on narrow widths', () => {
@@ -454,12 +452,12 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByRole('button', { name: /more navigation/i })).toHaveTextContent('More')
       // All items still accessible (inside the always-open popover mock)
       expect(screen.getByText('Home')).toBeInTheDocument()
-      expect(screen.getByText(/Chat/)).toBeInTheDocument()
+      expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
       // Right cluster: status stays icon-only circle, Report a Problem keeps its label
-      expect(screen.getByRole('button', { name: /system status: connected/i })).toHaveClass('w-8')
+      expect(screen.getByRole('button', { name: /system status: healthy/i })).toHaveClass('w-8')
       expect(screen.getByText('Report a Problem')).toBeInTheDocument()
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
@@ -601,12 +599,13 @@ describe('AppHeader — connection status badge', () => {
     mockPlatformProbeStatus = 'healthy'
     mockPlatformProbes = [
       {
-        id: 'keycloak',
-        label: 'Keycloak',
-        group: 'identity',
+        id: 'chat-runtime',
+        label: 'Chat Runtime',
+        group: 'runtime',
         status: 'healthy',
-        detail: 'HTTP 200',
-        target: 'http://keycloak:7080',
+        required: true,
+        description: 'Checks the runtime health endpoint used by the chat experience.',
+        detail: 'Runtime reachable',
         latency_ms: 12,
       },
     ]
@@ -624,46 +623,78 @@ describe('AppHeader — connection status badge', () => {
       mockRagStatus = 'connected'
       render(<AppHeader />)
 
-      const btn = screen.getByRole('button', { name: /system status: connected/i })
-      // Icon-only: no visible "Connected" label text (AnimatePresence hides it)
+      const btn = screen.getByRole('button', { name: /system status: healthy/i })
+      // Header button remains icon-only when healthy.
       expect(btn).toBeInTheDocument()
       expect(btn.className).toContain('green')
       expect(btn.className).toContain('w-8') // fixed-size circle, not pill
-      expect(screen.queryByText('Connected')).not.toBeInTheDocument()
-      // Popover content reflects healthy state
-      expect(screen.getByText('All Systems Live')).toBeInTheDocument()
-      expect(screen.getByText('All systems operational')).toBeInTheDocument()
-      expect(screen.getByText('Platform Health')).toBeInTheDocument()
-      expect(screen.getAllByText('Identity & Authz').length).toBeGreaterThan(0)
+      expect(screen.getByText('System Status')).toBeInTheDocument()
+      expect(screen.getByText('Platform')).toBeInTheDocument()
+      expect(screen.getAllByText('Chat Runtime').length).toBeGreaterThan(0)
     })
 
-    it('links admins to the full platform health dashboard', () => {
+    it('shows enabled messaging integrations in the health popover', () => {
+      mockPlatformProbes = [
+        ...mockPlatformProbes,
+        {
+          id: 'slack-integration',
+          label: 'Slack',
+          group: 'messaging',
+          status: 'healthy',
+          required: false,
+          description: 'Checks Slack integration availability.',
+          detail: 'Slack ready',
+          latency_ms: 18,
+        },
+        {
+          id: 'webex-integration',
+          label: 'Webex',
+          group: 'messaging',
+          status: 'degraded',
+          required: false,
+          description: 'Checks Webex bot admin access and space discovery prerequisites.',
+          detail: 'Webex integration token is not configured on the UI service; fetch failed',
+          latency_ms: 15,
+        },
+      ]
+      mockPlatformProbeStatus = 'degraded'
+
+      render(<AppHeader />)
+
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
+      expect(screen.getAllByText('Slack').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Webex').length).toBeGreaterThan(0)
+      expect(screen.queryByText('Slack ready')).not.toBeInTheDocument()
+      expect(screen.getByText('Webex integration token is not configured on the UI service; fetch failed')).toBeInTheDocument()
+      const webexDetail = screen.getByRole('button', { name: /expand webex details/i })
+      expect(webexDetail).toHaveAttribute('aria-expanded', 'false')
+      expect(webexDetail).toHaveClass('overflow-hidden', 'text-ellipsis', 'whitespace-nowrap')
+      fireEvent.click(webexDetail)
+      expect(webexDetail).toHaveAttribute('aria-expanded', 'true')
+      expect(webexDetail).toHaveClass('whitespace-normal', 'break-words')
+      expect(webexDetail).not.toHaveClass('overflow-hidden')
+    })
+
+    it('links admins from the health popover to the Admin health tab', () => {
       mockIsAdmin = true
       mockRuntimeStatus = 'connected'
       render(<AppHeader />)
 
-      fireEvent.click(screen.getByRole('button', { name: /full health report/i }))
-      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
-
-      mockRouterPush.mockClear()
-      fireEvent.click(screen.getByRole('button', { name: /all systems live/i }))
-      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
-
-      mockRouterPush.mockClear()
-      fireEvent.click(screen.getByRole('button', { name: /1\/1 ready/i }))
-      expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=platform&tab=health')
+      const link = screen.getByRole('link', { name: /open admin health status/i })
+      expect(link).toHaveAttribute('href', '/admin?cat=platform&tab=health')
+      expect(mockRouterPush).not.toHaveBeenCalled()
     })
 
-    it('hides the health dashboard link for non-admins', () => {
+    it('keeps the same simplified health popover for non-admins', () => {
       mockIsAdmin = false
       mockRuntimeStatus = 'connected'
       render(<AppHeader />)
 
       expect(screen.queryByRole('button', { name: /full health report/i })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /open health dashboard/i })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /all systems live/i })).not.toBeInTheDocument()
-      expect(screen.getByText('All Systems Live')).toBeInTheDocument()
-      expect(screen.getByText('1/1 Ready')).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /open admin health status/i })).not.toBeInTheDocument()
+      expect(screen.getByText('System Status')).toBeInTheDocument()
+      expect(screen.getAllByText('Chat Runtime').length).toBeGreaterThan(0)
     })
   })
 
@@ -727,21 +758,21 @@ describe('AppHeader — connection status badge', () => {
     })
   })
 
-  describe('amber — RAG Disconnected (platform up, RAG down)', () => {
-    it('shows "RAG Disconnected" when the platform is online but RAG is offline', () => {
+  describe('amber — Degraded (platform up, RAG down)', () => {
+    it('shows "Degraded" when the platform is online but RAG is offline', () => {
       mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
     })
 
-    it('RAG Disconnected badge has amber styling, not red', () => {
+    it('Degraded badge has amber styling, not red', () => {
       mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      const badge = screen.getByText('RAG Disconnected').closest('button')
+      const badge = screen.getByRole('button', { name: /system status: degraded/i })
       expect(badge?.className).toContain('amber')
       expect(badge?.className).not.toContain('red')
     })
@@ -759,99 +790,78 @@ describe('AppHeader — connection status badge', () => {
       mockRagEnabled = false
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      // RAG is not enabled, so its status is ignored → Connected (icon-only, no label text)
+      // RAG is not enabled, so its status is ignored → Healthy (icon-only, no label text)
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: healthy/i })).toBeInTheDocument()
     })
 
-    it('popover header shows "RAG Offline" when the platform is up but RAG is down', () => {
+    it('popover badge shows "Degraded" when runtime is up but RAG is down', () => {
       mockRuntimeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('RAG Offline')).toBeInTheDocument()
-    })
-
-    it('popover footer shows "RAG server unavailable" when the platform is up but RAG is down', () => {
-      mockRuntimeStatus = 'connected'
-      mockRagEnabled = true
-      mockRagStatus = 'disconnected'
-      render(<AppHeader />)
-      expect(screen.getByText('RAG server unavailable')).toBeInTheDocument()
-    })
-
-    it('does NOT show "Issues Detected" when only RAG is offline', () => {
-      mockRuntimeStatus = 'connected'
-      mockRagEnabled = true
-      mockRagStatus = 'disconnected'
-      render(<AppHeader />)
-      expect(screen.queryByText('Issues Detected')).not.toBeInTheDocument()
+      expect(screen.getAllByText('Degraded').length).toBeGreaterThan(0)
     })
   })
 
-  describe('red — Disconnected (platform down)', () => {
-    it('shows "Disconnected" when the platform is offline', () => {
+  describe('red — Degraded (platform down)', () => {
+    it('shows "Degraded" when the platform is offline', () => {
       mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
     })
 
-    it('shows "Disconnected" when a platform dependency probe is down', () => {
+    it('shows "Degraded" when required platform capability is down', () => {
       mockRuntimeStatus = 'connected'
       mockPlatformProbeStatus = 'down'
       mockPlatformProbes = [
         {
-          id: 'openfga',
-          label: 'OpenFGA',
-          group: 'identity',
+          id: 'chat-runtime',
+          label: 'Chat Runtime',
+          group: 'runtime',
           status: 'down',
+          required: true,
+          description: 'Checks the runtime health endpoint used by the chat experience.',
           detail: 'HTTP 503',
-          target: 'http://openfga:8080/healthz',
           latency_ms: 20,
         },
       ]
       render(<AppHeader />)
-      expect(screen.getByText('Disconnected')).toBeInTheDocument()
-      expect(screen.getAllByText('OpenFGA').length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
+      expect(screen.getAllByText('Chat Runtime').length).toBeGreaterThan(0)
       expect(screen.getAllByText('Down').length).toBeGreaterThan(0)
     })
 
-    it('Disconnected badge has red styling', () => {
+    it('Degraded badge has red styling for platform outages', () => {
       mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
-      const badge = screen.getByText('Disconnected').closest('button')
+      const badge = screen.getByRole('button', { name: /system status: degraded/i })
       expect(badge?.className).toContain('red')
       expect(badge?.className).not.toContain('amber')
     })
 
-    it('shows "Disconnected" (red) when the platform is offline even if RAG is online', () => {
+    it('shows "Degraded" (red) when the platform is offline even if RAG is online', () => {
       mockRuntimeStatus = 'disconnected'
       mockRagEnabled = true
       mockRagStatus = 'connected'
       render(<AppHeader />)
-      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
     })
 
-    it('shows "Disconnected" (red) when both the platform and RAG are offline', () => {
+    it('shows "Degraded" (red) when both the platform and RAG are offline', () => {
       mockRuntimeStatus = 'disconnected'
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
     })
 
-    it('popover header shows "Issues Detected" when the platform is offline', () => {
+    it('popover badge shows "Degraded" when the platform is offline', () => {
       mockRuntimeStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('Issues Detected')).toBeInTheDocument()
-    })
-
-    it('popover footer shows "Check logs for details" when the platform is offline', () => {
-      mockRuntimeStatus = 'disconnected'
-      render(<AppHeader />)
-      expect(screen.getByText('Check logs for details')).toBeInTheDocument()
+      expect(screen.getAllByText('Degraded').length).toBeGreaterThan(0)
     })
   })
 
@@ -870,7 +880,7 @@ describe('AppHeader — connection status badge', () => {
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('Disconnected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
     })
 
@@ -879,8 +889,8 @@ describe('AppHeader — connection status badge', () => {
       mockRagEnabled = true
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /system status: connected/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: degraded/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /system status: healthy/i })).not.toBeInTheDocument()
     })
   })
 })
@@ -1072,7 +1082,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /system status: healthy/i })).toBeInTheDocument()
     expect(screen.queryByTestId(triggerSelector)).not.toBeInTheDocument()
   })
 
@@ -1091,7 +1101,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /system status: healthy/i })).toBeInTheDocument()
     const trigger = screen.getByTestId(triggerSelector)
     expect(trigger.tagName).toBe('BUTTON')
     expect(trigger.textContent ?? '').toContain('Alerts:')
