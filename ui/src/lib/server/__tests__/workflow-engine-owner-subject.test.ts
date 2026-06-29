@@ -11,7 +11,15 @@ jest.mock("@/lib/streaming/clients/server-agui-consumer", () => ({ consumeAgentS
 jest.mock("@/lib/server/event-store", () => ({ readEvents: jest.fn() }));
 jest.mock("@/lib/authz", () => ({ authorize: jest.fn() }));
 
-import { runOwnerSubject } from "../workflow-engine";
+import { readEvents } from "@/lib/server/event-store";
+import type { StreamEvent } from "@/lib/streaming/types";
+import { resolveStepResponseText, runOwnerSubject } from "../workflow-engine";
+
+const mockReadEvents = readEvents as jest.MockedFunction<typeof readEvents>;
+
+beforeEach(() => {
+  mockReadEvents.mockReset();
+});
 
 /** Build a JWT (`header.payload.signature`) with a base64url-encoded payload. */
 function jwt(payload: Record<string, unknown>): string {
@@ -61,3 +69,50 @@ describe("runOwnerSubject", () => {
     expect(runOwnerSubject({ Authorization: `Bearer ${jwt({ sub: 12345 })}` })).toBeNull();
   });
 });
+
+describe("resolveStepResponseText", () => {
+  it("prefers assistant text over longer raw tool results", async () => {
+    mockReadEvents.mockResolvedValue([
+      contentEvent("Short assistant answer."),
+      toolEndEvent("tool-1", JSON.stringify({ raw: "x".repeat(200) })),
+    ]);
+
+    await expect(resolveStepResponseText("source-1", "Short assistant answer.")).resolves.toBe(
+      "Short assistant answer.",
+    );
+  });
+
+  it("falls back to tool results when the step produced no assistant text", async () => {
+    mockReadEvents.mockResolvedValue([
+      toolEndEvent("tool-1", "Only tool output"),
+      toolEndEvent("tool-2", "Longer tool output"),
+    ]);
+
+    await expect(resolveStepResponseText("source-1", "")).resolves.toBe("Longer tool output");
+  });
+});
+
+function contentEvent(content: string): StreamEvent {
+  return {
+    id: `content-${content.length}`,
+    timestamp: new Date("2026-06-29T10:00:00.000Z"),
+    type: "content",
+    raw: {},
+    namespace: [],
+    content,
+  };
+}
+
+function toolEndEvent(toolCallId: string, result: string): StreamEvent {
+  return {
+    id: `tool-${toolCallId}`,
+    timestamp: new Date("2026-06-29T10:00:01.000Z"),
+    type: "tool_end",
+    raw: {},
+    namespace: [],
+    toolData: {
+      tool_call_id: toolCallId,
+      result,
+    },
+  };
+}
