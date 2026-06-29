@@ -12,6 +12,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { GlossaryTerm } from "@/components/tome/GlossaryTerm";
 import { cn } from "@/lib/utils";
 
 /**
@@ -217,8 +218,11 @@ function IngestStep() {
       <StepHeader eyebrow="Ingest" title="The agent rebuilds the wiki from your sources">
         Run an ingest and the agent pulls from your{" "}
         <span className="font-medium text-foreground">GitHub repos, Confluence spaces, and Webex rooms</span>, then
-        synthesizes them into the wiki, rewriting <em>dynamic</em> pages and leaving your <em>stable</em> ones
-        untouched.
+        synthesizes them into the wiki, rewriting{" "}
+        <GlossaryTerm definition="Agent-owned. Rewritten on each ingest to stay current.">dynamic</GlossaryTerm>{" "}
+        pages and leaving your{" "}
+        <GlossaryTerm definition="Pinned by you. The agent won't rewrite it; your source of truth.">stable</GlossaryTerm>{" "}
+        ones untouched.
       </StepHeader>
       <IngestDemo />
       <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
@@ -517,12 +521,16 @@ function IngestDemo() {
 
   return (
     <Terminal>
-      {lines.slice(0, shown).map((l, i) => (
-        <div key={i} className={l.c}>
-          {l.t}
-        </div>
-      ))}
-      {shown < lines.length && <Cursor />}
+      {/* Reserve full height up front so revealing lines fills the box instead
+          of growing it (no jumpy reflow as the animation types in). */}
+      <div className="min-h-[168px]">
+        {lines.slice(0, shown).map((l, i) => (
+          <div key={i} className={l.c}>
+            {l.t}
+          </div>
+        ))}
+        {shown < lines.length && <Cursor />}
+      </div>
     </Terminal>
   );
 }
