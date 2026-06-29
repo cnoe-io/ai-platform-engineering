@@ -26,12 +26,20 @@ import {
 
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { LabelComboBox } from "@/components/projects/LabelComboBox";
+import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { SourcePicker } from "@/components/projects/source-pickers";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
 import type { ProjectDocument } from "@/types/projects";
 
 type SourceKind = "github" | "confluence" | "webex";
+
+/** Source kind → credentials provider id for the shared `ProviderLogo`. */
+const SOURCE_PROVIDER: Record<SourceKind, string> = {
+  github: "github",
+  confluence: "atlassian",
+  webex: "webex",
+};
 
 interface OnboardingStepConfig {
   id: string;
@@ -659,7 +667,7 @@ export function ProjectOnboardingWizard({
                             setEnabled((prev) => ({ ...prev, [step.id]: !on }))
                           }
                           aria-pressed={on}
-                          className="flex w-full items-center gap-3 p-4 text-left transition hover:bg-accent/30"
+                          className="group flex w-full items-center gap-3 p-4 text-left transition hover:bg-accent/30"
                         >
                           <span
                             className={cn(
@@ -671,6 +679,12 @@ export function ProjectOnboardingWizard({
                           >
                             {on ? <Check className="h-3.5 w-3.5" /> : null}
                           </span>
+                          {isSource && step.source ? (
+                            <ProviderLogo
+                              provider={SOURCE_PROVIDER[step.source]}
+                              className="h-5 w-5 shrink-0 object-contain grayscale transition-all group-hover:grayscale-0"
+                            />
+                          ) : null}
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-medium">
                               {step.title}
@@ -755,11 +769,28 @@ export function ProjectOnboardingWizard({
                       .map((s) => s.title);
                     const showGithub = enabledSourceKinds.has("github");
                     const showConfluence = enabledSourceKinds.has("confluence");
+                    const showWebex = enabledSourceKinds.has("webex");
+                    const rooms = webexRooms.map(toWebexRoomSource);
+                    const SourceLabel = ({
+                      provider,
+                      name,
+                    }: {
+                      provider: string;
+                      name: string;
+                    }) => (
+                      <span className="flex items-center gap-1.5 text-foreground">
+                        <ProviderLogo
+                          provider={provider}
+                          className="h-4 w-4 shrink-0 object-contain"
+                        />
+                        {name}
+                      </span>
+                    );
                     const Row = ({
                       label,
                       children,
                     }: {
-                      label: string;
+                      label: ReactNode;
                       children: ReactNode;
                     }) => (
                       <div className="grid grid-cols-[8rem_1fr] gap-3 px-4 py-3 text-sm">
@@ -793,17 +824,22 @@ export function ProjectOnboardingWizard({
                               : muted}
                           </Row>
                           {showGithub ? (
-                            <Row label="GitHub repos">
+                            <Row label={<SourceLabel provider="github" name="GitHub" />}>
                               {repos.length ? (
-                                <span className="flex flex-wrap gap-1.5">
-                                  {repos.map((r) => (
-                                    <span
-                                      key={r}
-                                      className="rounded-md bg-muted px-2 py-0.5 text-xs"
-                                    >
-                                      {r.replace(/^https?:\/\/github\.com\//i, "")}
-                                    </span>
-                                  ))}
+                                <span className="space-y-1.5">
+                                  <span className="block text-xs text-muted-foreground">
+                                    {repos.length} repo{repos.length === 1 ? "" : "s"}
+                                  </span>
+                                  <span className="flex flex-wrap gap-1.5">
+                                    {repos.map((r) => (
+                                      <span
+                                        key={r}
+                                        className="rounded-md bg-muted px-2 py-0.5 text-xs"
+                                      >
+                                        {r.replace(/^https?:\/\/github\.com\//i, "")}
+                                      </span>
+                                    ))}
+                                  </span>
                                 </span>
                               ) : (
                                 muted
@@ -811,8 +847,40 @@ export function ProjectOnboardingWizard({
                             </Row>
                           ) : null}
                           {showConfluence ? (
-                            <Row label="Confluence">
-                              {confluenceUrl.trim() || muted}
+                            <Row label={<SourceLabel provider="atlassian" name="Confluence" />}>
+                              {confluenceUrl.trim() ? (
+                                <span className="space-y-1.5">
+                                  <span className="block text-xs text-muted-foreground">1 space</span>
+                                  <span className="block break-all text-xs">
+                                    {confluenceUrl.trim()}
+                                  </span>
+                                </span>
+                              ) : (
+                                muted
+                              )}
+                            </Row>
+                          ) : null}
+                          {showWebex ? (
+                            <Row label={<SourceLabel provider="webex" name="Webex" />}>
+                              {rooms.length ? (
+                                <span className="space-y-1.5">
+                                  <span className="block text-xs text-muted-foreground">
+                                    {rooms.length} room{rooms.length === 1 ? "" : "s"}
+                                  </span>
+                                  <span className="flex flex-wrap gap-1.5">
+                                    {rooms.map((r) => (
+                                      <span
+                                        key={r.room_id}
+                                        className="rounded-md bg-muted px-2 py-0.5 text-xs"
+                                      >
+                                        {r.name || r.room_id}
+                                      </span>
+                                    ))}
+                                  </span>
+                                </span>
+                              ) : (
+                                muted
+                              )}
                             </Row>
                           ) : null}
                           {initiatives.length ? (
