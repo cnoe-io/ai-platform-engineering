@@ -193,15 +193,17 @@ def warn_if_agent_gateway_missing_hmac() -> None:
     )
 
 
-def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
-    """Build an httpx.AsyncClient factory that injects the per-request user JWT.
+def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., httpx.AsyncClient]:
+    """Build an httpx.AsyncClient factory that injects per-request CAIPE auth.
 
     Spec 102 Phase 8 / T106. Each MCP HTTP connection opened by
     ``langchain-mcp-adapters`` calls this factory, which reads
     ``current_user_token`` (set by ``JwtAuthMiddleware``) and forwards
     it as ``Authorization: Bearer <token>``. This is the fix for the
     live HTTP 401 from agentgateway because the runtime no longer relies
-    on the (token-less) X-User-Context header for outbound auth.
+    on the (token-less) X-User-Context header for outbound auth. The signed
+    agent context is also generated here, not in the long-lived connection
+    config, so resumed conversations do not reuse an expired context header.
 
     Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
     ``SSL_CERT_FILE`` and ``SSL_VERIFY=false``.
@@ -230,8 +232,17 @@ def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
     ) -> httpx.AsyncClient:
         merged = dict(headers or {})
         token = current_user_token.get()
-        if token:
+        has_authorization = any(key.lower() == "authorization" for key in merged)
+        if token and not has_authorization:
             merged["Authorization"] = f"Bearer {token}"
+        if agent_id:
+            for key in list(merged):
+                if key.lower() in (
+                    "x-caipe-agent-context",
+                    "x-caipe-agent-context-signature",
+                ):
+                    del merged[key]
+            merged.update(build_agent_context_headers(agent_id))
         return httpx.AsyncClient(
             headers=merged,
             timeout=timeout or httpx.Timeout(30.0),
@@ -245,6 +256,7 @@ def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
 def build_mcp_connection_config(
     server: MCPServerConfig,
     *,
+    user_email: str | None = None,
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
@@ -253,6 +265,8 @@ def build_mcp_connection_config(
 
     Args:
         server: MCP server configuration
+        user_email: Authenticated user's email (required when the server
+            uses ``auth.type=user_oauth``).
         agent_gateway_url: When set, HTTP/SSE targets use ``{base}/mcp/{server.id}`` instead of direct endpoints.
         auth_bearer: Optional Bearer token for AG or upstream MCP.
 
@@ -262,16 +276,27 @@ def build_mcp_connection_config(
     headers: dict[str, str] = {}
     if auth_bearer:
         headers["Authorization"] = f"Bearer {auth_bearer}"
-    if agent_id:
-        headers.update(build_agent_context_headers(agent_id))
 
     # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
-    # per-request user JWT (from current_user_token ContextVar) is injected
-    # on every outbound connection, even after this config is built.
-    factory = build_httpx_client_factory()
+    # per-request user JWT and signed agent context are injected on every
+    # outbound connection, even after this config is built.
+    factory = build_httpx_client_factory(agent_id=agent_id)
     token = current_user_token.get()
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
+
+    # AgentGateway reserves Authorization for the caller JWT. Legacy
+    # auth.type=user_oauth writes provider OAuth into Authorization, which
+    # breaks gateway auth. Gateway-routed per-user provider credentials must use
+    # credential_sources -> X-CAIPE-Provider-Token instead.
+    gateway_managed = _is_gateway_managed_server(server, _agent_gateway_base_url())
+    legacy_auth_headers = (
+        {}
+        if gateway_managed and server.auth is not None and server.auth.type == MCPAuthType.USER_OAUTH
+        else _resolve_auth_headers(server, user_email)
+    )
+    if legacy_auth_headers:
+        headers.update(legacy_auth_headers)
 
     def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
         cfg = {**cfg, "httpx_client_factory": factory}
@@ -282,6 +307,7 @@ def build_mcp_connection_config(
     # Self-heal stale AgentGateway endpoints (e.g. bare
     # ``http://agentgateway:4000/mcp`` written by an older save path)
     # before we hand the URL to the transport. See ``_heal_endpoint``.
+
     healed_endpoint = _heal_endpoint(server)
     if server.transport == TransportType.SSE:
         url = (
