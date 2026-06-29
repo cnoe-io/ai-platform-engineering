@@ -187,7 +187,7 @@ export function OAuthConnectorAdminPanel() {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Add OAuth Provider"
+          aria-label={editingConnector ? "Edit OAuth Provider" : "Add OAuth Provider"}
           className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
         >
           <form

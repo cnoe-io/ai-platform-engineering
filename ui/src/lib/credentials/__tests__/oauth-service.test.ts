@@ -32,10 +32,17 @@ class MemoryCollection<T extends object> {
     };
   }
 
-  async updateOne(query: Record<string, unknown>, update: { $set?: Record<string, unknown> }) {
+  async updateOne(
+    query: Record<string, unknown>,
+    update: { $set?: Record<string, unknown>; $unset?: Record<string, unknown> },
+  ) {
     const doc = await this.findOne(query);
     if (!doc) return { matchedCount: 0 };
-    Object.assign(doc as Record<string, unknown>, update.$set ?? {});
+    const record = doc as Record<string, unknown>;
+    Object.assign(record, update.$set ?? {});
+    for (const key of Object.keys(update.$unset ?? {})) {
+      delete record[key];
+    }
     return { matchedCount: 1 };
   }
 }
@@ -246,6 +253,139 @@ describe("OAuthConnectorService", () => {
         redirectUri: "http://localhost:3000/api/credentials/oauth/github/callback",
       }),
     ).resolves.toMatchObject({ provider: "github" });
+  });
+
+  function seededConnector(
+    connectors: MemoryCollection<OAuthConnectorDocument>,
+    overrides?: Partial<OAuthConnectorDocument>,
+  ): OAuthConnectorDocument {
+    const doc: OAuthConnectorDocument = {
+      id: "connector-1",
+      name: "CO2",
+      provider: "co2-dev",
+      clientId: "old-client",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+      ...overrides,
+    };
+    connectors.docs.push(doc);
+    return doc;
+  }
+
+  function updateInput(overrides?: Partial<Parameters<OAuthConnectorService["updateConnector"]>[1]>) {
+    return {
+      name: "CO2",
+      provider: "co2-dev",
+      clientId: "new-client",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+      ...overrides,
+    } as Parameters<OAuthConnectorService["updateConnector"]>[1];
+  }
+
+  it("updateConnector promotes a confidential connector to PKCE and clears the secret flag", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    seededConnector(connectors);
+    const payloadStore = { putSecret: mockPutSecret() };
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore,
+      idGenerator: () => "unused",
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    const connector = await service.updateConnector("connector-1", updateInput({ pkce: true }));
+
+    expect(connector.pkce).toBe(true);
+    expect(connector.clientSecretConfigured).toBe(false);
+    expect(connectors.docs[0].pkce).toBe(true);
+    // No secret is written for a PKCE (public) client.
+    expect(payloadStore.putSecret).not.toHaveBeenCalled();
+  });
+
+  it("updateConnector clears the persisted pkce flag when switching PKCE → confidential", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    seededConnector(connectors, { pkce: true });
+    const payloadStore = { putSecret: mockPutSecret() };
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore,
+      idGenerator: () => "unused",
+    });
+
+    const connector = await service.updateConnector(
+      "connector-1",
+      updateInput({ pkce: false, clientSecret: "rotated-secret" }),
+    );
+
+    expect(connector.pkce).toBeUndefined();
+    // $unset must actually remove the stored flag (not leave pkce: undefined).
+    expect(connectors.docs[0]).not.toHaveProperty("pkce");
+    expect(payloadStore.putSecret).toHaveBeenCalledWith({
+      secretRefId: "oauth_connector:connector-1:client_secret",
+      plaintext: "rotated-secret",
+    });
+  });
+
+  it("updateConnector rejects a PKCE → confidential switch with no client secret", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    seededConnector(connectors, { pkce: true });
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore: { putSecret: mockPutSecret() },
+      idGenerator: () => "unused",
+    });
+
+    await expect(
+      service.updateConnector("connector-1", updateInput({ pkce: false })),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    // The connector must remain PKCE — the rejected write leaves no half-state.
+    expect(connectors.docs[0].pkce).toBe(true);
+  });
+
+  it("updateConnector 404s for an unknown connector id", async () => {
+    const service = new OAuthConnectorService({
+      connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
+      payloadStore: { putSecret: mockPutSecret() },
+      idGenerator: () => "unused",
+    });
+
+    await expect(
+      service.updateConnector("missing", updateInput({ pkce: true })),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("deleteConnector soft-disables the connector", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    seededConnector(connectors);
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore: { putSecret: mockPutSecret() },
+      idGenerator: () => "unused",
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    await service.deleteConnector("connector-1");
+
+    expect(connectors.docs[0].enabled).toBe(false);
+  });
+
+  it("deleteConnector 404s for an unknown connector id", async () => {
+    const service = new OAuthConnectorService({
+      connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
+      payloadStore: { putSecret: mockPutSecret() },
+      idGenerator: () => "unused",
+    });
+
+    await expect(service.deleteConnector("missing")).rejects.toMatchObject({ statusCode: 404 });
   });
 });
 

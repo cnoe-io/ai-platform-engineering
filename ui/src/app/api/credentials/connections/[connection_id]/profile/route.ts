@@ -7,10 +7,14 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
+import {
+  type ProfileCheckProvider,
+  supportsProfileCheck,
+} from "@/lib/credentials/provider-connection-display";
 import { buildProviderProfileSummary } from "@/lib/credentials/provider-connection-summary";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
-type Provider = "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
+type Provider = ProfileCheckProvider;
 type ProviderProfileFailure = {
   ok: false;
   status: number;
@@ -284,7 +288,7 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   if (connection.owner.type !== "user" || connection.owner.id !== ownerId) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
-  if (!["github", "atlassian", "webex", "pagerduty", "gitlab"].includes(connection.provider)) {
+  if (!supportsProfileCheck(connection.provider)) {
     throw new ApiError("Provider profile checks are not supported", 400, "UNSUPPORTED_PROVIDER");
   }
 

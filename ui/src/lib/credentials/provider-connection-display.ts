@@ -20,21 +20,26 @@ export interface ProviderConnectionDisplayInput {
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
 // Providers for which the API exposes a user-profile / token-validation
-// endpoint (see api/credentials/connections/[id]/profile/route.ts). The "Test
-// connection" button is only meaningful for these; for any other provider
-// (e.g. a custom MCP OAuth app like co2-dev) the route returns
+// endpoint (see api/credentials/connections/[connection_id]/profile/route.ts).
+// The "Test connection" button is only meaningful for these; for any other
+// provider (e.g. a custom MCP OAuth app like co2-dev) the route returns
 // UNSUPPORTED_PROVIDER, which would surface as a spurious "Profile check
-// failed". Keep this list in sync with that route's allow-list.
-const PROFILE_CHECK_PROVIDERS = new Set([
+// failed". This is the single source of truth — the profile route imports it
+// so the UI affordance and the API stay in lockstep.
+export const PROFILE_CHECK_PROVIDERS = [
   "github",
   "atlassian",
   "webex",
   "pagerduty",
   "gitlab",
-]);
+] as const;
+
+export type ProfileCheckProvider = (typeof PROFILE_CHECK_PROVIDERS)[number];
+
+const PROFILE_CHECK_PROVIDER_SET = new Set<string>(PROFILE_CHECK_PROVIDERS);
 
 export function supportsProfileCheck(provider: string | undefined | null): boolean {
-  return provider ? PROFILE_CHECK_PROVIDERS.has(provider) : false;
+  return provider ? PROFILE_CHECK_PROVIDER_SET.has(provider) : false;
 }
 
 function toTimestamp(value: string | Date | undefined): number | null {

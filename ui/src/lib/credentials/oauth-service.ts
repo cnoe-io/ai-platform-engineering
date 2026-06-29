@@ -382,17 +382,33 @@ export class OAuthConnectorService {
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
-      ...(input.pkce ? { pkce: true } : { pkce: undefined }),
       updatedAt: now,
     };
-    if (!input.pkce && input.clientSecret) {
+    if (input.pkce) {
+      update.pkce = true;
+    } else if (input.clientSecret) {
+      // Switching to (or staying) confidential: a new secret must be persisted.
       await this.payloadStore.putSecret({
         secretRefId: existing.clientSecretRef,
         plaintext: nonEmpty(input.clientSecret, "clientSecret"),
       });
+    } else if (existing.pkce) {
+      // Toggling an existing PKCE connector to confidential requires a secret;
+      // without one the connector would be a confidential client with no secret.
+      throw new ApiError(
+        "A client secret is required when disabling PKCE (public client) mode",
+        400,
+        "VALIDATION_ERROR",
+      );
     }
-    await this.connectorsCollection.updateOne?.({ id: existing.id }, { $set: update });
-    return toConnectorMetadata({ ...existing, ...update });
+    // `$set: { pkce: undefined }` is a no-op in MongoDB, so a PKCE→confidential
+    // switch must explicitly `$unset` the flag to clear it.
+    const writeUpdate =
+      input.pkce || !existing.pkce
+        ? { $set: update }
+        : { $set: update, $unset: { pkce: "" } };
+    await this.connectorsCollection.updateOne?.({ id: existing.id }, writeUpdate);
+    return toConnectorMetadata({ ...existing, ...update, pkce: input.pkce ? true : undefined });
   }
 
   async deleteConnector(connectorId: string): Promise<void> {

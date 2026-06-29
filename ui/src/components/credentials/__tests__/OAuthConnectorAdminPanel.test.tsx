@@ -169,4 +169,114 @@ describe("OAuthConnectorAdminPanel", () => {
     );
     expect(screen.getByText("enabled")).toBeInTheDocument();
   });
+
+  it("creates a PKCE (public client) connector without a client secret field", async () => {
+    const user = userEvent.setup();
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: /add oauth provider/i }));
+
+    // Toggling PKCE hides the client-secret field entirely.
+    expect(screen.getByLabelText(/^client secret$/i)).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/public client \(pkce/i));
+    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/display name/i), "CO2");
+    await user.type(screen.getByLabelText(/^provider/i), "co2-dev");
+    await user.type(screen.getByLabelText(/client id/i), "co2-client");
+    await user.type(screen.getByLabelText(/authorization url/i), "https://idp.example.com/oauth/authorize");
+    await user.type(screen.getByLabelText(/token url/i), "https://idp.example.com/oauth/token");
+    await user.type(screen.getByLabelText(/redirect uri/i), "https://caipe.example.com/api/credentials/oauth/co2-dev/callback");
+    await user.click(screen.getByRole("button", { name: /save connector/i }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/credentials/oauth-connectors",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"pkce":true'),
+        }),
+      ),
+    );
+  });
+
+  it("edits an existing connector via PUT and labels the dialog as Edit", async () => {
+    const user = userEvent.setup();
+    // The edit form prefills from the full connector record (scopes, URLs),
+    // so this test needs a fully-populated GET payload, not the minimal one.
+    global.fetch = jest.fn(async (_url, init) => {
+      if (init?.method === "PUT") {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: { id: "connector-1", name: "GitHub Enterprise", provider: "github" },
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              id: "connector-1",
+              name: "GitHub",
+              provider: "github",
+              clientId: "github-client",
+              authorizationUrl: "https://github.com/login/oauth/authorize",
+              tokenUrl: "https://github.com/login/oauth/access_token",
+              scopes: ["repo", "read:user"],
+              redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+              clientSecretConfigured: true,
+            },
+          ],
+        }),
+      } as Response;
+    }) as jest.Mock;
+
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: /^edit github$/i }));
+
+    // The dialog's accessible name must reflect edit mode, not "Add".
+    expect(screen.getByRole("dialog", { name: /edit oauth provider/i })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /add oauth provider/i })).not.toBeInTheDocument();
+    // Fields are prefilled from the connector being edited.
+    expect(screen.getByLabelText(/display name/i)).toHaveValue("GitHub");
+
+    await user.clear(screen.getByLabelText(/display name/i));
+    await user.type(screen.getByLabelText(/display name/i), "GitHub Enterprise");
+    // The secret field is cleared on edit and is required, so re-enter it to
+    // allow the form to submit.
+    await user.type(screen.getByLabelText(/^client secret$/i), "rotated-secret");
+    await user.click(screen.getByRole("button", { name: /save connector/i }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/credentials/oauth-connectors/connector-1",
+        expect.objectContaining({ method: "PUT" }),
+      ),
+    );
+  });
+
+  it("deletes a connector after confirmation", async () => {
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: /^delete github$/i }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/credentials/oauth-connectors/connector-1",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    expect(confirmSpy).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
 });
