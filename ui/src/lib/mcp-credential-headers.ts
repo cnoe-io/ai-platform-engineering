@@ -8,7 +8,6 @@ import { getCredentialRetrievalService } from "@/lib/credentials/retrieval-servi
 import {
   effectiveConnectionScope,
   isMcpCredentialUnavailableError,
-  McpCredentialUnavailableError,
   resolveProviderConnectionCredential,
 } from "@/lib/mcp-credential-resolution";
 import type { MCPCredentialSource, MCPServerConfig } from "@/types/dynamic-agent";
@@ -206,7 +205,6 @@ async function resolveSourceCredential(
   }
 
   if (source.kind === "provider_connection") {
-    const pinned = scope === "pinned";
     try {
       const exchanged = await resolveProviderConnectionCredential({
         session,
@@ -227,18 +225,11 @@ async function resolveSourceCredential(
         };
       }
     } catch (error) {
-      if (pinned) {
-        throw error;
-      }
-      // Non-pinned: a missing/unconnected provider connection is expected when
-      // the caller hasn't registered a credential yet — fall through to fallback_env.
+      // A missing/unconnected provider connection is expected when the caller
+      // hasn't registered a credential yet — fall through to fallback_env.
       if (!isMcpCredentialUnavailableError(error)) {
         throw error;
       }
-    }
-
-    if (pinned) {
-      throw new McpCredentialUnavailableError("Pinned provider connection is unavailable");
     }
 
     const fallbackEnv = source.fallback_env?.trim();
@@ -329,9 +320,6 @@ export async function resolveMcpHeaderCredentials(input: {
 
     sources.push(resolved.debug);
     if (resolved.origin === "none" || !resolved.credential) {
-      if (source.kind === "provider_connection" && effectiveConnectionScope(source) === "pinned") {
-        throw new McpCredentialUnavailableError("Pinned provider credential did not resolve");
-      }
       continue;
     }
 

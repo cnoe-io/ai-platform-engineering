@@ -10,6 +10,7 @@ export type ProviderConnectionFixture = {
   updatedAt?: string;
   connectedAt?: string;
   expiresAt?: string;
+  renewable?: boolean;
   profileSummary?: string;
   profileCheckedAt?: string;
   grantedScopes?: string[];
@@ -62,6 +63,26 @@ export const EXPIRED_ATLASSIAN_CONNECTION: ProviderConnectionFixture = {
   updatedAt: new Date(Date.now() - 31 * 24 * ONE_HOUR_MS).toISOString(),
   expiresAt: new Date(Date.now() - 5 * 60_000).toISOString(),
   profileSummary: "cisco-eti",
+};
+
+// A public/PKCE-client connection (e.g. CO2) that returned an access token with
+// an `expires_in` but NO refresh token: usable now, but cannot auto-renew and
+// will need a manual reconnect at expiry. Expiry is ~11h out so it is well
+// outside the "expiring soon" (15 min) window.
+export const NON_RENEWABLE_CO2_CONNECTION: ProviderConnectionFixture = {
+  id: "conn-co2-dev",
+  connectorId: "co2-dev-connector",
+  provider: "co2-dev",
+  status: "connected",
+  connectedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+  updatedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+  expiresAt: new Date(Date.now() + 11 * ONE_HOUR_MS).toISOString(),
+  renewable: false,
+  grantedScopes: ["openid"],
+  owner: {
+    email: "elutz@splunk.com",
+    name: "Erik Lutz",
+  },
 };
 
 export const GITHUB_PROVIDER_CONNECTION: ProviderConnectionFixture = {

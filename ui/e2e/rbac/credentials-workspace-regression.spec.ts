@@ -401,8 +401,7 @@ test.describe("mocked credentials workspace browser regression", () => {
 
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-      await expect(page.getByLabel(/Provider connection/i)).toContainText("Atlassian Cloud");
-      await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
+      await page.getByLabel(/^Provider$/i).selectOption("atlassian");
 
       await page.getByRole("button", { name: "Create Server" }).click();
 
@@ -412,8 +411,8 @@ test.describe("mocked credentials workspace browser regression", () => {
           kind: "provider_connection",
           target: "header",
           name: "X-CAIPE-Provider-Token",
-          connection_scope: "pinned",
-          provider_connection_id: "conn-atlassian",
+          connection_scope: "caller",
+          provider: "atlassian",
         },
       ]);
     });
