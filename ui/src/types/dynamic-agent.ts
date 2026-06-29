@@ -84,7 +84,12 @@ export interface MCPCredentialSource {
   secret_ref?: string;
   provider_connection_id?: string;
   provider?: string;
-  /** Custom MCP servers: pinned uses provider_connection_id for all callers; caller resolves per JWT sub. */
+  /**
+   * Provider connections are always caller-scoped (each caller resolves their
+   * OWN connection per JWT sub). The legacy `'pinned'` scope — one connection
+   * reused for all callers — was removed for security; the value is still
+   * accepted on the wire so old documents parse, but it is ignored.
+   */
   connection_scope?: 'caller' | 'pinned';
   /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
   fallback_env?: string;

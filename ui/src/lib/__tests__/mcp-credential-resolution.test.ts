@@ -20,15 +20,77 @@ describe("mcp-credential-resolution", () => {
     jest.clearAllMocks();
   });
 
-  it("resolves pinned connection for a non-owner with mcp_server use", async () => {
+  it("resolves the caller's OWN connection for a provider-scoped source", async () => {
+    const refreshConnection = jest.fn(async () => ({ accessToken: "alice-token", expiresIn: 3600 }));
     getProviderConnectionService.mockResolvedValue({
-      getConnection: jest.fn(async () => ({
-        id: "conn-admin",
+      listConnections: jest.fn(async () => [
+        {
+          id: "conn-alice",
+          provider: "atlassian",
+          status: "connected",
+          owner: { type: "user", id: "alice-sub" },
+        },
+      ]),
+      refreshConnection,
+    });
+
+    const token = await resolveProviderConnectionCredential({
+      session: { sub: "alice-sub", user: { email: "alice@caipe.local" } },
+      source: {
+        kind: "provider_connection",
+        target: "header",
+        name: "X-CAIPE-Provider-Token",
+        connection_scope: "caller",
         provider: "atlassian",
-        status: "connected",
-        owner: { type: "user", id: "admin-sub" },
-      })),
-      refreshConnection: jest.fn(async () => ({ accessToken: "pinned-token", expiresIn: 3600 })),
+      },
+      mcpServer: {
+        _id: "mcp-custom-jira",
+        credential_sources: [
+          {
+            kind: "provider_connection",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+            connection_scope: "caller",
+            provider: "atlassian",
+          },
+        ],
+      },
+    });
+
+    expect(token).toEqual({
+      token: "alice-token",
+      provider: "atlassian",
+      providerConnectionId: "conn-alice",
+    });
+    // The caller owns the resolved connection, so no cross-user grant is required.
+    expect(requireResourcePermission).not.toHaveBeenCalled();
+    expect(refreshConnection).toHaveBeenCalledWith("conn-alice");
+  });
+
+  it("never reuses another user's pinned connection — resolves the CALLER's own instead", async () => {
+    // A legacy id-only ("pinned") source references admin's connection, but the
+    // caller is a different user. We must derive the provider from the referenced
+    // connection and then resolve the CALLER's OWN connection — never admin's.
+    const refreshConnection = jest.fn(async () => ({ accessToken: "member-token", expiresIn: 3600 }));
+    getProviderConnectionService.mockResolvedValue({
+      getConnection: jest.fn(async (id: string) => {
+        expect(id).toBe("conn-admin");
+        return {
+          id: "conn-admin",
+          provider: "atlassian",
+          status: "connected",
+          owner: { type: "user", id: "admin-sub" },
+        };
+      }),
+      listConnections: jest.fn(async () => [
+        {
+          id: "conn-member",
+          provider: "atlassian",
+          status: "connected",
+          owner: { type: "user", id: "member-sub" },
+        },
+      ]),
+      refreshConnection,
     });
 
     const token = await resolveProviderConnectionCredential({
@@ -55,36 +117,30 @@ describe("mcp-credential-resolution", () => {
     });
 
     expect(token).toEqual({
-      token: "pinned-token",
+      token: "member-token",
       provider: "atlassian",
-      providerConnectionId: "conn-admin",
+      providerConnectionId: "conn-member",
     });
-    expect(requireResourcePermission).toHaveBeenCalledWith(
-      { sub: "member-sub", user: { email: "member@caipe.local" } },
-      { type: "mcp_server", id: "mcp-custom-jira", action: "use" },
-    );
+    // Resolved the member's own connection — admin's token is never refreshed.
+    expect(refreshConnection).toHaveBeenCalledWith("conn-member");
+    expect(refreshConnection).not.toHaveBeenCalledWith("conn-admin");
+    expect(requireResourcePermission).not.toHaveBeenCalled();
   });
 
-  it("throws when pinned connection is disconnected", async () => {
+  it("throws when the caller has no connected provider connection", async () => {
     getProviderConnectionService.mockResolvedValue({
-      getConnection: jest.fn(async () => ({
-        id: "conn-admin",
-        provider: "atlassian",
-        status: "needs_reauth",
-        owner: { type: "user", id: "admin-sub" },
-      })),
       listConnections: jest.fn(async () => []),
     });
 
     await expect(
       resolveProviderConnectionCredential({
-        session: { sub: "admin-sub", user: { email: "admin@caipe.local" } },
+        session: { sub: "member-sub", user: { email: "member@caipe.local" } },
         source: {
           kind: "provider_connection",
           target: "header",
           name: "X-CAIPE-Provider-Token",
-          connection_scope: "pinned",
-          provider_connection_id: "conn-admin",
+          connection_scope: "caller",
+          provider: "atlassian",
         },
         mcpServer: {
           _id: "mcp-custom-jira",
@@ -93,61 +149,12 @@ describe("mcp-credential-resolution", () => {
               kind: "provider_connection",
               target: "header",
               name: "X-CAIPE-Provider-Token",
-              connection_scope: "pinned",
-              provider_connection_id: "conn-admin",
+              connection_scope: "caller",
+              provider: "atlassian",
             },
           ],
         },
       }),
     ).rejects.toBeInstanceOf(McpCredentialUnavailableError);
-  });
-
-  it("falls back to the owner's newest connected provider connection when a pinned id was superseded", async () => {
-    getProviderConnectionService.mockResolvedValue({
-      getConnection: jest.fn(async () => ({
-        id: "conn-old",
-        provider: "atlassian",
-        status: "disabled",
-        owner: { type: "user", id: "alice-sub" },
-      })),
-      listConnections: jest.fn(async () => [
-        {
-          id: "conn-new",
-          provider: "atlassian",
-          status: "connected",
-          owner: { type: "user", id: "alice-sub" },
-        },
-      ]),
-      refreshConnection: jest.fn(async () => ({ accessToken: "fresh-token", expiresIn: 3600 })),
-    });
-
-    const token = await resolveProviderConnectionCredential({
-      session: { sub: "alice-sub", user: { email: "alice@caipe.local" } },
-      source: {
-        kind: "provider_connection",
-        target: "header",
-        name: "X-CAIPE-Provider-Token",
-        connection_scope: "pinned",
-        provider_connection_id: "conn-old",
-      },
-      mcpServer: {
-        _id: "confluence",
-        credential_sources: [
-          {
-            kind: "provider_connection",
-            target: "header",
-            name: "X-CAIPE-Provider-Token",
-            connection_scope: "pinned",
-            provider_connection_id: "conn-old",
-          },
-        ],
-      },
-    });
-
-    expect(token).toEqual({
-      token: "fresh-token",
-      provider: "atlassian",
-      providerConnectionId: "conn-new",
-    });
   });
 });

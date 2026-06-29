@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 CALLER_PROVIDER_NOT_CONNECTED = "caller_provider_not_connected"
-PINNED_PROVIDER_UNAVAILABLE = "pinned_provider_unavailable"
 TOP_LEVEL_UNION_SCHEMA_KEYS = ("oneOf", "anyOf", "allOf")
 
 _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
@@ -81,17 +80,6 @@ class McpCredentialResolutionResult:
 
     connections: dict[str, dict[str, Any]]
     failures: dict[str, McpCredentialUnavailableError] = field(default_factory=dict)
-
-
-def _effective_connection_scope(source: Any) -> str:
-    scope = getattr(source, "connection_scope", None)
-    if scope in ("caller", "pinned"):
-        return scope
-    provider_connection_id = (getattr(source, "provider_connection_id", None) or "").strip()
-    provider = (getattr(source, "provider", None) or "").strip()
-    if provider_connection_id and not provider:
-        return "pinned"
-    return "caller"
 
 
 def _agent_gateway_base_url() -> str | None:
@@ -504,36 +492,25 @@ async def resolve_mcp_credential_refs(
                 if credential:
                     origin = "secret_ref"
             elif source.kind == "provider_connection":
-                scope = _effective_connection_scope(source)
-                pinned = scope == "pinned"
                 exchanged: dict[str, Any] = {}
                 try:
-                    if pinned and source.provider_connection_id:
-                        exchanged = await credential_client.exchange_provider_connection(
-                            source.provider_connection_id,
-                            intended_use="mcp_server",
-                            mcp_server_id=server.id,
-                        )
-                    elif source.provider:
+                    if source.provider:
                         exchanged = await credential_client.exchange_provider_connection_by_provider(
                             source.provider,
                             intended_use="mcp_server",
                             mcp_server_id=server.id,
                         )
                     elif source.provider_connection_id:
+                        # Legacy doc: had connection_scope="pinned" + a specific
+                        # provider_connection_id. The BFF /api/credentials/exchange
+                        # endpoint now resolves the *caller's own* connection for
+                        # that id's provider, so this is safe — no shared token.
                         exchanged = await credential_client.exchange_provider_connection(
                             source.provider_connection_id,
                             intended_use="mcp_server",
                             mcp_server_id=server.id,
                         )
                 except Exception as exc:
-                    if pinned:
-                        raise McpCredentialUnavailableError(
-                            f"Pinned provider connection unavailable for server={server.id}",
-                            reason=PINNED_PROVIDER_UNAVAILABLE,
-                            server_id=server.id,
-                            server_name=server.name,
-                        ) from exc
                     logger.debug(
                         "credential exchange for server=%s source=%s failed (%s); "
                         "falling back to static credential if configured",
@@ -545,14 +522,7 @@ async def resolve_mcp_credential_refs(
                 access_token = exchanged.get("access_token")
                 if isinstance(access_token, str) and access_token:
                     credential = access_token
-                    origin = "per_user_oauth" if not pinned else "pinned_provider_connection"
-                elif pinned:
-                    raise McpCredentialUnavailableError(
-                        f"Pinned provider connection unavailable for server={server.id}",
-                        reason=PINNED_PROVIDER_UNAVAILABLE,
-                        server_id=server.id,
-                        server_name=server.name,
-                    )
+                    origin = "per_user_oauth"
             elif source.kind == "caller_token":
                 # Forward the caller's own Keycloak JWT so the backend can enforce
                 # per-user RBAC (e.g. RAG group-based access). Prefer the explicitly
@@ -577,7 +547,7 @@ async def resolve_mcp_credential_refs(
 
         # Static service-account fallback: keeps shared-token MCP servers
         # (e.g. GitHub/GitLab) working for callers without a personal connection.
-        if not credential and source.fallback_env and _effective_connection_scope(source) != "pinned":
+        if not credential and source.fallback_env:
             env_value = os.getenv(source.fallback_env, "").strip()
             if env_value:
                 credential = env_value
@@ -594,15 +564,7 @@ async def resolve_mcp_credential_refs(
 
         if not credential:
             if source.kind == "provider_connection":
-                scope = _effective_connection_scope(source)
-                if scope == "pinned":
-                    raise McpCredentialUnavailableError(
-                        f"Pinned provider connection unavailable for server={server.id}",
-                        reason=PINNED_PROVIDER_UNAVAILABLE,
-                        server_id=server.id,
-                        server_name=server.name,
-                    )
-                if scope == "caller" and source.provider and not source.fallback_env:
+                if source.provider and not source.fallback_env:
                     raise McpCredentialUnavailableError(
                         f"Caller has no connected provider for server={server.id} "
                         f"provider={source.provider}",
@@ -657,7 +619,7 @@ async def resolve_mcp_connections_credential_refs(
     source uses the real caller JWT even when the ``current_user_token``
     ContextVar is empty at this call site (#64).
 
-    Servers that fail caller-scoped or pinned credential resolution are omitted
+    Servers that fail caller-scoped credential resolution are omitted
     from ``connections`` and recorded in ``failures`` with structured reasons.
     """
 

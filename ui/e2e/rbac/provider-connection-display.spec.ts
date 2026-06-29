@@ -12,14 +12,9 @@ import {
   gotoMcpServersTab,
   installMcpBrowserMocks,
   openAddMcpServerEditor,
-  openMcpServerEditor,
 } from "./_mcp-browser-fixtures";
 import {
-  ATLASSIAN_OPTION_LABEL,
-  ATLASSIAN_OPTION_LABEL_NO_PROFILE,
   EXPIRED_ATLASSIAN_CONNECTION,
-  EXPIRED_OPTION_LABEL_PATTERN,
-  GITHUB_PROVIDER_CONNECTION,
   NEW_ATLASSIAN_CONNECTION,
   NON_RENEWABLE_CO2_CONNECTION,
   OLD_ATLASSIAN_CONNECTION,
@@ -58,14 +53,6 @@ async function gotoConnectedAppsWorkspace(page: import("@playwright/test").Page)
     );
   }
 }
-
-const GITHUB_OAUTH_CONNECTOR = {
-  id: "github-connector",
-  name: "GitHub",
-  provider: "github",
-  enabled: true,
-  scopes: ["repo", "read:user"],
-};
 
 const CO2_OAUTH_CONNECTOR = {
   id: "co2-dev-connector",
@@ -197,94 +184,7 @@ test.describe("RBAC e2e — provider connection display and cleanup", () => {
   });
 
   test.describe("MCP credential editor", () => {
-    test("shows descriptive connected-app labels instead of raw UUIDs", async ({ page }) => {
-      await installMcpBrowserMocks(page, {
-        servers: [],
-        providerConnections: [NEW_ATLASSIAN_CONNECTION],
-        oauthConnectors: [DEFAULT_OAUTH_CONNECTOR],
-      });
-
-      await gotoMcpServersTab(page);
-      await openAddMcpServerEditor(page);
-      await page.getByRole("button", { name: "Add Credential" }).click();
-      await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-
-      const providerConnection = page.getByLabel(/Provider connection/i);
-      await expect(providerConnection).toContainText("Atlassian Cloud");
-      await expect(providerConnection).toContainText("healthy");
-      await expect(providerConnection).toContainText("refreshed 30m ago");
-      await expect(providerConnection).toContainText("cisco-eti");
-      await expect(providerConnection.getByRole("option", { name: ATLASSIAN_OPTION_LABEL })).toHaveAttribute(
-        "title",
-        NEW_ATLASSIAN_CONNECTION.id,
-      );
-      await expect(page.getByText(NEW_ATLASSIAN_CONNECTION.id)).toHaveCount(0);
-    });
-
-    test("falls back to owner name in the MCP picker when profile summary is missing", async ({
-      page,
-    }) => {
-      await installMcpBrowserMocks(page, {
-        servers: [],
-        providerConnections: [{ ...NEW_ATLASSIAN_CONNECTION, profileSummary: undefined }],
-        oauthConnectors: [DEFAULT_OAUTH_CONNECTOR],
-      });
-
-      await gotoMcpServersTab(page);
-      await openAddMcpServerEditor(page);
-      await page.getByRole("button", { name: "Add Credential" }).click();
-      await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-
-      const providerConnection = page.getByLabel(/Provider connection/i);
-      await expect(providerConnection).toContainText("Platform Admin");
-      await expect(
-        providerConnection.getByRole("option", {
-          name: ATLASSIAN_OPTION_LABEL_NO_PROFILE,
-        }),
-      ).toHaveCount(1);
-    });
-
-    test("shows expired health in the MCP picker for stale tokens", async ({ page }) => {
-      await installMcpBrowserMocks(page, {
-        servers: [],
-        providerConnections: [EXPIRED_ATLASSIAN_CONNECTION],
-        oauthConnectors: [DEFAULT_OAUTH_CONNECTOR],
-      });
-
-      await gotoMcpServersTab(page);
-      await openAddMcpServerEditor(page);
-      await page.getByRole("button", { name: "Add Credential" }).click();
-      await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-
-      const providerConnection = page.getByLabel(/Provider connection/i);
-      const expiredOption = providerConnection.locator(
-        `option[value="${EXPIRED_ATLASSIAN_CONNECTION.id}"]`,
-      );
-      await expect(expiredOption).toHaveCount(1);
-      await expect(expiredOption).toHaveText(EXPIRED_OPTION_LABEL_PATTERN);
-    });
-
-    test("distinguishes multiple provider connections with readable labels", async ({ page }) => {
-      await installMcpBrowserMocks(page, {
-        servers: [],
-        providerConnections: [NEW_ATLASSIAN_CONNECTION, GITHUB_PROVIDER_CONNECTION],
-        oauthConnectors: [DEFAULT_OAUTH_CONNECTOR, GITHUB_OAUTH_CONNECTOR],
-      });
-
-      await gotoMcpServersTab(page);
-      await openAddMcpServerEditor(page);
-      await page.getByRole("button", { name: "Add Credential" }).click();
-      await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-
-      const providerConnection = page.getByLabel(/Provider connection/i);
-      await expect(providerConnection.getByRole("option")).toHaveCount(3);
-      await expect(providerConnection).toContainText("cisco-eti");
-      await expect(providerConnection).toContainText("@octocat");
-      await expect(page.getByText(NEW_ATLASSIAN_CONNECTION.id)).toHaveCount(0);
-      await expect(page.getByText(GITHUB_PROVIDER_CONNECTION.id)).toHaveCount(0);
-    });
-
-    test("persists the selected provider connection id on save", async ({ page }) => {
+    test("persists the caller-scoped provider on save", async ({ page }) => {
       const mocks = await installMcpBrowserMocks(page, {
         servers: [],
         providerConnections: [NEW_ATLASSIAN_CONNECTION],
@@ -297,9 +197,7 @@ test.describe("RBAC e2e — provider connection display and cleanup", () => {
       await page.getByLabel(/Endpoint URL/i).fill("http://agentgateway:4000/mcp/atlassian");
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-      await page
-        .getByLabel(/Provider connection/i)
-        .selectOption({ label: ATLASSIAN_OPTION_LABEL });
+      await page.getByLabel(/^Provider$/i).selectOption("atlassian");
 
       await page.getByRole("button", { name: "Create Server" }).click();
 
@@ -309,45 +207,13 @@ test.describe("RBAC e2e — provider connection display and cleanup", () => {
           kind: "provider_connection",
           target: "header",
           name: "X-CAIPE-Provider-Token",
-          connection_scope: "pinned",
-          provider_connection_id: NEW_ATLASSIAN_CONNECTION.id,
+          connection_scope: "caller",
+          provider: "atlassian",
         },
       ]);
-    });
-
-    test("reloads existing server bindings with descriptive provider connection labels", async ({
-      page,
-    }) => {
-      await installMcpBrowserMocks(page, {
-        servers: [
-          {
-            _id: "mcp-jira",
-            name: "Jira",
-            transport: "http",
-            endpoint: "http://agentgateway:4000/mcp/jira",
-            enabled: true,
-            credential_sources: [
-              {
-                kind: "provider_connection",
-                target: "header",
-                name: "Authorization",
-                provider: "atlassian",
-                provider_connection_id: NEW_ATLASSIAN_CONNECTION.id,
-              },
-            ],
-          },
-        ],
-        providerConnections: [NEW_ATLASSIAN_CONNECTION],
-        oauthConnectors: [DEFAULT_OAUTH_CONNECTOR],
-      });
-
-      await gotoMcpServersTab(page);
-      await openMcpServerEditor(page, "Jira");
-
-      const providerConnection = page.getByLabel(/Provider connection/i);
-      await expect(providerConnection).toHaveValue(NEW_ATLASSIAN_CONNECTION.id);
-      await expect(providerConnection).toContainText("cisco-eti");
-      await expect(providerConnection).toContainText("healthy");
+      expect(mocks.createRequests[0].credential_sources?.[0]).not.toHaveProperty(
+        "provider_connection_id",
+      );
     });
   });
 
