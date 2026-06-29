@@ -1,3 +1,5 @@
+// assisted-by Codex Codex-sonnet-4-6
+
 import { expect, test, type Page } from "@playwright/test";
 
 import {
@@ -321,7 +323,7 @@ test.describe("mocked credentials workspace browser regression", () => {
       await relayPage.waitForLoadState("domcontentloaded");
       await relayPage.close().catch(() => undefined);
 
-      await expect(page).toHaveURL(/\/credentials$/);
+      await expect(page).toHaveURL(/\/credentials#connections$/);
       await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
       await expect(page.getByText("Atlassian Cloud")).toBeVisible();
       await expect(page.getByText("healthy")).toBeVisible();

@@ -391,7 +391,7 @@ export function AppHeader() {
     },
     storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",
-      href: "/credentials",
+      href: "/credentials#connections",
       label: "Credentials",
       Icon: KeyRound,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
