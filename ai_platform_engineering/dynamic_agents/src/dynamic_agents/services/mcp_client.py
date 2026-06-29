@@ -285,18 +285,13 @@ def build_mcp_connection_config(
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
 
-    # AgentGateway reserves Authorization for the caller JWT. Legacy
-    # auth.type=user_oauth writes provider OAuth into Authorization, which
-    # breaks gateway auth. Gateway-routed per-user provider credentials must use
-    # credential_sources -> X-CAIPE-Provider-Token instead.
-    gateway_managed = _is_gateway_managed_server(server, _agent_gateway_base_url())
-    legacy_auth_headers = (
-        {}
-        if gateway_managed and server.auth is not None and server.auth.type == MCPAuthType.USER_OAUTH
-        else _resolve_auth_headers(server, user_email)
-    )
-    if legacy_auth_headers:
-        headers.update(legacy_auth_headers)
+    # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
+    # per-request user JWT (from current_user_token ContextVar) is injected
+    # on every outbound connection, even after this config is built.
+    factory = build_httpx_client_factory()
+    token = current_user_token.get()
+    if token and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {token}"
 
     def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
         cfg = {**cfg, "httpx_client_factory": factory}
@@ -307,7 +302,6 @@ def build_mcp_connection_config(
     # Self-heal stale AgentGateway endpoints (e.g. bare
     # ``http://agentgateway:4000/mcp`` written by an older save path)
     # before we hand the URL to the transport. See ``_heal_endpoint``.
-
     healed_endpoint = _heal_endpoint(server)
     if server.transport == TransportType.SSE:
         url = (
