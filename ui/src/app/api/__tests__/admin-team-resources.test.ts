@@ -8,11 +8,13 @@
  *   1. Non-admins cannot reassign team resources (auth gates fire before
  *      any KC mutation).
  *   2. Add/remove diffs are reconciled to OpenFGA tuples, not Keycloak roles.
+ *      Previous state is read from OpenFGA (via TeamResourceListingCache), not
+ *      the dropped `team.resources` array — so revocations diff real grants.
  *   3. Members who don't yet have a Keycloak account are reported in
  *      `members_skipped` and the rest of the operation still succeeds —
  *      otherwise inviting "future" emails would brick the whole panel.
- *   4. The Mongo write happens AFTER OpenFGA reconciliation so persisted
- *      selection never gets ahead of the PDP state.
+ *   4. The Mongo `updated_at` touch + legacy `resources` $unset happens AFTER
+ *      OpenFGA reconciliation so it never gets ahead of the PDP state.
  */
 
 import { NextRequest } from "next/server";
@@ -63,6 +65,29 @@ jest.mock("@/lib/authz", () => ({
 jest.mock("@/lib/rbac/openfga", () => ({
   buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
   checkOpenFgaTuple: (...a: unknown[]) => mockCheckOpenFgaTuple(...a),
+  TEAM_TOOL_WILDCARD_SENTINEL_OBJECT: "tool:*",
+  teamToolWildcardSentinelTuple: (slug: string) => ({
+    user: `team:${slug}#member`,
+    relation: "caller",
+    object: "tool:*",
+  }),
+}));
+
+// OpenFGA-derived previous/current state. Keyed `${relation} ${type}` (member)
+// and `admin:${relation} ${type}` (team admins) so a test can seed the live
+// grants the route reads back for GET echo + PUT revocation diffs.
+const mockListTeamResourceObjectIds = jest.fn();
+const mockListTeamAdminResourceObjectIds = jest.fn();
+class MockTeamResourceListingCache {
+  listTeamResourceObjectIds(...a: unknown[]) {
+    return mockListTeamResourceObjectIds(...a);
+  }
+  listTeamAdminResourceObjectIds(...a: unknown[]) {
+    return mockListTeamAdminResourceObjectIds(...a);
+  }
+}
+jest.mock("@/lib/rbac/team-resource-listing", () => ({
+  TeamResourceListingCache: MockTeamResourceListingCache,
 }));
 
 function setDefaultPermissionMock(allow: boolean) {
@@ -186,6 +211,29 @@ function seedCanonicalMembers(
   mockCollections["team_membership_sources"] = sourcesCol;
 }
 
+/**
+ * Seed the OpenFGA-derived "live grants" the route reads back. `agents` and
+ * `tools` resolve via the member-relation listing; `agentAdmins` via the admin
+ * (`manager`) listing. The route routes by (type, relation), so we dispatch on
+ * `type`.
+ */
+function seedTeamGrants(grants: {
+  agents?: string[];
+  tools?: string[];
+  workflows?: string[];
+  agentAdmins?: string[];
+}) {
+  mockListTeamResourceObjectIds.mockImplementation(async ({ type }: { type: string }) => {
+    if (type === "agent") return grants.agents ?? [];
+    if (type === "tool") return grants.tools ?? [];
+    if (type === "task") return grants.workflows ?? [];
+    return [];
+  });
+  mockListTeamAdminResourceObjectIds.mockImplementation(async ({ type }: { type: string }) =>
+    type === "agent" ? grants.agentAdmins ?? [] : []
+  );
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
@@ -195,6 +243,10 @@ beforeEach(() => {
   mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
   mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
   mockReconcileTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
+  // Default: team holds no OpenFGA grants. Tests that exercise revocation seed
+  // the live grants via seedTeamGrants().
+  mockListTeamResourceObjectIds.mockResolvedValue([]);
+  mockListTeamAdminResourceObjectIds.mockResolvedValue([]);
   // Default canonical roster matches teamWith()'s legacy `members[]` so
   // tests don't have to opt in. Tests that need a different roster
   // (e.g. empty team, single user) call seedCanonicalMembers([...]).
@@ -216,6 +268,15 @@ async function loadRoute() {
   jest.doMock("@/lib/rbac/openfga", () => ({
     buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
     checkOpenFgaTuple: (...a: unknown[]) => mockCheckOpenFgaTuple(...a),
+    TEAM_TOOL_WILDCARD_SENTINEL_OBJECT: "tool:*",
+    teamToolWildcardSentinelTuple: (slug: string) => ({
+      user: `team:${slug}#member`,
+      relation: "caller",
+      object: "tool:*",
+    }),
+  }));
+  jest.doMock("@/lib/rbac/team-resource-listing", () => ({
+    TeamResourceListingCache: MockTeamResourceListingCache,
   }));
   jest.doMock("@/lib/mongodb", () => ({
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -286,18 +347,15 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
-  it("persists the resource diff and does not mirror per-resource Keycloak roles", async () => {
+  it("reconciles the diff vs live OpenFGA grants and unsets the legacy array", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     setDefaultPermissionMock(true);
 
     const teamsCol = createMockCollection();
-    teamsCol.findOne.mockResolvedValue(
-      teamWith({
-        agents: ["agent-keep", "agent-drop"],
-        tools: ["jira_*"],
-      })
-    );
+    teamsCol.findOne.mockResolvedValue(teamWith(undefined));
     mockCollections["teams"] = teamsCol;
+    // Live OpenFGA grants the route reads back as "previous state".
+    seedTeamGrants({ agents: ["agent-keep", "agent-drop"], tools: ["jira/*"] });
 
     const { PUT } = await loadRoute();
 
@@ -307,8 +365,8 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
         body: JSON.stringify({
           // keep agent-keep, drop agent-drop, add agent-new
           agents: ["agent-keep", "agent-new"],
-          // keep jira_*, add github_*
-          tools: ["jira_*", "github_*"],
+          // keep jira/*, add github/*
+          tools: ["jira/*", "github/*"],
         }),
       }),
       { params: Promise.resolve({ id: TEAM_ID.toString() }) }
@@ -321,23 +379,19 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     expect(mockFindUserIdByEmail).toHaveBeenCalledWith("alice@example.com");
     expect(mockFindUserIdByEmail).toHaveBeenCalledWith("bob@example.com");
 
-    // The Mongo write must persist the new selection.
+    // No `resources` array is written anymore; the route only touches
+    // updated_at and unsets any legacy field.
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
     const update = teamsCol.updateOne.mock.calls[0][1];
-    expect(update.$set.resources).toEqual({
-      agents: ["agent-keep", "agent-new"],
-      agent_admins: [],
-      tools: ["jira_*", "github_*"],
-      tool_wildcard: false,
-    });
+    expect(update.$set.resources).toBeUndefined();
+    expect(update.$set.updated_at).toBeInstanceOf(Date);
+    expect(update.$unset).toEqual({ resources: "" });
 
     const body = await res.json();
-    // Match against the relevant keys; new agent_admin/wildcard diff fields
-    // are also present but aren't the focus of this assertion.
     expect(body.data.diff).toMatchObject({
       agents_added: ["agent-new"],
       agents_removed: ["agent-drop"],
-      tools_added: ["github_*"],
+      tools_added: ["github/*"],
       tools_removed: [],
     });
     expect(body.data.members_resolved).toEqual(["alice@example.com", "bob@example.com"]);
@@ -384,7 +438,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
 
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue({
-      ...teamWith({ agents: ["agent-old"], tools: [] }),
+      ...teamWith(undefined),
       slug: "platform-engineering",
     });
     mockCollections["teams"] = teamsCol;
@@ -392,6 +446,9 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       { user_email: "alice@example.com", relationship: "admin" },
       { user_email: "bob@example.com", relationship: "member" },
     ], "platform-engineering");
+    // Live grant the route reads back: agent-old is currently granted and must
+    // be revoked when the Save no longer includes it.
+    seedTeamGrants({ agents: ["agent-old"] });
     const tupleDiff = {
       writes: [
         { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-new" },
@@ -405,7 +462,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     const res = await PUT(
       makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
         method: "PUT",
-        body: JSON.stringify({ agents: ["agent-new"], tools: ["jira_*"] }),
+        body: JSON.stringify({ agents: ["agent-new"], tools: ["jira/*"] }),
       }),
       { params: Promise.resolve({ id: TEAM_ID.toString() }) }
     );
@@ -416,7 +473,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
       agents: { added: ["agent-new"], removed: ["agent-old"] },
       agentAdmins: { added: [], removed: [] },
-      tools: { added: ["jira_*"], removed: [] },
+      tools: { added: ["jira/*"], removed: [] },
       toolWildcard: { added: false, removed: false },
       allMcpServerIds: [],
     });
@@ -437,23 +494,21 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
 
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue({
-      ...teamWith({ agents: ["agent-keep"], tools: ["mcp-confluence-mcp_*"] }),
+      ...teamWith(undefined),
       slug: "platform-engineering",
-      resources: {
-        agents: ["agent-keep"],
-        agent_admins: ["agent-admin"],
-        tools: ["mcp-confluence-mcp_*"],
-        knowledge_bases: ["kb-ops"],
-        skills: ["skill-ops"],
-        tasks: ["task-ops"],
-        tool_wildcard: false,
-      },
     });
     mockCollections["teams"] = teamsCol;
     seedCanonicalMembers([
       { user_email: "alice@example.com", relationship: "admin" },
       { user_email: "bob@example.com", relationship: "member" },
     ], "platform-engineering");
+    // Live grants identical to the Save → no removals; the writer dedups
+    // already-present tuples so re-Save repairs drift without churn.
+    seedTeamGrants({
+      agents: ["agent-keep"],
+      tools: ["mcp-confluence-mcp/*"],
+      agentAdmins: ["agent-admin"],
+    });
 
     const { PUT } = await loadRoute();
 
@@ -463,10 +518,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
         body: JSON.stringify({
           agents: ["agent-keep"],
           agent_admins: ["agent-admin"],
-          tools: ["mcp-confluence-mcp_*"],
-          knowledge_bases: ["kb-ops"],
-          skills: ["skill-ops"],
-          tasks: ["task-ops"],
+          tools: ["mcp-confluence-mcp/*"],
           tool_wildcard: false,
         }),
       }),
@@ -479,13 +531,53 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
       agents: { added: ["agent-keep"], removed: [] },
       agentAdmins: { added: ["agent-admin"], removed: [] },
-      tools: { added: ["mcp-confluence-mcp_*"], removed: [] },
-      knowledgeBases: { added: ["kb-ops"], removed: [] },
-      skills: { added: ["skill-ops"], removed: [] },
-      tasks: { added: ["task-ops"], removed: [] },
+      tools: { added: ["mcp-confluence-mcp/*"], removed: [] },
       toolWildcard: { added: false, removed: false },
       allMcpServerIds: [],
     });
+  });
+
+  it("expands tool_wildcard into every enabled server prefix", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setDefaultPermissionMock(true);
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      ...teamWith(undefined),
+      slug: "platform-engineering",
+    });
+    mockCollections["teams"] = teamsCol;
+    seedCanonicalMembers(
+      [{ user_email: "alice@example.com", relationship: "admin" }],
+      "platform-engineering"
+    );
+
+    const mcpCol = createMockCollection();
+    mcpCol.find = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ _id: "jira" }, { _id: "github" }]),
+    });
+    mockCollections["mcp_servers"] = mcpCol;
+
+    const { PUT } = await loadRoute();
+
+    const res = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({ agents: [], tools: [], tool_wildcard: true }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) }
+    );
+
+    expect(res.status).toBe(200);
+    // Wildcard becomes explicit per-server prefixes; toolWildcard stays off so
+    // the dedicated wildcard tuple path never fires (it writes identical tuples).
+    expect(mockBuildTeamResourceTupleDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: { added: ["jira/*", "github/*"], removed: [] },
+        toolWildcard: { added: false, removed: false },
+        allMcpServerIds: ["jira", "github"],
+      })
+    );
   });
 
   it("does not persist Mongo when OpenFGA reconciliation fails", async () => {
@@ -547,10 +639,10 @@ describe("GET /api/admin/teams/[id]/resources", () => {
     setDefaultPermissionMock(true);
 
     const teamsCol = createMockCollection();
-    teamsCol.findOne.mockResolvedValue(
-      teamWith({ agents: ["agent-1"], tools: ["jira_*"] })
-    );
+    teamsCol.findOne.mockResolvedValue(teamWith(undefined));
     mockCollections["teams"] = teamsCol;
+    // GET echoes the live OpenFGA grants, not a Mongo array.
+    seedTeamGrants({ agents: ["agent-1"], tools: ["jira/*"] });
 
     const agentsCol = createMockCollection();
     agentsCol.find = jest.fn().mockReturnValue({
@@ -586,7 +678,7 @@ describe("GET /api/admin/teams/[id]/resources", () => {
     const body = await res.json();
 
     expect(body.data.resources.agents).toEqual(["agent-1"]);
-    expect(body.data.resources.tools).toEqual(["jira_*"]);
+    expect(body.data.resources.tools).toEqual(["jira/*"]);
 
     expect(body.data.available.agents.map((a: { id: string }) => a.id)).toEqual([
       "agent-1",

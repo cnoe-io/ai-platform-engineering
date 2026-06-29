@@ -109,3 +109,14 @@ export async function listUserTeamSlugs(
 export function __resetUserTeamCacheForTests(): void {
   teamSlugsBySubject.clear();
 }
+
+export function invalidateUserTeamMembershipCache(subjects?: string[]): void {
+  // assisted-by Codex Codex-sonnet-4-6
+  if (!subjects || subjects.length === 0) {
+    teamSlugsBySubject.clear();
+    return;
+  }
+  for (const subject of subjects) {
+    teamSlugsBySubject.delete(subject);
+  }
+}

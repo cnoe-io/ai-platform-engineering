@@ -90,10 +90,6 @@ interface TeamDoc extends Document {
   _id: unknown;
   slug?: string;
   name?: string;
-  resources?: {
-    agents?: string[];
-    [key: string]: unknown;
-  };
 }
 
 interface DynamicAgentDoc extends Document {
@@ -398,20 +394,9 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     } else {
       teamAgentPairs.set(`${teamSlug}/${agentId}`, { team, agent_id: agentId });
     }
-    for (const { team: targetTeam, agent_id: targetAgentId } of teamAgentPairs.values()) {
-      const teamResources = targetTeam.resources ?? {};
-      const nextTeamAgents = uniqueStrings([...(teamResources.agents ?? []), targetAgentId]);
-      await teams.updateOne(
-        { _id: targetTeam._id } as never,
-        {
-          $set: {
-            resources: { ...teamResources, agents: nextTeamAgents },
-            updated_by: actor,
-            updated_at: now,
-          },
-        } as never
-      );
-    }
+    // The team→agent grant is written to OpenFGA below (the canonical
+    // `team:<slug>#member use agent:<id>` tuple in `writes`), which is the
+    // single source of truth for team↔resource access.
 
     for (const channel of channels) {
       const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);

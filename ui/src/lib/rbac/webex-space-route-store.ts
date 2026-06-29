@@ -126,3 +126,17 @@ export async function deleteWebexSpaceAgentRoute(
   } as never);
   return result.deletedCount > 0;
 }
+
+// assisted-by Codex Codex-sonnet-4-6
+export async function deleteWebexSpaceAgentRoutes(
+  workspaceId: string,
+  spaceId: string
+): Promise<number> {
+  const collection = await getRbacCollection<WebexSpaceAgentRouteDocument>("webexSpaceAgentRoutes");
+  const workspaceRef = webexWorkspaceRef(workspaceId);
+  const result = await collection.deleteMany({
+    workspace_id: workspaceRef,
+    space_id: spaceId,
+  } as never);
+  return result.deletedCount ?? 0;
+}

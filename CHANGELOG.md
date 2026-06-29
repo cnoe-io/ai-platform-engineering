@@ -1,3 +1,61 @@
+## 0.5.27 (2026-06-28)
+
+### Feat
+
+- **audit**: S3 retention controls, storage usage visibility, and configurable verbosity
+
+### Fix
+
+- **lint**: move verbosity import to top of test file (ruff E402/F401)
+- **audit**: mock /api/admin/audit-storage in UnifiedAuditTab download test
+- **rbac**: clean up deleted principals and grants
+
+## 0.5.26-dev.7 (2026-06-28)
+
+### Feat
+
+- **admin**: make OpenFGA the source of truth for team resource access and declutter team UI (#2021)
+
+### Fix
+
+- **setup-caipe**: update configBridge.bff to configBridge.ui secret path (#2058)
+- **ui-admin**: remove knowledge bases settings tab
+
+## 0.5.26-dev.6 (2026-06-27)
+
+## 0.5.26-dev.5 (2026-06-27)
+
+### Feat
+
+- **audit**: S3 retention controls, storage usage visibility, and configurable verbosity
+
+## 0.5.26-dev.4 (2026-06-27)
+
+### Fix
+
+- **dynamic-agents**: remove stale agent CRUD router (#2054)
+
+## 0.5.26-dev.3 (2026-06-27)
+
+### Fix
+
+- **security**: address audit and pnpm alerts
+
+### Refactor
+
+- **ui**: collapse credentials tabs into a single scrollable pane (#2044)
+
+## 0.5.26-dev.2 (2026-06-27)
+
+## 0.5.26-dev.1 (2026-06-26)
+
+### Fix
+
+- **keycloak**: align init hook cleanup for argocd
+- **keycloak**: make init-idp hook delete policy configurable
+- **ci**: make auto-tag idempotent and authenticated (#2046)
+- **ui**: make custom popover dropdowns work inside dialogs (#2048)
+
 ## 0.5.26 (2026-06-26)
 
 ### Fix
@@ -27,6 +85,7 @@
 ### Feat
 
 - **mcp**: add mcpSecrets alias with deprecation of agentSecrets
+- **admin**: add access explorer and rbac self check
 
 ### Fix
 
@@ -50,6 +109,11 @@
 - **slack-bot**: skip Keycloak identity resolution in middleware for bot messages (SDPL-1984)
 
 ## 0.5.23 (2026-06-25)
+
+### Feat
+
+- **admin**: drop team_kb_ownership for OpenFGA-sourced KB grants and split Agents/MCPs tabs
+- **admin**: make OpenFGA the source of truth for team resource access and declutter team UI
 
 ### Fix
 

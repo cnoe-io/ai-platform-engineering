@@ -60,12 +60,14 @@ class Settings:
     s3_prefix: str = "audit"
     s3_region: str = "us-east-1"
     s3_endpoint_url: str | None = None
+    s3_retention_days: int = 0
     queue_max_size: int = 10_000
     flush_batch_size: int = 500
     flush_interval_seconds: float = 1.0
     read_default_limit: int = 1_000
     read_max_limit: int = 10_000
     read_max_days: int = 31
+    verbosity: str = "minimal"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -86,10 +88,12 @@ class Settings:
             s3_prefix=os.getenv("AUDIT_SERVICE_S3_PREFIX", "audit"),
             s3_region=os.getenv("AUDIT_SERVICE_S3_REGION", "us-east-1"),
             s3_endpoint_url=os.getenv("AUDIT_SERVICE_S3_ENDPOINT_URL"),
+            s3_retention_days=_int_env("AUDIT_SERVICE_S3_RETENTION_DAYS", 0, minimum=0),
             queue_max_size=_int_env("AUDIT_SERVICE_QUEUE_MAX_SIZE", 10_000),
             flush_batch_size=_int_env("AUDIT_SERVICE_FLUSH_BATCH_SIZE", 500),
             flush_interval_seconds=_float_env("AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS", 1.0),
             read_default_limit=_int_env("AUDIT_SERVICE_READ_DEFAULT_LIMIT", 1_000),
             read_max_limit=_int_env("AUDIT_SERVICE_READ_MAX_LIMIT", 10_000),
             read_max_days=_int_env("AUDIT_SERVICE_READ_MAX_DAYS", 31),
+            verbosity=os.getenv("AUDIT_LOG_VERBOSITY", "minimal").strip().lower(),
         )

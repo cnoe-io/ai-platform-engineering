@@ -15,7 +15,10 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { reconcileLlmModelRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
+import {
+deleteAllLlmModelRelationshipTuples,
+reconcileLlmModelRelationships,
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import {
 filterResourcesByPermission,
 requireResourcePermission,
@@ -195,6 +198,10 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     }
     await requireResourcePermission(session, { type: "llm_model", id, action: "delete" });
 
+    await deleteAllLlmModelRelationshipTuples(id, {
+      caller: session.sub ? { type: "user", id: String(session.sub).trim() } : undefined,
+      source: "llm_model_delete",
+    });
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: true });

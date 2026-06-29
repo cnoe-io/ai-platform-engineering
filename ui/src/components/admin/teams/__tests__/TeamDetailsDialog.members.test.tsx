@@ -97,7 +97,7 @@ it("renders members from the paginated members endpoint", async () => {
   );
 
   expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Members \(1\)/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Members$/i })).toBeInTheDocument();
   expect(screen.queryByText("No members yet. Add members above.")).not.toBeInTheDocument();
 });
 

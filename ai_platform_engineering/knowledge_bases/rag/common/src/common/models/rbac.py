@@ -45,19 +45,6 @@ class UserInfoResponse(BaseModel):
   permissions: List[str]  # List of permissions: ["read", "ingest", "delete"]
 
 
-class TeamKbOwnership(BaseModel):
-    """
-    Team/KB ownership metadata stored in MongoDB.
-
-    Runtime RAG authorization decisions are made through OpenFGA relationships.
-    """
-    team_id: str
-    tenant_id: str
-    kb_ids: List[str] = Field(default_factory=list)
-    allowed_datasource_ids: List[str] = Field(default_factory=list)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-
 class TeamRagToolConfig(BaseModel):
     """
     Team-scoped RAG tool configuration stored in MongoDB.

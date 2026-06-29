@@ -11,6 +11,7 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
 import { listOpenFgaObjects } from '@/lib/rbac/openfga';
+import { listTeamKbGrantsBatch, listTeamResourceIdsBatch, TEAM_TOOL_WILDCARD_SENTINEL_ID } from '@/lib/rbac/team-resource-listing';
 import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
 import { loadTeamIdpSourceTypes,loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
@@ -166,38 +167,57 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // "synced from <IdP>" badge on the Admin team cards.
   const idpSourceTypes = slugs.length > 0 ? await loadTeamIdpSourceTypes(slugs) : new Map<string, string[]>();
 
-  // Decorate each team with `kb_count`. The canonical store for team KB
-  // assignments is the `team_kb_ownership` collection (keyed by the team's
-  // string `_id`), NOT the legacy `team.resources.knowledge_bases` array on
-  // the team document. Without this join the Admin team-card "KBs" badge
-  // reads an almost-always-empty field and shows nothing even when a team
-  // has KBs assigned (issue #1642 follow-up). We count distinct kb_ids per
-  // team in a single query, falling back to the legacy doc field when no
-  // ownership row exists yet.
-  const teamIdStrings = pageTeams.map((team) => team._id.toString());
+  // Decorate each team with `kb_count` read live from OpenFGA (the single
+  // source of truth — there is no `team_kb_ownership` store anymore). Every KB
+  // write path (the kb-assignments PUT and the RAG-server upload) lands the
+  // same `knowledge_base` tuples, so one batched list-objects per page slug
+  // returns owned + shared together. Keyed by slug. Fail-closed to zero on
+  // OpenFGA error (the grid still renders; counts read 0 until FGA heals).
   const kbCounts = new Map<string, number>();
-  if (teamIdStrings.length > 0) {
-    const ownership = await getCollection<{ team_id?: string; kb_ids?: string[] }>('team_kb_ownership');
-    const ownershipRows = await ownership
-      .find({ team_id: { $in: teamIdStrings } }, { projection: { team_id: 1, kb_ids: 1 } })
-      .toArray();
-    for (const row of ownershipRows) {
-      if (typeof row.team_id !== 'string') continue;
-      const ids = Array.isArray(row.kb_ids) ? row.kb_ids : [];
-      kbCounts.set(row.team_id, new Set(ids).size);
+  if (slugs.length > 0) {
+    try {
+      const kbGrants = await listTeamKbGrantsBatch(slugs);
+      for (const [slug, grants] of kbGrants) {
+        kbCounts.set(slug, grants.kbIds.length);
+      }
+    } catch (err) {
+      console.error('[Admin Teams] failed to load OpenFGA KB counts', err);
+    }
+  }
+
+  // Decorate each team with owned+shared agent/skill/workflow counts read live
+  // from OpenFGA (the single source of truth — the legacy `team.resources`
+  // array is gone). The reconcilers write the same `team:<slug>#member <rel>`
+  // tuple for owner AND shared teams, so one list-objects per (team, type)
+  // returns owned + shared together. Bounded to the current page's slugs ×
+  // 3 types via the batched + request-cached helper. Fail-closed to zero on
+  // OpenFGA error (the grid still renders; counts just read 0 until FGA heals).
+  let resourceCounts = new Map<string, { agents: string[]; skills: string[]; workflows: string[]; tools: string[] }>();
+  if (slugs.length > 0) {
+    try {
+      resourceCounts = await listTeamResourceIdsBatch(slugs, ['agents', 'skills', 'workflows', 'tools']);
+    } catch (err) {
+      console.error('[Admin Teams] failed to load OpenFGA resource counts', err);
     }
   }
 
   const teamsWithCounts = pageTeams.map((team) => {
     const slug = typeof team.slug === 'string' ? team.slug : '';
-    const idStr = team._id.toString();
-    const legacyKbCount = Array.isArray(team.resources?.knowledge_bases)
-      ? team.resources.knowledge_bases.length
-      : 0;
+    const fgaCounts = slug ? resourceCounts.get(slug) : undefined;
+    // The `tool:*` sentinel means "all MCP servers"; surface it as a wildcard
+    // flag and exclude it from the explicit per-server tool count.
+    const toolIds = fgaCounts?.tools ?? [];
+    const toolWildcard = toolIds.includes(TEAM_TOOL_WILDCARD_SENTINEL_ID);
+    const toolCount = toolIds.filter((id) => id !== TEAM_TOOL_WILDCARD_SENTINEL_ID).length;
     return {
       ...team,
       member_count: slug ? memberCounts.get(slug) ?? 0 : 0,
-      kb_count: kbCounts.get(idStr) ?? legacyKbCount,
+      kb_count: slug ? kbCounts.get(slug) ?? 0 : 0,
+      agent_count: fgaCounts?.agents.length ?? 0,
+      skill_count: fgaCounts?.skills.length ?? 0,
+      workflow_count: fgaCounts?.workflows.length ?? 0,
+      tool_count: toolCount,
+      tool_wildcard: toolWildcard,
       idp_source_types: slug ? idpSourceTypes.get(slug) ?? [] : [],
       can_manage: hasAdminView || (slug ? adminSlugs.has(slug) : false),
     };

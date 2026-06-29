@@ -154,7 +154,7 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   team_kb_ownership: {
     classification: "migration",
     description:
-      "Team knowledge base ownership records. The `knowledge_base_shared_team_grants_backfill_v1` migration writes the canonical OpenFGA team↔KB tuples for every existing row.",
+      "Retired team knowledge base ownership records. `knowledge_base_shared_team_grants_backfill_v1` wrote the canonical OpenFGA team↔KB tuples for every row, then `drop_team_kb_ownership_v1` backfills any stragglers and drops the collection — OpenFGA is now the single source of truth.",
   },
   team_membership_sources: {
     classification: "baseline_v1",
