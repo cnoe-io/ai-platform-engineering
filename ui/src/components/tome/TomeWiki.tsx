@@ -177,6 +177,39 @@ export function TomeWiki({ slug }: { slug: string }) {
     void load();
   }, [load]);
 
+  // Locked = an ingest is in flight. Derived from the same ingest-run signal
+  // the ingest panel polls (no extra project fetch). Drives the editor's
+  // read-only banner. On the running→idle transition, reload pages so the
+  // agent's fresh rewrite shows without a manual refresh.
+  const [locked, setLocked] = useState(false);
+  const prevLockedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`/api/tome/projects/${slug}/ingests`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const runs = (json?.data?.runs ?? []) as Array<{ status?: string }>;
+        const active = runs.some(
+          (r) => r.status === "running" || r.status === "queued",
+        );
+        if (cancelled) return;
+        if (prevLockedRef.current && !active) void load();
+        prevLockedRef.current = active;
+        setLocked(active);
+      } catch {
+        /* best-effort — leave the last known state */
+      }
+    };
+    void check();
+    const t = setInterval(check, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [slug, load]);
+
   // Project title for the onboarding modal copy (falls back to a generic line).
   useEffect(() => {
     let cancelled = false;
@@ -596,6 +629,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onWrite={writeMarkdown}
                         onReload={load}
                         onClose={() => setArtifactPath(null)}
+                        locked={locked}
                       />
                     ) : (
                       <ContentLoading />
@@ -643,6 +677,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onOpenHistory={() =>
                       navigate({ kind: "pageHistory", path: view.path })
                     }
+                    locked={locked}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">Page not found.</p>

@@ -57,6 +57,13 @@ export const PUT = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug, path } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
+  if (tctx.project.locked) {
+    throw new ApiError(
+      "An ingest is in progress — the wiki is read-only until it finishes.",
+      409,
+      "PROJECT_LOCKED",
+    );
+  }
   const pagePath = pagePathFrom(path);
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -80,6 +87,13 @@ export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) =>
   const { slug, path } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
+  if (tctx.project.locked) {
+    throw new ApiError(
+      "An ingest is in progress — the wiki is read-only until it finishes.",
+      409,
+      "PROJECT_LOCKED",
+    );
+  }
   const pagePath = pagePathFrom(path);
 
   const store = await getPageStore();

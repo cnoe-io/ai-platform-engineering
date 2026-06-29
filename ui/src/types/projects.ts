@@ -125,6 +125,12 @@ export interface ProjectDocument {
   sources?: ProjectSources;
   source?: ProjectSource;
   backstage_entity_ref?: string;
+  /**
+   * True while an ingest run is in flight. The wiki is read-only to humans
+   * during this window (page-write endpoints 409; the editor disables save) so
+   * UI edits can't race the agent's rewrite. Set by the ingest runner.
+   */
+  locked?: boolean;
   created_at: Date;
   updated_at: Date;
 }

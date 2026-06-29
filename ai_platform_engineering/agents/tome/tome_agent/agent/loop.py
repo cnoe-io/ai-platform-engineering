@@ -46,25 +46,6 @@ def project_root(project_id: str) -> Path:
     return project_base() / project_id
 
 
-def _rehydrate_project(pdir: Path, project_id: str) -> None:
-    """Refresh the project working copy from the backend (source of truth)
-    at the start of each run, so the agent's Read/Glob/Grep tools never see
-    stale content after UI edits or prior-turn agent writes. Best-effort: on
-    failure we keep whatever is already on disk."""
-    try:
-        pages = http_client.fetch_all_pages_sync(project_id=project_id)
-    except Exception:
-        log.warning("project rehydrate failed; using existing working copy", exc_info=True)
-        return
-    for path, md in pages.items():
-        try:
-            fp = pdir / path
-            fp.parent.mkdir(parents=True, exist_ok=True)
-            fp.write_text(md)
-        except OSError:
-            log.warning("rehydrate: could not write %s", path, exc_info=True)
-
-
 def _normalize_repo_slug(repo: str) -> str | None:
     """`https://github.com/foo/bar.git` → `foo/bar`. None on garbage input."""
     s = repo.strip().rstrip("/")
@@ -372,9 +353,11 @@ def build_agent_options(
     project_id = snapshot.project_id
     http_client.set_active_project_id(project_id)
 
+    # The working copy is materialized & kept fresh by the persistent-workspace
+    # loader/sync (and refreshed under lock before an ingest), so there's no
+    # per-request rehydrate here. Just ensure the dir exists.
     pdir = project_root(project_id)
     pdir.mkdir(parents=True, exist_ok=True)
-    _rehydrate_project(pdir, project_id)
 
     mcp_servers: dict = {}
     # Viewer containers have no write tools — Edit and Write are excluded

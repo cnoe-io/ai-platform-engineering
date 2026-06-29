@@ -14,6 +14,9 @@
 
 import { randomUUID } from "crypto";
 
+import { ObjectId } from "mongodb";
+
+import { getCollection } from "@/lib/mongodb";
 import { getPageStore } from "./page-store";
 import { getTomeIngestRunsCollection, getTomeReportsCollection } from "./mongo-collections";
 import { buildIngestRequest, resolveForwardedCredentials } from "./agent-proxy";
@@ -26,9 +29,27 @@ import {
 import { parseFrontmatter, stableSeedTemplates } from "./schema";
 import { injectCharterIntro } from "./seed";
 import type { TomeProjectContext } from "./tome-api";
+import type { ProjectDocument } from "@/types/projects";
 import type { IngestRun, Report } from "@/types/tome";
 
 const inflight = new Set<Promise<void>>();
+
+/**
+ * Flip a project's `locked` flag. Locked while an ingest is in flight so human
+ * page edits (UI editor / PUT) are refused with 409 and can't race the agent's
+ * rewrite. Best-effort — a failed flag flip must not fail/hang the ingest.
+ */
+async function setProjectLocked(projectId: string, locked: boolean): Promise<void> {
+  try {
+    const projects = await getCollection<ProjectDocument>("projects");
+    const _id = (ObjectId.isValid(projectId)
+      ? new ObjectId(projectId)
+      : projectId) as unknown as string;
+    await projects.updateOne({ _id }, { $set: { locked, updated_at: new Date() } });
+  } catch (e) {
+    console.warn(`setProjectLocked(${projectId}, ${locked}) failed`, e);
+  }
+}
 
 /** True if an ingest is currently running for this project. */
 export async function isIngestRunning(projectId: string): Promise<boolean> {
@@ -97,6 +118,10 @@ export async function startIngestRun(
     started_at: now,
   };
   await runs.insertOne(run);
+
+  // Lock the project for the duration of the run — humans can't edit pages
+  // (409) while the agent rewrites. Cleared in driveIngest's finally.
+  await setProjectLocked(projectId, true);
 
   // Greenfield: always seed the stable pages from their founding templates so
   // the pages exist (with their `## section` scaffold) for humans to fill in.
@@ -198,6 +223,10 @@ async function driveIngest(
         },
       },
     );
+  } finally {
+    // Always unlock — success, failure, or agent crash — so a stuck flag never
+    // leaves the wiki read-only.
+    await setProjectLocked(projectId, false);
   }
 }
 

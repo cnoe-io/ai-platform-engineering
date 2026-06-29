@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, History, X } from "lucide-react";
+import { ChevronDown, History, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +39,8 @@ interface Props {
   onClose?: () => void;
   /** When provided, renders a History button opening the revision diff view. */
   onOpenHistory?: () => void;
+  /** When true, an ingest is rewriting the wiki — render read-only. */
+  locked?: boolean;
 }
 
 /**
@@ -57,6 +59,7 @@ export function WikiPageView({
   onReload,
   onClose,
   onOpenHistory,
+  locked = false,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -88,6 +91,14 @@ export function WikiPageView({
     if (!isEditing) setEditorEpoch((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markdown]);
+
+  // Ingest started mid-edit → drop to read-only (the agent now owns the page).
+  useEffect(() => {
+    if (locked && isEditing) {
+      setIsEditing(false);
+      setEditorEpoch((n) => n + 1);
+    }
+  }, [locked, isEditing]);
 
   const handleSave = useCallback(async () => {
     if (!editorRef.current) return;
@@ -155,7 +166,7 @@ export function WikiPageView({
               History
             </Button>
           )}
-          <KindToggle currentKind={kind} onChange={handleChangeKind} />
+          {!locked && <KindToggle currentKind={kind} onChange={handleChangeKind} />}
           {isEditing ? (
             <>
               <Button
@@ -175,12 +186,21 @@ export function WikiPageView({
               size="sm"
               variant="outline"
               onClick={() => setIsEditing(true)}
+              disabled={locked}
+              title={locked ? "Ingest in progress — the wiki is read-only" : undefined}
             >
               Edit
             </Button>
           )}
         </div>
       </div>
+
+      {locked && (
+        <p className="flex items-center gap-2 border-b bg-amber-500/10 px-5 py-2 text-sm text-amber-600 dark:text-amber-400">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Ingest in progress — the wiki is read-only until it finishes.
+        </p>
+      )}
 
       {error && (
         <p className="border-b bg-destructive/10 px-5 py-2 text-sm text-destructive">
