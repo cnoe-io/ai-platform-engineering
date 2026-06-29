@@ -21,6 +21,7 @@ import {
   EXPIRED_OPTION_LABEL_PATTERN,
   GITHUB_PROVIDER_CONNECTION,
   NEW_ATLASSIAN_CONNECTION,
+  NON_RENEWABLE_CO2_CONNECTION,
   OLD_ATLASSIAN_CONNECTION,
 } from "./_provider-connection-fixtures";
 import { dismissReleaseUpgradeDialog, installTestSession } from "./_helpers";
@@ -64,6 +65,14 @@ const GITHUB_OAUTH_CONNECTOR = {
   provider: "github",
   enabled: true,
   scopes: ["repo", "read:user"],
+};
+
+const CO2_OAUTH_CONNECTOR = {
+  id: "co2-dev-connector",
+  name: "CO2 Dev",
+  provider: "co2-dev",
+  enabled: true,
+  scopes: ["openid"],
 };
 
 test.describe("RBAC e2e — provider connection display and cleanup", () => {
@@ -112,6 +121,29 @@ test.describe("RBAC e2e — provider connection display and cleanup", () => {
 
       await expect(page.locator("table").getByText("expired", { exact: true })).toBeVisible();
       await expect(page.getByText(/Atlassian connection expired/i)).toBeVisible();
+    });
+
+    test("surfaces non-renewable (no refresh token) connections as connected-but-expiring", async ({
+      page,
+    }) => {
+      await installCredentialsBrowserMocks(page, {
+        providerConnections: [NON_RENEWABLE_CO2_CONNECTION],
+        oauthConnectors: [CO2_OAUTH_CONNECTOR],
+      });
+      await gotoConnectedAppsWorkspace(page);
+
+      await expect(page.getByText("CO2 Dev")).toBeVisible();
+      // Health pill stays green (usable now), not the amber "expiring soon".
+      await expect(
+        page.locator("table").getByText("no auto-renew", { exact: true }),
+      ).toBeVisible();
+      await expect(page.locator("table").getByText("expiring soon")).toHaveCount(0);
+      await expect(page.locator("table").getByText("expired", { exact: true })).toHaveCount(0);
+      // A countdown to expiry replaces the "refreshed Xm ago" label.
+      await expect(page.getByText(/expires in 1[01]h/i)).toBeVisible();
+      // No profile endpoint exists for a custom MCP OAuth provider, so the
+      // "Test connection" button must not render (it would always 400).
+      await expect(page.getByRole("button", { name: /test co2 dev connection/i })).toHaveCount(0);
     });
 
     test("runs profile checks against the selected connection id", async ({ page }) => {
