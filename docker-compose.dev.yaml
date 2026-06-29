@@ -740,6 +740,7 @@ services:
       - RAG_ENABLED=${RAG_ENABLED:-true}
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - RAG_URL=${RAG_URL:-http://localhost:9446}
+      - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       - SSO_ENABLED=${SSO_ENABLED:-false}
@@ -2147,7 +2148,7 @@ services:
     container_name: keycloak-init-token-exchange
     entrypoint: ["/bin/sh", "/scripts/init-token-exchange.sh"]
     volumes:
-      - ./deploy/keycloak/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
+      - ./charts/ai-platform-engineering/charts/keycloak/scripts/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
