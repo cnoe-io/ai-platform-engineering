@@ -1225,7 +1225,7 @@ export function TeamDetailsDialog({
             </div>
 
             {/* Members List */}
-            <ScrollArea className="flex-1 -mx-1 px-1" style={{ maxHeight: "320px" }}>
+            <ScrollArea className="max-h-[320px] -mx-1 px-1">
               <div className="space-y-1">
                 {membersLoading && memberPage.length === 0 ? (
                   <div className="flex justify-center py-8">
@@ -1679,7 +1679,7 @@ function ReadOnlyResourceList({
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-6">{emptyLabel}</p>
       ) : (
-        <ScrollArea className="flex-1 rounded-md border p-2" style={{ maxHeight: "320px" }}>
+        <ScrollArea className="max-h-[320px] rounded-md border p-2">
           <ul className="space-y-1">
             {items.map((item) => (
               <li
@@ -1738,7 +1738,7 @@ function AgentList({
           <span>Manage</span>
         </div>
       </div>
-      <ScrollArea className="flex-1 p-2" style={{ maxHeight: "260px" }}>
+      <ScrollArea className="max-h-[260px] p-2">
         {options.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
             No agents available
@@ -1848,7 +1848,7 @@ function ToolList({
           </span>
         </label>
       </div>
-      <ScrollArea className="flex-1 p-2" style={{ maxHeight: "200px" }}>
+      <ScrollArea className="max-h-[200px] p-2">
         {options.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
             No MCP servers available
@@ -1910,7 +1910,7 @@ function SlackChannelsPanel({
           Assigned channels ({assigned.length})
         </p>
       </div>
-      <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
+      <ScrollArea className="max-h-[320px] p-2">
         {assigned.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
             No channels assigned. Assign channels under Integrations &rarr; Slack.
@@ -1970,7 +1970,7 @@ function WebexSpacesPanel({
           Assigned spaces ({assigned.length})
         </p>
       </div>
-      <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
+      <ScrollArea className="max-h-[320px] p-2">
         {assigned.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
             No spaces assigned. Assign spaces under Integrations &rarr; Webex.
