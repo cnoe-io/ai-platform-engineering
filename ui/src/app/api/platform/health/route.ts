@@ -66,6 +66,7 @@ const HTTP_TIMEOUT_MS = 3000;
 const TCP_TIMEOUT_MS = 2000;
 const healthCache = createJsonResponseCacheStore();
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
+const DISABLED_VALUES = new Set(["0", "false", "no", "off"]);
 
 function envValue(name: string): string | null {
   const value = process.env[name]?.trim();
@@ -78,6 +79,11 @@ function envValue(name: string): string | null {
 function envEnabled(name: string): boolean {
   const value = envValue(name)?.toLowerCase();
   return value ? ENABLED_VALUES.has(value) : false;
+}
+
+function envExplicitlyDisabled(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value ? DISABLED_VALUES.has(value) : false;
 }
 
 function envPort(name: string, defaultPort: number): number {
@@ -104,6 +110,16 @@ function hasComposeProfile(...profileNames: string[]): boolean {
 
 function requestOrigin(request: NextRequest): string {
   return request.nextUrl?.origin ?? new URL(request.url).origin;
+}
+
+// assisted-by claude code claude-sonnet-4-6
+// Use localhost for server-side self-calls to avoid stale keep-alive connections
+// through the external ingress. requestOrigin() returns the external domain (correct
+// for client-facing URLs), but server→server health probes must stay on loopback to
+// prevent ECONNRESET failures when the ingress connection pool goes stale.
+function selfBaseUrl(): string {
+  const port = process.env.PORT ?? "3000";
+  return `http://localhost:${port}`;
 }
 
 function slackDirectoryToken(): string | null {
@@ -939,6 +955,15 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
 }
 
 async function probeSlackIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("SLACK_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "slack-integration",
+      label: "Slack",
+      group: "messaging",
+      description: "Slack messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
   if (!slackIntegrationEnabled()) {
     return disabledCapability({
       id: "slack-integration",
@@ -978,6 +1003,15 @@ async function probeSlackIntegration(): Promise<CapabilityResult | null> {
 }
 
 async function probeWebexIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("WEBEX_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "webex-integration",
+      label: "Webex",
+      group: "messaging",
+      description: "Webex messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
   if (!webexIntegrationEnabled()) {
     return disabledCapability({
       id: "webex-integration",
@@ -1047,7 +1081,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "dynamic-agents",
           label: "Dynamic Agents",
           group: "runtime",
-          target: `${origin}/api/dynamic-agents/health`,
+          target: `${selfBaseUrl()}/api/dynamic-agents/health`,
           required: true,
           description: "Checks Dynamic Agents when custom agent runtime is enabled.",
           healthyDetail: "Runtime reachable",
@@ -1069,7 +1103,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "knowledge-bases",
           label: "Knowledge Bases",
           group: "knowledge",
-          target: `${origin}/api/rag/healthz`,
+          target: `${selfBaseUrl()}/api/rag/healthz`,
           required: false,
           description: "Checks the RAG API used by Knowledge Bases.",
           healthyDetail: "RAG API reachable",
