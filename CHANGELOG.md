@@ -1,3 +1,26 @@
+## 0.5.29 (2026-06-29)
+
+## 0.5.28-dev.3 (2026-06-29)
+
+### Feat
+
+- **credentials**: PKCE public-client OAuth connectors; remove pinned MCP connection scope (#2071)
+- **credentials**: add hash tabs for secrets (#2065)
+
+### Fix
+
+- **workflows**: avoid raw step response rendering
+- **health**: probe self API routes via internal base URL, not request origin (#2067)
+- signed agent context goes stale after 5min (#2069)
+
+## 0.5.28-dev.1 (2026-06-29)
+
+### Fix
+
+- **chart**: A2A_BASE_URL default points to dynamic-agents:8001
+- **health**: update tests and chart template for localhost self-call fix
+- **health**: use localhost for self-referential capability probes
+
 ## 0.5.28 (2026-06-29)
 
 ### Fix
