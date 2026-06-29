@@ -59,7 +59,9 @@ describe("OAuthConnectorAdminPanel", () => {
     await user.type(screen.getByLabelText(/display name/i), "Jira");
     await user.type(screen.getByLabelText(/^provider/i), "atlassian");
     await user.type(screen.getByLabelText(/client id/i), "jira-client");
-    await user.type(screen.getByLabelText(/client secret/i), "client-secret");
+    // `^client secret$` so the PKCE checkbox label ("...no client secret")
+    // does not also match.
+    await user.type(screen.getByLabelText(/^client secret$/i), "client-secret");
     await user.type(screen.getByLabelText(/authorization url/i), "https://auth.atlassian.com/authorize");
     await user.type(screen.getByLabelText(/token url/i), "https://auth.atlassian.com/oauth/token");
     await user.type(screen.getByLabelText(/redirect uri/i), "https://caipe.example.com/callback");
@@ -89,7 +91,7 @@ describe("OAuthConnectorAdminPanel", () => {
     expect(screen.getByLabelText(/scopes/i)).toHaveValue("api read_user");
 
     await user.type(screen.getByLabelText(/client id/i), "gitlab-client");
-    await user.type(screen.getByLabelText(/client secret/i), "gitlab-secret");
+    await user.type(screen.getByLabelText(/^client secret$/i), "gitlab-secret");
     await user.type(
       screen.getByLabelText(/redirect uri/i),
       "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
@@ -152,7 +154,9 @@ describe("OAuthConnectorAdminPanel", () => {
     render(<OAuthConnectorAdminPanel />);
 
     expect(await screen.findByText("disabled")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^enable$/i }));
+    // The action buttons now carry per-connector aria-labels (e.g. "Enable
+    // GitLab") for accessibility, so match on that rather than a bare "Enable".
+    await user.click(screen.getByRole("button", { name: /^enable gitlab$/i }));
 
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith(
