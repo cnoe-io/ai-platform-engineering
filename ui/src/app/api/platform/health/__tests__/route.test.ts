@@ -106,11 +106,11 @@ describe("/api/platform/health", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost/api/dynamic-agents/health",
+      "http://localhost:3000/api/dynamic-agents/health",
       expect.objectContaining({ method: "GET" }),
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost/api/rag/healthz",
+      "http://localhost:3000/api/rag/healthz",
       expect.objectContaining({ method: "GET" }),
     );
   });

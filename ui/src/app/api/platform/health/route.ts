@@ -66,6 +66,7 @@ const HTTP_TIMEOUT_MS = 3000;
 const TCP_TIMEOUT_MS = 2000;
 const healthCache = createJsonResponseCacheStore();
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
+const DISABLED_VALUES = new Set(["0", "false", "no", "off"]);
 
 function envValue(name: string): string | null {
   const value = process.env[name]?.trim();
@@ -78,6 +79,11 @@ function envValue(name: string): string | null {
 function envEnabled(name: string): boolean {
   const value = envValue(name)?.toLowerCase();
   return value ? ENABLED_VALUES.has(value) : false;
+}
+
+function envExplicitlyDisabled(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value ? DISABLED_VALUES.has(value) : false;
 }
 
 function envPort(name: string, defaultPort: number): number {
@@ -949,6 +955,15 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
 }
 
 async function probeSlackIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("SLACK_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "slack-integration",
+      label: "Slack",
+      group: "messaging",
+      description: "Slack messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
   if (!slackIntegrationEnabled()) {
     return disabledCapability({
       id: "slack-integration",
@@ -988,6 +1003,15 @@ async function probeSlackIntegration(): Promise<CapabilityResult | null> {
 }
 
 async function probeWebexIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("WEBEX_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "webex-integration",
+      label: "Webex",
+      group: "messaging",
+      description: "Webex messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
   if (!webexIntegrationEnabled()) {
     return disabledCapability({
       id: "webex-integration",

@@ -108,6 +108,8 @@ spec:
             - name: WEBEX_WORKSPACE_ALIAS
               value: {{ . | quote }}
             {{- end }}
+            - name: A2A_BASE_URL
+              value: {{ index .Values.config "A2A_BASE_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
             - name: DYNAMIC_AGENTS_URL
               value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
             - name: SKILL_SCANNER_URL
