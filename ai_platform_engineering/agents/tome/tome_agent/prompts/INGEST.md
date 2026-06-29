@@ -170,21 +170,13 @@ order: <integer>
 notes (recurring patterns, how this team works). Keep entries tight. Not
 surfaced to users by default.
 
-## Repo maintainer steering (`.ttt/wiki.md`)
+## Repo maintainer steering (`.tome/wiki.md`)
 
-Repos may include a `.ttt/wiki.md` — llms.txt-style hints on what to emphasize,
+Repos may include a `.tome/wiki.md` — AGENTS.md-style hints on what to emphasize,
 canonical source-of-truth files, and what's out of scope. When present it's
 pre-injected as a `REPO MAINTAINER STEERING` block below. Treat it as
 authoritative; follow its file links via `github_get_file` / `github_list_dir`
 to ground your writing in real code.
-
-## Repo relationships (`.ttt/relationships.yaml`)
-
-Repos may declare cross-repo edges: `depends_on`, `consumed_by`, `supersedes`,
-`related`. When present they're pre-injected per-repo. Use them to ground the
-top-level `architecture.md` (cross-repo picture in prose) and per-repo
-architecture/overview. Cite related repos as markdown links
-(`[owner/name](https://github.com/owner/name)`).
 
 ## Page conventions
 

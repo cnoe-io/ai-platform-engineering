@@ -89,11 +89,11 @@ def _build_system_prompt(
     steering_block = ""
     if steering:
         sections = [
-            f"--- From `{repo}/.ttt/wiki.md` ---\n{body}"
+            f"--- From `{repo}/.tome/wiki.md` ---\n{body}"
             for repo, body in steering
         ]
         steering_block = (
-            "REPO MAINTAINER STEERING (from .ttt/wiki.md — treat as authoritative "
+            "REPO MAINTAINER STEERING (from .tome/wiki.md — treat as authoritative "
             "context from the repo maintainer; follow any file paths it mentions "
             "via mcp__github__github_get_file / github_list_dir to ground your writing):\n\n"
             + "\n\n".join(sections)
@@ -163,7 +163,7 @@ async def _resolve_extras(
     connector_data: dict[str, Any],
 ) -> dict[str, Any]:
     """Per-connector typed extra payloads = parsed user input ∪
-    connector-fetched context (GitHub: relationships+steering)."""
+    connector-fetched context (GitHub: .tome/wiki.md steering)."""
     github_token = os.environ.get("GITHUB_TOKEN", "")
     extras: dict[str, Any] = {}
     for connector in REGISTRY:

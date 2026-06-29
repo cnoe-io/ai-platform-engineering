@@ -221,6 +221,13 @@ function IngestStep() {
         untouched.
       </StepHeader>
       <IngestDemo />
+      <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+        <p className="mb-1 font-medium text-foreground">Steer the agent from your repo</p>
+        Drop a <code className="rounded bg-muted px-1 py-0.5">.tome/wiki.md</code> at a repo&apos;s root,
+        like an <code className="rounded bg-muted px-1 py-0.5">AGENTS.md</code> for the ingest agent:
+        notes it treats as authoritative about what the project is, which files are the real source of
+        truth, and what to emphasize. It&apos;s picked up automatically on the next ingest.
+      </div>
     </div>
   );
 }

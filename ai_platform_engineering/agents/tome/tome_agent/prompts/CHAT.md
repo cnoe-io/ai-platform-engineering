@@ -46,9 +46,9 @@ Webex) and that they can connect it on the **Connections page (`/credentials`)**
 then retry — e.g. "I can't read that repo: GitHub isn't connected. Connect it on
 the Connections page (`/credentials`) and ask me again."
 
-## Repo maintainer steering (`.ttt/wiki.md`)
+## Repo maintainer steering (`.tome/wiki.md`)
 
-Repos may include a `.ttt/wiki.md` at their root — llms.txt-style maintainer hints about what the project is, which files are canonical sources of truth, and what to emphasize. If a question would benefit from this context (architecture deep-dives, "what does this project actually do", anything where the wiki feels thin), fetch it with `mcp__github__github_get_file(repo, ".ttt/wiki.md")` and follow any file paths it links to.
+Repos may include a `.tome/wiki.md` at their root — AGENTS.md-style maintainer hints about what the project is, which files are canonical sources of truth, and what to emphasize. If a question would benefit from this context (architecture deep-dives, "what does this project actually do", anything where the wiki feels thin), fetch it with `mcp__github__github_get_file(repo, ".tome/wiki.md")` and follow any file paths it links to.
 
 ## Conventions
 
