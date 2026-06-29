@@ -522,4 +522,4 @@ flowchart LR
 - [Enterprise Identity Federation](./research-enterprise-identity-federation.md) — full design, Keycloak configuration, CRD definitions, and implementation code
 - A2A Authentication — bot-to-supervisor OAuth2 client credentials setup (removed with the legacy supervisor)
 - [Slack Bot Integration](../../integrations/slack-bot.md) — deployment, configuration, and channel setup (main repo)
-- [CAIPE UI Auth Flow](../../ui/auth-flow.md) — browser-based OIDC authentication for the web UI (main repo)
+- [CAIPE UI Auth Flow](../../security/auth-flow.md) — browser-based OIDC authentication for the web UI (main repo)
