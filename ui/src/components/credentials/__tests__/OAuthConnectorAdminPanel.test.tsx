@@ -49,6 +49,31 @@ describe("OAuthConnectorAdminPanel", () => {
     expect(screen.queryByText("client-secret")).not.toBeInTheDocument();
   });
 
+  it("labels PKCE (public client) connectors instead of showing a secret badge", async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: [
+          {
+            id: "connector-1",
+            name: "CO2",
+            provider: "co2-dev",
+            clientId: "co2-client",
+            pkce: true,
+            clientSecretConfigured: false,
+          },
+        ],
+      }),
+    })) as jest.Mock;
+
+    render(<OAuthConnectorAdminPanel />);
+
+    expect(await screen.findByText("CO2")).toBeInTheDocument();
+    expect(screen.getByText("public client (PKCE)")).toBeInTheDocument();
+    expect(screen.queryByText("client secret configured")).not.toBeInTheDocument();
+  });
+
   it("submits connector client secret only to the admin create endpoint", async () => {
     const user = userEvent.setup();
     render(<OAuthConnectorAdminPanel />);
@@ -257,8 +282,16 @@ describe("OAuthConnectorAdminPanel", () => {
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/admin/credentials/oauth-connectors/connector-1",
-        expect.objectContaining({ method: "PUT" }),
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringContaining('"name":"GitHub Enterprise"'),
+        }),
       ),
+    );
+    // The rotated secret is sent to the admin endpoint, never exposed elsewhere.
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/admin/credentials/oauth-connectors/connector-1",
+      expect.objectContaining({ body: expect.stringContaining("rotated-secret") }),
     );
   });
 

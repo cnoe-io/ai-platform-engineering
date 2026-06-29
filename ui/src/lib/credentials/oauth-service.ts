@@ -340,8 +340,17 @@ export class OAuthConnectorService {
         plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret"),
       });
     }
-    await this.connectorsCollection.updateOne?.({ id: existing.id }, { $set: update });
-    return toConnectorMetadata({ ...existing, ...update });
+    // `$set: { pkce: undefined }` is a no-op in MongoDB, so a PKCE→confidential
+    // switch must explicitly `$unset` the flag to clear it (mirrors
+    // updateConnector). Without this an env-bootstrap that flips an existing
+    // PKCE connector back to confidential would leave pkce:true, and runtime
+    // token exchange would send an empty client secret.
+    const writeUpdate =
+      input.pkce || !existing.pkce
+        ? { $set: update }
+        : { $set: update, $unset: { pkce: "" } };
+    await this.connectorsCollection.updateOne?.({ id: existing.id }, writeUpdate);
+    return toConnectorMetadata({ ...existing, ...update, pkce: input.pkce ? true : undefined });
   }
 
   async listConnectors(): Promise<OAuthConnectorMetadata[]> {

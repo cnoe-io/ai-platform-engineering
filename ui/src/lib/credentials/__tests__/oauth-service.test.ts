@@ -114,6 +114,38 @@ describe("OAuthConnectorService", () => {
     });
   });
 
+  it("creates a PKCE (public client) connector without persisting any client secret", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const payloadStore = { putSecret: mockPutSecret() };
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore,
+      idGenerator: () => "connector-1",
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    const connector = await service.createConnector({
+      name: "CO2",
+      provider: "co2-dev",
+      clientId: "co2-client",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["read", "offline_access"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+      pkce: true,
+    });
+
+    expect(connector).toMatchObject({
+      id: "connector-1",
+      provider: "co2-dev",
+      pkce: true,
+      clientSecretConfigured: false,
+    });
+    expect(connectors.docs[0].pkce).toBe(true);
+    // Public clients have no secret to store.
+    expect(payloadStore.putSecret).not.toHaveBeenCalled();
+  });
+
   it("rejects non-https OAuth endpoints and localhost SSRF targets", async () => {
     const service = new OAuthConnectorService({
       connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
@@ -185,6 +217,53 @@ describe("OAuthConnectorService", () => {
     expect(payloadStore.putSecret).toHaveBeenCalledWith({
       secretRefId: "oauth_connector:connector-1:client_secret",
       plaintext: "new-client-secret",
+    });
+  });
+
+  it("upsertConnector clears a persisted pkce flag when an env bootstrap flips PKCE → confidential", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "CO2",
+      provider: "co2-dev",
+      clientId: "old-client",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+      enabled: true,
+      pkce: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const payloadStore = { putSecret: mockPutSecret() };
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore,
+      idGenerator: () => "unused",
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    const connector = await service.upsertConnector({
+      name: "CO2",
+      provider: "co2-dev",
+      clientId: "new-client",
+      clientSecret: "bootstrap-secret",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+    });
+
+    expect(connector.pkce).toBeUndefined();
+    expect(connector.clientSecretConfigured).toBe(true);
+    // $unset must actually remove the stored flag (not leave pkce: undefined),
+    // otherwise the runtime exchange would send an empty client secret.
+    expect(connectors.docs[0]).not.toHaveProperty("pkce");
+    expect(payloadStore.putSecret).toHaveBeenCalledWith({
+      secretRefId: "oauth_connector:connector-1:client_secret",
+      plaintext: "bootstrap-secret",
     });
   });
 
@@ -361,6 +440,30 @@ describe("OAuthConnectorService", () => {
     await expect(
       service.updateConnector("missing", updateInput({ pkce: true })),
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("updateConnector leaves a confidential connector's secret untouched when none is supplied", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    seededConnector(connectors);
+    const payloadStore = { putSecret: mockPutSecret() };
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore,
+      idGenerator: () => "unused",
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    const connector = await service.updateConnector(
+      "connector-1",
+      updateInput({ name: "CO2 Renamed" }),
+    );
+
+    expect(connector.name).toBe("CO2 Renamed");
+    expect(connector.pkce).toBeUndefined();
+    expect(connector.clientSecretConfigured).toBe(true);
+    // Editing other fields without providing a secret must not rotate it.
+    expect(payloadStore.putSecret).not.toHaveBeenCalled();
+    expect(connectors.docs[0]).not.toHaveProperty("pkce");
   });
 
   it("deleteConnector soft-disables the connector", async () => {
@@ -780,7 +883,10 @@ describe("ProviderConnectionService", () => {
       id: "provider-connection-1",
       provider: "github",
       status: "connected",
+      // A refresh token was returned, so the connection is renewable.
+      renewable: true,
     });
+    expect(connections.docs[0].renewable).toBe(true);
     expect(JSON.stringify(completed)).not.toContain("provider-access-token");
     expect(JSON.stringify(completed)).not.toContain("provider-refresh-token");
     expect(payloadStore.putSecret).toHaveBeenCalledWith({
@@ -983,6 +1089,67 @@ describe("ProviderConnectionService", () => {
     );
   });
 
+  it("exchanges a connector-level PKCE code without reading or sending a client secret", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
+    const payloadStore = {
+      getSecret: jest.fn(async () => "should-not-be-read"),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({
+      access_token: "co2-access-token",
+      expires_in: 3600,
+    });
+    connectors.docs.push({
+      id: "connector-1",
+      name: "CO2",
+      provider: "co2-dev",
+      clientId: "co2-client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+      enabled: true,
+      pkce: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: connections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+      idGenerator: () => "co2-connection-1",
+      now: () => new Date("2026-01-01T00:00:00Z"),
+    });
+
+    await service.completeConnection({
+      providerKey: "co2-dev",
+      owner: { type: "user", id: "alice-sub" },
+      code: "co2-code",
+      codeVerifier: "co2-verifier",
+    });
+
+    // A public (PKCE) connector never reads its secret material...
+    expect(payloadStore.getSecret).not.toHaveBeenCalled();
+    // ...and never includes a client_secret in the token exchange body.
+    expect(tokenClient).toHaveBeenCalledWith(
+      "https://idp.example.com/oauth/token",
+      {
+        grant_type: "authorization_code",
+        client_id: "co2-client-id",
+        code: "co2-code",
+        code_verifier: "co2-verifier",
+        redirect_uri: "https://caipe.example.com/api/credentials/oauth/co2-dev/callback",
+      },
+    );
+    expect(tokenClient).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ client_secret: expect.any(String) }),
+    );
+  });
+
   it("treats non-expiring OAuth tokens without refresh tokens as connected", async () => {
     const connectors = new MemoryCollection<OAuthConnectorDocument>();
     const connections = new MemoryCollection<ProviderConnectionDocument>();
@@ -1023,7 +1190,10 @@ describe("ProviderConnectionService", () => {
     ).resolves.toMatchObject({
       provider: "github",
       status: "connected",
+      // No refresh token returned ⇒ not renewable, but still connected.
+      renewable: false,
     });
+    expect(connections.docs[0].renewable).toBe(false);
 
     expect(payloadStore.putSecret).toHaveBeenCalledWith({
       secretRefId: "provider_connection:provider-connection-1:access_token",
