@@ -25,7 +25,7 @@ sequenceDiagram
 
     BFF->>DA: Start/resume agent stream<br/>Authorization: Bearer <user-JWT>
 
-    Note over DA: Per MCP call:<br/>build_agent_context_headers(agent_id)<br/>payload = {agent_id, iat, exp: iat+300}<br/>encoded = base64url(payload)<br/>sig = HMAC-SHA256(secret, encoded)
+    Note over DA: Per MCP HTTP session (fresh per session — PR #2069):<br/>build_agent_context_headers(agent_id)<br/>payload = {agent_id, iat, exp: iat+300}<br/>encoded = base64url(payload)<br/>sig = HMAC-SHA256(secret, encoded)
 
     DA->>AGW: MCP tool call<br/>Authorization: Bearer <user-JWT>  ← human identity<br/>X-CAIPE-Agent-Context: encoded  ← agent identity<br/>X-CAIPE-Agent-Context-Signature: hex(sig)
 
@@ -77,7 +77,7 @@ sequenceDiagram
 | Property | Detail |
 |---|---|
 | Header | `X-CAIPE-Agent-Context` (base64url payload) + `X-CAIPE-Agent-Context-Signature` (hex HMAC-SHA256) |
-| TTL | 5 minutes (`exp = iat + 300`) — prevents replay; created fresh per MCP call |
+| TTL | 5 minutes (`exp = iat + 300`) — prevents replay; created fresh per MCP HTTP session (usually one session per tool call after PR #2069; prior to that, baked into the connection config at runtime startup and goes stale after 5 min) |
 | Comparison | `hmac.compare_digest` — timing-safe |
 | Secret | `CAIPE_AGENT_CONTEXT_HMAC_SECRET` shared between Dynamic Agents and the Authz Bridge |
 | Fallback | Secret not set → headers omitted → bridge skips per-agent check (coarse user-level authz only) |
