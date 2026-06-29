@@ -1,3 +1,9 @@
+## 0.5.28 (2026-06-29)
+
+### Fix
+
+- **health**: restore AppHeader capability status
+
 ## 0.5.27 (2026-06-28)
 
 ### Feat
