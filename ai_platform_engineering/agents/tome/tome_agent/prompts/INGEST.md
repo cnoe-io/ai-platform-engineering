@@ -87,6 +87,14 @@ information, and a stable wiki is a feature, not a failure.
   it in, don't transcribe it, and let the GitHub/Confluence/Webex evidence win
   on facts.
 
+**If a connector returns 401/403 / auth errors (or a GitHub rate limit)** that
+source isn't connected (GitHub is read *unauthenticated* unless connected — so
+private repos fail and public ones throttle). Do NOT fabricate its content or
+silently drop it: leave the affected page as-is (or note in one sentence that the
+source couldn't be read this run) and state that connecting the provider on the
+Connections page (`/credentials`) will populate it on the next ingest. Surface it
+in your final summary so it shows in the run log.
+
 ## Wiki tree shape
 
 **Top-level pages** explain the Project as a whole (this is where synthesis
