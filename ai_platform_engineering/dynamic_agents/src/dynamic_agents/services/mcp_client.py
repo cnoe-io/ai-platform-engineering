@@ -256,7 +256,6 @@ def build_httpx_client_factory(agent_id: str | None = None) -> Callable[..., htt
 def build_mcp_connection_config(
     server: MCPServerConfig,
     *,
-    user_email: str | None = None,
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
@@ -265,8 +264,6 @@ def build_mcp_connection_config(
 
     Args:
         server: MCP server configuration
-        user_email: Authenticated user's email (required when the server
-            uses ``auth.type=user_oauth``).
         agent_gateway_url: When set, HTTP/SSE targets use ``{base}/mcp/{server.id}`` instead of direct endpoints.
         auth_bearer: Optional Bearer token for AG or upstream MCP.
 
@@ -281,14 +278,6 @@ def build_mcp_connection_config(
     # per-request user JWT and signed agent context are injected on every
     # outbound connection, even after this config is built.
     factory = build_httpx_client_factory(agent_id=agent_id)
-    token = current_user_token.get()
-    if token and "Authorization" not in headers:
-        headers["Authorization"] = f"Bearer {token}"
-
-    # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
-    # per-request user JWT (from current_user_token ContextVar) is injected
-    # on every outbound connection, even after this config is built.
-    factory = build_httpx_client_factory()
     token = current_user_token.get()
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
