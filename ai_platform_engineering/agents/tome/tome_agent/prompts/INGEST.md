@@ -182,6 +182,13 @@ to ground your writing in real code.
 
 Write conceptually (per the rule at the top). A few specifics:
 
+- **Link other wiki pages with the `tome://` scheme** so they open in-app:
+  `[Architecture](tome://architecture.md)`,
+  `[repo status](tome://repos/mycelium/status.md)`. Use the same-project path
+  (relative to the wiki root); don't author bare paths or guessed URLs for
+  in-wiki links. External sources (GitHub/Confluence/Webex) still use their real
+  `https://` URLs.
+
 - **`standup.md`** (report card — keep this exact structure, it's UI-rendered):
   - `## What is this` (one or two sentences)
   - `## Headline` (the single most important thing this period, across the effort)

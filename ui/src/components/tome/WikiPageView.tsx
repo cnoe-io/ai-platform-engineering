@@ -41,6 +41,8 @@ interface Props {
   onOpenHistory?: () => void;
   /** When true, an ingest is rewriting the wiki — render read-only. */
   locked?: boolean;
+  /** Navigate to another wiki page (internal `tome://` link click). */
+  onNavigate?: (path: string) => void;
 }
 
 /**
@@ -60,6 +62,7 @@ export function WikiPageView({
   onClose,
   onOpenHistory,
   locked = false,
+  onNavigate,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -225,6 +228,7 @@ export function WikiPageView({
           ref={editorRef}
           initialMarkdown={body}
           readonly={!isEditing}
+          onNavigate={onNavigate}
         />
       </ScrollArea>
     </div>

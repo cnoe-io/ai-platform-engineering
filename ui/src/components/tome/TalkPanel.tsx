@@ -72,7 +72,14 @@ interface Participant {
   isAgent: boolean;
 }
 
-export function TalkPanel({ slug }: { slug: string }) {
+export function TalkPanel({
+  slug,
+  onOpenPage,
+}: {
+  slug: string;
+  /** Navigate to a wiki page when an internal `tome://` link is clicked. */
+  onOpenPage?: (path: string) => void;
+}) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
   // Mycelium's `total` is just the returned-page size, not a grand total, so we
   // can't use it for hasMore. Instead we stop paging when an older fetch returns
@@ -362,7 +369,11 @@ export function TalkPanel({ slug }: { slug: string }) {
                     </>
                   )}
                   <div className="break-words text-sm text-foreground/90">
-                    <MarkdownRenderer content={m.content} variant="final" />
+                    <MarkdownRenderer
+                      content={m.content}
+                      variant="final"
+                      onInternalLink={onOpenPage}
+                    />
                   </div>
                 </div>
               );

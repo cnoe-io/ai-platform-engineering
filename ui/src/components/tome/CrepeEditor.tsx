@@ -10,6 +10,7 @@ import { replaceAll } from "@milkdown/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import { classifyCitationHref } from "@/lib/tome/citations";
+import { parseTomeHref } from "@/lib/tome/tome-links";
 
 export type CrepeEditorHandle = {
   getMarkdown: () => string;
@@ -27,6 +28,12 @@ type Props = {
    * this to true so token-by-token updates flow into the same instance.
    */
   liveUpdate?: boolean;
+  /**
+   * Called when an internal wiki link (`tome://<path>` or a bare `*.md`) is
+   * clicked, instead of opening it in a new tab. The host routes it via SPA
+   * navigation. External links always open in a new tab.
+   */
+  onNavigate?: (path: string) => void;
 };
 
 /**
@@ -38,12 +45,17 @@ type Props = {
  * should remount (via `key` prop) if they want a hard reset.
  */
 export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEditor(
-  { initialMarkdown, readonly = false, liveUpdate = false },
+  { initialMarkdown, readonly = false, liveUpdate = false, onNavigate },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const crepeRef = useRef<Crepe | null>(null);
   const readyRef = useRef(false);
+  // Latest onNavigate, read by the (mount-once) click handler.
+  const onNavigateRef = useRef(onNavigate);
+  useEffect(() => {
+    onNavigateRef.current = onNavigate;
+  }, [onNavigate]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -63,6 +75,11 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
       ctx.set(linkAttr.key, (mark) => {
         const base = prev ? prev(mark) : {};
         const href = (mark.attrs?.href as string | undefined) || "";
+        // Internal wiki link → tag for styling + click routing.
+        if (parseTomeHref(href)) {
+          const cls = [base.class, "tome-link"].filter(Boolean).join(" ");
+          return { ...base, class: cls };
+        }
         const cite = classifyCitationHref(href);
         if (!cite) return base;
         const cls = [base.class, "md-citation", `md-citation-${cite.kind}`]
@@ -120,6 +137,14 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
       if (!anchor) return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) return;
+      // Internal wiki link → SPA navigation in the host, not a new tab.
+      const internal = parseTomeHref(href);
+      if (internal && onNavigateRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        onNavigateRef.current(internal.path);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       window.open(href, "_blank", "noopener,noreferrer");

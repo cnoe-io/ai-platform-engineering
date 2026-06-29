@@ -52,6 +52,10 @@ Repos may include a `.tome/wiki.md` at their root — AGENTS.md-style maintainer
 
 ## Conventions
 
-- When you reference wiki content, cite the page like `(see overview.md)`.
+- When you reference another wiki page, link it with the `tome://` scheme so it
+  opens in-app: `[Overview](tome://overview.md)`,
+  `[status](tome://repos/mycelium/status.md)`. Use the same-project path
+  (relative to the wiki root). Don't use bare paths or guessed `http` URLs for
+  in-wiki links.
 - When you edit a page, briefly summarize what you changed in your reply.
 - Be concise; the reader is scanning.

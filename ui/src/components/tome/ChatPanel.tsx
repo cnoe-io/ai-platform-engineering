@@ -372,6 +372,7 @@ function MessageRow({
                 content={p.text}
                 isStreaming={Boolean(msg.pending) && i === lastTextIdx}
                 variant="final"
+                onInternalLink={onOpenPage}
               />
             </div>
           ),

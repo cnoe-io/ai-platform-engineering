@@ -649,6 +649,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onReload={load}
                         onClose={() => setArtifactPath(null)}
                         locked={locked}
+                        onNavigate={openArtifact}
                       />
                     ) : (
                       <ContentLoading />
@@ -658,7 +659,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               </>
             ) : view.kind === "talk" ? (
               <div className="min-w-0 flex-1">
-                <TalkPanel slug={slug} />
+                <TalkPanel slug={slug} onOpenPage={(path) => navigate({ kind: "page", path })} />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
@@ -697,6 +698,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                       navigate({ kind: "pageHistory", path: view.path })
                     }
                     locked={locked}
+                    onNavigate={(path) => navigate({ kind: "page", path })}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">Page not found.</p>

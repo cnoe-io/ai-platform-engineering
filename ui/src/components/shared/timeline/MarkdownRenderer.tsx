@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { parseTomeHref } from "@/lib/tome/tome-links";
 import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
@@ -36,6 +37,13 @@ const sharedMarkedOptions = {
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
+      // Internal wiki link (`tome://<path>` or bare `*.md`) → tag for click
+      // routing instead of a (broken) browser navigation.
+      const internal = parseTomeHref(href);
+      if (internal) {
+        const pathAttr = internal.path.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        return `<a href="${href}" data-tome-path="${pathAttr}"${titleAttr} class="md-link tome-link">${text}</a>`;
+      }
       const isRelative = href.startsWith("/") || href.startsWith("#");
       const targetAttr = isRelative ? "" : ' target="_blank" rel="noopener noreferrer"';
       return `<a href="${href}"${titleAttr} class="md-link"${targetAttr}>${text}</a>`;
@@ -194,6 +202,12 @@ interface MarkdownRendererProps {
    */
   variant?: "thinking" | "final" | "user";
   className?: string;
+  /**
+   * Click handler for internal wiki links (`tome://<path>` / bare `*.md`). When
+   * provided, such links route through this (SPA navigation) instead of a raw
+   * browser href. External links are unaffected.
+   */
+  onInternalLink?: (path: string) => void;
 }
 
 /**
@@ -212,9 +226,15 @@ export function MarkdownRenderer({
   isStreaming,
   variant = "final",
   className,
+  onInternalLink,
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Latest onInternalLink, read by the (set-up-once) delegated click handler.
+  const onInternalLinkRef = useRef(onInternalLink);
+  useEffect(() => {
+    onInternalLinkRef.current = onInternalLink;
+  }, [onInternalLink]);
   // Monotonic counter to ensure only the latest parse result is applied.
   // During rapid streaming, many parses may be in-flight concurrently;
   // we only want the most recently *requested* one to patch the DOM.
@@ -292,8 +312,22 @@ export function MarkdownRenderer({
 
     // Set up event delegation once
     if (!cleanupRef.current) {
+      const handleInternalLinkClick = (e: MouseEvent) => {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        const anchor = target.closest("a.tome-link");
+        if (!(anchor instanceof HTMLAnchorElement)) return;
+        const path = anchor.getAttribute("data-tome-path");
+        if (!path || !onInternalLinkRef.current) return;
+        e.preventDefault();
+        onInternalLinkRef.current(path);
+      };
       container.addEventListener("click", handleCopyClick);
-      cleanupRef.current = () => container.removeEventListener("click", handleCopyClick);
+      container.addEventListener("click", handleInternalLinkClick);
+      cleanupRef.current = () => {
+        container.removeEventListener("click", handleCopyClick);
+        container.removeEventListener("click", handleInternalLinkClick);
+      };
     }
   }, []);
 
