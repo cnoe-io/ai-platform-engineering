@@ -161,6 +161,33 @@
   text-decoration-color: hsl(var(--primary));
 }
 
+/* Internal wiki links (`tome://` / bare *.md): a "page reference" look — a
+   small page glyph + dashed underline that solidifies on hover — distinct
+   from external anchors. Icon var (`--tome-link-icon`) is defined in globals.css. */
+.streaming-markdown .md-link.tome-link {
+  text-decoration-style: dashed;
+  text-decoration-color: hsl(var(--primary) / 0.45);
+  text-underline-offset: 3px;
+  border-radius: 3px;
+  padding: 0 0.12em;
+}
+.streaming-markdown .md-link.tome-link::before {
+  content: "";
+  display: inline-block;
+  width: 0.82em;
+  height: 0.82em;
+  margin-right: 0.18em;
+  vertical-align: -0.08em;
+  background-color: currentColor;
+  opacity: 0.72;
+  -webkit-mask: var(--tome-link-icon) center / contain no-repeat;
+  mask: var(--tome-link-icon) center / contain no-repeat;
+}
+.streaming-markdown .md-link.tome-link:hover {
+  background: hsl(var(--primary) / 0.08);
+  text-decoration-color: hsl(var(--primary));
+}
+
 /* Inline code */
 .streaming-markdown.md-final :not(pre) > code {
   background: hsl(var(--muted) / 0.8);
