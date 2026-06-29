@@ -345,8 +345,27 @@ export function TomeWiki({ slug }: { slug: string }) {
       case "settings":
         return [{ label: "Settings" }];
       case "page": {
-        const md = data?.pages[view.path] ?? "";
-        return [{ label: pageTitleOf(view.path, md) }];
+        const pages = data?.pages ?? {};
+        const md = pages[view.path] ?? "";
+        const segments = view.path.split("/");
+        const folders = segments.slice(0, -1); // ancestor folders, leaf excluded
+        const crumbs: Crumb[] = [];
+        let prefix = "";
+        for (const seg of folders) {
+          prefix = prefix ? `${prefix}/${seg}` : seg;
+          // Clickable to the folder's landing page if one exists (nest-parent
+          // `<folder>.md`, or a conventional index/overview under it).
+          const indexPath = [`${prefix}.md`, `${prefix}/index.md`, `${prefix}/overview.md`].find(
+            (p) => pages[p] !== undefined,
+          );
+          crumbs.push(
+            indexPath
+              ? { label: seg, onClick: () => navigate({ kind: "page", path: indexPath }) }
+              : { label: seg },
+          );
+        }
+        crumbs.push({ label: pageTitleOf(view.path, md) });
+        return crumbs;
       }
       case "pageHistory": {
         const md = data?.pages[view.path] ?? "";
