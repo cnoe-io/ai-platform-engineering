@@ -14,6 +14,7 @@ sequenceDiagram
     participant BFF as UI Backend<br/>(Next.js BFF)
     participant DA as Dynamic Agent<br/>(mcp_client.py)
     participant AGW as AgentGateway<br/>(Envoy proxy)
+    participant Keycloak as Keycloak<br/>(JWKS endpoint)
     participant Bridge as OpenFGA Authz Bridge<br/>(ext_authz gRPC)
     participant FGA as OpenFGA
     participant MCP as MCP Server
@@ -28,9 +29,17 @@ sequenceDiagram
 
     DA->>AGW: MCP tool call<br/>Authorization: Bearer <user-JWT>  ← human identity<br/>X-CAIPE-Agent-Context: encoded  ← agent identity<br/>X-CAIPE-Agent-Context-Signature: hex(sig)
 
-    AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>all headers forwarded
+    rect rgb(240, 248, 255)
+        Note over AGW,Keycloak: AgentGateway — jwtAuth (runs before ext_authz)
+        AGW->>Keycloak: Fetch JWKS (cached; refreshed on key rotation)
+        Keycloak-->>AGW: Public keys
+        Note over AGW: Verify JWT signature (RS256)<br/>Check exp, iss, aud<br/>→ 401 Unauthorized if any check fails
+        Note over AGW: Decode JWT claims into<br/>caipe.auth gRPC metadata<br/>(raw bearer is NOT forwarded to bridge)
+    end
 
-    Note over Bridge: Extracts human identity from<br/>caipe.auth gRPC metadata (decoded JWT sub)
+    AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>caipe.auth metadata: {sub, preferred_username, roles}<br/>request path + method + remaining headers<br/>(X-CAIPE-Agent-Context, X-CAIPE-Agent-Context-Signature)
+
+    Note over Bridge: Extracts sub from caipe.auth metadata<br/>(cannot re-decode bearer — AGW has consumed it)
     Bridge->>FGA: ① Check(user:sub, can_call, mcp:server)
 
     alt base user check fails
@@ -52,7 +61,7 @@ sequenceDiagram
                 AGW--xMCP: request blocked
             else agent authorized
                 Bridge-->>AGW: OK
-                AGW->>MCP: forward MCP tool call
+                AGW->>MCP: forward MCP tool call<br/>Authorization: Bearer <user-JWT> (forwarded unchanged)
                 MCP-->>AGW: tool response
                 AGW-->>DA: tool response
                 DA-->>BFF: stream token(s)
