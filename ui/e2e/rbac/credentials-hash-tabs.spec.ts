@@ -1,5 +1,4 @@
 // assisted-by claude code claude-sonnet-4-6
-// assisted-by Codex Codex-sonnet-4-6
 import { expect, test } from "@playwright/test";
 
 import {

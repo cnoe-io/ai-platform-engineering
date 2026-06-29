@@ -1,4 +1,3 @@
-// assisted-by Codex Codex-sonnet-4-6
 
 import { type Page } from "@playwright/test";
 

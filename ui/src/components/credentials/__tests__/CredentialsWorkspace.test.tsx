@@ -2,7 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // assisted-by claude code claude-sonnet-4-6
-// assisted-by Codex Codex-sonnet-4-6
 
 import { CredentialsWorkspace } from "../CredentialsWorkspace";
 
