@@ -88,14 +88,14 @@ kubectl logs -n ai-platform-engineering -l app.kubernetes.io/name=mcp-server
 
 ## Node autoscaling with Karpenter
 
-For production clusters, Karpenter provisions right-sized nodes on demand and consolidates them when idle, no pre-created node groups required. CAIPE ships with two custom `NodePool` tiers:
+For production clusters, Karpenter provisions right-sized nodes on demand and consolidates them when idle, no pre-created node groups required. CAIPE pins only the memory-bound RAG stack to a dedicated `NodePool`; everything else (the Dynamic Agents runtime, MCP servers, UI, and platform services) rides the Auto Mode `general-purpose` pool, which bin-packs and consolidates them automatically.
 
 | NodePool | Workloads | Instance strategy |
 |---|---|---|
-| `agents` | All `agent-*` subcharts | Spot-preferred, compute-optimised |
 | `rag` | `rag-server`, `agent-ontology`, `rag-redis`, `neo4j` | On-demand, memory-optimised |
+| `general-purpose` *(built-in)* | Dynamic Agents, MCP servers (`mcp-*`), UI, Keycloak, OpenFGA, … | Auto Mode managed |
 
-Workloads not matching either tier (supervisor, UI, langgraph-redis) will land on the cluster's default pool.
+The overlay still enables PodDisruptionBudgets on the general-purpose workloads so node consolidation doesn't take them fully offline.
 
 ### EKS (supported)
 
