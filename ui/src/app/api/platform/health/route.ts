@@ -106,6 +106,16 @@ function requestOrigin(request: NextRequest): string {
   return request.nextUrl?.origin ?? new URL(request.url).origin;
 }
 
+// assisted-by claude code claude-sonnet-4-6
+// Use localhost for server-side self-calls to avoid stale keep-alive connections
+// through the external ingress. requestOrigin() returns the external domain (correct
+// for client-facing URLs), but server→server health probes must stay on loopback to
+// prevent ECONNRESET failures when the ingress connection pool goes stale.
+function selfBaseUrl(): string {
+  const port = process.env.PORT ?? "3000";
+  return `http://localhost:${port}`;
+}
+
 function slackDirectoryToken(): string | null {
   return envValue("SLACK_BOT_TOKEN") ?? envValue("SLACK_INTEGRATION_BOT_TOKEN");
 }
@@ -1047,7 +1057,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "dynamic-agents",
           label: "Dynamic Agents",
           group: "runtime",
-          target: `${origin}/api/dynamic-agents/health`,
+          target: `${selfBaseUrl()}/api/dynamic-agents/health`,
           required: true,
           description: "Checks Dynamic Agents when custom agent runtime is enabled.",
           healthyDetail: "Runtime reachable",
@@ -1069,7 +1079,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "knowledge-bases",
           label: "Knowledge Bases",
           group: "knowledge",
-          target: `${origin}/api/rag/healthz`,
+          target: `${selfBaseUrl()}/api/rag/healthz`,
           required: false,
           description: "Checks the RAG API used by Knowledge Bases.",
           healthyDetail: "RAG API reachable",
