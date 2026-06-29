@@ -34,12 +34,12 @@ sequenceDiagram
         AGW->>Keycloak: Fetch JWKS (cached; refreshed on key rotation)
         Keycloak-->>AGW: Public keys
         Note over AGW: Verify JWT signature (RS256)<br/>Check exp, iss, aud<br/>→ 401 Unauthorized if any check fails
-        Note over AGW: Decode JWT claims into<br/>caipe.auth gRPC metadata<br/>(raw bearer is NOT forwarded to bridge)
+        Note over AGW: Decode JWT claims into<br/>caipe.auth gRPC metadata<br/>(bearer NOT forwarded to bridge in this path)
     end
 
-    AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>caipe.auth metadata: {sub, preferred_username, roles}<br/>request path + method + remaining headers<br/>(X-CAIPE-Agent-Context, X-CAIPE-Agent-Context-Signature)
+    AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>caipe.auth metadata: {sub, preferred_username}<br/>request path + method + remaining headers<br/>(X-CAIPE-Agent-Context, X-CAIPE-Agent-Context-Signature)
 
-    Note over Bridge: Extracts sub from caipe.auth metadata<br/>(cannot re-decode bearer — AGW has consumed it)
+    Note over Bridge: Reads sub from caipe.auth metadata (AGW path)<br/>or decodes bearer directly (non-AGW / test path)
     Bridge->>FGA: ① Check(user:sub, can_call, mcp:server)
 
     alt base user check fails

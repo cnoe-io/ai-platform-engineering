@@ -59,7 +59,7 @@ For each inbound MCP request AgentGateway runs two sequential checks:
 
 | Step | Component | What it verifies | Failure response |
 |---|---|---|---|
-| 1 | **jwtAuth** | JWT signature (RS256 via JWKS), `exp`, `iss`, `aud` | 401 Unauthorized |
+| 1 | **jwtAuth** | JWT signature (verified via JWKS), `exp`, `iss`, `aud` | 401 Unauthorized |
 | 2 | **extAuthz** | OpenFGA relationship checks via the Authz Bridge (see below) | 403 Forbidden |
 
 On success the request is proxied to the MCP backend with the original
@@ -112,10 +112,10 @@ sequenceDiagram
             Note over AGW,KC: jwtAuth — local JWT verification
             AGW->>KC: Fetch JWKS (cached)
             KC-->>AGW: Public keys
-            Note over AGW: Verify signature, exp, iss, aud<br/>→ 401 if invalid
+            Note over AGW: Verify signature (algorithm from JWKS key type)<br/>Check exp, iss, aud → 401 if invalid
         end
 
-        AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>caipe.auth: {sub, roles}<br/>path + method + agent context headers
+        AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>caipe.auth: {sub, preferred_username}<br/>path + method + agent context headers
 
         Bridge->>FGA: Check(user:sub, can_call, mcp:server)
         alt denied
