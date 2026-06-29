@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import functools
+import json
 import logging
 from enum import Enum
 from typing import Annotated, Optional
@@ -13,6 +14,29 @@ from pydantic import BaseModel, Field, model_validator
 from mcp_agent_auth.token import get_request_token
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
+
+
+def _format_message(message: dict) -> str:
+    """Render a Webex message for an LLM consumer.
+
+    Includes the message ``id`` (so it can be referenced — e.g. to reply in a
+    thread or fetch it) and, crucially, any ``attachments`` (Adaptive Cards).
+    Bots often present prompts, options and status as Adaptive Cards whose
+    plain-``text`` fallback is uninformative; surfacing the card JSON lets the
+    agent read what the bot is actually asking and respond (a plain-text reply
+    is fine — you do not have to submit the card).
+    """
+    parts = [
+        f"ID: {message.get('id', 'unknown')}",
+        f"From: {message.get('personEmail', 'Unknown')}",
+        f"Time: {message.get('created', 'Unknown time')}",
+        f"Text: {message.get('text') or message.get('markdown') or '(no text)'}",
+    ]
+    attachments = message.get("attachments")
+    if attachments:
+        parts.append("Attachments (Adaptive Card / card content):")
+        parts.append(json.dumps(attachments, indent=2))
+    return "\n".join(parts)
 
 
 class PostMessage(BaseModel):
@@ -93,9 +117,9 @@ class ListDirectMessages(BaseModel):
 
     class Config:
         description = """
-            Add multiple users to an existing Webex room.
-            Use this tool when you need to add several users to a room at
-            once.
+            List direct (1:1) messages exchanged with a specific person, most
+            recent first. Each message includes its id and any Adaptive Card
+            attachments, so you can read a bot's card-based prompts.
         """
 
 
@@ -107,6 +131,12 @@ class ListMessagesInRoom(BaseModel):
     parent_id: str | None = Field(
         default=None,
         description="If specified, only list messages with this parentId (" "thread)",
+    )
+    mentioned_only: bool | None = Field(
+        default=True,
+        description="If true (default), only return messages that mention the "
+        "authenticated user/bot. Set false to read ALL messages in the room — "
+        "needed to read another bot's replies/cards that don't @-mention you.",
     )
 
     class Config:
@@ -146,6 +176,19 @@ class ListThreadMessages(BaseModel):
         description = "List messages in a thread in a Webex room"
 
 
+class GetMessage(BaseModel):
+    message_id: str = Field(description="ID of the Webex message to fetch")
+
+    class Config:
+        description = """
+            Fetch a single Webex message by its id, including full text/markdown
+            and any Adaptive Card / attachments content. Use this to read a card
+            a bot posted (its prompts, options and input fields) so you can
+            decide how to respond — a plain-text reply is fine, you do not have
+            to submit the card.
+        """
+
+
 class WebexTools(str, Enum):
     POST_MESSAGE = "post_message"
     CREATE_ROOM = "create_room"
@@ -155,14 +198,20 @@ class WebexTools(str, Enum):
     LIST_ROOMS = "list_rooms"
     LIST_USERS_IN_ROOM = "list_users_in_room"
     LIST_THREAD_MESSAGES = "list_thread_messages"
+    GET_MESSAGE = "get_message"
 
 
 # FastMCP tool registration
-def register_tools(server, auth_token: Optional[str] = None) -> None:
+def register_tools(
+    server,
+    auth_token: Optional[str] = None,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> None:
     logger = logging.getLogger(__name__)
     logger.info("🔧 Initializing Webex MCP tools registration")
     logger.info(f"🌐 Webex API Base URL: {WEBEX_API_BASE}")
-    http_client = httpx.AsyncClient(base_url=WEBEX_API_BASE)
+    # Allow an injected client (tests); otherwise create the default one.
+    http_client = http_client or httpx.AsyncClient(base_url=WEBEX_API_BASE)
 
     def _get_token() -> str:
         """Resolve bearer token: per-request header takes priority over startup env token."""
@@ -297,17 +346,12 @@ def register_tools(server, auth_token: Optional[str] = None) -> None:
         messages = messages_data.get("items", [])
         if not messages:
             return [TextContent(type="text", text="No messages found with this person")]
-        results = []
-        for message in messages:
-            sender = message.get("personEmail", "Unknown")
-            created = message.get("created", "Unknown time")
-            text = message.get("text", "(No text content)")
-            results.append(f"From: {sender}\nTime: {created}\nMessage: {text}\n")
+        results = [_format_message(message) for message in messages]
         return [
             TextContent(
                 type="text",
                 text=f"Found {len(messages)} messages "
-                f"with {args.person_email}:\n\n" + "\n".join(results),
+                f"with {args.person_email}:\n\n" + "\n\n".join(results),
             )
         ]
 
@@ -317,7 +361,11 @@ def register_tools(server, auth_token: Optional[str] = None) -> None:
     )
     @handle_mcp_errors
     async def list_messages_in_room_tool(args: ListMessagesInRoom):
-        params = {"roomId": args.room_id, "mentionedPeople": "me"}
+        params = {"roomId": args.room_id}
+        # Default keeps the historical "only messages mentioning me" behaviour;
+        # callers can opt out to read all messages (e.g. a bot's card replies).
+        if args.mentioned_only:
+            params["mentionedPeople"] = "me"
         if args.max is not None:
             params["max"] = str(args.max)
         if args.parent_id is not None:
@@ -329,14 +377,14 @@ def register_tools(server, auth_token: Optional[str] = None) -> None:
         )
         response.raise_for_status()
         messages = response.json().get("items", [])
-        formatted = "\n".join(
-            [
-                f"[{m.get('created')}] {m.get('personEmail')}: {m.get('text',
-                                                                      '')}"
-                for m in messages
-            ]
-        )
-        return [TextContent(type="text", text=formatted or "No messages found.")]
+        if not messages:
+            return [TextContent(type="text", text="No messages found.")]
+        return [
+            TextContent(
+                type="text",
+                text="\n\n".join(_format_message(m) for m in messages),
+            )
+        ]
 
     @server.tool(name=WebexTools.LIST_ROOMS, description=ListRooms.Config.description)
     @handle_mcp_errors
@@ -400,14 +448,26 @@ def register_tools(server, auth_token: Optional[str] = None) -> None:
         messages = response.json().get("items", [])
         if not messages:
             return [TextContent(type="text", text="No messages found in this thread.")]
-        formatted = "\n".join(
-            [
-                f"[{m.get('created', '')}] {m.get('personEmail', '')}: "
-                f"{m.get('text', '')}"
-                for m in messages
-            ]
+        return [
+            TextContent(
+                type="text",
+                text="\n\n".join(_format_message(m) for m in messages),
+            )
+        ]
+
+    @server.tool(name=WebexTools.GET_MESSAGE, description=GetMessage.Config.description)
+    @handle_mcp_errors
+    async def get_message_tool(args: GetMessage):
+        response = await http_client.get(
+            f"/messages/{args.message_id}",
+            headers={"Authorization": f"Bearer {_get_token()}"},
         )
-        return [TextContent(type="text", text=formatted)]
+        response.raise_for_status()
+        return [TextContent(type="text", text=_format_message(response.json()))]
 
     logger.info("✅ Webex MCP tools registration completed successfully")
-    logger.info("🔧 Registered tools: post_message, create_room, add_person_to_room, list_people, remove_person_from_room, list_rooms, list_messages, list_messages_thread")
+    logger.info(
+        "🔧 Registered tools: post_message, create_room, add_users_to_room, "
+        "list_direct_messages, list_messages_in_room, list_rooms, "
+        "list_users_in_room, list_thread_messages, get_message"
+    )
