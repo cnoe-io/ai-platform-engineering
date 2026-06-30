@@ -11,6 +11,8 @@ and do not need to import any langchain-mcp-adapters internals.
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -19,6 +21,7 @@ import pytest
 
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.services import mcp_client
 from dynamic_agents.services.mcp_client import (
     build_agent_context_headers,
     build_httpx_client_factory,
@@ -52,6 +55,11 @@ def _running_server():
     finally:
         server.shutdown()
         thread.join(timeout=2)
+
+
+def _decode_agent_context(encoded: str) -> dict:
+    padded = encoded + "=" * (-len(encoded) % 4)
+    return json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
 
 
 @pytest.mark.asyncio
@@ -144,8 +152,11 @@ def test_streamable_http_connection_config_includes_context_bearer_header():
     assert config["headers"]["Authorization"] == "Bearer probe-token"
 
 
-def test_streamable_http_connection_config_includes_signed_agent_context(monkeypatch):
+@pytest.mark.asyncio
+async def test_streamable_http_connection_factory_injects_fresh_signed_agent_context(monkeypatch):
     monkeypatch.setenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    now = {"value": 1_000}
+    monkeypatch.setattr(mcp_client.time, "time", lambda: now["value"])
     server = MCPServerConfig(
         id="jira",
         name="Jira",
@@ -156,8 +167,26 @@ def test_streamable_http_connection_config_includes_signed_agent_context(monkeyp
 
     config = build_mcp_connection_config(server, agent_id="agent-test-april-2025")
 
-    assert config["headers"]["X-CAIPE-Agent-Context"]
-    assert config["headers"]["X-CAIPE-Agent-Context-Signature"]
+    assert "X-CAIPE-Agent-Context" not in config.get("headers", {})
+    assert "X-CAIPE-Agent-Context-Signature" not in config.get("headers", {})
+
+    now["value"] = 2_000
+    with _running_server() as base:
+        async with config["httpx_client_factory"](
+            headers={
+                "x-caipe-agent-context": "stale",
+                "x-caipe-agent-context-signature": "stale",
+            }
+        ) as client:
+            await client.get(f"{base}/probe")
+
+    payload = _decode_agent_context(_CapturingHandler.captured["x-caipe-agent-context"])
+    assert payload == {
+        "agent_id": "agent-test-april-2025",
+        "iat": 2_000,
+        "exp": 2_300,
+    }
+    assert _CapturingHandler.captured["x-caipe-agent-context-signature"] != "stale"
 
 
 def test_agent_context_headers_are_omitted_without_shared_secret(monkeypatch):
