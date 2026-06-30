@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -60,14 +61,6 @@ interface SourceRow {
   label: string;
   items: string[];
   connectorKey: string;
-}
-
-interface PreflightSourceResult {
-  provider: "github" | "confluence" | "webex";
-  label: string;
-  accessible: string[];
-  inaccessible: string[];
-  no_token: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -253,6 +246,10 @@ export function IngestPanel({
   // unless the user explicitly authorizes a best-effort agent draft.
   const [seedPages, setSeedPages] = useState(false);
 
+  // BHAG only — opt-in. Re-ingest every child project first, then synthesize
+  // (a cascade run through the queue). Off by default since it's slow/expensive.
+  const [refreshChildren, setRefreshChildren] = useState(false);
+
   // Meeting picker
   const [meetingsOpen, setMeetingsOpen] = useState(false);
   const [meetings, setMeetings] = useState<WebexMeeting[] | null>(null);
@@ -382,6 +379,7 @@ export function IngestPanel({
       ? {
           seed: seed.trim() || undefined,
           seedStablePages: isGreenfield ? seedPages : undefined,
+          refreshChildren: refreshChildren || undefined,
         }
       : {
           seed: seed.trim() || undefined,
@@ -408,7 +406,7 @@ export function IngestPanel({
     } finally {
       setStarting(false);
     }
-  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, isBhag]);
+  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, refreshChildren, isBhag]);
 
   const lastRun = runs?.[0] ?? null;
   const filteredMeetings = (meetings ?? []).filter((m) =>
@@ -448,13 +446,29 @@ export function IngestPanel({
               </div>
               <div className="px-4 py-3">
                 {projectName ? (
-                  <BhagProjectsPanel bhagName={projectName} />
+                  <BhagProjectsPanel bhagName={projectName} preflight />
                 ) : (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading projects…
                   </p>
                 )}
               </div>
+              <label className="flex cursor-pointer items-start gap-2 border-t px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={refreshChildren}
+                  onChange={(e) => setRefreshChildren(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Re-ingest child projects first</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Runs a fresh ingest of each project above before synthesizing, so
+                    the roll-up reflects their latest sources. Slower, uses your
+                    connected credentials, and runs a few at a time.
+                  </span>
+                </span>
+              </label>
             </div>
           ) : (
           /* Sources preflight */
@@ -483,15 +497,13 @@ export function IngestPanel({
               ) : (
                 sourceRows.map((row) => {
                   const pf = preflight?.find((p) => p.provider === row.kind);
-                  // no_token = provider not connected at all
-                  // inaccessible.length > 0 = connected but some resources are blocked
-                  // null preflight = check didn't run (fall back to neutral)
-                  const noToken = pf?.no_token ?? false;
+                  const state = preflightState(pf);
                   const inaccessible = pf?.inaccessible ?? [];
                   const accessible = pf?.accessible ?? [];
-                  // Three states: green (all ok) / amber (connected, access issues) / red (no token)
-                  const allOk = pf !== undefined && !noToken && inaccessible.length === 0;
-                  const accessIssue = pf !== undefined && !noToken && inaccessible.length > 0;
+                  // green (all ok) / amber (connected, access issues) / red (no token)
+                  const noToken = state === "no_token";
+                  const allOk = state === "ok";
+                  const accessIssue = state === "access_issue";
 
                   const tooltipText = noToken
                     ? `${row.label} not connected: ingest will skip this source`

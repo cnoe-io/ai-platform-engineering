@@ -588,7 +588,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipDescription="Chat with the project's agent: ask it questions about the project, or have it draft, refine, and reorganize the wiki pages it reads and writes."
                   />
                   <NavItem
-                    icon={<RefreshCw className="h-4 w-4" />}
+                    icon={<RefreshCw className={cn("h-4 w-4", locked && "animate-spin")} />}
                     label={isBhag ? "Synthesize" : "Ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
@@ -817,7 +817,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "ingestRun" ? (
               <div className="min-w-0 flex-1">
-                <IngestRunView slug={slug} runId={view.runId} onPagesChanged={load} />
+                <IngestRunView key={view.runId} slug={slug} runId={view.runId} onPagesChanged={load} />
               </div>
             ) : view.kind === "pageHistory" ? (
               <div className="min-w-0 flex-1">

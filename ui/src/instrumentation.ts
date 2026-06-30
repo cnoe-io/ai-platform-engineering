@@ -31,4 +31,13 @@ export async function register() {
   } catch (err) {
     console.warn("[instrumentation] IdP sync scheduler not started:", err);
   }
+
+  // Start the Tome ingest queue worker so BHAG-cascade runs (status "queued")
+  // actually get drained. Idempotent; failures must not take down the server.
+  try {
+    const { startIngestQueue } = await import("./lib/tome/ingest-queue");
+    startIngestQueue();
+  } catch (err) {
+    console.warn("[instrumentation] Tome ingest queue not started:", err);
+  }
 }

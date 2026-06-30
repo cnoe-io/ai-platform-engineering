@@ -7,27 +7,11 @@ import { NextRequest } from "next/server";
 import { successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { resolveForwardedCredentials } from "@/lib/tome/agent-proxy";
 import { loadTomeProject } from "@/lib/tome/tome-api";
+import type { PreflightResult, PreflightSourceResult } from "@/lib/tome/preflight";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ slug: string }> };
-
-export interface PreflightSourceResult {
-  provider: "github" | "confluence" | "webex";
-  label: string;
-  /** Items that passed the resource-level access check. */
-  accessible: string[];
-  /** Items where the check returned 403/404 (no access or not found). */
-  inaccessible: string[];
-  /** True when the provider token is missing entirely (not just per-item failures). */
-  no_token: boolean;
-}
-
-export interface PreflightResult {
-  can_ingest: boolean;
-  sources: PreflightSourceResult[];
-  credentials_url: string;
-}
 
 function normalizeRepoSlug(raw: string): string {
   let s = raw.trim().replace(/\.git$/, "");

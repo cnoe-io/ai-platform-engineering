@@ -21,7 +21,7 @@ import type { ProjectDocument } from "@/types/projects";
  * request and routes them to the right MCP per-call. Values are strings on
  * the wire (incl. `expires_in`); the agent parses defensively.
  */
-type ForwardedCredentials = Record<string, Record<string, string>>;
+export type ForwardedCredentials = Record<string, Record<string, string>>;
 
 /** Providers we recognize as "tome connectors" — matches MCP slugs on the agent. */
 type Provider = "github" | "atlassian" | "webex";
@@ -32,12 +32,25 @@ type Provider = "github" | "atlassian" | "webex";
 const ALL_PROVIDERS: Provider[] = ["github", "atlassian", "webex"];
 
 /** Extract the OIDC `sub` from a session for credential lookup; "" if unknown. */
-function sessionSub(session: unknown): string {
+export function sessionSub(session: unknown): string {
   if (session && typeof session === "object" && "sub" in session) {
     const sub = (session as { sub?: unknown }).sub;
     if (typeof sub === "string" && sub.trim()) return sub.trim();
   }
   return "";
+}
+
+/**
+ * Resolve a user's forwarded credentials directly from their OIDC `sub`. The
+ * queue worker uses this to re-resolve creds when it starts a previously-queued
+ * run (the original request session is gone by then). Returns `{}` for an empty
+ * sub or a user with nothing connected.
+ */
+export async function resolveCredentialsForSub(
+  sub: string,
+): Promise<ForwardedCredentials> {
+  if (!sub) return {};
+  return collectForwardedCredentials(sub, ALL_PROVIDERS);
 }
 
 /**
@@ -49,9 +62,7 @@ function sessionSub(session: unknown): string {
 export async function resolveForwardedCredentials(
   ctx: TomeProjectContext,
 ): Promise<ForwardedCredentials> {
-  const sub = sessionSub(ctx.session);
-  if (!sub) return {};
-  return collectForwardedCredentials(sub, ALL_PROVIDERS);
+  return resolveCredentialsForSub(sessionSub(ctx.session));
 }
 
 /** RepoSnapshot — mirrors contract.RepoSnapshot. */
@@ -292,7 +303,7 @@ export async function buildChatRequest(
  * resolves them before async dispatch.
  */
 export function buildIngestRequest(
-  ctx: TomeProjectContext,
+  project: ProjectDocument & { _id: string },
   opts: {
     runId: string;
     reportId: string;
@@ -305,7 +316,7 @@ export function buildIngestRequest(
     childProjects?: ChildProjectSnapshot[];
   },
 ): AgentIngestRequest {
-  const snapshot = buildSnapshot(ctx);
+  const snapshot = buildSnapshotFromProject(project);
   if (opts.childProjects?.length) {
     snapshot.child_projects = opts.childProjects;
   }

@@ -29,6 +29,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     finished_at: run.finished_at ?? null,
     error: run.error ?? null,
     report_id: run.report_id ?? null,
+    cascade_id: run.cascade_id ?? null,
+    cascade_role: run.cascade_role ?? null,
     log: (run.log ?? []).join("\n"),
   });
 });

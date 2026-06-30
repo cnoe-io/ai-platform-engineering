@@ -19,7 +19,11 @@ import { ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
 import { getPageStore } from "./page-store";
 import { getTomeIngestRunsCollection, getTomeReportsCollection } from "./mongo-collections";
-import { buildIngestRequest, resolveForwardedCredentials } from "./agent-proxy";
+import {
+  buildIngestRequest,
+  resolveCredentialsForSub,
+  sessionSub,
+} from "./agent-proxy";
 import {
   dispatchLine,
   formatIngestEvent,
@@ -31,14 +35,27 @@ import { injectCharterIntro } from "./seed";
 import { normLabel } from "@/lib/projects/labels";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
-import type { IngestRun, Report } from "@/types/tome";
+import type { IngestDispatch, IngestRun, Report } from "@/types/tome";
+
+/** Load a project by its stable id (string or ObjectId), normalizing `_id` to string. */
+async function loadProjectById(
+  projectId: string,
+): Promise<(ProjectDocument & { _id: string }) | null> {
+  const projects = await getCollection<ProjectDocument>("projects");
+  const _id = (ObjectId.isValid(projectId)
+    ? new ObjectId(projectId)
+    : projectId) as unknown as string;
+  const p = await projects.findOne({ _id });
+  if (!p) return null;
+  return { ...p, _id: String(p._id) } as ProjectDocument & { _id: string };
+}
 
 /**
  * Resolve the projects tagged to a BHAG (its `labels.initiatives` contains the
  * BHAG's name, case-insensitively). These are the wikis the BHAG synthesis reads.
  * Excludes BHAGs themselves so goals never synthesize over other goals.
  */
-async function resolveBhagChildren(
+export async function resolveBhagChildren(
   bhagName: string,
 ): Promise<{ project_id: string; slug: string; name: string }[]> {
   const want = normLabel(bhagName);
@@ -85,34 +102,21 @@ export async function isIngestRunning(projectId: string): Promise<boolean> {
 }
 
 /**
- * Kick an ingest run. Returns the new run id immediately; the agent stream is
- * driven in the background. Throws if a run is already in progress.
+ * Create the Report + IngestRun rows for a run. Shared by the immediate path
+ * (status "running") and the queue (status "queued"). Returns ids + whether
+ * this is the project's greenfield (first) run.
  */
-export async function startIngestRun(
-  ctx: TomeProjectContext,
+async function createRunRecord(
+  project: ProjectDocument & { _id: string },
   opts: {
-    seed?: string | null;
-    webexMeetings?: { id: string; title: string; start: string }[];
-    /**
-     * Greenfield only, opt-in (default false). When true the ingest agent is
-     * authorized to write a best-effort DRAFT into the stable pages (charter /
-     * objectives / roadmap). When false, stable pages stay human-owned and the
-     * agent never touches them — they keep their empty founding templates.
-     */
-    seedStablePages?: boolean;
-    /**
-     * Agent endpoint to drive. Default `/ingest` (single-project source pull).
-     * A BHAG synthesis passes `/synthesize` — a distinct cross-project agent that
-     * synthesizes from the tagged child projects' wikis.
-     */
-    agentEndpoint?: string;
+    status: "running" | "queued";
+    sub: string;
+    dispatch: IngestDispatch;
+    cascadeId?: string;
+    cascadeRole?: "child" | "parent";
   },
-): Promise<{ runId: string }> {
-  const projectId = ctx.projectId;
-  if (await isIngestRunning(projectId)) {
-    throw new IngestInProgressError();
-  }
-
+): Promise<{ runId: string; reportId: string; isGreenfield: boolean }> {
+  const projectId = project._id;
   const reports = await getTomeReportsCollection();
   const runs = await getTomeIngestRunsCollection();
 
@@ -141,51 +145,86 @@ export async function startIngestRun(
     _id: runId,
     project_id: projectId,
     report_id: reportId,
-    status: "running",
+    status: opts.status,
     greenfield: isGreenfield,
     log: [],
     started_at: now,
+    triggered_by_sub: opts.sub || undefined,
+    dispatch: opts.dispatch,
+    cascade_id: opts.cascadeId,
+    cascade_role: opts.cascadeRole,
+    queued_at: opts.status === "queued" ? now : undefined,
   };
   await runs.insertOne(run);
 
-  // Lock the project for the duration of the run — humans can't edit pages
-  // (409) while the agent rewrites. Cleared in driveIngest's finally.
-  await setProjectLocked(projectId, true);
+  return { runId, reportId, isGreenfield };
+}
 
-  // Greenfield: always seed the stable pages from their founding templates so
-  // the pages exist (with their `## section` scaffold) for humans to fill in.
-  // charter ← project.description. Whether the AGENT then drafts content over
-  // these is the separate, opt-in `seedStablePages` flag passed to the agent.
-  if (isGreenfield) {
-    const seeds: Record<string, string> = stableSeedTemplates();
-    const desc = (ctx.project.description ?? "").trim();
-    if (desc && seeds["charter.md"]) {
-      seeds["charter.md"] = injectCharterIntro(seeds["charter.md"], desc);
-    }
-    const store = await getPageStore();
-    await store.writePages(projectId, seeds, {
-      message: "seed stable pages (founding templates)",
-      author: "tome-ingest",
-      reportId,
-    });
-    await appendLog(runId, infoLine(`seeded ${Object.keys(seeds).length} stable page(s): ${Object.keys(seeds).sort().join(", ")}`));
+/**
+ * Seed the stable pages from their founding templates on a greenfield run, so
+ * the pages exist (with their `## section` scaffold) for humans to fill in.
+ * charter ← project.description. Whether the AGENT then drafts content over
+ * these is the separate, opt-in `seedStablePages` flag passed to the agent.
+ */
+async function seedGreenfieldStablePages(
+  project: ProjectDocument & { _id: string },
+  reportId: string,
+  runId: string,
+): Promise<void> {
+  const seeds: Record<string, string> = stableSeedTemplates();
+  const desc = (project.description ?? "").trim();
+  if (desc && seeds["charter.md"]) {
+    seeds["charter.md"] = injectCharterIntro(seeds["charter.md"], desc);
   }
+  const store = await getPageStore();
+  await store.writePages(project._id, seeds, {
+    message: "seed stable pages (founding templates)",
+    author: "tome-ingest",
+    reportId,
+  });
+  await appendLog(
+    runId,
+    infoLine(
+      `seeded ${Object.keys(seeds).length} stable page(s): ${Object.keys(seeds).sort().join(", ")}`,
+    ),
+  );
+}
 
+/**
+ * Prepare a created run for dispatch: seed greenfield pages, log the dispatch
+ * line, re-resolve the triggering user's credentials, resolve BHAG children,
+ * and build the agent request. Runs for both the immediate and the queued path
+ * (it reads everything it needs off the run row + project, so the session can
+ * be long gone). Throws if the run or project can't be loaded.
+ */
+async function prepareRun(
+  runId: string,
+): Promise<{ projectId: string; reportId: string; req: unknown; endpoint: string }> {
+  const runs = await getTomeIngestRunsCollection();
+  const run = await runs.findOne({ _id: runId });
+  if (!run) throw new Error(`run ${runId} not found`);
+  const projectId = run.project_id;
+  const reportId = run.report_id ?? randomUUID();
+  const project = await loadProjectById(projectId);
+  if (!project) throw new Error(`project ${projectId} not found`);
+
+  const dispatch: IngestDispatch = run.dispatch ?? { endpoint: "/ingest" };
+  const isGreenfield = run.greenfield;
+
+  if (isGreenfield) {
+    await seedGreenfieldStablePages(project, reportId, runId);
+  }
   await appendLog(runId, dispatchLine(isGreenfield));
 
-  // Resolve the user's forwarded credentials NOW (synchronously) — by the time
-  // driveIngest runs, the request session is gone. The agent routes these to
-  // the per-connector MCPs. Never logged.
-  const credentials = await resolveForwardedCredentials(ctx);
+  // The original request session is gone by now; re-resolve from the stored sub.
+  const credentials = await resolveCredentialsForSub(run.triggered_by_sub ?? "");
 
-  const meetings = opts.webexMeetings ?? [];
+  const meetings = dispatch.webexMeetings ?? [];
   const connectorData: Record<string, unknown> =
     meetings.length > 0 ? { webex: { meetings } } : {};
 
-  // For a BHAG, resolve the projects tagged to it — the agent reads their wikis
-  // to synthesize the BHAG wiki (a BHAG has no connectors of its own).
-  const isBhag = ctx.project.type === "bhag";
-  const childProjects = isBhag ? await resolveBhagChildren(ctx.project.name) : [];
+  const isBhag = project.type === "bhag";
+  const childProjects = isBhag ? await resolveBhagChildren(project.name) : [];
   if (isBhag) {
     await appendLog(
       runId,
@@ -197,28 +236,166 @@ export async function startIngestRun(
     );
   }
 
-  const req = buildIngestRequest(ctx, {
+  const req = buildIngestRequest(project, {
     runId,
     reportId,
-    seed: opts.seed?.trim() || null,
+    seed: dispatch.seed?.trim() || null,
     isGreenfield,
     connectorData,
     credentials,
-    // Opt-in only, and only meaningful on greenfield.
-    seedStablePages: isGreenfield && opts.seedStablePages === true,
+    seedStablePages: isGreenfield && dispatch.seedStablePages === true,
     childProjects,
   });
 
-  const task = driveIngest(
-    projectId,
-    runId,
-    reportId,
-    req,
-    opts.agentEndpoint ?? "/ingest",
-  ).finally(() => inflight.delete(task));
+  return { projectId, reportId, req, endpoint: dispatch.endpoint || "/ingest" };
+}
+
+/** Mark a run failed (used when prep fails before the stream starts). */
+async function failRun(runId: string, e: unknown): Promise<void> {
+  const runs = await getTomeIngestRunsCollection();
+  const msg = String((e as Error)?.message ?? e);
+  await appendLog(runId, `[--:--:--] ✗ ${msg}`);
+  await runs.updateOne(
+    { _id: runId },
+    { $set: { status: "failed", error: msg, finished_at: new Date() } },
+  );
+  const run = await runs.findOne({ _id: runId });
+  if (run) await setProjectLocked(run.project_id, false);
+}
+
+/**
+ * Kick an ingest run immediately. Returns the new run id; the agent stream is
+ * driven in the background. Throws if a run is already in progress.
+ */
+export async function startIngestRun(
+  ctx: TomeProjectContext,
+  opts: {
+    seed?: string | null;
+    webexMeetings?: { id: string; title: string; start: string }[];
+    seedStablePages?: boolean;
+    agentEndpoint?: string;
+  },
+): Promise<{ runId: string }> {
+  const projectId = ctx.projectId;
+  if (await isIngestRunning(projectId)) {
+    throw new IngestInProgressError();
+  }
+
+  const { runId } = await createRunRecord(ctx.project, {
+    status: "running",
+    sub: sessionSub(ctx.session),
+    dispatch: {
+      endpoint: opts.agentEndpoint ?? "/ingest",
+      seed: opts.seed ?? null,
+      seedStablePages: opts.seedStablePages,
+      webexMeetings: opts.webexMeetings,
+    },
+  });
+
+  // Prepare synchronously (seed greenfield pages before returning, as before),
+  // then drive the agent stream in the background.
+  let prep: Awaited<ReturnType<typeof prepareRun>>;
+  try {
+    prep = await prepareRun(runId);
+  } catch (e) {
+    await failRun(runId, e);
+    throw e;
+  }
+  const task = driveIngest(prep.projectId, runId, prep.reportId, prep.req, prep.endpoint).finally(
+    () => inflight.delete(task),
+  );
   inflight.add(task);
 
   return { runId };
+}
+
+/** Enqueue a run for the worker to start later (status "queued"). */
+export async function enqueueRun(
+  project: ProjectDocument & { _id: string },
+  opts: {
+    sub: string;
+    dispatch: IngestDispatch;
+    cascadeId?: string;
+    cascadeRole?: "child" | "parent";
+  },
+): Promise<string> {
+  const { runId } = await createRunRecord(project, { status: "queued", ...opts });
+  return runId;
+}
+
+/**
+ * Enqueue a BHAG cascade: a queued re-ingest for each tagged child project, then
+ * a queued synthesize for the BHAG itself. The worker drains them at a bounded
+ * concurrency and only starts the synthesize once every child is terminal.
+ */
+export async function enqueueBhagCascade(
+  ctx: TomeProjectContext,
+  opts: { seed?: string | null; seedStablePages?: boolean },
+): Promise<{ cascadeId: string; parentRunId: string; childCount: number }> {
+  const sub = sessionSub(ctx.session);
+  const cascadeId = randomUUID();
+  const children = await resolveBhagChildren(ctx.project.name);
+
+  for (const child of children) {
+    const childProject = await loadProjectById(child.project_id);
+    if (!childProject) continue;
+    await enqueueRun(childProject, {
+      sub,
+      dispatch: { endpoint: "/ingest", seed: null },
+      cascadeId,
+      cascadeRole: "child",
+    });
+  }
+
+  const parentRunId = await enqueueRun(ctx.project, {
+    sub,
+    dispatch: {
+      endpoint: "/synthesize",
+      seed: opts.seed ?? null,
+      seedStablePages: opts.seedStablePages,
+    },
+    cascadeId,
+    cascadeRole: "parent",
+  });
+
+  return { cascadeId, parentRunId, childCount: children.length };
+}
+
+/**
+ * Start a previously-queued run (called by the queue worker after it has
+ * atomically flipped the run to "running"). Drives in the background.
+ */
+export function dispatchQueuedRun(runId: string): void {
+  const task = (async () => {
+    let prep: Awaited<ReturnType<typeof prepareRun>>;
+    try {
+      prep = await prepareRun(runId);
+    } catch (e) {
+      await failRun(runId, e);
+      return;
+    }
+    await driveIngest(prep.projectId, runId, prep.reportId, prep.req, prep.endpoint);
+  })().finally(() => inflight.delete(task));
+  inflight.add(task);
+}
+
+/**
+ * Fail runs stuck in "running" past `maxAgeMs` (a worker restart orphaned the
+ * in-process stream). Clears each project's lock so the wiki isn't left
+ * read-only. Returns the number reaped.
+ */
+export async function reapStaleRuns(maxAgeMs: number): Promise<number> {
+  const runs = await getTomeIngestRunsCollection();
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  const stale = await runs.find({ status: "running", started_at: { $lt: cutoff } }).toArray();
+  for (const r of stale) {
+    await runs.updateOne(
+      { _id: r._id },
+      { $set: { status: "failed", error: "stale (worker restart or timeout)", finished_at: new Date() } },
+    );
+    await setProjectLocked(r.project_id, false);
+  }
+  return stale.length;
 }
 
 async function appendLog(runId: string, line: string): Promise<void> {
@@ -237,6 +414,9 @@ async function driveIngest(
   const reports = await getTomeReportsCollection();
   const agentUrl = process.env.TOME_AGENT_URL;
   try {
+    // Lock the project for the run's duration — humans can't edit pages (409)
+    // while the agent rewrites. Cleared in the finally below.
+    await setProjectLocked(projectId, true);
     if (!agentUrl) throw new Error("TOME_AGENT_URL not configured");
     const path = agentEndpoint.startsWith("/") ? agentEndpoint : `/${agentEndpoint}`;
     const res = await fetch(`${agentUrl.replace(/\/$/, "")}${path}`, {

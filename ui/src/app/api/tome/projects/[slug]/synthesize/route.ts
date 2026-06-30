@@ -7,7 +7,12 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
-import { startIngestRun, IngestInProgressError } from "@/lib/tome/ingest-runner";
+import {
+  startIngestRun,
+  enqueueBhagCascade,
+  isIngestRunning,
+  IngestInProgressError,
+} from "@/lib/tome/ingest-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +43,24 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const body = (await request.json().catch(() => ({}))) as {
     seed?: string;
     seedStablePages?: boolean;
+    /** Re-ingest every child project first, then synthesize (a cascade). */
+    refreshChildren?: boolean;
   };
 
   try {
+    // Cascade: enqueue a re-ingest per child, then the synthesize. The queue
+    // worker drains them; the parent runs once all children are terminal.
+    if (body.refreshChildren) {
+      if (await isIngestRunning(tctx.projectId)) {
+        throw new IngestInProgressError();
+      }
+      const { parentRunId, cascadeId, childCount } = await enqueueBhagCascade(tctx, {
+        seed: body.seed ?? null,
+        seedStablePages: body.seedStablePages,
+      });
+      return successResponse({ runId: parentRunId, cascadeId, childCount });
+    }
+
     const { runId } = await startIngestRun(tctx, {
       seed: body.seed ?? null,
       seedStablePages: body.seedStablePages,

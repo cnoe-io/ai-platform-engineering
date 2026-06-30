@@ -309,7 +309,7 @@ export function ProjectSettingsPanel({
               in on load). */}
           {isBhag ? (
             <Section title="Projects">
-              <BhagProjectsPanel bhagName={projectName} />
+              <BhagProjectsPanel bhagName={projectName} editable />
             </Section>
           ) : (
             <Section
