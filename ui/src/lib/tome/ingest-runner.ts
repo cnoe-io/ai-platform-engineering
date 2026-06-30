@@ -32,7 +32,6 @@ import {
 } from "./ingest-format";
 import { parseFrontmatter, stableSeedTemplates } from "./schema";
 import { injectCharterIntro } from "./seed";
-import { normLabel } from "@/lib/projects/labels";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
 import type { IngestDispatch, IngestRun, Report } from "@/types/tome";
@@ -50,27 +49,8 @@ async function loadProjectById(
   return { ...p, _id: String(p._id) } as ProjectDocument & { _id: string };
 }
 
-/**
- * Resolve the projects tagged to a BHAG (its `labels.initiatives` contains the
- * BHAG's name, case-insensitively). These are the wikis the BHAG synthesis reads.
- * Excludes BHAGs themselves so goals never synthesize over other goals.
- */
-export async function resolveBhagChildren(
-  bhagName: string,
-): Promise<{ project_id: string; slug: string; name: string }[]> {
-  const want = normLabel(bhagName);
-  if (!want) return [];
-  const projects = await getCollection<ProjectDocument>("projects");
-  const candidates = await projects
-    .find({
-      $or: [{ type: "project" }, { type: { $exists: false } }],
-      "labels.initiatives": { $exists: true, $ne: [] },
-    })
-    .toArray();
-  return candidates
-    .filter((p) => (p.labels?.initiatives ?? []).some((i) => normLabel(i) === want))
-    .map((p) => ({ project_id: String(p._id), slug: p.slug, name: p.title || p.name }));
-}
+import { resolveBhagChildren } from "./bhag";
+export { resolveBhagChildren };
 
 const inflight = new Set<Promise<void>>();
 

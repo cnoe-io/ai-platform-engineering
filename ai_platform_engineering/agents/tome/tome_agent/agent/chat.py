@@ -32,6 +32,7 @@ from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.loop import (
     build_agent_options,
     build_citation_guidance,
+    project_root,
     sources_for_connector,
 )
 from tome_agent.orchestrator.contract import ChatEventPayload, ProjectSnapshot
@@ -111,6 +112,20 @@ Project anchor (top-level overview — read repo-specific overviews under `repos
 
 {_strip("overview.md")}"""
 
+    # BHAG: this project's "sources" are the wikis of its tagged child projects,
+    # materialized read-only on disk. List them so chat can read across them.
+    children = snapshot.child_projects or []
+    if children:
+        child_lines = "\n".join(
+            f"    - `{project_root(c.project_id)}/` ({c.name})" for c in children
+        )
+        project_block += (
+            "\n\nCHILD PROJECT WIKIS — this is a BHAG (a strategic goal spanning the "
+            "projects tagged to it). Read these child wikis with Read/Glob/Grep to "
+            "answer cross-project questions; they are read-only (never write to them):\n"
+            f"{child_lines}"
+        )
+
     base = f"{prompts.load('CHAT')}\n\n---\n\n{project_block}"
     if os.environ.get("TTT_AGENT_ROLE") == "viewer":
         return f"{_READ_ONLY_NOTICE}\n\n---\n\n{base}"
@@ -129,6 +144,10 @@ async def stream_chat(
 
     system_prompt = build_system_prompt(snapshot, stable_pages)
 
+    # BHAG chat reads its tagged children's on-disk wikis (kept fresh by the
+    # workspace sync). Widen the read fence to them; writes stay confined to cwd.
+    child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
+
     def _options(resume: str | None) -> Any:
         return build_agent_options(
             snapshot=snapshot,
@@ -139,6 +158,7 @@ async def stream_chat(
             report_id=None,
             resume=resume,
             include_partial_messages=True,
+            extra_read_dirs=child_read_dirs,
         )
 
     # One attempt. Records progress in `state` and captures (never raises) any

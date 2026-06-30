@@ -11,6 +11,7 @@
 import { collectForwardedCredentials } from "@/lib/projects/onboarding-providers";
 import { webexRoomSlug } from "@/lib/projects/webex-room";
 
+import { resolveBhagChildren } from "./bhag";
 import { getPageStore } from "./page-store";
 import { stablePathsIn } from "./schema";
 import type { TomeProjectContext } from "./tome-api";
@@ -284,10 +285,17 @@ export async function buildChatRequest(
     loadStablePages(ctx.projectId),
     resolveForwardedCredentials(ctx),
   ]);
+  const snapshot = buildSnapshot(ctx);
+  // A BHAG has no sources of its own — its "context" is the wikis of its tagged
+  // child projects. Carry them so chat can read across them (the agent widens
+  // its read fence to the children's on-disk wikis).
+  if (ctx.project.type === "bhag") {
+    snapshot.child_projects = await resolveBhagChildren(ctx.project.name);
+  }
   return {
     message: opts.message,
     sdk_session_id: opts.sdkSessionId,
-    snapshot: buildSnapshot(ctx),
+    snapshot,
     stable_pages: stablePages,
     role: ctx.canEdit ? "editor" : "viewer",
     credentials,
