@@ -27,7 +27,7 @@ import type {
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 const DEFAULT_ORG_ID = "caipe";
 const DEFAULT_SLACK_WORKSPACE = "CAIPE";
-const DEFAULT_WEBEX_WORKSPACE = "Cisco";
+const DEFAULT_WEBEX_WORKSPACE = "CAIPE-WEBEX";
 const MAX_FINDINGS = 500;
 const ORPHAN_CANDIDATE_LIMIT = 75;
 
