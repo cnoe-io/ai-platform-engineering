@@ -1,3 +1,10 @@
+## 0.5.31 (2026-06-30)
+
+### Fix
+
+- **webex**: suppress duplicate wizard title and update tests
+- **webex**: add two-tab nav between Configure and Configured spaces
+
 ## 0.5.30 (2026-06-29)
 
 ### Fix
