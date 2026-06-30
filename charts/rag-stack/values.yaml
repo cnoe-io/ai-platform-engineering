@@ -242,9 +242,12 @@ neo4j:
 
   volumes:
     data:
-      mode: "dynamic"
-      dynamic:
-        storageClassName: gp2
+      mode: "defaultStorageClass"
+      defaultStorageClass:
+        accessModes:
+          - ReadWriteOnce
+        requests:
+          storage: 100Gi
 
 # RAG Redis configuration
 rag-redis:
