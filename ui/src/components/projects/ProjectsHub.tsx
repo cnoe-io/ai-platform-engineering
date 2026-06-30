@@ -6,14 +6,17 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
+  ArrowRight,
   BookOpen,
   ChevronDown,
   ChevronRight,
   FolderKanban,
   History,
+  Plus,
   RefreshCw,
   Rocket,
   Sparkles,
+  Target,
 } from "lucide-react";
 
 import { BackstageSyncDialog } from "@/components/projects/BackstageSyncDialog";
@@ -25,6 +28,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { normLabel } from "@/lib/projects/labels";
 import type { ProjectDocument } from "@/types/projects";
 
 type GroupBy = "none" | "initiative" | "swimlane";
@@ -222,35 +226,71 @@ function ProjectGroup({
   label,
   items,
   groupBy,
+  bhag,
+  onCreateBhag,
+  creating,
 }: {
   label: string;
   items: EnrichedProject[];
   groupBy: GroupBy;
+  /** The BHAG entity matching this group's label, when one exists. */
+  bhag?: EnrichedProject | null;
+  /** Promote this initiative label into a first-class BHAG wiki. */
+  onCreateBhag?: (label: string, items: EnrichedProject[]) => void;
+  creating?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const isUngrouped = label === "Ungrouped";
+  const isBhagGroup = groupBy === "initiative" && !isUngrouped;
   const labelClass = isUngrouped
     ? "text-sm font-medium text-muted-foreground"
     : groupBy === "initiative"
-      ? "text-sm font-semibold text-violet-400"
+      ? "text-sm font-semibold text-violet-300"
       : "text-sm font-semibold text-sky-400";
 
   return (
     <div className="space-y-3">
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className="flex w-full items-center gap-2 text-left"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-        )}
-        <span className={labelClass}>{label}</span>
-        <span className="text-xs text-muted-foreground/50">{items.length}</span>
-        <span className="ml-1 h-px flex-grow bg-border/40" />
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex flex-grow items-center gap-2 text-left"
+        >
+          {collapsed ? (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-violet-400" />}
+          <span className={labelClass}>{label}</span>
+          <span className="text-xs text-muted-foreground/50">{items.length}</span>
+          <span className="ml-1 h-px flex-grow bg-border/40" />
+        </button>
+
+        {/* BHAG front door: open the strategic-goal wiki, or promote this
+            initiative into one. Kept prominent so it's clear and apparent. */}
+        {isBhagGroup &&
+          (bhag ? (
+            <Link
+              href={`/projects/${bhag.slug}`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-violet-700/50 bg-violet-950/40 px-3 py-1.5 text-xs font-medium text-violet-200 transition hover:border-violet-500 hover:bg-violet-900/50"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Open {bhag.name} BHAG wiki
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onCreateBhag?.(label, items)}
+              disabled={creating}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-violet-700/50 px-3 py-1.5 text-xs font-medium text-violet-300/80 transition hover:border-violet-500 hover:bg-violet-950/40 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {creating ? "Creating…" : "Create BHAG wiki"}
+            </button>
+          ))}
+      </div>
 
       {!collapsed && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -267,6 +307,8 @@ export function ProjectsHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<EnrichedProject[]>([]);
+  const [bhags, setBhags] = useState<EnrichedProject[]>([]);
+  const [creatingBhag, setCreatingBhag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<OnboardingHeroConfig>({
@@ -278,11 +320,13 @@ export function ProjectsHub() {
   const [canOpenSync, setCanOpenSync] = useState(false);
   const [, setSyncBlockedReason] = useState<string | null>(null);
 
-  const groupBy = (searchParams.get("groupBy") ?? "none") as GroupBy;
+  // Default to grouping by BHAG so strategic goals are the primary lens; the
+  // user can still drop to a flat list or swimlanes.
+  const groupBy = (searchParams.get("groupBy") ?? "initiative") as GroupBy;
 
   const setGroupBy = (value: GroupBy) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (value === "none") params.delete("groupBy");
+    if (value === "initiative") params.delete("groupBy");
     else params.set("groupBy", value);
     router.replace(`/projects?${params.toString()}`);
   };
@@ -291,16 +335,61 @@ export function ProjectsHub() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/projects");
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Failed to load projects");
-      setProjects((body.data?.projects ?? []) as EnrichedProject[]);
+      // Real projects (BHAGs are filtered out server-side) and BHAG entities are
+      // fetched separately; BHAGs enrich the Group-by-BHAG headers rather than
+      // appearing as project cards.
+      const [projRes, bhagRes] = await Promise.all([
+        fetch("/api/projects"),
+        fetch("/api/projects?type=bhag"),
+      ]);
+      const projBody = await projRes.json();
+      if (!projRes.ok) throw new Error(projBody.error ?? "Failed to load projects");
+      setProjects((projBody.data?.projects ?? []) as EnrichedProject[]);
+      if (bhagRes.ok) {
+        const bhagBody = await bhagRes.json();
+        setBhags((bhagBody.data?.projects ?? []) as EnrichedProject[]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Index BHAG entities by normalized name so a Group-by-BHAG section can find
+  // the entity matching its initiative label.
+  const bhagByLabel = new Map<string, EnrichedProject>();
+  for (const b of bhags) bhagByLabel.set(normLabel(b.name), b);
+
+  // Promote an initiative label into a first-class BHAG wiki. The BHAG inherits
+  // the team of the projects already tagged with it, then we route to its wiki.
+  const handleCreateBhag = useCallback(
+    async (label: string, items: EnrichedProject[]) => {
+      const teamId = items[0]?.team_slug || items[0]?.team_id;
+      if (!teamId) {
+        setError("Cannot create a BHAG: no team found for this group.");
+        return;
+      }
+      setCreatingBhag(normLabel(label));
+      setError(null);
+      try {
+        const res = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: label, type: "bhag", team_id: teamId }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? "Failed to create BHAG");
+        const slug = body.data?.project?.slug;
+        if (slug) router.push(`/projects/${slug}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCreatingBhag(null);
+      }
+    },
+    [router],
+  );
 
   useEffect(() => {
     void load();
@@ -374,23 +463,20 @@ export function ProjectsHub() {
 
       <section className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">Your projects</h2>
-          <div className="flex items-center gap-3">
-            <select
-              value={groupBy}
-              onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-              className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="none">No grouping</option>
-              <option value="initiative">Group by BHAG</option>
-              <option value="swimlane">Group by Swim Lane</option>
-            </select>
-            {!loading && (
-              <span className="text-sm text-muted-foreground">
-                {projects.length} {projects.length === 1 ? "project" : "projects"}
-              </span>
-            )}
-          </div>
+          <h2 className="text-xl font-semibold">
+            {loading
+              ? "Your projects"
+              : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
+          </h2>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+            className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+          >
+            <option value="initiative">Group by BHAG</option>
+            <option value="swimlane">Group by Swim Lane</option>
+            <option value="none">No grouping</option>
+          </select>
         </div>
 
         {loading && <p className="text-sm text-muted-foreground">Loading projects…</p>}
@@ -426,6 +512,9 @@ export function ProjectsHub() {
                   label={g.label}
                   items={g.items}
                   groupBy={groupBy}
+                  bhag={groupBy === "initiative" ? bhagByLabel.get(normLabel(g.label)) : null}
+                  onCreateBhag={handleCreateBhag}
+                  creating={creatingBhag === normLabel(g.label)}
                 />
               ))}
             </div>

@@ -18,6 +18,7 @@ import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
+import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import type { ProjectDocument, ProjectSources } from "@/types/projects";
 
 /**
@@ -52,6 +53,9 @@ export function ProjectSettingsPanel({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // BHAG vs regular project: a BHAG shows its child projects in place of Sources.
+  const [isBhag, setIsBhag] = useState(false);
+  const [projectName, setProjectName] = useState("");
   const [sources, setSources] = useState<ProjectSources>({
     repos: [],
     confluence_url: "",
@@ -83,6 +87,8 @@ export function ProjectSettingsPanel({
         if (cancelled) return;
         setTitle(project.title);
         setDescription(project.description ?? "");
+        setIsBhag(project.type === "bhag");
+        setProjectName(project.name ?? project.title ?? "");
         setSources({
           repos: project.sources?.repos ?? [],
           confluence_url: project.sources?.confluence_url ?? "",
@@ -297,32 +303,41 @@ export function ProjectSettingsPanel({
             </Field>
           </Section>
 
-          {/* Sources — always reserves space so it never pops in on load. */}
-          <Section
-            title="Sources"
-            action={
-              <Link
-                href="/credentials"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Manage connections
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            }
-          >
-            {sourceKindsLoading ? (
-              <div className="space-y-2" aria-hidden>
-                <div className="h-9 animate-pulse rounded-lg bg-muted/50" />
-                <div className="h-9 animate-pulse rounded-lg bg-muted/50" />
-              </div>
-            ) : sourceKinds.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No source connectors are configured for this deployment.
-              </p>
-            ) : (
-              <SourcesEditor kinds={sourceKinds} value={sources} onChange={setSources} />
-            )}
-          </Section>
+          {/* A BHAG has no connectors — its "sources" are the projects tagged to
+              it, which the agent reads to synthesize the BHAG wiki. Regular
+              projects show the Sources editor (reserves space so it never pops
+              in on load). */}
+          {isBhag ? (
+            <Section title="Projects">
+              <BhagProjectsPanel bhagName={projectName} />
+            </Section>
+          ) : (
+            <Section
+              title="Sources"
+              action={
+                <Link
+                  href="/credentials"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Manage connections
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              }
+            >
+              {sourceKindsLoading ? (
+                <div className="space-y-2" aria-hidden>
+                  <div className="h-9 animate-pulse rounded-lg bg-muted/50" />
+                  <div className="h-9 animate-pulse rounded-lg bg-muted/50" />
+                </div>
+              ) : sourceKinds.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No source connectors are configured for this deployment.
+                </p>
+              ) : (
+                <SourcesEditor kinds={sourceKinds} value={sources} onChange={setSources} />
+              )}
+            </Section>
+          )}
 
           {/* Danger zone — collapsed by default. */}
           <div className="rounded-lg border border-destructive/40">

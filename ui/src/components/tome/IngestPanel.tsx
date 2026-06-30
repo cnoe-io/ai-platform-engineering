@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -217,11 +218,14 @@ export function IngestPanel({
   canEdit,
   onOpenRun,
   onRunStarted,
+  isBhag = false,
 }: {
   slug: string;
   canEdit: boolean;
   onOpenRun: (runId: string) => void;
   onRunStarted: (runId: string) => void;
+  /** BHAG synthesis mode: no sources, synthesizes from tagged child projects. */
+  isBhag?: boolean;
 }) {
   // Run state
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
@@ -235,6 +239,7 @@ export function IngestPanel({
   const [sourceRows, setSourceRows] = useState<SourceRow[] | null>(null);
   const [connectedKeys, setConnectedKeys] = useState<Set<string>>(new Set());
   const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [projectName, setProjectName] = useState("");
 
   // Greenfield seeding — opt-in. Off by default: stable pages stay human-owned
   // unless the user explicitly authorizes a best-effort agent draft.
@@ -278,7 +283,9 @@ export function IngestPanel({
     ])
       .then(([projJson, connJson]) => {
         if (cancelled) return;
-        const s = projJson?.data?.project?.sources ?? {};
+        const proj = projJson?.data?.project ?? {};
+        setProjectName(proj.name ?? proj.title ?? "");
+        const s = proj.sources ?? {};
         setSourceRows(sourcesFromProject(s));
 
         const connections: Array<{ provider?: string; status?: string }> =
@@ -367,19 +374,28 @@ export function IngestPanel({
     setStarting(true);
     setError(null);
     const selectedList = (meetings ?? []).filter((m) => selectedMeetings.has(m.id));
-    try {
-      const res = await fetch(`/api/tome/projects/${slug}/reingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    // BHAGs synthesize from tagged children via /synthesize (no sources/meetings);
+    // regular projects pull their sources via /reingest.
+    const endpoint = isBhag ? "synthesize" : "reingest";
+    const payload = isBhag
+      ? {
+          seed: seed.trim() || undefined,
+          seedStablePages: isGreenfield ? seedPages : undefined,
+        }
+      : {
           seed: seed.trim() || undefined,
           webexMeetings: selectedList.length > 0 ? selectedList : undefined,
           seedStablePages: isGreenfield ? seedPages : undefined,
-        }),
+        };
+    try {
+      const res = await fetch(`/api/tome/projects/${slug}/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || `reingest failed (${res.status})`);
+        throw new Error(j?.error || `${endpoint} failed (${res.status})`);
       }
       const json = await res.json();
       setSeed("");
@@ -391,7 +407,7 @@ export function IngestPanel({
     } finally {
       setStarting(false);
     }
-  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages]);
+  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, isBhag]);
 
   const lastRun = runs?.[0] ?? null;
   const filteredMeetings = (meetings ?? []).filter((m) =>
@@ -407,13 +423,40 @@ export function IngestPanel({
 
           {/* Header */}
           <div>
-            <h2 className="text-lg font-semibold">Run ingest</h2>
+            <h2 className="text-lg font-semibold">
+              {isBhag ? "Synthesize BHAG" : "Run ingest"}
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Re-run the agent over this project&apos;s sources to refresh the dynamic wiki.
+              {isBhag
+                ? "Synthesize this BHAG's wiki from the projects tagged to it. The agent reads their wikis — a BHAG has no sources of its own."
+                : "Re-run the agent over this project's sources to refresh the dynamic wiki."}
             </p>
           </div>
 
-          {/* Sources preflight */}
+          {/* BHAG: the projects rolled up, in place of source preflight. */}
+          {isBhag ? (
+            <div className="rounded-lg border">
+              <div className="flex items-center justify-between border-b px-4 py-2.5">
+                <span className="text-sm font-medium">Projects in this synthesis</span>
+                <a
+                  href={`/projects/${slug}/tome/settings`}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Manage <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+              <div className="px-4 py-3">
+                {projectName ? (
+                  <BhagProjectsPanel bhagName={projectName} />
+                ) : (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading projects…
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+          /* Sources preflight */
           <div className="rounded-lg border">
             <div className="flex items-center justify-between border-b px-4 py-2.5">
               <span className="text-sm font-medium">Project sources</span>
@@ -477,12 +520,14 @@ export function IngestPanel({
               )}
             </ul>
           </div>
+          )}
 
           {/* Add context */}
           <div className="space-y-3">
             <p className="text-sm font-medium">Add context for this run</p>
 
-            {/* Webex meeting picker */}
+            {/* Webex meeting picker — projects only (a BHAG has no Webex). */}
+            {!isBhag && (
             <div className="rounded-lg border">
               <button
                 type="button"
@@ -574,6 +619,7 @@ export function IngestPanel({
                 </div>
               )}
             </div>
+            )}
 
             {/* Seed instruction */}
             <div>
@@ -637,10 +683,12 @@ export function IngestPanel({
                 disabled={!canEdit || starting || inProgress}
                 title={
                   !canEdit
-                    ? "You need edit access to run an ingest"
+                    ? `You need edit access to ${isBhag ? "synthesize" : "run an ingest"}`
                     : inProgress
-                      ? "An ingest is already running"
-                      : "Run ingest"
+                      ? `A ${isBhag ? "synthesis" : "ingest"} is already running`
+                      : isBhag
+                        ? "Synthesize BHAG"
+                        : "Run ingest"
                 }
               >
                 {starting ? (
@@ -648,7 +696,7 @@ export function IngestPanel({
                 ) : (
                   <Play className="h-4 w-4" />
                 )}
-                {starting ? "Starting…" : "Run ingest"}
+                {starting ? "Starting…" : isBhag ? "Synthesize" : "Run ingest"}
               </Button>
               {inProgress && (
                 <Button

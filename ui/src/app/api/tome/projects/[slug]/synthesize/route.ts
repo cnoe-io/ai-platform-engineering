@@ -1,5 +1,7 @@
-// Kick an ingest run. POST { seed? } → { runId }. The agent stream is driven
-// in the background; the browser polls the run for the live log.
+// Kick a BHAG synthesis run. POST { seed?, seedStablePages? } → { runId }. A BHAG
+// has no sources — this synthesizes its wiki from the projects tagged to it.
+// Distinct from /reingest (single-project source pull); both share the run
+// lifecycle but drive different agent endpoints (/synthesize vs /ingest).
 
 import { NextRequest } from "next/server";
 
@@ -16,13 +18,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
 
-  // A BHAG has no sources to ingest — its wiki is a synthesis of the projects
-  // tagged to it. Route those runs through the dedicated /synthesize endpoint.
-  if (tctx.project.type === "bhag") {
+  // Synthesis is BHAG-only; regular projects ingest their sources via /reingest.
+  if (tctx.project.type !== "bhag") {
     throw new ApiError(
-      "BHAGs don't ingest sources. Use BHAG synthesis instead.",
+      "Synthesis is only for BHAGs. Use a normal ingest for projects.",
       400,
-      "USE_SYNTHESIS",
+      "NOT_A_BHAG",
     );
   }
 
@@ -36,15 +37,14 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
   const body = (await request.json().catch(() => ({}))) as {
     seed?: string;
-    webexMeetings?: { id: string; title: string; start: string }[];
     seedStablePages?: boolean;
   };
 
   try {
     const { runId } = await startIngestRun(tctx, {
       seed: body.seed ?? null,
-      webexMeetings: body.webexMeetings,
       seedStablePages: body.seedStablePages,
+      agentEndpoint: "/synthesize",
     });
     return successResponse({ runId });
   } catch (e) {

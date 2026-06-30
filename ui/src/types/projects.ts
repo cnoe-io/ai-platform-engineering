@@ -60,6 +60,16 @@ export type ProjectLifecycleStatus = "draft" | "onboarding" | "active" | "archiv
 export type ProjectSource = "manual" | "backstage";
 
 /**
+ * Project kind. A regular `project` ingests its own sources. A `bhag` (Big
+ * Hairy Audacious Goal) is a strategic entity with its own wiki whose stable
+ * pages are leadership-authored and whose dynamic pages are agent-synthesized
+ * from the projects tagged to it (via `labels.initiatives`). A BHAG has
+ * no connectors of its own — its sources are its child projects' wikis.
+ * Legacy documents without a `type` are treated as `project`.
+ */
+export type ProjectType = "project" | "bhag";
+
+/**
  * Label dimensions for discovery + the executive dashboard. Free-form,
  * multi-value (except domain). `domain` is denormalized from the structural
  * domain (mirrors the top-level `domain` field) so the dashboard can facet by it.
@@ -105,6 +115,8 @@ export interface ProjectSources {
 
 export interface ProjectDocument {
   _id?: string;
+  /** Project kind. Absent on legacy docs — treat absent as "project". */
+  type?: ProjectType;
   slug: string;
   name: string;
   title: string;
@@ -137,6 +149,8 @@ export interface ProjectDocument {
 
 export interface CreateProjectRequest {
   name: string;
+  /** Defaults to "project". Pass "bhag" to create a strategic-goal entity. */
+  type?: ProjectType;
   description?: string;
   team_id: string;
   member_ids?: string[];

@@ -162,7 +162,7 @@ def make_constrain_writes_hook(project_dir: Path):
     return constrain
 
 
-def make_constrain_reads_hook(project_dir: Path):
+def make_constrain_reads_hook(project_dir: Path, extra_dirs: list[Path] | None = None):
     """PreToolUse hook denying file-reading tools outside `project_dir`.
 
     The write hook confines Edit/Write; this confines Read/Glob/Grep so the
@@ -171,10 +171,24 @@ def make_constrain_reads_hook(project_dir: Path):
     has no business reading anything outside it. Source data comes from the
     connector MCPs (github/confluence/webex), never the local filesystem.
 
+    `extra_dirs` widens the allowed read roots beyond cwd. Used for a BHAG
+    ingest: the agent's cwd is the BHAG's own wiki, but it must also READ (never
+    write) the on-disk wikis of its child projects to synthesize the BHAG wiki.
+
     Glob/Grep accept an optional `path` search root; when omitted they default
     to cwd (safe) so we only reject an explicit out-of-tree `path`."""
-    project_dir_resolved = project_dir.resolve()
+    allowed_roots = [project_dir.resolve()] + [d.resolve() for d in (extra_dirs or [])]
     READ_TOOLS = {"Read", "Glob", "Grep", "NotebookRead"}
+
+    def _within_allowed(target: str) -> bool:
+        resolved = Path(target).resolve()
+        for root in allowed_roots:
+            try:
+                resolved.relative_to(root)
+                return True
+            except (ValueError, OSError):
+                continue
+        return False
 
     async def constrain(input_data, _tool_use_id, _context):
         tool_name = input_data.get("tool_name", "")
@@ -185,20 +199,24 @@ def make_constrain_reads_hook(project_dir: Path):
         if not target:
             # Glob/Grep with no path → search root defaults to cwd. Allowed.
             return {}
-        try:
-            Path(target).resolve().relative_to(project_dir_resolved)
-        except (ValueError, OSError):
-            log.warning("denied %s outside project dir: %s", tool_name, target)
+        if not _within_allowed(str(target)):
+            log.warning("denied %s outside allowed dirs: %s", tool_name, target)
+            extra_hint = (
+                " You may also read the child project wikis listed in your prompt."
+                if extra_dirs
+                else ""
+            )
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": (
                         f"{tool_name} target {target!r} is outside your wiki "
-                        f"directory ({project_dir_resolved}). The wiki IS your cwd — "
+                        f"directory ({allowed_roots[0]}). The wiki IS your cwd — "
                         "use relative paths (e.g. `overview.md`, "
                         "`repos/<slug>/status.md`). Source data (repos, Confluence, "
                         "Webex) comes from the MCP tools, not the local filesystem."
+                        + extra_hint
                     ),
                 }
             }
@@ -341,9 +359,13 @@ def build_agent_options(
     resume: str | None = None,
     include_partial_messages: bool = False,
     on_write: Callable[[str, int], Any] | None = None,
+    extra_read_dirs: list[Path] | None = None,
 ) -> ClaudeAgentOptions:
     """Compose ClaudeAgentOptions for chat and ingest in the agent
-    container. MCP servers are scoped to the snapshot's sources."""
+    container. MCP servers are scoped to the snapshot's sources.
+
+    `extra_read_dirs` widens the read fence beyond cwd (writes stay confined to
+    cwd). Used by the BHAG synthesis agent to read its child projects' wikis."""
 
     agent_role = os.environ.get("TTT_AGENT_ROLE", "editor")
 
@@ -431,7 +453,7 @@ def build_agent_options(
                 ),
                 HookMatcher(
                     matcher="Read|Glob|Grep|NotebookRead",
-                    hooks=[make_constrain_reads_hook(pdir)],
+                    hooks=[make_constrain_reads_hook(pdir, extra_dirs=extra_read_dirs)],
                 ),
                 HookMatcher(
                     matcher="*",

@@ -35,6 +35,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.ingestor import stream_ingest
+from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
 from tome_agent.orchestrator.contract import (
     ChatEventPayload,
@@ -201,6 +202,49 @@ async def ingest_endpoint(body: IngestRequest):
                     run_id=body.run_id,
                     seed=body.seed,
                     connector_data=body.connector_data,
+                    snapshot=body.snapshot,
+                    is_greenfield=body.is_greenfield,
+                    seed_stable_pages=body.seed_stable_pages,
+                    report_id=body.report_id,
+                ):
+                    yield _sse_format(event)
+        finally:
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(timezone.utc)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ---------- BHAG synthesis (cross-project synthesis) ----------
+
+
+@app.post("/synthesize")
+async def synthesize_endpoint(body: IngestRequest):
+    """BHAG synthesis: synthesize a strategic goal's wiki from its tagged child
+    projects' wikis. Distinct from `/ingest` (which pulls a single project's
+    sources) — the first of a suite of cross-project subagents. Reuses the
+    IngestRequest contract; `snapshot.child_projects` carries the children."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        pid = body.snapshot.project_id
+        http_client.set_active_project_id(pid)
+        http_client.set_active_credentials(body.credentials)
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(timezone.utc)
+        try:
+            async with workspace.project_lock(pid):
+                await workspace.refresh_project(pid)
+                # Refresh each child's on-disk wiki from the source of truth so
+                # the synthesis reads the latest committed state. Each under its
+                # own lock.
+                for child in body.snapshot.child_projects:
+                    async with workspace.project_lock(child.project_id):
+                        await workspace.refresh_project(child.project_id)
+                async for event in stream_synthesis(
+                    run_id=body.run_id,
+                    seed=body.seed,
                     snapshot=body.snapshot,
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,

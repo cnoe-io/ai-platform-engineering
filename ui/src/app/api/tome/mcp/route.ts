@@ -209,7 +209,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_get_project",
     description:
-      "Get a single project's detail: name, status, and attached sources (repos, Confluence URL, Webex rooms). `project_slug` is required.",
+      "Get a single project's detail: name, status, attached sources (repos, Confluence URL, Webex rooms), and the BHAG(s) it's tagged to (its strategic goals). `project_slug` is required.",
     inputSchema: schema({ project_slug: STR }, ["project_slug"]),
     handler: async (_req, fwd, args) => {
       const slug = String(args.project_slug);
@@ -217,7 +217,111 @@ const TOOLS: ToolDef[] = [
       const p = data?.project ?? {};
       return toolText(
         JSON.stringify(
-          { slug: p.slug, name: p.name ?? p.title, status: p.status, sources: p.sources },
+          {
+            slug: p.slug,
+            name: p.name ?? p.title,
+            type: p.type ?? "project",
+            status: p.status,
+            sources: p.sources,
+            // The BHAGs this project ladders up to (initiative tags).
+            bhags: p.labels?.initiatives ?? [],
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_list_bhags",
+    description:
+      "List BHAGs (Big Hairy Audacious Goals) the user can access. A BHAG is a strategic goal that spans multiple projects and has its own wiki. Returns slug, name, and status for each.",
+    inputSchema: schema({}),
+    handler: async (_req, fwd) => {
+      const data = ensureOk(await fwd("GET", "/api/projects?type=bhag"), "list bhags");
+      const bhags = (data?.projects ?? []).map((b: any) => ({
+        slug: b.slug,
+        name: b.name ?? b.title,
+        status: b.status,
+      }));
+      return toolText(JSON.stringify(bhags, null, 2));
+    },
+  },
+  {
+    name: "tome_get_bhag",
+    description:
+      "Get a BHAG's detail plus the projects tagged to it. Returns name, status, the BHAG's own wiki page tree, and `child_projects` (the projects that ladder up to this goal). `bhag_slug` is required.",
+    inputSchema: schema({ bhag_slug: STR }, ["bhag_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.bhag_slug));
+      const data = ensureOk(await fwd("GET", `/api/projects/${slug}`), "get bhag");
+      const b = data?.project ?? {};
+      if ((b.type ?? "project") !== "bhag") {
+        return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
+      }
+      const name = b.name ?? b.title ?? "";
+      const childData = ensureOk(
+        await fwd("GET", `/api/projects?initiative=${encodeURIComponent(name)}`),
+        "list child projects",
+      );
+      const children = (childData?.projects ?? []).map((c: any) => ({
+        slug: c.slug,
+        name: c.name ?? c.title,
+        status: c.status,
+      }));
+      return toolText(
+        JSON.stringify(
+          { slug: b.slug, name, status: b.status, child_projects: children },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_get_bhag_synthesis_context",
+    description:
+      "Gather everything needed to synthesize a BHAG: the BHAG's own wiki pages plus the wiki pages of every project tagged to it. Use this to author/refresh the BHAG's dynamic pages (a cross-project synthesis). `bhag_slug` is required. Note: this is the human/MCP-client path; the in-product agent can synthesize in-app via the BHAG's Synthesize action.",
+    inputSchema: schema({ bhag_slug: STR }, ["bhag_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.bhag_slug));
+      const data = ensureOk(await fwd("GET", `/api/projects/${slug}`), "get bhag");
+      const b = data?.project ?? {};
+      if ((b.type ?? "project") !== "bhag") {
+        return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
+      }
+      const name = b.name ?? b.title ?? "";
+      const childData = ensureOk(
+        await fwd("GET", `/api/projects?initiative=${encodeURIComponent(name)}`),
+        "list child projects",
+      );
+      const children = (childData?.projects ?? []) as any[];
+
+      const fetchPages = async (s: string) => {
+        try {
+          const pd = ensureOk(
+            await fwd("GET", `/api/tome/projects/${encodeURIComponent(s)}/pages`),
+            "get pages",
+          );
+          return pd?.pages ?? {};
+        } catch {
+          return {};
+        }
+      };
+
+      const bhagPages = await fetchPages(b.slug);
+      const childContext = [];
+      for (const c of children) {
+        childContext.push({
+          slug: c.slug,
+          name: c.name ?? c.title,
+          status: c.status,
+          pages: await fetchPages(c.slug),
+        });
+      }
+      return toolText(
+        JSON.stringify(
+          { bhag: { slug: b.slug, name, pages: bhagPages }, children: childContext },
           null,
           2,
         ),
@@ -350,11 +454,12 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_create_project",
     description:
-      "Create a new Tome project. `name` and `team_id` (team slug) are required. Optional: `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
+      "Create a new Tome project or BHAG. `name` and `team_id` (team slug) are required. Optional: `type` (\"project\" default, or \"bhag\" for a strategic-goal entity — a BHAG ignores sources), `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
     inputSchema: schema(
       {
         name: STR,
         team_id: STR,
+        type: { type: "string", enum: ["project", "bhag"] },
         description: STR,
         github_repos: { type: "array", items: STR },
         confluence_url: STR,
@@ -367,13 +472,15 @@ const TOOLS: ToolDef[] = [
     ),
     handler: async (_req, fwd, args) => {
       const body: Record<string, unknown> = { name: String(args.name), team_id: String(args.team_id) };
+      if (args.type === "bhag") body.type = "bhag";
       if (args.description) body.description = String(args.description);
       if (Array.isArray(args.github_repos)) body.github_repos = args.github_repos;
       if (args.confluence_url) body.confluence_url = String(args.confluence_url);
       if (Array.isArray(args.webex_rooms)) body.webex_rooms = args.webex_rooms;
       const data = ensureOk(await fwd("POST", "/api/projects", body), "create project");
       const p = data?.project ?? {};
-      return toolText(`Created project "${p.name}" (slug=${p.slug}, status=${p.status}).`);
+      const kind = p.type === "bhag" ? "BHAG" : "project";
+      return toolText(`Created ${kind} "${p.name}" (slug=${p.slug}, status=${p.status}).`);
     },
   },
   {

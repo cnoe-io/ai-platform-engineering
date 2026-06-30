@@ -18,9 +18,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
 
   const col = await getCollection<ProjectDocument>("projects");
-  const filter = isOrgAdmin
-    ? {}
-    : { $or: [{ owner_id: user.email }, { member_ids: user.email }] };
+  // Exclude BHAGs — they share the collection (type:"bhag") but are not real
+  // projects and would inflate the facet counts.
+  const notBhag = { $or: [{ type: "project" }, { type: { $exists: false } }] };
+  const filter: Record<string, unknown> = isOrgAdmin
+    ? notBhag
+    : {
+        $and: [
+          { $or: [{ owner_id: user.email }, { member_ids: user.email }] },
+          notBhag,
+        ],
+      };
 
   const projects = await col.find(filter).toArray();
   const facets = computeFacets(projects);

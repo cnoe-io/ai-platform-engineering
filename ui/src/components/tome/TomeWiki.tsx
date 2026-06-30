@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUpRight,
   ChevronRight,
   Eye,
   EyeOff,
@@ -14,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Target,
   Upload,
 } from "lucide-react";
 
@@ -43,6 +45,7 @@ import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
+import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
 
@@ -154,6 +157,12 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [showHidden, setShowHidden] = useState(false);
   // First-run onboarding: project title (for the modal copy) + open state.
   const [projectTitle, setProjectTitle] = useState<string | null>(null);
+  // BHAG awareness: this project's kind, the initiatives it's tagged with, and
+  // the BHAG entities those initiatives resolve to (for the up-link chip).
+  const [projectType, setProjectType] = useState<"project" | "bhag">("project");
+  const [initiatives, setInitiatives] = useState<string[]>([]);
+  const [parentBhags, setParentBhags] = useState<{ slug: string; name: string }[]>([]);
+  const isBhag = projectType === "bhag";
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
@@ -210,21 +219,48 @@ export function TomeWiki({ slug }: { slug: string }) {
     };
   }, [slug, load]);
 
-  // Project title for the onboarding modal copy (falls back to a generic line).
+  // Project title (onboarding modal copy) + BHAG awareness (kind + the
+  // initiatives this project is tagged with).
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/projects/${slug}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const t = body?.data?.project?.title;
-        if (typeof t === "string" && t) setProjectTitle(t);
+        const p = body?.data?.project;
+        if (!p) return;
+        if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
+        setProjectType(p.type === "bhag" ? "bhag" : "project");
+        setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [slug]);
+
+  // Resolve this project's initiative tags to BHAG entities so a regular
+  // project can surface a clickable up-link to its strategic goal(s). Skipped
+  // for BHAGs themselves and for untagged projects.
+  useEffect(() => {
+    if (isBhag || initiatives.length === 0) {
+      setParentBhags([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=bhag`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const all = (body?.data?.projects ?? []) as { slug: string; name: string }[];
+        const want = new Set(initiatives.map((i) => normLabel(i)));
+        setParentBhags(all.filter((b) => want.has(normLabel(b.name))));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, isBhag, initiatives]);
 
   // Show the first-run walkthrough once per browser. The Help button reopens it.
   useEffect(() => {
@@ -391,6 +427,12 @@ export function TomeWiki({ slug }: { slug: string }) {
     }
   }, [view, data, navigate]);
 
+  // Initiative tag (normalized) → its BHAG wiki entity, when one exists.
+  const bhagByInitiative = useMemo(
+    () => new Map(parentBhags.map((b) => [normLabel(b.name), b])),
+    [parentBhags],
+  );
+
   const navActive = {
     agent: view.kind === "agent",
     talk: view.kind === "talk",
@@ -419,6 +461,46 @@ export function TomeWiki({ slug }: { slug: string }) {
               ...crumbs,
             ]}
           />
+          {isBhag && (
+            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+              <Target className="h-3 w-3" />
+              BHAG
+            </span>
+          )}
+          {/* Up-links: a project can be tagged to many BHAGs (initiatives are
+              multi-value tags). Render a chip per tag; the ones promoted to a
+              BHAG wiki link to it, the rest show membership without a link. */}
+          {!isBhag &&
+            initiatives.map((init) => {
+              const b = bhagByInitiative.get(normLabel(init));
+              return b ? (
+                <Tooltip key={init}>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={`/projects/${b.slug}/tome`}
+                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/30 px-2 py-0.5 text-[11px] font-medium text-violet-300 transition hover:border-violet-500 hover:bg-violet-900/50"
+                    >
+                      <Target className="h-3 w-3" />
+                      {b.name}
+                      <ArrowUpRight className="h-3 w-3" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Open the BHAG wiki: {b.name}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Tooltip key={init}>
+                  <TooltipTrigger asChild>
+                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-800/30 px-2 py-0.5 text-[11px] font-medium text-violet-300/60">
+                      <Target className="h-3 w-3" />
+                      {init}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="w-56 whitespace-normal">
+                    Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet — create one from the Projects hub.
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <McpConnectDialog />
             <Tooltip>
@@ -460,11 +542,15 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                   <NavItem
                     icon={<RefreshCw className="h-4 w-4" />}
-                    label="Schedule new ingest"
+                    label={isBhag ? "Synthesize" : "Schedule new ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
-                    tipTitle="Schedule new ingest"
-                    tipDescription="Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
+                    tipTitle={isBhag ? "Synthesize" : "Schedule new ingest"}
+                    tipDescription={
+                      isBhag
+                        ? "Synthesize this BHAG: the agent reads the wikis of the projects tagged to it and writes the strategic view. A BHAG has no sources of its own."
+                        : "Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
+                    }
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
@@ -670,6 +756,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <IngestPanel
                   slug={slug}
                   canEdit
+                  isBhag={isBhag}
                   onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
                   onRunStarted={(runId) => navigate({ kind: "ingestRun", runId })}
                 />

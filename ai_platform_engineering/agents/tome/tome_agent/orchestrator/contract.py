@@ -48,6 +48,16 @@ class ConfluenceSpaceSnapshot(BaseModel):
     base_url: str = ""
 
 
+class ChildProjectSnapshot(BaseModel):
+    """A project tagged to a BHAG. The agent reads each child's on-disk wiki
+    (materialized at `<TTT_PROJECT_ROOT>/<project_id>/` by the workspace sync)
+    to synthesize the BHAG wiki — a BHAG has no sources of its own."""
+
+    project_id: str  # CAIPE project id; also the on-disk workspace dir name
+    slug: str = ""
+    name: str = ""
+
+
 class ProjectSnapshot(BaseModel):
     """Everything the agent needs to build its system prompt and run a turn.
 
@@ -61,9 +71,15 @@ class ProjectSnapshot(BaseModel):
     charter: str = ""
     phase: str | None = None
     cadence: str | None = None
+    project_type: Literal["project", "bhag"] = "project"
+    """Project kind. A `bhag` is a strategic goal whose wiki is synthesized by
+    rolling up its `child_projects` (it has no sources of its own)."""
     repos: list[RepoSnapshot] = Field(default_factory=list)
     webex_rooms: list[WebexRoomSnapshot] = Field(default_factory=list)
     confluence_spaces: list[ConfluenceSpaceSnapshot] = Field(default_factory=list)
+    child_projects: list[ChildProjectSnapshot] = Field(default_factory=list)
+    """BHAG only: the projects tagged to this goal. The agent reads each one's
+    on-disk wiki to build the synthesis."""
 
 
 # ---------- agent inbound: /chat ----------
@@ -171,6 +187,7 @@ __all__ = [
     "ChatEventPayload",
     "ChatEventType",
     "ChatRequest",
+    "ChildProjectSnapshot",
     "ConfluenceSpaceSnapshot",
     "HealthResponse",
     "IngestEventPayload",

@@ -22,7 +22,7 @@ import { projectMatchesLabels, sanitizeLabels } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import type { CreateProjectRequest, ProjectDocument } from "@/types/projects";
+import type { CreateProjectRequest, ProjectDocument, ProjectType } from "@/types/projects";
 import type { Team } from "@/types/teams";
 
 async function resolveTeam(teamId: string): Promise<Team & { _id: string }> {
@@ -65,10 +65,22 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     filter = { team_id: { $in: teamIds } };
   }
 
+  // Kind filter. BHAGs share the `projects` collection (type:"bhag") but are a
+  // distinct surface, so they must not leak into the normal project grid or any
+  // existing consumer. Default = real projects only (type "project" or legacy
+  // docs with no type). `?type=bhag` returns only BHAGs; `?type=all` returns
+  // everything.
+  const { searchParams } = new URL(request.url);
+  const typeParam = searchParams.get("type");
+  if (typeParam === "bhag") {
+    filter.type = "bhag";
+  } else if (typeParam !== "all") {
+    filter.$or = [{ type: "project" }, { type: { $exists: false } }];
+  }
+
   const all = await projects.find(filter).sort({ updated_at: -1 }).toArray();
 
   // Label-faceted discovery (FR-006): AND across dimensions, OR within.
-  const { searchParams } = new URL(request.url);
   const labelFilter = {
     domains: searchParams.getAll("domain"),
     initiatives: searchParams.getAll("initiative"),
@@ -181,8 +193,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
+  // A BHAG is synthesis-only: it has no connectors of its own (its sources are
+  // the wikis of the projects tagged to it), so we ignore any source inputs.
+  const projectType: ProjectType = body.type === "bhag" ? "bhag" : "project";
+  const isBhag = projectType === "bhag";
+
   const description =
-    body.description?.trim() || `${body.name.trim()} — project`;
+    body.description?.trim() ||
+    (isBhag ? `${body.name.trim()} — strategic goal` : `${body.name.trim()} — project`);
   const domain = body.domain?.trim() || "default";
   const tags = body.tags?.length ? body.tags : ["caipe"];
   const memberIds = body.member_ids?.map((m) => m.trim()).filter(Boolean) ?? [];
@@ -200,12 +218,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         name: (r.name ?? "").trim() || r.room_id.trim(),
         slug: (r.slug ?? "").trim(),
       }));
-  const sources = {
-    repos: cleanUrls(body.github_repos),
-    confluence_url: body.confluence_url?.trim() || undefined,
-    component_urls: cleanUrls(body.component_urls),
-    webex_rooms: cleanWebexRooms(body.webex_rooms),
-  };
+  const sources = isBhag
+    ? { repos: [], confluence_url: undefined, component_urls: [], webex_rooms: [] }
+    : {
+        repos: cleanUrls(body.github_repos),
+        confluence_url: body.confluence_url?.trim() || undefined,
+        component_urls: cleanUrls(body.component_urls),
+        webex_rooms: cleanWebexRooms(body.webex_rooms),
+      };
   const sourceIntegrations: Record<string, string> = {};
   if (sources.repos[0]) sourceIntegrations.github_url = sources.repos[0];
   if (sources.confluence_url) sourceIntegrations.confluence_url = sources.confluence_url;
@@ -223,6 +243,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   const now = new Date();
   const doc: ProjectDocument = {
+    type: projectType,
     slug,
     name: body.name.trim(),
     title: catalog.metadata.title,

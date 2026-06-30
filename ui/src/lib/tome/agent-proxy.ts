@@ -76,6 +76,13 @@ interface WebexRoomSnapshot {
   room_id: string;
 }
 
+/** ChildProjectSnapshot — mirrors contract.ChildProjectSnapshot. */
+interface ChildProjectSnapshot {
+  project_id: string;
+  slug: string;
+  name: string;
+}
+
 /** ProjectSnapshot — mirrors contract.ProjectSnapshot. */
 interface ProjectSnapshot {
   project_id: string;
@@ -84,9 +91,11 @@ interface ProjectSnapshot {
   charter: string;
   phase: string | null;
   cadence: string | null;
+  project_type: "project" | "bhag";
   repos: RepoSnapshot[];
   webex_rooms: WebexRoomSnapshot[];
   confluence_spaces: ConfluenceSpaceSnapshot[];
+  child_projects: ChildProjectSnapshot[];
 }
 
 /** ChatRequest — mirrors contract.ChatRequest. */
@@ -222,6 +231,7 @@ function projectConfluenceSpaces(
 export function buildSnapshotFromProject(
   project: ProjectDocument & { _id: string },
 ): ProjectSnapshot {
+  const isBhag = project.type === "bhag";
   return {
     project_id: project._id,
     slug: project.slug,
@@ -229,9 +239,12 @@ export function buildSnapshotFromProject(
     charter: project.description ?? "",
     phase: null,
     cadence: null,
-    repos: (project.sources?.repos ?? []).map(toRepoSnapshot),
-    webex_rooms: projectWebexRooms(project),
-    confluence_spaces: projectConfluenceSpaces(project),
+    project_type: isBhag ? "bhag" : "project",
+    // A BHAG has no connectors — sources are empty regardless of any stale data.
+    repos: isBhag ? [] : (project.sources?.repos ?? []).map(toRepoSnapshot),
+    webex_rooms: isBhag ? [] : projectWebexRooms(project),
+    confluence_spaces: isBhag ? [] : projectConfluenceSpaces(project),
+    child_projects: [],
   };
 }
 
@@ -288,14 +301,20 @@ export function buildIngestRequest(
     connectorData?: Record<string, unknown>;
     credentials?: ForwardedCredentials;
     seedStablePages?: boolean;
+    /** BHAG only: the projects tagged to this goal, to synthesize. */
+    childProjects?: ChildProjectSnapshot[];
   },
 ): AgentIngestRequest {
+  const snapshot = buildSnapshot(ctx);
+  if (opts.childProjects?.length) {
+    snapshot.child_projects = opts.childProjects;
+  }
   return {
     run_id: opts.runId,
     report_id: opts.reportId,
     seed: opts.seed,
     connector_data: opts.connectorData ?? {},
-    snapshot: buildSnapshot(ctx),
+    snapshot,
     is_greenfield: opts.isGreenfield,
     seed_stable_pages: opts.seedStablePages ?? false,
     credentials: opts.credentials ?? {},

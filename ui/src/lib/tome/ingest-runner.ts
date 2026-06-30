@@ -28,9 +28,32 @@ import {
 } from "./ingest-format";
 import { parseFrontmatter, stableSeedTemplates } from "./schema";
 import { injectCharterIntro } from "./seed";
+import { normLabel } from "@/lib/projects/labels";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
 import type { IngestRun, Report } from "@/types/tome";
+
+/**
+ * Resolve the projects tagged to a BHAG (its `labels.initiatives` contains the
+ * BHAG's name, case-insensitively). These are the wikis the BHAG synthesis reads.
+ * Excludes BHAGs themselves so goals never synthesize over other goals.
+ */
+async function resolveBhagChildren(
+  bhagName: string,
+): Promise<{ project_id: string; slug: string; name: string }[]> {
+  const want = normLabel(bhagName);
+  if (!want) return [];
+  const projects = await getCollection<ProjectDocument>("projects");
+  const candidates = await projects
+    .find({
+      $or: [{ type: "project" }, { type: { $exists: false } }],
+      "labels.initiatives": { $exists: true, $ne: [] },
+    })
+    .toArray();
+  return candidates
+    .filter((p) => (p.labels?.initiatives ?? []).some((i) => normLabel(i) === want))
+    .map((p) => ({ project_id: String(p._id), slug: p.slug, name: p.title || p.name }));
+}
 
 const inflight = new Set<Promise<void>>();
 
@@ -77,6 +100,12 @@ export async function startIngestRun(
      * agent never touches them — they keep their empty founding templates.
      */
     seedStablePages?: boolean;
+    /**
+     * Agent endpoint to drive. Default `/ingest` (single-project source pull).
+     * A BHAG synthesis passes `/synthesize` — a distinct cross-project agent that
+     * synthesizes from the tagged child projects' wikis.
+     */
+    agentEndpoint?: string;
   },
 ): Promise<{ runId: string }> {
   const projectId = ctx.projectId;
@@ -153,6 +182,21 @@ export async function startIngestRun(
   const connectorData: Record<string, unknown> =
     meetings.length > 0 ? { webex: { meetings } } : {};
 
+  // For a BHAG, resolve the projects tagged to it — the agent reads their wikis
+  // to synthesize the BHAG wiki (a BHAG has no connectors of its own).
+  const isBhag = ctx.project.type === "bhag";
+  const childProjects = isBhag ? await resolveBhagChildren(ctx.project.name) : [];
+  if (isBhag) {
+    await appendLog(
+      runId,
+      infoLine(
+        childProjects.length
+          ? `BHAG synthesis over ${childProjects.length} project(s): ${childProjects.map((c) => c.slug).join(", ")}`
+          : "BHAG synthesis: no projects are tagged to this goal yet",
+      ),
+    );
+  }
+
   const req = buildIngestRequest(ctx, {
     runId,
     reportId,
@@ -162,11 +206,16 @@ export async function startIngestRun(
     credentials,
     // Opt-in only, and only meaningful on greenfield.
     seedStablePages: isGreenfield && opts.seedStablePages === true,
+    childProjects,
   });
 
-  const task = driveIngest(projectId, runId, reportId, req).finally(() =>
-    inflight.delete(task),
-  );
+  const task = driveIngest(
+    projectId,
+    runId,
+    reportId,
+    req,
+    opts.agentEndpoint ?? "/ingest",
+  ).finally(() => inflight.delete(task));
   inflight.add(task);
 
   return { runId };
@@ -182,13 +231,15 @@ async function driveIngest(
   runId: string,
   reportId: string,
   req: unknown,
+  agentEndpoint: string = "/ingest",
 ): Promise<void> {
   const runs = await getTomeIngestRunsCollection();
   const reports = await getTomeReportsCollection();
   const agentUrl = process.env.TOME_AGENT_URL;
   try {
     if (!agentUrl) throw new Error("TOME_AGENT_URL not configured");
-    const res = await fetch(`${agentUrl.replace(/\/$/, "")}/ingest`, {
+    const path = agentEndpoint.startsWith("/") ? agentEndpoint : `/${agentEndpoint}`;
+    const res = await fetch(`${agentUrl.replace(/\/$/, "")}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),

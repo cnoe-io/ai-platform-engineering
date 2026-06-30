@@ -12,23 +12,11 @@ The backend re-emits these as `IngestRun.log` lines, finalizes the
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
-
-from claude_agent_sdk import (
-    AssistantMessage,
-    ResultMessage,
-    SystemMessage,
-    TextBlock,
-    ToolUseBlock,
-    UserMessage,
-    query,
-)
 
 from tome_agent import prompts
 from tome_agent.agent.connectors import REGISTRY
@@ -39,6 +27,7 @@ from tome_agent.agent.loop import (
     build_citation_guidance,
     sources_for_connector,
 )
+from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
 from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
 from tome_agent.reports import schema as report_schema
 
@@ -50,17 +39,6 @@ MAX_TURNS = 60
 
 def _ingest_model() -> str:
     return os.environ.get("TTT_INGEST_MODEL", INGEST_MODEL_DEFAULT)
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%H:%M:%S")
-
-
-def _stringify_tool_input(value: object) -> str:
-    try:
-        return json.dumps(value, separators=(", ", "="))[:300]
-    except Exception:
-        return str(value)[:300]
 
 
 def _build_system_prompt(
@@ -187,9 +165,7 @@ async def stream_ingest(
     """Run an ingest as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
-
-    def _emit_log(line: str) -> IngestEventPayload:
-        return IngestEventPayload(type="log", data={"line": line, "ts": _now_iso()})
+    _emit_log = emit_log
 
     extras = await _resolve_extras(snapshot, connector_data)
 
@@ -199,7 +175,7 @@ async def stream_ingest(
         log_buf.append(
             IngestEventPayload(
                 type="page_written",
-                data={"path": page_path, "bytes": byte_count, "ts": _now_iso()},
+                data={"path": page_path, "bytes": byte_count, "ts": now_iso()},
             )
         )
 
@@ -244,97 +220,5 @@ async def stream_ingest(
     if seed and seed.strip():
         yield _emit_log(f"· seed: {seed.strip()[:200]}")
 
-    try:
-        result_seen = False
-        tool_call_count = 0
-        tool_call_names: dict[str, str] = {}
-        async for message in query(prompt=prompt, options=options):
-            # Drain any persist-hook events accumulated since last yield.
-            while log_buf:
-                yield log_buf.pop(0)
-
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, ToolUseBlock):
-                        tool_call_count += 1
-                        short = block.name.replace("mcp__github__", "gh.")
-                        tool_call_names[block.id] = short
-                        args_str = _stringify_tool_input(block.input)
-                        yield IngestEventPayload(
-                            type="tool_call",
-                            data={
-                                "id": block.id,
-                                "tool": short,
-                                "input": args_str,
-                                "ts": _now_iso(),
-                            },
-                        )
-                    elif isinstance(block, TextBlock):
-                        text = (block.text or "").strip()
-                        if text:
-                            for line in text.splitlines():
-                                if line.strip():
-                                    yield _emit_log(f"~ {line}")
-            elif isinstance(message, UserMessage):
-                for block in getattr(message, "content", []) or []:
-                    kind = getattr(block, "type", None) or (
-                        block.get("type") if isinstance(block, dict) else None
-                    )
-                    if kind == "tool_result":
-                        tool_id = getattr(block, "tool_use_id", None) or (
-                            block.get("tool_use_id") if isinstance(block, dict) else None
-                        )
-                        is_error = getattr(block, "is_error", False) or (
-                            block.get("is_error", False) if isinstance(block, dict) else False
-                        )
-                        label = tool_call_names.get(tool_id or "", "?")
-                        if is_error:
-                            log.debug("tool result error: tool=%s id=%s", label, tool_id)
-                        yield IngestEventPayload(
-                            type="tool_result",
-                            data={
-                                "id": tool_id,
-                                "label": label,
-                                "is_error": is_error,
-                                "ts": _now_iso(),
-                            },
-                        )
-            elif isinstance(message, SystemMessage):
-                if message.subtype == "init":
-                    yield _emit_log("· agent session opened")
-            elif isinstance(message, ResultMessage):
-                result_seen = True
-                if getattr(message, "is_error", False) and message.subtype != "success":
-                    log.warning(
-                        "ResultMessage has is_error=True: subtype=%s errors=%s",
-                        message.subtype,
-                        getattr(message, "errors", None),
-                    )
-                cost = getattr(message, "total_cost_usd", None)
-                turns = getattr(message, "num_turns", None)
-                yield IngestEventPayload(
-                    type="done",
-                    data={
-                        "subtype": message.subtype,
-                        "turns": turns,
-                        "tool_calls": tool_call_count,
-                        "cost_usd": cost,
-                        "ts": _now_iso(),
-                    },
-                )
-
-        # Drain any remaining events after the loop ends.
-        while log_buf:
-            yield log_buf.pop(0)
-
-    except Exception as e:
-        if result_seen:
-            log.warning(
-                "ingest stream raised after ResultMessage (skill tool-deny artifact, ignoring)",
-                exc_info=True,
-            )
-        else:
-            log.exception("ingest stream failed")
-            yield IngestEventPayload(
-                type="error", data={"message": f"{type(e).__name__}: {e}"}
-            )
+    async for event in consume_agent_query(prompt, options, log_buf):
+        yield event
