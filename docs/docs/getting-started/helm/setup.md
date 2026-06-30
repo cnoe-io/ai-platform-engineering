@@ -92,7 +92,7 @@ For production clusters, Karpenter provisions right-sized nodes on demand and co
 
 | NodePool | Workloads | Instance strategy |
 |---|---|---|
-| `rag` | `rag-server`, `agent-ontology`, `rag-redis`, `neo4j` | On-demand, memory-optimised |
+| `rag` | `rag-server`, `agent-ontology`, `rag-redis`, `neo4j`, `milvus` (+ its `etcd`/`minio`) | On-demand, memory-optimised |
 | `general-purpose` *(built-in)* | Dynamic Agents, MCP servers (`mcp-*`), UI, Keycloak, OpenFGA, … | Auto Mode managed |
 
 The overlay still enables PodDisruptionBudgets on the general-purpose workloads so node consolidation doesn't take them fully offline.
