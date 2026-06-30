@@ -359,7 +359,16 @@ def build_mcp_connection_config(
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
 
-    legacy_auth_headers = _resolve_auth_headers(server, user_email)
+    # AgentGateway reserves Authorization for the caller JWT. Legacy
+    # auth.type=user_oauth writes provider OAuth into Authorization, which
+    # breaks gateway auth. Gateway-routed per-user provider credentials must use
+    # credential_sources -> X-CAIPE-Provider-Token instead.
+    gateway_managed = _is_gateway_managed_server(server, _agent_gateway_base_url())
+    legacy_auth_headers = (
+        {}
+        if gateway_managed and server.auth is not None and server.auth.type == MCPAuthType.USER_OAUTH
+        else _resolve_auth_headers(server, user_email)
+    )
     if legacy_auth_headers:
         headers.update(legacy_auth_headers)
 

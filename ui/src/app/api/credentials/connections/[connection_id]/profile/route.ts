@@ -10,7 +10,7 @@ import { getProviderConnectionService } from "@/lib/credentials/oauth-service-fa
 import { buildProviderProfileSummary } from "@/lib/credentials/provider-connection-summary";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
-type Provider = "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
+type Provider = "github" | "atlassian" | "webex" | "webex_pam" | "pagerduty" | "gitlab";
 type ProviderProfileFailure = {
   ok: false;
   status: number;
@@ -51,6 +51,7 @@ function profileEndpoint(provider: Provider): string {
     case "atlassian":
       return "https://api.atlassian.com/me";
     case "webex":
+    case "webex_pam":
       return "https://webexapis.com/v1/people/me";
     case "pagerduty":
       return "https://api.pagerduty.com/users/me";
@@ -71,6 +72,8 @@ function providerDisplayName(provider: Provider): string {
       return "Atlassian";
     case "webex":
       return "Webex";
+    case "webex_pam":
+      return "Webex (Pam)";
     case "pagerduty":
       return "PagerDuty";
     case "gitlab":
@@ -110,6 +113,7 @@ function safeProfile(provider: Provider, payload: Record<string, unknown>): Reco
         picture: payload.picture,
       };
     case "webex":
+    case "webex_pam":
       return {
         id: payload.id,
         displayName: payload.displayName,
@@ -284,7 +288,7 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   if (connection.owner.type !== "user" || connection.owner.id !== ownerId) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
-  if (!["github", "atlassian", "webex", "pagerduty", "gitlab"].includes(connection.provider)) {
+  if (!["github", "atlassian", "webex", "webex_pam", "pagerduty", "gitlab"].includes(connection.provider)) {
     throw new ApiError("Provider profile checks are not supported", 400, "UNSUPPORTED_PROVIDER");
   }
 

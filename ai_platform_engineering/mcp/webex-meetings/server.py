@@ -8,7 +8,7 @@ from typing import Literal
 import click
 from mcp.server.fastmcp.server import FastMCP
 
-from .mcp_server import register_tools
+from mcp_server import register_tools
 
 InputTransport = Literal["stdio", "sse", "http", "streamable-http"]
 RuntimeTransport = Literal["stdio", "sse", "streamable-http"]
@@ -43,7 +43,7 @@ def main(verbose: int, transport: InputTransport, port: int, host: str) -> None:
 
     Auth model: this server has no static token. The dynamic-agents runtime
     injects an ``Authorization: Bearer <user-token>`` header on every MCP
-    request (resolved from the per-user vendor_connections Mongo doc).
+    request (resolved from the caller's Webex provider_connection).
     Each tool pulls that header off the inbound request and forwards it
     untouched to webexapis.com.
     """
@@ -62,7 +62,7 @@ def main(verbose: int, transport: InputTransport, port: int, host: str) -> None:
 
     if selected == "stdio":
         raise SystemExit(
-            "mcp_webex_meetings does not support stdio transport: per-user "
+            "mcp-webex-meetings does not support stdio transport: per-user "
             "OAuth requires HTTP/SSE so the runtime can inject "
             "Authorization headers per request."
         )

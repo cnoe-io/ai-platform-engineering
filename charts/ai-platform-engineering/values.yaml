@@ -1116,7 +1116,7 @@ standaloneMcpServers:
       # tag defaults to global.image.tag or the parent chart appVersion when not specified
       tag: ""
       pullPolicy: "IfNotPresent"
-    command: ["mcp-server-webex-meetings"]
+    command: []
     service:
       port: 8000
     env:

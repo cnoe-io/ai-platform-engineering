@@ -1,6 +1,6 @@
 [project]
 name = "mcp_pod_meeting"
-description = "Deterministic helpers for pod meeting prep + writeup: VTT parsing, action/decision extraction, agenda/notes XHTML rendering, pod registry. Pairs with mcp_webex_meetings (Cisco) and mcp-atlassian (Confluence)."
+description = "Deterministic helpers for pod meeting prep + writeup: VTT parsing, action/decision extraction, agenda/notes XHTML rendering, pod registry. Pairs with mcp-webex-meetings (Cisco) and mcp-atlassian (Confluence)."
 authors = [
     { name = "CNOE", email = "cnoe-developers@cisco.com" }
 ]

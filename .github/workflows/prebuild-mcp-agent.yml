@@ -1,10 +1,11 @@
-name: "[Prebuild][MCP] Sub-Agents MCP Docker Build and Push"
-description: "Build and push MCP Docker images for sub-agents"
+name: "[Prebuild][MCP] MCP Docker Build and Push"
+description: "Build and push MCP Docker images"
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
+      - 'ai_platform_engineering/mcp/**'
       - 'ai_platform_engineering/agents/**'
       - '.github/**'
       - 'build/agents/Dockerfile.mcp'
@@ -95,6 +96,7 @@ jobs:
             filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/**'\n`;
               filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
               filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
             });
@@ -148,7 +150,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/prebuild/mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      MCP_DIR: ai_platform_engineering/mcp/${{ matrix.agent }}
+      LEGACY_AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner
@@ -221,8 +224,10 @@ jobs:
       - name: Determine Dockerfile path
         id: dockerfile
         run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          if [ -f "${{ env.MCP_DIR }}/build/Dockerfile.mcp" ]; then
+            echo "path=${{ env.MCP_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          elif [ -f "${{ env.LEGACY_AGENT_DIR }}/build/Dockerfile.mcp" ]; then
+            echo "path=${{ env.LEGACY_AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
           else
             echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi

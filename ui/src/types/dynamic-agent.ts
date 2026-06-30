@@ -42,8 +42,10 @@ export type LegacyVisibilityType = VisibilityType | 'private';
  * Per-server auth configuration. Mirrors the Python `MCPServerAuth` model in
  * `dynamic_agents/models.py`.
  *
- * - `user_oauth`: per-user OAuth bearer (e.g. Webex Meetings — token resolved
- *   from `vendor_connections` keyed by the chatting user's email).
+ * - `user_oauth`: legacy per-user OAuth bearer resolved from
+ *   `vendor_connections`. Prefer `credential_sources` with
+ *   `kind: "provider_connection"` for new MCP servers, especially any server
+ *   routed through AgentGateway.
  * - `bot_token`: shared bot/service token resolved at runtime from the
  *   environment variable named in `secret_ref`. Lets a single MCP
  *   deployment (e.g. `mcp_webex`) serve N bot identities — each persona
@@ -69,7 +71,7 @@ export interface MCPServerConfig {
   command?: string;   // For stdio transport
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
-  auth?: MCPServerAuth;  // Per-user OAuth (e.g. Webex Meetings)
+  auth?: MCPServerAuth;  // Legacy per-user OAuth or bot-token auth.
   credential_sources?: MCPCredentialSource[];
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)

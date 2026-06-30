@@ -76,16 +76,19 @@ mcp_servers:
   # but hits webexapis.com REST directly. Drop-in swap for
   # https://mcp.webexapis.com/mcp/webex-meeting once cisco.com Control Hub
   # enables agentic apps for the org. The dynamic-agents runtime injects the
-  # per-user OAuth bearer (resolved from vendor_connections) on every request;
-  # the MCP server forwards it to webexapis.com.
+  # per-user OAuth bearer (resolved from Credentials → Connected Apps provider
+  # connections) on every request; AgentGateway rewrites it to Authorization
+  # and the MCP server forwards it to webexapis.com.
   - id: "webex_meetings"
     name: "Webex Meetings"
-    description: "Webex meeting/transcript tools (per-user OAuth — Settings → Integrations → Connect Webex)."
+    description: "Webex meeting/transcript tools (per-user OAuth — connect Webex in Credentials → Connected Apps)."
     transport: "http"
     endpoint: "http://mcp-webex-meetings:8000/mcp"
-    auth:
-      type: "user_oauth"
-      provider: "webex"
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: webex_pam
+        target: header
     enabled: true
 
   # ── Pod Meeting helper (Pam Beesly internal utility) ─────────

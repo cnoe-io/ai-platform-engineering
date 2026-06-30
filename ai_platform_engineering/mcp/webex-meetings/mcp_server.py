@@ -24,23 +24,31 @@ logger = logging.getLogger(__name__)
 
 # ──────────────────────────── auth helper ─────────────────────────────
 def _bearer_from_request() -> str:
-    """Pull the Bearer token out of the inbound MCP request's Authorization header.
+    """Pull the per-user Webex bearer token out of the inbound MCP request.
 
-    The dynamic-agents runtime (mcp_client._resolve_user_oauth_headers) sets
-    this header per-request based on the chatting user's vendor_connections
-    entry. We forward it untouched to webexapis.com.
+    Normal AgentGateway traffic arrives here as ``Authorization: Bearer ...``
+    after the gateway rewrites ``X-CAIPE-Provider-Token``. Direct/local runtime
+    calls may pass ``X-CAIPE-Provider-Token`` through unchanged, so accept that
+    as a fallback and wrap it as a bearer token before forwarding to Webex.
     """
-    # FastMCP strips `authorization` by default — must opt in via `include`.
-    headers = get_http_headers(include={"authorization"})
+    # FastMCP strips non-standard/security-sensitive headers by default; opt in.
+    headers = get_http_headers(include={"authorization", "x-caipe-provider-token"})
     auth = headers.get("authorization") or headers.get("Authorization")
+    provider_token = (
+        headers.get("x-caipe-provider-token")
+        or headers.get("X-CAIPE-Provider-Token")
+    )
+    if not auth and provider_token:
+        token = provider_token.strip()
+        auth = token if token.lower().startswith("bearer ") else f"Bearer {token}"
     if not auth:
         raise McpError(
             ErrorData(
                 code=INVALID_PARAMS,
                 message=(
-                    "No Authorization header on inbound MCP request. "
-                    "This MCP server must be invoked with auth.type=user_oauth, "
-                    "provider=webex by the dynamic-agents runtime."
+                    "No per-user Webex token on inbound MCP request. "
+                    "Configure this server with a caller-scoped Webex "
+                    "provider_connection credential source."
                 ),
             )
         )

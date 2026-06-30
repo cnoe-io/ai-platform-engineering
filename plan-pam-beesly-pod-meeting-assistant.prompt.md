@@ -12,7 +12,7 @@
 
 ## Phase 1 — New MCP server: `mcp_webex_meetings`
 
-A thin REST proxy. Located at `ai_platform_engineering/agents/webex-meetings/mcp/`. Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Streamable-HTTP only (per-user auth requires HTTP).
+A thin REST proxy. Located at `ai_platform_engineering/mcp/webex-meetings/`. Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Streamable-HTTP only (per-user auth requires HTTP).
 
 **Auth model:** the dynamic-agents runtime injects `Authorization: Bearer <user-token>` when calling this MCP (because the MCP server config has `auth.type=user_oauth, provider=webex`). The MCP server reads that header off the incoming request via `fastmcp.server.dependencies.get_http_headers()` and forwards it to `webexapis.com`. No Mongo access from inside the MCP — single source of truth stays in `vendor_connections`.
 

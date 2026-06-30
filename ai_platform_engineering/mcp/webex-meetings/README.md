@@ -1,4 +1,4 @@
-# mcp_webex_meetings
+# mcp-webex-meetings
 
 Local MCP server that exposes the Webex Meetings / Transcripts / Recordings REST
 API as MCP tools. Mostly mirrors Cisco's official Webex Meetings MCP
@@ -11,14 +11,17 @@ endpoint and the local fallback tools can be kept or removed deliberately.
 
 Per-user OAuth bearer, forwarded through MCP request headers.
 
-The dynamic-agents runtime (`mcp_client._resolve_user_oauth_headers`) injects
-`Authorization: Bearer <user-token>` on every request, where the token is
-resolved from the `vendor_connections` Mongo collection (populated by the UI's
-`/settings/integrations/webex` OAuth flow).
+The dynamic-agents runtime resolves a caller-scoped Webex `provider_connection`
+from the Credentials → Connected Apps store and injects the token on
+`X-CAIPE-Provider-Token`. AgentGateway rewrites that header into
+`Authorization: Bearer <user-token>` before forwarding to this MCP server.
+For local/direct development, this MCP server also accepts
+`X-CAIPE-Provider-Token` directly.
 
 This MCP server simply pulls the inbound `authorization` header off the
 incoming request and forwards it to `https://webexapis.com/v1/...`. No token
-storage, no Mongo access, no refresh logic — that's all handled by the runtime.
+storage, no Mongo access, no refresh logic — that's all handled by the runtime
+and credential service.
 
 ## Tools
 
@@ -45,7 +48,7 @@ API does not expose as `scheduledMeeting` rows.
 ## Run locally
 
 ```bash
-uv run mcp-server-webex-meetings --transport streamable-http --port 8000 --host 0.0.0.0
+uv run python server.py --transport streamable-http --port 8000 --host 0.0.0.0
 ```
 
 Tools are then reachable at `http://localhost:8000/mcp/`.

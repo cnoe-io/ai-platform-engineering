@@ -1165,7 +1165,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             <option value="caller">Use each caller&apos;s connection</option>
                           </select>
                         ) : null}
-                        {effectiveConnectionScope(source) === "pinned" || !isCustomEditableServer ? (
+                        {effectiveConnectionScope(source) === "pinned" ? (
                           <select
                             aria-label="Provider connection"
                             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1250,7 +1250,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
                 >
                   <option value="none">None — no Authorization header injected</option>
-                  <option value="user_oauth">User OAuth — per-user bearer (e.g. Webex Meetings)</option>
+                  <option value="user_oauth">Legacy User OAuth — vendor_connections bearer</option>
                   <option value="bot_token">Bot Token — shared service token from a named env var</option>
                 </select>
               </div>
@@ -1268,7 +1268,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                     <option value="webex">Webex</option>
                   </select>
                   <p className="text-xs text-muted-foreground">
-                    Token is resolved from the user&apos;s <code>vendor_connections</code> entry on each request.
+                    Legacy path. For AgentGateway-routed MCP servers, use Credentials below with a caller-scoped provider connection.
                   </p>
                 </div>
               )}

@@ -54,6 +54,26 @@ def test_user_oauth_keeps_authorization_without_identity_for_unrelated_server(mo
     }
 
 
+def test_agentgateway_user_oauth_does_not_overwrite_caller_authorization(monkeypatch):
+    monkeypatch.setattr(mcp_client, "get_webex_access_token", lambda email: f"token-for-{email}")
+    server = _server(
+        _id="webex_meetings",
+        endpoint="http://agentgateway:4000/mcp/webex_meetings",
+        source="agentgateway",
+        auth=MCPServerAuth(type=MCPAuthType.USER_OAUTH, provider=MCPAuthProvider.WEBEX),
+    )
+
+    config = build_mcp_connection_config(
+        server,
+        user_email="sunny@example.com",
+        auth_bearer="caller-jwt",
+    )
+
+    assert config["headers"] == {
+        "Authorization": "Bearer caller-jwt",
+    }
+
+
 def test_no_user_email_omits_identity_header_for_no_auth_server():
     config = build_mcp_connection_config(_server(), user_email=None)
 

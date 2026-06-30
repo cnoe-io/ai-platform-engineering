@@ -4,11 +4,11 @@ import type { CreateConnectorInput,OAuthConnectorService } from "./oauth-service
 type Env = Record<string, string | undefined>;
 
 interface BootstrapProviderEnv {
-  provider: "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
+  provider: "github" | "atlassian" | "webex" | "webex_pam" | "pagerduty" | "gitlab";
   clientIdEnv: string;
   clientSecretEnv: string;
   redirectUriEnv: string;
-  scopesEnv?: string;
+  scopesEnv?: string | string[];
 }
 
 const PROVIDER_ENV: BootstrapProviderEnv[] = [
@@ -29,6 +29,7 @@ const PROVIDER_ENV: BootstrapProviderEnv[] = [
     clientIdEnv: "WEBEX_CLIENT_ID",
     clientSecretEnv: "WEBEX_CLIENT_SECRET",
     redirectUriEnv: "WEBEX_REDIRECT_URI",
+    scopesEnv: ["WEBEX_SCOPES", "WEBEX_OAUTH_SCOPES"],
   },
   {
     provider: "pagerduty",
@@ -55,12 +56,16 @@ function value(env: Env, key: string): string | null {
   return candidate ? candidate : null;
 }
 
-function canonicalCallbackBase(env: Env): string {
-  return value(env, "NEXTAUTH_URL") ?? "http://localhost:3000";
+function canonicalCallbackBase(env: Env, fallbackOrigin?: string): string {
+  return value(env, "NEXTAUTH_URL") ?? fallbackOrigin ?? "http://localhost:3000";
 }
 
-function canonicalProviderCallback(provider: BootstrapProviderEnv["provider"], env: Env): string {
-  return `${canonicalCallbackBase(env).replace(/\/$/, "")}/api/credentials/oauth/${provider}/callback`;
+function canonicalProviderCallback(
+  provider: BootstrapProviderEnv["provider"],
+  env: Env,
+  fallbackOrigin?: string,
+): string {
+  return `${canonicalCallbackBase(env, fallbackOrigin).replace(/\/$/, "")}/api/credentials/oauth/${provider}/callback`;
 }
 
 function normalizeRedirectUri(
@@ -78,6 +83,9 @@ function normalizeRedirectUri(
     if (legacyLocalCallback) {
       return canonicalProviderCallback(provider, env);
     }
+    if (url.pathname === `/api/integrations/${provider}/callback`) {
+      return canonicalProviderCallback(provider, env, url.origin);
+    }
   } catch {
     return redirectUri;
   }
@@ -90,7 +98,12 @@ function scopesForProvider(
   providerEnv: BootstrapProviderEnv,
   env: Env,
 ): string[] {
-  const configured = providerEnv.scopesEnv ? value(env, providerEnv.scopesEnv) : null;
+  const scopeEnvKeys = Array.isArray(providerEnv.scopesEnv)
+    ? providerEnv.scopesEnv
+    : providerEnv.scopesEnv
+      ? [providerEnv.scopesEnv]
+      : [];
+  const configured = scopeEnvKeys.map((key) => value(env, key)).find(Boolean) ?? null;
   if (!configured) {
     return descriptor.scopes;
   }

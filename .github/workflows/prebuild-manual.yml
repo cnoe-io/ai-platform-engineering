@@ -129,6 +129,7 @@ jobs:
             const pathSets = {
               mcp_agent: [
                 'ai_platform_engineering/mcp/**',
+                'ai_platform_engineering/agents/**',
                 '.github/**',
                 'build/agents/Dockerfile.mcp',
               ],

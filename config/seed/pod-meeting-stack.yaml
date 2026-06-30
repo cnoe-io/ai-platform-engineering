@@ -603,13 +603,15 @@ mcp_servers:
   auth: null
 - id: webex_meetings
   name: Webex Meetings
-  description: Webex meeting/transcript tools (per-user OAuth — Settings → Integrations → Connect Webex).
+  description: Webex meeting/transcript tools (per-user OAuth — connect Webex in Credentials → Connected Apps).
   transport: http
   endpoint: http://mcp-webex-meetings:8000/mcp
   enabled: true
-  auth:
-    type: user_oauth
-    provider: webex
+  credential_sources:
+  - kind: provider_connection
+    name: X-CAIPE-Provider-Token
+    provider: webex_pam
+    target: header
 - id: webex_pam
   name: Webex (Pam Bot)
   description: Webex messaging via Pam Beesly's bot identity.

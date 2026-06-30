@@ -882,6 +882,7 @@ function providerAccentClasses(provider: string): string {
     case "atlassian":
       return "bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 shadow-blue-950/30";
     case "webex":
+    case "webex_pam":
       return "bg-gradient-to-br from-slate-950 via-cyan-950 to-teal-900 shadow-cyan-950/30";
     case "pagerduty":
       return "bg-gradient-to-br from-emerald-600 to-lime-500 shadow-emerald-950/20";
@@ -912,6 +913,7 @@ function ProviderLogo({ provider }: { provider: string }) {
         />
       );
     case "webex":
+    case "webex_pam":
       return (
         <img
           alt=""
@@ -1078,6 +1080,8 @@ function profileProviderLabel(provider: string, fallback: string): string {
       return "Atlassian";
     case "webex":
       return "Webex";
+    case "webex_pam":
+      return "Webex (Pam)";
     case "pagerduty":
       return "PagerDuty";
     case "gitlab":
