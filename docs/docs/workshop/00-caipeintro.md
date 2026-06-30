@@ -1,6 +1,6 @@
 # Introduction to CAIPE
 
-**CAIPE**—pronounced "cape"—is an open-source AI Platform Engineering Platform from the CNOE forum. It enables secure, enterprise-grade multi-agent orchestration with seamless integration of specialized sub-agents and platform tools, streamlining operations and accelerating workflows for Platform Engineering and Engineering Operations teams.
+**CAIPE**—pronounced "cape"—is an open source AI Platform Engineering Platform from the CNOE forum. It enables secure, enterprise-grade multi-agent orchestration with seamless integration of specialized sub-agents and platform tools, streamlining operations and accelerating workflows for Platform Engineering and Engineering Operations teams.
 
 Here are some of the agents and features that CAIPE offers out of the box:
 

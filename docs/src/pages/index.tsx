@@ -210,7 +210,7 @@ function HeroSection() {
               <span className={styles.heroAccent}>AI Platform Engineering</span>
             </Heading>
             <p className={styles.heroSubtitle}>
-              CAIPE is an open-source <strong>AI platform</strong> for any size teams to build
+              CAIPE is an open source <strong>AI platform</strong> for any size teams to build
               customizable AI agents and automated agentic
               workflows wherever your team operates — Web, Slack, Webex, event
               streams, and more — secured with <strong>strong human and non-human identity
