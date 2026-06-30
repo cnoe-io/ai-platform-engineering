@@ -20,7 +20,7 @@ import {
   reapStaleIdpSyncRuns,
   updateIdpSyncRun,
 } from "@/lib/rbac/idp-sync-store";
-import { provisionShellUser } from "@/lib/rbac/keycloak-admin";
+import { addUserFederatedIdentity, provisionShellUser } from "@/lib/rbac/keycloak-admin";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
 import type { IdpSyncRun } from "./mongo-collections";
@@ -161,7 +161,7 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // skips everyone as `missing_subject`. Cached per run so a user appearing in
     // many groups is resolved once.
     const subCache = new Map<string, string | null>();
-    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string }> }>) {
+    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string; idp_user_id?: string }> }>) {
       for (const member of group.members ?? []) {
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
@@ -185,7 +185,23 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
           }
         }
         const sub = subCache.get(email);
-        if (sub) member.subject = sub;
+        if (sub) {
+          member.subject = sub;
+          // Link the user to the IdP broker so user_is_federated() returns true
+          // and the Slack bot routes them via OBO rather than as "unlinked".
+          // Runs on every sync (not just first provision) so existing users are
+          // backfilled when the sync runs after this change. Idempotent: 409 = already linked.
+          if (member.idp_user_id && provider.startsWith("okta")) {
+            try {
+              await addUserFederatedIdentity(sub, "okta", member.idp_user_id, email);
+            } catch (linkErr) {
+              console.warn(
+                `[IdpSync] run ${runId}: failed to link federated identity for ${email}: ` +
+                  (linkErr instanceof Error ? linkErr.message : String(linkErr))
+              );
+            }
+          }
+        }
       }
     }
 

@@ -581,6 +581,27 @@ export async function getUserFederatedIdentities(
   }));
 }
 
+/**
+ * Create a federated identity link between a Keycloak user and an external IdP.
+ * Idempotent: a 409 (link already exists) is treated as success.
+ */
+export async function addUserFederatedIdentity(
+  userId: string,
+  provider: string,
+  idpUserId: string,
+  userName: string,
+): Promise<void> {
+  const enc = encodeURIComponent(userId);
+  const providerEnc = encodeURIComponent(provider);
+  const body: KeycloakFederatedIdentity = { identityProvider: provider, userId: idpUserId, userName };
+  const response = await adminFetch(`/users/${enc}/federated-identity/${providerEnc}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (response.status === 409) return; // already linked — idempotent
+  await assertOk(response, "addUserFederatedIdentity");
+}
+
 export async function assignRealmRolesToUser(
   userId: string,
   roles: KeycloakRole[]
