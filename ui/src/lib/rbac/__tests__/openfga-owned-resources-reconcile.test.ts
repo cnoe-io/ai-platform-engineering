@@ -7,6 +7,7 @@
 
 const mockReconcileTupleDiff = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
+const mockListOpenFgaObjects = jest.fn();
 const mockIsOpenFgaReconciliationEnabled = jest.fn();
 const mockGetCollection = jest.fn();
 
@@ -26,6 +27,8 @@ jest.mock("@/lib/authz", () => {
 jest.mock("../openfga", () => ({
   isOpenFgaReconciliationEnabled: () => mockIsOpenFgaReconciliationEnabled(),
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+  TEAM_TOOL_WILDCARD_SENTINEL_OBJECT: "tool:*",
 }));
 
 jest.mock("@/lib/mongodb", () => ({
@@ -54,6 +57,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsOpenFgaReconciliationEnabled.mockReturnValue(true);
   mockReconcileTupleDiff.mockResolvedValue({ enabled: true, writes: 0, deletes: 4 });
+  // Default: no `tool:*` wildcard-sentinel teams and no team agents, so the
+  // wildcard backfill is a no-op unless a test opts in via seedWildcardTeam().
+  mockReadOpenFgaTuples.mockResolvedValue(tuplePage([]));
+  mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
   mockGetCollection.mockResolvedValue({
     find: jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue([]),
@@ -223,18 +230,28 @@ describe("deleteAllMcpToolRelationshipTuples", () => {
 });
 
 describe("reconcileMcpServerRelationships", () => {
+  // Wildcard intent + team agents now live in OpenFGA (the `team.resources`
+  // array is gone): a `tool:*` sentinel caller marks the team as "all servers",
+  // and `team#member user agent:<id>` lists its agents.
   function seedWildcardTeam(): void {
-    mockGetCollection.mockResolvedValue({
-      find: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([
-          {
-            _id: "team-platform",
-            slug: "platform",
-            resources: { tool_wildcard: true, agents: ["agent-keep", "bad agent id"] },
-          },
-        ]),
-      }),
+    mockReadOpenFgaTuples.mockImplementation(async (options: { tuple?: { object?: string } }) => {
+      if (options?.tuple?.object === "tool:*") {
+        return tuplePage([{ user: "team:platform#member", relation: "caller", object: "tool:*" }]);
+      }
+      return tuplePage([]);
     });
+    mockListOpenFgaObjects.mockImplementation(
+      async (options: { user?: string; relation?: string; type?: string }) => {
+        if (
+          options?.user === "team:platform#member" &&
+          options?.relation === "user" &&
+          options?.type === "agent"
+        ) {
+          return { objects: ["agent:agent-keep", "agent:bad agent id"] };
+        }
+        return { objects: [] };
+      },
+    );
   }
 
   it("backfills wildcard-enabled teams when a new MCP server is reconciled", async () => {
@@ -245,7 +262,9 @@ describe("reconcileMcpServerRelationships", () => {
       ownerSubject: "alice-sub",
     });
 
-    expect(mockGetCollection).toHaveBeenCalledWith("teams");
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({ tuple: { object: "tool:*" } }),
+    );
     expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
       {
         writes: expect.arrayContaining([
@@ -278,7 +297,9 @@ describe("reconcileMcpServerRelationships", () => {
       organizationId: "caipe",
     });
 
-    expect(mockGetCollection).toHaveBeenCalledWith("teams");
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({ tuple: { object: "tool:*" } }),
+    );
     const diff = mockReconcileTupleDiff.mock.calls[0][0];
     expect(diff).toEqual(
       expect.objectContaining({

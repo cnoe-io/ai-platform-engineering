@@ -36,6 +36,10 @@ storage:
     prefix: audit
     region: us-east-1
     endpointUrl: ""
+    # retentionDays: Days before S3 objects expire via a lifecycle rule.
+    # 0 means no lifecycle rule is applied (operator manages expiry externally).
+    # Admins can also update this at runtime via the admin panel without a restart.
+    retentionDays: 0
     # Set true only when the pod should rely on ambient AWS credentials that
     # are not visible in chart values, such as a node role or pod identity
     # setup that does not require a service account annotation.
@@ -48,6 +52,14 @@ storage:
       accessKeyIdKey: AWS_ACCESS_KEY_ID
       secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
       sessionTokenKey: AWS_SESSION_TOKEN
+
+# verbosity controls which event types are ingested.
+# Presets: minimal (default), standard, verbose, il2, il5, soc2
+# minimal: cas_grant + cas_reconcile only (lowest volume)
+# standard: adds auth, cas_decision, credential_action
+# verbose: all event types (equivalent to previous default)
+# il2/soc2/il5: compliance-aligned subsets — see audit-service docs
+verbosity: minimal
 
 persistence:
   # Used only when storage.backend=local. Disable to use ephemeral emptyDir.

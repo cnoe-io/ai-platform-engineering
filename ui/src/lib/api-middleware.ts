@@ -1,6 +1,7 @@
 // API middleware for Next.js API routes
 // Provides authentication, error handling, and validation
 
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
@@ -140,6 +141,112 @@ export interface GetAuthenticatedUserOptions {
   allowAnonymous?: boolean;
 }
 
+type SessionAuthSession = Record<string, unknown> & {
+  user?: Record<string, unknown> | null;
+};
+
+type SessionAuthPayload = {
+  user: {
+    email: string;
+    name: string;
+    role: string;
+  };
+  session: SessionAuthSession;
+};
+
+type SessionAuthCacheEntry = SessionAuthPayload & {
+  expiresAt: number;
+};
+
+const DEFAULT_SESSION_AUTH_CACHE_TTL_MS = 10_000;
+const MAX_SESSION_AUTH_CACHE_ENTRIES = 500;
+const sessionAuthCache = new Map<string, SessionAuthCacheEntry>();
+
+function getSessionAuthCacheTtlMs(): number {
+  const raw = process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS;
+  if (!raw) {
+    return DEFAULT_SESSION_AUTH_CACHE_TTL_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_SESSION_AUTH_CACHE_TTL_MS;
+  }
+
+  return Math.min(parsed, 60_000);
+}
+
+function getSessionAuthCacheKey(request: NextRequest): string | null {
+  const cookie = request.headers.get('cookie')?.trim();
+  if (!cookie) {
+    return null;
+  }
+
+  return createHash('sha256').update(cookie).digest('hex');
+}
+
+function cloneSessionAuthPayload(value: SessionAuthPayload): SessionAuthPayload {
+  const sessionUser = value.session.user;
+  return {
+    user: { ...value.user },
+    session: {
+      ...value.session,
+      user: sessionUser ? { ...sessionUser } : sessionUser,
+    },
+  };
+}
+
+// assisted-by Codex Codex-sonnet-4-6
+function readCachedSessionAuth(request: NextRequest): SessionAuthPayload | null {
+  const key = getSessionAuthCacheKey(request);
+  if (!key) {
+    return null;
+  }
+
+  const entry = sessionAuthCache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    sessionAuthCache.delete(key);
+    return null;
+  }
+
+  sessionAuthCache.delete(key);
+  sessionAuthCache.set(key, entry);
+  return cloneSessionAuthPayload(entry);
+}
+
+function writeCachedSessionAuth(request: NextRequest, value: SessionAuthPayload): void {
+  const ttlMs = getSessionAuthCacheTtlMs();
+  if (ttlMs === 0) {
+    return;
+  }
+
+  const key = getSessionAuthCacheKey(request);
+  if (!key) {
+    return;
+  }
+
+  while (sessionAuthCache.size >= MAX_SESSION_AUTH_CACHE_ENTRIES) {
+    const oldestKey = sessionAuthCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    sessionAuthCache.delete(oldestKey);
+  }
+
+  sessionAuthCache.set(key, {
+    ...cloneSessionAuthPayload(value),
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+export function clearSessionAuthCacheForTests(): void {
+  sessionAuthCache.clear();
+}
+
 function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
@@ -207,6 +314,11 @@ export async function getAuthenticatedUser(
   request: NextRequest,
   options: GetAuthenticatedUserOptions = {}
 ) {
+  const cached = readCachedSessionAuth(request);
+  if (cached) {
+    return cached;
+  }
+
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
@@ -249,7 +361,9 @@ export async function getAuthenticatedUser(
 
   await persistKeycloakSubMapping(session, user);
 
-  return { user, session: { ...session, role } };
+  const authenticated = { user, session: { ...session, role } };
+  writeCachedSessionAuth(request, authenticated);
+  return cloneSessionAuthPayload(authenticated);
 }
 
 /**
@@ -1297,17 +1411,6 @@ export async function requireConversationAccess(
   // assisted-by Codex Codex-sonnet-4-6
   if (isConversationOwnerForAccess(conversation, userId, session)) {
     return { conversation, access_level: 'owner' };
-  }
-
-  // Check if conversation is public (shared with everyone).
-  // Default to read-only ('view') so non-owners cannot send messages in
-  // public conversations — prevents cross-user context_id collisions.
-  if (conversation.sharing?.is_public) {
-    const perm = conversation.sharing?.public_permission ?? 'view';
-    return {
-      conversation,
-      access_level: perm === 'comment' ? 'shared' : 'shared_readonly',
-    };
   }
 
   // Check if conversation is shared with user directly

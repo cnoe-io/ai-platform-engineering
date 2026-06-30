@@ -20,9 +20,9 @@ import { useEffect,useRef,useState } from "react";
  *  3. Create a brand-new conversation (empty history).
  *
  * Only conversations owned by the current user are considered for auto-redirect.
- * Shared/public conversations are excluded to prevent cross-user runtime context
- * collisions — the conversations API returns owned + shared + public in a
- * single list, and auto-selecting a public conversation would cause multiple
+ * Shared conversations are excluded to prevent cross-user runtime context
+ * collisions — the conversations API returns owned + shared entries in a
+ * single list, and auto-selecting a shared conversation would cause multiple
  * users to unknowingly share the same backend context.
  */
 function ChatRedirectPage() {
@@ -53,7 +53,7 @@ function ChatRedirectPage() {
       const userEmail = session?.user?.email;
 
       // Only consider conversations OWNED by the current user for auto-redirect.
-      // The API returns shared/public conversations in the same list; picking one
+      // The API returns shared conversations in the same list; picking one
       // of those would silently drop the user into someone else's conversation,
       // causing all their messages to share the same backend context.
       // In localStorage mode, owner_id is unset — include those conversations.

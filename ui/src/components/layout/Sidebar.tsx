@@ -359,7 +359,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                     conv.accessLevel === "owner" ||
                     Boolean(ownerEmail && currentUserEmail && ownerEmail === currentUserEmail);
                   const hasSharingConfig = Boolean(
-                    conv.sharing?.is_public ||
                     (conv.sharing?.shared_with?.length ?? 0) > 0 ||
                     (conv.sharing?.shared_with_teams?.length ?? 0) > 0 ||
                     conv.sharing?.share_link_enabled

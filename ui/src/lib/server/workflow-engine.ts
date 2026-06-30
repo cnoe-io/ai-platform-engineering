@@ -731,19 +731,25 @@ async function extractStepArtifacts(sourceId: string): Promise<{
   return { toolCalls, filesWritten, fullOutput, toolResults };
 }
 
-/** Pick the richest step output from stream text, content events, and tool results. */
-async function resolveStepResponseText(
+/** Pick assistant text for step output, falling back to tool results only when no text exists. */
+export async function resolveStepResponseText(
   sourceId: string,
   streamText: string | undefined | null,
 ): Promise<string | null> {
   const { fullOutput, toolResults } = await extractStepArtifacts(sourceId);
-  const candidates = [
+  const textCandidates = [
     streamText?.trim(),
     fullOutput.trim(),
-    ...toolResults.map((result) => result.trim()),
   ].filter((value): value is string => Boolean(value));
-  if (candidates.length === 0) return null;
-  return candidates.reduce((longest, current) =>
+  if (textCandidates.length > 0) {
+    return textCandidates.reduce((longest, current) =>
+      current.length > longest.length ? current : longest,
+    );
+  }
+
+  const toolResultCandidates = toolResults.map((result) => result.trim()).filter(Boolean);
+  if (toolResultCandidates.length === 0) return null;
+  return toolResultCandidates.reduce((longest, current) =>
     current.length > longest.length ? current : longest,
   );
 }

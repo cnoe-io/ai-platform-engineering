@@ -17,6 +17,23 @@ GENERIC_REQUEST_DENIED_MESSAGE = (
     "Please try again, or ask an admin to check the space setup in CAIPE."
 )
 
+
+WEBEX_SPACE_MENTION_REQUIRED_MESSAGE = (
+    "I can help in this Webex space when you mention {app_name}. "
+    "Try mentioning {app_name} with your question, or ask an admin to enable "
+    "always-on replies for this space."
+)
+
+WEBEX_SPACE_SETUP_REQUIRED_MESSAGE = (
+    "This Webex space is not set up for {app_name} yet. Ask an admin to set up "
+    "the Webex integration for this space in {app_name}."
+)
+
+WEBEX_DIRECT_AGENT_REQUIRED_MESSAGE = (
+    "I couldn't find an agent for this 1:1 Webex chat. Open {app_name} and "
+    "choose a default agent, or ask an admin to check your Webex setup."
+)
+
 FRIENDLY_REASON_MESSAGES = {
     "WEBEX_OBO_FAILED": TEAM_SESSION_UNAVAILABLE_MESSAGE,
     "WEBEX_WORKSPACE_UNCONFIGURED": (

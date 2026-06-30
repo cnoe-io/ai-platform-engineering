@@ -5,8 +5,9 @@ requireRbacPermission,
 successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
-import { isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
+deleteRealmUser,
 getRealmUserById,
 getUserFederatedIdentities,
 getUserSessions,
@@ -14,6 +15,11 @@ listRealmRoleMappingsForUser,
 updateUser,
 } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import {
+deleteExactOpenFgaTuples,
+readOpenFgaTuples,
+type OpenFgaTupleKey,
+} from "@/lib/rbac/openfga";
 import { requireUserProfileRead } from "@/lib/rbac/require-openfga";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { type NextRequest } from "next/server";
@@ -31,6 +37,22 @@ function normalizeAttributes(raw: unknown): Record<string, string[]> {
 function slackLinkStatus(attrs: Record<string, string[]>): "linked" | "unlinked" {
   const sid = attrs.slack_user_id?.[0];
   return sid && String(sid).trim() !== "" ? "linked" : "unlinked";
+}
+
+async function readSubjectTuples(subject: string): Promise<OpenFgaTupleKey[]> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // OpenFGA read filters cannot be user-only, so delete cleanup scans pages.
+  const tuples: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({
+      continuationToken,
+      pageSize: 100,
+    });
+    tuples.push(...page.tuples.map((entry) => entry.key).filter((key) => key.user === `user:${subject}`));
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return tuples;
 }
 
 export const GET = withErrorHandler(
@@ -137,5 +159,86 @@ export const PUT = withErrorHandler(
     await updateUser(id, merged);
 
     return successResponse({ ok: true });
+  }
+);
+
+export const DELETE = withErrorHandler(
+  async (
+    request: NextRequest,
+    context: { params: Promise<{ id: string }> }
+  ) => {
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
+
+    const params = await context.params;
+    const id = params.id?.trim();
+    if (!id) {
+      throw new ApiError("User id is required", 400);
+    }
+    if (session.sub === id) {
+      throw new ApiError("Cannot delete the current session user", 400, "CURRENT_USER_DELETE_FORBIDDEN");
+    }
+
+    const existing = await getRealmUserById(id);
+    const email = String(existing.email ?? existing.username ?? "").trim().toLowerCase();
+    const deletedTuples = await readSubjectTuples(id);
+
+    if (deletedTuples.length > 0) {
+      await deleteExactOpenFgaTuples(deletedTuples);
+    }
+
+    let removedMembershipSources = 0;
+    if (isMongoDBConfigured) {
+      const now = new Date().toISOString();
+      const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+      const sourceResult = await sources.updateMany(
+        {
+          status: "active",
+          $or: [
+            { user_subject: id },
+            ...(email ? [{ user_email: email }, { user_id: email }] : []),
+          ],
+        } as never,
+        {
+          $set: {
+            status: "removed",
+            removed_at: now,
+            removed_by: session.user?.email ?? "admin-api",
+            last_seen_at: now,
+          },
+        } as never,
+      );
+      removedMembershipSources = sourceResult.modifiedCount ?? 0;
+
+      const users = await getCollection<Record<string, unknown>>("users");
+      await users.updateMany(
+        {
+          $or: [
+            { keycloak_sub: id },
+            { id },
+            { _id: id },
+            ...(email ? [{ email }] : []),
+          ],
+        } as never,
+        {
+          $set: {
+            status: "deleted",
+            enabled: false,
+            deleted_at: now,
+            deleted_by: session.user?.email ?? "admin-api",
+          },
+        } as never,
+      );
+    }
+
+    await deleteRealmUser(id);
+
+    return successResponse({
+      id,
+      deleted: true,
+      email,
+      openfga_tuples_deleted: deletedTuples.length,
+      membership_sources_removed: removedMembershipSources,
+    });
   }
 );

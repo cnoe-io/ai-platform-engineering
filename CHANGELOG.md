@@ -1,8 +1,133 @@
+## 0.5.31 (2026-06-30)
+
+### Fix
+
+- **webex**: suppress duplicate wizard title and update tests
+- **webex**: add two-tab nav between Configure and Configured spaces
+
+## 0.5.30 (2026-06-29)
+
+### Fix
+
+- **ui**: restore scroll in team dialog lists (#2074)
+
+## 0.5.29 (2026-06-29)
+
+## 0.5.28-dev.3 (2026-06-29)
+
+### Feat
+
+- **credentials**: PKCE public-client OAuth connectors; remove pinned MCP connection scope (#2071)
+- **credentials**: add hash tabs for secrets (#2065)
+
+### Fix
+
+- **workflows**: avoid raw step response rendering
+- **health**: probe self API routes via internal base URL, not request origin (#2067)
+- signed agent context goes stale after 5min (#2069)
+
+## 0.5.28-dev.1 (2026-06-29)
+
+### Fix
+
+- **chart**: A2A_BASE_URL default points to dynamic-agents:8001
+- **health**: update tests and chart template for localhost self-call fix
+- **health**: use localhost for self-referential capability probes
+
+## 0.5.28 (2026-06-29)
+
+### Fix
+
+- **health**: restore AppHeader capability status
+
+## 0.5.27 (2026-06-28)
+
+### Feat
+
+- **audit**: S3 retention controls, storage usage visibility, and configurable verbosity
+
+### Fix
+
+- **lint**: move verbosity import to top of test file (ruff E402/F401)
+- **audit**: mock /api/admin/audit-storage in UnifiedAuditTab download test
+- **rbac**: clean up deleted principals and grants
+
+## 0.5.26-dev.7 (2026-06-28)
+
+### Feat
+
+- **admin**: make OpenFGA the source of truth for team resource access and declutter team UI (#2021)
+
+### Fix
+
+- **setup-caipe**: update configBridge.bff to configBridge.ui secret path (#2058)
+- **ui-admin**: remove knowledge bases settings tab
+
+## 0.5.26-dev.6 (2026-06-27)
+
+## 0.5.26-dev.5 (2026-06-27)
+
+### Feat
+
+- **audit**: S3 retention controls, storage usage visibility, and configurable verbosity
+
+## 0.5.26-dev.4 (2026-06-27)
+
+### Fix
+
+- **dynamic-agents**: remove stale agent CRUD router (#2054)
+
+## 0.5.26-dev.3 (2026-06-27)
+
+### Fix
+
+- **security**: address audit and pnpm alerts
+
+### Refactor
+
+- **ui**: collapse credentials tabs into a single scrollable pane (#2044)
+
+## 0.5.26-dev.2 (2026-06-27)
+
+## 0.5.26-dev.1 (2026-06-26)
+
+### Fix
+
+- **keycloak**: align init hook cleanup for argocd
+- **keycloak**: make init-idp hook delete policy configurable
+- **ci**: make auto-tag idempotent and authenticated (#2046)
+- **ui**: make custom popover dropdowns work inside dialogs (#2048)
+
+## 0.5.26 (2026-06-26)
+
+### Fix
+
+- **slack**: suppress ephemeral nudges for passive channel posts (#2045)
+
+## 0.5.25 (2026-06-26)
+
+### Feat
+
+- **health**: refactor platform health probes to capabilities with profile-aware integration status (#2005)
+
+### Fix
+
+- **ui**: improve sharing/transfer UX and consolidate KB ownership (#2041)
+- **slack**: batch configured channel health audit lookup (#2043)
+- **ui**: cache session auth for repeated api calls
+- **keycloak**: add memory headroom for slack admin loads (#2038)
+- **ui**: actually use the seedConfig source for mcp
+- **webex**: simplify space onboarding and direct routing
+- **mcp**: stabilize tool schema and health scans
+- **chat**: restore user and team share visibility (#2031)
+- **admin**: collapse long user team lists (#2034)
+
 ## 0.5.24 (2026-06-26)
 
 ### Feat
 
 - **mcp**: add mcpSecrets alias with deprecation of agentSecrets
+- **admin**: add access explorer and rbac self check
 
 ### Fix
 
@@ -26,6 +151,11 @@
 - **slack-bot**: skip Keycloak identity resolution in middleware for bot messages (SDPL-1984)
 
 ## 0.5.23 (2026-06-25)
+
+### Feat
+
+- **admin**: drop team_kb_ownership for OpenFGA-sourced KB grants and split Agents/MCPs tabs
+- **admin**: make OpenFGA the source of truth for team resource access and declutter team UI
 
 ### Fix
 

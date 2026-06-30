@@ -606,7 +606,7 @@ export async function waitForMcpTestToolsLoaded(page: Page): Promise<void> {
 }
 
 export async function selectAgentGatewayTarget(page: Page, targetLabel: string | RegExp): Promise<void> {
-  await page.getByRole("button", { name: /agentgateway target/i }).click();
+  await page.getByRole("combobox", { name: /agentgateway target/i }).click();
   await page.getByRole("textbox", { name: /search targets/i }).fill(
     typeof targetLabel === "string" ? targetLabel : "",
   );

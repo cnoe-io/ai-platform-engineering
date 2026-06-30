@@ -1,50 +1,94 @@
 import net from "node:net";
 
-import { NextRequest,NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import {
-createJsonResponseCacheStore,
-envTtlMs,
-withJsonResponseCache,
+  getInternalA2AUrl,
+  getServerConfig,
+  getServerOnlyConfig,
+} from "@/lib/config";
+import { getRequestOrigin } from "@/app/api/skills/_lib/request-origin";
+import {
+  createJsonResponseCacheStore,
+  envTtlMs,
+  withJsonResponseCache,
 } from "@/lib/server-response-cache";
-import { AGENTGATEWAY_HEALTH_REMEDIATION } from "@/lib/platform-health-remediation";
-import { getKeycloakMigrationHealth } from "@/lib/rbac/keycloak-migration-health";
-import { getMigrationBlockingStatus } from "@/lib/rbac/migrations/registry";
+import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
+import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 
 export const runtime = "nodejs";
 
-type ProbeStatus = "healthy" | "warning" | "down";
-type ProbeGroup = "core" | "identity" | "storage" | "rag" | "bootstrap";
+type CapabilityStatus = "healthy" | "degraded" | "down" | "disabled";
+type CapabilityGroup = "runtime" | "knowledge" | "identity" | "observability" | "messaging";
+type DiagnosticProbeStatus = "healthy" | "warning" | "down";
+type DiagnosticProbeGroup = "runtime" | "identity" | "storage" | "knowledge" | "bootstrap" | "observability";
 
-interface ProbeRemediation {
+interface CapabilityResult {
+  id: string;
+  label: string;
+  group: CapabilityGroup;
+  status: CapabilityStatus;
+  required: boolean;
+  description: string;
+  detail: string;
+  latency_ms: number | null;
+}
+
+interface AuditServiceStatusPayload {
+  running?: unknown;
+  backend?: unknown;
+  storage?: unknown;
+  queue_size?: unknown;
+  queue_max_size?: unknown;
+  rejected_events?: unknown;
+  failed_flushes?: unknown;
+  last_error?: unknown;
+  last_flush_at?: unknown;
+}
+
+interface DiagnosticProbeRemediation {
   label: string;
   href: string;
   description: string;
 }
 
-interface ProbeResult {
+interface DiagnosticProbeResult {
   id: string;
   label: string;
-  group: ProbeGroup;
-  status: ProbeStatus;
+  group: DiagnosticProbeGroup;
+  status: DiagnosticProbeStatus;
   detail: string;
   target: string;
   latency_ms: number | null;
-  remediation?: ProbeRemediation;
+  remediation?: DiagnosticProbeRemediation;
 }
 
 const HTTP_TIMEOUT_MS = 3000;
 const TCP_TIMEOUT_MS = 2000;
 const healthCache = createJsonResponseCacheStore();
+const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
+const DISABLED_VALUES = new Set(["0", "false", "no", "off"]);
 
-function env(name: string): string | undefined {
-  return process.env[name] || process.env[`NEXT_PUBLIC_${name}`] || undefined;
+function envValue(name: string): string | null {
+  const value = process.env[name]?.trim();
+  if (!value || value.startsWith("#")) return null;
+  if (value.startsWith("<") && value.endsWith(">")) return null;
+  if (value.toLowerCase().includes("your-")) return null;
+  return value;
 }
 
-// Kubernetes auto-injects {SERVICE}_PORT as "tcp://host:port" (a connection URL,
-// not a bare port number). Number("tcp://...") is NaN, which crashes net.createConnection.
+function envEnabled(name: string): boolean {
+  const value = envValue(name)?.toLowerCase();
+  return value ? ENABLED_VALUES.has(value) : false;
+}
+
+function envExplicitlyDisabled(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value ? DISABLED_VALUES.has(value) : false;
+}
+
 function envPort(name: string, defaultPort: number): number {
-  const raw = env(name);
+  const raw = envValue(name);
   if (!raw) return defaultPort;
   const tcpMatch = raw.match(/^tcp:\/\/[^:]+:(\d+)/);
   if (tcpMatch) return Number(tcpMatch[1]);
@@ -55,7 +99,186 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
 }
 
-async function probeHttp({
+function hasComposeProfile(...profileNames: string[]): boolean {
+  const profiles = new Set(
+    (process.env.COMPOSE_PROFILES ?? "")
+      .split(",")
+      .map((profile) => profile.trim())
+      .filter(Boolean),
+  );
+  return profileNames.some((profile) => profiles.has(profile));
+}
+
+function slackDirectoryToken(): string | null {
+  return envValue("SLACK_BOT_TOKEN") ?? envValue("SLACK_INTEGRATION_BOT_TOKEN");
+}
+
+function slackIntegrationEnabled(): boolean {
+  return (
+    Boolean(
+      envEnabled("SLACK_INTEGRATION_ENABLED") ||
+        envEnabled("SLACK_ADMIN_API_ENABLED") ||
+        envEnabled("SLACK_BOT_ADMIN_DEV_AUTH_ENABLED"),
+    ) ||
+    hasComposeProfile("slack-bot", "all-integrations")
+  );
+}
+
+function webexIntegrationToken(): string | null {
+  return (
+    envValue("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") ??
+    envValue("WEBEX_ACCESS_TOKEN") ??
+    envValue("WEBEX_TOKEN")
+  );
+}
+
+function webexIntegrationEnabled(): boolean {
+  return (
+    Boolean(
+      envEnabled("WEBEX_INTEGRATION_ENABLED") ||
+        webexIntegrationToken() ||
+        envValue("WEBEX_BOT_ADMIN_CLIENT_SECRET") ||
+        envValue("KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET"),
+    ) ||
+    hasComposeProfile("webex-bot", "all-integrations")
+  );
+}
+
+function auditServiceUrl(): string {
+  return (process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010").replace(/\/$/, "");
+}
+
+function isHealthyStatusPayload(payload: unknown): boolean {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { status?: unknown }).status === "healthy"
+  );
+}
+
+async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out`)), HTTP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function disabledCapability(input: {
+  id: string;
+  label: string;
+  group: CapabilityGroup;
+  detail: string;
+  description: string;
+}): CapabilityResult {
+  return {
+    ...input,
+    status: "disabled",
+    required: false,
+    description: input.description,
+    latency_ms: null,
+  };
+}
+
+async function probeHttpCapability({
+  id,
+  label,
+  group,
+  target,
+  required,
+  description,
+  degradedOnFailure = !required,
+  healthyDetail = "Reachable",
+  failureLabel,
+  healthyPayload,
+}: {
+  id: string;
+  label: string;
+  group: CapabilityGroup;
+  target: string;
+  required: boolean;
+  description: string;
+  degradedOnFailure?: boolean;
+  healthyDetail?: string;
+  failureLabel: string;
+  healthyPayload?: (payload: unknown) => boolean;
+}): Promise<CapabilityResult> {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(target, {
+      method: "GET",
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    const latencyMs = Date.now() - startedAt;
+    if (response.ok) {
+      if (healthyPayload) {
+        const payload = await response.clone().json().catch(() => null);
+        if (!healthyPayload(payload)) {
+          return {
+            id,
+            label,
+            group,
+            status: degradedOnFailure ? "degraded" : "down",
+            required,
+            description,
+            detail: `${failureLabel} returned unhealthy status`,
+            latency_ms: latencyMs,
+          };
+        }
+      }
+      return {
+        id,
+        label,
+        group,
+        status: "healthy",
+        required,
+        description,
+        detail: healthyDetail,
+        latency_ms: latencyMs,
+      };
+    }
+    return {
+      id,
+      label,
+      group,
+      status: degradedOnFailure ? "degraded" : "down",
+      required,
+      description,
+      detail: `${failureLabel} returned HTTP ${response.status}`,
+      latency_ms: latencyMs,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "request failed";
+    const detail = errorMessage === "fetch failed"
+      ? `${failureLabel} is unreachable`
+      : `${failureLabel} failed: ${errorMessage}`;
+
+    return {
+      id,
+      label,
+      group,
+      status: degradedOnFailure ? "degraded" : "down",
+      required,
+      description,
+      detail,
+      latency_ms: Date.now() - startedAt,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function probeHttpDiagnostic({
   id,
   label,
   group,
@@ -67,13 +290,13 @@ async function probeHttp({
 }: {
   id: string;
   label: string;
-  group: ProbeGroup;
+  group: DiagnosticProbeGroup;
   target: string;
   headers?: HeadersInit;
-  remediation?: ProbeRemediation;
-  failureStatus?: ProbeStatus;
+  remediation?: DiagnosticProbeRemediation;
+  failureStatus?: DiagnosticProbeStatus;
   failureDetailPrefix?: string;
-}): Promise<ProbeResult> {
+}): Promise<DiagnosticProbeResult> {
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
@@ -98,20 +321,15 @@ async function probeHttp({
       remediation: response.ok ? undefined : remediation,
     };
   } catch (error) {
-    const latencyMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message : "request failed";
     return {
       id,
       label,
       group,
       status: failureStatus,
-      detail:
-        failureDetailPrefix && failureStatus === "warning"
-          ? `${failureDetailPrefix}: ${error instanceof Error ? error.message : "request failed"}`
-          : error instanceof Error
-            ? error.message
-            : "request failed",
+      detail: failureDetailPrefix ? `${failureDetailPrefix}: ${message}` : message,
       target,
-      latency_ms: latencyMs,
+      latency_ms: Date.now() - startedAt,
       remediation,
     };
   } finally {
@@ -119,7 +337,7 @@ async function probeHttp({
   }
 }
 
-async function probeTcp({
+async function probeTcpDiagnostic({
   id,
   label,
   group,
@@ -129,16 +347,16 @@ async function probeTcp({
 }: {
   id: string;
   label: string;
-  group: ProbeGroup;
+  group: DiagnosticProbeGroup;
   host: string;
   port: number;
-  remediation?: ProbeRemediation;
-}): Promise<ProbeResult> {
+  remediation?: DiagnosticProbeRemediation;
+}): Promise<DiagnosticProbeResult> {
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const socket = net.createConnection({ host, port, timeout: TCP_TIMEOUT_MS });
 
-    const finish = (status: ProbeStatus, detail: string) => {
+    const finish = (status: DiagnosticProbeStatus, detail: string) => {
       socket.destroy();
       resolve({
         id,
@@ -158,13 +376,13 @@ async function probeTcp({
   });
 }
 
-async function probeOpenFgaBootstrap(openfgaUrl: string): Promise<ProbeResult> {
+async function probeOpenFgaBootstrap(openfgaUrl: string): Promise<DiagnosticProbeResult> {
   const startedAt = Date.now();
-  const storeName = env("OPENFGA_STORE_NAME") || "caipe-openfga";
+  const storeName = envValue("OPENFGA_STORE_NAME") || "caipe-openfga";
   const remediation = {
-    label: "View OpenFGA",
+    label: "OpenFGA",
     href: "/admin?cat=security&tab=openfga",
-    description: "Open the OpenFGA admin view and re-run the compose RBAC init services if the store or model is missing.",
+    description: "Inspect OpenFGA connectivity and seeded authorization model.",
   };
 
   try {
@@ -249,13 +467,14 @@ async function probeOpenFgaBootstrap(openfgaUrl: string): Promise<ProbeResult> {
   }
 }
 
-async function probeKeycloakBootstrap(): Promise<ProbeResult> {
+async function probeKeycloakBootstrap(): Promise<DiagnosticProbeResult> {
   const remediation = {
     label: "Keycloak Health",
     href: "/admin?cat=security&tab=keycloak",
-    description: "Open Keycloak health to inspect reconciliation and admin credential setup.",
+    description: "Inspect Keycloak realm, credentials, and reconciliation status.",
   };
   try {
+    const { getKeycloakMigrationHealth } = await import("@/lib/rbac/keycloak-migration-health");
     const health = await getKeycloakMigrationHealth({ actor: "platform-health" });
     const failingInvariants = health.keycloak_invariants?.summary.failing ?? 0;
     if (!health.keycloak.reachable || health.keycloak.status !== "reachable") {
@@ -278,7 +497,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
         status: "warning",
         detail:
           health.schema_area.status !== "current"
-            ? `Schema ${health.schema_area.current_version ?? "unknown"} → ${health.schema_area.target_version}`
+            ? `Schema ${health.schema_area.current_version ?? "unknown"} -> ${health.schema_area.target_version}`
             : `${failingInvariants} invariant${failingInvariants === 1 ? "" : "s"} failing`,
         target: health.keycloak.realm,
         latency_ms: null,
@@ -301,20 +520,21 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
       group: "bootstrap",
       status: "warning",
       detail: error instanceof Error ? error.message : "bootstrap check failed",
-      target: env("KEYCLOAK_REALM") || "caipe",
+      target: envValue("KEYCLOAK_REALM") || "caipe",
       latency_ms: null,
       remediation,
     };
   }
 }
 
-async function probeRebacMigrations(): Promise<ProbeResult> {
+async function probeRebacMigrations(): Promise<DiagnosticProbeResult> {
   const remediation = {
     label: "Migration Assistant",
     href: "/admin?cat=security&tab=migrations",
     description: "Open the migration assistant to review and apply required schema migrations.",
   };
   try {
+    const { getMigrationBlockingStatus } = await import("@/lib/rbac/migrations/registry");
     const status = await getMigrationBlockingStatus({ actor: "platform-health" });
     if (status.is_blocking) {
       return {
@@ -363,12 +583,12 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
   }
 }
 
-function probeWebIngestorReadiness(ragServerHealthy: boolean, redisHealthy: boolean): ProbeResult {
-  const status = ragServerHealthy && redisHealthy ? "healthy" : "warning";
+function webIngestorReadiness(ragServerHealthy: boolean, redisHealthy: boolean): DiagnosticProbeResult {
+  const status: DiagnosticProbeStatus = ragServerHealthy && redisHealthy ? "healthy" : "warning";
   return {
     id: "web-ingestor",
     label: "Web Ingestor",
-    group: "rag",
+    group: "knowledge",
     status,
     detail: status === "healthy" ? "Queue ready; worker liveness not exposed" : "Requires RAG server and Redis",
     target: "web-ingestor",
@@ -384,69 +604,26 @@ function probeWebIngestorReadiness(ragServerHealthy: boolean, redisHealthy: bool
   };
 }
 
-function probeAuditDisabled(backend: string, auditServiceUrl: string): ProbeResult {
-  return {
-    id: "audit-service",
-    label: "Audit Service",
-    group: "storage",
-    status: "warning",
-    detail:
-      backend === "service"
-        ? "audit-service unavailable; audit events will be dropped until it is available"
-        : `AUDIT_LOG_BACKEND=${backend}; audit events will be dropped`,
-    target: auditServiceUrl,
-    latency_ms: null,
-    remediation: {
-      label: "Audit Service",
-      href: "/admin?cat=metrics&tab=health",
-      description: "Start audit-service or set AUDIT_LOG_BACKEND=service to enable durable audit collection.",
-    },
-  };
-}
-
-export async function GET(request: NextRequest): Promise<Response> {
-  return withJsonResponseCache(request, healthCache, getPlatformHealth, {
-    ttlMs: envTtlMs("PLATFORM_HEALTH_CACHE_TTL_MS", 5_000),
-    varyHeaders: [],
-    cacheableStatus: (status) => status === 200 || status === 503,
-    maxEntries: 4,
-  });
-}
-
-async function getPlatformHealth(): Promise<NextResponse> {
-  const keycloakUrl = trimTrailingSlash(env("KEYCLOAK_URL") || "http://keycloak:7080");
-  const keycloakRealm = env("KEYCLOAK_REALM") || "caipe";
-  const openfgaUrl = trimTrailingSlash(env("OPENFGA_HTTP") || "http://openfga:8080");
-  const ragServerUrl = trimTrailingSlash(env("RAG_SERVER_URL") || "http://rag-server:9446");
-  const dynamicAgentsUrl = trimTrailingSlash(env("DYNAMIC_AGENTS_URL") || env("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001");
+async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // Admin diagnostics restore dependency probes without making the header UX noisy.
+  const keycloakUrl = trimTrailingSlash(envValue("KEYCLOAK_URL") || "http://keycloak:7080");
+  const keycloakRealm = envValue("KEYCLOAK_REALM") || "caipe";
+  const openfgaUrl = trimTrailingSlash(envValue("OPENFGA_HTTP") || "http://openfga:8080");
+  const ragServerUrl = trimTrailingSlash(envValue("RAG_SERVER_URL") || "http://rag-server:9446");
+  const dynamicAgentsUrl = trimTrailingSlash(
+    envValue("DYNAMIC_AGENTS_URL") || envValue("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001",
+  );
   const agentgatewayAdminUrl = trimTrailingSlash(
-    env("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
+    envValue("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
   const agentgatewayTargetsUrl =
-    env("AGENTGATEWAY_TARGETS_URL") || "http://caipe-ui:3000/api/internal/agentgateway/mcp-targets";
+    envValue("AGENTGATEWAY_TARGETS_URL") || "http://caipe-ui:3000/api/internal/agentgateway/mcp-targets";
   const agentgatewayTargetsToken =
-    env("AGENTGATEWAY_TARGETS_TOKEN") || "agentgateway-config-bridge-dev-token";
-  const auditServiceUrl = trimTrailingSlash(env("AUDIT_SERVICE_URL") || "http://audit-service:8010");
-  const auditBackend = (env("AUDIT_LOG_BACKEND") || "service").trim().toLowerCase();
-  const auditProbe =
-    auditBackend === "service"
-      ? probeHttp({
-          id: "audit-service",
-          label: "Audit Service",
-          group: "storage",
-          target: `${auditServiceUrl}/readyz`,
-          failureStatus: "warning",
-          failureDetailPrefix: "optional audit path unavailable; audit events will be dropped",
-          remediation: {
-            label: "Audit Service",
-            href: "/admin?cat=metrics&tab=health",
-            description: "Check audit-service logs, queue status, and local/S3 storage configuration.",
-          },
-        })
-      : probeAuditDisabled(auditBackend, auditServiceUrl);
+    envValue("AGENTGATEWAY_TARGETS_TOKEN") || "agentgateway-config-bridge-dev-token";
 
   const probes = await Promise.all([
-    probeHttp({
+    probeHttpDiagnostic({
       id: "keycloak",
       label: "Keycloak",
       group: "identity",
@@ -457,7 +634,7 @@ async function getPlatformHealth(): Promise<NextResponse> {
         description: "Inspect Keycloak realm, credentials, and reconciliation status.",
       },
     }),
-    probeHttp({
+    probeHttpDiagnostic({
       id: "openfga",
       label: "OpenFGA",
       group: "identity",
@@ -468,22 +645,17 @@ async function getPlatformHealth(): Promise<NextResponse> {
         description: "Inspect OpenFGA connectivity and seeded authorization model.",
       },
     }),
-    probeTcp({
+    probeTcpDiagnostic({
       id: "openfga-authz-bridge",
       label: "OpenFGA Bridge",
       group: "identity",
-      host: env("OPENFGA_AUTHZ_BRIDGE_HOST") || "openfga-authz-bridge",
+      host: envValue("OPENFGA_AUTHZ_BRIDGE_HOST") || "openfga-authz-bridge",
       port: envPort("OPENFGA_AUTHZ_BRIDGE_PORT", 9100),
-      remediation: {
-        label: "OpenFGA",
-        href: "/admin?cat=security&tab=openfga",
-        description: "Check OpenFGA bridge logs and authz configuration.",
-      },
     }),
-    probeHttp({
-      id: "dynamic-agents",
-      label: "Dynamic Agents",
-      group: "core",
+    probeHttpDiagnostic({
+      id: "dynamic-agents-runtime",
+      label: "Dynamic Agents Runtime",
+      group: "runtime",
       target: `${dynamicAgentsUrl}/health`,
       remediation: {
         label: "Dynamic Agents",
@@ -491,49 +663,69 @@ async function getPlatformHealth(): Promise<NextResponse> {
         description: "Check dynamic agents service logs and dependencies.",
       },
     }),
-    probeHttp({
+    probeHttpDiagnostic({
       id: "agentgateway-config-bridge",
       label: "AgentGateway Config Bridge",
-      group: "core",
+      group: "runtime",
       target: agentgatewayTargetsUrl,
       headers: {
         authorization: `Bearer ${agentgatewayTargetsToken}`,
       },
-      remediation: AGENTGATEWAY_HEALTH_REMEDIATION,
+      remediation: {
+        label: "AgentGateway",
+        href: "/admin?cat=platform&tab=health",
+        description: "Check AgentGateway config bridge logs and target sync token configuration.",
+      },
     }),
-    probeHttp({
+    probeHttpDiagnostic({
       id: "agentgateway",
       label: "AgentGateway",
-      group: "core",
+      group: "runtime",
       target: agentgatewayAdminUrl,
-      remediation: AGENTGATEWAY_HEALTH_REMEDIATION,
+      remediation: {
+        label: "AgentGateway",
+        href: "/admin?cat=platform&tab=health",
+        description: "Check AgentGateway listener and static target configuration.",
+      },
     }),
-    probeTcp({
+    probeTcpDiagnostic({
       id: "caipe-mongodb",
       label: "MongoDB",
       group: "storage",
-      host: env("MONGODB_HOST") || "caipe-mongodb",
+      host: envValue("MONGODB_HOST") || "caipe-mongodb",
       port: envPort("MONGODB_PORT", 27017),
     }),
-    auditProbe,
-    probeTcp({
+    probeHttpDiagnostic({
+      id: "audit-service",
+      label: "Audit Service",
+      group: "observability",
+      target: `${auditServiceUrl()}/v1/audit/status`,
+      failureStatus: "warning",
+      failureDetailPrefix: "optional audit path unavailable",
+      remediation: {
+        label: "Audit Service",
+        href: "/admin?cat=platform&tab=health",
+        description: "Check audit-service logs, queue status, and local/S3 storage configuration.",
+      },
+    }),
+    probeTcpDiagnostic({
       id: "keycloak-postgres",
       label: "Keycloak Postgres",
       group: "storage",
-      host: env("KEYCLOAK_POSTGRES_HOST") || "keycloak-postgres",
+      host: envValue("KEYCLOAK_POSTGRES_HOST") || "keycloak-postgres",
       port: envPort("KEYCLOAK_POSTGRES_PORT", 5432),
     }),
-    probeTcp({
+    probeTcpDiagnostic({
       id: "openfga-postgres",
       label: "OpenFGA Postgres",
       group: "storage",
-      host: env("OPENFGA_POSTGRES_HOST") || "openfga-postgres",
+      host: envValue("OPENFGA_POSTGRES_HOST") || "openfga-postgres",
       port: envPort("OPENFGA_POSTGRES_PORT", 5432),
     }),
-    probeHttp({
+    probeHttpDiagnostic({
       id: "rag-server",
       label: "RAG Server",
-      group: "rag",
+      group: "knowledge",
       target: `${ragServerUrl}/healthz`,
       remediation: {
         label: "Knowledge Bases",
@@ -541,31 +733,31 @@ async function getPlatformHealth(): Promise<NextResponse> {
         description: "Check RAG server dependencies and compose profile.",
       },
     }),
-    probeTcp({
+    probeTcpDiagnostic({
       id: "rag-redis",
       label: "RAG Redis",
-      group: "rag",
-      host: env("RAG_REDIS_HOST") || "rag-redis",
+      group: "knowledge",
+      host: envValue("RAG_REDIS_HOST") || "rag-redis",
       port: envPort("RAG_REDIS_PORT", 6379),
     }),
-    probeHttp({
+    probeHttpDiagnostic({
       id: "milvus",
       label: "Milvus",
-      group: "rag",
-      target: trimTrailingSlash(env("MILVUS_HEALTH_URL") || "http://milvus-standalone:9091/healthz"),
+      group: "knowledge",
+      target: trimTrailingSlash(envValue("MILVUS_HEALTH_URL") || "http://milvus-standalone:9091/healthz"),
     }),
-    probeTcp({
+    probeTcpDiagnostic({
       id: "milvus-minio",
       label: "Milvus MinIO",
-      group: "rag",
-      host: env("MILVUS_MINIO_HOST") || "milvus-minio",
+      group: "knowledge",
+      host: envValue("MILVUS_MINIO_HOST") || "milvus-minio",
       port: envPort("MILVUS_MINIO_PORT", 9000),
     }),
-    probeTcp({
+    probeTcpDiagnostic({
       id: "etcd",
       label: "etcd",
-      group: "rag",
-      host: env("ETCD_HOST") || "etcd",
+      group: "knowledge",
+      host: envValue("ETCD_HOST") || "etcd",
       port: envPort("ETCD_PORT", 2379),
     }),
     probeOpenFgaBootstrap(openfgaUrl),
@@ -576,28 +768,405 @@ async function getPlatformHealth(): Promise<NextResponse> {
   const ragServerProbe = probes.find((probe) => probe.id === "rag-server");
   const ragRedisProbe = probes.find((probe) => probe.id === "rag-redis");
   probes.push(
-    probeWebIngestorReadiness(
+    webIngestorReadiness(
       ragServerProbe?.status === "healthy",
       ragRedisProbe?.status === "healthy",
     ),
   );
 
-  const down = probes.filter((probe) => probe.status === "down").length;
-  const warning = probes.filter((probe) => probe.status === "warning").length;
-  const status = down > 0 ? "down" : warning > 0 ? "degraded" : "healthy";
+  return probes;
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function objectField(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function auditStorageDetail(payload: AuditServiceStatusPayload): string | null {
+  const storage = objectField(payload.storage);
+  if (!storage) return null;
+
+  const detail = stringField(storage.detail);
+  if (detail) return `storage=${detail}`;
+
+  const backend = stringField(storage.backend) ?? stringField(payload.backend) ?? "unknown";
+  const usedPercent = numberField(storage.used_percent);
+  const freeBytes = numberField(storage.free_bytes);
+  if (backend === "local" && usedPercent !== null) {
+    return freeBytes !== null
+      ? `storage=local disk ${usedPercent.toFixed(1)}% used (${Math.round(freeBytes / 1024 / 1024)} MiB free)`
+      : `storage=local disk ${usedPercent.toFixed(1)}% used`;
+  }
+
+  return `storage=${backend}`;
+}
+
+function auditStatusDetail(payload: AuditServiceStatusPayload): string {
+  const backend = stringField(payload.backend) ?? "unknown";
+  const queueSize = numberField(payload.queue_size);
+  const queueMaxSize = numberField(payload.queue_max_size);
+  const failedFlushes = numberField(payload.failed_flushes) ?? 0;
+  const rejectedEvents = numberField(payload.rejected_events) ?? 0;
+  const lastFlushAt = stringField(payload.last_flush_at) ?? "never";
+  const queueDetail =
+    queueSize !== null && queueMaxSize !== null
+      ? `queue ${queueSize}/${queueMaxSize}`
+      : "queue unknown";
+  const storageDetail = auditStorageDetail(payload);
+
+  return [
+    `backend=${backend}`,
+    queueDetail,
+    ...(storageDetail ? [storageDetail] : []),
+    `failed_flushes=${failedFlushes}`,
+    `rejected_events=${rejectedEvents}`,
+    `last_flush=${lastFlushAt}`,
+  ].join("; ");
+}
+
+async function probeAuditServiceCapability(auditBackend: string): Promise<CapabilityResult> {
+  const normalizedBackend = auditBackend.trim().toLowerCase();
+
+  if (["off", "disabled", "none"].includes(normalizedBackend)) {
+    return disabledCapability({
+      id: "audit-service",
+      label: "Audit Service",
+      group: "observability",
+      description: "Collects and serves durable audit events.",
+      detail: "Disabled by AUDIT_LOG_BACKEND",
+    });
+  }
+
+  if (normalizedBackend !== "service") {
+    return {
+      id: "audit-service",
+      label: "Audit Service",
+      group: "observability",
+      status: "degraded",
+      required: false,
+      description: "Collects and serves durable audit events.",
+      detail: `AUDIT_LOG_BACKEND=${auditBackend} is unsupported by the UI; use service`,
+      latency_ms: null,
+    };
+  }
+
+  // assisted-by Codex Codex-sonnet-4-6
+  // Audit health uses queue-worker state because a 200 response can still hide backpressure.
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${auditServiceUrl()}/v1/audit/status`, {
+      method: "GET",
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    const latencyMs = Date.now() - startedAt;
+    if (!response.ok) {
+      return {
+        id: "audit-service",
+        label: "Audit Service",
+        group: "observability",
+        status: "degraded",
+        required: false,
+        description: "Collects and serves durable audit events.",
+        detail: `audit-service returned HTTP ${response.status}`,
+        latency_ms: latencyMs,
+      };
+    }
+
+    const payload = (await response.json().catch(() => ({}))) as AuditServiceStatusPayload;
+    const issues: string[] = [];
+    const queueSize = numberField(payload.queue_size);
+    const queueMaxSize = numberField(payload.queue_max_size);
+    const lastError = stringField(payload.last_error);
+    const failedFlushes = numberField(payload.failed_flushes) ?? 0;
+    const rejectedEvents = numberField(payload.rejected_events) ?? 0;
+    const storage = objectField(payload.storage);
+    const storageStatus = storage ? stringField(storage.status)?.toLowerCase() : null;
+    const storageDetail = storage ? stringField(storage.detail) : null;
+
+    if (payload.running !== true) issues.push("queue worker is not running");
+    if (lastError) issues.push(`last error: ${lastError}`);
+    if (storageStatus && !["healthy", "ok"].includes(storageStatus)) {
+      issues.push(`storage ${storageStatus}: ${storageDetail ?? "storage health check failed"}`);
+    }
+    if (
+      queueSize !== null &&
+      queueMaxSize !== null &&
+      queueMaxSize > 0 &&
+      queueSize / queueMaxSize >= 0.8
+    ) {
+      issues.push(`queue pressure ${queueSize}/${queueMaxSize}`);
+    }
+    if (failedFlushes > 0) issues.push(`${failedFlushes} failed flushes`);
+    if (rejectedEvents > 0) issues.push(`${rejectedEvents} rejected events`);
+
+    return {
+      id: "audit-service",
+      label: "Audit Service",
+      group: "observability",
+      status: issues.length > 0 ? "degraded" : "healthy",
+      required: false,
+      description: "Collects and serves durable audit events.",
+      detail:
+        issues.length > 0
+          ? `${issues.join("; ")}; ${auditStatusDetail(payload)}`
+          : auditStatusDetail(payload),
+      latency_ms: latencyMs,
+    };
+  } catch (error) {
+    return {
+      id: "audit-service",
+      label: "Audit Service",
+      group: "observability",
+      status: "degraded",
+      required: false,
+      description: "Collects and serves durable audit events.",
+      detail: `audit-service failed: ${error instanceof Error ? error.message : "request failed"}`,
+      latency_ms: Date.now() - startedAt,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function probeSlackIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("SLACK_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "slack-integration",
+      label: "Slack",
+      group: "messaging",
+      description: "Slack messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
+  if (!slackIntegrationEnabled()) {
+    return disabledCapability({
+      id: "slack-integration",
+      label: "Slack",
+      group: "messaging",
+      description: "Slack messaging integration is not enabled for this deployment.",
+      detail: "Disabled",
+    });
+  }
+
+  const startedAt = Date.now();
+  const issues: string[] = [];
+
+  if (!slackDirectoryToken()) {
+    issues.push("Slack directory token is not configured on the UI service");
+  }
+
+  try {
+    await withTimeout(
+      callSlackBotAdmin("/admin/slack/routes/status"),
+      "Slack bot admin check",
+    );
+  } catch (error) {
+    issues.push(error instanceof Error ? error.message : "Slack bot admin check failed");
+  }
+
+  return {
+    id: "slack-integration",
+    label: "Slack",
+    group: "messaging",
+    status: issues.length > 0 ? "degraded" : "healthy",
+    required: false,
+    description: "Checks Slack integration availability.",
+    detail: issues.length > 0 ? issues.join("; ") : "Slack ready",
+    latency_ms: Date.now() - startedAt,
+  };
+}
+
+async function probeWebexIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("WEBEX_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "webex-integration",
+      label: "Webex",
+      group: "messaging",
+      description: "Webex messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
+  if (!webexIntegrationEnabled()) {
+    return disabledCapability({
+      id: "webex-integration",
+      label: "Webex",
+      group: "messaging",
+      description: "Webex messaging integration is not enabled for this deployment.",
+      detail: "Disabled",
+    });
+  }
+
+  const startedAt = Date.now();
+  const issues: string[] = [];
+
+  if (!webexIntegrationToken()) {
+    issues.push("Webex integration token is not configured on the UI service");
+  }
+
+  try {
+    await withTimeout(
+      callWebexBotAdmin("/admin/webex/routes/status"),
+      "Webex bot admin check",
+    );
+  } catch (error) {
+    issues.push(error instanceof Error ? error.message : "Webex bot admin check failed");
+  }
+
+  return {
+    id: "webex-integration",
+    label: "Webex",
+    group: "messaging",
+    status: issues.length > 0 ? "degraded" : "healthy",
+    required: false,
+    description: "Checks Webex integration availability.",
+    detail: issues.length > 0 ? issues.join("; ") : "Webex ready",
+    latency_ms: Date.now() - startedAt,
+  };
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return withJsonResponseCache(request, healthCache, () => getPlatformHealth(request), {
+    ttlMs: envTtlMs("PLATFORM_HEALTH_CACHE_TTL_MS", 5_000),
+    varyHeaders: [],
+    cacheableStatus: (status) => status === 200 || status === 503,
+    maxEntries: 4,
+  });
+}
+
+async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
+  const config = getServerConfig();
+  const serverOnly = getServerOnlyConfig();
+  const selfBase = getRequestOrigin(request);
+  const includeDiagnostics = new URL(request.url).searchParams.get("diagnostics") === "1";
+  const capabilityResults = await Promise.all([
+    probeHttpCapability({
+      id: "chat-runtime",
+      label: "Chat Runtime",
+      group: "runtime",
+      target: `${getInternalA2AUrl()}/health`,
+      required: true,
+      description: "Checks the runtime health endpoint used by the chat experience.",
+      degradedOnFailure: false,
+      healthyDetail: "Chat runtime reachable",
+      failureLabel: "Chat runtime health check",
+    }),
+    config.dynamicAgentsEnabled
+      ? probeHttpCapability({
+          id: "dynamic-agents",
+          label: "Dynamic Agents",
+          group: "runtime",
+          target: `${selfBase}/api/dynamic-agents/health`,
+          required: true,
+          description: "Checks Dynamic Agents when custom agent runtime is enabled.",
+          healthyDetail: "Runtime reachable",
+          degradedOnFailure: false,
+          failureLabel: "Dynamic Agents health check",
+          healthyPayload: isHealthyStatusPayload,
+        })
+      : Promise.resolve(
+          disabledCapability({
+            id: "dynamic-agents",
+            label: "Dynamic Agents",
+            group: "runtime",
+            description: "Custom agent runtime is not enabled for this deployment.",
+            detail: "Disabled by DYNAMIC_AGENTS_ENABLED",
+          }),
+        ),
+    config.ragEnabled
+      ? probeHttpCapability({
+          id: "knowledge-bases",
+          label: "Knowledge Bases",
+          group: "knowledge",
+          target: `${selfBase}/api/rag/healthz`,
+          required: false,
+          description: "Checks the RAG API used by Knowledge Bases.",
+          healthyDetail: "RAG API reachable",
+          failureLabel: "Knowledge Bases health check",
+        })
+      : Promise.resolve(
+          disabledCapability({
+            id: "knowledge-bases",
+            label: "Knowledge Bases",
+            group: "knowledge",
+            description: "Knowledge Bases are not enabled for this deployment.",
+            detail: "Disabled by RAG_ENABLED",
+          }),
+        ),
+    Promise.resolve({
+      id: "authentication",
+      label: "Authentication",
+      group: "identity",
+      status: config.ssoEnabled ? "healthy" : "disabled",
+      required: false,
+      description: "Reads the UI SSO configuration.",
+      detail: config.ssoEnabled ? "SSO enabled" : "SSO disabled",
+      latency_ms: null,
+    } satisfies CapabilityResult),
+    Promise.resolve({
+      id: "metrics",
+      label: "Metrics",
+      group: "observability",
+      status: serverOnly.prometheusUrl ? "healthy" : "disabled",
+      required: false,
+      description: "Reads the UI Prometheus configuration.",
+      detail: serverOnly.prometheusUrl ? "Prometheus configured" : "Prometheus not configured",
+      latency_ms: null,
+    } satisfies CapabilityResult),
+    probeAuditServiceCapability(config.auditLogBackend),
+    probeSlackIntegration(),
+    probeWebexIntegration(),
+  ]);
+  const capabilities = capabilityResults.filter(
+    (capability): capability is CapabilityResult => capability !== null,
+  );
+
+  const down = capabilities.filter((capability) => capability.status === "down").length;
+  const degraded = capabilities.filter((capability) => capability.status === "degraded").length;
+  const disabled = capabilities.filter((capability) => capability.status === "disabled").length;
+  const healthy = capabilities.filter((capability) => capability.status === "healthy").length;
+  const requiredDown = capabilities.some(
+    (capability) => capability.required && capability.status === "down",
+  );
+  const status = requiredDown ? "down" : degraded > 0 ? "degraded" : "healthy";
+  const probes = includeDiagnostics ? await buildDiagnosticProbes() : undefined;
+  const probeDown = probes?.filter((probe) => probe.status === "down").length ?? 0;
+  const probeWarning = probes?.filter((probe) => probe.status === "warning").length ?? 0;
+  const probeSummary = probes
+    ? {
+        total: probes.length,
+        healthy: probes.length - probeDown - probeWarning,
+        warning: probeWarning,
+        down: probeDown,
+      }
+    : undefined;
 
   return NextResponse.json(
     {
       status,
       checked_at: new Date().toISOString(),
       summary: {
-        total: probes.length,
-        healthy: probes.length - down - warning,
-        warning,
+        total: capabilities.length,
+        healthy,
+        degraded,
         down,
+        disabled,
       },
-      probes,
+      capabilities,
+      ...(probes ? { probes, probe_summary: probeSummary } : {}),
     },
-    { status: down > 0 ? 503 : 200 },
+    { status: requiredDown ? 503 : 200 },
   );
 }

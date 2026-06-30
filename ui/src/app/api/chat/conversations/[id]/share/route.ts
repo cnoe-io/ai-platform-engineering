@@ -32,8 +32,93 @@ interface ResolvedTeamShare {
   aliases: string[];
 }
 
+interface UserShareDocument {
+  email?: string;
+  keycloak_sub?: string;
+  metadata?: {
+    keycloak_sub?: string;
+  };
+}
+
+interface ResolvedUserShare {
+  email: string;
+  subjectRef: string;
+}
+
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function normalizedEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function uniqueEmails(values: string[]): string[] {
+  return uniqueStrings(values.map(normalizedEmail));
+}
+
+function stableUserSubject(user: UserShareDocument): string | undefined {
+  const candidates = [
+    user.keycloak_sub,
+    user.metadata?.keycloak_sub,
+  ];
+  return candidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim();
+}
+
+async function resolveUserShares(emails: string[]): Promise<ResolvedUserShare[]> {
+  const recipientEmails = uniqueEmails(emails);
+  if (recipientEmails.length === 0) return [];
+
+  const users = await getCollection<UserShareDocument>('users');
+  const docs = await users
+    .find({ email: { $in: recipientEmails } })
+    .project({ email: 1, keycloak_sub: 1, 'metadata.keycloak_sub': 1 })
+    .toArray();
+  const docsByEmail = new Map(
+    docs
+      .filter((doc) => typeof doc.email === 'string')
+      .map((doc) => [normalizedEmail(doc.email as string), doc]),
+  );
+
+  return recipientEmails.flatMap((email) => {
+    const subjectRef = stableUserSubject(docsByEmail.get(email) ?? {});
+    return subjectRef ? [{ email, subjectRef }] : [];
+  });
+}
+
+function userConversationGrantDiff(
+  conversationId: string,
+  resolvedUsers: ResolvedUserShare[],
+  permission: SharePermission,
+): { writes: OpenFgaTupleKey[]; deletes: OpenFgaTupleKey[] } {
+  const writes: OpenFgaTupleKey[] = [];
+  const deletes: OpenFgaTupleKey[] = [];
+  for (const userShare of resolvedUsers) {
+    const user = `user:${userShare.subjectRef}`;
+    writes.push({ user, relation: 'reader', object: `conversation:${conversationId}` });
+    const writerTuple = { user, relation: 'writer', object: `conversation:${conversationId}` };
+    if (permission === 'comment') {
+      writes.push(writerTuple);
+    } else {
+      deletes.push(writerTuple);
+    }
+  }
+  return { writes, deletes };
+}
+
+async function writeUserConversationGrantTuplesBestEffort(
+  conversationId: string,
+  emails: string[],
+  permission: SharePermission,
+): Promise<void> {
+  try {
+    const resolvedUsers = await resolveUserShares(emails);
+    const diff = userConversationGrantDiff(conversationId, resolvedUsers, permission);
+    if (diff.writes.length === 0 && diff.deletes.length === 0) return;
+    await writeOpenFgaTuples(diff);
+  } catch (err) {
+    console.warn('[chat/share] User conversation grant write failed (best-effort):', err);
+  }
 }
 
 function teamLookupFilter(teamRef: string): Record<string, unknown> {
@@ -166,12 +251,22 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Invalid conversation ID format', 400);
     }
 
+    // assisted-by Codex Codex-sonnet-4-6
+    // Public conversation sharing is retired; keep only a cleanup path for legacy state.
+    if (body.is_public === true || body.public_permission !== undefined) {
+      throw new ApiError(
+        'Sharing with everyone is no longer supported. Add people or teams instead.',
+        400,
+        'PUBLIC_CONVERSATION_SHARING_DISABLED',
+      );
+    }
+
     // Require at least one sharing action
     const hasUsers = body.user_emails && body.user_emails.length > 0;
     const hasTeams = body.team_ids && body.team_ids.length > 0;
-    const hasPublicToggle = body.is_public !== undefined;
-    if (!hasUsers && !hasTeams && !hasPublicToggle) {
-      throw new ApiError('At least one of user_emails, team_ids, or is_public must be provided', 400);
+    const disablesPublicSharing = body.is_public === false;
+    if (!hasUsers && !hasTeams && !disablesPublicSharing) {
+      throw new ApiError('At least one of user_emails, team_ids, or is_public=false must be provided', 400);
     }
 
     if ((hasUsers || hasTeams) && !body.permission) {
@@ -202,19 +297,22 @@ export const POST = withErrorHandler(async (
           throw new ApiError(`Invalid email format: ${email}`, 400);
         }
       }
+      const recipientEmails = uniqueEmails(body.user_emails);
+      const permission = body.permission as SharePermission;
 
       // Create sharing access records for users
-      const accessRecords: SharingAccess[] = body.user_emails.map((email) => ({
+      const accessRecords: SharingAccess[] = recipientEmails.map((email) => ({
         conversation_id: conversationId,
         granted_by: user.email,
         granted_to: email,
-        permission: body.permission,
+        permission,
         granted_at: now,
       }));
 
       if (accessRecords.length > 0) {
         await sharingAccess.insertMany(accessRecords as any);
       }
+      await writeUserConversationGrantTuplesBestEffort(conversationId, recipientEmails, permission);
 
       // Initialize sharing object if it doesn't exist
       if (!conversation.sharing) {
@@ -223,7 +321,7 @@ export const POST = withErrorHandler(async (
       
       // Update conversation shared_with
       const existingSharedWith = conversation.sharing?.shared_with || [];
-      update['sharing.shared_with'] = [...new Set([...existingSharedWith, ...body.user_emails])];
+      update['sharing.shared_with'] = uniqueStrings([...existingSharedWith, ...recipientEmails]);
     }
 
     // Handle team sharing
@@ -257,12 +355,8 @@ export const POST = withErrorHandler(async (
       }
     }
 
-    if (body.is_public !== undefined) {
-      update['sharing.is_public'] = body.is_public;
-    }
-
-    if (body.public_permission) {
-      update['sharing.public_permission'] = body.public_permission;
+    if (disablesPublicSharing) {
+      update['sharing.is_public'] = false;
     }
 
     if (body.enable_link !== undefined) {
@@ -315,11 +409,16 @@ export const PATCH = withErrorHandler(async (
     await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     if (email) {
+      if (!validateEmail(email)) {
+        throw new ApiError(`Invalid email format: ${email}`, 400);
+      }
+      const recipientEmail = normalizedEmail(email);
       const sharingAccess = await getCollection<SharingAccess>('sharing_access');
       await sharingAccess.updateOne(
-        { conversation_id: conversationId, granted_to: email, revoked_at: null },
-        { $set: { permission } }
+        { conversation_id: conversationId, granted_to: { $in: uniqueStrings([email, recipientEmail]) }, revoked_at: null },
+        { $set: { permission, granted_to: recipientEmail } }
       );
+      await writeUserConversationGrantTuplesBestEffort(conversationId, [recipientEmail], permission);
     }
 
     if (team_id) {

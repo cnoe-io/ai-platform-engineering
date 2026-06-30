@@ -43,6 +43,12 @@ jest.mock("@/lib/rbac/openfga", () => ({
   buildTeamResourceTupleDiff: jest.fn(() => ({ writes: [], deletes: [] })),
   isOpenFgaConfigured: jest.fn(() => true),
   listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...(args as [])),
+  TEAM_TOOL_WILDCARD_SENTINEL_OBJECT: "tool:*",
+  teamToolWildcardSentinelTuple: (slug: string) => ({
+    user: `team:${slug}#member`,
+    relation: "caller",
+    object: "tool:*",
+  }),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ai_platform_engineering.integrations.webex_bot.app import (
@@ -109,8 +109,10 @@ class FakeRebacChecker:
 @dataclass
 class FakeRouteResolver:
     agent_id: Optional[str] = "agent-1"
+    calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def resolve_route(self, **kwargs: Any) -> WebexRouteResolution:
+        self.calls.append(kwargs)
         if not self.agent_id:
             return WebexRouteResolution(
                 agent_id=None,
@@ -414,3 +416,24 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
     )
     assert unspecified is not None
     assert unspecified.is_direct is False
+
+
+def test_direct_webex_event_passes_direct_flag_to_route_resolver() -> None:
+    route_resolver = FakeRouteResolver(agent_id="incident-agent")
+    dispatcher = FakeDispatcher()
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="howdy") | {"roomType": "direct"},
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            rebac_checker=FakeRebacChecker(),
+            route_resolver=route_resolver,
+            dispatcher=dispatcher,
+        )
+    )
+
+    assert result.allowed is True
+    assert result.dispatched is True
+    assert route_resolver.calls[0]["is_direct"] is True
+    assert dispatcher.calls[0]["agent_id"] == "incident-agent"

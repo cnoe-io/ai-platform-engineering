@@ -21,9 +21,9 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { TeamPicker } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
-import { useTeamKbOwnership } from '@/hooks/useTeamKbOwnership';
 import { cn,DEFAULT_RELOAD_INTERVAL,formatFreshUntil,formatNextReload,formatRelativeTime,isRefreshOverdue } from "@/lib/utils";
 import { AnimatePresence,motion } from 'framer-motion';
 import {
@@ -58,7 +58,7 @@ X
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { KbTeamAccessPanel } from './KbTeamAccessPanel';
+import { KbSharingPanel } from './KbSharingPanel';
 import type { DataSourceInfo,IngestionJob,IngestorInfo } from './Models';
 import type { ChunkInfo,DatasourceDocumentsResponse,DocumentInfo } from './api/index';
 import {
@@ -209,7 +209,11 @@ export default function IngestView() {
   const canIngest = hasPermission(Permission.INGEST)
   const canDelete = hasPermission(Permission.DELETE)
   const { toast } = useToast()
-  const { getTeamsForKb, reload: reloadTeamKb } = useTeamKbOwnership()
+
+  // Datasource whose Ownership & Sharing dialog is open (null = closed). The
+  // dialog hosts the shared KbSharingPanel (owner team + transfer + sharing),
+  // replacing the retired per-team read/ingest/admin popover.
+  const [sharingDatasource, setSharingDatasource] = useState<DataSourceInfo | null>(null)
 
   // Ingestion state
   const [url, setUrl] = useState('')
@@ -922,9 +926,6 @@ export default function IngestView() {
         await fetchJobsForDataSource(datasource_id)
         // Ownership tuples for the owning team are written server-side during
         // ingest (spec 2026-06-03) — no client-side admin kb-assignment call.
-        if (ingestOwnerTeamSlug) {
-          reloadTeamKb()
-        }
       }
       setUrl('')
       setSelectedFiles([])
@@ -1178,23 +1179,31 @@ export default function IngestView() {
                   to create a personal/admin-owned source. */}
               {(availableTeams.length > 0 || ingestOwnerTeamRequired) && (
                 <div className="flex items-center gap-2 mt-2 ml-1">
-                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
+                  <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="shrink-0 text-sm text-muted-foreground">
                     Owning team{ingestOwnerTeamRequired ? ' *' : ''}:
                   </span>
-                  <select
-                    className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={ingestOwnerTeamSlug}
-                    onChange={(e) => setIngestOwnerTeamSlug(e.target.value)}
-                    aria-label="Owning team"
-                  >
-                    <option value="">
-                      {ingestOwnerTeamRequired ? 'Select a team…' : 'None (personal)'}
-                    </option>
-                    {availableTeams.map((t) => (
-                      <option key={t._id} value={t.slug}>{t.name}</option>
-                    ))}
-                  </select>
+                  <div className="w-64 max-w-full">
+                    <TeamPicker
+                      value={ingestOwnerTeamSlug}
+                      onChange={setIngestOwnerTeamSlug}
+                      options={availableTeams.map((t) => ({
+                        slug: t.slug,
+                        name: t.name,
+                        _id: t._id,
+                      }))}
+                      ariaLabel="Owning team"
+                      ariaInvalid={ingestOwnerTeamMissing}
+                      placeholder={ingestOwnerTeamRequired ? 'Select a team…' : 'None (personal)'}
+                      searchPlaceholder="Search your teams..."
+                      emptyLabel={
+                        availableTeams.length === 0
+                          ? 'No teams available'
+                          : 'No teams match'
+                      }
+                      disabled={availableTeams.length === 0}
+                    />
+                  </div>
                   {ingestOwnerTeamRequired && availableTeams.length === 0 && (
                     <span className="text-xs text-amber-600 dark:text-amber-400">
                       No team grants you data-source authoring — ask an admin.
@@ -1843,16 +1852,15 @@ export default function IngestView() {
                                     </Button>
                                   </>
                                 )}
-                                {getTeamsForKb(ds.datasource_id).map((ti) => (
-                                  <Badge key={ti.teamId} variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-                                    {ti.teamName}
-                                  </Badge>
-                                ))}
-                                <KbTeamAccessPanel
-                                  datasourceId={ds.datasource_id}
-                                  mode="compact"
-                                  onUpdate={reloadTeamKb}
-                                />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                  title="Ownership & sharing"
+                                  onClick={(e) => { e.stopPropagation(); setSharingDatasource(ds); }}
+                                >
+                                  <Users className="h-3.5 w-3.5" />
+                                </Button>
                                 <Badge variant="secondary" className="text-[10px] shrink-0">
                                   {ds.source_type}
                                 </Badge>
@@ -2008,15 +2016,6 @@ export default function IngestView() {
                                       </div>
                                     </details>
                                   )}
-
-                                  {/* Team Access */}
-                                  <div className="rounded-lg bg-muted/50 border border-border/50 p-3">
-                                    <KbTeamAccessPanel
-                                      datasourceId={ds.datasource_id}
-                                      mode="full"
-                                      onUpdate={reloadTeamKb}
-                                    />
-                                  </div>
 
                                   {/* Jobs Section - Collapsible */}
                                   {jobs.length > 0 && (
@@ -2832,6 +2831,26 @@ export default function IngestView() {
           <div className="flex justify-end">
             <Button onClick={() => setReIngestError(null)}>OK</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ownership & sharing — the shared KbSharingPanel (owner team +
+          transfer + share-with-teams), opened from each source's people
+          icon. Replaces the retired per-team read/ingest/admin popover. */}
+      <Dialog open={Boolean(sharingDatasource)} onOpenChange={(open) => !open && setSharingDatasource(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-muted-foreground" />
+              Ownership &amp; Sharing
+            </DialogTitle>
+            <DialogDescription className="truncate" title={sharingDatasource?.name ?? sharingDatasource?.datasource_id}>
+              {sharingDatasource?.name ?? sharingDatasource?.datasource_id}
+            </DialogDescription>
+          </DialogHeader>
+          {sharingDatasource && (
+            <KbSharingPanel knowledgeBaseId={sharingDatasource.datasource_id} />
+          )}
         </DialogContent>
       </Dialog>
 

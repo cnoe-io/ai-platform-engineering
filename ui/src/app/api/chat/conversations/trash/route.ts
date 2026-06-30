@@ -11,6 +11,7 @@ import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import {
   conversationVisibilityCandidateQuery,
   filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
 } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 import { NextRequest,NextResponse } from 'next/server';
@@ -34,6 +35,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user, session) => {
     const { page, pageSize, skip } = getPaginationParams(request);
     const conversations = await getCollection<Conversation>('conversations');
+    const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
     // Auto-purge: permanently delete conversations that have been in the
     // archive for more than 7 days. This runs on every trash listing
@@ -56,7 +58,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       $and: [
         { source: { $ne: 'slack' } as any },
         { deleted_at: { $exists: true, $ne: null } },
-        conversationVisibilityCandidateQuery(user.email),
+        conversationVisibilityCandidateQuery(user.email, directShareConversationIds),
       ],
     };
 
@@ -69,7 +71,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+      session,
+      user.email,
+      items,
+      'discover',
+      directShareConversationIds,
+    );
 
     return paginatedResponse(
       visibleItems,

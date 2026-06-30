@@ -372,6 +372,7 @@ jobs:
             e2e/rbac/credentials-workspace-regression.spec.ts \
             e2e/rbac/admin-settings-regression.spec.ts \
             e2e/rbac/identity-sync-regression.spec.ts \
+            e2e/rbac/popover-in-dialog.spec.ts \
             --config=playwright.rbac.config.ts
 
       - name: Upload Playwright artifacts

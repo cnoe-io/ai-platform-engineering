@@ -7,6 +7,7 @@
 import { NextRequest } from "next/server";
 
 import {
+  _resetMcpCredentialHeaderTokenCacheForTests,
   readMcpToolApplicationSuccess,
   resolveMcpHeaderCredentials,
 } from "@/lib/mcp-credential-headers";
@@ -36,8 +37,14 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 }));
 
 describe("mcp-credential-headers", () => {
+  const originalFetch = global.fetch;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    global.fetch = originalFetch;
+    delete process.env.MCP_SERVICE_OIDC_TOKEN_URL;
+    delete process.env.MCP_SERVICE_OIDC_CLIENT_ID;
+    delete process.env.MCP_SERVICE_OIDC_CLIENT_SECRET;
     mockGetCredentialRetrievalService.mockResolvedValue({ retrieve: mockRetrieve });
     mockGetProviderConnectionService.mockResolvedValue({
       listConnections: mockListConnections,
@@ -46,6 +53,7 @@ describe("mcp-credential-headers", () => {
     });
     mockIsCredentialFeatureEnabled.mockReturnValue(true);
     mockRetrieve.mockResolvedValue({ credential: "secret-token" });
+    _resetMcpCredentialHeaderTokenCacheForTests();
     mockListConnections.mockResolvedValue([
       {
         id: "atlassian-conn-1",
@@ -55,6 +63,13 @@ describe("mcp-credential-headers", () => {
       },
     ]);
     mockRefreshConnection.mockResolvedValue({ accessToken: "atlassian-oauth-token", expiresIn: 3600 });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    delete process.env.MCP_SERVICE_OIDC_TOKEN_URL;
+    delete process.env.MCP_SERVICE_OIDC_CLIENT_ID;
+    delete process.env.MCP_SERVICE_OIDC_CLIENT_SECRET;
   });
 
   it("exchanges provider_connection credentials onto X-CAIPE-Provider-Token for AgentGateway", async () => {
@@ -121,6 +136,87 @@ describe("mcp-credential-headers", () => {
 
     expect(result.sources).toEqual([
       expect.objectContaining({ kind: "provider_connection", origin: "none", provider: "atlassian" }),
+    ]);
+  });
+
+  it("forwards caller_token credentials as the provider token for AgentGateway-routed RAG", async () => {
+    const request = new NextRequest("http://localhost:3000/api/mcp-servers/probe", { method: "POST" });
+    const resolution = await resolveMcpHeaderCredentials({
+      request,
+      session: { sub: "user-sub", accessToken: "user-jwt" },
+      viaAgentGateway: true,
+      server: {
+        _id: "knowledge-base",
+        id: "knowledge-base",
+        name: "Knowledge Base",
+        transport: "http",
+        enabled: true,
+        credential_sources: [
+          {
+            kind: "caller_token",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+            fallback_client_credentials: true,
+          },
+        ],
+      },
+    });
+
+    expect(resolution.headers.Authorization).toBe("Bearer user-jwt");
+    expect(resolution.headers["X-CAIPE-Provider-Token"]).toBe("user-jwt");
+    expect(resolution.sources).toEqual([
+      expect.objectContaining({
+        kind: "caller_token",
+        origin: "user_jwt",
+      }),
+    ]);
+  });
+
+  it("uses caller_token client-credentials fallback when no user JWT is available", async () => {
+    process.env.MCP_SERVICE_OIDC_TOKEN_URL = "http://keycloak/token";
+    process.env.MCP_SERVICE_OIDC_CLIENT_ID = "caipe-platform";
+    process.env.MCP_SERVICE_OIDC_CLIENT_SECRET = "secret";
+    const fetchMock = jest.fn().mockResolvedValue(
+      Response.json({ access_token: "service-jwt", expires_in: 300 }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const request = new NextRequest("http://localhost:3000/api/mcp-servers/probe", { method: "POST" });
+    const resolution = await resolveMcpHeaderCredentials({
+      request,
+      session: { sub: "system-probe" },
+      viaAgentGateway: true,
+      server: {
+        _id: "knowledge-base",
+        id: "knowledge-base",
+        name: "Knowledge Base",
+        transport: "http",
+        enabled: true,
+        credential_sources: [
+          {
+            kind: "caller_token",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+            fallback_client_credentials: true,
+          },
+        ],
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://keycloak/token",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(URLSearchParams),
+      }),
+    );
+    expect(resolution.headers.Authorization).toBe("Bearer service-jwt");
+    expect(resolution.headers["X-CAIPE-Provider-Token"]).toBe("service-jwt");
+    expect(resolution.sources).toEqual([
+      expect.objectContaining({
+        kind: "caller_token",
+        origin: "client_credentials",
+      }),
     ]);
   });
 

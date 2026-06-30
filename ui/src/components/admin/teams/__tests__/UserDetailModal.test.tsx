@@ -217,6 +217,49 @@ describe("UserDetailModal", () => {
     expect(screen.queryByText("tool-8")).not.toBeInTheDocument();
   });
 
+  it("collapses long team memberships behind a Show more toggle", async () => {
+    const manyTeamsUser = {
+      ...userResponse,
+      data: {
+        ...userResponse.data,
+        user: {
+          ...userResponse.data.user,
+          teams: Array.from({ length: 14 }, (_, i) => ({
+            team_id: `team-${i}`,
+            tenant_id: "caipe",
+          })),
+        },
+      },
+    };
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes("/api/admin/users/user-1/access")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(accessResponse) });
+      }
+      if (url.includes("/api/admin/users/user-1")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(manyTeamsUser) });
+      }
+      if (url.includes("/api/admin/teams")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(teamsResponse) });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ success: false }) });
+    });
+
+    render(
+      <UserDetailModal userId="user-1" onClose={jest.fn()} onSaved={jest.fn()} />
+    );
+
+    expect(await screen.findByText("team-0")).toBeInTheDocument();
+    expect(screen.getByText("team-7")).toBeInTheDocument();
+    expect(screen.queryByText("team-8")).not.toBeInTheDocument();
+    expect(screen.getByText("+6 more")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /show 6 more/i }));
+
+    expect(screen.getByText("team-13")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /collapse/i }));
+    expect(screen.queryByText("team-8")).not.toBeInTheDocument();
+  });
+
   it("shows Webex link status from webex_user_id attribute", async () => {
     render(
       <UserDetailModal
