@@ -107,6 +107,25 @@ async def lifespan(app: FastAPI):
     if directory_sync is not None:
         directory_sync.start()
 
+    # Self-register built-in MCP servers to Directory if enabled
+    from dynamic_agents.services.directory_register import get_directory_register
+
+    directory_register = get_directory_register()
+    if directory_register is not None and mongo._db is not None:
+        try:
+            from dynamic_agents.config import get_settings as _get_settings
+
+            _settings = _get_settings()
+            collection = mongo._db[_settings.mcp_servers_collection]
+            servers = list(collection.find({"enabled": True, "source": {"$ne": "directory"}}))
+            if servers:
+                import asyncio as _asyncio
+
+                loop = _asyncio.get_event_loop()
+                await loop.run_in_executor(None, directory_register.register_servers, servers)
+        except Exception as exc:
+            logger.warning("Directory self-registration failed: %s", exc)
+
     yield
 
     # Cleanup on shutdown
