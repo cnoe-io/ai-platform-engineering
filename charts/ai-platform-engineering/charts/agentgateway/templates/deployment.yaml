@@ -158,16 +158,8 @@ spec:
             # ext_authz policy rejects every discovered-server MCP call with 403.
             {{- $extAuth := $agwGlobal.extAuth | default dict }}
             {{- $defaultAuthzHost := printf "%s:%v" ($extAuth.serviceName | default (printf "%s-openfga-authz-bridge" .Release.Name)) ($extAuth.port | default 9100) }}
-            {{- if (($cb.authzHostSecret).name) }}
-            - name: AGENTGATEWAY_AUTHZ_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $cb.authzHostSecret.name | quote }}
-                  key: {{ ($cb.authzHostSecret).key | default "AGENTGATEWAY_AUTHZ_HOST" | quote }}
-            {{- else }}
             - name: AGENTGATEWAY_AUTHZ_HOST
               value: {{ $cb.authzHost | default $defaultAuthzHost | quote }}
-            {{- end }}
             {{- with $cb.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

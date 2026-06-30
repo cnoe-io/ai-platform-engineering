@@ -169,11 +169,6 @@ global:
         # service name and the static-config generator). Leave empty unless the
         # authz bridge runs under a non-default service name or port.
         authzHost: ""
-        # Supply a pre-existing Secret instead of the plain authzHost value above.
-        # When name is set, authzHost is ignored and the value is read from the Secret.
-        authzHostSecret:
-          name: ""           # name of the Secret
-          key: AGENTGATEWAY_AUTHZ_HOST  # key inside the Secret
         ui:
           # Internal BFF route that publishes sanitized AgentGateway MCP targets.
           url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets
