@@ -167,22 +167,26 @@ export function UserDetailModal({
 }: UserDetailModalProps) {
   const { update: updateSession } = useSession();
   const [mounted, setMounted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Profile section
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [user, setUser] = useState<ProfileUser | null>(null);
+  // Team picker options (non-readonly only)
+  const [teamOptionsLoading, setTeamOptionsLoading] = useState(!readOnly);
   const [teamOptions, setTeamOptions] = useState<
     Array<{ teamId: string; label: string }>
   >([]);
   const [addTeamValue, setAddTeamValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Access section
   const [access, setAccess] = useState<AccessGroups | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [teamsExpanded, setTeamsExpanded] = useState(false);
 
   const refreshProfile = useCallback(async () => {
-    setLoadError(null);
+    setProfileError(null);
     const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`);
     const json = (await readJson(res)) as {
       success?: boolean;
@@ -264,31 +268,40 @@ export function UserDetailModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Fire all three loads in parallel — each section shows its own spinner
+  // rather than blocking the whole modal behind one top-level spinner.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        if (readOnly) {
-          await refreshProfile();
-        } else {
-          await Promise.all([refreshProfile(), loadTeams()]);
-        }
-        void loadAccess();
-      } catch (e) {
-        if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : "Load failed");
-          setUser(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+
+    setProfileLoading(true);
+    setProfileError(null);
+    setUser(null);
+    setAccess(null);
+    setAccessLoading(true);
+    setAccessError(null);
+    if (!readOnly) setTeamOptionsLoading(true);
+
+    refreshProfile()
+      .catch((e) => {
+        if (!cancelled)
+          setProfileError(e instanceof Error ? e.message : "Load failed");
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+
+    if (!readOnly) {
+      loadTeams().finally(() => {
+        if (!cancelled) setTeamOptionsLoading(false);
+      });
+    }
+
+    loadAccess();
+
     return () => {
       cancelled = true;
     };
-  }, [refreshProfile, loadTeams, loadAccess, readOnly]);
+  }, [userId, readOnly, refreshProfile, loadTeams, loadAccess]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {
@@ -467,14 +480,17 @@ export function UserDetailModal({
         aria-labelledby="user-detail-modal-title"
         onClick={(e) => e.stopPropagation()}
       >
-        {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
-            <span className="text-sm">Loading user…</span>
+        {profileLoading ? (
+          <div className="flex items-center gap-3 pb-4 border-b border-border">
+            <div className="h-12 w-12 shrink-0 rounded-full bg-muted animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+              <div className="h-3 w-56 rounded bg-muted animate-pulse" />
+            </div>
           </div>
-        ) : loadError ? (
+        ) : profileError ? (
           <div className="space-y-4">
-            <p className="text-sm text-destructive">{loadError}</p>
+            <p className="text-sm text-destructive">{profileError}</p>
             <button
               type="button"
               className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted"
@@ -602,23 +618,27 @@ export function UserDetailModal({
                   <label htmlFor="add-team" className="text-sm text-muted-foreground">
                     Add team
                   </label>
-                  <TeamPicker
-                    id="add-team"
-                    value={addTeamValue}
-                    onChange={(v) => {
-                      if (!v) return;
-                      addTeam(v);
-                      setAddTeamValue("");
-                    }}
-                    disabled={busy != null || addableTeams.length === 0}
-                    placeholder={addableTeams.length === 0 ? "No teams to add" : "Select a team…"}
-                    searchPlaceholder="Search teams..."
-                    triggerClassName="min-w-[12rem]"
-                    options={addableTeams.map<TeamPickerOption>((t) => ({
-                      slug: t.teamId,
-                      name: t.label,
-                    }))}
-                  />
+                  {teamOptionsLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+                  ) : (
+                    <TeamPicker
+                      id="add-team"
+                      value={addTeamValue}
+                      onChange={(v) => {
+                        if (!v) return;
+                        addTeam(v);
+                        setAddTeamValue("");
+                      }}
+                      disabled={busy != null || addableTeams.length === 0}
+                      placeholder={addableTeams.length === 0 ? "No teams to add" : "Select a team…"}
+                      searchPlaceholder="Search teams..."
+                      triggerClassName="min-w-[12rem]"
+                      options={addableTeams.map<TeamPickerOption>((t) => ({
+                        slug: t.teamId,
+                        name: t.label,
+                      }))}
+                    />
+                  )}
                 </div>
               )}
             </section>
