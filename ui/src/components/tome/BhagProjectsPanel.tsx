@@ -207,57 +207,67 @@ export function BhagProjectsPanel({
         </div>
       )}
 
-      {loading && <p className="text-sm text-muted-foreground">Loading projects…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {!loading && !error && projects.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <FolderKanban className="mx-auto h-8 w-8 text-muted-foreground/40" />
-          <p className="mt-2 text-sm font-medium">No projects tagged yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Add <span className="font-medium text-foreground">{bhagName}</span> under BHAG /
-            Initiatives on a project to ladder it up to this goal.
-          </p>
-        </div>
-      )}
-
-      {projects.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {projects.map((p) => (
-            <div
-              key={String(p._id)}
-              className="group flex flex-col rounded-lg border border-border/60 bg-card/50 p-3 transition hover:border-violet-500/40"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <Link
-                  href={`/projects/${p.slug}/tome`}
-                  className="font-medium leading-snug hover:text-violet-300"
-                >
-                  {p.title}
-                </Link>
-                {editable && (
-                  <button
-                    type="button"
-                    onClick={() => void removeProject(p)}
-                    disabled={mutating}
-                    title={`Remove from ${bhagName}`}
-                    aria-label={`Remove ${p.title}`}
-                    className="-mr-1 -mt-1 shrink-0 rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-destructive disabled:opacity-50"
+      {/* Fixed-height scroll region so the list (or its skeleton) never reflows
+          the content below it when projects load in. */}
+      <div className="h-64 overflow-y-auto">
+        {loading ? (
+          <div className="grid gap-2 sm:grid-cols-2" aria-hidden>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-[82px] animate-pulse rounded-lg border border-border/60 bg-card/50"
+              />
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-6 text-center">
+            <FolderKanban className="mx-auto h-8 w-8 text-muted-foreground/40" />
+            <p className="mt-2 text-sm font-medium">No projects tagged yet</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Add <span className="font-medium text-foreground">{bhagName}</span> under BHAG /
+              Initiatives on a project to ladder it up to this goal.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {projects.map((p) => (
+              <div
+                key={String(p._id)}
+                className="group flex flex-col rounded-lg border border-border/60 bg-card/50 p-3 transition hover:border-violet-500/40"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <Link
+                    href={`/projects/${p.slug}/tome`}
+                    className="font-medium leading-snug hover:text-violet-300"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
+                    {p.title}
+                  </Link>
+                  {editable && (
+                    <button
+                      type="button"
+                      onClick={() => void removeProject(p)}
+                      disabled={mutating}
+                      title={`Remove from ${bhagName}`}
+                      aria-label={`Remove ${p.title}`}
+                      className="-mr-1 -mt-1 shrink-0 rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-destructive disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <span className="text-[11px] text-muted-foreground/50">{p.team_name}</span>
+                <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <BookOpen className="h-3.5 w-3.5" />
+                  {p.page_count ?? 0} {(p.page_count ?? 0) === 1 ? "page" : "pages"}
+                </span>
+                {preflight && <AccessLine state={access[String(p._id)]} />}
               </div>
-              <span className="text-[11px] text-muted-foreground/50">{p.team_name}</span>
-              <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <BookOpen className="h-3.5 w-3.5" />
-                {p.page_count ?? 0} {(p.page_count ?? 0) === 1 ? "page" : "pages"}
-              </span>
-              {preflight && <AccessLine state={access[String(p._id)]} />}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
