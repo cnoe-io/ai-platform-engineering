@@ -1172,6 +1172,10 @@ export function ConnectorAdminPanel({
         </TooltipContent>
       </Tooltip>
     </div>
+  ) : showSinglePanelSwitcher ? (
+    // The tab switcher already labels the active view; suppress the wizard's
+    // built-in "Configure {items}" heading to avoid a duplicate title.
+    <></>
   ) : null;
 
   return (
