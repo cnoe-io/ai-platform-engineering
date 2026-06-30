@@ -415,11 +415,11 @@ export function TomeWiki({ slug }: { slug: string }) {
         ];
       }
       case "ingest":
-        return [{ label: "Schedule new ingest" }];
+        return [{ label: "Ingest" }];
       case "ingestRun":
         return [
           {
-            label: "Schedule new ingest",
+            label: "Ingest",
             onClick: () => navigate({ kind: "ingest" }),
           },
           { label: "Run" },
@@ -496,7 +496,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="w-56 whitespace-normal">
-                    Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet — create one from the Projects hub.
+                    Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet. Create one from the Projects hub.
                   </TooltipContent>
                 </Tooltip>
               );
@@ -542,10 +542,10 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                   <NavItem
                     icon={<RefreshCw className="h-4 w-4" />}
-                    label={isBhag ? "Synthesize" : "Schedule new ingest"}
+                    label={isBhag ? "Synthesize" : "Ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
-                    tipTitle={isBhag ? "Synthesize" : "Schedule new ingest"}
+                    tipTitle={isBhag ? "Synthesize" : "Ingest"}
                     tipDescription={
                       isBhag
                         ? "Synthesize this BHAG: the agent reads the wikis of the projects tagged to it and writes the strategic view. A BHAG has no sources of its own."

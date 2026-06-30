@@ -428,7 +428,7 @@ export function IngestPanel({
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {isBhag
-                ? "Synthesize this BHAG's wiki from the projects tagged to it. The agent reads their wikis — a BHAG has no sources of its own."
+                ? "Synthesize this BHAG's wiki from the projects tagged to it. The agent reads their wikis. A BHAG has no sources of its own."
                 : "Re-run the agent over this project's sources to refresh the dynamic wiki."}
             </p>
           </div>
@@ -495,8 +495,8 @@ export function IngestPanel({
                           </TooltipTrigger>
                           <TooltipContent side="right">
                             {ok
-                              ? `${row.label} connected — will be ingested`
-                              : `${row.label} not connected — ingest will skip this source`}
+                              ? `${row.label} connected: will be ingested`
+                              : `${row.label} not connected: ingest will skip this source`}
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -550,7 +550,7 @@ export function IngestPanel({
               {meetingsOpen && (
                 <div className="border-t px-4 pb-3 pt-2">
                   <p className="mb-2 text-xs text-muted-foreground">
-                    Select recordings to include — the agent will pull whatever is available
+                    Select recordings to include. The agent will pull whatever is available
                     (AI summary and/or transcript). Per-run only, not saved to the project.
                   </p>
                   {meetingsLoading ? (
@@ -601,12 +601,12 @@ export function IngestPanel({
                                   <MeetingBadge
                                     label="Summary"
                                     available={m.hasSummary}
-                                    unavailableReason="No AI summary — meeting may still be processing"
+                                    unavailableReason="No AI summary: meeting may still be processing"
                                   />
                                   <MeetingBadge
                                     label="Transcript"
                                     available={m.hasTranscript}
-                                    unavailableReason="No transcript — Webex Assistant wasn't enabled for this meeting"
+                                    unavailableReason="No transcript: Webex Assistant wasn't enabled for this meeting"
                                   />
                                 </span>
                               </label>
@@ -647,7 +647,7 @@ export function IngestPanel({
                     <div>
                       <p className="text-sm font-medium text-emerald-300">First ingest</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        No previous ingests for this project — the agent will build the wiki from
+                        No previous ingests for this project. The agent will build the wiki from
                         scratch.
                       </p>
                     </div>
@@ -665,7 +665,7 @@ export function IngestPanel({
                           By default Charter, Objectives, and Roadmap stay yours to write. Check this
                           to let the agent take a best-effort first pass at them from your sources,
                           clearly marked as a draft. Only safe if a human reviews and edits the
-                          result afterward — the agent can be wrong.
+                          result afterward. The agent can be wrong.
                         </span>
                       </span>
                     </label>

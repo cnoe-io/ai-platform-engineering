@@ -64,7 +64,7 @@ const CHARTER_BODY = `## What we're building
 _One or two sentences: what this is, and who it's for._
 
 ## Why it matters
-_Why this is worth doing — and why now._
+_Why this is worth doing. Why now._
 
 ## What success looks like
 _The concrete outcome that means we won._
@@ -83,7 +83,7 @@ _The beliefs this effort rests on, and how sure we are of each. Tiers: hypothesi
 `;
 
 const OBJECTIVES_BODY = `## North-star metric
-_The single number that best captures progress — what it is, and why it's the one that matters._
+_The single number that best captures progress: what it is, and why it's the one that matters._
 
 ## Objectives
 _What we're driving toward, and how we'll measure it._
@@ -106,7 +106,7 @@ _Near-term bets, roughly in priority order. Themes, not dates._
 _Directions we believe in but aren't committing to yet._
 
 ## Explicitly deprioritized
-_What we chose not to do — and what would make us revisit._
+_What we chose not to do, and what would make us revisit._
 
 | What | Why deprioritized | Revisit when |
 | --- | --- | --- |
@@ -158,7 +158,7 @@ export const MEMORY_SEED = `# Memory
 _Agent-only notes. Hidden from the wiki by default. Toggle via the eye icon at the bottom of the sidebar to see / edit. The agent reads this on every ingest and may append observations it wants to remember._
 
 ## Notes
-- _(none yet — populated as the agent works)_
+- _(none yet, populated as the agent works)_
 `;
 
 /** Pages that surface as their own UI element (rendered above the wiki). */

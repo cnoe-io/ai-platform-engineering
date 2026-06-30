@@ -311,7 +311,7 @@ export function TalkPanel({
               </div>
               <h2 className="text-lg font-semibold">Talk about {slug}</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                The project&apos;s talk page — discussion about{" "}
+                The project&apos;s talk page: discussion about{" "}
                 <span className="font-medium">{slug}</span>, powered by Mycelium. People and
                 agents post decisions, questions, and updates here. The wiki holds the durable
                 context; this holds the conversation that shapes it.

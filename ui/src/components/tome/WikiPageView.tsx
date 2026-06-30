@@ -190,7 +190,7 @@ export function WikiPageView({
               variant="outline"
               onClick={() => setIsEditing(true)}
               disabled={locked}
-              title={locked ? "Ingest in progress — the wiki is read-only" : undefined}
+              title={locked ? "Ingest in progress: the wiki is read-only" : undefined}
             >
               Edit
             </Button>
@@ -201,7 +201,7 @@ export function WikiPageView({
       {locked && (
         <p className="flex items-center gap-2 border-b bg-amber-500/10 px-5 py-2 text-sm text-amber-600 dark:text-amber-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Ingest in progress — the wiki is read-only until it finishes.
+          Ingest in progress: the wiki is read-only until it finishes.
         </p>
       )}
 
