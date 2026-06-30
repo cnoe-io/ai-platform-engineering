@@ -1,3 +1,14 @@
+## 0.5.31-dev.1 (2026-06-30)
+
+### Fix
+
+- **agentgateway**: make config-bridge ext_authz host release-aware
+- **docs**: correct broken cross-link in architecture/gateway.md (#2075)
+
+### Refactor
+
+- **agentgateway**: drop authzHostSecret, keep plain authzHost
+
 ## 0.5.31 (2026-06-30)
 
 ### Fix
