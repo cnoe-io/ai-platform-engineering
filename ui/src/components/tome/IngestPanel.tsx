@@ -62,6 +62,14 @@ interface SourceRow {
   connectorKey: string;
 }
 
+interface PreflightSourceResult {
+  provider: "github" | "confluence" | "webex";
+  label: string;
+  accessible: string[];
+  inaccessible: string[];
+  no_token: boolean;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function durationLabel(r: RunSummary): string {
@@ -235,10 +243,10 @@ export function IngestPanel({
   const [error, setError] = useState<string | null>(null);
   const [runsOpen, setRunsOpen] = useState(false);
 
-  // Sources + credential status
+  // Sources + preflight access status
   const [sourceRows, setSourceRows] = useState<SourceRow[] | null>(null);
-  const [connectedKeys, setConnectedKeys] = useState<Set<string>>(new Set());
-  const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [preflight, setPreflight] = useState<PreflightSourceResult[] | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
 
   // Greenfield seeding — opt-in. Off by default: stable pages stay human-owned
@@ -271,38 +279,31 @@ export function IngestPanel({
     return () => clearInterval(t);
   }, [loadRuns]);
 
-  // ── Load sources + credential coverage ────────────────────────────────────
+  // ── Load sources + preflight access check ─────────────────────────────────
 
   useEffect(() => {
     let cancelled = false;
-    setSourcesLoading(true);
+    setPreflightLoading(true);
 
     Promise.all([
       fetch(`/api/projects/${slug}`).then((r) => r.json()),
-      fetch("/api/credentials/connections").then((r) => (r.ok ? r.json() : { data: [] })).catch(() => ({ data: [] })),
+      fetch(`/api/tome/projects/${slug}/preflight`, { method: "POST" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
     ])
-      .then(([projJson, connJson]) => {
+      .then(([projJson, preflightJson]) => {
         if (cancelled) return;
         const proj = projJson?.data?.project ?? {};
         setProjectName(proj.name ?? proj.title ?? "");
         const s = proj.sources ?? {};
         setSourceRows(sourcesFromProject(s));
-
-        const connections: Array<{ provider?: string; status?: string }> =
-          connJson?.data ?? [];
-        const keys = new Set(
-          connections
-            .filter((c) => c.status === "connected")
-            .map((c) => c.provider ?? "")
-            .filter(Boolean),
-        );
-        setConnectedKeys(keys);
+        setPreflight(preflightJson?.data?.sources ?? null);
       })
       .catch(() => {
-        if (!cancelled) { setSourceRows([]); }
+        if (!cancelled) { setSourceRows([]); setPreflight(null); }
       })
       .finally(() => {
-        if (!cancelled) setSourcesLoading(false);
+        if (!cancelled) setPreflightLoading(false);
       });
 
     return () => { cancelled = true; };
@@ -468,9 +469,9 @@ export function IngestPanel({
               </a>
             </div>
             <ul className="divide-y">
-              {sourcesLoading ? (
+              {preflightLoading ? (
                 <li className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading sources…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking access…
                 </li>
               ) : !sourceRows || sourceRows.length === 0 ? (
                 <li className="px-4 py-3 text-sm text-muted-foreground">
@@ -481,37 +482,64 @@ export function IngestPanel({
                 </li>
               ) : (
                 sourceRows.map((row) => {
-                  const ok = connectedKeys.has(row.connectorKey);
+                  const pf = preflight?.find((p) => p.provider === row.kind);
+                  // no_token = provider not connected at all
+                  // inaccessible.length > 0 = connected but some resources are blocked
+                  // null preflight = check didn't run (fall back to neutral)
+                  const noToken = pf?.no_token ?? false;
+                  const inaccessible = pf?.inaccessible ?? [];
+                  const accessible = pf?.accessible ?? [];
+                  // Three states: green (all ok) / amber (connected, access issues) / red (no token)
+                  const allOk = pf !== undefined && !noToken && inaccessible.length === 0;
+                  const accessIssue = pf !== undefined && !noToken && inaccessible.length > 0;
+
+                  const tooltipText = noToken
+                    ? `${row.label} not connected: ingest will skip this source`
+                    : inaccessible.length > 0
+                      ? `Connected but no access to: ${inaccessible.join(", ")}`
+                      : pf
+                        ? `${row.label}: access confirmed for all sources`
+                        : `${row.label}: access not yet verified`;
+
                   return (
                     <li key={row.kind} className="flex items-start gap-3 px-4 py-3">
                       <TooltipProvider delayDuration={100}>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            {ok ? (
+                            {allOk ? (
                               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-emerald-500" />
-                            ) : (
+                            ) : accessIssue ? (
+                              <XCircle className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-amber-500" />
+                            ) : noToken ? (
                               <XCircle className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-destructive" />
+                            ) : (
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-muted-foreground" />
                             )}
                           </TooltipTrigger>
-                          <TooltipContent side="right">
-                            {ok
-                              ? `${row.label} connected: will be ingested`
-                              : `${row.label} not connected: ingest will skip this source`}
+                          <TooltipContent side="right" className="max-w-64 whitespace-normal">
+                            {tooltipText}
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{row.label}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {row.items.join(", ")}
+                          {inaccessible.length > 0 ? (
+                            <>
+                              <span className="text-amber-500">{inaccessible.join(", ")}</span>
+                              {accessible.length > 0 ? `, ${accessible.join(", ")}` : ""}
+                            </>
+                          ) : (
+                            row.items.join(", ")
+                          )}
                         </p>
                       </div>
-                      {!ok && (
+                      {(noToken || accessIssue) && (
                         <a
                           href="/credentials"
                           className="shrink-0 text-xs text-primary hover:underline"
                         >
-                          Connect →
+                          {noToken ? "Connect →" : "Fix access →"}
                         </a>
                       )}
                     </li>

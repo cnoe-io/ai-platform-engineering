@@ -420,6 +420,33 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "tome_preflight_ingest",
+    description:
+      "Check whether the authenticated user's credentials have resource-level access to every source attached to a project — not just that a provider is connected, but that they can actually read each repo, Confluence space, or Webex room. Call this before `tome_reingest` to avoid a silent partial ingest. Returns `can_ingest` (true if all sources are accessible), a per-source breakdown (accessible vs inaccessible items), and a `credentials_url` the user should visit to reconnect any provider that is missing or lacks access. `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(
+        await fwd("POST", `/api/tome/projects/${slug}/preflight`),
+        "preflight ingest",
+      );
+      if (!data) return toolText("No preflight result returned.");
+      const lines: string[] = [];
+      lines.push(`can_ingest: ${data.can_ingest}`);
+      for (const s of data.sources ?? []) {
+        if (s.no_token) {
+          lines.push(`${s.label}: not connected — visit ${data.credentials_url} to connect`);
+        } else if (s.inaccessible?.length > 0) {
+          lines.push(`${s.label}: accessible [${s.accessible?.join(", ") || "none"}], no access [${s.inaccessible.join(", ")}] — visit ${data.credentials_url} to reconnect or update scopes`);
+        } else {
+          lines.push(`${s.label}: all sources accessible [${s.accessible?.join(", ")}]`);
+        }
+      }
+      if ((data.sources ?? []).length === 0) lines.push("No sources attached to this project.");
+      return toolText(lines.join("\n"));
+    },
+  },
+  {
     name: "tome_reingest",
     description:
       "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. Returns the new run id.",
