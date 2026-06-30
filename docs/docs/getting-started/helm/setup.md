@@ -84,6 +84,48 @@ kubectl logs -n ai-platform-engineering -l app.kubernetes.io/name=dynamic-agents
 kubectl logs -n ai-platform-engineering -l app.kubernetes.io/name=mcp-server
 ```
 
+---
+
+## Node autoscaling with Karpenter
+
+For production clusters, Karpenter provisions right-sized nodes on demand and consolidates them when idle, no pre-created node groups required. CAIPE pins only the memory-bound RAG stack to a dedicated `NodePool`; everything else (the Dynamic Agents runtime, MCP servers, UI, and platform services) rides the Auto Mode `general-purpose` pool, which bin-packs and consolidates them automatically.
+
+| NodePool | Workloads | Instance strategy |
+|---|---|---|
+| `rag` | `rag-server`, `agent-ontology`, `rag-redis`, `neo4j`, `milvus` (+ its `etcd`/`minio`) | On-demand, memory-optimised |
+| `general-purpose` *(built-in)* | Dynamic Agents, MCP servers (`mcp-*`), UI, Keycloak, OpenFGA, … | Auto Mode managed |
+
+The overlay still enables PodDisruptionBudgets on the general-purpose workloads so node consolidation doesn't take them fully offline.
+
+### EKS (supported)
+
+EKS Auto Mode runs Karpenter as a managed service, so no separate install is needed.
+
+1. Apply the NodePool manifests (requires a cloned repo):
+
+   ```bash
+   kubectl apply -f deploy/eks/karpenter/
+   ```
+
+2. Add the Karpenter values overlay when deploying the chart:
+
+   ```bash
+   helm upgrade --install ai-platform-engineering \
+     oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+     --namespace ai-platform-engineering \
+     --create-namespace \
+     --set-string tags.complete=true \
+     -f charts/ai-platform-engineering/values-karpenter.yaml
+   ```
+
+See [`deploy/eks/karpenter/README.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/deploy/eks/karpenter/README.md) for verification and troubleshooting steps, and the [EKS getting-started guide](../eks/setup) for full cluster setup.
+
+### kind / local clusters
+
+Karpenter requires a provider that can provision new VMs and does not apply to kind clusters. For local development, size your kind cluster nodes statically. If you need per-workload resource right-sizing, consider [VPA (Vertical Pod Autoscaler)](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) against the fixed node pool.
+
+---
+
 ## Chart Components
 
 | Component | Enable with | Purpose |
