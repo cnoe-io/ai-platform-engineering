@@ -1,76 +1,23 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 ---
 
 # Deploy CAIPE with Helm
 
 Use the Helm chart to run CAIPE on any Kubernetes cluster — EKS, GKE, AKS, KinD, or self-managed.
 
+:::tip Need a cluster first?
+If you don't have a Kubernetes cluster yet, see [Cluster Setup](./cluster-setup.md) for KinD (local, no cloud account needed) and AWS EKS instructions. Return here once `kubectl get nodes` shows nodes in `Ready` state.
+:::
+
 ## Prerequisites
 
 | Requirement | Notes |
 |-------------|-------|
-| Kubernetes 1.28+ | Any distribution |
+| Kubernetes 1.28+ | [Set one up](./cluster-setup.md) if needed |
 | `kubectl` | Configured against your cluster |
-| Helm 3 | `helm version` |
+| Helm 3 | `helm version` to verify |
 | LLM credentials | OpenAI, Azure OpenAI, or AWS Bedrock |
-
----
-
-## Cloud provider prerequisites (example: AWS / EKS)
-
-If you don't have a cluster yet, use your cloud provider's managed Kubernetes service. The steps below use **Amazon EKS** as an example — skip to [Install](#install-from-oci) if you already have a cluster.
-
-### Install tools
-
-| Tool | Purpose |
-|------|---------|
-| **AWS CLI** | Authenticate to AWS ([install](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)) |
-| **eksctl** | Create and manage EKS clusters ([install](https://eksctl.io/installation/)) |
-
-### Configure AWS credentials
-
-```bash
-aws configure
-aws sts get-caller-identity
-export AWS_DEFAULT_REGION=us-east-2
-```
-
-### Create the cluster
-
-```bash
-git clone https://github.com/cnoe-io/ai-platform-engineering.git
-cd ai-platform-engineering
-cp deploy/eks/dev-eks-cluster-config.yaml.example dev-eks-cluster-config.yaml
-
-# Create the cluster (~10–15 minutes)
-eksctl create cluster -f dev-eks-cluster-config.yaml
-
-# Verify nodes are ready
-kubectl get nodes
-```
-
-### (Recommended) Install AWS Load Balancer Controller
-
-Required for LoadBalancer-type ingress on EKS:
-
-```bash
-eksctl create iamserviceaccount \
-  --cluster=dev-eks-cluster \
-  --namespace=kube-system \
-  --name=aws-load-balancer-controller \
-  --role-name AmazonEKSLoadBalancerControllerRole \
-  --attach-policy-arn=arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess \
-  --approve
-
-helm repo add eks https://aws.github.io/eks-charts && helm repo update
-
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
-  --set clusterName=dev-eks-cluster \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
-```
 
 ---
 

@@ -71,6 +71,11 @@ const sidebars: SidebarsConfig = {
           items: [
             {
               type: 'doc',
+              id: 'getting-started/helm/cluster-setup',
+              label: 'Cluster Setup',
+            },
+            {
+              type: 'doc',
               id: 'getting-started/helm/setup',
             },
             {
