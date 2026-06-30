@@ -2,7 +2,7 @@
 sidebar_position: 2
 ---
 
-# 🚀 Quick Start
+# Quick Start
 
 ## One-command setup
 
@@ -12,9 +12,9 @@ No clone required. Run this in your terminal and follow the interactive prompts:
 curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh | bash
 ```
 
-The script asks for your LLM provider, API key, and optional components (RAG, tracing, persistence). It can create a local KinD cluster or deploy to an existing one.
+The script asks for your LLM provider, API key, and optional components (RAG, tracing, persistence). It creates a local KinD cluster or deploys to an existing one.
 
-> **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
+> **Want to inspect the script first?** View [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) on GitHub before running.
 
 <iframe src="https://asciinema.org/a/845278/iframe" width="100%" height="600" style={{border: 'none', borderRadius: '8px', overflow: 'hidden'}} scrolling="no" allowFullScreen />
 
@@ -22,9 +22,9 @@ The script asks for your LLM provider, API key, and optional components (RAG, tr
 
 ---
 
-## Additional setup guides
+## Other setup options
 
-| Guide | Use case |
+| Guide | Best for |
 |-------|----------|
-| [**Docker Compose**](docker-compose/setup.md) | Local development or VM (EC2) with agent profiles |
-| [**Helm**](helm/setup.md) | Any Kubernetes distribution (EKS, GKE, AKS, and more) |
+| [**Docker Compose**](docker-compose/setup.md) | Local development or a single VM (EC2, etc.) |
+| [**Helm**](helm/setup.md) | Any Kubernetes cluster — EKS, GKE, AKS, KinD, and more |
