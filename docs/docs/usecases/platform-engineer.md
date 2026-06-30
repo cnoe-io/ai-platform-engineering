@@ -43,6 +43,7 @@ docker compose --profile argocd --profile github --profile jira --profile pagerd
 
 ### Available Personas
 
+- **sre**: Ready-to-use SRE agent with PagerDuty, Kubernetes, Splunk, GitHub, and Slack integrations — customizable for your team's on-call and incident workflows
 - **platform-engineer**: Complete setup with ArgoCD, AWS, Backstage, Confluence, GitHub, Jira, Komodor, PagerDuty, Slack, Splunk, and Webex integrations
 - **devops-engineer**: DevOps-focused setup with ArgoCD, AWS, GitHub, Jira, Komodor, and PagerDuty integrations
 - **caipe-basic**: Minimal setup with the UI, Dynamic Agents runtime, RAG, and a small set of MCP tools

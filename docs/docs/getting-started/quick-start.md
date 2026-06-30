@@ -16,18 +16,15 @@ The script asks for your LLM provider, API key, and optional components (RAG, tr
 
 > **Want to inspect the script first?** View it at [`setup-caipe.sh`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/setup-caipe.sh) before running.
 
----
-
-## Choose your setup path
-
-| Path | Best for |
-|------|----------|
-| [**Docker Compose**](docker-compose/setup.md) | Local development, VM (EC2), agent profiles |
-| [**KinD**](kind/setup.md) | Local Kubernetes, mirroring a production cluster |
-| [**Helm**](helm/setup.md) | Any Kubernetes cluster (EKS, GKE, AKS, …) |
-| [**IDP Builder**](idpbuilder/setup.md) | Full platform stack with Backstage, ArgoCD, Gitea |
-| [**EKS**](eks/setup.md) | AWS production deployment |
-
 <iframe src="https://asciinema.org/a/845278/iframe" width="100%" height="600" style={{border: 'none', borderRadius: '8px', overflow: 'hidden'}} scrolling="no" allowFullScreen />
 
 > [View full screen recording on asciinema](https://asciinema.org/a/845278)
+
+---
+
+## Additional setup guides
+
+| Guide | Use case |
+|-------|----------|
+| [**Docker Compose**](docker-compose/setup.md) | Local development or VM (EC2) with agent profiles |
+| [**Helm**](helm/setup.md) | Any Kubernetes distribution (EKS, GKE, AKS, and more) |

@@ -15,6 +15,65 @@ CAIPE from released images or from a checked-out chart.
 - LLM credentials
 - Credentials for any MCP servers you enable
 
+## Cloud provider prerequisites (example: AWS / EKS)
+
+If you don't have a cluster yet, use your cloud provider's managed Kubernetes service. The steps below use **Amazon EKS** as an example.
+
+### Install tools
+
+| Tool | Purpose |
+|------|---------|
+| **AWS CLI** | Authenticate to AWS ([install](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)) |
+| **eksctl** | Create and manage EKS clusters ([install](https://eksctl.io/installation/)) |
+
+### Configure AWS credentials
+
+```bash
+aws configure
+aws sts get-caller-identity
+export AWS_DEFAULT_REGION=us-east-2
+```
+
+### Create the cluster
+
+```bash
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering
+cp deploy/eks/dev-eks-cluster-config.yaml.example dev-eks-cluster-config.yaml
+
+# Create the cluster (~10–15 minutes)
+eksctl create cluster -f dev-eks-cluster-config.yaml
+
+# Verify nodes are ready
+kubectl get nodes
+```
+
+### (Recommended) Install AWS Load Balancer Controller
+
+Required for LoadBalancer-type ingress on EKS:
+
+```bash
+eksctl create iamserviceaccount \
+  --cluster=dev-eks-cluster \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess \
+  --approve
+
+helm repo add eks https://aws.github.io/eks-charts && helm repo update
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=dev-eks-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+```
+
+Once your cluster is ready, proceed with the Helm install below.
+
+---
+
 ## Install From OCI
 
 Set the chart version you want to install:
@@ -103,8 +162,7 @@ Common MCP tags include `mcp-argocd`, `mcp-aws`, `mcp-backstage`,
 ## Secrets
 
 Create the LLM secret and any MCP credentials before enabling dependent
-workloads. See [Configure Agent Secrets](../eks/configure-agent-secrets.md) and
-[Configure LLMs](../eks/configure-llms.md).
+workloads. See [Configure Agent Secrets](../eks/configure-agent-secrets.md) and [Configure LLMs](../eks/configure-llms.md).
 
 ## Troubleshooting
 

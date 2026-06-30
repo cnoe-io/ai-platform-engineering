@@ -43,7 +43,8 @@ Idempotent: safe to apply on upgrades without duplicating entries.
 
 ## Customizable System Prompts
 
-- Per-agent system prompts — different personas for Platform Engineer, SRE, Developer
+- Per-agent system prompts — different personas for SRE, Platform Engineer, Developer, and more
+- Ready-to-use SRE agent included out of the box — deploy immediately and customize prompts, tools, and workflows for your team
 - Prompt library: curated, evaluated prompts for common platform workflows
 - Override prompts at runtime via UI without redeploying the chart
 - Prompt versioning tied to Helm chart version for reproducibility
