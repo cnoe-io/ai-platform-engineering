@@ -91,7 +91,7 @@ const HOME_FEATURES = [
   {
     icon: '🧠',
     title: 'Integrated Knowledge Bases',
-    description: 'RAG + Graph RAG across ArgoCD, AWS, Jira, GitHub, Slack, and more.',
+    description: 'Hybrid RAG and optional Graph RAG across web, AWS, Kubernetes, Jira, GitHub, Slack, and more.',
     to: '/features',
   },
   {
@@ -115,7 +115,7 @@ const HOME_FEATURES = [
   {
     icon: '⚙️',
     title: 'Deterministic Workflows',
-    description: 'Sequential agent pipelines with no hallucinated steps.',
+    description: 'Multi-step dynamic-agent pipelines with persisted run history and artifacts.',
     to: '/features',
   },
   {
