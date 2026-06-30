@@ -67,16 +67,27 @@ async function checkGitHub(
 async function checkConfluence(
   spaces: { space_key: string; base_url: string; name?: string }[],
   token: string,
+  cloudId: string | undefined,
 ): Promise<Omit<PreflightSourceResult, "label" | "provider">> {
+  // The classic /rest/api/space/{key} endpoint is gone (HTTP 410) on Atlassian
+  // Cloud. Use a CQL search scoped to each space key instead — same approach as
+  // the confluence MCP connector. Requires cloud_id from the credential entry.
+  if (!cloudId) {
+    return { no_token: false, accessible: [], inaccessible: spaces.map((s) => s.name || s.space_key) };
+  }
+  const apiBase = `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/rest/api`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+
   const results = await Promise.all(
     spaces.map(async (s) => {
       const label = s.name || s.space_key;
       try {
-        const base = s.base_url.replace(/\/$/, "");
-        const r = await fetch(`${base}/wiki/rest/api/space/${encodeURIComponent(s.space_key)}`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        });
-        return { item: label, ok: r.status === 200 };
+        const cql = `type=space AND space.key="${s.space_key.replace(/"/g, '\\"')}"`;
+        const url = `${apiBase}/search?${new URLSearchParams({ cql, limit: "1" }).toString()}`;
+        const r = await fetch(url, { headers });
+        if (!r.ok) return { item: label, ok: false };
+        const json = (await r.json()) as { results?: unknown[] };
+        return { item: label, ok: (json.results?.length ?? 0) > 0 };
       } catch {
         return { item: label, ok: false };
       }
@@ -126,15 +137,23 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     ? sources.repos.filter(Boolean)
     : [];
   type CFSpace = { space_key: string; base_url: string; name?: string };
+
+  // Parse the old flat confluence_url format: https://{site}.atlassian.net/wiki/spaces/{key}
+  function parseConfluenceUrl(url: string): CFSpace | null {
+    const m = url.match(/^(https?:\/\/[^/]+)(\/wiki\/spaces\/([^/?#]+))/);
+    if (!m) return null;
+    return { base_url: m[1], space_key: m[3] };
+  }
+
   const confluenceSpaces: CFSpace[] = (
-    Array.isArray(sources.confluence_spaces)
+    Array.isArray(sources.confluence_spaces) && sources.confluence_spaces.length > 0
       ? sources.confluence_spaces
+          .filter((s) => s.space_key && s.base_url)
+          .map((s) => ({ space_key: s.space_key as string, base_url: s.base_url as string, name: ("name" in s ? s.name : undefined) as string | undefined }))
       : sources.confluence_url
-        ? [{ space_key: sources.confluence_url as string, base_url: sources.confluence_url as string }]
+        ? [parseConfluenceUrl(sources.confluence_url as string)].filter(Boolean) as CFSpace[]
         : []
-  )
-    .filter((s) => s.space_key && s.base_url)
-    .map((s) => ({ space_key: s.space_key as string, base_url: s.base_url as string, name: ("name" in s ? s.name : undefined) as string | undefined }));
+  );
   const webexRooms: { room_id: string; name?: string }[] = Array.isArray(sources.webex_rooms)
     ? sources.webex_rooms
     : [];
@@ -147,7 +166,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       : null,
     confluenceSpaces.length > 0
       ? creds["atlassian"]?.access_token
-        ? checkConfluence(confluenceSpaces, creds["atlassian"].access_token)
+        ? checkConfluence(confluenceSpaces, creds["atlassian"].access_token, creds["atlassian"]?.cloud_id)
         : Promise.resolve({ no_token: true, accessible: [], inaccessible: confluenceSpaces.map((s) => s.name || s.space_key) })
       : null,
     webexRooms.length > 0
