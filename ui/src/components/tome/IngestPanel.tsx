@@ -249,6 +249,8 @@ export function IngestPanel({
   // BHAG only — opt-in. Re-ingest every child project first, then synthesize
   // (a cascade run through the queue). Off by default since it's slow/expensive.
   const [refreshChildren, setRefreshChildren] = useState(false);
+  // Tagged-project count, reported by BhagProjectsPanel for the section title.
+  const [bhagCount, setBhagCount] = useState<number | null>(null);
 
   // Meeting picker
   const [meetingsOpen, setMeetingsOpen] = useState(false);
@@ -436,7 +438,9 @@ export function IngestPanel({
           {isBhag ? (
             <div className="rounded-lg border">
               <div className="flex items-center justify-between border-b px-4 py-2.5">
-                <span className="text-sm font-medium">Projects in this synthesis</span>
+                <span className="text-sm font-medium">
+                  Projects in this synthesis{bhagCount !== null ? ` (${bhagCount})` : ""}
+                </span>
                 <a
                   href={`/projects/${slug}/tome/settings`}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -446,7 +450,7 @@ export function IngestPanel({
               </div>
               <div className="px-4 py-3">
                 {projectName ? (
-                  <BhagProjectsPanel bhagName={projectName} preflight />
+                  <BhagProjectsPanel bhagName={projectName} preflight onCount={setBhagCount} />
                 ) : (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading projects…

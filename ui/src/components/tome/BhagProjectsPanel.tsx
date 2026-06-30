@@ -45,12 +45,15 @@ export function BhagProjectsPanel({
   bhagName,
   preflight = false,
   editable = false,
+  onCount,
 }: {
   bhagName: string;
   /** Check + show each project's resource access (Synthesize page). */
   preflight?: boolean;
   /** Allow adding/removing tagged projects (Settings). */
   editable?: boolean;
+  /** Reports the tagged-project count to the caller (for the section title). */
+  onCount?: (n: number) => void;
 }) {
   const [projects, setProjects] = useState<ChildProject[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,13 +72,15 @@ export function BhagProjectsPanel({
       const res = await fetch(`/api/projects?initiative=${encodeURIComponent(bhagName)}`);
       const b = await res.json();
       if (!res.ok) throw new Error(b?.error ?? "Failed to load projects");
-      setProjects((b.data?.projects ?? []) as ChildProject[]);
+      const list = (b.data?.projects ?? []) as ChildProject[];
+      setProjects(list);
+      onCount?.(list.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [bhagName]);
+  }, [bhagName, onCount]);
 
   // Non-BHAG projects not yet tagged to this BHAG (the add menu). `/api/projects`
   // excludes BHAGs by default.
