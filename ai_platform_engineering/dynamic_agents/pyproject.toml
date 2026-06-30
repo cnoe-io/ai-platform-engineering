@@ -24,6 +24,8 @@ dependencies = [
     # does not need to install the entire shared package).
     # assisted-by Codex Codex-sonnet-4-6
     "pyjwt[crypto]==2.13.0",
+    # AGNTCY Directory Python SDK for agent registry integration
+    "agntcy-dir>=1.0.0",
 ]
 
 [project.optional-dependencies]
