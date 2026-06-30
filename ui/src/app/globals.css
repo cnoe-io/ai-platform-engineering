@@ -1046,3 +1046,17 @@ pre code.hljs {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Dangling glossary reference: resolves to nothing (wrong project or missing
+   term). Distinct from a healthy term — muted, wavy amber underline. */
+.milkdown-host .milkdown .ProseMirror a.tome-glossary-dangling {
+  color: hsl(var(--muted-foreground));
+  text-decoration-style: wavy;
+  text-decoration-color: hsl(38 92% 50% / 0.7);
+}
+.tome-glossary-card-unresolved {
+  border-color: hsl(38 92% 50% / 0.5);
+}
+.tome-glossary-card-unresolved .tome-glossary-card-term {
+  color: hsl(38 92% 45%);
+}

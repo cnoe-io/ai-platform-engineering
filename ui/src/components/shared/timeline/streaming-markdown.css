@@ -201,6 +201,12 @@
 .streaming-markdown .md-link.tome-glossary-link:hover {
   text-decoration-color: hsl(var(--primary));
 }
+/* Dangling glossary reference (resolves to nothing): muted, wavy amber. */
+.streaming-markdown .md-link.tome-glossary-dangling {
+  color: hsl(var(--muted-foreground));
+  text-decoration-style: wavy;
+  text-decoration-color: hsl(38 92% 50% / 0.7);
+}
 
 /* Inline code */
 .streaming-markdown.md-final :not(pre) > code {

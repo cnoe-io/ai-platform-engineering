@@ -198,39 +198,66 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
       card?.remove();
       card = null;
     };
-    const show = (anchor: HTMLAnchorElement, p: GlossaryPreview) => {
+    const floatCard = (anchor: HTMLAnchorElement, build: (c: HTMLDivElement) => void) => {
       hide();
       card = document.createElement("div");
       card.className = "tome-glossary-card";
-      const head = document.createElement("div");
-      head.className = "tome-glossary-card-term";
-      head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
-      const def = document.createElement("div");
-      def.className = "tome-glossary-card-def";
-      def.textContent = p.definition || "No definition yet.";
-      card.append(head, def);
+      build(card);
       document.body.appendChild(card);
       const r = anchor.getBoundingClientRect();
       const w = card.offsetWidth;
       card.style.top = `${r.bottom + 6}px`;
       card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
     };
+    const show = (anchor: HTMLAnchorElement, p: GlossaryPreview) =>
+      floatCard(anchor, (c) => {
+        const head = document.createElement("div");
+        head.className = "tome-glossary-card-term";
+        head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
+        const def = document.createElement("div");
+        def.className = "tome-glossary-card-def";
+        def.textContent = p.definition || "No definition yet.";
+        c.append(head, def);
+      });
+    const showUnresolved = (anchor: HTMLAnchorElement) =>
+      floatCard(anchor, (c) => {
+        c.classList.add("tome-glossary-card-unresolved");
+        const head = document.createElement("div");
+        head.className = "tome-glossary-card-term";
+        head.textContent = "Unresolved reference";
+        const def = document.createElement("div");
+        def.className = "tome-glossary-card-def";
+        def.textContent = "This term doesn't resolve here. The link may point at the wrong project or a term that no longer exists.";
+        c.append(head, def);
+      });
+    // Mark every link sharing this href as dangling (broken ref).
+    const markDangling = (href: string) => {
+      host.querySelectorAll<HTMLAnchorElement>("a.tome-glossary-link").forEach((a) => {
+        if (a.getAttribute("href") === href) a.classList.add("tome-glossary-dangling");
+      });
+    };
+    // Resolve a link's ref (cached). null = definitively unresolved → dangling;
+    // a thrown error is transient and leaves the link unmarked.
+    const resolve = (href: string): Promise<GlossaryPreview | null> => {
+      const fn = glossaryPreviewRef.current;
+      if (cache.has(href)) return Promise.resolve(cache.get(href) ?? null);
+      if (!fn) return Promise.resolve(null);
+      return Promise.resolve(fn(href)).then((p) => {
+        cache.set(href, p ?? null);
+        if (p === null) markDangling(href);
+        return p ?? null;
+      });
+    };
     const onOver = (e: Event) => {
       const anchor = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;
       if (!anchor) return;
       const href = anchor.getAttribute("href") || "";
-      const fn = glossaryPreviewRef.current;
-      if (!parseTomeHref(href)?.glossaryTerm || !fn) return;
-      if (cache.has(href)) {
-        const p = cache.get(href);
-        if (p) show(anchor, p);
-        return;
-      }
-      Promise.resolve(fn(href))
+      if (!parseTomeHref(href)?.glossaryTerm) return;
+      resolve(href)
         .then((p) => {
-          cache.set(href, p ?? null);
-          // Only pop the card if the pointer is still on this link.
-          if (p && anchor.matches(":hover")) show(anchor, p);
+          if (!anchor.matches(":hover")) return;
+          if (p) show(anchor, p);
+          else showUnresolved(anchor);
         })
         .catch(() => {});
     };
@@ -238,9 +265,34 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
       const anchor = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;
       if (anchor) hide();
     };
+
+    // Eager pass: resolve every glossary link so dangling ones are flagged
+    // without needing a hover. Re-runs (debounced) as the rendered doc changes.
+    let passTimer: ReturnType<typeof setTimeout> | null = null;
+    const markPass = () => {
+      host.querySelectorAll<HTMLAnchorElement>("a.tome-glossary-link").forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        if (!parseTomeHref(href)?.glossaryTerm) return;
+        resolve(href)
+          .then((p) => {
+            if (p === null) a.classList.add("tome-glossary-dangling");
+          })
+          .catch(() => {});
+      });
+    };
+    const schedulePass = () => {
+      if (passTimer) clearTimeout(passTimer);
+      passTimer = setTimeout(markPass, 250);
+    };
+    const observer = new MutationObserver(schedulePass);
+    observer.observe(host, { childList: true, subtree: true });
+    schedulePass();
+
     host.addEventListener("mouseover", onOver);
     host.addEventListener("mouseout", onOut);
     return () => {
+      observer.disconnect();
+      if (passTimer) clearTimeout(passTimer);
       host.removeEventListener("mouseover", onOver);
       host.removeEventListener("mouseout", onOut);
       hide();

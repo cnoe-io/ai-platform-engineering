@@ -294,36 +294,34 @@ export function TomeWiki({ slug }: { slug: string }) {
       const target = parseTomeHref(ref);
       if (!target?.glossaryTerm) return null;
 
+      // Same-project (bare): every page is loaded, so a miss is *definitively*
+      // unresolved (return null → dangling). No fetch needed.
       if (!target.project) {
         const md = data?.pages[`glossary/${target.glossaryTerm}.md`];
-        if (md !== undefined) {
-          const [fm, bodyRaw] = parseFrontmatter(md);
-          const termStr = String(fm.term ?? fm.title ?? target.glossaryTerm);
-          const expansion =
-            typeof fm.expansion === "string" && fm.expansion.trim()
-              ? fm.expansion.trim()
-              : undefined;
-          const definition = bodyRaw.replace(/^#.*$/m, "").trim().slice(0, 400);
-          return { term: termStr, expansion, definition };
-        }
+        if (md === undefined) return null;
+        const [fm, bodyRaw] = parseFrontmatter(md);
+        const termStr = String(fm.term ?? fm.title ?? target.glossaryTerm);
+        const expansion =
+          typeof fm.expansion === "string" && fm.expansion.trim()
+            ? fm.expansion.trim()
+            : undefined;
+        const definition = bodyRaw.replace(/^#.*$/m, "").trim().slice(0, 400);
+        return { term: termStr, expansion, definition };
       }
 
-      try {
-        const res = await fetch(
-          `/api/tome/projects/${slug}/resolve?ref=${encodeURIComponent(ref)}`,
-        );
-        if (res.ok) {
-          const d = (await res.json())?.data;
-          if (d?.kind === "glossary" && d.found) {
-            return {
-              term: d.term ?? target.glossaryTerm,
-              expansion: d.expansion,
-              definition: d.definition ?? "",
-            };
-          }
-        }
-      } catch {
-        /* unresolved → no card */
+      // Cross-project: a non-ok response is transient — throw so the caller
+      // leaves the link unmarked. A resolved not-found returns null (dangling).
+      const res = await fetch(
+        `/api/tome/projects/${slug}/resolve?ref=${encodeURIComponent(ref)}`,
+      );
+      if (!res.ok) throw new Error(`resolve failed (${res.status})`);
+      const d = (await res.json())?.data;
+      if (d?.kind === "glossary" && d.found) {
+        return {
+          term: d.term ?? target.glossaryTerm,
+          expansion: d.expansion,
+          definition: d.definition ?? "",
+        };
       }
       return null;
     },

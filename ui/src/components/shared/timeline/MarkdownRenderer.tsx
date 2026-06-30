@@ -356,22 +356,43 @@ export function MarkdownRenderer({
         card?.remove();
         card = null;
       };
-      const renderCard = (anchor: HTMLAnchorElement, p: GlossaryPreview) => {
+      const floatCard = (anchor: HTMLAnchorElement, build: (c: HTMLDivElement) => void) => {
         hideCard();
         card = document.createElement("div");
         card.className = "tome-glossary-card";
-        const head = document.createElement("div");
-        head.className = "tome-glossary-card-term";
-        head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
-        const def = document.createElement("div");
-        def.className = "tome-glossary-card-def";
-        def.textContent = p.definition || "No definition yet.";
-        card.append(head, def);
+        build(card);
         document.body.appendChild(card);
         const r = anchor.getBoundingClientRect();
         const w = card.offsetWidth;
         card.style.top = `${r.bottom + 6}px`;
         card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+      };
+      const renderCard = (anchor: HTMLAnchorElement, p: GlossaryPreview) =>
+        floatCard(anchor, (c) => {
+          const head = document.createElement("div");
+          head.className = "tome-glossary-card-term";
+          head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
+          const def = document.createElement("div");
+          def.className = "tome-glossary-card-def";
+          def.textContent = p.definition || "No definition yet.";
+          c.append(head, def);
+        });
+      const renderUnresolved = (anchor: HTMLAnchorElement) =>
+        floatCard(anchor, (c) => {
+          c.classList.add("tome-glossary-card-unresolved");
+          const head = document.createElement("div");
+          head.className = "tome-glossary-card-term";
+          head.textContent = "Unresolved reference";
+          const def = document.createElement("div");
+          def.className = "tome-glossary-card-def";
+          def.textContent =
+            "This term doesn't resolve here. The link may point at the wrong project or a term that no longer exists.";
+          c.append(head, def);
+        });
+      const markDangling = (href: string) => {
+        container.querySelectorAll<HTMLAnchorElement>("a.tome-glossary-link").forEach((a) => {
+          if (a.getAttribute("href") === href) a.classList.add("tome-glossary-dangling");
+        });
       };
       const handleGlossaryOver = (e: MouseEvent) => {
         const anchor = (e.target as HTMLElement | null)?.closest?.(
@@ -384,12 +405,16 @@ export function MarkdownRenderer({
         if (cache.has(href)) {
           const p = cache.get(href);
           if (p) renderCard(anchor, p);
+          else renderUnresolved(anchor);
           return;
         }
         Promise.resolve(fn(href))
           .then((p) => {
             cache.set(href, p ?? null);
-            if (p && anchor.matches(":hover")) renderCard(anchor, p);
+            if (p === null) markDangling(href);
+            if (!anchor.matches(":hover")) return;
+            if (p) renderCard(anchor, p);
+            else renderUnresolved(anchor);
           })
           .catch(() => {});
       };
