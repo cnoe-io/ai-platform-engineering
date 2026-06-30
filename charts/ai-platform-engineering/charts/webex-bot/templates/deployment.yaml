@@ -97,7 +97,7 @@ spec:
             - secretRef:
                 name: {{ include "webex-bot.fullname" . }}-secret
             {{- end }}
-          {{- $adminApiEnabled := eq (toString (default "true" (index .Values.config "WEBEX_ADMIN_API_ENABLED"))) "true" }}
+          {{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "WEBEX_ADMIN_API_ENABLED"))) "true" }}
           {{- if $adminApiEnabled }}
           ports:
             - name: admin

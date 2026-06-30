@@ -1196,7 +1196,7 @@ slack-bot:
     SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false" # Opt-in first-message channel onboarding
     SLACK_DEFAULT_TEAM_SLUG: ""                # Required when auto-assignment is enabled
     SLACK_DEFAULT_AGENT_ID: ""                 # Required when auto-assignment is enabled
-    SLACK_ADMIN_API_ENABLED: "false"           # Internal admin API for route status/reload/config sync
+    SLACK_ADMIN_API_ENABLED: "true"            # Internal admin API when tags.slack-bot=true
     SLACK_ADMIN_API_HOST: "0.0.0.0"
     SLACK_ADMIN_API_PORT: "3001"
     SLACK_ADMIN_JWT_ISSUER: ""                 # Set to Keycloak/OIDC issuer when admin API is enabled
@@ -1292,7 +1292,7 @@ webex-bot:
     WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
     WEBEX_DEFAULT_TEAM_SLUG: ""
     WEBEX_DEFAULT_AGENT_ID: ""
-    WEBEX_ADMIN_API_ENABLED: "true"
+    WEBEX_ADMIN_API_ENABLED: "false"
     WEBEX_ADMIN_API_HOST: "0.0.0.0"
     WEBEX_ADMIN_API_PORT: "3002"
     WEBEX_ADMIN_JWT_ISSUER: ""

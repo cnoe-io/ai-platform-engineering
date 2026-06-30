@@ -9,15 +9,16 @@ const POLL_INTERVAL_MS = 30000;
 const makeHealthyResponse = (overrides: Record<string, unknown> = {}) => ({
   status: 'healthy',
   checked_at: new Date().toISOString(),
-  summary: { total: 4, healthy: 4, warning: 0, down: 0 },
-  probes: [
+  summary: { total: 4, healthy: 3, degraded: 0, down: 0, disabled: 1 },
+  capabilities: [
     {
-      id: 'api',
-      label: 'API Server',
-      group: 'core',
+      id: 'chat-runtime',
+      label: 'Chat Runtime',
+      group: 'runtime',
       status: 'healthy',
-      detail: 'OK',
-      target: 'http://localhost:8000',
+      required: true,
+      description: 'Checks the supervisor health endpoint used by the chat experience.',
+      detail: 'Supervisor reachable',
       latency_ms: 12,
     },
   ],
@@ -36,7 +37,7 @@ describe('usePlatformHealthProbes', () => {
   });
 
   // 1. Initial state
-  it('initial state: status is "checking", probes is [], summary is null', () => {
+  it('initial state: status is "checking", capabilities is [], summary is null', () => {
     (global.fetch as jest.Mock).mockImplementation(
       () => new Promise(() => {}) // Never resolves
     );
@@ -44,12 +45,14 @@ describe('usePlatformHealthProbes', () => {
     const { result } = renderHook(() => usePlatformHealthProbes());
 
     expect(result.current.status).toBe('checking');
-    expect(result.current.probes).toEqual([]);
+    expect(result.current.capabilities).toEqual([]);
     expect(result.current.summary).toBeNull();
+    expect(result.current.probes).toEqual([]);
+    expect(result.current.probeSummary).toBeNull();
   });
 
   // 2. Successful fetch → healthy
-  it('successful fetch with status "healthy" → status becomes "healthy" and probes/summary are populated', async () => {
+  it('successful fetch with status "healthy" → status becomes "healthy" and capabilities/summary are populated', async () => {
     const body = makeHealthyResponse();
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
@@ -62,16 +65,50 @@ describe('usePlatformHealthProbes', () => {
       expect(result.current.status).toBe('healthy');
     });
 
-    expect(result.current.probes).toHaveLength(1);
-    expect(result.current.probes[0].id).toBe('api');
-    expect(result.current.summary).toEqual({ total: 4, healthy: 4, warning: 0, down: 0 });
+    expect(result.current.capabilities).toHaveLength(1);
+    expect(result.current.capabilities[0].id).toBe('chat-runtime');
+    expect(result.current.summary).toEqual({ total: 4, healthy: 3, degraded: 0, down: 0, disabled: 1 });
+  });
+
+  it('diagnostics mode fetches probes from /api/platform/health?diagnostics=1', async () => {
+    const body = makeHealthyResponse({
+      probe_summary: { total: 1, healthy: 1, warning: 0, down: 0 },
+      probes: [
+        {
+          id: 'keycloak',
+          label: 'Keycloak',
+          group: 'identity',
+          status: 'healthy',
+          detail: 'HTTP 200',
+          target: 'http://keycloak:7080/realms/caipe/protocol/openid-connect/certs',
+          latency_ms: 12,
+        },
+      ],
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes({ diagnostics: true }));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    expect(result.current.probeSummary).toEqual({ total: 1, healthy: 1, warning: 0, down: 0 });
+    expect(result.current.probes.map((probe) => probe.id)).toEqual(['keycloak']);
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/platform/health?diagnostics=1',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 
   // 3. Successful fetch → degraded
   it('successful fetch with status "degraded" → status becomes "degraded"', async () => {
     const body = makeHealthyResponse({
       status: 'degraded',
-      summary: { total: 4, healthy: 2, warning: 1, down: 1 },
+      summary: { total: 4, healthy: 2, degraded: 1, down: 0, disabled: 1 },
     });
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,

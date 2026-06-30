@@ -617,6 +617,13 @@ export async function updateUser(
   await assertOk(response, "updateUser");
 }
 
+export async function deleteRealmUser(userId: string): Promise<void> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}`, { method: "DELETE" });
+  if (response.status === 404) return;
+  await assertOk(response, `deleteRealmUser(${userId})`);
+}
+
 export async function listUsersWithRole(
   roleName: string,
   first = 0,

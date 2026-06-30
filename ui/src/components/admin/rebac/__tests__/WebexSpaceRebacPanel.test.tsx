@@ -21,7 +21,10 @@ const fetchMock = jest.fn();
 
 function setupFetchMock() {
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === "/api/admin/webex/spaces" || url === "/api/admin/webex/spaces?health=1") {
+    if (
+      url === "/api/admin/webex/spaces" ||
+      url === "/api/admin/webex/spaces?health=1"
+    ) {
       return response({
         data: {
           spaces: [
@@ -41,8 +44,18 @@ function setupFetchMock() {
       return response({
         data: {
           spaces: [
-            { id: "space-abc", name: "Platform Alerts", type: "group", is_locked: false },
-            { id: "space-new-123", name: "Incident War Room", type: "group", is_locked: false },
+            {
+              id: "space-abc",
+              name: "Platform Alerts",
+              type: "group",
+              is_locked: false,
+            },
+            {
+              id: "space-new-123",
+              name: "Incident War Room",
+              type: "group",
+              is_locked: false,
+            },
           ],
           has_more: false,
           next_cursor: null,
@@ -61,7 +74,15 @@ function setupFetchMock() {
     }
     if (url === "/api/admin/teams") {
       return response({
-        data: { teams: [{ _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" }] },
+        data: {
+          teams: [
+            {
+              _id: "team-1",
+              slug: "platform-engineering",
+              name: "Platform Engineering",
+            },
+          ],
+        },
       });
     }
     if (url === "/api/admin/webex/spaces/defaults" && init?.method === "POST") {
@@ -84,13 +105,23 @@ function setupFetchMock() {
       const body = JSON.parse(String(init.body ?? "{}"));
       return response({
         data: {
-          defaults: { ...body, source: "db", updated_at: "2026-05-27T08:00:00.000Z", updated_by: "admin@example.com" },
+          defaults: {
+            ...body,
+            source: "db",
+            updated_at: "2026-05-27T08:00:00.000Z",
+            updated_by: "admin@example.com",
+          },
         },
       });
     }
     if (url === "/api/admin/webex/spaces/defaults") {
       return response({
-        data: { defaults: { team_slug: "platform-engineering", agent_id: "incident-agent" } },
+        data: {
+          defaults: {
+            team_slug: "platform-engineering",
+            agent_id: "incident-agent",
+          },
+        },
       });
     }
     if (url === "/api/admin/webex/runtime/status") {
@@ -126,7 +157,18 @@ function setupFetchMock() {
       return response({ data: { deleted: { agent_id: "foo-bar" } } });
     }
     if (url.endsWith("/routes")) {
-      return response({ data: { routes: [{ agent_id: "incident-agent", enabled: true, priority: 100, users: { enabled: true, listen: "mention" } }] } });
+      return response({
+        data: {
+          routes: [
+            {
+              agent_id: "incident-agent",
+              enabled: true,
+              priority: 100,
+              users: { enabled: true, listen: "mention" },
+            },
+          ],
+        },
+      });
     }
     if (url.endsWith("/diagnostics")) {
       return response({
@@ -136,10 +178,28 @@ function setupFetchMock() {
             "agent:foo-bar has Mongo route metadata, but the OpenFGA tuple is missing; runtime ignores it.",
           ],
           routes: [
-            { agent_id: "foo-bar", openfga_tuple: false, route_metadata: true, listen: "message", runtime_matches: { mention: false, message: true }, warnings: [] },
-            { agent_id: "incident-agent", openfga_tuple: true, route_metadata: true, listen: "mention", runtime_matches: { mention: true, message: false }, warnings: [] },
+            {
+              agent_id: "foo-bar",
+              openfga_tuple: false,
+              route_metadata: true,
+              listen: "message",
+              runtime_matches: { mention: false, message: true },
+              warnings: [],
+            },
+            {
+              agent_id: "incident-agent",
+              openfga_tuple: true,
+              route_metadata: true,
+              listen: "mention",
+              runtime_matches: { mention: true, message: false },
+              warnings: [],
+            },
           ],
-          last_runtime_error: { ts: "2026-05-18T07:50:00.000Z", reason_code: "OPENFGA_READ_FAILED", message: "OpenFGA tuple read failed" },
+          last_runtime_error: {
+            ts: "2026-05-18T07:50:00.000Z",
+            reason_code: "OPENFGA_READ_FAILED",
+            message: "OpenFGA tuple read failed",
+          },
         },
       });
     }
@@ -156,19 +216,37 @@ beforeEach(() => {
   setupFetchMock();
 });
 
-afterEach(() => { jest.useRealTimers(); });
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 function response(payload: unknown): Response {
-  return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) } as Response;
+  return {
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  } as Response;
 }
 
-it("shows a loading spinner on the configured spaces tab while spaces load", async () => {
+async function clickFindSpaces() {
+  const discoverButton = await screen.findByRole("button", {
+    name: "Find spaces",
+  });
+  await waitFor(() => expect(discoverButton).toBeEnabled());
+  fireEvent.click(discoverButton);
+}
+
+it("shows the onboarding loading state while configured spaces seed the table", async () => {
   let resolveSpaces: ((value: Response) => void) | undefined;
   const spacesPromise = new Promise<Response>((resolve) => {
     resolveSpaces = resolve;
   });
   fetchMock.mockImplementation(async (url: string) => {
-    if (url === "/api/admin/webex/spaces" || url === "/api/admin/webex/spaces?health=1") {
+    if (
+      url === "/api/admin/webex/spaces" ||
+      url === "/api/admin/webex/spaces?health=1"
+    ) {
       return spacesPromise;
     }
     if (url === "/api/dynamic-agents?enabled_only=true") {
@@ -178,140 +256,149 @@ it("shows a loading spinner on the configured spaces tab while spaces load", asy
   });
 
   render(<WebexSpaceRebacPanel />);
-  expect(screen.getByTestId("connector-items-loading")).toBeInTheDocument();
-  expect(screen.getByText("Loading Webex spaces…")).toBeInTheDocument();
-  expect(screen.queryByText("No spaces configured yet.")).not.toBeInTheDocument();
+  expect(screen.getByTestId("discovery-loading")).toBeInTheDocument();
+  expect(screen.getByText("Loading configured spaces…")).toBeInTheDocument();
+  expect(
+    screen.queryByText("No spaces configured yet."),
+  ).not.toBeInTheDocument();
 
   resolveSpaces?.(response({ data: { spaces: [] } }));
-  expect(await screen.findByText("No spaces configured yet.")).toBeInTheDocument();
-  expect(screen.queryByTestId("connector-items-loading")).not.toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.queryByTestId("discovery-loading")).not.toBeInTheDocument(),
+  );
 });
 
-async function switchToTab(name: "Configured spaces" | "Onboard spaces" | "Advanced") {
-  fireEvent.click(await screen.findByRole("tab", { name }));
-}
+// ── Single onboarding layout ────────────────────────────────────────────────
 
-async function expandSpaceRow(spaceName: string) {
-  const row = (await screen.findByText(spaceName)).closest("tr");
-  if (!row) throw new Error(`Row for "${spaceName}" not found`);
-  fireEvent.click(row);
-}
-
-// ── Tab layout ──────────────────────────────────────────────────────────────
-
-it("organises Webex admin into Configured / Onboard / Advanced tabs, mirrors Slack layout", async () => {
+it("renders Webex with a two-tab bar (Configure / Configured) but no Advanced tab", async () => {
   render(<WebexSpaceRebacPanel />);
 
-  // Configured tab is default and shows the space table once data loads
-  expect(await screen.findByRole("tab", { name: "Configured spaces" })).toHaveAttribute("aria-selected", "true");
-  expect(await screen.findByRole("region", { name: "Configured Webex spaces" })).toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" })).not.toBeInTheDocument();
-
-  // Onboard tab shows discovery wizard only.
-  await switchToTab("Onboard spaces");
-  expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Find spaces" })).toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Configured Webex spaces" })).not.toBeInTheDocument();
-
-  // Advanced tab shows runtime status controls only
-  await switchToTab("Advanced");
-  expect(await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" })).toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
+  // Default landing tab is "Configure spaces"
+  expect(
+    await screen.findByRole("tab", { name: "Configure spaces" }),
+  ).toBeInTheDocument();
+  // "Configured spaces" tab is present for navigation back to the configured table
+  expect(
+    screen.getByRole("tab", { name: "Configured spaces" }),
+  ).toBeInTheDocument();
+  // Two-tab switcher replaces the full 3-tab bar; no "Advanced" tab
+  expect(
+    screen.queryByRole("tab", { name: "Advanced" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Find spaces" }),
+  ).toBeInTheDocument();
+  // Configured table and Advanced section are not visible on the default tab
+  expect(
+    screen.queryByRole("region", { name: "Configured Webex spaces" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", {
+      name: "Advanced Setup - Import/Sync with Webex Bot",
+    }),
+  ).not.toBeInTheDocument();
 });
 
-it("writes the active sub-tab to the subtab URL param", async () => {
-  render(<WebexSpaceRebacPanel />);
-  await screen.findByRole("tab", { name: "Configured spaces" });
-
-  await switchToTab("Advanced");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", { scroll: false });
-
-  await switchToTab("Onboard spaces");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", { scroll: false });
-});
-
-it("opens the sub-tab named by the subtab URL param on load", async () => {
+it("ignores stale Webex subtab URL params and stays on onboarding", async () => {
   currentSearchParams = new URLSearchParams("subtab=advanced");
   render(<WebexSpaceRebacPanel />);
 
-  expect(await screen.findByRole("tab", { name: "Advanced" })).toHaveAttribute("aria-selected", "true");
-  expect(await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" })).toBeInTheDocument();
-});
-
-// ── Configured spaces table + diagnostics ──────────────────────────────────
-
-it("shows spaces in a table and expands a row to show diagnostics without manual route controls", async () => {
-  render(<WebexSpaceRebacPanel />);
-
-  // Space appears in the table; no "X grants" column
-  expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
-  expect(screen.queryByText(/0 grants/i)).not.toBeInTheDocument();
-  expect(screen.getByText("team:platform-engineering")).toBeInTheDocument();
-  expect(screen.getByText("Incident Agent")).toBeInTheDocument();
-  expect(screen.getByText("incident-agent")).toBeInTheDocument();
-
-  // Expand the row
-  await expandSpaceRow("Platform Alerts");
-  expect(await screen.findByText("Diagnostics")).toBeInTheDocument();
-  expect(await screen.findByText(/OpenFGA tuple read failed/i)).toBeInTheDocument();
-
-  // No manual route form — Webex routes are managed via onboarding + auto-fix
-  expect(screen.queryByLabelText("Dynamic Agent")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Create Association" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /edit agent:incident-agent/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /delete agent:incident-agent/i })).not.toBeInTheDocument();
-});
-
-it("fixes stale diagnostic route metadata (orphan) by issuing DELETE", async () => {
-  render(<WebexSpaceRebacPanel />);
-  await expandSpaceRow("Platform Alerts");
-
-  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for foo-bar/i }));
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc/routes",
-      expect.objectContaining({ method: "DELETE", body: JSON.stringify({ agent_id: "foo-bar" }) })
-    )
-  );
-});
-
-it("fixes mention-only diagnostic route by lifting listen mode to all", async () => {
-  render(<WebexSpaceRebacPanel />);
-  await expandSpaceRow("Platform Alerts");
-
-  fireEvent.click(await screen.findByRole("button", { name: /Fix routing for incident-agent/i }));
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc/routes",
-      expect.objectContaining({ method: "PUT", body: expect.stringContaining('"listen":"all"') })
-    )
-  );
+  expect(
+    await screen.findByRole("tab", { name: "Configure spaces" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Find spaces" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", {
+      name: "Advanced Setup - Import/Sync with Webex Bot",
+    }),
+  ).not.toBeInTheDocument();
+  expect(replaceMock).not.toHaveBeenCalled();
 });
 
 // ── Discovery + onboarding ─────────────────────────────────────────────────
 
 it("seeds configured Webex spaces on the onboard tab before discovery", async () => {
   render(<WebexSpaceRebacPanel />);
-  await switchToTab("Onboard spaces");
 
   expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
   expect(screen.getByText("Configured")).toBeInTheDocument();
-  expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/admin/webex/available-spaces"))).toBe(false);
+  expect(
+    fetchMock.mock.calls.some(([url]) =>
+      String(url).startsWith("/api/admin/webex/available-spaces"),
+    ),
+  ).toBe(false);
+});
+
+it("filters configured Webex spaces locally before live discovery runs", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (
+      url === "/api/admin/webex/spaces" ||
+      url === "/api/admin/webex/spaces?health=1"
+    ) {
+      return response({
+        data: {
+          spaces: [
+            {
+              workspace_id: "WEBEX-WORKSPACE",
+              space_id: "space-abc",
+              space_name: "Platform Alerts",
+              team_slug: "platform-engineering",
+              primary_agent_id: "incident-agent",
+              active_grants: 1,
+            },
+            {
+              workspace_id: "WEBEX-WORKSPACE",
+              space_id: "space-caipe",
+              space_name: "CAIPE Demo",
+              team_slug: "platform-engineering",
+              primary_agent_id: "incident-agent",
+              active_grants: 1,
+            },
+          ],
+        },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+
+  expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
+  expect(screen.getByText("CAIPE Demo")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search spaces" }), {
+    target: { value: "CAIPE" },
+  });
+
+  expect(screen.getByText("CAIPE Demo")).toBeInTheDocument();
+  expect(screen.queryByText("Platform Alerts")).not.toBeInTheDocument();
+  expect(
+    fetchMock.mock.calls.some(([url]) =>
+      String(url).startsWith("/api/admin/webex/available-spaces"),
+    ),
+  ).toBe(false);
 });
 
 it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defaults on apply", async () => {
   render(<WebexSpaceRebacPanel />);
-  await switchToTab("Onboard spaces");
 
-  fireEvent.click(screen.getByRole("button", { name: "Find spaces" }));
+  await clickFindSpaces();
 
   // Only the new space (Incident War Room) is auto-selected; existing one (Platform Alerts) is not
-  expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /Import Platform Alerts/i })).not.toBeChecked();
+  expect(
+    await screen.findByRole("status", {
+      name: /Discovered: 2 .* Configured: 1/i,
+    }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("checkbox", { name: /Import Incident War Room/i }),
+  ).toBeChecked();
+  expect(
+    screen.getByRole("checkbox", { name: /Import Platform Alerts/i }),
+  ).not.toBeChecked();
   await pickTeam("Team for Incident War Room", "platform-engineering");
   await pickAgent("Dynamic Agent for Incident War Room", "incident-agent");
 
@@ -328,14 +415,82 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
           create_routes: true,
           manual_spaces: [{ id: "space-new-123", name: "Incident War Room" }],
         }),
-      })
-    )
+      }),
+    ),
   );
   await waitFor(() =>
-    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("Discovered Webex spaces applied"), "success")
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.stringContaining("Discovered Webex spaces applied"),
+      "success",
+    ),
   );
   expect(screen.queryByText("Ready to set up")).not.toBeInTheDocument();
   expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
+});
+
+it("shows direct Webex rooms as personal DMs and excludes them from team setup", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (String(url).startsWith("/api/admin/webex/available-spaces")) {
+      return response({
+        data: {
+          spaces: [
+            {
+              id: "direct-room-123456",
+              name: "Sri Aradhyula",
+              type: "direct",
+              is_locked: false,
+            },
+            {
+              id: "space-new-123",
+              name: "Incident War Room",
+              type: "group",
+              is_locked: false,
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+
+  await clickFindSpaces();
+
+  expect(
+    await screen.findByRole("status", {
+      name: /Discovered: 3 .* Configured: 1/i,
+    }),
+  ).toBeInTheDocument();
+  const directCheckbox = screen.getByRole("checkbox", {
+    name: /Import Sri Aradhyula/i,
+  });
+  expect(directCheckbox).toBeDisabled();
+  expect(directCheckbox).not.toBeChecked();
+  expect(
+    screen.queryByLabelText("Team for Sri Aradhyula"),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText("Dynamic Agent for Sri Aradhyula"),
+  ).not.toBeInTheDocument();
+  expect(screen.getAllByText("Personal DM").length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Set up 1 space" })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole("button", { name: "Set up 1 space" }));
+
+  await waitFor(() => {
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/api/admin/webex/spaces/defaults" && init?.method === "POST",
+    );
+    expect(postCall).toBeTruthy();
+    expect(
+      JSON.parse(String(postCall?.[1]?.body ?? "{}")).manual_spaces,
+    ).toEqual([{ id: "space-new-123", name: "Incident War Room" }]);
+  });
 });
 
 it("allows discovery before global defaults are configured", async () => {
@@ -348,79 +503,24 @@ it("allows discovery before global defaults are configured", async () => {
   });
 
   render(<WebexSpaceRebacPanel />);
-  await switchToTab("Onboard spaces");
 
-  const discoverButton = await screen.findByRole("button", { name: "Find spaces" });
-  await waitFor(() => expect(discoverButton).toBeEnabled());
-  fireEvent.click(discoverButton);
+  await clickFindSpaces();
 
   await waitFor(() =>
-    expect(fetchMock.mock.calls.some(([url]) =>
-      String(url).startsWith("/api/admin/webex/available-spaces") && String(url).includes("limit=200")
-    )).toBe(true)
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) =>
+          String(url).startsWith("/api/admin/webex/available-spaces") &&
+          String(url).includes("limit=200"),
+      ),
+    ).toBe(true),
   );
-  expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
-});
-
-// ── Advanced tab ───────────────────────────────────────────────────────────
-
-it("shows Webex-specific runtime status including Thread context tile and triggers YAML sync", async () => {
-  render(<WebexSpaceRebacPanel />);
-  await switchToTab("Advanced");
-
-  expect(await screen.findByText("db_prefer")).toBeInTheDocument();
-  expect(await screen.findByText(/1 cached space/i)).toBeInTheDocument();
-  expect(screen.getByText("Thread context")).toBeInTheDocument();
-  expect(screen.getByText("Enabled, 10 messages / 4000 chars")).toBeInTheDocument();
-
-  expect(screen.getByRole("button", { name: "Help: Route mode" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Help: Thread context" })).toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: "Import from YAML" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/runtime/sync-from-config",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ dry_run: true }) })
-    )
-  );
-  expect(await screen.findByText("Preview complete")).toBeInTheDocument();
-
-  const importButton = await screen.findByRole("button", { name: "Apply Import" });
-  await waitFor(() => expect(importButton).not.toBeDisabled());
-  fireEvent.click(importButton);
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/runtime/sync-from-config",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ dry_run: false }) })
-    )
-  );
-  expect(await screen.findByText("Apply complete")).toBeInTheDocument();
-});
-
-it("opens sync modal with accurate preview and apply counts", async () => {
-  render(<WebexSpaceRebacPanel />);
-  await switchToTab("Advanced");
-
-  const previewButton = await screen.findByRole("button", { name: "Import from YAML" });
-  await waitFor(() => expect(previewButton).toBeEnabled());
-  fireEvent.click(previewButton);
-
-  expect(await screen.findByRole("dialog")).toBeInTheDocument();
-  expect(screen.getByText("Webex Bot Config Sync Preview")).toBeInTheDocument();
-  expect(await screen.findByText("Preview complete")).toBeInTheDocument();
-  expect(screen.getByText("1 route planned")).toBeInTheDocument();
-  expect(screen.getByText("1 space scanned")).toBeInTheDocument();
-  expect(screen.getByText("0 routes upserted")).toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: "Apply Import" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/runtime/sync-from-config",
-      expect.objectContaining({ body: JSON.stringify({ dry_run: false }) })
-    )
-  );
-  expect(await screen.findByText("Apply complete")).toBeInTheDocument();
-  expect(screen.getByText("1 route upserted")).toBeInTheDocument();
-  expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("status", {
+      name: /Discovered: 2 .* Configured: 1/i,
+    }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("checkbox", { name: /Import Incident War Room/i }),
+  ).toBeChecked();
 });

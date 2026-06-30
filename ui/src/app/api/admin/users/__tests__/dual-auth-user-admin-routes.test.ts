@@ -9,11 +9,14 @@ const mockGetRealmUserById = jest.fn();
 const mockGetRoleByName = jest.fn();
 const mockAssignRealmRolesToUser = jest.fn();
 const mockRemoveRealmRolesFromUser = jest.fn();
+const mockDeleteRealmUser = jest.fn();
 const mockListRealmRoleMappingsForUser = jest.fn();
 const mockGetUserSessions = jest.fn();
 const mockGetUserFederatedIdentities = jest.fn();
 const mockGetCollection = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
+const mockReadOpenFgaTuples = jest.fn();
+const mockDeleteExactOpenFgaTuples = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: jest.fn(async () => null),
@@ -44,6 +47,8 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+  deleteExactOpenFgaTuples: (...args: unknown[]) => mockDeleteExactOpenFgaTuples(...args),
 }));
 
 jest.mock("@/lib/rbac/audit", () => ({
@@ -52,6 +57,7 @@ jest.mock("@/lib/rbac/audit", () => ({
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   getRealmUserById: (...args: unknown[]) => mockGetRealmUserById(...args),
+  deleteRealmUser: (...args: unknown[]) => mockDeleteRealmUser(...args),
   getRoleByName: (...args: unknown[]) => mockGetRoleByName(...args),
   assignRealmRolesToUser: (...args: unknown[]) => mockAssignRealmRolesToUser(...args),
   removeRealmRolesFromUser: (...args: unknown[]) => mockRemoveRealmRolesFromUser(...args),
@@ -105,6 +111,9 @@ beforeEach(() => {
   mockListRealmRoleMappingsForUser.mockResolvedValue([]);
   mockGetUserSessions.mockResolvedValue([]);
   mockGetUserFederatedIdentities.mockResolvedValue([]);
+  mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
+  mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
+  mockDeleteRealmUser.mockResolvedValue(undefined);
   mockGetCollection.mockResolvedValue({
     find: jest.fn().mockReturnValue({
       project: jest.fn().mockReturnValue({
@@ -260,6 +269,116 @@ describe("admin user sibling routes dual-auth PDP gates", () => {
     await expectDenied(response, "admin_ui#admin");
     expect(mockGetRoleByName).not.toHaveBeenCalled();
     expect(mockRemoveRealmRolesFromUser).not.toHaveBeenCalled();
+  });
+
+  it("denies bearer users without admin_ui#admin before deleting a user", async () => {
+    const { DELETE } = await import("../[id]/route");
+
+    const response = await DELETE(
+      request("/api/admin/users/user-1", { method: "DELETE" }),
+      { params: Promise.resolve({ id: "user-1" }) }
+    );
+
+    await expectDenied(response, "admin_ui#admin");
+    expect(mockGetRealmUserById).not.toHaveBeenCalledWith("user-1");
+    expect(mockDeleteRealmUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects deleting the current session user", async () => {
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:bob-sub" &&
+        tuple.relation === "can_manage" &&
+        tuple.object === "organization:caipe",
+    }));
+    const { DELETE } = await import("../[id]/route");
+
+    const response = await DELETE(
+      request("/api/admin/users/bob-sub", { method: "DELETE" }),
+      { params: Promise.resolve({ id: "bob-sub" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe("CURRENT_USER_DELETE_FORBIDDEN");
+    expect(mockDeleteRealmUser).not.toHaveBeenCalled();
+  });
+
+  it("deletes a user and cleans user-subject OpenFGA and membership-source rows", async () => {
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:bob-sub" &&
+        tuple.relation === "can_manage" &&
+        tuple.object === "organization:caipe",
+    }));
+    mockGetRealmUserById.mockResolvedValue({
+      id: "alice-sub",
+      username: "alice@example.com",
+      email: "alice@example.com",
+      enabled: true,
+      attributes: {},
+    });
+    const membershipSources = {
+      updateMany: jest.fn().mockResolvedValue({ modifiedCount: 2 }),
+    };
+    const users = {
+      updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "team_membership_sources") return membershipSources;
+      if (name === "users") return users;
+      return {
+        find: jest.fn().mockReturnValue({
+          project: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+        }),
+        updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+      };
+    });
+    mockReadOpenFgaTuples
+      .mockResolvedValueOnce({
+        tuples: [
+          { key: { user: "user:alice-sub", relation: "member", object: "organization:caipe" } },
+          { key: { user: "user:alice-sub", relation: "member", object: "team:ops" } },
+        ],
+        continuationToken: "next",
+      })
+      .mockResolvedValueOnce({
+        tuples: [
+          { key: { user: "user:alice-sub", relation: "caller", object: "mcp_gateway:list" } },
+        ],
+        continuationToken: undefined,
+      });
+
+    const { DELETE } = await import("../[id]/route");
+    const response = await DELETE(
+      request("/api/admin/users/alice-sub", { method: "DELETE" }),
+      { params: Promise.resolve({ id: "alice-sub" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toEqual(expect.objectContaining({
+      id: "alice-sub",
+      deleted: true,
+      openfga_tuples_deleted: 3,
+      membership_sources_removed: 2,
+    }));
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
+      continuationToken: undefined,
+      pageSize: 100,
+    });
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
+      continuationToken: "next",
+      pageSize: 100,
+    });
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      { user: "user:alice-sub", relation: "member", object: "organization:caipe" },
+      { user: "user:alice-sub", relation: "member", object: "team:ops" },
+      { user: "user:alice-sub", relation: "caller", object: "mcp_gateway:list" },
+    ]);
+    expect(membershipSources.updateMany).toHaveBeenCalled();
+    expect(users.updateMany).toHaveBeenCalled();
+    expect(mockDeleteRealmUser).toHaveBeenCalledWith("alice-sub");
   });
 
   it("denies bearer users without admin_ui#admin before updating legacy Mongo role", async () => {

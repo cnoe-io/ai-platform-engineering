@@ -1,3 +1,4 @@
+
 import { type Page } from "@playwright/test";
 
 import {
@@ -504,9 +505,9 @@ export async function gotoAdminCredentialsTab(page: Page): Promise<void> {
 }
 
 export async function gotoPersonalCredentialsSecrets(page: Page): Promise<void> {
-  await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+  await page.goto("/credentials#secrets", { waitUntil: "domcontentloaded" });
 }
 
 export async function gotoPersonalCredentialsConnections(page: Page): Promise<void> {
-  await page.goto("/credentials?tab=connections", { waitUntil: "domcontentloaded" });
+  await page.goto("/credentials#connections", { waitUntil: "domcontentloaded" });
 }

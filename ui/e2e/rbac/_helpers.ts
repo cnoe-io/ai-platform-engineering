@@ -19,6 +19,21 @@ type TestCredentials = {
   sub?: string;
 };
 
+type SharePermission = "view" | "comment";
+
+type ChatShareUserSearchResult = {
+  email: string;
+  name: string;
+  avatar_url?: string;
+};
+
+type ChatShareTeamSearchResult = {
+  _id: string;
+  slug: string;
+  name: string;
+  description?: string;
+};
+
 type ChatBootMocksOptions = {
   conversationId?: string;
   ownerEmail?: string;
@@ -31,16 +46,20 @@ type ChatBootMocksOptions = {
   agentId?: string;
   sharing?: {
     is_public?: boolean;
-    public_permission?: "view" | "comment";
+    public_permission?: SharePermission;
     shared_with?: string[];
     shared_with_teams?: string[];
-    team_permissions?: Record<string, "view" | "comment">;
+    team_permissions?: Record<string, SharePermission>;
     share_link_enabled?: boolean;
   };
+  userPermissions?: Record<string, SharePermission>;
+  userSearchResults?: ChatShareUserSearchResult[];
+  teamSearchResults?: ChatShareTeamSearchResult[];
   viewerHasSharedAccess?: boolean;
   accessLevel?: "owner" | "shared" | "shared_readonly" | "admin_audit";
   onConversationListRequest?: (url: URL) => void;
   onConversationCreate?: () => void;
+  onShareRequest?: (request: { method: string; body: unknown; url: URL }) => void;
 };
 
 function chatConversationFixture(
@@ -95,6 +114,35 @@ export async function installChatBootMocks(
   const conversationListDelayMs = options.conversationListDelayMs ?? 0;
   let created = seedExistingConversation;
   const directSharePermission = options.accessLevel === "shared_readonly" ? "view" : "comment";
+  const userPermissions: Record<string, SharePermission> = {
+    ...(conversation.sharing.shared_with ?? []).reduce<Record<string, SharePermission>>((acc, email) => {
+      acc[email] = directSharePermission;
+      return acc;
+    }, {}),
+    ...(options.userPermissions ?? {}),
+  };
+  conversation.sharing.team_permissions = { ...(conversation.sharing.team_permissions ?? {}) };
+  const shareableTeams = options.teamSearchResults ?? [];
+
+  const updateConversationSharing = (sharingUpdate: typeof conversation.sharing) => {
+    conversation.sharing = {
+      is_public: Boolean(sharingUpdate.is_public),
+      public_permission: sharingUpdate.public_permission,
+      shared_with: [...(sharingUpdate.shared_with ?? [])],
+      shared_with_teams: [...(sharingUpdate.shared_with_teams ?? [])],
+      team_permissions: { ...(sharingUpdate.team_permissions ?? {}) },
+      share_link_enabled: Boolean(sharingUpdate.share_link_enabled),
+    };
+  };
+
+  const accessList = () =>
+    (conversation.sharing.shared_with ?? []).map((email: string) => ({
+      conversation_id: conversationId,
+      granted_by: ownerEmail,
+      granted_to: email,
+      permission: userPermissions[email] ?? directSharePermission,
+      granted_at: new Date().toISOString(),
+    }));
 
   await page.route("**/api/admin/platform-config", async (route) => {
     await route.fulfill({
@@ -107,6 +155,19 @@ export async function installChatBootMocks(
           release_notes: { enabled: false },
         },
       }),
+    });
+  });
+
+  await page.route("**/api/users/search**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const query = (requestUrl.searchParams.get("q") ?? "").trim().toLowerCase();
+    const matches = (options.userSearchResults ?? []).filter((user) =>
+      `${user.name} ${user.email}`.toLowerCase().includes(query),
+    );
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: matches }),
     });
   });
 
@@ -125,6 +186,15 @@ export async function installChatBootMocks(
       const requestUrl = new URL(request.url());
       const method = request.method();
       const path = requestUrl.pathname;
+
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: shareableTeams }),
+        });
+        return;
+      }
 
       if (path === "/api/dynamic-agents/available" && method === "GET") {
         await route.fulfill({
@@ -157,6 +227,16 @@ export async function installChatBootMocks(
       }
 
       await route.continue();
+    });
+  }
+
+  if (shareableTeams.length > 0) {
+    await page.route("**/api/dynamic-agents/teams**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: shareableTeams }),
+      });
     });
   }
 
@@ -220,15 +300,86 @@ export async function installChatBootMocks(
           success: true,
           data: {
             sharing: conversation.sharing,
-            access_list: (conversation.sharing.shared_with ?? []).map((email: string) => ({
-              conversation_id: conversationId,
-              granted_by: ownerEmail,
-              granted_to: email,
-              permission: directSharePermission,
-              granted_at: new Date().toISOString(),
-            })),
+            access_list: accessList(),
           },
         }),
+      });
+      return;
+    }
+
+    if (path === `/api/chat/conversations/${conversationId}/share` && method === "POST") {
+      const body = route.request().postDataJSON() as {
+        user_emails?: string[];
+        team_ids?: string[];
+        permission?: SharePermission;
+        is_public?: boolean;
+        public_permission?: SharePermission;
+        enable_link?: boolean;
+      };
+      options.onShareRequest?.({ method, body, url: requestUrl });
+      const permission = body.permission ?? "comment";
+
+      if (Array.isArray(body.user_emails)) {
+        const next = new Set(conversation.sharing.shared_with ?? []);
+        for (const email of body.user_emails) {
+          next.add(email);
+          userPermissions[email] = permission;
+        }
+        conversation.sharing.shared_with = [...next];
+      }
+
+      if (Array.isArray(body.team_ids)) {
+        const next = new Set(conversation.sharing.shared_with_teams ?? []);
+        const nextTeamPermissions = { ...(conversation.sharing.team_permissions ?? {}) };
+        for (const teamId of body.team_ids) {
+          next.add(teamId);
+          nextTeamPermissions[teamId] = permission;
+        }
+        conversation.sharing.shared_with_teams = [...next];
+        conversation.sharing.team_permissions = nextTeamPermissions;
+      }
+
+      if (typeof body.is_public === "boolean") {
+        conversation.sharing.is_public = body.is_public;
+      }
+      if (body.public_permission) {
+        conversation.sharing.public_permission = body.public_permission;
+      }
+      if (typeof body.enable_link === "boolean") {
+        conversation.sharing.share_link_enabled = body.enable_link;
+      }
+      updateConversationSharing(conversation.sharing);
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: conversation }),
+      });
+      return;
+    }
+
+    if (path === `/api/chat/conversations/${conversationId}/share` && method === "PATCH") {
+      const body = route.request().postDataJSON() as {
+        email?: string;
+        team_id?: string;
+        permission?: SharePermission;
+      };
+      options.onShareRequest?.({ method, body, url: requestUrl });
+
+      if (body.permission && body.email) {
+        userPermissions[body.email] = body.permission;
+      }
+      if (body.permission && body.team_id) {
+        conversation.sharing.team_permissions = {
+          ...(conversation.sharing.team_permissions ?? {}),
+          [body.team_id]: body.permission,
+        };
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: conversation }),
       });
       return;
     }

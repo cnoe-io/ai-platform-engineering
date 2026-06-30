@@ -16,6 +16,16 @@ export class ServiceReader implements AuditReader {
     const limit = opts.limit ?? 1000;
     const until = opts.until ?? new Date();
     const since = opts.since ?? new Date(until.getTime() - 24 * 60 * 60 * 1000);
+    const controller =
+      typeof AbortController !== "undefined" && opts.timeoutMs && opts.timeoutMs > 0
+        ? new AbortController()
+        : undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    if (controller && opts.timeoutMs) {
+      // assisted-by Codex Codex-sonnet-4-6
+      timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
+      if (timeout.unref) timeout.unref();
+    }
 
     const params = new URLSearchParams({
       since: since.toISOString(),
@@ -40,6 +50,7 @@ export class ServiceReader implements AuditReader {
     try {
       const response = await fetch(`${this.baseUrl}/v1/audit/events?${params.toString()}`, {
         cache: "no-store",
+        signal: controller?.signal,
       });
       if (!response.ok) {
         throw new Error(`audit-service returned HTTP ${response.status}`);
@@ -49,6 +60,8 @@ export class ServiceReader implements AuditReader {
     } catch (err) {
       console.warn("[audit/service-reader] query error:", err);
       return [];
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 }

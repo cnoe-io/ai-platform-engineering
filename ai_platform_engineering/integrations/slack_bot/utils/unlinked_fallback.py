@@ -6,15 +6,19 @@ Extracted so the fallback logic is unit-testable without importing
 ``slack_bolt`` — mirroring how ``dispatch_identity.apply_execution_identity``
 is tested (TEST-5/6).
 
-Runtime behavior is UNCHANGED.  ``app.py`` calls
-:func:`apply_unlinked_fallback` in place of the inlined block it replaced.
-
 Decision table (Decision 5, anonymous-and-obo-routing):
-    rbac_status | mint result | action
-    ------------|-------------|---------------------------------------------------
-    unlinked    | token       | stash token in context, nudge, PROCEED
-    unlinked    | None        | nudge+stop (SA unavailable)
-    other       | —           | no-op (return PROCEED)
+    rbac_status | is_explicit | mint result | action
+    ------------|-------------|-------------|---------------------------------------
+    unlinked    | True        | token       | stash token, nudge (rate-limited), PROCEED
+    unlinked    | True        | None        | nudge + ABORT (SA unavailable)
+    unlinked    | False       | token       | stash token silently, PROCEED
+    unlinked    | False       | None        | ABORT silently (no nudge)
+    other       | —           | —           | no-op (return PROCEED)
+
+The ``is_explicit_invocation`` flag ensures users are never interrupted by
+bot messages simply because the bot is a member of a channel they post in.
+Nudges are only sent when the user deliberately addressed the bot (@mention,
+slash command, or DM).
 
 Returns ``True`` when the request should PROCEED (``next()`` should be
 called), ``False`` when it should be ABORTED (return the 200 short-circuit).
@@ -48,6 +52,7 @@ async def apply_unlinked_fallback(
     last_sent: float,
     linking_prompt_cooldown: float,
     is_dm_channel_fn: Callable[[Optional[str]], bool],
+    is_explicit_invocation: bool = False,
 ) -> bool:
     """Apply the unlinked-fallback decision for ``unlinked`` status.
 
@@ -77,6 +82,12 @@ async def apply_unlinked_fallback(
     is_dm_channel_fn:
         Callable ``(channel_id) -> bool``; returns ``True`` for DM channels.
         Used to decide whether to send a visible ``chat_postMessage`` (UX-2).
+    is_explicit_invocation:
+        ``True`` when the user explicitly addressed the bot (@mention, slash
+        command, or DM).  ``False`` for passive channel messages (overthink /
+        ambient).  Nudges are suppressed for passive messages so users are
+        never interrupted by bot noise just for posting in a channel where
+        the bot happens to be a member.
 
     Returns
     -------
@@ -103,11 +114,8 @@ async def apply_unlinked_fallback(
         unlinked_token = None
 
     if unlinked_token is None:
-        # Unlinked SA unavailable — nudge + stop.
-        if now - last_sent < linking_prompt_cooldown:
-            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
-            return False
-        if channel:
+        # Unlinked SA unavailable — nudge (only for explicit invocations) + stop.
+        if is_explicit_invocation and now - last_sent >= linking_prompt_cooldown and channel:
             try:
                 linking_url: Optional[str] = None
                 if linking_url_fn is not None:
@@ -134,6 +142,14 @@ async def apply_unlinked_fallback(
                 )
             except Exception:
                 logger.warning("Could not send linking prompt to %s", slack_user_id)
+        elif not is_explicit_invocation:
+            logger.debug(
+                "apply_unlinked_fallback: suppressing SA-unavailable nudge for passive "
+                "message from user=%s (is_explicit_invocation=False)",
+                slack_user_id,
+            )
+        else:
+            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
         return False
 
     # Unlinked SA token acquired — stash it so _bind_obo_for_handler
@@ -148,9 +164,9 @@ async def apply_unlinked_fallback(
     )
 
     # Nudge the user (rate-limited) that they're on unlinked access.
-    # These users haven't linked their enterprise/SSO identity — the copy
-    # prompts them to link so they can act as themselves.
-    if now - last_sent >= linking_prompt_cooldown and channel:
+    # Only sent for explicit invocations (@mention, slash command, DM) — passive
+    # channel posts must never trigger bot noise.
+    if is_explicit_invocation and now - last_sent >= linking_prompt_cooldown and channel:
         try:
             linking_url = None
             if linking_url_fn is not None:

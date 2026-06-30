@@ -183,6 +183,17 @@ idp:
   pkce:
     enabled: false
     method: "S256"
+  hook:
+    # assisted-by Codex Codex-sonnet-4-6
+    # Argo CD hook semantics. Native Argo annotations are emitted because this
+    # chart also defines native Argo hooks; relying only on Helm hook mapping can
+    # leave init Jobs under mixed lifecycle rules during GitOps syncs.
+    argocdHook: PostSync
+    argocdSyncWave: "20"
+    argocdHookDeletePolicy: BeforeHookCreation,HookSucceeded
+    # Helm CLI hook semantics. before-hook-creation,hook-succeeded ensures the
+    # old Job is removed on re-creation and cleaned up after success.
+    helmHookDeletePolicy: "before-hook-creation,hook-succeeded"
   externalSecret:
     enabled: false
     refreshInterval: "1h"
@@ -232,6 +243,15 @@ tokenExchange:
   botClientId: "caipe-slack-bot"
   botClientSecret: ""
   secretRef: ""
+  hook:
+    # Argo CD hook semantics for the token-exchange init Job.
+    argocdHook: PostSync
+    argocdSyncWave: "10"
+    argocdHookDeletePolicy: BeforeHookCreation,HookSucceeded
+    # Helm CLI hook semantics.
+    helmHook: post-install,post-upgrade
+    helmHookWeight: "10"
+    helmHookDeletePolicy: before-hook-creation,hook-succeeded
   # init-token-exchange.sh seeds each bot service account's OpenFGA grants
   # (e.g. read on `system_config:platform_settings`) so the Slack and Webex
   # bots can make service-to-service reads against the BFF. Without these the
@@ -467,10 +487,10 @@ theme:
 resources:
   requests:
     cpu: 250m
-    memory: 512Mi
+    memory: 1Gi
   limits:
     cpu: "1"
-    memory: 1Gi
+    memory: 2Gi
 
 podAnnotations: {}
 nodeSelector: {}

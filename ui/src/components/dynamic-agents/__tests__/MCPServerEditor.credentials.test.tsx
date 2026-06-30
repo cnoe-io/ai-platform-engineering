@@ -278,7 +278,7 @@ describe("MCPServerEditor credential sources", () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
+    await user.click(await screen.findByRole("combobox", { name: /agentgateway target/i }));
     await user.type(screen.getByPlaceholderText(/search targets/i), "test");
     await user.click(screen.getByRole("option", { name: /Test ArgoCD/i }));
 
@@ -314,7 +314,7 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /edit generated name/i }));
     await user.clear(screen.getByLabelText(/generated name/i));
     await user.type(screen.getByLabelText(/generated name/i), "jira-gu");
-    await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
+    await user.click(await screen.findByRole("combobox", { name: /agentgateway target/i }));
     await user.click(screen.getByRole("option", { name: /^Jira$/i }));
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
@@ -327,7 +327,7 @@ describe("MCPServerEditor credential sources", () => {
     );
   });
 
-  it("creates caller-scoped provider credentials when connection scope is changed", async () => {
+  it("creates caller-scoped provider credentials keyed by provider", async () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
@@ -335,7 +335,9 @@ describe("MCPServerEditor credential sources", () => {
     await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
     await user.click(screen.getByRole("button", { name: /add credential/i }));
     await user.selectOptions(screen.getByLabelText(/credential kind/i), "provider_connection");
-    await user.selectOptions(screen.getByLabelText(/connection scope/i), "caller");
+    // No "connection scope" dropdown exists anymore — provider connections are
+    // always caller-scoped, so the editor only asks for the provider.
+    expect(screen.queryByLabelText(/connection scope/i)).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText(/^provider$/i), "atlassian");
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
@@ -403,7 +405,7 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.queryByText(/select a connected app/i)).not.toBeInTheDocument();
   });
 
-  it("creates provider connection sources from selectable connected apps", async () => {
+  it("does not offer a per-connection (all-callers) picker for provider connections", async () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
@@ -412,20 +414,11 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /add credential/i }));
 
     await user.selectOptions(screen.getByLabelText(/credential kind/i), "provider_connection");
-    await screen.findByRole("option", { name: /Atlassian Cloud/ });
+    // The removed "pinned" scope used a "Provider connection" picker that bound a
+    // single connection id for all callers. It must no longer be rendered.
+    expect(screen.queryByLabelText(/provider connection/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^provider$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/credential header/i)).toHaveValue("X-CAIPE-Provider-Token");
-    await user.selectOptions(screen.getByLabelText(/provider connection/i), "conn-atlassian");
-    await user.click(screen.getByRole("button", { name: /create server/i }));
-
-    await waitFor(() => expect(createBody().credential_sources).toEqual([
-      {
-        kind: "provider_connection",
-        target: "header",
-        name: "X-CAIPE-Provider-Token",
-        connection_scope: "pinned",
-        provider_connection_id: "conn-atlassian",
-      },
-    ]));
   });
 
   it("sends an empty credential_sources array when all credentials are removed on edit", async () => {

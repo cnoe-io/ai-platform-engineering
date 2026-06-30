@@ -54,11 +54,12 @@ RUN find /app/server/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/
 # CVEs. Replaces python:3.13-slim-bookworm to eliminate the Debian
 # system-package CVEs (perl-base, libtiff6, krb5, systemd, libgcrypt20, etc.)
 # and the base interpreter/pip CVEs. Mirrors build/agents/Dockerfile.a2a.
-FROM cgr.dev/chainguard/wolfi-base
+# assisted-by Codex Codex-sonnet-4-6
+# Use the public Docker Hub mirror so PR builds do not depend on cgr.dev auth.
+FROM chainguard/wolfi-base:latest
 
 # Override APK repo to public Wolfi OS packages (no auth required).
-# cgr.dev/chainguard/wolfi-base defaults to apk.cgr.dev/chainguard which
-# requires Chainguard credentials; packages.wolfi.dev/os is free and public.
+# The Wolfi package repository is free and public.
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 
 # glibc-based Python 3.13 (matches the builder ABI so manylinux wheels such as

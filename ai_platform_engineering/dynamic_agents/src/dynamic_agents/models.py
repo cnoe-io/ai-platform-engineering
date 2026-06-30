@@ -146,8 +146,9 @@ class MCPCredentialSource(BaseModel):
     connection_scope: Literal["caller", "pinned"] | None = Field(
         None,
         description=(
-            "Custom MCP servers: pinned always uses provider_connection_id for every caller; "
-            "caller resolves provider for the JWT subject. Built-in servers default to caller."
+            "DEPRECATED/ignored: pinned scope removed for security; all provider_connection "
+            "sources are caller-scoped. Field retained for backward-compatible parsing of "
+            "existing MongoDB documents that may still contain connection_scope='pinned'."
         ),
     )
     fallback_env: str | None = Field(

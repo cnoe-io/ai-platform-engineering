@@ -319,7 +319,13 @@ async def test_credential_refs_are_noop_when_impersonation_disabled(monkeypatch)
     assert "env" not in resolved
 
 
-class PinnedCredentialClient:
+class LegacyConnectionIdCredentialClient:
+    """Simulates exchange for a legacy doc that has provider_connection_id but no provider.
+
+    The BFF /api/credentials/exchange endpoint resolves the *caller's own*
+    connection for that id's provider, so no shared token leaks across callers.
+    """
+
     async def exchange_provider_connection(
         self,
         provider_connection_id: str,
@@ -330,10 +336,12 @@ class PinnedCredentialClient:
         assert provider_connection_id == "conn-admin"
         assert intended_use == "mcp_server"
         assert mcp_server_id == "mcp-custom"
-        return {"access_token": "pinned-atlassian-token"}
+        return {"access_token": "caller-atlassian-token"}
 
 
-class EmptyPinnedCredentialClient:
+class EmptyLegacyConnectionIdCredentialClient:
+    """Simulates an empty exchange (caller has no connection for the legacy id's provider)."""
+
     async def exchange_provider_connection(
         self,
         provider_connection_id: str,
@@ -345,7 +353,13 @@ class EmptyPinnedCredentialClient:
 
 
 @pytest.mark.asyncio
-async def test_pinned_provider_connection_uses_connection_id(monkeypatch):
+async def test_legacy_id_only_source_resolves_token_via_by_id_exchange(monkeypatch):
+    """A legacy doc with connection_scope='pinned' + provider_connection_id still resolves.
+
+    Under the new caller-only model the exchange endpoint returns the *caller's*
+    connection for that id's provider — no shared admin token.  The
+    connection_scope field is ignored; origin is recorded as 'per_user_oauth'.
+    """
     monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
     server = MCPServerConfig(
         _id="mcp-custom",
@@ -357,7 +371,7 @@ async def test_pinned_provider_connection_uses_connection_id(monkeypatch):
                 kind="provider_connection",
                 target="header",
                 name="X-CAIPE-Provider-Token",
-                connection_scope="pinned",
+                connection_scope="pinned",  # legacy field; ignored by resolution code
                 provider_connection_id="conn-admin",
             )
         ],
@@ -367,14 +381,20 @@ async def test_pinned_provider_connection_uses_connection_id(monkeypatch):
     resolved = await resolve_mcp_credential_refs(
         server,
         config,
-        credential_client=PinnedCredentialClient(),
+        credential_client=LegacyConnectionIdCredentialClient(),
     )
 
-    assert resolved["headers"]["X-CAIPE-Provider-Token"] == "pinned-atlassian-token"
+    assert resolved["headers"]["X-CAIPE-Provider-Token"] == "caller-atlassian-token"
 
 
 @pytest.mark.asyncio
-async def test_pinned_provider_connection_raises_when_unavailable(monkeypatch):
+async def test_legacy_id_only_source_no_credential_does_not_raise(monkeypatch):
+    """Empty exchange for a legacy id-only source (no provider, no fallback_env) is silent.
+
+    Under the new model an id-only source has no provider field, so the
+    CALLER_PROVIDER_NOT_CONNECTED raise condition is not triggered.
+    The server is simply skipped (no credential injected).
+    """
     monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
     server = MCPServerConfig(
         _id="mcp-custom",
@@ -386,19 +406,52 @@ async def test_pinned_provider_connection_raises_when_unavailable(monkeypatch):
                 kind="provider_connection",
                 target="header",
                 name="X-CAIPE-Provider-Token",
-                connection_scope="pinned",
+                connection_scope="pinned",  # legacy field; ignored
                 provider_connection_id="conn-admin",
             )
         ],
     )
     config = build_mcp_connection_config(server)
 
-    with pytest.raises(McpCredentialUnavailableError):
+    # Should NOT raise — empty exchange + no provider + no fallback_env = silent skip.
+    resolved = await resolve_mcp_credential_refs(
+        server,
+        config,
+        credential_client=EmptyLegacyConnectionIdCredentialClient(),
+    )
+
+    assert "X-CAIPE-Provider-Token" not in resolved.get("headers", {})
+
+
+@pytest.mark.asyncio
+async def test_caller_provider_with_empty_exchange_and_no_fallback_raises(monkeypatch):
+    """A source with provider set + no fallback_env + empty exchange raises CALLER_PROVIDER_NOT_CONNECTED."""
+    monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
+    monkeypatch.delenv("ATLASSIAN_TOKEN", raising=False)
+    server = MCPServerConfig(
+        _id="mcp-custom",
+        name="Custom Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp/mcp-custom",
+        credential_sources=[
+            MCPCredentialSource(
+                kind="provider_connection",
+                target="header",
+                name="X-CAIPE-Provider-Token",
+                provider="atlassian",
+            )
+        ],
+    )
+    config = build_mcp_connection_config(server)
+
+    with pytest.raises(McpCredentialUnavailableError) as exc_info:
         await resolve_mcp_credential_refs(
             server,
             config,
-            credential_client=EmptyPinnedCredentialClient(),
+            credential_client=EmptyLegacyConnectionIdCredentialClient(),
         )
+
+    assert exc_info.value.reason == CALLER_PROVIDER_NOT_CONNECTED
 
 
 @pytest.mark.asyncio

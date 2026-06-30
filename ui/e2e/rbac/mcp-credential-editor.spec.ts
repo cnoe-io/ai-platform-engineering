@@ -65,10 +65,12 @@ test.describe("RBAC e2e — MCP credential editor", () => {
 
     await gotoMcpServersTab(page);
     await openMcpServerEditor(page, "Jira");
-    await expect(page.getByLabel(/Provider connection/i)).toBeVisible();
+    // Provider connections render a caller-scoped "Provider" select now (the
+    // per-connection "Provider connection" picker was removed for security).
+    await expect(page.getByLabel(/^Provider$/i)).toBeVisible();
 
     await page.getByRole("button", { name: "Remove credential" }).click();
-    await expect(page.getByLabel(/Provider connection/i)).toHaveCount(0);
+    await expect(page.getByLabel(/^Provider$/i)).toHaveCount(0);
 
     await page.getByRole("button", { name: "Save Changes" }).click();
 
@@ -82,7 +84,7 @@ test.describe("RBAC e2e — MCP credential editor", () => {
 
     await expect(page.getByText("Jira", { exact: true })).toBeVisible();
     await openMcpServerEditor(page, "Jira");
-    await expect(page.getByLabel(/Provider connection/i)).toHaveCount(0);
+    await expect(page.getByLabel(/^Provider$/i)).toHaveCount(0);
     await expect(page.getByLabel(/^Secret$/)).toHaveCount(0);
   });
 
@@ -116,7 +118,7 @@ test.describe("RBAC e2e — MCP credential editor", () => {
     await gotoMcpServersTab(page);
     await openMcpServerEditor(page, "Jira");
 
-    await expect(page.getByLabel(/Provider connection/i)).toHaveCount(0);
+    await expect(page.getByLabel(/^Provider$/i)).toHaveCount(0);
     await expect(page.getByLabel(/^Secret$/)).toHaveCount(0);
     expect(mocks.updateRequests[0].body.credential_sources).toEqual([]);
   });
@@ -227,7 +229,7 @@ test.describe("RBAC e2e — MCP credential editor", () => {
     await expect(page.getByRole("button", { name: "Add Credential" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Save Changes" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
-    await expect(page.getByLabel(/Provider connection/i)).toBeDisabled();
+    await expect(page.getByLabel(/^Provider$/i)).toBeDisabled();
   });
 
   test("adds a second credential row and sends both bindings on create", async ({ page }) => {
@@ -265,7 +267,7 @@ test.describe("RBAC e2e — MCP credential editor", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-    await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
+    await page.getByLabel(/^Provider$/i).selectOption("atlassian");
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     const credentialRows = page.getByLabel(/Credential kind/i);
@@ -280,7 +282,8 @@ test.describe("RBAC e2e — MCP credential editor", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "provider_connection",
-          provider_connection_id: "conn-atlassian",
+          connection_scope: "caller",
+          provider: "atlassian",
         }),
         expect.objectContaining({
           kind: "secret_ref",

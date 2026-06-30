@@ -371,6 +371,18 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     );
   }
 
+  // The route probes OpenFGA twice: `team#admin` (to widen team admins to the
+  // full-list view) and `team#member` (the plain-member self/team scope). These
+  // tests exercise the plain-member path, so the caller administers no teams —
+  // only the `member` probe returns the user's teams.
+  function setMemberTeams(slugs: string[]) {
+    mockListOpenFgaObjects.mockImplementation(
+      async (q: { relation: string }) => ({
+        objects: q.relation === 'member' ? slugs : [],
+      })
+    );
+  }
+
   // Membership is resolved via `listActiveTeamMembershipSourcesBySlug`, which
   // queries `team_membership_sources` by { team_slug, status: 'active' } — NOT
   // by team_id. Keying these mocks by slug guards the prod bug where the slug
@@ -415,7 +427,7 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
   });
 
   it("returns scoped:'team' with the members of the user's team", async () => {
-    mockListOpenFgaObjects.mockResolvedValue({ objects: ['team:platform-eng'] });
+    setMemberTeams(['team:platform-eng']);
     setMembershipBySlug({
       'platform-eng': ['alice@example.com', 'bob@example.com'],
     });
@@ -461,7 +473,7 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     // OpenFGA reports a team, but the canonical store has no active members for
     // its slug (e.g. the slug→id keying bug, or all members deactivated). The
     // route must fall back to self rather than return an empty list.
-    mockListOpenFgaObjects.mockResolvedValue({ objects: ['team:ghost-team'] });
+    setMemberTeams(['team:ghost-team']);
     setMembershipBySlug({});
     mockGetRealmUserById.mockResolvedValue({
       id: 'user-sub',
@@ -479,9 +491,7 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
   });
 
   it("unions members across teams and de-duplicates users in multiple teams", async () => {
-    mockListOpenFgaObjects.mockResolvedValue({
-      objects: ['team:team-a', 'team:team-b'],
-    });
+    setMemberTeams(['team:team-a', 'team:team-b']);
     setMembershipBySlug({
       'team-a': ['alice@example.com', 'dave@example.com'],
       'team-b': ['alice@example.com', 'erin@example.com'],

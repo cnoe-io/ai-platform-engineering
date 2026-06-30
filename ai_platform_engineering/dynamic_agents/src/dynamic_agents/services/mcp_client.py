@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -114,7 +115,7 @@ def _resolve_auth_headers(
 
 
 CALLER_PROVIDER_NOT_CONNECTED = "caller_provider_not_connected"
-PINNED_PROVIDER_UNAVAILABLE = "pinned_provider_unavailable"
+TOP_LEVEL_UNION_SCHEMA_KEYS = ("oneOf", "anyOf", "allOf")
 
 _PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "atlassian": "Atlassian",
@@ -163,17 +164,6 @@ class McpCredentialResolutionResult:
 
     connections: dict[str, dict[str, Any]]
     failures: dict[str, McpCredentialUnavailableError] = field(default_factory=dict)
-
-
-def _effective_connection_scope(source: Any) -> str:
-    scope = getattr(source, "connection_scope", None)
-    if scope in ("caller", "pinned"):
-        return scope
-    provider_connection_id = (getattr(source, "provider_connection_id", None) or "").strip()
-    provider = (getattr(source, "provider", None) or "").strip()
-    if provider_connection_id and not provider:
-        return "pinned"
-    return "caller"
 
 
 def _agent_gateway_base_url() -> str | None:
@@ -623,36 +613,25 @@ async def resolve_mcp_credential_refs(
                 if credential:
                     origin = "secret_ref"
             elif source.kind == "provider_connection":
-                scope = _effective_connection_scope(source)
-                pinned = scope == "pinned"
                 exchanged: dict[str, Any] = {}
                 try:
-                    if pinned and source.provider_connection_id:
-                        exchanged = await credential_client.exchange_provider_connection(
-                            source.provider_connection_id,
-                            intended_use="mcp_server",
-                            mcp_server_id=server.id,
-                        )
-                    elif source.provider:
+                    if source.provider:
                         exchanged = await credential_client.exchange_provider_connection_by_provider(
                             source.provider,
                             intended_use="mcp_server",
                             mcp_server_id=server.id,
                         )
                     elif source.provider_connection_id:
+                        # Legacy doc: had connection_scope="pinned" + a specific
+                        # provider_connection_id. The BFF /api/credentials/exchange
+                        # endpoint now resolves the *caller's own* connection for
+                        # that id's provider, so this is safe — no shared token.
                         exchanged = await credential_client.exchange_provider_connection(
                             source.provider_connection_id,
                             intended_use="mcp_server",
                             mcp_server_id=server.id,
                         )
                 except Exception as exc:
-                    if pinned:
-                        raise McpCredentialUnavailableError(
-                            f"Pinned provider connection unavailable for server={server.id}",
-                            reason=PINNED_PROVIDER_UNAVAILABLE,
-                            server_id=server.id,
-                            server_name=server.name,
-                        ) from exc
                     logger.debug(
                         "credential exchange for server=%s source=%s failed (%s); "
                         "falling back to static credential if configured",
@@ -664,14 +643,7 @@ async def resolve_mcp_credential_refs(
                 access_token = exchanged.get("access_token")
                 if isinstance(access_token, str) and access_token:
                     credential = access_token
-                    origin = "per_user_oauth" if not pinned else "pinned_provider_connection"
-                elif pinned:
-                    raise McpCredentialUnavailableError(
-                        f"Pinned provider connection unavailable for server={server.id}",
-                        reason=PINNED_PROVIDER_UNAVAILABLE,
-                        server_id=server.id,
-                        server_name=server.name,
-                    )
+                    origin = "per_user_oauth"
             elif source.kind == "caller_token":
                 # Forward the caller's own Keycloak JWT so the backend can enforce
                 # per-user RBAC (e.g. RAG group-based access). Prefer the explicitly
@@ -696,7 +668,7 @@ async def resolve_mcp_credential_refs(
 
         # Static service-account fallback: keeps shared-token MCP servers
         # (e.g. GitHub/GitLab) working for callers without a personal connection.
-        if not credential and source.fallback_env and _effective_connection_scope(source) != "pinned":
+        if not credential and source.fallback_env:
             env_value = os.getenv(source.fallback_env, "").strip()
             if env_value:
                 credential = env_value
@@ -713,15 +685,7 @@ async def resolve_mcp_credential_refs(
 
         if not credential:
             if source.kind == "provider_connection":
-                scope = _effective_connection_scope(source)
-                if scope == "pinned":
-                    raise McpCredentialUnavailableError(
-                        f"Pinned provider connection unavailable for server={server.id}",
-                        reason=PINNED_PROVIDER_UNAVAILABLE,
-                        server_id=server.id,
-                        server_name=server.name,
-                    )
-                if scope == "caller" and source.provider and not source.fallback_env:
+                if source.provider and not source.fallback_env:
                     raise McpCredentialUnavailableError(
                         f"Caller has no connected provider for server={server.id} "
                         f"provider={source.provider}",
@@ -776,7 +740,7 @@ async def resolve_mcp_connections_credential_refs(
     source uses the real caller JWT even when the ``current_user_token``
     ContextVar is empty at this call site (#64).
 
-    Servers that fail caller-scoped or pinned credential resolution are omitted
+    Servers that fail caller-scoped credential resolution are omitted
     from ``connections`` and recorded in ``failures`` with structured reasons.
     """
 
@@ -1368,6 +1332,130 @@ def _maybe_inline_text_file_blocks(result: Any) -> Any:
     return (json.dumps(visible, ensure_ascii=False), artifact)
 
 
+def _json_schema_dict(schema: Any) -> dict[str, Any] | None:
+    """Return a JSON-schema dict for Pydantic model classes or schema dicts."""
+    if isinstance(schema, dict):
+        return copy.deepcopy(schema)
+
+    if isinstance(schema, type):
+        model_json_schema = getattr(schema, "model_json_schema", None)
+        if callable(model_json_schema):
+            return copy.deepcopy(model_json_schema())
+        schema_method = getattr(schema, "schema", None)
+        if callable(schema_method):
+            return copy.deepcopy(schema_method())
+
+    return None
+
+
+def _resolve_local_schema_ref(ref: str, root: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve local JSON-schema refs like ``#/$defs/Foo``."""
+    if not ref.startswith("#/"):
+        return None
+
+    node: Any = root
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+
+    return copy.deepcopy(node) if isinstance(node, dict) else None
+
+
+def _dereference_schema(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        resolved = _resolve_local_schema_ref(ref, root)
+        if resolved is not None:
+            return resolved
+    return schema
+
+
+def _object_shape_from_schema(schema: dict[str, Any], root: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+    """Extract object properties and required fields from a schema branch."""
+    schema = _dereference_schema(schema, root)
+    properties: dict[str, Any] = {}
+    required: set[str] = set()
+
+    for key in TOP_LEVEL_UNION_SCHEMA_KEYS:
+        branches = schema.get(key)
+        if not isinstance(branches, list):
+            continue
+
+        branch_required_sets: list[set[str]] = []
+        for branch in branches:
+            if not isinstance(branch, dict):
+                continue
+            branch_properties, branch_required = _object_shape_from_schema(branch, root)
+            properties.update(branch_properties)
+            branch_required_sets.append(branch_required)
+
+        if key == "allOf":
+            for branch_required in branch_required_sets:
+                required.update(branch_required)
+        elif branch_required_sets:
+            required.update(set.intersection(*branch_required_sets))
+
+    branch_properties = schema.get("properties")
+    if isinstance(branch_properties, dict):
+        properties.update(copy.deepcopy(branch_properties))
+
+    branch_required = schema.get("required")
+    if isinstance(branch_required, list):
+        required.update(item for item in branch_required if isinstance(item, str))
+
+    return properties, required
+
+
+def _collapse_top_level_union_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Collapse a top-level union/intersection schema into a provider-safe object."""
+    properties, required = _object_shape_from_schema(schema, schema)
+    collapsed: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
+    for metadata_key in ("title", "description"):
+        value = schema.get(metadata_key)
+        if isinstance(value, str) and value:
+            collapsed[metadata_key] = value
+
+    if required:
+        collapsed["required"] = sorted(required)
+
+    return collapsed
+
+
+def _model_safe_args_schema(tool: BaseTool, agent_name: str) -> Any:
+    """Return an args schema that model providers can accept for tool binding."""
+    try:
+        schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))
+    except Exception as exc:  # noqa: BLE001 - schema inspection should not drop a tool
+        logger.debug("[%s] Could not inspect tool schema for '%s': %s", agent_name, tool.name, exc)
+        return tool.args_schema
+
+    if not schema:
+        return tool.args_schema
+
+    top_level_keys = [key for key in TOP_LEVEL_UNION_SCHEMA_KEYS if key in schema]
+    if not top_level_keys:
+        return tool.args_schema
+
+    # assisted-by Codex Codex-sonnet-4-6
+    # Bedrock Converse rejects top-level oneOf/anyOf/allOf in tool input
+    # schemas. Collapse just the root into an object while preserving known
+    # properties so one bad MCP schema cannot prevent quick chat from starting.
+    logger.warning(
+        "[%s] Sanitizing Bedrock-incompatible top-level schema for tool '%s' (keys=%s)",
+        agent_name,
+        tool.name,
+        ",".join(top_level_keys),
+    )
+    return _collapse_top_level_union_schema(schema)
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "agent",
@@ -1422,7 +1510,7 @@ def wrap_tools_with_error_handling(
         new_tool = StructuredTool(
             name=tool.name,
             description=tool.description or "",
-            args_schema=tool.args_schema,
+            args_schema=_model_safe_args_schema(tool, agent_name),
             coroutine=_safe_coro,
             response_format=resp_fmt,
             metadata=tool.metadata,

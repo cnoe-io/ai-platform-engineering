@@ -128,10 +128,8 @@ export function ChatContainer() {
         if (localConv.accessLevel) {
           setAccessLevel(localConv.accessLevel);
         } else if (localConv.owner_id && session?.user?.email && localConv.owner_id !== session.user.email) {
-          if (localConv.sharing?.is_public) {
-            setAccessLevel('shared_readonly');
-          } else if (localConv.sharing?.shared_with?.includes(session.user.email) ||
-                     (localConv.sharing?.shared_with_teams?.length ?? 0) > 0) {
+          if (localConv.sharing?.shared_with?.includes(session.user.email) ||
+              (localConv.sharing?.shared_with_teams?.length ?? 0) > 0) {
             setAccessLevel('shared_readonly');
           }
         }

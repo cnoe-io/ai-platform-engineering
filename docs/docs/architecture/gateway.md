@@ -1,198 +1,139 @@
-# Use Agentgateway as MCP Proxy
+# AgentGateway as MCP Proxy
 
-## CAIPE MCP Flow Solution Architecture
+AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool
+calls. It validates the Keycloak JWT locally (`jwtAuth`) and calls OpenFGA via
+`extAuthz` for each request before proxying to the MCP backend.
 
-```mermaid
-flowchart LR
-  U[👤 User]
-
-  subgraph Client["🖥️ User Interface"]
-    BP[🔌 Backstage Plugin]
-    CLI[💬 Chat CLI]
-    UI[🌐 CAIPE UI]
-  end
-
-  subgraph CAIPE["🤖 CAIPE Runtime"]
-    BFF[CAIPE UI / BFF]
-    DA[Dynamic Agents Runtime]
-  end
-
-  subgraph Gateway["⚙️ MCP Gateway Boundary"]
-    JV[🔐 JWT Validator]
-    MP[🚪 Agentgateway]
-  end
-
-  subgraph IDP["🔑 Identity Provider (Keycloak)"]
-    K[🔐 Login UI / OIDC]
-    JWKS[🗝️ Public JWKS Endpoint]
-  end
-
-  subgraph MCP["🌐 Remote MCP Servers"]
-    M1[🖥️ Remote MCP Server A]
-    M2[🖥️ Remote MCP Server B]
-    M3[🖥️ Remote MCP Server C]
-  end
-
-  %% Auth path
-  U -->|Login| K
-  K -->|Issue JWT| U
-  U -->|Provide JWT| BP
-  U -->|Provide JWT| CLI
-  U -->|Browser session| UI
-
-  %% Request flow
-  BP -->|Request + JWT| BFF
-  CLI -->|Request + JWT| BFF
-  UI -->|Request| BFF
-  BFF -->|Validate session / JWT| K
-  K -->|JWKS validation| BFF
-  BFF -->|Chat / tool request + user context| DA
-  DA -->|MCP request + JWT| JV
-  JV -->|JWKS validation| K
-  JV -->|Validated| MP
-  MP -->|Agentgateway with JWT| M1
-  MP -->|Agentgateway with JWT| M2
-  MP -->|Agentgateway with JWT| M3
-
-  %% Styling
-  classDef userClass fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000
-  classDef clientClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
-  classDef caipeClass fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px,color:#000
-  classDef subagentClass fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
-  classDef idpClass fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
-  classDef mcpClass fill:#e0f2f1,stroke:#004d40,stroke-width:2px,color:#000
-
-  class U userClass
-  class BP,CLI,UI clientClass
-  class BFF,DA caipeClass
-  class JV,MP subagentClass
-  class K,JWKS idpClass
-  class M1,M2,M3 mcpClass
-```
-
-## Inside Agentgateway Flow
+## Request Flow
 
 ```mermaid
 flowchart LR
-  U[👤 User]
+  U[User]
 
-  subgraph Client["💻 MCP Client (CLI / IDE / UI)"]
-    MC[🔧 MCP Client]
+  subgraph Client["User Interface"]
+    UI[CAIPE UI]
   end
 
-  subgraph IDP["🔑 Identity Provider (Keycloak)"]
-    K[🔐 Login UI / OIDC]
-    JWKS[🗝️ Public JWKS Endpoint]
+  subgraph CAIPE["CAIPE Runtime"]
+    BFF[Next.js BFF]
+    DA[Dynamic Agents]
   end
 
-  subgraph AG["🚪 AgentGateway"]
-    L[👂 Listener]
-    R[🛣️ Route]
-    POL[⚖️ CEL Policy Engine]
-    SC[🔍 Scope Validator]
-    V["🔐 JWT Validator - iss, aud, sub, exp"]
-    P[🚪 Agentgateway]
+  subgraph AGW["AgentGateway"]
+    JWT[jwtAuth\nverify sig · exp · iss · aud]
+    EXT[extAuthz\nOpenFGA Authz Bridge]
+    PROXY[proxy to MCP backend]
   end
 
-  subgraph CAIPE["🌐 CAIPE Remote MCP Servers"]
-    M1[🖥️ Remote MCP Server A]
-    M2[🖥️ Remote MCP Server B]
-    M3[🖥️ Remote MCP Server C]
+  subgraph IDP["Identity Provider"]
+    KC[Keycloak]
+    JWKS[JWKS endpoint]
   end
 
-  %% Auth path
-  U -->|Login| K
-  K -->|Issue JWT| U
-  U -->|Provide JWT| MC
+  subgraph FGA["Authorization"]
+    OFG[OpenFGA]
+  end
 
-  %% Request path
-  MC -->|MCP request + JWT| L
-  L --> R
-  V --- JWKS
-  R --> V
-  V -->|Validate via JWKS + issuer| SC
-  SC -->|Check scopes from config| POL
-  POL -->|Apply CEL policy - filter tools| P
+  subgraph MCP["MCP Servers"]
+    M1[MCP Server A]
+    M2[MCP Server B]
+  end
 
-  %% Backend selection
-  P -->|Agentgateway to backend| M1
-  P -->|Agentgateway to backend| M2
-  P -->|Agentgateway to backend| M3
-
-  %% Styling
-  classDef userClass fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000
-  classDef clientClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
-  classDef idpClass fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
-  classDef agentClass fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
-  classDef mcpClass fill:#e0f2f1,stroke:#004d40,stroke-width:2px,color:#000
-
-  class U userClass
-  class MC clientClass
-  class K,JWKS idpClass
-  class L,R,POL,SC,V,P agentClass
-  class M1,M2,M3 mcpClass
+  U -->|session cookie| UI
+  UI -->|POST /api/chat| BFF
+  BFF -->|Bearer JWT| DA
+  DA -->|MCP call + Bearer JWT\n+ X-CAIPE-Agent-Context| JWT
+  JWT -->|cached JWKS| JWKS
+  JWT -->|claims in caipe.auth metadata| EXT
+  EXT -->|Check tuples| OFG
+  OFG -->|allow| EXT
+  EXT -->|OK| PROXY
+  PROXY -->|Bearer JWT forwarded| M1
+  PROXY -->|Bearer JWT forwarded| M2
+  KC -->|issues JWT at login| BFF
 ```
 
-## Detailed Sequence Flow
+## Inside AgentGateway
+
+For each inbound MCP request AgentGateway runs two sequential checks:
+
+| Step | Component | What it verifies | Failure response |
+|---|---|---|---|
+| 1 | **jwtAuth** | JWT signature (verified via JWKS), `exp`, `iss`, `aud` | 401 Unauthorized |
+| 2 | **extAuthz** | OpenFGA relationship checks via the Authz Bridge (see below) | 403 Forbidden |
+
+On success the request is proxied to the MCP backend with the original
+`Authorization: Bearer` header forwarded unchanged — MCP servers receive the
+same JWT for their own secondary validation.
+
+## extAuthz — what the Authz Bridge checks
+
+The bridge receives a gRPC `CheckRequest` with decoded JWT claims in
+`caipe.auth` metadata (AgentGateway consumes the bearer and does not forward
+it raw). It then runs:
+
+1. **`user:sub can_call mcp:server`** — base user permission for this MCP server
+2. If `CAIPE_AGENT_CONTEXT_HMAC_SECRET` is set and the call is `tools/call`:
+   - Verify `X-CAIPE-Agent-Context` HMAC signature and expiry
+   - **`user:sub can_use agent:agent_id`**
+   - **`agent:agent_id can_call tool:server/name`** (wildcard fallback: `tool:server/*`)
+
+All checks must pass. The bridge fails **closed** — any error or timeout returns
+403 (never fail-open). See [Agent Context HMAC](./agent-context-hmac.md) for
+the full signed-header flow.
+
+## Detailed Sequence
 
 ```mermaid
 sequenceDiagram
-    participant U as 👤 User
-    participant UI as 🖥️ User Interface<br/>(Backstage Plugin / Chat CLI / CAIPE UI)
-    participant BFF as 🌐 CAIPE UI / BFF
-    participant DA as 🤖 Dynamic Agents Runtime
-    participant MP as 🚪 Agentgateway
-    participant MCP as 🌐 Remote MCP Servers
-    participant K as 🔑 Keycloak
-    participant JWKS as 🗝️ JWKS Endpoint
+    participant U as User
+    participant BFF as Next.js BFF
+    participant DA as Dynamic Agents
+    participant AGW as AgentGateway
+    participant KC as Keycloak JWKS
+    participant Bridge as OpenFGA Authz Bridge
+    participant FGA as OpenFGA
+    participant MCP as MCP Server
 
-    %% User initiates request
-    U->>UI: 1. Initiate Request
+    U->>BFF: Sign in
+    BFF->>KC: OIDC authorization code exchange
+    KC-->>BFF: access_token + refresh_token
+    BFF-->>U: Encrypted session cookie
 
-    %% Authentication Phase
-    UI->>K: 2. Login Request
-    K->>UI: 3. Issue JWT Token
+    U->>BFF: Send message
+    BFF->>BFF: Validate session, check RBAC
+    BFF->>DA: POST /v1/chat/stream/start<br/>Authorization: Bearer <user-JWT>
+    DA->>DA: Validate JWT locally (JWKS)
 
-    %% Login to CAIPE UX Interface
-    UI->>BFF: 4. Login to CAIPE UX Interface + JWT Token
+    loop per MCP tool call
+        DA->>AGW: MCP request<br/>Authorization: Bearer <user-JWT><br/>X-CAIPE-Agent-Context: signed (optional)
 
-    %% User sends query
-    U->>UI: 5. Send User Query
-
-    %% CAIPE Runtime Flow
-    UI->>BFF: 6. User Query + JWT Token
-    BFF->>JWKS: 7. Retrieve JWKS
-    JWKS->>BFF: 8. Return Public Keys
-    BFF->>BFF: 9. Validate JWT locally
-
-    alt JWT Valid
-        BFF->>DA: 10. Forward request + user context
-
-        %% Dynamic Agents Processing
-        DA->>JWKS: 11. Retrieve JWKS
-        JWKS->>DA: 12. Return Public Keys
-        DA->>DA: 13. Validate JWT locally (expiration & scopes)
-
-        alt JWT Valid
-            DA->>MP: 14. Forward MCP request to Agentgateway
-
-            %% Agentgateway Processing
-            MP->>MP: 15. Verify JWT token expiration, scopes & tool authorization
-            MP->>MCP: 16. Agentgateway Request with JWT
-            MCP->>MP: 17. Response
-            MP->>DA: 18. Forward Response
-            DA->>BFF: 19. Stream response
-            BFF->>UI: 20. Return Response
-            UI->>U: 21. Display Result
-        else JWT Invalid
-            DA->>BFF: 14. Error Response
-            BFF->>UI: 15. Error Response
-            UI->>U: 16. Display Error
+        rect rgb(240, 248, 255)
+            Note over AGW,KC: jwtAuth — local JWT verification
+            AGW->>KC: Fetch JWKS (cached)
+            KC-->>AGW: Public keys
+            Note over AGW: Verify signature (algorithm from JWKS key type)<br/>Check exp, iss, aud → 401 if invalid
         end
-    else JWT Invalid
-        BFF->>UI: 10. JWT Validation Failed
-        UI->>U: 11. Display Authentication Error
+
+        AGW->>Bridge: ext_authz CheckRequest (gRPC)<br/>caipe.auth: {sub, preferred_username}<br/>path + method + agent context headers
+
+        Bridge->>FGA: Check(user:sub, can_call, mcp:server)
+        alt denied
+            FGA-->>Bridge: deny
+            Bridge-->>AGW: 403
+        else allowed
+            FGA-->>Bridge: allow
+            Bridge->>FGA: per-agent checks (if HMAC configured)
+            FGA-->>Bridge: allow / deny
+            Bridge-->>AGW: OK
+            AGW->>MCP: proxy request + Bearer JWT (forwarded)
+            MCP-->>AGW: tool response
+            AGW-->>DA: response
+        end
     end
+
+    DA-->>BFF: SSE stream
+    BFF-->>U: render answer
 ```
 
 ## Helm routing modes: Gateway API vs CRD-free static

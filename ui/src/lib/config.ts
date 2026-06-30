@@ -103,6 +103,11 @@ export interface Config {
    */
   workflowsEnabled: boolean;
   /**
+   * Whether Dynamic Agents should be considered enabled by platform health.
+   * Set DYNAMIC_AGENTS_ENABLED=true to enable.
+   */
+  dynamicAgentsEnabled: boolean;
+  /**
    * Whether the admin Feedback tab and feedback API are enabled.
    * Enabled by default. Set FEEDBACK_ENABLED=false to disable.
    */
@@ -245,6 +250,7 @@ const DEFAULT_CONFIG: Config = {
   sourceUrl: null,
   workflowRunnerEnabled: false,
   workflowsEnabled: false,
+  dynamicAgentsEnabled: false,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
   auditLogsEnabled: false,
@@ -323,6 +329,20 @@ function validated(value: string | undefined, allowed: string[], fallback: strin
 }
 
 /**
+ * assisted-by Codex Codex-sonnet-4-6
+ * Returns the internal server-side URL for the chat runtime.
+ *
+ * Use this in API routes that proxy or probe the runtime. It resolves to the
+ * Docker-internal dynamic-agents service when configured, falling back to the
+ * legacy supervisor URL for older deployments.
+ *
+ * MUST only be called on the server (Node.js runtime).
+ */
+export function getInternalA2AUrl(): string {
+  return (env('A2A_BASE_URL') || env('DYNAMIC_AGENTS_URL') || 'http://caipe-supervisor:8000').replace(/\/$/, '');
+}
+
+/**
  * Build the full Config from server-side process.env.
  *
  * MUST only be called on the server (Node.js runtime).
@@ -345,6 +365,7 @@ export function getServerConfig(): Config {
   const unsafeRbacBypassEnabled = enabledEnv('CAIPE_UNSAFE_RBAC_BYPASS');
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
+  const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   // Default `false` (locked). Must mirror the server-side check in
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
@@ -429,6 +450,7 @@ export function getServerConfig(): Config {
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
     workflowsEnabled,
+    dynamicAgentsEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
     auditLogsEnabled,

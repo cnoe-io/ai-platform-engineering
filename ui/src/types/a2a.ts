@@ -30,7 +30,9 @@ export interface Conversation {
   isSharedWithViewer?: boolean;
   /** Sharing information (optional, only for MongoDB conversations) */
   sharing?: {
+    /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
     is_public?: boolean;
+    /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
     public_permission?: "view" | "comment";
     shared_with?: string[];
     shared_with_teams?: string[];

@@ -344,11 +344,6 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
 
-    // 098 RBAC: Team/KB ownership assignments
-    safeCreateIndex(db, 'team_kb_ownership', { team_id: 1, tenant_id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'team_kb_ownership', { tenant_id: 1 }),
-    safeCreateIndex(db, 'team_kb_ownership', { keycloak_role: 1 }),
-
     // 098 RBAC: Team-scoped RAG tool configurations
     safeCreateIndex(db, 'team_rag_tools', { tool_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'team_rag_tools', { team_id: 1, tenant_id: 1 }),

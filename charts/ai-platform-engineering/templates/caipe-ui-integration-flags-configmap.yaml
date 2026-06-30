@@ -1,0 +1,12 @@
+{{- $tags := .Values.tags | default dict -}}
+{{- $slackEnabled := eq (toString (index $tags "slack-bot" | default false)) "true" -}}
+{{- $webexEnabled := eq (toString (index $tags "webex-bot" | default false)) "true" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-caipe-ui-integration-flags" .Release.Name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ai-platform-engineering.labels" . | nindent 4 }}
+data:
+  SLACK_INTEGRATION_ENABLED: {{ ternary "true" "false" $slackEnabled | quote }}
+  WEBEX_INTEGRATION_ENABLED: {{ ternary "true" "false" $webexEnabled | quote }}
