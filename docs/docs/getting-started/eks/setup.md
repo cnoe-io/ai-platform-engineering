@@ -163,6 +163,12 @@ Verify it is registered as the cluster default (`(default)` appears next to the 
 kubectl get storageclass
 ```
 
+---
+
+## Step 6 (Optional - RAG stack only): Configure node tiers with NodePools
+
+**Only needed if you deploy the RAG stack.** If you're not enabling RAG, skip this step and the `values-karpenter.yaml` overlay below (every other workload runs on the Auto Mode `general-purpose` pool with no extra config).
+
 By default, Auto Mode places all workloads on its built-in `general-purpose` pool. The memory-bound RAG stack benefits from a dedicated tier, so apply the `rag` NodePool to give it on-demand memory-optimised nodes that scale to zero when idle. Everything else stays on the Auto Mode `general-purpose` pool.
 
 | NodePool | Workloads | Instance strategy |
@@ -184,7 +190,7 @@ When deploying CAIPE in the next step, append `-f charts/ai-platform-engineering
 
 ---
 
-## Step 6: Deploy CAIPE on EKS
+## Step 7: Deploy CAIPE on EKS
 
 You have two main options:
 
@@ -197,7 +203,7 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
   --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
-  --set-string tags.basic=true
+  --set tags.basic=true
 ```
 
 Then:
@@ -228,7 +234,7 @@ Open http://localhost:8080. Then deploy CAIPE via the Helm chart (as in Option A
 
 ---
 
-## Step 7 (Recommended): Install AWS Load Balancer Controller
+## Step 8 (Recommended): Install AWS Load Balancer Controller
 
 For production-style ingress (e.g. LoadBalancer services), install the AWS Load Balancer Controller:
 
