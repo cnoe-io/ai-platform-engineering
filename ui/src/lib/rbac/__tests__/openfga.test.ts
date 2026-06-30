@@ -108,7 +108,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
   it("maps team members and resource diffs to OpenFGA tuples", () => {
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
-      memberUserIds: ["sub-alice", "sub-bob"],
       agents: { added: ["agent-1"], removed: ["agent-old"] },
       agentAdmins: { added: ["agent-admin"], removed: [] },
       tools: { added: ["jira_*"], removed: ["github_*"] },
@@ -118,8 +117,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
     expect(diff.writes).toEqual(
       expect.arrayContaining([
-        { user: "user:sub-alice", relation: "member", object: "team:platform-engineering" },
-        { user: "user:sub-bob", relation: "member", object: "team:platform-engineering" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-1" },
         {
           user: "team:platform-engineering#admin",
@@ -174,7 +171,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     // assisted-by Codex Codex-sonnet-4-6
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
-      memberUserIds: [],
       agents: { added: [], removed: [] },
       agentAdmins: { added: [], removed: [] },
       tools: { added: ["mcp-confluence-mcp_*"], removed: ["mcp-litellm_*"] },
@@ -224,7 +220,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
   it("writes manager grants with admin usersets that match the OpenFGA model", () => {
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
-      memberUserIds: [],
       agents: { added: [], removed: [] },
       agentAdmins: { added: ["agent-admin"], removed: ["agent-admin-old"] },
       tools: { added: [], removed: [] },
