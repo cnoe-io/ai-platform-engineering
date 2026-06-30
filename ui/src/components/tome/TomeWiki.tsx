@@ -40,6 +40,7 @@ import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
+import { parseTomeHref } from "@/lib/tome/tome-links";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
@@ -284,23 +285,49 @@ export function TomeWiki({ slug }: { slug: string }) {
   );
   const openArtifact = useCallback((path: string) => setArtifactPath(path), []);
 
-  // Resolve a glossary term slug to its definition for the hover card.
-  // Synchronous: every page is already loaded in `data.pages`, so a hovered
-  // `tome://glossary/<slug>.md` link just reads the term entry from memory.
+  // Resolve a glossary reference to its definition for the hover card. A
+  // same-project (bare) term is already loaded in `data.pages` and resolves
+  // from memory; a cross-project `tome://@<project>/glossary/<slug>` ref goes
+  // through the resolver endpoint.
   const glossaryPreview = useCallback(
-    (term: string): GlossaryPreview | null => {
-      const md = data?.pages[`glossary/${term}.md`];
-      if (md === undefined) return null;
-      const [fm, bodyRaw] = parseFrontmatter(md);
-      const termStr = String(fm.term ?? fm.title ?? term);
-      const expansion =
-        typeof fm.expansion === "string" && fm.expansion.trim()
-          ? fm.expansion.trim()
-          : undefined;
-      const definition = bodyRaw.replace(/^#.*$/m, "").trim().slice(0, 400);
-      return { term: termStr, expansion, definition };
+    async (ref: string): Promise<GlossaryPreview | null> => {
+      const target = parseTomeHref(ref);
+      if (!target?.glossaryTerm) return null;
+
+      if (!target.project) {
+        const md = data?.pages[`glossary/${target.glossaryTerm}.md`];
+        if (md !== undefined) {
+          const [fm, bodyRaw] = parseFrontmatter(md);
+          const termStr = String(fm.term ?? fm.title ?? target.glossaryTerm);
+          const expansion =
+            typeof fm.expansion === "string" && fm.expansion.trim()
+              ? fm.expansion.trim()
+              : undefined;
+          const definition = bodyRaw.replace(/^#.*$/m, "").trim().slice(0, 400);
+          return { term: termStr, expansion, definition };
+        }
+      }
+
+      try {
+        const res = await fetch(
+          `/api/tome/projects/${slug}/resolve?ref=${encodeURIComponent(ref)}`,
+        );
+        if (res.ok) {
+          const d = (await res.json())?.data;
+          if (d?.kind === "glossary" && d.found) {
+            return {
+              term: d.term ?? target.glossaryTerm,
+              expansion: d.expansion,
+              definition: d.definition ?? "",
+            };
+          }
+        }
+      } catch {
+        /* unresolved → no card */
+      }
+      return null;
     },
-    [data],
+    [data, slug],
   );
 
   const loading = data === null && !error;

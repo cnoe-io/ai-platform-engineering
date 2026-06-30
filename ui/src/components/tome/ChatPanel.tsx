@@ -7,7 +7,7 @@ import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
-import type { GlossaryPreview } from "@/lib/tome/tome-links";
+import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import type { ChatPart as Part } from "@/types/tome";
 
 /**
@@ -40,7 +40,7 @@ interface Props {
   /** Open a wiki page (referenced by a tool chip) in the artifact pane. */
   onOpenPage?: (path: string) => void;
   /** Resolve a glossary term slug to its definition for the hover card. */
-  glossaryPreview?: (term: string) => GlossaryPreview | null;
+  glossaryPreview?: GlossaryResolver;
 }
 
 export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }: Props) {
@@ -334,7 +334,7 @@ function MessageRow({
 }: {
   msg: ChatMsg;
   onOpenPage?: (path: string) => void;
-  glossaryPreview?: (term: string) => GlossaryPreview | null;
+  glossaryPreview?: GlossaryResolver;
 }) {
   const isUser = msg.role === "user";
 

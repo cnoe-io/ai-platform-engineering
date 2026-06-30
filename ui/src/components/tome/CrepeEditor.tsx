@@ -10,7 +10,12 @@ import { replaceAll } from "@milkdown/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import { classifyCitationHref } from "@/lib/tome/citations";
-import { parseTomeHref, type GlossaryPreview } from "@/lib/tome/tome-links";
+import {
+  parseTomeHref,
+  wikiRoute,
+  type GlossaryPreview,
+  type GlossaryResolver,
+} from "@/lib/tome/tome-links";
 
 export type { GlossaryPreview } from "@/lib/tome/tome-links";
 
@@ -42,7 +47,7 @@ type Props = {
    * term has no entry. When omitted, glossary links still render + navigate,
    * just without a hovercard.
    */
-  glossaryPreview?: (term: string) => GlossaryPreview | null;
+  glossaryPreview?: GlossaryResolver;
 };
 
 /**
@@ -157,7 +162,14 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) return;
       // Internal wiki link → SPA navigation in the host, not a new tab.
+      // A cross-project (@project) ref navigates to that project's wiki route.
       const internal = parseTomeHref(href);
+      if (internal?.project) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.location.assign(wikiRoute(internal.project, internal.path));
+        return;
+      }
       if (internal && onNavigateRef.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -179,6 +191,8 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     const host = hostRef.current;
     if (!host) return;
     let card: HTMLDivElement | null = null;
+    // Per-mount cache so re-hovering a term doesn't re-resolve.
+    const cache = new Map<string, GlossaryPreview | null>();
 
     const hide = () => {
       card?.remove();
@@ -204,11 +218,21 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     const onOver = (e: Event) => {
       const anchor = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;
       if (!anchor) return;
-      const term = parseTomeHref(anchor.getAttribute("href") || "")?.glossaryTerm;
+      const href = anchor.getAttribute("href") || "";
       const fn = glossaryPreviewRef.current;
-      if (!term || !fn) return;
-      const p = fn(term);
-      if (p) show(anchor, p);
+      if (!parseTomeHref(href)?.glossaryTerm || !fn) return;
+      if (cache.has(href)) {
+        const p = cache.get(href);
+        if (p) show(anchor, p);
+        return;
+      }
+      Promise.resolve(fn(href))
+        .then((p) => {
+          cache.set(href, p ?? null);
+          // Only pop the card if the pointer is still on this link.
+          if (p && anchor.matches(":hover")) show(anchor, p);
+        })
+        .catch(() => {});
     };
     const onOut = (e: Event) => {
       const anchor = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;

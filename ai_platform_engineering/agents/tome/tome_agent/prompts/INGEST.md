@@ -240,6 +240,10 @@ Write conceptually (per the rule at the top). A few specifics:
   (relative to the wiki root); don't author bare paths or guessed URLs for
   in-wiki links. External sources (GitHub/Confluence/Webex) still use their real
   `https://` URLs.
+  - **Cross-project links** name the project explicitly with `@`:
+    `tome://@<project-slug>/<path>` (e.g. `tome://@atlas/glossary/mcp.md`). Only
+    use this when you actually know the other project's slug; otherwise keep
+    links same-project (relative).
 
 - **`standup.md`** (report card — keep this exact structure, it's UI-rendered):
   - `## What is this` (one or two sentences)

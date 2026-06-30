@@ -10,11 +10,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  CrepeEditor,
-  type CrepeEditorHandle,
-  type GlossaryPreview,
-} from "@/components/tome/CrepeEditor";
+import { CrepeEditor, type CrepeEditorHandle } from "@/components/tome/CrepeEditor";
+import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import { GlossaryFields } from "@/components/tome/GlossaryFields";
 import { KindBadge } from "@/components/tome/KindBadge";
 import {
@@ -52,7 +49,7 @@ interface Props {
   /** Navigate to another wiki page (internal `tome://` link click). */
   onNavigate?: (path: string) => void;
   /** Resolve a glossary term slug to its definition for the hover card. */
-  glossaryPreview?: (term: string) => GlossaryPreview | null;
+  glossaryPreview?: GlossaryResolver;
   /** Rename this page to a new path. When provided, the header path is editable. */
   onRename?: (oldPath: string, newPath: string) => Promise<void>;
 }

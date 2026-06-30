@@ -329,6 +329,21 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "tome_resolve_ref",
+    description:
+      "Resolve a tome:// reference to its target before authoring a link, or to fetch a glossary definition. `ref` is a tome:// reference (e.g. `tome://overview.md` or `tome://glossary/<term>.md`). Glossary terms resolve within the project; org-scoped terms also resolve across projects. Returns whether the target exists and, for glossary, the term definition + source project.",
+    inputSchema: schema({ project_slug: STR, ref: STR }, ["project_slug", "ref"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const ref = encodeURIComponent(String(args.ref));
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/resolve?ref=${ref}`),
+        "resolve ref",
+      );
+      return toolText(JSON.stringify(data, null, 2));
+    },
+  },
+  {
     name: "tome_list_repos",
     description: "List the GitHub repositories attached to a project. `project_slug` is required.",
     inputSchema: schema({ project_slug: STR }, ["project_slug"]),

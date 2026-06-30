@@ -1,7 +1,12 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { parseTomeHref, type GlossaryPreview } from "@/lib/tome/tome-links";
+import {
+  parseTomeHref,
+  wikiRoute,
+  type GlossaryPreview,
+  type GlossaryResolver,
+} from "@/lib/tome/tome-links";
 import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
@@ -215,7 +220,7 @@ interface MarkdownRendererProps {
    */
   onInternalLink?: (path: string) => void;
   /** Resolve a glossary term slug to its definition for the hover card. */
-  glossaryPreview?: (term: string) => GlossaryPreview | null;
+  glossaryPreview?: GlossaryResolver;
 }
 
 /**
@@ -330,28 +335,28 @@ export function MarkdownRenderer({
         if (!(target instanceof Element)) return;
         const anchor = target.closest("a.tome-link, a.tome-glossary-link");
         if (!(anchor instanceof HTMLAnchorElement)) return;
-        const path = anchor.getAttribute("data-tome-path");
-        if (!path || !onInternalLinkRef.current) return;
-        e.preventDefault();
-        onInternalLinkRef.current(path);
+        const internal = parseTomeHref(anchor.getAttribute("href") || "");
+        if (!internal) return;
+        // Cross-project (@project) ref → navigate to that project's wiki route.
+        if (internal.project) {
+          e.preventDefault();
+          window.location.assign(wikiRoute(internal.project, internal.path));
+          return;
+        }
+        if (onInternalLinkRef.current) {
+          e.preventDefault();
+          onInternalLinkRef.current(internal.path);
+        }
       };
       // Glossary hover card: look up the term's definition and float a card
       // below the link. The card markup + styles match the wiki body surface.
       let card: HTMLDivElement | null = null;
+      const cache = new Map<string, GlossaryPreview | null>();
       const hideCard = () => {
         card?.remove();
         card = null;
       };
-      const handleGlossaryOver = (e: MouseEvent) => {
-        const anchor = (e.target as HTMLElement | null)?.closest?.(
-          "a.tome-glossary-link",
-        ) as HTMLAnchorElement | null;
-        if (!anchor) return;
-        const term = anchor.getAttribute("data-glossary-term");
-        const fn = glossaryPreviewRef.current;
-        if (!term || !fn) return;
-        const p = fn(term);
-        if (!p) return;
+      const renderCard = (anchor: HTMLAnchorElement, p: GlossaryPreview) => {
         hideCard();
         card = document.createElement("div");
         card.className = "tome-glossary-card";
@@ -367,6 +372,26 @@ export function MarkdownRenderer({
         const w = card.offsetWidth;
         card.style.top = `${r.bottom + 6}px`;
         card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+      };
+      const handleGlossaryOver = (e: MouseEvent) => {
+        const anchor = (e.target as HTMLElement | null)?.closest?.(
+          "a.tome-glossary-link",
+        ) as HTMLAnchorElement | null;
+        if (!anchor) return;
+        const href = anchor.getAttribute("href") || "";
+        const fn = glossaryPreviewRef.current;
+        if (!fn) return;
+        if (cache.has(href)) {
+          const p = cache.get(href);
+          if (p) renderCard(anchor, p);
+          return;
+        }
+        Promise.resolve(fn(href))
+          .then((p) => {
+            cache.set(href, p ?? null);
+            if (p && anchor.matches(":hover")) renderCard(anchor, p);
+          })
+          .catch(() => {});
       };
       const handleGlossaryOut = (e: MouseEvent) => {
         const anchor = (e.target as HTMLElement | null)?.closest?.(
