@@ -8,6 +8,8 @@ export type OktaExternalGroup = ExternalGroup & {
     email: string;
     display_name?: string;
     active: boolean;
+    /** Okta user ID — used to create the Keycloak federated identity link at sync time. */
+    idp_user_id?: string;
   }>;
 };
 
@@ -155,6 +157,7 @@ async function collectGroupMembers(client: Client, groupId: string): Promise<Okt
       email,
       display_name: oktaUserDisplayName(user),
       active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
+      idp_user_id: user.id ?? undefined,
     });
   });
   return members;
