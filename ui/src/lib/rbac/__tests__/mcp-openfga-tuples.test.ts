@@ -39,7 +39,6 @@ describe("MCP OpenFGA tuple contract", () => {
       const selection = mcpServerSelection(serverId);
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: [], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: [selection], removed: [] },
@@ -75,7 +74,6 @@ describe("MCP OpenFGA tuple contract", () => {
       const selection = mcpServerSelection(serverId);
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: ["agent-platform-helper"], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: [selection], removed: [] },
@@ -98,7 +96,6 @@ describe("MCP OpenFGA tuple contract", () => {
       const selection = mcpServerSelection(serverId);
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: ["agent-keep"], removed: ["agent-drop"] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: [], removed: [selection] },
@@ -116,7 +113,6 @@ describe("MCP OpenFGA tuple contract", () => {
     it("expands tool wildcard to per-server agent tuples AgentGateway can check", () => {
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: ["agent-a"], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: [], removed: [] },
@@ -143,7 +139,6 @@ describe("MCP OpenFGA tuple contract", () => {
     it("accepts slash-form MCP server selections from the team resources picker", () => {
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: ["agent-platform-helper"], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: ["mcp-confluence-mcp/*"], removed: [] },
@@ -184,7 +179,6 @@ describe("MCP OpenFGA tuple contract", () => {
     it("revokes per-server wildcard agent tuples when an agent is removed but wildcard stays on", () => {
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: ["agent-keep"], removed: ["agent-drop"] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: [], removed: [] },
@@ -208,7 +202,6 @@ describe("MCP OpenFGA tuple contract", () => {
     it("revokes direct tool grants for removed agents", () => {
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: ["agent-keep"], removed: ["agent-drop"] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: ["jira/search"], removed: [] },
@@ -227,7 +220,6 @@ describe("MCP OpenFGA tuple contract", () => {
       const selection = mcpServerSelection(serverId);
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: [], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: [], removed: [selection] },
@@ -253,7 +245,6 @@ describe("MCP OpenFGA tuple contract", () => {
     it("keeps non-wildcard tool ids on the legacy tool: object type", () => {
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: [],
         agents: { added: [], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: ["jira/search"], removed: [] },
@@ -268,10 +259,9 @@ describe("MCP OpenFGA tuple contract", () => {
       );
     });
 
-    it("matches the drift-repair PUT body used by admin Team Resources for MCP servers", () => {
+    it("matches the PUT body used by admin Team Resources for MCP servers", () => {
       const diff = buildTeamResourceTupleDiff({
         teamSlug: TEAM,
-        memberUserIds: ["kc-alice", "kc-bob"],
         agents: { added: ["agent-keep"], removed: [] },
         agentAdmins: { added: [], removed: [] },
         tools: { added: ["mcp-confluence-mcp_*"], removed: [] },
@@ -280,8 +270,6 @@ describe("MCP OpenFGA tuple contract", () => {
 
       expect(diff.writes).toEqual(
         expect.arrayContaining([
-          { user: "user:kc-alice", relation: "member", object: `team:${TEAM}` },
-          { user: "user:kc-bob", relation: "member", object: `team:${TEAM}` },
           { user: `team:${TEAM}#member`, relation: "caller", object: "tool:mcp-confluence-mcp/*" },
           { user: `team:${TEAM}#admin`, relation: "manager", object: "mcp_server:mcp-confluence-mcp" },
           {
@@ -289,6 +277,25 @@ describe("MCP OpenFGA tuple contract", () => {
             relation: "caller",
             object: "tool:mcp-confluence-mcp/*",
           },
+        ]),
+      );
+    });
+
+    it("never writes per-member team-membership tuples (those are owned by the members route)", () => {
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        agents: { added: ["agent-keep"], removed: [] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: ["mcp-confluence-mcp_*"], removed: [] },
+        toolWildcard: { added: false, removed: false },
+      });
+
+      // Resource grants are keyed on the team userset; a member's access
+      // resolves transitively from their existing membership tuple. This path
+      // must not emit `user:<id> member team:<slug>` tuples.
+      expect(diff.writes).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ relation: "member", object: `team:${TEAM}` }),
         ]),
       );
     });
