@@ -1,3 +1,17 @@
+## 0.5.33 (2026-06-30)
+
+### Perf
+
+- **teams**: stop rewriting membership tuples on resource save
+
+## 0.5.32-dev.1 (2026-06-30)
+
+### Feat
+
+- **openfga-authz-bridge**: add callerToolCheck.enabled value to subchart
+
+## 0.5.32 (2026-06-30)
+
 ## 0.5.31-dev.1 (2026-06-30)
 
 ### Fix
