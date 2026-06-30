@@ -16,9 +16,14 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 from claude_agent_sdk import (
+    TERMINAL_TASK_STATUSES,
     AssistantMessage,
     ResultMessage,
     SystemMessage,
+    TaskNotificationMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
+    TaskUpdatedMessage,
     TextBlock,
     ToolUseBlock,
     UserMessage,
@@ -58,6 +63,12 @@ async def consume_agent_query(
     result_seen = False
     tool_call_count = 0
     tool_call_names: dict[str, str] = {}
+    # Per-subagent state so nested work surfaces in the log instead of a silent
+    # multi-minute gap (#69). `subagent_desc` labels the terminal line; the SDK
+    # emits a terminal status via either a TaskNotification or a TaskUpdated, so
+    # whichever fires first clears the entry and the other becomes a no-op.
+    subagent_desc: dict[str, str] = {}
+    subagent_last_tool: dict[str, str] = {}
     try:
         async for message in query(prompt=prompt, options=options):
             # Drain any persist-hook events accumulated since the last yield.
@@ -65,10 +76,18 @@ async def consume_agent_query(
                 yield log_buf.pop(0)
 
             if isinstance(message, AssistantMessage):
+                # Messages from a subagent carry the parent Task's tool_use id;
+                # render them indented so they read as nested subagent activity.
+                nested = getattr(message, "parent_tool_use_id", None) is not None
                 for block in message.content:
                     if isinstance(block, ToolUseBlock):
-                        tool_call_count += 1
                         short = block.name.replace("mcp__github__", "gh.")
+                        if nested:
+                            yield emit_log(
+                                f"    ↳ {short} {stringify_tool_input(block.input)}"
+                            )
+                            continue
+                        tool_call_count += 1
                         tool_call_names[block.id] = short
                         yield IngestEventPayload(
                             type="tool_call",
@@ -82,10 +101,15 @@ async def consume_agent_query(
                     elif isinstance(block, TextBlock):
                         text = (block.text or "").strip()
                         if text:
+                            prefix = "    ↳ ~" if nested else "~"
                             for line in text.splitlines():
                                 if line.strip():
-                                    yield emit_log(f"~ {line}")
+                                    yield emit_log(f"{prefix} {line}")
             elif isinstance(message, UserMessage):
+                # Skip a subagent's internal tool results — the task_progress
+                # heartbeat already conveys the subagent is alive and working.
+                if getattr(message, "parent_tool_use_id", None) is not None:
+                    continue
                 for block in getattr(message, "content", []) or []:
                     kind = getattr(block, "type", None) or (
                         block.get("type") if isinstance(block, dict) else None
@@ -109,6 +133,35 @@ async def consume_agent_query(
                                 "ts": now_iso(),
                             },
                         )
+            elif isinstance(message, TaskStartedMessage):
+                desc = (message.description or "subagent").strip()
+                subagent_desc[message.task_id] = desc
+                kind = f" [{message.task_type}]" if message.task_type else ""
+                yield emit_log(f"  ↳ subagent started{kind}: {desc[:160]}")
+            elif isinstance(message, TaskProgressMessage):
+                # Heartbeat: emit only when the subagent's active tool changes, so
+                # a long subagent shows steady progress without flooding the log.
+                tool = (message.last_tool_name or "").strip()
+                if tool and subagent_last_tool.get(message.task_id) != tool:
+                    subagent_last_tool[message.task_id] = tool
+                    yield emit_log(f"    ↳ {tool.replace('mcp__github__', 'gh.')}")
+            elif isinstance(message, TaskNotificationMessage):
+                subagent_desc.pop(message.task_id, None)
+                subagent_last_tool.pop(message.task_id, None)
+                raw = (message.summary or "").strip()
+                summary = raw.splitlines()[0] if raw else ""
+                tail = f": {summary[:160]}" if summary else ""
+                yield emit_log(f"  ↳ subagent {message.status}{tail}")
+            elif isinstance(message, TaskUpdatedMessage):
+                # Terminal state can arrive only as a TaskUpdated (e.g. killed).
+                # Emit a closing line only if a TaskNotification hasn't already.
+                if (
+                    message.status in TERMINAL_TASK_STATUSES
+                    and message.task_id in subagent_desc
+                ):
+                    subagent_desc.pop(message.task_id, None)
+                    subagent_last_tool.pop(message.task_id, None)
+                    yield emit_log(f"  ↳ subagent {message.status}")
             elif isinstance(message, SystemMessage):
                 if message.subtype == "init":
                     yield emit_log("· agent session opened")
