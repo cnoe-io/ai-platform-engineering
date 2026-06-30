@@ -4,7 +4,7 @@
 // with a tooltip explaining the kind's semantics. Used in the sidebar tree
 // and the page header.
 
-import { Anchor, Eye, FileText, RefreshCw } from "lucide-react";
+import { Anchor, Eye, FileText, Sparkles } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,7 +36,7 @@ const SPECS: Record<PageKind, Spec> = {
   },
   dynamic: {
     label: "dynamic",
-    Icon: RefreshCw,
+    Icon: Sparkles,
     badgeClass:
       "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-900/60 dark:bg-sky-900/30 dark:text-sky-300",
     iconClass: "text-sky-700 dark:text-sky-400",
@@ -83,7 +83,7 @@ export function KindBadge({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="inline-flex items-center text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
+            className="inline-flex cursor-default items-center text-neutral-400 dark:text-neutral-500"
             aria-label={spec.label}
           >
             <Icon className="h-3.5 w-3.5" />
