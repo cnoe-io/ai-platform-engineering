@@ -21,6 +21,7 @@ import {
 
 import { BackstageSyncDialog } from "@/components/projects/BackstageSyncDialog";
 import { ProjectOnboardingWizard } from "@/components/projects/ProjectOnboardingWizard";
+import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import {
   Tooltip,
@@ -468,15 +469,18 @@ export function ProjectsHub() {
               ? "Your projects"
               : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
           </h2>
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-            className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
-            <option value="initiative">Group by BHAG</option>
-            <option value="swimlane">Group by Swim Lane</option>
-            <option value="none">No grouping</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <McpConnectDialog />
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+              className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="initiative">Group by BHAG</option>
+              <option value="swimlane">Group by Swim Lane</option>
+              <option value="none">No grouping</option>
+            </select>
+          </div>
         </div>
 
         {loading && <p className="text-sm text-muted-foreground">Loading projects…</p>}
@@ -494,6 +498,12 @@ export function ProjectsHub() {
               Create a project with the onboarding wizard or import Systems from the Backstage
               catalog section above.
             </p>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Already have projects elsewhere? Use them from your coding agent:
+            </p>
+            <div className="mt-2 flex justify-center">
+              <McpConnectDialog />
+            </div>
           </div>
         )}
 
