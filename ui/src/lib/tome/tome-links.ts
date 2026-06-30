@@ -6,13 +6,26 @@
 // href (which would break relative to the current route). External `https://`
 // links are left alone.
 //
-// Cross-project (`tome://<project>/<path>`) is deferred to the #65 resolver —
-// without it we can't disambiguate a project slug from a folder segment — so
-// for now everything after `tome://` is treated as a same-project path.
+// Cross-project (`tome://<project>/<path>`) is not resolved here: a project
+// slug can't be disambiguated from a folder segment, so everything after
+// `tome://` is treated as a same-project path.
 
 export interface TomeLinkTarget {
   /** Same-project wiki page path, e.g. `overview.md`, `repos/mycelium/status.md`. */
   path: string;
+  /**
+   * Set when the path is a glossary term entry (`glossary/<slug>.md`): the
+   * term slug. Glossary links render as inline references with a hover
+   * definition, distinct from ordinary page links.
+   */
+  glossaryTerm?: string;
+}
+
+/** Build a target from a resolved path, tagging glossary term entries. */
+function toTarget(path: string): TomeLinkTarget | null {
+  if (!path) return null;
+  const m = path.match(/^glossary\/(.+)\.md$/i);
+  return m ? { path, glossaryTerm: m[1] } : { path };
 }
 
 /**
@@ -24,8 +37,7 @@ export function parseTomeHref(href: string): TomeLinkTarget | null {
   const raw = href.trim();
 
   if (raw.startsWith("tome://")) {
-    const path = normalizePath(raw.slice("tome://".length));
-    return path ? { path } : null;
+    return toTarget(normalizePath(raw.slice("tome://".length)));
   }
 
   // Best-effort: a bare relative markdown link (no scheme, not an absolute
@@ -36,8 +48,7 @@ export function parseTomeHref(href: string): TomeLinkTarget | null {
     !raw.startsWith("#") &&
     /\.md(#.*)?$/i.test(raw)
   ) {
-    const path = normalizePath(raw);
-    return path ? { path } : null;
+    return toTarget(normalizePath(raw));
   }
 
   return null;

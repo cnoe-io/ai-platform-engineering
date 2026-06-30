@@ -10,7 +10,6 @@ from tome_agent.reports.schema import PageSpec
 REPO_TEMPLATE: tuple[PageSpec, ...] = (
     PageSpec("overview.md",       "dynamic", "Overview",        0),
     PageSpec("team.md",           "dynamic", "Team",           10),
-    PageSpec("glossary.md",       "dynamic", "Glossary",       20),
     PageSpec("architecture.md",   "dynamic", "Architecture",   30),
     PageSpec("status.md",         "dynamic", "Status",         40),
     PageSpec("activity.md",       "dynamic", "Activity",       50),

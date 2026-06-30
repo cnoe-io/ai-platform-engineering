@@ -10,9 +10,17 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CrepeEditor, type CrepeEditorHandle } from "@/components/tome/CrepeEditor";
+import {
+  CrepeEditor,
+  type CrepeEditorHandle,
+  type GlossaryPreview,
+} from "@/components/tome/CrepeEditor";
+import { GlossaryFields } from "@/components/tome/GlossaryFields";
 import { KindBadge } from "@/components/tome/KindBadge";
 import {
+  FM_TERM,
+  FM_TITLE,
+  isGlossaryTerm,
   parseFrontmatter,
   serializeFrontmatter,
   SPEC_BY_PATH,
@@ -43,6 +51,8 @@ interface Props {
   locked?: boolean;
   /** Navigate to another wiki page (internal `tome://` link click). */
   onNavigate?: (path: string) => void;
+  /** Resolve a glossary term slug to its definition for the hover card. */
+  glossaryPreview?: (term: string) => GlossaryPreview | null;
 }
 
 /**
@@ -63,6 +73,7 @@ export function WikiPageView({
   onOpenHistory,
   locked = false,
   onNavigate,
+  glossaryPreview,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,6 +93,16 @@ export function WikiPageView({
         : (SPEC_BY_PATH.get(path)?.title ?? path);
     return { frontmatter: f, body: b, kind: k, title: t };
   }, [markdown, path]);
+
+  const isGlossary = useMemo(() => isGlossaryTerm(frontmatter), [frontmatter]);
+
+  // Editable copy of the frontmatter for structured (glossary) entries. Kept in
+  // sync with the page's frontmatter whenever we're not mid-edit (page switch /
+  // external agent edit); the Edit→Save flow mutates this draft.
+  const [fmDraft, setFmDraft] = useState<Record<string, FrontmatterValue>>(frontmatter);
+  useEffect(() => {
+    if (!isEditing) setFmDraft(frontmatter);
+  }, [frontmatter, isEditing]);
 
   // Switching pages resets edit state.
   useEffect(() => {
@@ -108,7 +129,14 @@ export function WikiPageView({
     setSaving(true);
     setError(null);
     try {
-      const md = serializeFrontmatter(frontmatter, editorRef.current.getMarkdown());
+      let fmToWrite = frontmatter;
+      if (isGlossary) {
+        fmToWrite = { ...fmDraft };
+        // Keep the sidebar title in sync with the term.
+        const term = String(fmToWrite[FM_TERM] ?? "").trim();
+        if (term) fmToWrite[FM_TITLE] = term;
+      }
+      const md = serializeFrontmatter(fmToWrite, editorRef.current.getMarkdown());
       await onWrite(path, md, `edit ${path}`);
       setIsEditing(false);
       setEditorEpoch((n) => n + 1);
@@ -117,7 +145,7 @@ export function WikiPageView({
     } finally {
       setSaving(false);
     }
-  }, [frontmatter, onWrite, path]);
+  }, [frontmatter, isGlossary, fmDraft, onWrite, path]);
 
   const handleCancel = useCallback(() => {
     setIsEditing(false);
@@ -152,12 +180,13 @@ export function WikiPageView({
             <X className="h-4 w-4" />
           </Button>
         )}
-        <h2 className="truncate text-base font-semibold">{title}</h2>
-        <KindBadge kind={kind} />
-        <span className="truncate font-mono text-[11px] text-muted-foreground">
-          {path}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold leading-tight">{title}</h2>
+          <span className="block truncate font-mono text-[11px] text-muted-foreground">
+            {path}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           {onOpenHistory && !isEditing && (
             <Button
               size="sm"
@@ -216,6 +245,14 @@ export function WikiPageView({
         </p>
       )}
 
+      {isGlossary && (
+        <GlossaryFields
+          value={isEditing ? fmDraft : frontmatter}
+          editing={isEditing}
+          onChange={setFmDraft}
+        />
+      )}
+
       <ScrollArea
         className={cn(
           "flex-1 transition-shadow",
@@ -229,6 +266,7 @@ export function WikiPageView({
           initialMarkdown={body}
           readonly={!isEditing}
           onNavigate={onNavigate}
+          glossaryPreview={glossaryPreview}
         />
       </ScrollArea>
     </div>

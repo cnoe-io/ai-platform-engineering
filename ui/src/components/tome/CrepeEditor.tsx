@@ -34,6 +34,19 @@ type Props = {
    * navigation. External links always open in a new tab.
    */
   onNavigate?: (path: string) => void;
+  /**
+   * Resolve a glossary term slug to its definition for the hover card.
+   * Synchronous — the host already has all pages loaded. Return null if the
+   * term has no entry. When omitted, glossary links still render + navigate,
+   * just without a hovercard.
+   */
+  glossaryPreview?: (term: string) => GlossaryPreview | null;
+};
+
+export type GlossaryPreview = {
+  term: string;
+  expansion?: string;
+  definition: string;
 };
 
 /**
@@ -45,17 +58,21 @@ type Props = {
  * should remount (via `key` prop) if they want a hard reset.
  */
 export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEditor(
-  { initialMarkdown, readonly = false, liveUpdate = false, onNavigate },
+  { initialMarkdown, readonly = false, liveUpdate = false, onNavigate, glossaryPreview },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const crepeRef = useRef<Crepe | null>(null);
   const readyRef = useRef(false);
-  // Latest onNavigate, read by the (mount-once) click handler.
+  // Latest callbacks, read by the (mount-once) DOM handlers.
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => {
     onNavigateRef.current = onNavigate;
   }, [onNavigate]);
+  const glossaryPreviewRef = useRef(glossaryPreview);
+  useEffect(() => {
+    glossaryPreviewRef.current = glossaryPreview;
+  }, [glossaryPreview]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -75,8 +92,14 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
       ctx.set(linkAttr.key, (mark) => {
         const base = prev ? prev(mark) : {};
         const href = (mark.attrs?.href as string | undefined) || "";
-        // Internal wiki link → tag for styling + click routing.
-        if (parseTomeHref(href)) {
+        // Internal wiki link → tag for styling + click routing. Glossary term
+        // links get a distinct class (dotted underline, hover definition).
+        const internal = parseTomeHref(href);
+        if (internal) {
+          if (internal.glossaryTerm) {
+            const cls = [base.class, "tome-glossary-link"].filter(Boolean).join(" ");
+            return { ...base, class: cls, "data-glossary-term": internal.glossaryTerm };
+          }
           const cls = [base.class, "tome-link"].filter(Boolean).join(" ");
           return { ...base, class: cls };
         }
@@ -151,6 +174,57 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     };
     host.addEventListener("click", onClick, true);
     return () => host.removeEventListener("click", onClick, true);
+  }, []);
+
+  // Glossary hover card. On hovering a glossary term link, look up its
+  // definition (synchronous, from already-loaded pages) and float a card below
+  // the link. Pure DOM — the link lives inside Milkdown's contenteditable.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    let card: HTMLDivElement | null = null;
+
+    const hide = () => {
+      card?.remove();
+      card = null;
+    };
+    const show = (anchor: HTMLAnchorElement, p: GlossaryPreview) => {
+      hide();
+      card = document.createElement("div");
+      card.className = "tome-glossary-card";
+      const head = document.createElement("div");
+      head.className = "tome-glossary-card-term";
+      head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
+      const def = document.createElement("div");
+      def.className = "tome-glossary-card-def";
+      def.textContent = p.definition || "No definition yet.";
+      card.append(head, def);
+      document.body.appendChild(card);
+      const r = anchor.getBoundingClientRect();
+      const w = card.offsetWidth;
+      card.style.top = `${r.bottom + 6}px`;
+      card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+    };
+    const onOver = (e: Event) => {
+      const anchor = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const term = parseTomeHref(anchor.getAttribute("href") || "")?.glossaryTerm;
+      const fn = glossaryPreviewRef.current;
+      if (!term || !fn) return;
+      const p = fn(term);
+      if (p) show(anchor, p);
+    };
+    const onOut = (e: Event) => {
+      const anchor = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;
+      if (anchor) hide();
+    };
+    host.addEventListener("mouseover", onOver);
+    host.addEventListener("mouseout", onOut);
+    return () => {
+      host.removeEventListener("mouseover", onOver);
+      host.removeEventListener("mouseout", onOut);
+      hide();
+    };
   }, []);
 
   useImperativeHandle(

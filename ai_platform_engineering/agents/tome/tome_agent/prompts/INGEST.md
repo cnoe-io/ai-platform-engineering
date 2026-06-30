@@ -105,12 +105,13 @@ lives — the most valuable pages):
 - `marketing.md` — positioning, comms, GTM (sparse until there's signal)
 - `conversations.md` — the cross-source narrative: what's being debated/decided
 - `standup.md` — report-card surface (special format, see below)
+- `glossary/` — the project's vocabulary, one file per term (see Glossary below)
 - `memory.md` — your hidden working memory
 
 **Per-source subtrees** are *thin* — orientation, not transcripts. Synthesis
 belongs up top; per-source pages cover what's specific to that one source.
 - `repos/<slug>/` — per GitHub repo: `overview.md`, `architecture.md`,
-  `status.md`, `activity.md`, plus `team.md`/`glossary.md`/`conversations.md`
+  `status.md`, `activity.md`, plus `team.md`/`conversations.md`
   where warranted. Code-level specifics live here.
 - `webex/<slug>/` — per Webex room: `overview.md`, `activity.md`. Use the
   `mcp__webex__*` tools: `webex_list_messages(roomId)` lists messages newest-first
@@ -152,6 +153,57 @@ Path is the nesting signal — `architecture/backend.md` nests under
 `architecture.md`. The parent `.md` must exist or the child orphans. Nest only
 when a subtopic genuinely deserves its own page; a flat 5-page wiki beats a
 3-deep tree of one-paragraph stubs.
+
+## Glossary — one file per term
+
+The glossary is a **project-level collection**, not a page and not per-repo.
+Each term is its own file at `glossary/<slug>.md` where `<slug>` is the term
+lowercased with non-alphanumerics as `-` (e.g. `TOME` → `glossary/tome.md`,
+`L9 protocol` → `glossary/l9-protocol.md`).
+
+Each term file carries typed frontmatter the UI renders as a form:
+
+```
+---
+type: glossary
+title: TOME
+kind: dynamic
+term: TOME
+expansion: Team Outshift Memory Engine
+scope: project
+aliases: [tome, t.o.m.e.]
+term_kind: acronym
+status: current
+---
+
+What the term means, in prose — a sentence or three. Link related terms or
+pages with the `tome://` scheme.
+```
+
+Field rules:
+- `type: glossary` (required) and `term` (required) are the only hard floor — a
+  half-filled entry is still valid. Fill the rest when you know them.
+- `title` mirrors `term` (it's what the sidebar shows).
+- `kind: dynamic` so you maintain it on each ingest. Never flip it to `stable`
+  yourself — that's a human/steward signal to stop editing.
+- `expansion` — only for acronyms; omit for plain terms.
+- `scope` — one of `org | project | bhag | swimlane`. Default `project`. Use
+  `org` only for vocabulary that's genuinely shared across all projects.
+- `aliases` — other spellings/abbreviations people use for the same term.
+- `term_kind` — `acronym` or `term`.
+- `status` — `current`, or `deprecated` when a term falls out of use (retire by
+  marking deprecated, don't delete — history matters).
+
+When to create vs update: **create** a term file the first time a
+project-specific or non-obvious term appears in the sources; **update** an
+existing one when its meaning shifts or you learn its expansion/aliases. Don't
+glossary common English or widely-known tech terms — only what a new teammate
+on *this* project wouldn't already know. A handful of high-value terms beats an
+exhaustive dictionary.
+
+**Migration:** if you find a legacy single `glossary.md` (top-level or under any
+`repos/<slug>/`), split each term it defines into its own `glossary/<slug>.md`
+file with the frontmatter above, then delete the old `glossary.md`. Do this once.
 
 ## Frontmatter format
 

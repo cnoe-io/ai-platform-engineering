@@ -125,7 +125,6 @@ export const STABLE_SEED_BODIES: Record<string, string> = {
 export const REPO_TEMPLATE: readonly PageSpec[] = [
   spec("overview.md", "dynamic", "Overview", 0),
   spec("team.md", "dynamic", "Team", 10),
-  spec("glossary.md", "dynamic", "Glossary", 20),
   spec("architecture.md", "dynamic", "Architecture", 30),
   spec("status.md", "dynamic", "Status", 40),
   spec("activity.md", "dynamic", "Activity", 50),
@@ -182,6 +181,50 @@ export const FM_TITLE = "title";
 export const FM_KIND = "kind";
 export const FM_ORDER = "order";
 export const FM_GROUNDED_BY = "grounded_by";
+
+// `type` marks a structured entry whose frontmatter the UI renders as a form
+// (e.g. glossary terms). Distinct from `kind` (the page lifecycle:
+// stable/dynamic/hidden/report).
+export const FM_TYPE = "type";
+
+// ---------------------------------------------------------------------------
+// Glossary — a project-level collection of term entries, one file per term at
+// `glossary/<slug>.md`, each with `type: glossary` + typed frontmatter. Keep
+// these vocabularies in sync with reports/schema.py (GLOSSARY_*).
+// ---------------------------------------------------------------------------
+
+export const GLOSSARY_DIR = "glossary";
+export const GLOSSARY_TYPE = "glossary";
+
+export const FM_TERM = "term";
+export const FM_EXPANSION = "expansion";
+export const FM_SCOPE = "scope";
+export const FM_ALIASES = "aliases";
+export const FM_TERM_KIND = "term_kind";
+export const FM_STATUS = "status";
+
+export const GLOSSARY_SCOPES = ["org", "project", "bhag", "swimlane"] as const;
+export const GLOSSARY_TERM_KINDS = ["acronym", "term"] as const;
+export const GLOSSARY_STATUSES = ["current", "deprecated"] as const;
+
+export type GlossaryScope = (typeof GLOSSARY_SCOPES)[number];
+export type GlossaryTermKind = (typeof GLOSSARY_TERM_KINDS)[number];
+export type GlossaryStatus = (typeof GLOSSARY_STATUSES)[number];
+
+/** True when a page's frontmatter marks it as a glossary term entry. */
+export function isGlossaryTerm(fm: Record<string, FrontmatterValue>): boolean {
+  return String(fm[FM_TYPE] ?? "").toLowerCase() === GLOSSARY_TYPE;
+}
+
+/** Derive a glossary filename slug from a term: lowercase, non-alnum → `-`. */
+export function glossarySlug(term: string): string {
+  const s = term
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return s || "term";
+}
 
 // ---------- Default-list helpers (seed-only) ----------
 

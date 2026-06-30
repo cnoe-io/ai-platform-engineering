@@ -91,7 +91,7 @@ class ChatRequest(BaseModel):
     snapshot: ProjectSnapshot
     stable_pages: dict[str, str] = Field(default_factory=dict)
     """Map of `path -> markdown` for stable pages the chat prompt references
-    (overview, team, glossary, architecture). Backend reads from sqlite
+    (overview, team, architecture). Backend reads from sqlite
     before dispatching."""
     role: str = "editor"
     """The requesting user's effective role: 'viewer' or 'editor'. The agent

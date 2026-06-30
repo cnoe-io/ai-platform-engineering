@@ -39,6 +39,7 @@ import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
+import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
@@ -282,6 +283,25 @@ export function TomeWiki({ slug }: { slug: string }) {
     [navigate],
   );
   const openArtifact = useCallback((path: string) => setArtifactPath(path), []);
+
+  // Resolve a glossary term slug to its definition for the hover card.
+  // Synchronous: every page is already loaded in `data.pages`, so a hovered
+  // `tome://glossary/<slug>.md` link just reads the term entry from memory.
+  const glossaryPreview = useCallback(
+    (term: string): GlossaryPreview | null => {
+      const md = data?.pages[`glossary/${term}.md`];
+      if (md === undefined) return null;
+      const [fm, bodyRaw] = parseFrontmatter(md);
+      const termStr = String(fm.term ?? fm.title ?? term);
+      const expansion =
+        typeof fm.expansion === "string" && fm.expansion.trim()
+          ? fm.expansion.trim()
+          : undefined;
+      const definition = bodyRaw.replace(/^#.*$/m, "").trim().slice(0, 400);
+      return { term: termStr, expansion, definition };
+    },
+    [data],
+  );
 
   const loading = data === null && !error;
   const isEmpty = data !== null && Object.keys(data.pages).length === 0;
@@ -736,6 +756,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onClose={() => setArtifactPath(null)}
                         locked={locked}
                         onNavigate={openArtifact}
+                        glossaryPreview={glossaryPreview}
                       />
                     ) : (
                       <ContentLoading />
@@ -786,6 +807,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     }
                     locked={locked}
                     onNavigate={(path) => navigate({ kind: "page", path })}
+                    glossaryPreview={glossaryPreview}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">Page not found.</p>

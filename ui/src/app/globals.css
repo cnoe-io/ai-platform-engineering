@@ -1004,3 +1004,45 @@ pre code.hljs {
   text-decoration-color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.08);
 }
+
+/* Glossary term reference: a subtle inline reference, NOT a page link —
+   no document glyph, dotted underline, hover shows the definition card. */
+.milkdown-host .milkdown .ProseMirror a.tome-glossary-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.55);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: text-decoration-color 120ms ease;
+}
+.milkdown-host .milkdown .ProseMirror a.tome-glossary-link:hover {
+  text-decoration-color: hsl(var(--primary));
+}
+
+/* Floating definition card, appended to <body> on hover. */
+.tome-glossary-card {
+  position: fixed;
+  z-index: 60;
+  max-width: 340px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.tome-glossary-card-term {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.tome-glossary-card-def {
+  color: hsl(var(--muted-foreground));
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
