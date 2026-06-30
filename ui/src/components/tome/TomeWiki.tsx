@@ -510,12 +510,12 @@ export function TomeWiki({ slug }: { slug: string }) {
                   size="icon"
                   className="h-8 w-8 text-muted-foreground"
                   onClick={() => setOnboardingOpen(true)}
-                  aria-label="What is Tome?"
+                  aria-label="What is TOME?"
                 >
                   <HelpCircle className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">What is Tome?</TooltipContent>
+              <TooltipContent side="bottom">What is TOME?</TooltipContent>
             </Tooltip>
           </div>
         </header>

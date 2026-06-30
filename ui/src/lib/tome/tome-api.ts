@@ -93,7 +93,7 @@ export async function ensureTomeTile(slug: string): Promise<void> {
     {
       $set: {
         "integrations.tome_url": `/projects/${slug}/tome`,
-        "integrations.tome_label": "Tome",
+        "integrations.tome_label": "TOME",
         updated_at: new Date(),
       },
     },

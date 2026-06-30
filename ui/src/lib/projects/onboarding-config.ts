@@ -210,7 +210,7 @@ const BUILTIN_APPS: Array<{
     enabled: isTomeServerEnabled,
     step: {
       id: "tome",
-      title: "Tome",
+      title: "TOME",
       subtitle: "A project wiki with an embedded agent",
       icon: "book-open",
       provider: "link",

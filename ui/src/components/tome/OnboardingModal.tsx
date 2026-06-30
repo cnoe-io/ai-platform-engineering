@@ -172,7 +172,7 @@ function WelcomeStep({ name }: { name: string }) {
     <div className="space-y-5">
       <StepHeader
         icon={<BookOpen className="h-5 w-5" />}
-        eyebrow="Welcome to Tome"
+        eyebrow="Welcome to TOME"
         title={`A living wiki for ${name}`}
       >
         <p>
@@ -399,7 +399,7 @@ function TranscriptLine({ line }: { line: Line }) {
 function McpStep() {
   return (
     <div className="space-y-4">
-      <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring Tome into your coding agent">
+      <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring TOME into your coding agent">
         Connect Claude, Cursor, or Claude Code over MCP so your agent can read
         this project&apos;s wiki and Talk page right where you write code, with
         no copy-paste.
@@ -416,7 +416,7 @@ function McpStep() {
       <p className="text-sm leading-relaxed text-muted-foreground">
         Your agent gets tools to list projects, read pages, and post to Talk.
         Grab your key and the exact command from{" "}
-        <span className="font-medium text-foreground">Connect via MCP</span> in the Tome header.
+        <span className="font-medium text-foreground">Connect via MCP</span> in the TOME header.
       </p>
     </div>
   );
