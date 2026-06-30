@@ -7,6 +7,7 @@ import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import type { GlossaryPreview } from "@/lib/tome/tome-links";
 import type { ChatPart as Part } from "@/types/tome";
 
 /**
@@ -38,9 +39,11 @@ interface Props {
   onPagesChanged?: () => void;
   /** Open a wiki page (referenced by a tool chip) in the artifact pane. */
   onOpenPage?: (path: string) => void;
+  /** Resolve a glossary term slug to its definition for the hover card. */
+  glossaryPreview?: (term: string) => GlossaryPreview | null;
 }
 
-export function ChatPanel({ slug, onPagesChanged, onOpenPage }: Props) {
+export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -262,7 +265,12 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage }: Props) {
         <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
           {messages.length === 0 && !loadingHistory && <EmptyState slug={slug} />}
           {messages.map((m, i) => (
-            <MessageRow key={i} msg={m} onOpenPage={onOpenPage} />
+            <MessageRow
+              key={i}
+              msg={m}
+              onOpenPage={onOpenPage}
+              glossaryPreview={glossaryPreview}
+            />
           ))}
         </div>
       </ScrollArea>
@@ -322,9 +330,11 @@ function EmptyState({ slug }: { slug: string }) {
 function MessageRow({
   msg,
   onOpenPage,
+  glossaryPreview,
 }: {
   msg: ChatMsg;
   onOpenPage?: (path: string) => void;
+  glossaryPreview?: (term: string) => GlossaryPreview | null;
 }) {
   const isUser = msg.role === "user";
 
@@ -373,6 +383,7 @@ function MessageRow({
                 isStreaming={Boolean(msg.pending) && i === lastTextIdx}
                 variant="final"
                 onInternalLink={onOpenPage}
+                glossaryPreview={glossaryPreview}
               />
             </div>
           ),

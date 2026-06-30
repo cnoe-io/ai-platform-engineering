@@ -86,25 +86,14 @@ export function GlossaryFields({ value, editing, onChange }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 border-b bg-muted/30 px-5 py-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-x-4 gap-y-3 border-b bg-muted/30 px-5 py-3 sm:grid-cols-2">
       <Field label="Term">
         <Input
           value={term}
           onChange={(e) => set(FM_TERM, e.target.value)}
-          placeholder="TOME"
+          placeholder="e.g. TOME"
           className="h-8"
         />
-      </Field>
-      <Field label="Expansion">
-        <Input
-          value={expansion}
-          onChange={(e) => set(FM_EXPANSION, e.target.value)}
-          placeholder="Team Outshift Memory Engine (acronyms only)"
-          className="h-8"
-        />
-      </Field>
-      <Field label="Scope">
-        <Select value={scope} options={GLOSSARY_SCOPES} onChange={(v) => set(FM_SCOPE, v)} />
       </Field>
       <Field label="Kind">
         <Select
@@ -113,10 +102,23 @@ export function GlossaryFields({ value, editing, onChange }: Props) {
           onChange={(v) => set(FM_TERM_KIND, v)}
         />
       </Field>
+      {termKind === "acronym" && (
+        <Field label="Expansion" className="sm:col-span-2">
+          <Input
+            value={expansion}
+            onChange={(e) => set(FM_EXPANSION, e.target.value)}
+            placeholder="e.g. Team Outshift Memory Engine"
+            className="h-8"
+          />
+        </Field>
+      )}
+      <Field label="Scope">
+        <Select value={scope} options={GLOSSARY_SCOPES} onChange={(v) => set(FM_SCOPE, v)} />
+      </Field>
       <Field label="Status">
         <Select value={status} options={GLOSSARY_STATUSES} onChange={(v) => set(FM_STATUS, v)} />
       </Field>
-      <Field label="Aliases">
+      <Field label="Aliases" className="sm:col-span-2">
         <Input
           value={aliases.join(", ")}
           onChange={(e) =>
@@ -125,17 +127,28 @@ export function GlossaryFields({ value, editing, onChange }: Props) {
               e.target.value.split(",").map((x) => x.trim()).filter(Boolean),
             )
           }
-          placeholder="tome, t.o.m.e."
+          placeholder="e.g. tome, t.o.m.e."
           className="h-8"
         />
+        <span className="text-[10px] text-muted-foreground">
+          Other spellings people use, comma-separated.
+        </span>
       </Field>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className={cn("flex flex-col gap-1", className)}>
       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>

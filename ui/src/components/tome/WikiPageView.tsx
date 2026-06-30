@@ -53,6 +53,8 @@ interface Props {
   onNavigate?: (path: string) => void;
   /** Resolve a glossary term slug to its definition for the hover card. */
   glossaryPreview?: (term: string) => GlossaryPreview | null;
+  /** Rename this page to a new path. When provided, the header path is editable. */
+  onRename?: (oldPath: string, newPath: string) => Promise<void>;
 }
 
 /**
@@ -74,11 +76,14 @@ export function WikiPageView({
   locked = false,
   onNavigate,
   glossaryPreview,
+  onRename,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [pathDraft, setPathDraft] = useState(path);
   const editorRef = useRef<CrepeEditorHandle>(null);
 
   const { frontmatter, body, kind, title } = useMemo(() => {
@@ -108,7 +113,24 @@ export function WikiPageView({
   useEffect(() => {
     setIsEditing(false);
     setError(null);
+    setRenaming(false);
   }, [path]);
+
+  const startRename = useCallback(() => {
+    setPathDraft(path);
+    setRenaming(true);
+  }, [path]);
+
+  const commitRename = useCallback(async () => {
+    const next = pathDraft.trim();
+    setRenaming(false);
+    if (!next || next === path || !onRename) return;
+    try {
+      await onRename(path, next);
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    }
+  }, [pathDraft, path, onRename]);
 
   // External change (agent edit) while not editing → remount to show it live.
   useEffect(() => {
@@ -182,9 +204,38 @@ export function WikiPageView({
         )}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold leading-tight">{title}</h2>
-          <span className="block truncate font-mono text-[11px] text-muted-foreground">
-            {path}
-          </span>
+          {renaming ? (
+            <input
+              autoFocus
+              value={pathDraft}
+              onChange={(e) => setPathDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void commitRename();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenaming(false);
+                }
+              }}
+              onBlur={() => setRenaming(false)}
+              className="block w-full max-w-md rounded border border-input bg-background px-1 py-0.5 font-mono text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              aria-label="Rename page path (Enter to save, Esc to cancel)"
+            />
+          ) : onRename && !locked ? (
+            <button
+              type="button"
+              onClick={startRename}
+              title="Rename page"
+              className="block max-w-full truncate font-mono text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {path}
+            </button>
+          ) : (
+            <span className="block truncate font-mono text-[11px] text-muted-foreground">
+              {path}
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {onOpenHistory && !isEditing && (
@@ -246,11 +297,16 @@ export function WikiPageView({
       )}
 
       {isGlossary && (
-        <GlossaryFields
-          value={isEditing ? fmDraft : frontmatter}
-          editing={isEditing}
-          onChange={setFmDraft}
-        />
+        <>
+          <GlossaryFields
+            value={isEditing ? fmDraft : frontmatter}
+            editing={isEditing}
+            onChange={setFmDraft}
+          />
+          <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Definition
+          </div>
+        </>
       )}
 
       <ScrollArea

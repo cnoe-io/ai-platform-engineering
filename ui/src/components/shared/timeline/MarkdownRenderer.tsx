@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { parseTomeHref } from "@/lib/tome/tome-links";
+import { parseTomeHref, type GlossaryPreview } from "@/lib/tome/tome-links";
 import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
@@ -42,6 +42,12 @@ const sharedMarkedOptions = {
       const internal = parseTomeHref(href);
       if (internal) {
         const pathAttr = internal.path.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        // Glossary term link: inline reference + hover definition, click still
+        // navigates to the term page. Distinct class from ordinary page links.
+        if (internal.glossaryTerm) {
+          const termAttr = internal.glossaryTerm.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+          return `<a href="${href}" data-tome-path="${pathAttr}" data-glossary-term="${termAttr}"${titleAttr} class="md-link tome-glossary-link">${text}</a>`;
+        }
         return `<a href="${href}" data-tome-path="${pathAttr}"${titleAttr} class="md-link tome-link">${text}</a>`;
       }
       const isRelative = href.startsWith("/") || href.startsWith("#");
@@ -208,6 +214,8 @@ interface MarkdownRendererProps {
    * browser href. External links are unaffected.
    */
   onInternalLink?: (path: string) => void;
+  /** Resolve a glossary term slug to its definition for the hover card. */
+  glossaryPreview?: (term: string) => GlossaryPreview | null;
 }
 
 /**
@@ -227,14 +235,19 @@ export function MarkdownRenderer({
   variant = "final",
   className,
   onInternalLink,
+  glossaryPreview,
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
-  // Latest onInternalLink, read by the (set-up-once) delegated click handler.
+  // Latest callbacks, read by the (set-up-once) delegated DOM handlers.
   const onInternalLinkRef = useRef(onInternalLink);
   useEffect(() => {
     onInternalLinkRef.current = onInternalLink;
   }, [onInternalLink]);
+  const glossaryPreviewRef = useRef(glossaryPreview);
+  useEffect(() => {
+    glossaryPreviewRef.current = glossaryPreview;
+  }, [glossaryPreview]);
   // Monotonic counter to ensure only the latest parse result is applied.
   // During rapid streaming, many parses may be in-flight concurrently;
   // we only want the most recently *requested* one to patch the DOM.
@@ -315,18 +328,62 @@ export function MarkdownRenderer({
       const handleInternalLinkClick = (e: MouseEvent) => {
         const target = e.target;
         if (!(target instanceof Element)) return;
-        const anchor = target.closest("a.tome-link");
+        const anchor = target.closest("a.tome-link, a.tome-glossary-link");
         if (!(anchor instanceof HTMLAnchorElement)) return;
         const path = anchor.getAttribute("data-tome-path");
         if (!path || !onInternalLinkRef.current) return;
         e.preventDefault();
         onInternalLinkRef.current(path);
       };
+      // Glossary hover card: look up the term's definition and float a card
+      // below the link. The card markup + styles match the wiki body surface.
+      let card: HTMLDivElement | null = null;
+      const hideCard = () => {
+        card?.remove();
+        card = null;
+      };
+      const handleGlossaryOver = (e: MouseEvent) => {
+        const anchor = (e.target as HTMLElement | null)?.closest?.(
+          "a.tome-glossary-link",
+        ) as HTMLAnchorElement | null;
+        if (!anchor) return;
+        const term = anchor.getAttribute("data-glossary-term");
+        const fn = glossaryPreviewRef.current;
+        if (!term || !fn) return;
+        const p = fn(term);
+        if (!p) return;
+        hideCard();
+        card = document.createElement("div");
+        card.className = "tome-glossary-card";
+        const head = document.createElement("div");
+        head.className = "tome-glossary-card-term";
+        head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
+        const def = document.createElement("div");
+        def.className = "tome-glossary-card-def";
+        def.textContent = p.definition || "No definition yet.";
+        card.append(head, def);
+        document.body.appendChild(card);
+        const r = anchor.getBoundingClientRect();
+        const w = card.offsetWidth;
+        card.style.top = `${r.bottom + 6}px`;
+        card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+      };
+      const handleGlossaryOut = (e: MouseEvent) => {
+        const anchor = (e.target as HTMLElement | null)?.closest?.(
+          "a.tome-glossary-link",
+        ) as HTMLAnchorElement | null;
+        if (anchor) hideCard();
+      };
       container.addEventListener("click", handleCopyClick);
       container.addEventListener("click", handleInternalLinkClick);
+      container.addEventListener("mouseover", handleGlossaryOver);
+      container.addEventListener("mouseout", handleGlossaryOut);
       cleanupRef.current = () => {
         container.removeEventListener("click", handleCopyClick);
         container.removeEventListener("click", handleInternalLinkClick);
+        container.removeEventListener("mouseover", handleGlossaryOver);
+        container.removeEventListener("mouseout", handleGlossaryOut);
+        hideCard();
       };
     }
   }, []);

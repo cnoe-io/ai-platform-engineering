@@ -188,6 +188,20 @@
   text-decoration-color: hsl(var(--primary));
 }
 
+/* Glossary term reference: a subtle inline reference (dotted underline, no page
+   glyph), with a hover definition card. Distinct from page links above. */
+.streaming-markdown .md-link.tome-glossary-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.55);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.streaming-markdown .md-link.tome-glossary-link:hover {
+  text-decoration-color: hsl(var(--primary));
+}
+
 /* Inline code */
 .streaming-markdown.md-final :not(pre) > code {
   background: hsl(var(--muted) / 0.8);

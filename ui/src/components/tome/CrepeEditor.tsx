@@ -10,7 +10,9 @@ import { replaceAll } from "@milkdown/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import { classifyCitationHref } from "@/lib/tome/citations";
-import { parseTomeHref } from "@/lib/tome/tome-links";
+import { parseTomeHref, type GlossaryPreview } from "@/lib/tome/tome-links";
+
+export type { GlossaryPreview } from "@/lib/tome/tome-links";
 
 export type CrepeEditorHandle = {
   getMarkdown: () => string;
@@ -41,12 +43,6 @@ type Props = {
    * just without a hovercard.
    */
   glossaryPreview?: (term: string) => GlossaryPreview | null;
-};
-
-export type GlossaryPreview = {
-  term: string;
-  expansion?: string;
-  definition: string;
 };
 
 /**

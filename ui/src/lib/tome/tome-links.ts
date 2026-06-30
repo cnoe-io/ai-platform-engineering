@@ -21,6 +21,13 @@ export interface TomeLinkTarget {
   glossaryTerm?: string;
 }
 
+/** A glossary term's resolved content, shown in the hover definition card. */
+export interface GlossaryPreview {
+  term: string;
+  expansion?: string;
+  definition: string;
+}
+
 /** Build a target from a resolved path, tagging glossary term entries. */
 function toTarget(path: string): TomeLinkTarget | null {
   if (!path) return null;

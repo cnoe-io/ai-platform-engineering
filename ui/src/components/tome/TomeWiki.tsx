@@ -369,6 +369,33 @@ export function TomeWiki({ slug }: { slug: string }) {
     [slug, load, view, navigate],
   );
 
+  // Rename a page: write its markdown to the new path, then tombstone the old
+  // one (there's no move endpoint). History starts fresh on the new path.
+  const renamePage = useCallback(
+    async (oldPath: string, rawNew: string) => {
+      let next = rawNew.trim().replace(/^\/+/, "");
+      if (!next) return;
+      if (!/\.(md|mdx)$/i.test(next)) next += ".md";
+      if (next === oldPath) return;
+      if (data?.pages[next] !== undefined) {
+        throw new Error(`A page already exists at ${next}`);
+      }
+      const md = data?.pages[oldPath];
+      if (md === undefined) throw new Error("Page not found");
+      await writeMarkdown(next, md, `rename ${oldPath} to ${next}`);
+      const res = await fetch(`/api/tome/projects/${slug}/pages/${oldPath}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`rename failed to remove old page (${res.status})`);
+      await load();
+      if (view.kind === "page" && view.path === oldPath) {
+        navigate({ kind: "page", path: next });
+      }
+      setArtifactPath((p) => (p === oldPath ? next : p));
+    },
+    [data, slug, writeMarkdown, load, navigate, view],
+  );
+
   // Import .md/.mdx files as wiki pages (each file's text → PUT /pages).
   // Nested layout is preserved via webkitRelativePath when a folder is dropped.
   const uploadPages = useCallback(
@@ -742,7 +769,12 @@ export function TomeWiki({ slug }: { slug: string }) {
             {view.kind === "agent" ? (
               <>
                 <div className="min-w-0 flex-1">
-                  <ChatPanel slug={slug} onPagesChanged={load} onOpenPage={openArtifact} />
+                  <ChatPanel
+                    slug={slug}
+                    onPagesChanged={load}
+                    onOpenPage={openArtifact}
+                    glossaryPreview={glossaryPreview}
+                  />
                 </div>
                 {artifactPath && (
                   <div className="w-[45%] min-w-[360px] shrink-0 border-l">
@@ -757,6 +789,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         locked={locked}
                         onNavigate={openArtifact}
                         glossaryPreview={glossaryPreview}
+                        onRename={renamePage}
                       />
                     ) : (
                       <ContentLoading />
@@ -808,6 +841,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     locked={locked}
                     onNavigate={(path) => navigate({ kind: "page", path })}
                     glossaryPreview={glossaryPreview}
+                    onRename={renamePage}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">Page not found.</p>
