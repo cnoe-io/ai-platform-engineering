@@ -4,7 +4,7 @@
 
 import { Crepe } from "@milkdown/crepe";
 import "@milkdown/crepe/theme/common/style.css";
-import "@milkdown/crepe/theme/frame.css";
+import "./crepe-theme.css";
 import { linkAttr } from "@milkdown/kit/preset/commonmark";
 import { replaceAll } from "@milkdown/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
