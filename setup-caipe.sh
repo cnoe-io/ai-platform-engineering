@@ -7523,7 +7523,10 @@ cmd_cleanup() {
 
   if kubectl get secret llm-secret -n caipe &>/dev/null || kubectl get secret langfuse-secret -n caipe &>/dev/null; then
     if ask_yn "Delete all secrets in caipe namespace?" "y"; then
-      kubectl delete secret --all -n caipe 2>/dev/null || true
+      # Exclude Helm release-tracking secrets (type helm.sh/release.v1). Wiping
+      # them while a release is still installed (e.g. the caipe uninstall above
+      # was declined) orphans the live workloads.
+      kubectl delete secret --all -n caipe --field-selector 'type!=helm.sh/release.v1' 2>/dev/null || true
       log "Secrets in caipe namespace deleted"
     fi
   fi
