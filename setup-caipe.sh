@@ -7554,6 +7554,14 @@ cmd_cleanup() {
     fi
   fi
 
+  # Helm hook Jobs (e.g. openfga-init/migrate) set hook-delete-policy
+  # before-hook-creation, so `helm uninstall` leaves their completed pods behind.
+  # They keep the namespace non-empty and block the namespace deletion below.
+  if [[ "$(kubectl get jobs -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]]; then
+    kubectl delete jobs --all -n caipe 2>/dev/null || true
+    log "Leftover Jobs in caipe namespace deleted"
+  fi
+
   step "Namespaces"
 
   local caipe_resources langfuse_resources
