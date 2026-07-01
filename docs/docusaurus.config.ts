@@ -40,6 +40,8 @@ const config: Config = {
   organizationName: 'cnoe.io', // Usually your GitHub org/user name.
   projectName: 'ai-platform-engineering', // Usually your repo name.
 
+  clientModules: ['./src/clientModules/mermaidFullscreen.js'],
+
   onBrokenLinks: 'throw',
 
   // Even if you don't use internationalization, you can use this field to set
@@ -165,15 +167,11 @@ const config: Config = {
           position: 'left',
           label: 'Docs',
         },
-        {to: '/blog/releases', label: 'Releases', position: 'left'},
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
+        {to: '/blog/releases', label: 'Releases', position: 'left'},
         {to: '/blog', label: 'Blog', position: 'left'},
-        {
-          type: 'docsVersionDropdown',
-          position: 'left',
-        },
         {
           href: 'https://github.com/cnoe-io/ai-platform-engineering',
           label: '⭐ Star Repo',
@@ -279,7 +277,7 @@ const config: Config = {
       ],
     },
     mermaid: {
-      theme: {dark: 'forest'},
+      theme: {light: 'neutral', dark: 'dark'},
     },
   } satisfies Preset.ThemeConfig,
 

@@ -119,6 +119,12 @@ const HOME_FEATURES = [
     to: '/features',
   },
   {
+    icon: '🛡️',
+    title: 'Ready-to-Use SRE Agent',
+    description: 'A pre-built SRE agent teams can deploy immediately and customize for their own workflows.',
+    to: '/features',
+  },
+  {
     icon: '🛠️',
     title: 'Custom Agents',
     description: 'Build agents with custom prompts, tools, and personas — no boilerplate.',
@@ -199,27 +205,26 @@ function HeroSection() {
         <div className={styles.heroGrid}>
           {/* Left: copy + CTAs */}
           <div className={styles.heroLeft}>
-            <div className={styles.heroBadge}>
-              Community AI Platform Engineering
-            </div>
-            <Heading as="h1" className={styles.heroTitle}>
-              AI-powered{' '}
-              <span className={styles.heroAccent}>Platform Engineering</span>
+<Heading as="h1" className={styles.heroTitle}>
+              Open source Platform for{' '}
+              <span className={styles.heroAccent}>AI Platform Engineering</span>
             </Heading>
             <p className={styles.heroSubtitle}>
-              CAIPE is an open-source multi-agent system that automates platform
-              operations — incident response, deployments, runbooks, and more —
-              so your team can focus on building.
+              CAIPE is an open source <strong>AI platform</strong> for any size teams to build
+              customizable AI agents and automated agentic
+              workflows wherever your team operates — Web, Slack, Webex, event
+              streams, and more — secured with <strong>strong human and non-human identity
+              and access management</strong>.
             </p>
             <p className={styles.heroPronunciation}>
-              💡 Pronounced like <strong>cape</strong> 🦸 — just as a cape empowers a superhero, CAIPE empowers platform engineers with 🤖 agentic AI automation.
+              💡 Pronounced like <strong>cape</strong> 🦸 — just as a cape empowers a superhero, CAIPE empowers teams with 🤖 agentic AI automation.
             </p>
             <div className={styles.heroButtons}>
               <Link className={styles.heroPrimary} to="/docs/getting-started/quick-start">
                 Get Started →
               </Link>
-              <Link className={styles.heroSecondary} to="/docs">
-                Read the Docs
+              <Link className={styles.heroSecondary} href="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073">
+                Watch a Demo ▶
               </Link>
               <Link className={styles.heroSecondary} href="https://github.com/cnoe-io/ai-platform-engineering">
                 GitHub ↗
@@ -279,16 +284,6 @@ function HeroSection() {
             <span className={styles.heroStatLabel}>Apache 2.0</span>
           </div>
           <a
-            href="https://github.com/cncf/sandbox/issues/475"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.heroStat}
-            style={{textDecoration: 'none'}}
-          >
-            <span className={styles.heroStatNumber}>CNCF</span>
-            <span className={styles.heroStatLabel}>Sandbox Candidate</span>
-          </a>
-          <a
             href="https://github.com/cnoe-io/ai-platform-engineering"
             target="_blank"
             rel="noopener noreferrer"
@@ -310,10 +305,10 @@ function FeaturesSection() {
       <div className={styles.sectionHeader}>
         <p className={styles.sectionLabel}>Why CAIPE</p>
         <Heading as="h2" className={styles.sectionTitle}>
-          Built for platform teams
+          Built for teams of all sizes
         </Heading>
         <p className={styles.sectionSubtitle}>
-          From incident response to deployments — CAIPE turns manual platform ops into intelligent agentic workflows.
+          Platform Engineering, SRE, Developers, Product Managers — custom agents, skills, knowledge bases, and BYO MCP servers, natively in the cloud-native ecosystem, secured with human and non-human IAM, powered by your choice of LLM.
         </p>
       </div>
       <div className={styles.featuresGrid}>
@@ -460,29 +455,35 @@ function VisionSection() {
 }
 
 
+function VideoSection() {
+  return (
+    <section className={styles.quickstart}>
+      <div className={styles.quickstartInner}>
+        <div className={styles.sectionHeader} style={{textAlign: 'left', marginBottom: '1.5rem'}}>
+          <p className={styles.sectionLabel}>See It In Action</p>
+          <Heading as="h2" className={styles.sectionTitle}>
+            Watch the demo
+          </Heading>
+        </div>
+        <div style={{position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', borderRadius: '12px'}}>
+          <iframe
+            src="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073"
+            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 0}}
+            allowFullScreen
+            title="CAIPE Demo"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CtaSection() {
   return (
     <section className={styles.cta}>
-      <Heading as="h2" className={styles.ctaTitle}>
-        Built by the platform engineering community, for the community
-      </Heading>
-      <p className={styles.ctaSubtitle}>
-        An open-source project built by platform engineers, for platform engineers.
-        Governed under the{' '}
-        <a
-          href="https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={styles.ctaLink}
-        >
-          CNOE Agentic AI SIG
-        </a>
-        {' '}— a community focused on platform engineering through shared guidance,
-        tooling, and IDP reference architectures.
-      </p>
       <div className={styles.ctaButtons}>
         <Link className={styles.heroPrimary} to="/community">
-          Join the Community
+          Get Involved
         </Link>
         <Link
           className={styles.heroSecondary}
@@ -504,6 +505,7 @@ export default function Home() {
     >
       <main>
         <HeroSection />
+        <VideoSection />
         <InTheWildSection />
         <VisionSection />
         <FeaturesSection />

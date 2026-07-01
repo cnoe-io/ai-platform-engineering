@@ -56,6 +56,19 @@ CAIPE follows these principles:
 - **Test-Driven** - Comprehensive testing with evaluations
 - **Production-Ready** - Docker, Kubernetes, and CI/CD support
 
+## 🏅 Contribution Badges
+
+CAIPE recognizes your journey with four badge levels — from running your first multi-agent setup to deploying at production scale and mentoring others.
+
+| Badge | Level | How to Earn |
+|-------|-------|-------------|
+| 🧑‍🚀 **Explorer** | 1 | Run the multi-agent system with at least one use case |
+| 🔧 **Improver** | 2 | Customize agents, add RAG, integrate tracing and evaluations |
+| 🧠 **Expert** | 3 | Zero-trust deployment, agent gateways, OSS contributions |
+| 🥋 **Master** | 4 | Production-scale deployment, mentorship, pioneering new patterns |
+
+See the full badge guide and how to claim yours → [Contributing & Badges](../contributing/index.md#-contribution-badges)
+
 ## 🤝 Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/cnoe-io/ai-platform-engineering/issues)

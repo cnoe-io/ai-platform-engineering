@@ -31,7 +31,7 @@ sequenceDiagram
 
     rect rgb(240, 248, 255)
         Note over AGW,Keycloak: AgentGateway — jwtAuth (runs before ext_authz)
-        AGW->>Keycloak: Fetch JWKS (cached; refreshed on key rotation)
+        AGW->>Keycloak: Fetch JWKS (cached, refreshed on key rotation)
         Keycloak-->>AGW: Public keys
         Note over AGW: Verify JWT signature (RS256)<br/>Check exp, iss, aud<br/>→ 401 Unauthorized if any check fails
         Note over AGW: Decode JWT claims into<br/>caipe.auth gRPC metadata<br/>(bearer NOT forwarded to bridge in this path)
