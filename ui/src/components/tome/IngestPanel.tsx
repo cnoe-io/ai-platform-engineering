@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Loader2,
   Play,
+  Scissors,
   Search,
   Sprout,
   Square,
@@ -232,6 +233,7 @@ export function IngestPanel({
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [seed, setSeed] = useState("");
   const [starting, setStarting] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runsOpen, setRunsOpen] = useState(false);
@@ -409,6 +411,32 @@ export function IngestPanel({
       setStarting(false);
     }
   }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, refreshChildren, isBhag]);
+
+  // Compaction — an in-place editing pass (tighten prose, fix stale tome:// links).
+  // Its own run through the shared lifecycle; shows in the same log + history.
+  const compact = useCallback(async () => {
+    setCompacting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/tome/projects/${slug}/compact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seed: seed.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || `compaction failed (${res.status})`);
+      }
+      const json = await res.json();
+      setSeed("");
+      await loadRuns();
+      onRunStarted(json.data.runId);
+    } catch (e) {
+      setError(String((e as Error)?.message ?? e));
+    } finally {
+      setCompacting(false);
+    }
+  }, [slug, seed, loadRuns, onRunStarted]);
 
   const lastRun = runs?.[0] ?? null;
   const filteredMeetings = (meetings ?? []).filter((m) =>
@@ -724,7 +752,7 @@ export function IngestPanel({
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void start()}
-                disabled={!canEdit || starting || inProgress}
+                disabled={!canEdit || starting || compacting || inProgress}
                 title={
                   !canEdit
                     ? `You need edit access to ${isBhag ? "synthesize" : "run an ingest"}`
@@ -741,6 +769,27 @@ export function IngestPanel({
                   <Play className="h-4 w-4" />
                 )}
                 {starting ? "Starting…" : isBhag ? "Synthesize" : "Run ingest"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void compact()}
+                disabled={!canEdit || starting || compacting || inProgress || isGreenfield}
+                title={
+                  !canEdit
+                    ? "You need edit access to compact"
+                    : isGreenfield
+                      ? "Run an ingest first — there's nothing to compact yet"
+                      : inProgress
+                        ? "A run is already in progress"
+                        : "Tighten the wiki's prose and fix stale links"
+                }
+              >
+                {compacting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Scissors className="h-4 w-4" />
+                )}
+                {compacting ? "Compacting…" : "Compact"}
               </Button>
               {inProgress && (
                 <Button

@@ -34,6 +34,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
+from tome_agent.agent.compact import stream_compaction
 from tome_agent.agent.ingestor import stream_ingest
 from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
@@ -205,6 +206,41 @@ async def ingest_endpoint(body: IngestRequest):
                     snapshot=body.snapshot,
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,
+                    report_id=body.report_id,
+                ):
+                    yield _sse_format(event)
+        finally:
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(timezone.utc)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ---------- compaction (in-place wiki editing pass) ----------
+
+
+@app.post("/compact")
+async def compact_endpoint(body: IngestRequest):
+    """Compaction: tighten the prose of a project's dynamic wiki pages and fix
+    stale `tome://` links. An in-place editing pass — it pulls no sources and
+    removes no pages. Holds the project lock and refreshes the on-disk wiki first,
+    like `/ingest`."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        pid = body.snapshot.project_id
+        http_client.set_active_project_id(pid)
+        http_client.set_active_credentials(body.credentials)
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(timezone.utc)
+        try:
+            async with workspace.project_lock(pid):
+                await workspace.refresh_project(pid)
+                async for event in stream_compaction(
+                    run_id=body.run_id,
+                    seed=body.seed,
+                    snapshot=body.snapshot,
                     report_id=body.report_id,
                 ):
                     yield _sse_format(event)

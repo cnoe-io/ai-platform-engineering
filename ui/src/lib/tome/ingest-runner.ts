@@ -203,15 +203,20 @@ async function prepareRun(
   const connectorData: Record<string, unknown> =
     meetings.length > 0 ? { webex: { meetings } } : {};
 
+  // A BHAG carries its child projects so the agent can read their wikis: synthesis
+  // builds from them, compaction uses them as ground truth when tightening pages
+  // and checking references.
+  const endpoint = dispatch.endpoint || "/ingest";
   const isBhag = project.type === "bhag";
   const childProjects = isBhag ? await resolveBhagChildren(project.name) : [];
   if (isBhag) {
+    const verb = endpoint === "/synthesize" ? "synthesis" : "compaction";
     await appendLog(
       runId,
       infoLine(
         childProjects.length
-          ? `BHAG synthesis over ${childProjects.length} project(s): ${childProjects.map((c) => c.slug).join(", ")}`
-          : "BHAG synthesis: no projects are tagged to this goal yet",
+          ? `BHAG ${verb} with ${childProjects.length} child project(s): ${childProjects.map((c) => c.slug).join(", ")}`
+          : `BHAG ${verb}: no projects are tagged to this goal yet`,
       ),
     );
   }
@@ -227,7 +232,7 @@ async function prepareRun(
     childProjects,
   });
 
-  return { projectId, reportId, req, endpoint: dispatch.endpoint || "/ingest" };
+  return { projectId, reportId, req, endpoint };
 }
 
 /** Mark a run failed (used when prep fails before the stream starts). */
