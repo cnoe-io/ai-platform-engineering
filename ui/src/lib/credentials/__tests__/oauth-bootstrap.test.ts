@@ -71,6 +71,11 @@ describe("OAuth connector env bootstrap", () => {
         "spark:messages_read",
         "spark:mcp",
         "spark-admin:people_read",
+        "spark:rooms_read",
+        "spark:memberships_read",
+        "meeting:schedules_read",
+        "meeting:transcripts_read",
+        "meeting:summaries_read",
       ],
     });
     expect(inputs[3]).toMatchObject({
