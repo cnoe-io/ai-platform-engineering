@@ -35,12 +35,29 @@ interface TaskFormDialogProps {
   onOpenChange: (open: boolean) => void;
   /** When provided we render in "edit" mode. */
   task?: AutonomousTask | null;
+  /**
+   * Pre-select this dynamic agent in *create* mode (e.g. launched from an
+   * agent row's "+ Add autonomous task"). Ignored when `task` is provided
+   * (edit mode round-trips the task's own agent).
+   */
+  initialAgentId?: string | null;
   onSubmit: (task: AutonomousTask) => Promise<void>;
 }
 
-export function TaskFormDialog({ open, onOpenChange, task, onSubmit }: TaskFormDialogProps) {
+function seededFormState(
+  task: AutonomousTask | null | undefined,
+  initialAgentId: string | null | undefined,
+): TaskFormState {
+  const state = toFormState(task);
+  if (!task && initialAgentId) {
+    state.dynamic_agent_id = initialAgentId;
+  }
+  return state;
+}
+
+export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, onSubmit }: TaskFormDialogProps) {
   const isEdit = Boolean(task);
-  const [form, setForm] = useState<TaskFormState>(() => toFormState(task));
+  const [form, setForm] = useState<TaskFormState>(() => seededFormState(task, initialAgentId));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { agents: agentOptions, loading: agentsLoading, error: agentsError } = useDynamicAgents();
@@ -50,11 +67,11 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit }: TaskFormD
   // A's fields.
   useEffect(() => {
     if (open) {
-      setForm(toFormState(task));
+      setForm(seededFormState(task, initialAgentId));
       setError(null);
       setSubmitting(false);
     }
-  }, [open, task]);
+  }, [open, task, initialAgentId]);
 
   const update = <K extends keyof TaskFormState>(key: K, value: TaskFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));

@@ -252,6 +252,9 @@
         "searcher": {
           "this": {}
         },
+        "automation_eligible": {
+          "this": {}
+        },
         "can_use": {
           "union": {
             "child": [
@@ -311,6 +314,22 @@
               {
                 "computedUserset": {
                   "relation": "searcher"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              }
+            ]
+          }
+        },
+        "can_automate": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "automation_eligible"
                 }
               },
               {
@@ -523,6 +542,18 @@
             ]
           },
           "searcher": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "automation_eligible": {
             "directly_related_user_types": [
               {
                 "type": "team",
@@ -1267,6 +1298,9 @@
         "auditor": {
           "this": {}
         },
+        "automator": {
+          "this": {}
+        },
         "can_discover": {
           "computedUserset": {
             "relation": "can_read"
@@ -1377,6 +1411,22 @@
               {
                 "computedUserset": {
                   "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        },
+        "can_schedule": {
+          "intersection": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "automator"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_use"
                 }
               }
             ]
@@ -1505,6 +1555,18 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "automator": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",

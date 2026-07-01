@@ -90,11 +90,16 @@ type organization
     # checks; holding `can_call` alone does NOT grant search.
     # assisted-by Cursor claude-opus-4.8
     define searcher: [team#member, team#admin]
+    # Autonomous eligibility. Granted to teams only,
+    # by org admins. Precondition for enabling any agent for a team; deleting
+    # this tuple cascades to revoke the team's agent#automator grants.
+    define automation_eligible: [team#member, team#admin]
     define can_use: member or admin
     define can_manage: admin
     define can_audit: auditor or admin
     define can_ingest: ingestor or admin
     define can_search: searcher or admin
+    define can_automate: automation_eligible or admin
     define can_read_self: member or admin
     define can_manage_self: member or admin
     define can_search_directory: member or admin
@@ -163,6 +168,7 @@ type agent
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
+    define automator: [team#member, team#admin]
     define can_discover: can_read
     define can_read: reader or can_use or can_manage or owner
     define can_use: user or can_write or can_manage or owner
@@ -170,6 +176,7 @@ type agent
     define can_delete: can_manage
     define can_manage: manager or owner
     define can_audit: auditor or can_manage
+    define can_schedule: automator and can_use
 
 type mcp_server
   relations

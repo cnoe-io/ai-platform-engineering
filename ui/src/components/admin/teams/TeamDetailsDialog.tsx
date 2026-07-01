@@ -3,6 +3,7 @@
 import { IngestCapabilityToggle } from "@/components/admin/shared/IngestCapabilityToggle";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { SearchCapabilityToggle } from "@/components/admin/shared/SearchCapabilityToggle";
+import { AutomationCapabilityToggle } from "@/components/admin/shared/AutomationCapabilityToggle";
 import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1623,6 +1624,14 @@ export function TeamDetailsDialog({
                 may use Search (query + invoke search tools), separate from
                 per-tool sharing and per-KB read grants below. */}
             <SearchCapabilityToggle
+              teamId={currentTeam._id}
+              teamName={currentTeam.name}
+            />
+
+            {/* Autonomous eligibility — org-admin gate
+                for whether this team may operate autonomous agents at all. Team
+                admins then enable individual agents from the agent list. */}
+            <AutomationCapabilityToggle
               teamId={currentTeam._id}
               teamName={currentTeam.name}
             />

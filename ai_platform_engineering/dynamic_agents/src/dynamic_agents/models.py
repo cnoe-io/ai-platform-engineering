@@ -628,6 +628,13 @@ class ChatRequest(BaseModel):
     agent_id: str = Field(..., description="Dynamic agent config ID")
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
+    autonomous: bool = Field(
+        False,
+        description=(
+            "True when the scheduler/webhook runtime drives this call unattended. "
+            "Adds a can_schedule authorization check on top of can_use."
+        ),
+    )
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
     config_override: dict | None = Field(
         None,

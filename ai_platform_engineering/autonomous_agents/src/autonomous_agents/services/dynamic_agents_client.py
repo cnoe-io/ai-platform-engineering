@@ -41,10 +41,23 @@ _service_token_cache: tuple[str, float] | None = None
 __all__ = [
     "DynamicAgentsClientError",
     "DynamicAgentsNotConfiguredError",
+    "DynamicAgentsScheduleRevokedError",
     "invoke_dynamic_agent",
     "invoke_dynamic_agent_streaming",
     "preflight_dynamic_agent",
 ]
+
+
+def _is_schedule_revoked(status_code: int, body_text: str) -> bool:
+    """True when a 403 response carries the DA deny code ``agent#schedule``."""
+    if status_code != 403:
+        return False
+    try:
+        payload = json.loads(body_text)
+    except (ValueError, TypeError):
+        return False
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    return isinstance(detail, dict) and detail.get("code") == "agent#schedule"
 
 
 def _build_prompt_with_context(prompt: str, context: dict[str, Any] | None) -> str:
@@ -75,6 +88,12 @@ class DynamicAgentsNotConfiguredError(DynamicAgentsClientError):
     generic transport failure: the operator just needs to set the env
     var and restart.
     """
+
+
+class DynamicAgentsScheduleRevokedError(DynamicAgentsClientError):
+    """Raised when DA denies a scheduled run with code ``agent#schedule`` — the
+    owner's autonomous grant (team eligibility or per-agent enablement) was
+    revoked. The scheduler auto-pauses the task on this."""
 
 
 # ----------------------------------------------------------------------
@@ -251,6 +270,7 @@ async def invoke_dynamic_agent(
         "conversation_id": conversation_id,
         "agent_id": agent_id,
         "trace_id": task_id,
+        "autonomous": True,
     }
 
     logger.info(
@@ -284,6 +304,10 @@ async def invoke_dynamic_agent(
         raise DynamicAgentsClientError(
             f"dynamic-agents service has no agent with id '{agent_id}' "
             f"(HTTP 404 from {url})."
+        )
+    if _is_schedule_revoked(resp.status_code, resp.text):
+        raise DynamicAgentsScheduleRevokedError(
+            f"autonomous access revoked for agent '{agent_id}'"
         )
     if resp.status_code >= 400:
         # Avoid logging response body wholesale -- can contain user data.
@@ -549,6 +573,7 @@ async def invoke_dynamic_agent_streaming(
         # Pin the wire format. ``custom`` is what we have a translator
         # for; ``agui`` would need its own translation table.
         "protocol": "custom",
+        "autonomous": True,
     }
 
     logger.info(
@@ -587,6 +612,10 @@ async def invoke_dynamic_agent_streaming(
                     )
                 if response.status_code >= 400:
                     await response.aread()
+                    if _is_schedule_revoked(response.status_code, response.text):
+                        raise DynamicAgentsScheduleRevokedError(
+                            f"autonomous access revoked for agent '{agent_id}'"
+                        )
                     raise DynamicAgentsClientError(
                         f"dynamic-agents service returned HTTP "
                         f"{response.status_code} for agent '{agent_id}' on {url}."

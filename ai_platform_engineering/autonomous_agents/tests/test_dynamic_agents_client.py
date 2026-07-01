@@ -590,3 +590,24 @@ class TestOwnerEmailInRequests:
         call_headers = client.stream.call_args.kwargs["headers"]
         context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
         assert "sub" not in context
+
+
+class TestAutonomousFlag:
+    """Both request bodies mark the run as autonomous so DA enforces can_schedule"""
+
+    @pytest.mark.asyncio
+    async def test_sync_body_sets_autonomous_true(self, configured):
+        factory, client = _mock_async_client(_resp(200, {"success": True, "content": "ok"}))
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent(prompt="hi", task_id="t1", agent_id="agent-x")
+        body = client.post.await_args.kwargs["json"]
+        assert body["autonomous"] is True
+
+    @pytest.mark.asyncio
+    async def test_streaming_body_sets_autonomous_true(self, configured):
+        response = _stream_response(200, _sse("done", {}))
+        factory, client = _mock_streaming_client(response)
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent_streaming(prompt="hi", task_id="t1", agent_id="agent-x")
+        body = client.stream.call_args.kwargs["json"]
+        assert body["autonomous"] is True

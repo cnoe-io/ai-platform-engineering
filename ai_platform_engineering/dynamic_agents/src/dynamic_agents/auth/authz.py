@@ -94,14 +94,17 @@ class _CasMetaError(Exception):
         self.status_code = status_code
 
 
-async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bearer: str) -> bool:
-    """Ask CAS whether `subject` may use `agent_id`.
+async def _decide_agent_action(
+    subject_type: str, subject: str, agent_id: str, bearer: str, action: str = "use"
+) -> bool:
+    """Ask CAS whether `subject` may perform `action` on `agent_id`.
 
-    Forwards the caller's bearer (OBO) so CAS's subject-binding (caller == subject)
-    is satisfied; CAS evaluates the capability and the org-admin bypass. A DENY is
-    a 200 with ``decision: DENY``; any non-200 raises ``_CasMetaError`` (carrying
-    the upstream status) and missing config raises ``RuntimeError`` — either way
-    the caller fails closed."""
+    ``action`` is a CAS verb (e.g. ``use`` for interactive chat, ``schedule`` for
+    unattended/autonomous runs). Forwards the caller's bearer (OBO) so CAS's
+    subject-binding (caller == subject) is satisfied; CAS evaluates the capability
+    and the org-admin bypass. A DENY is a 200 with ``decision: DENY``; any non-200
+    raises ``_CasMetaError`` (carrying the upstream status) and missing config
+    raises ``RuntimeError`` — either way the caller fails closed."""
     base = _authz_service_url()
     if not base:
         raise RuntimeError("AUTHZ_SERVICE_URL is not configured")
@@ -112,7 +115,7 @@ async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bear
     body = {
         "subject": {"type": subject_type, "id": subject},
         "resource": {"type": "agent", "id": agent_id},
-        "action": "use",
+        "action": action,
     }
     async with httpx.AsyncClient(timeout=5.0) as client:
         response = await client.post(f"{base}{_DECISIONS_PATH}", headers=headers, json=body)
@@ -121,13 +124,21 @@ async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bear
     return response.json().get("decision") == "ALLOW"
 
 
-async def require_agent_use_permission(
-    agent_id: str, delegated_user_sub: str | None = None
+async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bearer: str) -> bool:
+    """Back-compat thin alias for the ``use`` action."""
+    return await _decide_agent_action(subject_type, subject, agent_id, bearer, action="use")
+
+
+async def _require_agent_action(
+    agent_id: str, action: str, deny_code: str, delegated_user_sub: str | None = None
 ) -> None:
-    """Require the current bearer's subject to be allowed to use ``agent_id``.
+    """Require the current bearer's subject to be allowed to perform ``action`` on
+    ``agent_id``. Shared body for :func:`require_agent_use_permission` (action
+    ``use``) and :func:`require_agent_schedule_permission` (action ``schedule``).
 
     Delegates the decision to CAS (the single PDP). Raises ``HTTPException`` with a
-    structured detail on deny (403) or any meta-failure (400/401/503).
+    structured detail on deny (403, code ``deny_code``) or any meta-failure
+    (400/401/503).
 
     ``delegated_user_sub`` supports unattended, on-behalf-of execution: the
     autonomous scheduler authenticates as a service principal but runs each task
@@ -166,14 +177,14 @@ async def require_agent_use_permission(
         subject_type, subject = "user", delegated_user_sub
 
     try:
-        allowed = await _decide_agent_use(subject_type, subject, agent_id, token)
+        allowed = await _decide_agent_action(subject_type, subject, agent_id, token, action=action)
     except _CasMetaError as exc:
         # A definitive 4xx from CAS (e.g. 403 subject-binding, 400 bad request, 401)
         # is not transient — surface it as the same status so the caller sees a
         # real "denied / misconfigured" signal instead of a misleading
         # "retry later". Transient 5xx (and anything else below) stays 503/retry.
         if 400 <= exc.status_code < 500:
-            logger.warning("CAS agent-use rejected request for agent=%s: HTTP %s", agent_id, exc.status_code)
+            logger.warning("CAS agent-%s rejected request for agent=%s: HTTP %s", action, agent_id, exc.status_code)
             _raise_authz(
                 exc.status_code,
                 "Authorization was refused for this request.",
@@ -181,7 +192,7 @@ async def require_agent_use_permission(
                 "pdp_rejected",
                 "contact_admin",
             )
-        logger.warning("CAS agent-use decision unavailable for agent=%s: %s", agent_id, exc)
+        logger.warning("CAS agent-%s decision unavailable for agent=%s: %s", action, agent_id, exc)
         _raise_authz(
             503,
             "Authorization service is temporarily unavailable. Please try again in a moment.",
@@ -190,7 +201,7 @@ async def require_agent_use_permission(
             "retry",
         )
     except Exception as exc:  # noqa: BLE001 — any other failure to get a decision fails closed
-        logger.warning("CAS agent-use decision unavailable for agent=%s: %s", agent_id, exc)
+        logger.warning("CAS agent-%s decision unavailable for agent=%s: %s", action, agent_id, exc)
         _raise_authz(
             503,
             "Authorization service is temporarily unavailable. Please try again in a moment.",
@@ -200,7 +211,22 @@ async def require_agent_use_permission(
         )
 
     if not allowed:
-        logger.info("CAS denied agent-use: agent=%s", agent_id)
-        _raise_authz(403, "Permission denied", "agent#use", "pdp_denied", "contact_admin")
+        logger.info("CAS denied agent-%s: agent=%s", action, agent_id)
+        _raise_authz(403, "Permission denied", deny_code, "pdp_denied", "contact_admin")
 
-    logger.debug("CAS allowed agent-use: agent=%s", agent_id)
+    logger.debug("CAS allowed agent-%s: agent=%s", action, agent_id)
+
+
+async def require_agent_use_permission(
+    agent_id: str, delegated_user_sub: str | None = None
+) -> None:
+    """Require the current bearer's subject to be allowed to use ``agent_id``"""
+    await _require_agent_action(agent_id, "use", "agent#use", delegated_user_sub)
+
+
+async def require_agent_schedule_permission(
+    agent_id: str, delegated_user_sub: str | None = None
+) -> None:
+    """Require the current bearer's subject to be allowed to *schedule* ``agent_id``
+    for autonomous execution."""
+    await _require_agent_action(agent_id, "schedule", "agent#schedule", delegated_user_sub)

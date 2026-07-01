@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from autonomous_agents.models import (
+    Acknowledgement,
     FollowUpContext,
     TaskDefinition,
     TaskRun,
@@ -31,7 +32,10 @@ from autonomous_agents.services.chat_history import (
     NoopChatHistoryPublisher,
     conversation_id_for_task,
 )
-from autonomous_agents.services.dynamic_agents_client import invoke_dynamic_agent_streaming
+from autonomous_agents.services.dynamic_agents_client import (
+    DynamicAgentsScheduleRevokedError,
+    invoke_dynamic_agent_streaming,
+)
 from autonomous_agents.services.mongo import RunStore
 from autonomous_agents.services.webex_threads import (
     WebexThreadEntry,
@@ -382,6 +386,30 @@ async def execute_task(
             f"({len(events)} events, {len(response)} chars). "
             f"Preview: {response[:120]}..."
         )
+    except DynamicAgentsScheduleRevokedError as exc:
+        # The owner's autonomous grant (team eligibility or per-agent enablement)
+        # was revoked. Fail this run AND auto-pause the task so it stops firing
+        # until a team admin re-enables autonomous for the agent.
+        error_text = (
+            f"{exc} — autonomous execution was disabled for this task. "
+            "Ask a team admin to re-enable autonomous for this agent."
+        )
+        run.status = TaskStatus.FAILED
+        run.error = error_text
+        logger.warning("[%s] Run %s denied (schedule revoked); auto-pausing task", task.id, run_id)
+        try:
+            # Lazy import avoids a circular import (task_lifecycle imports task_runner).
+            from autonomous_agents.services.task_lifecycle import get_task_store
+
+            paused = task.model_copy(
+                update={
+                    "enabled": False,
+                    "last_ack": Acknowledgement.application_failure(str(exc)),
+                }
+            )
+            await get_task_store().update(task.id, paused)
+        except Exception:
+            logger.exception("[%s] Failed to auto-pause task after schedule revoke", task.id)
     except Exception as e:
         error_text = str(e)
         run.status = TaskStatus.FAILED

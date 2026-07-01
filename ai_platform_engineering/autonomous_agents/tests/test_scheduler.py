@@ -829,3 +829,45 @@ class TestHotReload:
         scheduler = get_scheduler()
         assert {j.id for j in scheduler.get_jobs()} == {"t1", "t2"}
         assert scheduler.running is True
+
+
+class TestAutoPauseOnScheduleRevoke:
+    """A scheduled run denied with agent#schedule (owner's autonomous grant
+    revoked) fails the run AND auto-pauses the task"""
+
+    async def test_schedule_revoked_disables_task_and_fails_run(
+        self, store: _DictRunStore, task: TaskDefinition
+    ):
+        from autonomous_agents.services.dynamic_agents_client import (
+            DynamicAgentsScheduleRevokedError,
+        )
+
+        updated: dict = {}
+
+        class _FakeTaskStore:
+            async def update(self, task_id, new_task):
+                updated["task_id"] = task_id
+                updated["task"] = new_task
+                return new_task
+
+        with (
+            patch(
+                "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+                new=AsyncMock(
+                    side_effect=DynamicAgentsScheduleRevokedError(
+                        "autonomous access revoked for agent 'agent-x'"
+                    )
+                ),
+            ),
+            patch(
+                "autonomous_agents.services.task_lifecycle.get_task_store",
+                return_value=_FakeTaskStore(),
+            ),
+        ):
+            run = await execute_task(task)
+
+        assert run.status == TaskStatus.FAILED
+        assert "revoked" in (run.error or "").lower()
+        # Auto-paused: the task was persisted with enabled=False.
+        assert updated["task_id"] == task.id
+        assert updated["task"].enabled is False
