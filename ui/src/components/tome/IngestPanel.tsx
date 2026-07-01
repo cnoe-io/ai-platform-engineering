@@ -760,7 +760,7 @@ export function IngestPanel({
 
           {/* Run bar */}
           <div className="rounded-lg border px-4 py-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <Button
                 onClick={() => void start()}
                 disabled={!canEdit || starting || compacting || inProgress}
