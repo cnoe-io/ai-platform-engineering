@@ -12,6 +12,8 @@ export interface UserDetailModalProps {
   onClose: () => void;
   onSaved: () => void;
   readOnly?: boolean;
+  /** Pre-loaded team list from the parent page — skips the /api/admin/teams fetch. */
+  teamOptions?: Array<{ teamId: string; label: string }>;
 }
 
 type ProfileUser = {
@@ -164,6 +166,7 @@ export function UserDetailModal({
   onClose,
   onSaved,
   readOnly = false,
+  teamOptions: teamOptionsProp,
 }: UserDetailModalProps) {
   const { update: updateSession } = useSession();
   const [mounted, setMounted] = useState(false);
@@ -171,11 +174,12 @@ export function UserDetailModal({
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [user, setUser] = useState<ProfileUser | null>(null);
-  // Team picker options (non-readonly only)
-  const [teamOptionsLoading, setTeamOptionsLoading] = useState(!readOnly);
-  const [teamOptions, setTeamOptions] = useState<
+  // Team picker options — use prop if provided, otherwise fetch
+  const [teamOptionsLoading, setTeamOptionsLoading] = useState(!readOnly && !teamOptionsProp);
+  const [teamOptionsFetched, setTeamOptionsFetched] = useState<
     Array<{ teamId: string; label: string }>
   >([]);
+  const teamOptions = teamOptionsProp ?? teamOptionsFetched;
   const [addTeamValue, setAddTeamValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -204,6 +208,7 @@ export function UserDetailModal({
   }, [userId]);
 
   const loadTeams = useCallback(async () => {
+    if (teamOptionsProp) return; // parent already supplied the list
     const teamsRes = await fetch("/api/admin/teams");
     const teamsJson = (await readJson(teamsRes)) as {
       success?: boolean;
@@ -214,7 +219,7 @@ export function UserDetailModal({
       teamsJson?.success &&
       Array.isArray(teamsJson.data?.teams)
     ) {
-      setTeamOptions(
+      setTeamOptionsFetched(
         teamsJson.data.teams
           .map((t) => {
             const name = typeof t.name === "string" ? t.name.trim() : "";
@@ -224,9 +229,9 @@ export function UserDetailModal({
           .filter((x): x is { teamId: string; label: string } => x != null)
       );
     } else {
-      setTeamOptions([]);
+      setTeamOptionsFetched([]);
     }
-  }, []);
+  }, [teamOptionsProp]);
 
   const loadAccess = useCallback(async () => {
     setAccessError(null);
@@ -279,7 +284,7 @@ export function UserDetailModal({
     setAccess(null);
     setAccessLoading(true);
     setAccessError(null);
-    if (!readOnly) setTeamOptionsLoading(true);
+    if (!readOnly && !teamOptionsProp) setTeamOptionsLoading(true);
 
     refreshProfile()
       .catch((e) => {
@@ -290,7 +295,7 @@ export function UserDetailModal({
         if (!cancelled) setProfileLoading(false);
       });
 
-    if (!readOnly) {
+    if (!readOnly && !teamOptionsProp) {
       loadTeams().finally(() => {
         if (!cancelled) setTeamOptionsLoading(false);
       });
