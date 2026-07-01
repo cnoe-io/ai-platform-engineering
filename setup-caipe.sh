@@ -7475,6 +7475,15 @@ cmd_cleanup() {
     log "No vLLM release found"
   fi
 
+  # Remaining releases (caipe-mongodb, caipe-postgres, etc.). The app tier is
+  # uninstalled above, so these databases are removed last.
+  for _rel in $(helm list -n caipe -q 2>/dev/null); do
+    if ask_yn "Uninstall '${_rel}' Helm release?" "y"; then
+      helm uninstall "$_rel" -n caipe 2>/dev/null || true
+      log "${_rel} uninstalled"
+    fi
+  done
+
   # LiteLLM proxy (deployed via kubectl, not Helm)
   if kubectl get deployment litellm-proxy -n caipe &>/dev/null; then
     if ask_yn "Delete LiteLLM proxy resources?" "y"; then
@@ -7556,6 +7565,15 @@ cmd_cleanup() {
 
   step "Kubernetes resources"
 
+  local caipe_job_count
+  caipe_job_count=$(kubectl get jobs -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$caipe_job_count" -gt 0 ]]; then
+    if ask_yn "Delete all jobs in caipe namespace ($caipe_job_count jobs)?" "y"; then
+      kubectl delete jobs --all -n caipe 2>/dev/null || true
+      log "Jobs in caipe namespace deleted"
+    fi
+  fi
+
   if kubectl get secret llm-secret -n caipe &>/dev/null || kubectl get secret langfuse-secret -n caipe &>/dev/null; then
     if ask_yn "Delete all secrets in caipe namespace?" "y"; then
       # Exclude Helm release-tracking secrets (type helm.sh/release.v1). Wiping
@@ -7629,6 +7647,14 @@ cmd_cleanup() {
       fi
     else
       log "No Kind clusters found"
+    fi
+  fi
+
+  if [[ -f "$CAIPE_CONFIG_FILE" ]]; then
+    step "Saved configuration"
+    if ask_yn "Delete saved config ($CAIPE_CONFIG_FILE)?" "y"; then
+      rm -f "$CAIPE_CONFIG_FILE"
+      log "Saved configuration deleted"
     fi
   fi
 
