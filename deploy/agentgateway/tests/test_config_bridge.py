@@ -444,6 +444,34 @@ def test_default_mcp_route_policies_forward_request_body() -> None:
     }
 
 
+def test_default_ext_authz_host_defaults_to_compose_service() -> None:
+    # The default matches the Docker Compose service name so local dev keeps
+    # working with no extra env. The Helm chart overrides it (see below).
+    assert bridge.DEFAULT_MCP_ROUTE_POLICIES["extAuthz"]["host"] == "openfga-authz-bridge:9100"
+
+
+def test_ext_authz_host_honors_env_override(monkeypatch) -> None:
+    # Regression: in a release-name-prefixed Helm deploy the authz bridge is
+    # `<release>-openfga-authz-bridge`. The bare default resolves to nothing, so
+    # the fail-closed `denyWithStatus: 403` rejected every discovered-server MCP
+    # call. The chart now passes AGENTGATEWAY_AUTHZ_HOST; the module must read it.
+    monkeypatch.setenv("AGENTGATEWAY_AUTHZ_HOST", "caipe-openfga-authz-bridge:9100")
+    module_name = "agentgateway_config_bridge_reload"
+    spec = importlib.util.spec_from_file_location(module_name, BRIDGE_PATH)
+    assert spec is not None and spec.loader is not None
+    reloaded = importlib.util.module_from_spec(spec)
+    # Register before exec so the module's dataclasses can resolve cls.__module__.
+    sys.modules[module_name] = reloaded
+    try:
+        spec.loader.exec_module(reloaded)
+        assert (
+            reloaded.DEFAULT_MCP_ROUTE_POLICIES["extAuthz"]["host"]
+            == "caipe-openfga-authz-bridge:9100"
+        )
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> None:
     # knowledge-base (RAG) enforces its own OIDC auth, so the bridge must apply the
     # same X-CAIPE-Provider-Token -> Authorization rewrite used by github/gitlab.

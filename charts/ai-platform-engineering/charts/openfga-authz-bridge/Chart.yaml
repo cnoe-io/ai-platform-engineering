@@ -2,5 +2,5 @@ apiVersion: v2
 name: openfga-authz-bridge
 description: Envoy ext_authz bridge that adapts AgentGateway authorization checks to OpenFGA
 type: application
-version: 0.5.27
-appVersion: 0.5.27
+version: 0.5.33
+appVersion: 0.5.33

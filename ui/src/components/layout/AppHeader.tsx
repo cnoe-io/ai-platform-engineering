@@ -11,12 +11,6 @@ Popover,
 PopoverContent,
 PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-Tooltip,
-TooltipContent,
-TooltipProvider,
-TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
@@ -40,7 +34,6 @@ ChevronRight,
 Database,
 FileText,
 Home,
-Info,
 KeyRound,
 Loader2,
 Shield,
@@ -85,12 +78,6 @@ const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/workflows",
   "/dynamic-agents",
 ];
-
-const PLATFORM_HEALTH_ADMIN_HREF = "/admin?cat=platform&tab=health";
-
-function openPlatformHealthDashboard(router: ReturnType<typeof useRouter>): void {
-  router.push(PLATFORM_HEALTH_ADMIN_HREF);
-}
 
 function isOnGuardedEditor(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
@@ -219,8 +206,7 @@ export function AppHeader() {
   } = useRAGHealth();
   const {
     status: platformProbeStatus,
-    probes: platformProbes,
-    summary: platformProbeSummary,
+    capabilities: platformCapabilities,
     secondsUntilNextCheck: platformProbeNextCheck,
   } = usePlatformHealthProbes();
 
@@ -258,59 +244,32 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
   const combinedStatusLabel =
-    combinedStatus === "connected" ? "Connected" :
+    combinedStatus === "connected" ? "Healthy" :
     combinedStatus === "checking" ? "Checking" :
-    combinedStatus === "degraded" ? "Needs Attention" :
-    combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-    "Disconnected";
-  const platformProbeGroups = [
-    {
-      id: "core",
-      label: "Dynamic Agent Runtime",
-      description: "The path dynamic agents use to reach tools: AgentGateway plus the config bridge that publishes MCP targets.",
-    },
-    {
-      id: "identity",
-      label: "Identity & Authz",
-      description: "Keycloak sign-in, OpenFGA authorization, and the OpenFGA bridge used by runtime permission checks.",
-    },
-    {
-      id: "bootstrap",
-      label: "Bootstrap & Migrations",
-      description: "Outcome checks for one-time setup: Keycloak realm reconciliation, OpenFGA store/model seeding, and required RBAC migrations.",
-    },
-    {
-      id: "storage",
-      label: "Storage",
-      description: "Databases backing CAIPE, Keycloak, and OpenFGA.",
-    },
-    {
-      id: "rag",
-      label: "RAG & Web Ingestor",
-      description: "Knowledge services, vector-store dependencies, Redis queue readiness, and web ingestor readiness.",
-    },
-  ] as const;
-  const platformProbeIssues = platformProbes.filter((probe) => probe.status !== "healthy");
-  const platformProbeHealthyCount = platformProbes.filter((probe) => probe.status === "healthy").length;
-  const platformProbeIssueCount = platformProbeIssues.length;
+    "Degraded";
+  // assisted-by Codex Codex-sonnet-4-6
+  const activeCapabilities = platformCapabilities.filter(
+    (capability) => capability.status !== "disabled",
+  );
+  const [expandedHealthDetails, setExpandedHealthDetails] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleHealthDetail = React.useCallback((capabilityId: string) => {
+    setExpandedHealthDetails((current) => {
+      const next = new Set(current);
+      if (next.has(capabilityId)) {
+        next.delete(capabilityId);
+      } else {
+        next.add(capabilityId);
+      }
+      return next;
+    });
+  }, []);
   const platformHealthLabel =
     platformProbeStatus === "healthy" ? "Ready" :
-    platformProbeStatus === "degraded" ? "Attention" :
+    platformProbeStatus === "degraded" ? "Degraded" :
     platformProbeStatus === "down" ? "Down" :
     "Checking";
-  const platformHealthTone =
-    platformProbeStatus === "healthy" ? "green" :
-    platformProbeStatus === "down" ? "red" :
-    platformProbeStatus === "checking" ? "muted" :
-    "amber";
-  const statusBadgeClassName = (tone: "green" | "amber" | "red" | "muted") =>
-    cn(
-      "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-      tone === "green" && "border-green-500/25 bg-green-500/10 text-green-500 dark:text-green-400",
-      tone === "amber" && "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-      tone === "red" && "border-red-500/25 bg-red-500/10 text-red-500 dark:text-red-400",
-      tone === "muted" && "border-border bg-muted/40 text-muted-foreground",
-    );
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -441,7 +400,7 @@ export function AppHeader() {
     },
     storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",
-      href: "/credentials",
+      href: "/credentials#connections",
       label: "Credentials",
       Icon: KeyRound,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
@@ -729,323 +688,126 @@ export function AppHeader() {
                 </AnimatePresence>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] max-h-[min(760px,calc(100vh-5rem))] p-0 overflow-hidden border-2">
-              <TooltipProvider delayDuration={150}>
-              <div className="flex max-h-[min(760px,calc(100vh-5rem))] flex-col bg-gradient-to-br from-card via-card to-card/95">
-                {/* Header with gradient */}
-                <div className="gradient-primary-br p-4">
+            <PopoverContent side="bottom" align="end" className="w-80 max-w-[calc(100vw-1rem)] p-0 overflow-hidden">
+              <div className="bg-card">
+                <div className="border-b border-border/60 p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="text-base font-bold text-white mb-1">System Status</div>
-                      <div className="text-xs text-white/80">Dynamic agents, tools, identity, and knowledge services</div>
+                    <div className="min-w-0">
+                      {isAdmin ? (
+                        <GuardedLink
+                          href="/admin?cat=platform&tab=health"
+                          className="inline-flex max-w-full items-center gap-1 rounded-sm text-sm font-semibold text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="Open Admin health status"
+                        >
+                          <span className="truncate">System Status</span>
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        </GuardedLink>
+                      ) : (
+                        <div className="text-sm font-semibold text-foreground">System Status</div>
+                      )}
                     </div>
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        onClick={() => openPlatformHealthDashboard(router)}
-                        title="Open full health dashboard"
-                        className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 backdrop-blur-sm transition-colors hover:bg-white/30"
-                      >
-                        <span className={cn(
-                          "inline-block h-2 w-2 rounded-full transition-colors duration-700",
-                          combinedStatus === "connected" ? "bg-green-400" :
-                          combinedStatus === "checking" ? "bg-amber-400" :
-                          combinedStatus === "degraded" ? "bg-amber-400" :
-                          combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
-                        )} />
-                        <span className="text-xs font-medium text-white">
-                          {combinedStatus === "connected" ? "All Systems Live" :
-                           combinedStatus === "checking" ? "Checking" :
-                           combinedStatus === "degraded" ? "Action Needed" :
-                           combinedStatus === "rag-disconnected" ? "RAG Offline" :
-                           "Issues Detected"}
-                        </span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 backdrop-blur-sm">
-                        <span className={cn(
-                          "inline-block h-2 w-2 rounded-full transition-colors duration-700",
-                          combinedStatus === "connected" ? "bg-green-400" :
-                          combinedStatus === "checking" ? "bg-amber-400" :
-                          combinedStatus === "degraded" ? "bg-amber-400" :
-                          combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
-                        )} />
-                        <span className="text-xs font-medium text-white">
-                          {combinedStatus === "connected" ? "All Systems Live" :
-                           combinedStatus === "checking" ? "Checking" :
-                           combinedStatus === "degraded" ? "Action Needed" :
-                           combinedStatus === "rag-disconnected" ? "RAG Offline" :
-                           "Issues Detected"}
-                        </span>
-                      </div>
-                    )}
+                    <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                      <span className={cn(
+                        "h-2 w-2 rounded-full",
+                        combinedStatus === "connected" && "bg-green-400",
+                        combinedStatus === "checking" && "bg-amber-400",
+                        combinedStatus === "degraded" && "bg-amber-400",
+                        combinedStatus === "rag-disconnected" && "bg-amber-400",
+                        combinedStatus === "disconnected" && "bg-red-400",
+                      )} />
+                      {combinedStatusLabel}
+                    </div>
                   </div>
                 </div>
 
-                <div
-                  data-testid="platform-health-scroll"
-                  className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4"
-                >
-                  <div className="rounded-xl border border-border/70 bg-background/40 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <div className="text-sm font-semibold text-foreground">Platform Health</div>
-                          {isAdmin ? (
-                            <button
-                              type="button"
-                              onClick={() => openPlatformHealthDashboard(router)}
-                              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
-                            >
-                              Full health report
-                              <ChevronRight className="h-3 w-3" />
-                            </button>
-                          ) : null}
-                        </div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">
-                          {platformProbeSummary
-                            ? `${platformProbeSummary.total} checks across dynamic agents, auth, storage, RAG, web ingestor, and migrations`
-                            : "Checking dynamic agents, auth, storage, RAG, web ingestor, and migrations"}
-                        </div>
+                <div className="space-y-3 p-4">
+                  <div className="rounded-lg border border-border/70 bg-muted/25 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Platform
                       </div>
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => openPlatformHealthDashboard(router)}
-                          title="Open full health dashboard"
-                          className={cn(statusBadgeClassName(platformHealthTone), "transition-opacity hover:opacity-90")}
-                        >
-                          {platformProbeSummary
-                            ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
-                            : platformHealthLabel}
-                        </button>
-                      ) : (
-                        <span className={statusBadgeClassName(platformHealthTone)}>
-                          {platformProbeSummary
-                            ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
-                            : platformHealthLabel}
-                        </span>
-                      )}
+                      <div className="text-xs text-muted-foreground">{platformHealthLabel}</div>
                     </div>
-
-                    {platformProbes.length === 0 ? (
-                      <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                        Checking Keycloak, OpenFGA, AgentGateway, RAG, storage, web ingestor readiness, and migrations...
+                    {platformProbeStatus === "checking" && activeCapabilities.length === 0 ? (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Checking capabilities
                       </div>
-                    ) : (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {platformProbeGroups.map((group) => {
-                          const groupProbes = platformProbes.filter((probe) => probe.group === group.id);
-                          if (groupProbes.length === 0) return null;
-                          const downCount = groupProbes.filter((probe) => probe.status === "down").length;
-                          const warningCount = groupProbes.filter((probe) => probe.status === "warning").length;
-                          const groupStatus = downCount > 0 ? "down" : warningCount > 0 ? "warning" : "healthy";
+                    ) : activeCapabilities.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {activeCapabilities.map((capability) => {
+                          const showDetail = capability.status === "degraded" || capability.status === "down";
+                          const expanded = expandedHealthDetails.has(capability.id);
+                          const dot = (
+                            <span className={cn(
+                              "mt-1 h-2 w-2 shrink-0 rounded-full",
+                              capability.status === "healthy" && "bg-green-400",
+                              capability.status === "degraded" && "bg-amber-400",
+                              capability.status === "down" && "bg-red-400",
+                            )} />
+                          );
+
+                          if (!showDetail) {
+                            return (
+                              <div key={capability.id} className="flex items-center justify-between gap-3">
+                                <div className="min-w-0 truncate text-xs font-medium text-foreground">
+                                  {capability.label}
+                                </div>
+                                <span className={cn(
+                                  "h-2 w-2 shrink-0 rounded-full",
+                                  capability.status === "healthy" && "bg-green-400",
+                                )} />
+                              </div>
+                            );
+                          }
+
                           return (
-                            <Tooltip key={group.id}>
-                              <TooltipTrigger asChild>
+                            <div key={capability.id} className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-xs font-medium text-foreground">
+                                  {capability.label}
+                                </div>
                                 <button
                                   type="button"
                                   className={cn(
-                                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium",
-                                    groupStatus === "healthy" && "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400",
-                                    groupStatus === "warning" && "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-                                    groupStatus === "down" && "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400",
+                                    "mt-0.5 block max-w-full rounded-sm text-left text-[11px] leading-snug text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    expanded ? "whitespace-normal break-words" : "overflow-hidden text-ellipsis whitespace-nowrap",
                                   )}
+                                  aria-expanded={expanded}
+                                  aria-label={`${expanded ? "Collapse" : "Expand"} ${capability.label} details`}
+                                  onClick={() => toggleHealthDetail(capability.id)}
                                 >
-                                  <span className={cn(
-                                    "h-1.5 w-1.5 rounded-full",
-                                    groupStatus === "healthy" && "bg-green-400",
-                                    groupStatus === "warning" && "bg-amber-400",
-                                    groupStatus === "down" && "bg-red-400",
-                                  )} />
-                                  {group.label}
-                                  <Info className="h-3 w-3 opacity-70" />
+                                  <span
+                                    className={cn(
+                                      "block max-w-full",
+                                      expanded ? "whitespace-normal break-words" : "overflow-hidden text-ellipsis whitespace-nowrap",
+                                    )}
+                                  >
+                                    {capability.detail}
+                                  </span>
                                 </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-h-80 max-w-[28rem] overflow-y-auto whitespace-normal text-left">
-                                <div className="font-semibold">{group.label}</div>
-                                <div className="mt-1 text-muted-foreground">{group.description}</div>
-                                <div className="mt-1 text-[10px] text-muted-foreground">
-                                  {groupStatus === "healthy"
-                                    ? `${groupProbes.length} checks OK`
-                                    : `${downCount + warningCount} of ${groupProbes.length} need attention`}
-                                </div>
-                                <div className="mt-2 space-y-1.5 border-t border-border/60 pt-2">
-                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                    Probes
-                                  </div>
-                                  {groupProbes.map((probe) => (
-                                    <div key={probe.id} className="rounded bg-muted/35 px-2 py-1.5">
-                                      <div className="flex items-center justify-between gap-2 text-[11px] font-medium">
-                                        <span>{probe.label}</span>
-                                        <span className={cn(
-                                          "shrink-0",
-                                          probe.status === "healthy" && "text-green-500 dark:text-green-400",
-                                          probe.status === "warning" && "text-amber-600 dark:text-amber-400",
-                                          probe.status === "down" && "text-red-500 dark:text-red-400",
-                                        )}>
-                                          {probe.status === "healthy" ? "OK" : probe.status === "warning" ? "Check" : "Down"}
-                                        </span>
-                                      </div>
-                                      <div className="mt-0.5 text-[10px] text-muted-foreground">
-                                        {probe.detail}
-                                        {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
-                                      </div>
-                                      <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-                                        {probe.target}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
+                              </div>
+                              {dot}
+                            </div>
                           );
                         })}
                       </div>
-                    )}
-
-                    {platformProbeIssues.length > 0 ? (
-                      <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2.5">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                            Action needed
-                          </div>
-                          <div className="text-[10px] text-amber-700/80 dark:text-amber-300/80">
-                            {platformProbeHealthyCount} healthy · {platformProbeIssueCount} attention
-                          </div>
-                        </div>
-                        <div className="space-y-1.5">
-                          {platformProbeIssues.slice(0, 3).map((probe) => (
-                            <div
-                              key={probe.id}
-                              title={`${probe.target} — ${probe.detail}`}
-                              className="flex items-center justify-between gap-2 rounded-md bg-background/70 px-2.5 py-2"
-                            >
-                              <div className="min-w-0">
-                                <div className="truncate text-xs font-medium text-foreground">
-                                  {probe.label}
-                                </div>
-                                <div className="truncate text-[10px] text-muted-foreground">
-                                  {probe.detail}
-                                </div>
-                              </div>
-                              {probe.remediation ? (
-                                <button
-                                  type="button"
-                                  onClick={() => router.push(probe.remediation!.href)}
-                                  className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90"
-                                  title={probe.remediation.description}
-                                >
-                                  {probe.remediation.label}
-                                </button>
-                              ) : (
-                                <span className={statusBadgeClassName(probe.status === "warning" ? "amber" : "red")}>
-                                  {probe.status === "warning" ? "Check" : "Down"}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                          {platformProbeIssues.length > 3 && (
-                            <div className="px-1 text-[10px] text-muted-foreground">
-                              {platformProbeIssues.length - 3} more checks need attention.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : platformProbes.length > 0 ? (
-                      <div className="mt-3 rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-xs text-muted-foreground">
-                        All critical checks are ready.
-                      </div>
-                    ) : null}
-
-                    {platformProbes.length > 0 && (
-                      <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto] bg-muted/30 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          <span>Probe</span>
-                          <span>Status</span>
-                        </div>
-                        <div
-                          data-testid="platform-health-probe-list"
-                          className="max-h-48 divide-y divide-border/60 overflow-y-auto overscroll-contain"
-                        >
-                          {platformProbes.map((probe) => (
-                            <Tooltip key={probe.id}>
-                              <TooltipTrigger asChild>
-                                <div className="grid cursor-help grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 hover:bg-muted/30">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-xs font-medium text-foreground">
-                                      {probe.label}
-                                    </div>
-                                    <div className="truncate text-[10px] text-muted-foreground">
-                                      {probe.detail}
-                                      {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
-                                    </div>
-                                  </div>
-                                  <span className={statusBadgeClassName(
-                                    probe.status === "healthy" ? "green" : probe.status === "warning" ? "amber" : "red",
-                                  )}>
-                                    {probe.status === "healthy" ? "OK" : probe.status === "warning" ? "Check" : "Down"}
-                                  </span>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="left" className="max-w-96 whitespace-normal text-left">
-                                <div className="font-semibold">{probe.label}</div>
-                                <div className="mt-1 text-muted-foreground">Validation: {probe.detail}</div>
-                                <div className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                  Probe target
-                                </div>
-                                <div className="mt-2 break-all rounded bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">
-                                  {probe.target}
-                                </div>
-                                {probe.remediation && (
-                                  <div className="mt-2 text-[10px] text-muted-foreground">
-                                    Action: {probe.remediation.description}
-                                  </div>
-                                )}
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
-                        </div>
+                    ) : (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        No active platform capabilities reported.
                       </div>
                     )}
-
-                    <div className="mt-2 text-right text-[10px] font-mono text-muted-foreground">
-                      Next probe: {platformProbeNextCheck}s
-                      {isAdmin ? (
-                        <>
-                          {" · "}
-                          <button
-                            type="button"
-                            onClick={() => openPlatformHealthDashboard(router)}
-                            className="font-sans font-medium text-primary hover:underline"
-                          >
-                            Open health dashboard
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
                   </div>
                 </div>
 
-                {/* Footer */}
-                <div className="px-4 py-2.5 bg-muted/20 border-t border-border/50 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                      <span>Health checks active (30s interval)</span>
-                    </div>
-                    <div className="text-muted-foreground">
-                      {combinedStatus === "connected" ? "All systems operational" :
-                       combinedStatus === "checking" ? "Checking status..." :
-                       combinedStatus === "degraded" ? "Action available" :
-                       combinedStatus === "rag-disconnected" ? "RAG server unavailable" :
-                       "Check logs for details"}
-                    </div>
+                <div className="space-y-1.5 border-t border-border/50 bg-muted/20 px-4 py-2.5">
+                  <div className="text-right text-xs text-muted-foreground">
+                    Next: {platformProbeNextCheck}s
                   </div>
                   {versionInfo && (
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-primary">UI Version:</span>
+                    <div className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground font-mono">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="font-semibold text-primary">UI:</span>
                         <span>{versionInfo.version}</span>
                         {versionInfo.gitCommit !== "unknown" && (
                           <span className="text-muted-foreground/60">
@@ -1061,15 +823,14 @@ export function AppHeader() {
                         </button>
                       </div>
                       {versionInfo.buildDate && (
-                        <span className="text-muted-foreground/60">
+                        <span className="shrink-0 text-muted-foreground/60">
                           Built: {new Date(versionInfo.buildDate).toLocaleDateString()}
                         </span>
                       )}
                     </div>
                   )}
                 </div>
-                </div>
-              </TooltipProvider>
+              </div>
             </PopoverContent>
           </Popover>
           {noAuthConfigured && (

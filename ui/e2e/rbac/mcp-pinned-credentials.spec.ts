@@ -29,7 +29,7 @@ const MEMBER_ATLASSIAN_CONNECTION = {
   status: "connected",
 };
 
-test.describe("RBAC e2e — MCP pinned provider credentials", () => {
+test.describe("RBAC e2e — MCP caller-scoped provider credentials", () => {
   test.beforeEach(() => {
     test.skip(
       !mockedRbacEnabled(),
@@ -37,7 +37,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
     );
   });
 
-  test("creates a custom MCP server with pinned connection_scope and no provider key", async ({
+  test("creates a custom MCP server with caller-scoped provider credentials", async ({
     page,
   }) => {
     const mocks = await installMcpBrowserMocks(page, {
@@ -51,26 +51,30 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
     await gotoMcpServersTab(page);
     await openAddMcpServerEditor(page);
     await fillNewMcpServerBasics(page, {
-      displayName: "Pinned Jira MCP",
-      serverId: "pinned-jira",
+      displayName: "Caller Jira MCP",
+      serverId: "caller-jira",
     });
     await selectAgentGatewayTarget(page, /Jira/i);
     await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-    await page.getByLabel(/Provider connection/i).selectOption(ADMIN_ATLASSIAN_CONNECTION.id);
+    await page.getByLabel(/^Provider$/i).selectOption("atlassian");
     await page.getByRole("button", { name: "Create Server" }).click();
 
     await expect.poll(() => mocks.createRequests.length).toBe(1);
     expect(mocks.createRequests[0].credential_sources).toEqual([
-      expect.objectContaining({
+      {
         kind: "provider_connection",
-        connection_scope: "pinned",
-        provider_connection_id: ADMIN_ATLASSIAN_CONNECTION.id,
-      }),
+        target: "header",
+        name: "X-CAIPE-Provider-Token",
+        connection_scope: "caller",
+        provider: "atlassian",
+      },
     ]);
-    expect(mocks.createRequests[0].credential_sources?.[0]).not.toHaveProperty("provider");
+    expect(mocks.createRequests[0].credential_sources?.[0]).not.toHaveProperty(
+      "provider_connection_id",
+    );
   });
 
   test("persists caller scope with provider key when selected in the editor", async ({ page }) => {
@@ -93,7 +97,6 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-    await page.getByLabel(/Connection scope/i).selectOption("caller");
     await page.getByLabel(/^Provider$/i).selectOption("atlassian");
     await page.getByRole("button", { name: "Create Server" }).click();
 
@@ -112,7 +115,9 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
     );
   });
 
-  test("updates an existing custom server to pinned credentials", async ({ page }) => {
+  test("updates an existing custom server to caller-scoped provider credentials", async ({
+    page,
+  }) => {
     const mocks = await installMcpBrowserMocks(page, {
       servers: [
         {
@@ -135,7 +140,7 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
     await openMcpServerEditor(page, "Custom Jira");
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-    await page.getByLabel(/Provider connection/i).selectOption(ADMIN_ATLASSIAN_CONNECTION.id);
+    await page.getByLabel(/^Provider$/i).selectOption("atlassian");
     await page.getByRole("button", { name: "Save Changes" }).click();
 
     await expect.poll(() => mocks.updateRequests.length).toBe(1);
@@ -144,10 +149,40 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
         kind: "provider_connection",
         target: "header",
         name: "X-CAIPE-Provider-Token",
-        connection_scope: "pinned",
-        provider_connection_id: ADMIN_ATLASSIAN_CONNECTION.id,
+        connection_scope: "caller",
+        provider: "atlassian",
       },
     ]);
+    expect(mocks.updateRequests[0].body.credential_sources?.[0]).not.toHaveProperty(
+      "provider_connection_id",
+    );
+  });
+
+  test("does not render the connection scope or per-connection picker for provider credentials", async ({
+    page,
+  }) => {
+    await installMcpBrowserMocks(page, {
+      servers: [],
+      providerConnections: [ADMIN_ATLASSIAN_CONNECTION],
+      oauthConnectors: [
+        { id: "atlassian-connector", name: "Atlassian Cloud", provider: "atlassian" },
+      ],
+    });
+
+    await gotoMcpServersTab(page);
+    await openAddMcpServerEditor(page);
+    await page.getByRole("button", { name: "Add Credential" }).click();
+    await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
+
+    // The removed "Connection scope" and "Provider connection" pickers must not appear
+    await expect(page.getByLabel(/Connection scope/i)).toHaveCount(0);
+    await expect(page.getByLabel(/Provider connection/i)).toHaveCount(0);
+
+    // The Provider dropdown (OAuth connector key) must be present
+    await expect(page.getByLabel(/^Provider$/i)).toBeVisible();
+
+    // Helper text confirming caller-scoped behavior
+    await expect(page.getByText(/each caller uses their own/i)).toBeVisible();
   });
 
   test("does not show connection scope on config-driven built-in servers", async ({ page }) => {
@@ -176,9 +211,10 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
     await gotoMcpServersTab(page);
     await openMcpServerEditor(page, "Jira");
     await expect(page.getByLabel(/Connection scope/i)).toHaveCount(0);
+    await expect(page.getByLabel(/Provider connection/i)).toHaveCount(0);
   });
 
-  test("member can exercise test modal for pinned server fixture", async ({ page }) => {
+  test("member can exercise test modal for a legacy pinned server fixture", async ({ page }) => {
     const mocks = await installMcpBrowserMocks(page, {
       isAdmin: false,
       session: MCP_BROWSER_MEMBER_SESSION,
@@ -219,9 +255,8 @@ test.describe("RBAC e2e — MCP pinned provider credentials", () => {
             name: "X-CAIPE-Provider-Token",
             kind: "provider_connection",
             origin: "provider_connection",
-            connection_scope: "pinned",
+            connection_scope: "caller",
             provider: "atlassian",
-            provider_connection_id: ADMIN_ATLASSIAN_CONNECTION.id,
           },
         ],
       }),

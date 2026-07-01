@@ -7,6 +7,7 @@ import {
   getServerConfig,
   getServerOnlyConfig,
 } from "@/lib/config";
+import { getRequestOrigin } from "@/app/api/skills/_lib/request-origin";
 import {
   createJsonResponseCacheStore,
   envTtlMs,
@@ -66,6 +67,7 @@ const HTTP_TIMEOUT_MS = 3000;
 const TCP_TIMEOUT_MS = 2000;
 const healthCache = createJsonResponseCacheStore();
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
+const DISABLED_VALUES = new Set(["0", "false", "no", "off"]);
 
 function envValue(name: string): string | null {
   const value = process.env[name]?.trim();
@@ -78,6 +80,11 @@ function envValue(name: string): string | null {
 function envEnabled(name: string): boolean {
   const value = envValue(name)?.toLowerCase();
   return value ? ENABLED_VALUES.has(value) : false;
+}
+
+function envExplicitlyDisabled(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value ? DISABLED_VALUES.has(value) : false;
 }
 
 function envPort(name: string, defaultPort: number): number {
@@ -100,10 +107,6 @@ function hasComposeProfile(...profileNames: string[]): boolean {
       .filter(Boolean),
   );
   return profileNames.some((profile) => profiles.has(profile));
-}
-
-function requestOrigin(request: NextRequest): string {
-  return request.nextUrl?.origin ?? new URL(request.url).origin;
 }
 
 function slackDirectoryToken(): string | null {
@@ -939,6 +942,15 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
 }
 
 async function probeSlackIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("SLACK_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "slack-integration",
+      label: "Slack",
+      group: "messaging",
+      description: "Slack messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
   if (!slackIntegrationEnabled()) {
     return disabledCapability({
       id: "slack-integration",
@@ -978,6 +990,15 @@ async function probeSlackIntegration(): Promise<CapabilityResult | null> {
 }
 
 async function probeWebexIntegration(): Promise<CapabilityResult | null> {
+  if (envExplicitlyDisabled("WEBEX_INTEGRATION_ENABLED")) {
+    return disabledCapability({
+      id: "webex-integration",
+      label: "Webex",
+      group: "messaging",
+      description: "Webex messaging integration is not enabled for this deployment.",
+      detail: "Not Configured",
+    });
+  }
   if (!webexIntegrationEnabled()) {
     return disabledCapability({
       id: "webex-integration",
@@ -1028,7 +1049,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
   const config = getServerConfig();
   const serverOnly = getServerOnlyConfig();
-  const origin = requestOrigin(request);
+  const selfBase = getRequestOrigin(request);
   const includeDiagnostics = new URL(request.url).searchParams.get("diagnostics") === "1";
   const capabilityResults = await Promise.all([
     probeHttpCapability({
@@ -1047,7 +1068,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "dynamic-agents",
           label: "Dynamic Agents",
           group: "runtime",
-          target: `${origin}/api/dynamic-agents/health`,
+          target: `${selfBase}/api/dynamic-agents/health`,
           required: true,
           description: "Checks Dynamic Agents when custom agent runtime is enabled.",
           healthyDetail: "Runtime reachable",
@@ -1069,7 +1090,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "knowledge-bases",
           label: "Knowledge Bases",
           group: "knowledge",
-          target: `${origin}/api/rag/healthz`,
+          target: `${selfBase}/api/rag/healthz`,
           required: false,
           description: "Checks the RAG API used by Knowledge Bases.",
           healthyDetail: "RAG API reachable",

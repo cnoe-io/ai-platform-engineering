@@ -4,7 +4,6 @@ import { expect, test } from "@playwright/test";
 import {
   DEFAULT_OAUTH_CONNECTOR,
   CREDENTIALS_ADMIN_SESSION,
-  gotoPersonalCredentialsSecrets,
   installCredentialsBrowserMocks,
 } from "./_credentials-browser-fixtures";
 import { dismissReleaseUpgradeDialog, installTestSession } from "./_helpers";
@@ -21,8 +20,9 @@ function minimalSessionEnv() {
 
 async function assertCredentialsPageAvailable(
   page: import("@playwright/test").Page,
+  target = "/credentials#connections",
 ): Promise<void> {
-  await gotoPersonalCredentialsSecrets(page);
+  await page.goto(target, { waitUntil: "domcontentloaded" });
   await dismissReleaseUpgradeDialog(page);
   try {
     await expect(page.getByRole("heading", { name: "Credentials" })).toBeVisible({
@@ -36,7 +36,7 @@ async function assertCredentialsPageAvailable(
   }
 }
 
-test.describe("credentials single-pane layout", () => {
+test.describe("credentials hash-tab layout", () => {
   test.beforeEach(() => {
     test.skip(
       !mockedRbacEnabled(),
@@ -54,24 +54,33 @@ test.describe("credentials single-pane layout", () => {
     });
   });
 
-  test("renders both sections on a single page without tabs", async ({ page }) => {
-    await assertCredentialsPageAvailable(page);
+  test("defaults to Connections and normalizes /credentials to #connections", async ({ page }) => {
+    await assertCredentialsPageAvailable(page, "/credentials");
 
-    await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
-    expect(await page.getByRole("tab").count()).toBe(0);
+    await expect(page.getByRole("heading", { name: "Saved Secrets" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Connections" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(page).toHaveURL(/\/credentials#connections$/);
   });
 
-  test("shows consistent empty states for both sections", async ({ page }) => {
+  test("shows each empty state on its hash-backed tab", async ({ page }) => {
     await assertCredentialsPageAvailable(page);
 
-    // Both empty states must be visible simultaneously — no tab click required
-    await expect(page.getByText("No secrets yet.")).toBeVisible();
     await expect(page.getByText("No apps connected yet.")).toBeVisible();
+    await expect(page.getByText("No secrets yet.")).toHaveCount(0);
+
+    await page.getByRole("tab", { name: "Secrets" }).click();
+
+    await expect(page).toHaveURL(/\/credentials#secrets$/);
+    await expect(page.getByText("No secrets yet.")).toBeVisible();
+    await expect(page.getByText("No apps connected yet.")).toHaveCount(0);
   });
 
   test("stays on the same page URL after adding a secret", async ({ page }) => {
-    await assertCredentialsPageAvailable(page);
+    await assertCredentialsPageAvailable(page, "/credentials#secrets");
     const urlBefore = page.url();
 
     await page.getByRole("button", { name: /add secret/i }).click();
@@ -83,10 +92,11 @@ test.describe("credentials single-pane layout", () => {
     await expect(dialog).toHaveCount(0);
 
     expect(page.url()).toBe(urlBefore);
-    await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Connected Apps" })).toHaveCount(0);
   });
 
-  test("returns OAuth relinks to the connected apps section without tab navigation", async ({
+  test("returns OAuth relinks to the connected apps tab", async ({
     context,
     page,
   }) => {
@@ -103,7 +113,7 @@ test.describe("credentials single-pane layout", () => {
         },
       ],
     });
-    await assertCredentialsPageAvailable(page);
+    await assertCredentialsPageAvailable(page, "/credentials#secrets");
 
     await context.route("**/oauth-callback-relay", async (route) => {
       await route.fulfill({
@@ -130,11 +140,9 @@ test.describe("credentials single-pane layout", () => {
     await relayPage.waitForLoadState("domcontentloaded");
     await relayPage.close().catch(() => undefined);
 
-    // URL must not get a ?tab= suffix — single-pane layout uses no tab routing
-    await expect(page).toHaveURL(/\/credentials$/);
-    // Both sections still visible
-    await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible();
+    await expect(page).toHaveURL(/\/credentials#connections$/);
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Saved Secrets" })).toHaveCount(0);
     await expect(page.getByText("Atlassian Cloud")).toBeVisible();
   });
 });

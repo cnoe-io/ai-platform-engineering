@@ -30,15 +30,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   await requireAdminSurfaceManage(session, "credentials");
   const body = (await request.json()) as Record<string, unknown>;
   const service = await getOAuthConnectorService();
+  const pkce = body.pkce === true || body.pkce === "true";
   const connector = await service.createConnector({
     name: String(body.name ?? ""),
     provider: String(body.provider ?? ""),
     clientId: String(body.clientId ?? ""),
-    clientSecret: String(body.clientSecret ?? ""),
+    ...(pkce ? {} : { clientSecret: String(body.clientSecret ?? "") }),
     authorizationUrl: String(body.authorizationUrl ?? ""),
     tokenUrl: String(body.tokenUrl ?? ""),
     scopes: Array.isArray(body.scopes) ? body.scopes.map(String) : [],
     redirectUri: String(body.redirectUri ?? ""),
+    pkce,
   });
 
   return successResponse(connector, 201);
