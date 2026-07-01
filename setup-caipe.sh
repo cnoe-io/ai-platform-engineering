@@ -7372,6 +7372,24 @@ monitor_port_forwards() {
 }
 
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
+
+# Delete a whole namespace for a clean uninstall. Deleting the namespace cascades
+# to every remaining namespaced resource (workloads, configmaps, secrets, PVCs),
+# so it doesn't matter what the earlier per-type prompts left behind. --timeout
+# bounds finalizer waits (e.g. a PVC still held by a running pod) so cleanup can't
+# hang forever (warn instead). No-op if the namespace doesn't exist.
+_delete_namespace_clean() {
+  local ns="$1"
+  kubectl get namespace "$ns" &>/dev/null || return 0
+  if ask_yn "Delete ${ns} namespace?" "y"; then
+    if ! kubectl delete namespace "$ns" --timeout=120s 2>/dev/null; then
+      warn "${ns} namespace did not finalize within 120s (a resource has a pending finalizer) — it will remain in Terminating"
+    else
+      log "${ns} namespace deleted"
+    fi
+  fi
+}
+
 cmd_cleanup() {
   echo ""
   echo -e "${BLUE}${BOLD}╔══════════════════════════════════════════════╗${NC}"
@@ -7564,27 +7582,8 @@ cmd_cleanup() {
 
   step "Namespaces"
 
-  local caipe_resources langfuse_resources
-  caipe_resources=$(kubectl get all -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
-  langfuse_resources=$(kubectl get all -n langfuse --no-headers 2>/dev/null | wc -l | tr -d ' ')
-
-  if [[ "$caipe_resources" -eq 0 ]]; then
-    if ask_yn "Delete empty caipe namespace?" "n"; then
-      kubectl delete namespace caipe 2>/dev/null || true
-      log "caipe namespace deleted"
-    fi
-  elif [[ "$caipe_resources" -gt 0 ]]; then
-    warn "caipe namespace still has $caipe_resources resources, skipping deletion"
-  fi
-
-  if [[ "$langfuse_resources" -eq 0 ]]; then
-    if ask_yn "Delete empty langfuse namespace?" "n"; then
-      kubectl delete namespace langfuse 2>/dev/null || true
-      log "langfuse namespace deleted"
-    fi
-  elif [[ "$langfuse_resources" -gt 0 ]]; then
-    warn "langfuse namespace still has $langfuse_resources resources, skipping deletion"
-  fi
+  _delete_namespace_clean caipe
+  _delete_namespace_clean langfuse
 
   if command -v kind &>/dev/null; then
     step "Kind cluster"
