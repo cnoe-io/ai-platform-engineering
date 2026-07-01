@@ -18,7 +18,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   determine-changes:
@@ -192,9 +191,10 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
+          GH_ACTOR: ${{ github.actor }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GH_ACTOR" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -288,12 +288,14 @@ jobs:
     steps:
       - name: 🔔 Notify release finalize
         env:
+          BUILD_RESULT: ${{ needs.build-and-push.result }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          RETAG_RESULT: ${{ needs.retag-unchanged.result }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           # Determine overall conclusion
-          BUILD_RESULT="${{ needs.build-and-push.result }}"
-          RETAG_RESULT="${{ needs.retag-unchanged.result }}"
 
           # Consider skipped as success (job conditions not met)
           if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
@@ -307,12 +309,12 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api "/repos/${REPOSITORY}/dispatches" --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$WORKFLOW_NAME",
               "conclusion": "$CONCLUSION"
             }
           }
