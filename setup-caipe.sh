@@ -7481,9 +7481,21 @@ cmd_cleanup() {
       kubectl delete agentgatewaybackend,httproute -l app.kubernetes.io/managed-by=setup-caipe -n caipe 2>/dev/null || true
       kubectl delete gateway agentgateway-proxy -n agentgateway-system 2>/dev/null || true
       helm uninstall agentgateway -n agentgateway-system 2>/dev/null || true
+      log "AgentGateway uninstalled"
+    fi
+  fi
+
+  # AgentGateway CRDs are their own Helm release, separate from the main
+  # agentgateway release. Gate them independently so they aren't orphaned when
+  # the main release is gone.
+  if helm status agentgateway-crds -n agentgateway-system &>/dev/null; then
+    if ask_yn "Uninstall AgentGateway CRDs?" "y"; then
       helm uninstall agentgateway-crds -n agentgateway-system 2>/dev/null || true
       kubectl delete namespace agentgateway-system 2>/dev/null || true
-      log "AgentGateway uninstalled"
+      log "AgentGateway CRDs uninstalled"
+    fi
+  fi
+
     fi
   fi
 
