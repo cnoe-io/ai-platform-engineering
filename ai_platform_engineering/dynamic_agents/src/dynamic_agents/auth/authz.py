@@ -121,11 +121,24 @@ async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bear
     return response.json().get("decision") == "ALLOW"
 
 
-async def require_agent_use_permission(agent_id: str) -> None:
+async def require_agent_use_permission(
+    agent_id: str, delegated_user_sub: str | None = None
+) -> None:
     """Require the current bearer's subject to be allowed to use ``agent_id``.
 
     Delegates the decision to CAS (the single PDP). Raises ``HTTPException`` with a
-    structured detail on deny (403) or any meta-failure (400/401/503)."""
+    structured detail on deny (403) or any meta-failure (400/401/503).
+
+    ``delegated_user_sub`` supports unattended, on-behalf-of execution: the
+    autonomous scheduler authenticates as a service principal but runs each task
+    for a specific owner. When a *service-account* bearer supplies the owner's
+    Keycloak subject (via ``X-User-Context``), the decision is evaluated on the
+    OWNER (``user:<sub>``) rather than the service account — so group-shared
+    agents resolve correctly and access revocation takes effect on the next run.
+    CAS still binds this cross-subject evaluation: the service principal must
+    itself hold ``can_audit`` on the org, or CAS rejects it. An interactive
+    (user) bearer may never assert a different subject — the delegation branch is
+    gated on the bearer being a service account."""
     if not _is_valid_id(agent_id):
         _raise_authz(400, "Invalid agent identifier", "invalid_agent_id", "invalid_request", "fix_request")
 
@@ -137,6 +150,20 @@ async def require_agent_use_permission(agent_id: str) -> None:
     if not decoded or not _is_valid_id(decoded[1]):
         _raise_authz(401, "Bearer token subject could not be verified", "bearer_invalid", "bearer_invalid", "sign_in")
     subject_type, subject = decoded
+
+    # On-behalf-of delegation (autonomous / unattended runs). Only a service
+    # principal may assert the owner subject; a user bearer is always evaluated
+    # as itself so it cannot impersonate another user.
+    if subject_type == "service_account" and delegated_user_sub:
+        if not _is_valid_id(delegated_user_sub):
+            _raise_authz(
+                400,
+                "Invalid delegated subject",
+                "invalid_delegated_subject",
+                "invalid_request",
+                "fix_request",
+            )
+        subject_type, subject = "user", delegated_user_sub
 
     try:
         allowed = await _decide_agent_use(subject_type, subject, agent_id, token)

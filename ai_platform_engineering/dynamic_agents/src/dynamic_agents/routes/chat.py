@@ -279,7 +279,9 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id, delegated_user_sub=getattr(user, "sub", None)
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
@@ -395,7 +397,9 @@ async def chat_resume_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id, delegated_user_sub=getattr(user, "sub", None)
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
@@ -451,7 +455,9 @@ async def chat_invoke(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id, delegated_user_sub=getattr(user, "sub", None)
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)

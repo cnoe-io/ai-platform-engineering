@@ -7,6 +7,7 @@ import {
   withAuth,
   withErrorHandler,
   ApiError,
+  resolveKeycloakSubFromSession,
 } from '@/lib/api-middleware';
 import { getConfig } from '@/lib/config';
 
@@ -141,6 +142,17 @@ async function forward(
       'X-Authenticated-User-Email': user.email,
       'X-Authenticated-User-Is-Admin': String(session.role === 'admin'),
     };
+
+    // Also forward the caller's Keycloak subject (UUID). OpenFGA/CAS key
+    // subjects by `sub`, not email, so the autonomous-agents service needs it
+    // to stamp owner_sub on the task — that is what the dynamic-agents runtime
+    // authorizes against when it later runs the task unattended on the owner's
+    // behalf. Omitted when the session carries no resolvable sub (the backend
+    // then treats the task as not authorizable per-owner).
+    const callerSub = resolveKeycloakSubFromSession(session);
+    if (callerSub) {
+      headers['X-Authenticated-User-Sub'] = callerSub;
+    }
 
     const fetchOptions: RequestInit = { method, headers };
     if (method !== 'GET' && method !== 'DELETE') {

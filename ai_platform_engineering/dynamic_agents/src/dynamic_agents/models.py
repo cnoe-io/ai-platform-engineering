@@ -47,6 +47,11 @@ class UserContext(BaseModel):
 
     email: str
     name: str | None = None
+    # Keycloak subject (UUID). OpenFGA/CAS key subjects by ``sub``, so this is
+    # what agent-use authorization evaluates against. For autonomous
+    # (unattended) runs the scheduler puts the task owner's sub here so the
+    # decision is made on the owner, not the service principal.
+    sub: str | None = None
     groups: list[str] = []
     is_admin: bool = False
     raw_claims: dict[str, Any] = {}

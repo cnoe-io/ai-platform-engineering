@@ -247,7 +247,7 @@ export function clearSessionAuthCacheForTests(): void {
   sessionAuthCache.clear();
 }
 
-function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
+export function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
   }

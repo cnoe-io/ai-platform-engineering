@@ -126,6 +126,37 @@ describe('Autonomous proxy header injection', () => {
     expect(fetchInit.headers['X-Authenticated-User-Is-Admin']).toBe('false');
   });
 
+  it('injects X-Authenticated-User-Sub when the session carries a sub', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'alice@example.com', name: 'Alice' },
+      role: 'user',
+      sub: 'alice-uuid',
+      canViewAdmin: false,
+    });
+
+    const req = makeRequest('POST', 'tasks', { id: 'x', name: 'X' });
+    await POST(req, paramsFor('tasks'));
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, fetchInit] = mockFetch.mock.calls[0];
+    expect(fetchInit.headers['X-Authenticated-User-Sub']).toBe('alice-uuid');
+  });
+
+  it('omits X-Authenticated-User-Sub when the session has no resolvable sub', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'bob@example.com', name: 'Bob' },
+      role: 'user',
+      canViewAdmin: false,
+    });
+
+    const req = makeRequest('POST', 'tasks', { id: 'x', name: 'X' });
+    await POST(req, paramsFor('tasks'));
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, fetchInit] = mockFetch.mock.calls[0];
+    expect(fetchInit.headers['X-Authenticated-User-Sub']).toBeUndefined();
+  });
+
   describe.each([
     { name: 'POST', handler: POST, body: { id: 'x', name: 'X' } },
     { name: 'PUT', handler: PUT, body: { id: 'x', name: 'X' } },

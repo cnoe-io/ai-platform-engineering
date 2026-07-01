@@ -883,6 +883,83 @@ class TestTaskOwnership:
         assert resp.status_code == 201
         assert resp.json()["owner_id"] == "admin@example.com"
 
+    def test_create_stamps_owner_sub_from_header(self, client: TestClient):
+        """POST /tasks stamps owner_sub from X-Authenticated-User-Sub so the run
+        can be authorized as the owner (OpenFGA keys subjects by sub)."""
+        headers = {**_user_headers("alice@example.com"), "X-Authenticated-User-Sub": "alice-uuid"}
+        resp = client.post("/api/v1/tasks", json=_cron_task("t1"), headers=headers)
+        assert resp.status_code == 201
+
+        stored = task_lifecycle._task_store
+        assert stored is not None
+        task = asyncio.run(stored.get("t1"))
+        assert task is not None
+        assert task.owner_sub == "alice-uuid"
+
+    def test_non_admin_cannot_spoof_owner_sub_on_create(self, client: TestClient):
+        """owner_sub is server-bound only. A client-supplied owner_sub must be
+        ignored — otherwise a task could authorize as an arbitrary subject at
+        run time (privilege escalation). The verified header wins."""
+        body = _cron_task("t1")
+        body["owner_sub"] = "victim-uuid"  # attacker-controlled body
+        headers = {**_user_headers("attacker@example.com"), "X-Authenticated-User-Sub": "attacker-uuid"}
+        resp = client.post("/api/v1/tasks", json=body, headers=headers)
+        assert resp.status_code == 201
+
+        stored = task_lifecycle._task_store
+        assert stored is not None
+        task = asyncio.run(stored.get("t1"))
+        assert task is not None
+        assert task.owner_sub == "attacker-uuid"
+
+    def test_body_owner_sub_scrubbed_when_no_sub_header(self, client: TestClient):
+        """Without a sub header, a body-supplied owner_sub is dropped (never
+        trusted), leaving the task unauthorizable per-owner rather than
+        authorizable as the spoofed subject."""
+        body = _cron_task("t1")
+        body["owner_sub"] = "spoofed-uuid"
+        resp = client.post("/api/v1/tasks", json=body, headers=_user_headers("bob@example.com"))
+        assert resp.status_code == 201
+
+        stored = task_lifecycle._task_store
+        assert stored is not None
+        task = asyncio.run(stored.get("t1"))
+        assert task is not None
+        assert task.owner_sub is None
+
+    def test_update_preserves_owner_sub(self, client: TestClient):
+        """owner_sub is not on the wire, so a PUT round-trip must carry the
+        stored value forward rather than wipe it (which would drop the task into
+        the per-owner-unauthorizable path)."""
+        headers = {**_user_headers("alice@example.com"), "X-Authenticated-User-Sub": "alice-uuid"}
+        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=headers)
+
+        resp = client.put("/api/v1/tasks/t1", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        assert resp.status_code == 200
+
+        stored = task_lifecycle._task_store
+        assert stored is not None
+        task = asyncio.run(stored.get("t1"))
+        assert task is not None
+        assert task.owner_sub == "alice-uuid"
+
+    def test_admin_create_for_other_user_leaves_owner_sub_none(self, client: TestClient):
+        """Admin-on-behalf-of another user: their sub is not available, so
+        owner_sub stays None (task must be recreated by its owner to be
+        authorized per-owner) — never stamped with the admin's own sub."""
+        body = _cron_task("t1")
+        body["owner_id"] = "carol@example.com"
+        headers = {**_admin_headers(), "X-Authenticated-User-Sub": "admin-uuid"}
+        resp = client.post("/api/v1/tasks", json=body, headers=headers)
+        assert resp.status_code == 201
+        assert resp.json()["owner_id"] == "carol@example.com"
+
+        stored = task_lifecycle._task_store
+        assert stored is not None
+        task = asyncio.run(stored.get("t1"))
+        assert task is not None
+        assert task.owner_sub is None
+
     def test_admin_sees_all_tasks(self, client: TestClient):
         """Admin users see tasks owned by any user."""
         client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))

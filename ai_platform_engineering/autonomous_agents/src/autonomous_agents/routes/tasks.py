@@ -36,15 +36,20 @@ logger = logging.getLogger("autonomous_agents")
 router = APIRouter(tags=["tasks"])
 
 
-def _get_caller(request: Request) -> tuple[str | None, bool]:
+def _get_caller(request: Request) -> tuple[str | None, bool, str | None]:
     """Extract caller identity from gateway-injected headers.
 
-    Returns (owner_email, is_admin). Both are None/False when headers are
-    absent (e.g. unit tests hitting the service directly without a gateway).
+    Returns ``(owner_email, is_admin, owner_sub)``. All are None/False when the
+    headers are absent (e.g. unit tests hitting the service directly without a
+    gateway). ``owner_sub`` is the caller's Keycloak subject (UUID) — the
+    identifier OpenFGA/CAS key subjects by, needed so runs can be authorized as
+    the owner. It may be None even when the email is present for callers whose
+    session carries no resolvable ``sub``.
     """
     email = request.headers.get("X-Authenticated-User-Email") or None
     is_admin = request.headers.get("X-Authenticated-User-Is-Admin", "false").lower() == "true"
-    return email, is_admin
+    sub = request.headers.get("X-Authenticated-User-Sub") or None
+    return email, is_admin, sub
 
 
 def _assert_task_access(task: TaskDefinition, caller_email: str | None, is_admin: bool) -> None:
@@ -153,7 +158,7 @@ async def list_tasks(request: Request) -> list[dict]:
 
     Admins see all tasks. Non-admin users see only tasks they own.
     """
-    caller_email, is_admin = _get_caller(request)
+    caller_email, is_admin, _ = _get_caller(request)
     store = get_task_store()
     if is_admin or caller_email is None:
         tasks = await store.list_all()
@@ -168,7 +173,7 @@ async def get_task(task_id: str, request: Request) -> dict:
     task = await get_task_store().get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-    caller_email, is_admin = _get_caller(request)
+    caller_email, is_admin, _ = _get_caller(request)
     _assert_task_access(task, caller_email, is_admin)
     return _serialize_task(task, next_run_iso_for(task_id))
 
@@ -219,7 +224,15 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
     # defaults to their own email. The field stays None only for legacy
     # direct calls with no gateway header (e.g. seeding scripts). (Codex P2,
     # PR #1588.)
-    caller_email, is_admin = _get_caller(request)
+    # owner_sub is server-bound only, never client-trusted: a spoofed value
+    # would let a task authorize as an arbitrary subject at run time (the
+    # dynamic-agents runtime decides agent-use on owner_sub). Scrub whatever
+    # the body carried and stamp the caller's verified sub only when the task
+    # ends up owned by the caller. Admin-on-behalf-of another user leaves
+    # owner_sub unset (their sub is not available here), so such a task falls
+    # into the per-owner-unauthorizable path until its owner recreates it.
+    caller_email, is_admin, caller_sub = _get_caller(request)
+    task = task.model_copy(update={"owner_sub": None})
     if caller_email:
         if not is_admin:
             if task.owner_id is not None and task.owner_id != caller_email:
@@ -228,9 +241,9 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
                     "binding task ownership to the authenticated caller",
                     task.owner_id, caller_email,
                 )
-            task = task.model_copy(update={"owner_id": caller_email})
+            task = task.model_copy(update={"owner_id": caller_email, "owner_sub": caller_sub})
         elif task.owner_id is None:
-            task = task.model_copy(update={"owner_id": caller_email})
+            task = task.model_copy(update={"owner_id": caller_email, "owner_sub": caller_sub})
 
     store = get_task_store()
     try:
@@ -306,7 +319,7 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
 
     # Ownership check: non-admin callers can only update their own tasks.
     if existing is not None:
-        caller_email, is_admin = _get_caller(request)
+        caller_email, is_admin, _ = _get_caller(request)
         _assert_task_access(existing, caller_email, is_admin)
         # Admin acting on someone else's task -- emit an audit log line at
         # the verb call site (per plan section 4.4) so log scanners see the
@@ -317,8 +330,14 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
                 "Admin %s acted on task %s (%r) owned by %s (action=%s)",
                 caller_email, task_id, existing.name, existing.owner_id, "update",
             )
-        # Preserve owner_id from the original task — callers cannot reassign ownership.
-        task = task.model_copy(update={"owner_id": existing.owner_id})
+        # Preserve owner_id / owner_sub from the original task — callers cannot
+        # reassign ownership, and owner_sub is server-bound only (never on the
+        # wire), so an update round-trip must carry it forward rather than wipe
+        # it to None (which would drop the task into the per-owner-unauthorizable
+        # path on its next run).
+        task = task.model_copy(
+            update={"owner_id": existing.owner_id, "owner_sub": existing.owner_sub}
+        )
 
     # Webhook secret preservation: GET responses redact the secret to
     # ``has_secret: bool``, so when the UI submits an unchanged form
@@ -382,7 +401,7 @@ async def delete_task(task_id: str, request: Request) -> None:
     task = await store.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-    caller_email, is_admin = _get_caller(request)
+    caller_email, is_admin, _ = _get_caller(request)
     _assert_task_access(task, caller_email, is_admin)
     if is_admin and task.owner_id and task.owner_id != caller_email:
         logger.info(
@@ -410,7 +429,7 @@ async def get_task_runs(task_id: str, request: Request) -> list[TaskRun]:
     could read another user's prompts, response previews, errors, and
     captured events by guessing a task id (Codex P1, PR #1588).
     """
-    caller_email, is_admin = _get_caller(request)
+    caller_email, is_admin, _ = _get_caller(request)
     task = await get_task_store().get(task_id)
     if task is not None:
         _assert_task_access(task, caller_email, is_admin)
@@ -437,7 +456,7 @@ async def trigger_task_manually(task_id: str, request: Request) -> dict:
     task = await get_task_store().get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-    caller_email, is_admin = _get_caller(request)
+    caller_email, is_admin, _ = _get_caller(request)
     _assert_task_access(task, caller_email, is_admin)
     if is_admin and task.owner_id and task.owner_id != caller_email:
         logger.info(
@@ -460,6 +479,6 @@ async def list_all_runs(request: Request) -> list[TaskRun]:
     caller, exposing other users' prompts/responses/errors (Codex P1,
     PR #1588).
     """
-    caller_email, is_admin = _get_caller(request)
+    caller_email, is_admin, _ = _get_caller(request)
     runs = await get_run_store().list_all()
     return _filter_runs_for_caller(runs, caller_email, is_admin)

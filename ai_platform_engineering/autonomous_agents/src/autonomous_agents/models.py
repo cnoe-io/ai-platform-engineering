@@ -210,6 +210,19 @@ class TaskDefinition(BaseModel):
             "None for tasks created before this field was introduced."
         ),
     )
+    owner_sub: str | None = Field(
+        default=None,
+        description=(
+            "Keycloak subject (UUID) of the user who created this task. "
+            "Stamped by the Next.js gateway at creation time alongside "
+            "owner_id. Unlike owner_id (an email), this is the identifier "
+            "OpenFGA/CAS use to key subjects, so it is what the dynamic-agents "
+            "runtime authorizes against when running the task unattended on the "
+            "owner's behalf. None for tasks created before this field was "
+            "introduced — such tasks cannot be authorized per-owner and must be "
+            "recreated."
+        ),
+    )
 
     @field_validator("timeout_seconds")
     @classmethod

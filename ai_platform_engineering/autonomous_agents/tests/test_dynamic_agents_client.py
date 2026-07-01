@@ -547,3 +547,46 @@ class TestOwnerEmailInRequests:
         call_headers = client.stream.call_args.kwargs["headers"]
         context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
         assert context["email"] == "autonomous@system"  # fallback
+
+    @pytest.mark.asyncio
+    async def test_invoke_streaming_includes_owner_sub_when_provided(self, configured):
+        """When owner_sub is provided it lands in X-User-Context as `sub` so the
+        dynamic-agents runtime can authorize agent-use as the owner (OpenFGA
+        keys subjects by sub, not email)."""
+        sse = [*_sse("content", {"text": "done"}), *_sse("done", {})]
+        response = _stream_response(200, sse)
+        factory, client = _mock_streaming_client(response)
+
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent_streaming(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                owner_email="alice@example.com",
+                owner_sub="alice-uuid",
+            )
+
+        call_headers = client.stream.call_args.kwargs["headers"]
+        context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
+        assert context["email"] == "alice@example.com"
+        assert context["sub"] == "alice-uuid"
+
+    @pytest.mark.asyncio
+    async def test_invoke_streaming_omits_sub_when_not_provided(self, configured):
+        """No owner_sub (legacy task) → no `sub` key; the runtime then can't
+        authorize per-owner and falls back to the service-principal decision."""
+        sse = [*_sse("content", {"text": "done"}), *_sse("done", {})]
+        response = _stream_response(200, sse)
+        factory, client = _mock_streaming_client(response)
+
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent_streaming(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                owner_email="alice@example.com",
+            )
+
+        call_headers = client.stream.call_args.kwargs["headers"]
+        context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
+        assert "sub" not in context

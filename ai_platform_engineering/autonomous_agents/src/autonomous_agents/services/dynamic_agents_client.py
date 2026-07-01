@@ -90,21 +90,30 @@ class DynamicAgentsNotConfiguredError(DynamicAgentsClientError):
 # replaces caused every autonomous conversation to bypass all access
 # checks (IDOR fix).
 
-def _build_user_context_header(owner_email: str) -> str:
-    """Build X-User-Context for an autonomous task run using the task owner's email."""
+def _build_user_context_header(owner_email: str, owner_sub: str | None = None) -> str:
+    """Build X-User-Context for an autonomous task run using the task owner.
+
+    ``owner_sub`` (the owner's Keycloak subject/UUID) is included when known so
+    the dynamic-agents runtime can authorize agent-use as the owner: OpenFGA/CAS
+    key subjects by ``sub``, not by email, so ``email`` alone cannot drive the
+    per-owner decision. ``email`` still carries attribution for conversation
+    ownership.
+    """
     payload = {
         "email": owner_email,
         "name": "Autonomous Agent",
         "is_admin": False,
         "is_authorized": True,
     }
+    if owner_sub:
+        payload["sub"] = owner_sub
     return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
 
-def _task_headers(owner_email: str) -> dict[str, str]:
+def _task_headers(owner_email: str, owner_sub: str | None = None) -> dict[str, str]:
     """Return HTTP headers for an autonomous task invocation."""
     return {
-        "X-User-Context": _build_user_context_header(owner_email),
+        "X-User-Context": _build_user_context_header(owner_email, owner_sub),
         "Content-Type": "application/json",
     }
 
@@ -153,8 +162,10 @@ async def _mint_service_bearer_token(timeout: float) -> str | None:
     return token
 
 
-async def _task_headers_with_auth(owner_email: str, timeout: float) -> dict[str, str]:
-    headers = _task_headers(owner_email)
+async def _task_headers_with_auth(
+    owner_email: str, timeout: float, owner_sub: str | None = None
+) -> dict[str, str]:
+    headers = _task_headers(owner_email, owner_sub)
     token = await _mint_service_bearer_token(timeout)
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -172,6 +183,7 @@ async def invoke_dynamic_agent(
     task_id: str,
     agent_id: str,
     owner_email: str | None = None,
+    owner_sub: str | None = None,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
     timeout: float | None = None,
@@ -256,7 +268,7 @@ async def invoke_dynamic_agent(
                 url,
                 json=body,
                 headers=await _task_headers_with_auth(
-                    _effective_email, effective_timeout
+                    _effective_email, effective_timeout, owner_sub
                 ),
             )
     except (httpx.TimeoutException, httpx.TransportError) as exc:
@@ -486,6 +498,7 @@ async def invoke_dynamic_agent_streaming(
     task_id: str,
     agent_id: str,
     owner_email: str | None = None,
+    owner_sub: str | None = None,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
     timeout: float | None = None,
@@ -553,7 +566,9 @@ async def invoke_dynamic_agent_streaming(
 
     _effective_email = owner_email or get_settings().dynamic_agents_system_email
     headers = {
-        **(await _task_headers_with_auth(_effective_email, effective_timeout)),
+        **(await _task_headers_with_auth(
+            _effective_email, effective_timeout, owner_sub
+        )),
         "Accept": "text/event-stream",
     }
 
