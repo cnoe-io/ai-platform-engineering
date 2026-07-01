@@ -622,8 +622,10 @@ export function IngestPanel({
               {meetingsOpen && (
                 <div className="border-t px-4 pb-3 pt-2">
                   <p className="mb-2 text-xs text-muted-foreground">
-                    Select recordings to include. The agent will pull whatever is available
+                    Select meetings to include. The agent will pull whatever is available
                     (AI summary and/or transcript). Per-run only, not saved to the project.
+                    Webex only exposes meetings you hosted or that have a transcript you can
+                    access; meetings hosted by others may not appear.
                   </p>
                   {meetingsLoading ? (
                     <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -631,7 +633,9 @@ export function IngestPanel({
                     </p>
                   ) : !meetings || meetings.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No recorded meetings found. Make sure Webex is connected in{" "}
+                      No meetings found. Webex only returns meetings you hosted or that have
+                      a transcript you can access, so meetings hosted by others won&apos;t
+                      appear. Also make sure Webex is connected in{" "}
                       <a href="/credentials" className="underline">
                         /credentials
                       </a>
