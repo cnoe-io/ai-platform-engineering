@@ -11,7 +11,7 @@ import {
 } from "@/lib/api-middleware";
 import { projectCatalogBundleYaml } from "@/lib/projects/backstage-catalog";
 import { runOnboardingDeletes, runOnboardingUpdates } from "@/lib/projects/onboarding-providers";
-import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
+import { canManageProjectsOrganization, isProjectTeamMember } from "@/lib/projects/project-admin";
 import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
@@ -143,9 +143,12 @@ export const PATCH = withErrorHandler(
     const isOwner = Boolean(user.email) && project.owner_id === user.email;
     const isOrgAdmin =
       (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
-    if (!isOwner && !isOrgAdmin) {
+    // Team members can edit a project too, matching project visibility (which is
+    // team-based). Without this, a teammate who can see a project can't save it.
+    const isTeamMember = await isProjectTeamMember(project, user.email);
+    if (!isOwner && !isOrgAdmin && !isTeamMember) {
       throw new ApiError(
-        "You can only edit projects you own (or as a projects admin)",
+        "You can only edit projects on your team (or as a projects admin)",
         403,
         "FORBIDDEN",
       );
