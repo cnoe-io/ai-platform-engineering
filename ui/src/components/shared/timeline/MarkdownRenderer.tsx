@@ -110,6 +110,12 @@ const purifyConfig = {
   USE_PROFILES: { html: true },
   FORBID_TAGS: ["style"] as string[],
   FORBID_CONTENTS: ["style", "script"] as string[],
+  // Allow the `tome:` scheme (internal wiki links) alongside DOMPurify's
+  // defaults. Without this, DOMPurify drops the `tome://` href as an unknown
+  // scheme, leaving the anchor unclickable (the click handler resolves the
+  // route from the href). Data attributes survive sanitizing, the href doesn't.
+  ALLOWED_URI_REGEXP:
+    /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|tome):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 };
 
 function sanitize(html: string): string {
