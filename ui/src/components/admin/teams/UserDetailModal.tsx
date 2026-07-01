@@ -211,22 +211,20 @@ export function UserDetailModal({
 
   const loadTeams = useCallback(async () => {
     if (teamOptionsProp) return; // parent already supplied the list
-    const teamsRes = await fetch("/api/admin/teams");
+    // /api/dynamic-agents/teams is a single MongoDB query (no OpenFGA fan-out)
+    // and returns all teams for admins — sufficient for the picker.
+    const teamsRes = await fetch("/api/dynamic-agents/teams");
     const teamsJson = (await readJson(teamsRes)) as {
       success?: boolean;
-      data?: { teams?: Array<{ name?: string }> };
+      data?: Array<{ name?: string; slug?: string }>;
     } | null;
-    if (
-      teamsRes.ok &&
-      teamsJson?.success &&
-      Array.isArray(teamsJson.data?.teams)
-    ) {
+    if (teamsRes.ok && teamsJson?.success && Array.isArray(teamsJson.data)) {
       setTeamOptionsFetched(
-        teamsJson.data.teams
+        teamsJson.data
           .map((t) => {
             const name = typeof t.name === "string" ? t.name.trim() : "";
             if (!name) return null;
-            return { teamId: name, label: name };
+            return { teamId: t.slug ?? name, label: name };
           })
           .filter((x): x is { teamId: string; label: string } => x != null)
       );
