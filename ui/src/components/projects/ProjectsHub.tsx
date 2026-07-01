@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderKanban,
+  HelpCircle,
   History,
   Plus,
   RefreshCw,
@@ -22,7 +23,9 @@ import {
 import { BackstageSyncDialog } from "@/components/projects/BackstageSyncDialog";
 import { ProjectOnboardingWizard } from "@/components/projects/ProjectOnboardingWizard";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
+import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -33,6 +36,10 @@ import { normLabel } from "@/lib/projects/labels";
 import type { ProjectDocument } from "@/types/projects";
 
 type GroupBy = "none" | "initiative" | "swimlane";
+
+// Shared with TomeWiki so the first-run walkthrough shows once per browser
+// across the hub and any project's wiki.
+const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
 type EnrichedProject = ProjectDocument & {
   page_count?: number | null;
@@ -320,6 +327,21 @@ export function ProjectsHub() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [canOpenSync, setCanOpenSync] = useState(false);
   const [, setSyncBlockedReason] = useState<string | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+
+  // First-run walkthrough, once per browser (shared key with the wiki). The
+  // Help button reopens it any time.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.localStorage.getItem(ONBOARDING_SEEN_KEY)) setOnboardingOpen(true);
+  }, []);
+
+  const handleOnboardingChange = useCallback((open: boolean) => {
+    setOnboardingOpen(open);
+    if (!open && typeof window !== "undefined") {
+      window.localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+    }
+  }, []);
 
   // Default to grouping by BHAG so strategic goals are the primary lens; the
   // user can still drop to a flat list or swimlanes.
@@ -470,6 +492,22 @@ export function ProjectsHub() {
               : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
           </h2>
           <div className="flex items-center gap-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground"
+                    onClick={() => setOnboardingOpen(true)}
+                    aria-label="What is TOME?"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">What is TOME?</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <McpConnectDialog />
             <select
               value={groupBy}
@@ -537,6 +575,8 @@ export function ProjectsHub() {
         onClose={() => setSyncOpen(false)}
         onComplete={() => void load()}
       />
+
+      <OnboardingModal open={onboardingOpen} onOpenChange={handleOnboardingChange} />
     </div>
   );
 }
