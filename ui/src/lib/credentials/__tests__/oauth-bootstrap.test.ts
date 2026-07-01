@@ -64,12 +64,18 @@ describe("OAuth connector env bootstrap", () => {
       clientId: "webex-client",
       clientSecret: "webex-secret",
       scopes: [
-        "spark:kms",
-        "spark:people_read",
-        "meeting:recordings_read",
-        "identity:people_read",
-        "spark:messages_read",
         "spark:mcp",
+        "meeting:schedules_read",
+        "meeting:schedules_write",
+        "meeting:participants_read",
+        "meeting:transcripts_read",
+        "meeting:summaries_read",
+        "meeting:recordings_read",
+        "spark:people_read",
+        "spark:rooms_read",
+        "spark:messages_read",
+        "identity:people_read",
+        "spark:kms",
         "spark-admin:people_read",
       ],
     });
@@ -142,6 +148,22 @@ describe("OAuth connector env bootstrap", () => {
     ]);
   });
 
+  it("allows Webex scopes to be overridden by the legacy deployment env name", () => {
+    const inputs = buildOAuthConnectorBootstrapInputs({
+      WEBEX_CLIENT_ID: "webex-client",
+      WEBEX_CLIENT_SECRET: "webex-secret",
+      WEBEX_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/webex/callback",
+      WEBEX_OAUTH_SCOPES: "spark:mcp meeting:schedules_read meeting:transcripts_read",
+    });
+
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        provider: "webex",
+        scopes: ["spark:mcp", "meeting:schedules_read", "meeting:transcripts_read"],
+      }),
+    ]);
+  });
+
   it("normalizes legacy local GitHub and Webex callback URLs to the CAIPE UI callback route", () => {
     const inputs = buildOAuthConnectorBootstrapInputs({
       NEXTAUTH_URL: "http://localhost:3000",
@@ -161,6 +183,21 @@ describe("OAuth connector env bootstrap", () => {
       expect.objectContaining({
         provider: "webex",
         redirectUri: "http://localhost:3000/api/credentials/oauth/webex/callback",
+      }),
+    ]);
+  });
+
+  it("normalizes legacy Webex Settings callback URLs to the Connected Apps callback route", () => {
+    const inputs = buildOAuthConnectorBootstrapInputs({
+      WEBEX_CLIENT_ID: "webex-client",
+      WEBEX_CLIENT_SECRET: "webex-secret",
+      WEBEX_REDIRECT_URI: "https://sunny-caipe.outshift.io/api/integrations/webex/callback",
+    });
+
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        provider: "webex",
+        redirectUri: "https://sunny-caipe.outshift.io/api/credentials/oauth/webex/callback",
       }),
     ]);
   });

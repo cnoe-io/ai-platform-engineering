@@ -46,7 +46,7 @@ jest.mock('@/lib/utils', () => ({
 
 import { getLastActiveConversationId, resolveChatNavigationPath, useChatStore } from '../chat-store';
 import { apiClient } from '@/lib/api-client';
-import type { Conversation, ChatMessage } from '@/types/a2a';
+import { getAgentId, type Conversation, type ChatMessage } from '@/types/a2a';
 
 // Get typed mock references
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
@@ -99,6 +99,7 @@ describe('chat-store', () => {
     jest.useFakeTimers();
     window.localStorage.clear();
     (global as any).__mockStorageMode = 'mongodb';
+    delete (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__;
     resetStore();
   });
 
@@ -1222,6 +1223,57 @@ describe('chat-store', () => {
           agent_id: 'agent-1',
         })
       );
+    });
+
+    it('uses the platform default agent when agent id is omitted', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        json: async () => ({ success: true, data: { default_agent_id: 'agent-platform-default' } }),
+      });
+
+      const id = await useChatStore.getState().createConversation();
+
+      expect(id).toBe('server-generated-id');
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'agent-platform-default',
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBe('agent-platform-default');
+    });
+
+    it('falls back to supervisor when no platform default agent is configured', async () => {
+      const id = await useChatStore.getState().createConversation();
+
+      expect(id).toBe('server-generated-id');
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: undefined,
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBeUndefined();
+    });
+
+    it('preserves explicit dynamic agent conversations', async () => {
+      const id = await useChatStore.getState().createConversation('agent-sunny-webex-meeting-test');
+
+      expect(id).toBe('server-generated-id');
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'agent-sunny-webex-meeting-test',
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBe('agent-sunny-webex-meeting-test');
+    });
+
+    it('allows explicit Platform Engineer conversations with null', async () => {
+      await useChatStore.getState().createConversation(null);
+
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: undefined,
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBeUndefined();
     });
 
     it('does not call server in localStorage mode', async () => {

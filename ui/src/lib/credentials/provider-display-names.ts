@@ -9,14 +9,15 @@
 // Keep this list in sync with BUILT_IN_OAUTH_CONNECTORS whenever a provider is
 // added or renamed.
 
-export type BuiltInProviderKey = "github" | "gitlab" | "atlassian" | "webex" | "pagerduty";
+export type BuiltInProviderKey = "github" | "gitlab" | "atlassian" | "webex" | "webex_pam" | "pagerduty";
 
-/** Ordered list of the 5 built-in providers with their display names. */
+/** Ordered list of the built-in providers with their display names. */
 export const PROVIDER_DISPLAY_LIST: { provider: BuiltInProviderKey; name: string }[] = [
   { provider: "github", name: "GitHub" },
   { provider: "gitlab", name: "GitLab" },
   { provider: "atlassian", name: "Atlassian Cloud" },
   { provider: "webex", name: "Webex" },
+  { provider: "webex_pam", name: "Webex (Pam)" },
   { provider: "pagerduty", name: "PagerDuty" },
 ];
 

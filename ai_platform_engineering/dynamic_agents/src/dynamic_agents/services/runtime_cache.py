@@ -168,6 +168,13 @@ class AgentRuntimeCache:
                 )
                 await runtime.cleanup()
                 del self._cache[key]
+            elif user and getattr(getattr(runtime, "_user", None), "email", None) != user.email:
+                logger.info(
+                    "Runtime cache invalidated due to user context change for agent %s",
+                    agent_config.id,
+                )
+                await runtime.cleanup()
+                del self._cache[key]
             elif runtime.idle_seconds >= self._ttl:
                 logger.info(
                     "Runtime cache expired due to inactivity (%.0fs idle) for agent %s",
@@ -243,6 +250,44 @@ class AgentRuntimeCache:
         finally:
             await runtime.cleanup()
             logger.debug("Ephemeral runtime cleaned up for agent %s", agent_config.id)
+
+    @asynccontextmanager
+    async def persistent(
+        self,
+        agent_config: "DynamicAgentConfig",
+        mcp_servers: list["MCPServerConfig"],
+        session_id: str,
+        *,
+        user: "UserContext | None" = None,
+        client_context: "ClientContext | None" = None,
+    ):
+        """Create a non-cached Mongo-backed runtime, cleaned up on exit.
+
+        This is for non-streaming scheduled invocations: they must write the
+        LangGraph checkpoint so the web chat can continue the same thread, but
+        they should not enter the shared runtime cache where UI polling can
+        race with and mutate the live runtime.
+        """
+        runtime = AgentRuntime(
+            agent_config,
+            mcp_servers,
+            mongo_service=self._mongo_service,
+            user=user,
+            client_context=client_context,
+            session_id=session_id,
+        )
+        try:
+            await runtime.initialize()
+        except Exception as e:
+            logger.exception("Persistent runtime initialization failed for agent '%s'", agent_config.id)
+            raise RuntimeInitError(agent_config.id, e) from e
+
+        logger.info("Created persistent one-shot runtime for agent %s", agent_config.id)
+        try:
+            yield runtime
+        finally:
+            await runtime.cleanup()
+            logger.debug("Persistent one-shot runtime cleaned up for agent %s", agent_config.id)
 
     async def _create_runtime(
         self,

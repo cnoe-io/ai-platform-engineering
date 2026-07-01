@@ -164,6 +164,7 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    memory_enabled: bool = True
     config_override: dict | None = Field(
         None,
         description=(
@@ -182,6 +183,62 @@ class ResumeStreamRequest(BaseModel):
     )
 
 
+def _is_scheduler_invoke(request: ChatRequest) -> bool:
+    """Return true when the non-streaming invoke came from caipe-cron-runner."""
+    if not request.client_context:
+        return False
+    return request.client_context.model_dump().get("source") == "scheduler"
+
+
+async def _collect_invoke_response(
+    *,
+    runtime,
+    request: ChatRequest,
+    user: UserContext,
+    agent: DynamicAgentConfig,
+) -> dict | JSONResponse:
+    """Run a non-streaming invoke and return the accumulated response."""
+    encoder = get_encoder("custom")
+
+    async for _frame in runtime.stream(
+        request.message,
+        request.conversation_id,
+        user.email,
+        request.trace_id,
+        encoder,
+        memory_enabled=request.memory_enabled,
+    ):
+        pass  # Frames are SSE strings; invoke only needs accumulated content.
+
+    interrupt = await runtime.has_pending_interrupt(request.conversation_id)
+    if interrupt:
+        interrupt_type = interrupt.get("type", "unknown")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "Agent requires human interaction which is not supported via the invoke endpoint. "
+                    "Use the streaming chat endpoint or consider disabling tool approvals "
+                    "and the user input tool for this agent."
+                ),
+                "interrupt_type": interrupt_type,
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            },
+        )
+
+    return {
+        "success": True,
+        "content": encoder.get_accumulated_content(),
+        "thinking": encoder.get_thinking_content() or None,
+        "agent_id": agent.id,
+        "conversation_id": request.conversation_id,
+        "trace_id": request.trace_id,
+    }
+
+
 async def _generate_sse_events(
     agent_config: DynamicAgentConfig,
     mcp_servers: list,
@@ -192,6 +249,7 @@ async def _generate_sse_events(
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
     client_context: ClientContext | None = None,
+    memory_enabled: bool = True,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -218,7 +276,14 @@ async def _generate_sse_events(
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder):
+        async for frame in runtime.stream(
+            message,
+            session_id,
+            user.email,
+            trace_id,
+            encoder,
+            memory_enabled=memory_enabled,
+        ):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -316,6 +381,7 @@ async def chat_start_stream(
             trace_id=request.trace_id,
             mongo=mongo,
             client_context=request.client_context,
+            memory_enabled=request.memory_enabled,
         ),
         media_type="text/event-stream",
         headers={
@@ -335,6 +401,7 @@ async def _generate_resume_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    memory_enabled: bool = True,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent resume streaming.
 
@@ -359,7 +426,14 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async for frame in runtime.resume(session_id, user.email, resume_data, trace_id, encoder):
+        async for frame in runtime.resume(
+            session_id,
+            user.email,
+            resume_data,
+            trace_id,
+            encoder,
+            memory_enabled=memory_enabled,
+        ):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -428,6 +502,7 @@ async def chat_resume_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            memory_enabled=request.memory_enabled,
         ),
         media_type="text/event-stream",
         headers={
@@ -477,6 +552,21 @@ async def chat_invoke(
     cache.set_mongo_service(mongo)
 
     try:
+        if _is_scheduler_invoke(request):
+            async with cache.persistent(
+                agent,
+                mcp_servers,
+                request.conversation_id,
+                user=user,
+                client_context=request.client_context,
+            ) as runtime:
+                return await _collect_invoke_response(
+                    runtime=runtime,
+                    request=request,
+                    user=user,
+                    agent=agent,
+                )
+
         async with AsyncExitStack() as stack:
             if persist_history:
                 runtime = await cache.get_or_create(
@@ -497,40 +587,12 @@ async def chat_invoke(
                     )
                 )
 
-            encoder = get_encoder("custom")
-
-            async for _frame in runtime.stream(
-                request.message, request.conversation_id, user.email, request.trace_id, encoder
-            ):
-                pass  # Frames are SSE strings, we don't need them for invoke
-
-            interrupt = await runtime.has_pending_interrupt(request.conversation_id)
-            if interrupt:
-                interrupt_type = interrupt.get("type", "unknown")
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "error": (
-                            "Agent requires human interaction which is not supported via the invoke endpoint. "
-                            "Use the streaming chat endpoint or consider disabling tool approvals "
-                            "and the user input tool for this agent."
-                        ),
-                        "interrupt_type": interrupt_type,
-                        "agent_id": agent.id,
-                        "conversation_id": request.conversation_id,
-                        "trace_id": request.trace_id,
-                    },
-                )
-
-            return {
-                "success": True,
-                "content": encoder.get_accumulated_content(),
-                "thinking": encoder.get_thinking_content() or None,
-                "agent_id": agent.id,
-                "conversation_id": request.conversation_id,
-                "trace_id": request.trace_id,
-            }
+            return await _collect_invoke_response(
+                runtime=runtime,
+                request=request,
+                user=user,
+                agent=agent,
+            )
 
     except RuntimeCapacityError as e:
         logger.warning(f"Agent runtime at capacity for invoke: {e}")

@@ -1,5 +1,5 @@
 export interface BuiltInOAuthConnectorDescriptor {
-  provider: "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
+  provider: "github" | "atlassian" | "webex" | "webex_pam" | "pagerduty" | "gitlab";
   name: string;
   authorizationUrl: string;
   tokenUrl: string;
@@ -42,12 +42,39 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     authorizationUrl: "https://webexapis.com/v1/authorize",
     tokenUrl: "https://webexapis.com/v1/access_token",
     scopes: [
-      "spark:kms",
-      "spark:people_read",
-      "meeting:recordings_read",
-      "identity:people_read",
-      "spark:messages_read",
       "spark:mcp",
+      "meeting:schedules_read",
+      "meeting:schedules_write",
+      "meeting:participants_read",
+      "meeting:transcripts_read",
+      "meeting:summaries_read",
+      "meeting:recordings_read",
+      "spark:people_read",
+      "spark:rooms_read",
+      "spark:messages_read",
+      "identity:people_read",
+      "spark:kms",
+      "spark-admin:people_read",
+    ],
+  },
+  {
+    provider: "webex_pam",
+    name: "Webex (Pam)",
+    authorizationUrl: "https://webexapis.com/v1/authorize",
+    tokenUrl: "https://webexapis.com/v1/access_token",
+    scopes: [
+      "spark:mcp",
+      "meeting:schedules_read",
+      "meeting:schedules_write",
+      "meeting:participants_read",
+      "meeting:transcripts_read",
+      "meeting:summaries_read",
+      "meeting:recordings_read",
+      "spark:people_read",
+      "spark:rooms_read",
+      "spark:messages_read",
+      "identity:people_read",
+      "spark:kms",
       "spark-admin:people_read",
     ],
   },

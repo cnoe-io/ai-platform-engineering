@@ -6,16 +6,18 @@
  * caller is.  DA never validates JWTs directly — the Next.js gateway is
  * the auth boundary.
  *
- * Auth methods (tried in order):
- *   1. Bearer token — validated against OIDC JWKS (service clients).
- *   2. Session cookie — resolved via NextAuth (browser UI).
- *   3. Anonymous fallback — only when SSO is disabled (local dev).
+ * Auth methods:
+ *   1. Browser UI requests use the NextAuth session cookie first, even if
+ *      the browser also sent an OIDC access token.
+ *   2. Service/non-browser callers use Bearer token auth when present.
+ *   3. Anonymous fallback is only allowed when SSO is disabled (local dev).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
 import {
   ApiError,
+  getAuthenticatedUser,
   getAuthFromBearerOrSession,
   requireRbacPermission,
 } from "@/lib/api-middleware";
@@ -80,14 +82,39 @@ export async function authenticateRequest(
   const path = request.nextUrl.pathname;
   const clientSource = request.headers.get("X-Client-Source") ?? "browser";
   const hasBearer = request.headers.has("Authorization");
-  const authMethod = hasBearer ? "bearer" : "session";
+  let authMethod = hasBearer ? "bearer" : "session";
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     ?? request.headers.get("x-real-ip")
     ?? "unknown";
   const ua = request.headers.get("user-agent") ?? "unknown";
 
+  // NOTE: scheduled cron runs are no longer authenticated here. They used to
+  // short-circuit on a trusted `X-CAIPE-User` header (the rejected "trusted
+  // header" variant). Under scheduled-job-auth Approach 2 the invoke route
+  // detects a validated scheduler call, mints a real owner bearer via Keycloak
+  // token exchange, and runs the normal owner gates — see
+  // `@/lib/scheduled-run-auth` and `app/api/v1/chat/invoke/route.ts`.
+
   try {
-    const { user, session } = await getAuthFromBearerOrSession(request);
+    let auth = null as Awaited<ReturnType<typeof getAuthFromBearerOrSession>> | null;
+
+    if (clientSource === "browser") {
+      try {
+        auth = await getAuthenticatedUser(request, {
+          allowAnonymous: !getServerConfig().ssoEnabled,
+        });
+        authMethod = "session";
+      } catch {
+        auth = null;
+      }
+    }
+
+    if (!auth) {
+      auth = await getAuthFromBearerOrSession(request);
+      authMethod = hasBearer ? "bearer" : "session";
+    }
+
+    const { user, session } = auth;
     if (permission) {
       await requireRbacPermission(session, permission.resource, permission.scope);
     }

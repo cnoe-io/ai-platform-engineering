@@ -32,6 +32,7 @@ from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
 
 from dynamic_agents.services.llm import get_configured_llm
+from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware
 
 from dynamic_agents.metrics import MetricsAgentMiddleware
-from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
+from dynamic_agents.services.mcp_file_persistence import MCPFilePersistenceMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,7 @@ def build_middleware(
     session_id: str | None = None,
     agent_name: str = "unknown",
     model_id: str = "unknown",
+    filesystem_namespace: tuple[str, ...] | None = None,
 ) -> list[AgentMiddleware]:
     """Build the middleware stack from an agent's features config.
 
@@ -333,6 +335,7 @@ def build_middleware(
     Returns:
         Ordered list of middleware instances.
     """
+    conv = session_id or "-"
     if features is None or not features.middleware:
         # No explicit config — apply all default-enabled middleware
         entries: list[MiddlewareEntry] = []
@@ -352,14 +355,15 @@ def build_middleware(
 
         spec = MIDDLEWARE_REGISTRY.get(entry.type)
         if spec is None:
-            logger.warning("Unknown middleware type '%s', skipping", entry.type)
+            logger.warning("conv=%s Unknown middleware type '%s', skipping", conv, entry.type)
             continue
 
         # Enforce singleton constraint
         if not spec.allow_multiple:
             if entry.type in seen_singletons:
                 logger.warning(
-                    "Middleware '%s' does not allow multiple instances, skipping duplicate",
+                    "conv=%s Middleware '%s' does not allow multiple instances, skipping duplicate",
+                    conv,
                     entry.type,
                 )
                 continue
@@ -378,13 +382,18 @@ def build_middleware(
             instance = spec.cls(**params)
 
         result.append(instance)
-        logger.debug("Middleware '%s' added with params: %s", entry.type, params)
+        logger.debug("conv=%s Middleware '%s' added with params: %s", conv, entry.type, params)
+
+    # Always persist MCP file/download results into the conversation filesystem
+    # so follow-up read_file calls can inspect downloaded artifacts.
+    result.append(MCPFilePersistenceMiddleware(namespace=filesystem_namespace))
 
     # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
     result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))
 
     logger.info(
-        "Built middleware stack: %s",
+        "conv=%s Built middleware stack: %s",
+        conv,
         [type(m).__name__ for m in result],
     )
     return result

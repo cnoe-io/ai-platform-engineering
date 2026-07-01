@@ -260,6 +260,34 @@ export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'upda
 };
 
 // ============================================================================
+// User Memories Collection
+// ============================================================================
+
+export type UserMemoryScope = 'global' | 'agent' | 'context';
+export type UserMemoryCategory = 'preference' | 'instruction' | 'fact' | 'formatting';
+export type UserMemorySource = 'agent' | 'manual';
+
+export interface UserMemory {
+  _id: string;
+  memory_id: string;
+  owner_user_id: string;
+  scope: UserMemoryScope;
+  agent_id?: string | null;
+  context_namespace?: string | null;
+  context_type?: string | null;
+  context_id?: string | null;
+  category: UserMemoryCategory;
+  key: string;
+  normalized_key: string;
+  value: string;
+  enabled: boolean;
+  source: UserMemorySource;
+  created_by_agent_id?: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// ============================================================================
 // Conversation Bookmarks Collection
 // ============================================================================
 

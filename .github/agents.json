@@ -21,9 +21,12 @@
     "litellm",
     "netutils",
     "pagerduty",
+    "pod-meeting",
+    "scheduler",
     "splunk",
     "victorops",
-    "webex"
+    "webex",
+    "webex-meetings"
   ],
   "rag_components": [
     "agent-ontology",

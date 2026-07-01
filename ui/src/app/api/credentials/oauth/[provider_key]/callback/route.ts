@@ -56,6 +56,11 @@ const PROVIDER_BRANDING: Record<string, { name: string }> = {
   github: { name: "GitHub" },
   pagerduty: { name: "PagerDuty" },
   webex: { name: "Webex" },
+  webex_pam: { name: "Webex (Pam)" },
+};
+
+const CALLBACK_PROVIDER_ALIASES: Record<string, string[]> = {
+  webex: ["webex_pam"],
 };
 
 function providerBranding(providerKey: string): { name: string } {
@@ -135,9 +140,26 @@ function completionPage(input: {
   });
 }
 
+function resolveCallbackState(headers: Headers, callbackProviderKey: string): {
+  providerKey: string;
+  stateCookie: string | null;
+} {
+  const candidates = [
+    callbackProviderKey,
+    ...(CALLBACK_PROVIDER_ALIASES[callbackProviderKey] ?? []),
+  ];
+  for (const candidate of candidates) {
+    const stateCookie = cookieValue(headers, oauthStateCookieName(candidate));
+    if (stateCookie) {
+      return { providerKey: candidate, stateCookie };
+    }
+  }
+  return { providerKey: callbackProviderKey, stateCookie: null };
+}
+
 export const GET = withErrorHandler(async (request: NextRequest, context?: { params: Promise<{ provider_key: string }> }) => {
   assertFeatureEnabled();
-  const { provider_key: providerKey } = await context!.params;
+  const { provider_key: callbackProviderKey } = await context!.params;
   const { session, user } = await getAuthFromBearerOrSession(request);
   const ownerId = typeof session.sub === "string" ? session.sub : "";
   if (!ownerId) {
@@ -147,9 +169,9 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   const url = new URL(request.url);
   const providerError = url.searchParams.get("error");
   if (providerError) {
-    const provider = providerBranding(providerKey);
+    const provider = providerBranding(callbackProviderKey);
     return completionPage({
-      providerKey,
+      providerKey: callbackProviderKey,
       status: "error",
       title: "Connection failed",
       message: `${provider.name} returned ${providerError}. You can close this window.`,
@@ -157,7 +179,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   }
   const code = url.searchParams.get("code") ?? "";
   const state = url.searchParams.get("state") ?? "";
-  const stateCookie = cookieValue(request.headers, oauthStateCookieName(providerKey));
+  const { providerKey, stateCookie } = resolveCallbackState(request.headers, callbackProviderKey);
   if (!code || !state || !stateCookie) {
     throw new ApiError("OAuth callback is missing state or code", 400, "INVALID_OAUTH_CALLBACK");
   }

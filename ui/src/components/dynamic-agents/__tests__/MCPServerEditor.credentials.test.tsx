@@ -354,6 +354,57 @@ describe("MCPServerEditor credential sources", () => {
     );
   });
 
+  it("shows caller-scoped providers on config-driven servers without requiring a pinned connected app", async () => {
+    global.fetch = jest.fn(async (url: string) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({ targets: [] });
+      }
+      if (url === "/api/credentials/secrets" || url === "/api/credentials/connections") {
+        return response([]);
+      }
+      if (url === "/api/credentials/oauth-connectors") {
+        return response([
+          {
+            id: "webex-pam",
+            name: "Webex (Pam)",
+            provider: "webex_pam",
+          },
+        ]);
+      }
+      return response({});
+    }) as jest.Mock;
+
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "webex_meetings",
+          name: "Webex Meetings",
+          description: "Webex meetings",
+          transport: "http",
+          endpoint: "http://caipe-agentgateway:4000/mcp/webex_meetings",
+          enabled: true,
+          config_driven: true,
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider: "webex_pam",
+              connection_scope: "caller",
+            },
+          ],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await screen.findByRole("option", { name: "Webex (Pam)" });
+    expect(screen.getByLabelText(/^provider$/i)).toHaveValue("webex_pam");
+    expect(screen.queryByLabelText(/provider connection/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/select a connected app/i)).not.toBeInTheDocument();
+  });
+
   it("does not offer a per-connection (all-callers) picker for provider connections", async () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);

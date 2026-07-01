@@ -1,5 +1,6 @@
 import { AuthProvider } from "@/components/auth-provider";
 import { ThemeInjector } from "@/components/theme-injector";
+import { DeploymentReloadGuard } from "@/components/deployment-reload-guard";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import { ToastProvider } from "@/components/ui/toast";
@@ -110,6 +111,7 @@ export default async function RootLayout({
           >
             <ToastProvider>
               <ThemeInjector />
+              <DeploymentReloadGuard />
               <TokenExpiryGuard />
               {children}
             </ToastProvider>

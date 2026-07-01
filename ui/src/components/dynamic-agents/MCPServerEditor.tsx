@@ -22,11 +22,13 @@ import {
 } from "@/lib/suppress-password-manager";
 import { normalizeCustomProviderCredentialSource } from "@/lib/mcp-credential-scope";
 import type {
-MCPCredentialSource,
-MCPServerConfig,
-MCPServerConfigCreate,
-MCPServerConfigUpdate,
-TransportType,
+  MCPAuthType,
+  MCPServerAuth,
+  MCPServerConfig,
+  MCPServerConfigCreate,
+  MCPServerConfigUpdate,
+  MCPCredentialSource,
+  TransportType,
 } from "@/types/dynamic-agent";
 import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
 import React from "react";
@@ -200,6 +202,12 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
     normalizeCredentialSourcesForEditor(server?.credential_sources),
   );
+
+  // Auth (HTTP/SSE only). 'none' = no Authorization header injection.
+  const initialAuthMode: 'none' | MCPAuthType = server?.auth?.type ?? 'none';
+  const [authMode, setAuthMode] = React.useState<'none' | MCPAuthType>(initialAuthMode);
+  const [authProvider, setAuthProvider] = React.useState<string>(server?.auth?.provider ?? 'webex');
+  const [authSecretRef, setAuthSecretRef] = React.useState<string>(server?.auth?.secret_ref ?? '');
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -460,6 +468,19 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
         }
       });
 
+      // Build auth block (HTTP/SSE only). null sentinel means "clear it".
+      let auth: MCPServerAuth | null = null;
+      if (transport !== 'stdio' && authMode !== 'none') {
+        if (authMode === 'user_oauth') {
+          auth = { type: 'user_oauth', provider: authProvider as 'webex' };
+        } else if (authMode === 'bot_token') {
+          if (!authSecretRef.trim()) {
+            throw new Error('Secret env var name is required for bot_token auth');
+          }
+          auth = { type: 'bot_token', secret_ref: authSecretRef.trim() };
+        }
+      }
+
       if (isEditing) {
         const normalizedCredentialSources = credentialSources
           .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
@@ -476,6 +497,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
+          auth: transport !== 'stdio' ? (auth ?? undefined) : undefined,
           // Always send credential_sources on update (including []) so the BFF can
           // clear previously saved bindings; omitting the field is a no-op.
           credential_sources: normalizedCredentialSources,
@@ -508,6 +530,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
+          auth: transport !== 'stdio' && auth ? auth : undefined,
           credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
         };
 
@@ -1096,6 +1119,71 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
               </div>
             )}
           </div>
+
+          {/* Auth (HTTP/SSE only) */}
+          {transport !== 'stdio' && (
+            <div className="space-y-4 pt-4 border-t">
+              <h3 className="text-sm font-medium">Authentication</h3>
+              <p className="text-xs text-muted-foreground">
+                How the dynamic-agents runtime should authenticate calls to this MCP server.
+                The MCP server itself must honor the <code>Authorization</code> header for this to take effect.
+              </p>
+
+              <div className="space-y-2">
+                <Label htmlFor="auth-type">Auth Type</Label>
+                <select
+                  id="auth-type"
+                  value={authMode}
+                  onChange={(e) => setAuthMode(e.target.value as 'none' | MCPAuthType)}
+                  disabled={loading}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                >
+                  <option value="none">None — no Authorization header injected</option>
+                  <option value="user_oauth">Legacy User OAuth — vendor_connections bearer</option>
+                  <option value="bot_token">Bot Token — shared service token from a named env var</option>
+                </select>
+              </div>
+
+              {authMode === 'user_oauth' && (
+                <div className="space-y-2">
+                  <Label htmlFor="auth-provider">OAuth Provider</Label>
+                  <select
+                    id="auth-provider"
+                    value={authProvider}
+                    onChange={(e) => setAuthProvider(e.target.value)}
+                    disabled={loading}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                  >
+                    <option value="webex">Webex</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Legacy path. For AgentGateway-routed MCP servers, use Credentials below with a caller-scoped provider connection.
+                  </p>
+                </div>
+              )}
+
+              {authMode === 'bot_token' && (
+                <div className="space-y-2">
+                  <Label htmlFor="auth-secret-ref">
+                    Secret Env Var <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="auth-secret-ref"
+                    placeholder="e.g., WEBEX_PAM_TOKEN"
+                    value={authSecretRef}
+                    onChange={(e) => setAuthSecretRef(e.target.value)}
+                    disabled={loading}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Name of the env var (or k8s Secret key) on the dynamic-agents pod that holds
+                    the bearer token. Read at request time and forwarded as
+                    {' '}<code>Authorization: Bearer ...</code>.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Error */}
           {error && (

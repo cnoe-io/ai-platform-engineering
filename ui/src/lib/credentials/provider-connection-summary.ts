@@ -28,7 +28,8 @@ export function buildProviderProfileSummary(
       const name = typeof profile?.name === "string" ? profile.name.trim() : "";
       return name || undefined;
     }
-    case "webex": {
+    case "webex":
+    case "webex_pam": {
       const displayName =
         typeof profile?.displayName === "string" ? profile.displayName.trim() : "";
       if (displayName) return displayName;

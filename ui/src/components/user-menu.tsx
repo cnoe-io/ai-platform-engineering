@@ -624,6 +624,21 @@ export function UserMenu() {
               </button>
             </div>
 
+            {/* Connected apps */}
+            <div className="border-b border-border">
+              <a
+                href="/credentials?tab=connections"
+                onClick={() => setOpen(false)}
+                className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  <span>Connected Apps</span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </a>
+            </div>
+
             {/* Actions */}
             <div className="p-1.5">
               <button
