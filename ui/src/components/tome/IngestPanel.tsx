@@ -627,71 +627,78 @@ export function IngestPanel({
                     Webex only exposes meetings you hosted or that have a transcript you can
                     access; meetings hosted by others may not appear.
                   </p>
-                  {meetingsLoading ? (
-                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Loading…
-                    </p>
-                  ) : !meetings || meetings.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No meetings found. Webex only returns meetings you hosted or that have
-                      a transcript you can access, so meetings hosted by others won&apos;t
-                      appear. Also make sure Webex is connected in{" "}
-                      <a href="/credentials" className="underline">
-                        /credentials
-                      </a>
-                      .
-                    </p>
-                  ) : (
-                    <>
-                      <div className="relative mb-2">
-                        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                          type="text"
-                          placeholder="Filter meetings…"
-                          value={meetingFilter}
-                          onChange={(e) => setMeetingFilter(e.target.value)}
-                          className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        />
+                  {/* Filter — disabled until meetings load, like the source picker. */}
+                  <div className="relative mb-2">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Filter meetings…"
+                      value={meetingFilter}
+                      onChange={(e) => setMeetingFilter(e.target.value)}
+                      disabled={meetingsLoading || !meetings || meetings.length === 0}
+                      className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                    />
+                  </div>
+
+                  {/* Fixed-height scroll region so a long history doesn't blow out
+                      the panel. Skeleton rows while loading (source-picker style). */}
+                  <div className="h-52 overflow-y-auto rounded-md border">
+                    {meetingsLoading ? (
+                      <ul className="divide-y" aria-hidden>
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <li key={i} className="flex items-center gap-3 px-3 py-2.5">
+                            <span className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted" />
+                            <span className="h-3 flex-1 animate-pulse rounded bg-muted" />
+                            <span className="h-3 w-16 shrink-0 animate-pulse rounded bg-muted" />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : !meetings || meetings.length === 0 ? (
+                      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                        No meetings found. Connect Webex in
+                        <a href="/credentials" className="mx-1 underline">
+                          /credentials
+                        </a>
+                        if you haven&apos;t.
                       </div>
-                      {filteredMeetings.length === 0 ? (
-                        <p className="py-2 text-center text-sm text-muted-foreground">
-                          No meetings match &ldquo;{meetingFilter}&rdquo;.
-                        </p>
-                      ) : (
-                        <ul className="divide-y rounded-md border">
-                          {filteredMeetings.map((m) => (
-                            <li key={m.id}>
-                              <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedMeetings.has(m.id)}
-                                  onChange={() => toggleMeeting(m.id)}
-                                  disabled={!canEdit || starting}
-                                  className="h-4 w-4 rounded border-input accent-primary"
+                    ) : filteredMeetings.length === 0 ? (
+                      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                        No meetings match &ldquo;{meetingFilter}&rdquo;.
+                      </div>
+                    ) : (
+                      <ul className="divide-y">
+                        {filteredMeetings.map((m) => (
+                          <li key={m.id}>
+                            <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted">
+                              <input
+                                type="checkbox"
+                                checked={selectedMeetings.has(m.id)}
+                                onChange={() => toggleMeeting(m.id)}
+                                disabled={!canEdit || starting}
+                                className="h-4 w-4 rounded border-input accent-primary"
+                              />
+                              <span className="flex-1 truncate font-medium">{m.title}</span>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {new Date(m.start).toLocaleDateString()}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-1">
+                                <MeetingBadge
+                                  label="Summary"
+                                  available={m.hasSummary}
+                                  unavailableReason="No AI summary: meeting may still be processing"
                                 />
-                                <span className="flex-1 truncate font-medium">{m.title}</span>
-                                <span className="shrink-0 text-xs text-muted-foreground">
-                                  {new Date(m.start).toLocaleDateString()}
-                                </span>
-                                <span className="flex shrink-0 items-center gap-1">
-                                  <MeetingBadge
-                                    label="Summary"
-                                    available={m.hasSummary}
-                                    unavailableReason="No AI summary: meeting may still be processing"
-                                  />
-                                  <MeetingBadge
-                                    label="Transcript"
-                                    available={m.hasTranscript}
-                                    unavailableReason="No transcript: Webex Assistant wasn't enabled for this meeting"
-                                  />
-                                </span>
-                              </label>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </>
-                  )}
+                                <MeetingBadge
+                                  label="Transcript"
+                                  available={m.hasTranscript}
+                                  unavailableReason="No transcript: Webex Assistant wasn't enabled for this meeting"
+                                />
+                              </span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
