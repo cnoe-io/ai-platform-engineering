@@ -72,17 +72,16 @@ function setupFetchMock() {
         },
       });
     }
-    if (url === "/api/admin/teams") {
+    if (url === "/api/dynamic-agents/teams") {
       return response({
-        data: {
-          teams: [
-            {
-              _id: "team-1",
-              slug: "platform-engineering",
-              name: "Platform Engineering",
-            },
-          ],
-        },
+        success: true,
+        data: [
+          {
+            _id: "team-1",
+            slug: "platform-engineering",
+            name: "Platform Engineering",
+          },
+        ],
       });
     }
     if (url === "/api/admin/webex/spaces/defaults" && init?.method === "POST") {
