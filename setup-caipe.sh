@@ -7518,6 +7518,19 @@ cmd_cleanup() {
     fi
   fi
 
+  # The upstream Gateway API CRDs (*.gateway.networking.k8s.io) are applied via
+  # raw kubectl manifests (see _install_agentgateway_crds), not Helm, so they
+  # belong to no release and survive both uninstalls above unless the kind
+  # cluster is deleted. They are cluster-scoped shared infra and may be used by
+  # other workloads, so gate them independently and default to "n". Deleting the
+  # CRDs cascade-deletes any remaining Gateway/HTTPRoute/etc. objects.
+  if kubectl get crd -o name 2>/dev/null | grep -q '\.gateway\.networking\.k8s\.io$'; then
+    if ask_yn "Uninstall Gateway API CRDs (*.gateway.networking.k8s.io)?" "n"; then
+      kubectl get crd -o name 2>/dev/null | grep '\.gateway\.networking\.k8s\.io$' | xargs -r kubectl delete 2>/dev/null || true
+      log "Gateway API CRDs uninstalled"
+    fi
+  fi
+
   # ingress-nginx is a cluster-scoped Helm release (see install_nginx_ingress).
   # Unless the kind cluster is deleted, it survives cleanup, so offer to remove
   # it here too (default with "n" as it may be shared with other workloads).
