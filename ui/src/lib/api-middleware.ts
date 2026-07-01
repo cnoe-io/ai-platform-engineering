@@ -247,7 +247,7 @@ export function clearSessionAuthCacheForTests(): void {
   sessionAuthCache.clear();
 }
 
-function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
+export function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
   }
@@ -1397,7 +1397,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<any>,
-  session?: { role?: string; sub?: string }
+  session?: { role?: string; sub?: string; canViewAdmin?: boolean }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -1469,8 +1469,9 @@ export async function requireConversationAccess(
     };
   }
 
-  // Admins get read-only audit access to any conversation
-  if (session?.role === 'admin') {
+  // Admins and sessions explicitly allowed to view admin data get read-only
+  // audit access to any conversation.
+  if (session?.role === 'admin' || session?.canViewAdmin === true) {
     return { conversation, access_level: 'admin_audit' };
   }
 

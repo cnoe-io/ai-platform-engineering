@@ -14,7 +14,8 @@ export type UniversalRebacStandardAction =
   | "administer"
   | "audit"
   | "approve"
-  | "share";
+  | "share"
+  | "schedule";
 
 export type UniversalRebacResourceAction =
   | UniversalRebacStandardAction

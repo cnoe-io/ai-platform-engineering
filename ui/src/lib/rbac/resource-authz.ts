@@ -493,12 +493,14 @@ export interface AgentRowPermissions {
   can_manage: boolean;
   can_write: boolean;
   can_discover: boolean;
+  can_schedule: boolean;
 }
 
 const DEFAULT_AGENT_ROW_PERMISSIONS: AgentRowPermissions = {
   can_manage: false,
   can_write: false,
   can_discover: false,
+  can_schedule: false,
 };
 
 /**
@@ -521,14 +523,14 @@ export async function resolveAgentListPermissions(
     const rows = new Map(
       agentIds.map((id) => [
         id,
-        { can_manage: true, can_write: true, can_discover: true } satisfies AgentRowPermissions,
+        { can_manage: true, can_write: true, can_discover: true, can_schedule: true } satisfies AgentRowPermissions,
       ]),
     );
     return { rows };
   }
 
   const uniqueIds = [...new Set(agentIds.filter((id) => id.trim().length > 0))];
-  const [manageResults, writeResults, discoverResults] = await Promise.all([
+  const [manageResults, writeResults, discoverResults, scheduleResults] = await Promise.all([
     uniqueIds.length > 0
       ? authorizeMany(casSubject, "manage", "agent", uniqueIds)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
@@ -538,6 +540,9 @@ export async function resolveAgentListPermissions(
     uniqueIds.length > 0
       ? authorizeMany(casSubject, "discover", "agent", uniqueIds)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "schedule", "agent", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
   ]);
 
   const rows = new Map<string, AgentRowPermissions>();
@@ -546,6 +551,7 @@ export async function resolveAgentListPermissions(
       can_manage: manageResults.get(id)?.decision === "ALLOW",
       can_write: writeResults.get(id)?.decision === "ALLOW",
       can_discover: discoverResults.get(id)?.decision === "ALLOW",
+      can_schedule: scheduleResults.get(id)?.decision === "ALLOW",
     });
   }
 

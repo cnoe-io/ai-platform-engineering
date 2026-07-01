@@ -49,6 +49,8 @@ services:
       - caipe-mongodb
       - caipe-ui
       - deps
+      # Auto-include Mongo whenever the autonomous-agents profile is selected.
+      - autonomous-agents
 
   # MongoDB Admin UI
   caipe-ui-mongo-express:
@@ -549,6 +551,24 @@ services:
       # Chat runtime health endpoint URL
       - A2A_BASE_URL=${A2A_BASE_URL:-http://dynamic-agents:8001}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Feature gate for autonomous-task UI surfaces and /api/autonomous proxy.
+      - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
+      # Autonomous Agents - URL the UI's /api/autonomous proxy targets.
+      # Add the autonomous-agents profile when starting compose to enable the service:
+      #   docker compose -f docker-compose.dev.yaml --profile caipe-ui --profile autonomous-agents \
+      #                  --profile dynamic-agents --profile caipe-mongodb up --build
+      # The Autonomous tab in the UI is admin-gated; in local dev (SSO off) you also need
+      # ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true (set below) so the dev-admin fallback is enabled.
+      - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
+      # Dev-admin fallback for local testing without SSO. NEVER enable this in production --
+      # it grants admin to anonymous browser sessions. Required for the Autonomous tab to be
+      # visible/usable in the dev compose stack since admin gating depends on either an OIDC
+      # admin claim or this flag (see ui/src/hooks/use-admin-role.ts).
+      - ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=${ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED:-true}
+      # Server-side companion to the UI dev-admin fallback above. Without this,
+      # `/api/autonomous` still treats anonymous sessions as non-admin and returns
+      # 403 "Admin view access required" even though the tab is visible.
+      - ALLOW_ANONYMOUS_ADMIN=${ALLOW_ANONYMOUS_ADMIN:-true}
       # Skill Scanner — when the `skill-scanner` profile is enabled, the UI
       # uploads ZIP'd skill packages to this service for security scanning.
       # If unreachable the UI gracefully reports "scanner unavailable" instead
@@ -720,6 +740,7 @@ services:
       - RAG_ENABLED=${RAG_ENABLED:-true}
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - RAG_URL=${RAG_URL:-http://localhost:9446}
+      - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       - SSO_ENABLED=${SSO_ENABLED:-false}
@@ -1035,6 +1056,79 @@ services:
     restart: unless-stopped
     profiles:
       - dynamic-agents
+
+  ####################################################################################################
+  #                                    Autonomous Agents Service                                     #
+  ####################################################################################################
+  # Autonomous Agents - Standalone service that fires tasks (cron / interval / webhook) at the
+  # dynamic-agents runtime. Tasks and run history are read/written via the UI's
+  # /api/autonomous proxy.
+  #
+  # Configuration:
+  #   - Task definitions are loaded from MongoDB (autonomous_tasks collection);
+  #     there is no YAML seed/bootstrap path anymore.
+  #   - Runs each task against a dynamic agent via DYNAMIC_AGENTS_URL
+  #     (default http://dynamic-agents:8001); start the dynamic-agents profile
+  #     alongside autonomous-agents so both resolve within the same compose network.
+  #   - Persists run history and task definitions to the same MongoDB the UI uses
+  #     so the conversation deep-link in the Autonomous tab works end-to-end.
+  #   - chat_history_publish_enabled defaults to true here so demo runs surface in the
+  #     UI sidebar's "Autonomous" filter; flip to false in production if not desired.
+  #
+  # Ports:
+  #   - 8002: Autonomous Agents API (proxied via UI at /api/autonomous)
+  autonomous-agents:
+    build:
+      # Dockerfile itself lives at the repo root under build/
+      context: ./ai_platform_engineering/autonomous_agents
+      dockerfile: ../../build/Dockerfile.autonomous-agents
+    image: ghcr.io/cnoe-io/caipe-autonomous-agents:${IMAGE_TAG:-localtag}
+    container_name: autonomous-agents
+    ports: ["8002:8002"]
+    env_file: [.env]
+    environment:
+      # Dynamic-agents runtime endpoint -- every autonomous task runs against a
+      # dynamic agent selected by the task's dynamic_agent_id.
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Dynamic-agents may require Bearer auth (DA_REQUIRE_BEARER=true). The
+      # autonomous scheduler authenticates as a service principal, while
+      # X-User-Context still carries the task owner's email for attribution.
+      - DYNAMIC_AGENTS_OAUTH2_TOKEN_URL=${DYNAMIC_AGENTS_OAUTH2_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - DYNAMIC_AGENTS_OAUTH2_CLIENT_ID=${DYNAMIC_AGENTS_OAUTH2_CLIENT_ID:-caipe-platform}
+      - DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET=${DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - DYNAMIC_AGENTS_OAUTH2_SCOPE=${DYNAMIC_AGENTS_OAUTH2_SCOPE:-openid profile email}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Publish completed runs into the UI conversations collection so
+      # operators can click the "Open run" deep link from the Autonomous tab and
+      # land on the rendered output in the chat sidebar's "Autonomous" filter.
+      - CHAT_HISTORY_PUBLISH_ENABLED=${CHAT_HISTORY_PUBLISH_ENABLED:-true}
+      - CHAT_HISTORY_OWNER_EMAIL=${CHAT_HISTORY_OWNER_EMAIL:-autonomous@system}
+      # Webhook secret -- shared HMAC for unsigned-per-task webhooks. Leave
+      # blank in dev; set to a strong random value in production.
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      # CORS -- the UI talks to this service via the Next.js server-side proxy
+      # so browsers never call us directly; leaving cors_origins empty is the
+      # safe default. Set AUTONOMOUS_CORS_ORIGINS in .env if you ever expose
+      # the port to a browser (NOT recommended -- the proxy enforces auth).
+      - CORS_ORIGINS=${AUTONOMOUS_CORS_ORIGINS:-}
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      dynamic-agents:
+        condition: service_started
+        required: false
+    healthcheck:
+      # /health is the FastAPI liveness probe exposed by autonomous_agents.routes.health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - autonomous-agents
 
   ####################################################################################################
   #                                      RAG Services                                                #
@@ -2061,7 +2155,7 @@ services:
     container_name: keycloak-init-token-exchange
     entrypoint: ["/bin/sh", "/scripts/init-token-exchange.sh"]
     volumes:
-      - ./deploy/keycloak/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
+      - ./charts/ai-platform-engineering/charts/keycloak/scripts/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
