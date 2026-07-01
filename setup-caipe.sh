@@ -7535,8 +7535,14 @@ cmd_cleanup() {
   caipe_pvc_count=$(kubectl get pvc -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$caipe_pvc_count" -gt 0 ]]; then
     if ask_yn "Delete CAIPE persistent volume claims ($caipe_pvc_count PVCs)?" "y"; then
-      kubectl delete pvc --all -n caipe 2>/dev/null || true
-      log "CAIPE PVCs deleted"
+      # --timeout bounds the wait: a PVC still held by a running pod sits in
+      # Terminating (pvc-protection finalizer). Without a timeout the default
+      # --wait blocks forever and hangs the whole cleanup. Bound it, then warn.
+      if ! kubectl delete pvc --all -n caipe --timeout=120s 2>/dev/null; then
+        warn "Some CAIPE PVCs did not finalize within 120s (likely still held by a running pod) — they will remain in Terminating"
+      else
+        log "CAIPE PVCs deleted"
+      fi
     fi
   fi
 
