@@ -350,6 +350,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           console.warn('[conversations/route] idempotency-hit SA writer grant failed (best-effort):', err);
         }
       }
+      // Heal user:* writer for Slack conversations created before this fix.
+      if (existing.client_type === 'slack') {
+        try {
+          await writeOpenFgaTuples({
+            writes: [{
+              user: 'user:*',
+              relation: 'writer',
+              object: `conversation:${existing._id}`,
+            }],
+            deletes: [],
+          });
+        } catch (err) {
+          console.warn('[conversations/route] idempotency-hit Slack user:* writer grant failed (best-effort):', err);
+        }
+      }
       return successResponse({ conversation: existing, created: false }, 200);
     }
   }
@@ -411,6 +426,28 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       });
     } catch (err) {
       console.warn('[conversations/route] SA writer grant failed (best-effort):', err);
+    }
+  }
+
+  // Slack conversations are inherently multi-participant — anyone authenticated
+  // should be able to interact with a thread. Grant user:* writer so any user
+  // can invoke the agent within the conversation without needing an explicit
+  // share. This is safe because agent/MCP/resource access is independently
+  // gated; conversation writer only permits posting and invoking within the
+  // thread. Metadata mutation is separately scoped to can_manage (owner/manager
+  // only) so this wildcard cannot be used to inject metadata.
+  if (newConversation.client_type === 'slack') {
+    try {
+      await writeOpenFgaTuples({
+        writes: [{
+          user: 'user:*',
+          relation: 'writer',
+          object: `conversation:${newConversation._id}`,
+        }],
+        deletes: [],
+      });
+    } catch (err) {
+      console.warn('[conversations/route] Slack user:* writer grant failed (best-effort):', err);
     }
   }
 
