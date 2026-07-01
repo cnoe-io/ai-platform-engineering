@@ -61,18 +61,17 @@ beforeEach(() => {
         },
       });
     }
-    if (url === "/api/admin/teams") {
+    if (url === "/api/dynamic-agents/teams") {
       return response({
-        data: {
-          teams: [
-            {
-              _id: "team-1",
-              slug: "platform-engineering",
-              name: "Platform Engineering",
-            },
-            { _id: "team-2", slug: "security", name: "Security" },
-          ],
-        },
+        success: true,
+        data: [
+          {
+            _id: "team-1",
+            slug: "platform-engineering",
+            name: "Platform Engineering",
+          },
+          { _id: "team-2", slug: "security", name: "Security" },
+        ],
       });
     }
     if (
@@ -334,17 +333,16 @@ it("shows discovery loading while Find channels scans Slack", async () => {
         data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
       });
     }
-    if (url === "/api/admin/teams") {
+    if (url === "/api/dynamic-agents/teams") {
       return response({
-        data: {
-          teams: [
-            {
-              _id: "team-1",
-              slug: "platform-engineering",
-              name: "Platform Engineering",
-            },
-          ],
-        },
+        success: true,
+        data: [
+          {
+            _id: "team-1",
+            slug: "platform-engineering",
+            name: "Platform Engineering",
+          },
+        ],
       });
     }
     if (url === "/api/admin/slack/channels/defaults") {
@@ -470,17 +468,16 @@ it("preserves imported escalation/overthink/bots when editing a route (no data l
         data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
       });
     }
-    if (url === "/api/admin/teams") {
+    if (url === "/api/dynamic-agents/teams") {
       return response({
-        data: {
-          teams: [
-            {
-              _id: "team-1",
-              slug: "platform-engineering",
-              name: "Platform Engineering",
-            },
-          ],
-        },
+        success: true,
+        data: [
+          {
+            _id: "team-1",
+            slug: "platform-engineering",
+            name: "Platform Engineering",
+          },
+        ],
       });
     }
     if (url === "/api/admin/slack/channels/defaults") {
@@ -609,8 +606,8 @@ it("renders the full per-channel/agent breakdown in the sync preview modal", asy
     if (url === "/api/dynamic-agents?enabled_only=true") {
       return response({ data: { items: [] } });
     }
-    if (url === "/api/admin/teams") {
-      return response({ data: { teams: [] } });
+    if (url === "/api/dynamic-agents/teams") {
+      return response({ success: true, data: [] });
     }
     if (url === "/api/admin/slack/channels/defaults") {
       return response({ data: { defaults: {} } });
@@ -957,17 +954,16 @@ it("discovers Slack channels even when no onboarding default team is configured"
         },
       });
     }
-    if (url === "/api/admin/teams") {
+    if (url === "/api/dynamic-agents/teams") {
       return response({
-        data: {
-          teams: [
-            {
-              _id: "team-1",
-              slug: "platform-engineering",
-              name: "Platform Engineering",
-            },
-          ],
-        },
+        success: true,
+        data: [
+          {
+            _id: "team-1",
+            slug: "platform-engineering",
+            name: "Platform Engineering",
+          },
+        ],
       });
     }
     if (url === "/api/admin/slack/channels/defaults") {

@@ -217,8 +217,8 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       return true;
     }
 
-    if (path === "/api/admin/teams" && method === "GET") {
-      await fulfillJson(route, { success: true, data: { teams } });
+    if (path === "/api/dynamic-agents/teams" && method === "GET") {
+      await fulfillJson(route, { success: true, data: teams });
       return true;
     }
 
