@@ -157,6 +157,25 @@ function decorateCopyButtons(root: HTMLDivElement) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Table decoration — wrap each table so wide tables scroll
+// horizontally within the message instead of cramming its columns.
+// ═══════════════════════════════════════════════════════════════
+
+const TABLE_WRAP_ATTR = "data-md-table";
+
+function decorateTables(root: HTMLElement) {
+  const tables = root.querySelectorAll("table");
+  for (const table of tables) {
+    if (table.parentElement?.hasAttribute(TABLE_WRAP_ATTR)) continue;
+    const wrapper = document.createElement("div");
+    wrapper.setAttribute(TABLE_WRAP_ATTR, "");
+    wrapper.className = "md-table-wrap";
+    table.parentNode!.replaceChild(wrapper, table);
+    wrapper.appendChild(table);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Click handler for copy buttons — uses event delegation on root
 // ═══════════════════════════════════════════════════════════════
 
@@ -285,6 +304,7 @@ export function MarkdownRenderer({
     const temp = document.createElement("div");
     temp.innerHTML = html;
     decorateCopyButtons(temp);
+    decorateTables(temp);
 
     morphdom(container, temp, {
       childrenOnly: true,

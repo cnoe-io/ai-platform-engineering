@@ -291,7 +291,7 @@ export function TalkPanel({
         </div>
       )}
       <ScrollArea viewportRef={viewportRef} className="flex-1">
-        <div className="mx-auto flex max-w-3xl flex-col gap-0 p-4">
+        <div className="mx-auto flex max-w-4xl flex-col gap-0 p-4">
           {loadingOlder && (
             <div className="flex justify-center py-1 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -385,11 +385,11 @@ export function TalkPanel({
       {/* Composer, matches the agent chat's floating bar aesthetic. */}
       <div className="pointer-events-none px-4 pb-2 pt-2">
         {error && (
-          <p className="pointer-events-auto mx-auto mb-1.5 max-w-3xl text-center text-xs text-destructive">
+          <p className="pointer-events-auto mx-auto mb-1.5 max-w-4xl text-center text-xs text-destructive">
             {error}
           </p>
         )}
-        <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
+        <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
           <TextareaAutosize
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -418,7 +418,7 @@ export function TalkPanel({
             )}
           </Button>
         </div>
-        <div className="pointer-events-auto mx-auto mt-1.5 max-w-3xl text-center text-[11px] text-muted-foreground">
+        <div className="pointer-events-auto mx-auto mt-1.5 max-w-4xl text-center text-[11px] text-muted-foreground">
           <a
             href="https://mycelium-io.github.io/"
             target="_blank"

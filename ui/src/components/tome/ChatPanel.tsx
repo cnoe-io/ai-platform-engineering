@@ -262,7 +262,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   return (
     <div className="flex h-full flex-col">
       <ScrollArea viewportRef={scrollRef} className="flex-1">
-        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
+        <div className="mx-auto flex max-w-4xl flex-col gap-5 px-6 py-8">
           {messages.length === 0 && !loadingHistory && <EmptyState slug={slug} />}
           {messages.map((m, i) => (
             <MessageRow
@@ -277,7 +277,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
 
       {/* Floating composer — no hard divider above it; sits over the transcript. */}
       <div className="pointer-events-none px-4 pb-5 pt-2">
-        <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
+        <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
           <TextareaAutosize
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -364,7 +364,7 @@ function MessageRow({
       <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
         <Bot className="h-4 w-4 text-primary" />
       </div>
-      <div className="flex max-w-[80%] flex-col gap-2">
+      <div className="flex max-w-[90%] flex-col gap-2">
         {msg.parts.map((p, i) =>
           p.kind === "tool" ? (
             <ToolChip

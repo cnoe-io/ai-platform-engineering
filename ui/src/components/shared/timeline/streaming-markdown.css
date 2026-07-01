@@ -220,11 +220,21 @@
 }
 
 /* Tables */
-.streaming-markdown.md-final table {
-  width: 100%;
-  font-size: 0.875rem;
+/* Scroll wrapper (added by MarkdownRenderer's decorateTables): a wide table
+   scrolls horizontally within the message instead of cramming its columns. */
+.streaming-markdown .md-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+.streaming-markdown.md-final table {
+  /* Size to content but fill the message when narrow; overflow scrolls. */
+  width: auto;
+  min-width: 100%;
+  font-size: 0.875rem;
+  margin: 0;
   border-collapse: collapse;
 }
 
@@ -238,14 +248,17 @@
   font-weight: 600;
   color: hsl(var(--foreground));
   border-bottom: 1px solid hsl(var(--border) / 0.5);
-  word-break: break-word;
+  /* Headers are short labels: keep them on one line so columns don't collapse. */
+  white-space: nowrap;
 }
 
 .streaming-markdown.md-final td {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid hsl(var(--border) / 0.3);
   color: hsl(var(--foreground) / 0.9);
-  word-break: break-word;
+  /* Wrap at spaces only — never mid-word (the char-by-char "Myceliu mm" bug). */
+  word-break: normal;
+  overflow-wrap: normal;
   vertical-align: top;
 }
 
