@@ -186,7 +186,8 @@ function WelcomeStep({ name }: { name: string }) {
         Welcome to TOME
       </p>
       <h2 className="text-xl font-semibold leading-tight">
-        A living wiki for {name}
+        A living wiki for{" "}
+        <span className="text-emerald-500 dark:text-emerald-400">{name}</span>
       </h2>
       <div className="max-w-sm space-y-2 text-sm leading-relaxed text-muted-foreground">
         <p>
@@ -230,9 +231,9 @@ function GlossaryStep() {
   return (
     <div className="space-y-4">
       <StepHeader icon={<Tags className="h-5 w-5" />} eyebrow="Glossary" title="A shared vocabulary">
-        Define the project&apos;s terms once. The agent keeps a glossary — one entry
-        per term — and links them wherever they appear, so a new teammate or agent
-        can hover any term to see what it means.
+        Define the project&apos;s terms once. The agent keeps a glossary with one
+        entry per term and links them wherever they appear, so a new teammate or
+        agent can hover any term to see what it means.
       </StepHeader>
       <Terminal>
         <span className="text-muted-foreground/60">---</span>
@@ -249,7 +250,7 @@ function GlossaryStep() {
       </Terminal>
       <p className="text-sm leading-relaxed text-muted-foreground">
         Hover a linked term to preview it inline:{" "}
-        <GlossaryTerm definition="Three-Letter Acronym — a stand-in for whatever your team's shorthand is.">
+        <GlossaryTerm definition="Three-Letter Acronym. A stand-in for whatever your team's shorthand is.">
           TLA
         </GlossaryTerm>
         .
@@ -293,7 +294,7 @@ function BhagStep() {
         A BHAG (Big Hairy Audacious Goal) is a strategic goal with no sources of
         its own. Tag projects to it and the agent{" "}
         <span className="font-medium text-foreground">synthesizes</span> its wiki
-        from theirs — a living roll-up of where the whole effort stands.
+        from theirs, a living roll-up of where the whole effort stands.
       </StepHeader>
       <BhagLadder />
       <p className="text-sm leading-relaxed text-muted-foreground">
