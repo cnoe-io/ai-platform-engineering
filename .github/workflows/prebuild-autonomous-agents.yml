@@ -12,8 +12,7 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-autonomous-agents
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   build-and-push:
@@ -50,12 +49,15 @@ jobs:
       - name: Compute prebuild tag
         id: compute_tag
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BRANCH_REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH="$BRANCH_REF"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
-          git fetch origin ${{ github.event.pull_request.base.ref }}
-          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          git fetch origin "$BASE_REF"
+          COMMIT_COUNT=$(git rev-list --count "origin/${BASE_REF}..HEAD")
           echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
           echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
 

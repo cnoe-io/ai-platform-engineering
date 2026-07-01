@@ -6,10 +6,7 @@ import { assertCredentialServiceCaller } from "@/lib/credentials/internal-caller
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 import { validateBearerJWT } from "@/lib/jwt-validation";
-import { findPinnedCredentialSource } from "@/lib/mcp-credential-resolution";
-import { getCollection } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 function assertFeatureEnabled(): void {
   if (!getCredentialFeatureConfig().enabled) {
@@ -30,7 +27,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const providerConnectionId =
     typeof body.provider_connection_id === "string" ? body.provider_connection_id.trim() : "";
   const provider = typeof body.provider === "string" ? body.provider.trim() : "";
-  const mcpServerId = typeof body.mcp_server_id === "string" ? body.mcp_server_id.trim() : "";
   if (!providerConnectionId && !provider) {
     throw new ApiError("provider_connection_id or provider is required", 400, "VALIDATION_ERROR");
   }
@@ -38,37 +34,33 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const ownerType = identity.isServiceAccount === true ? "service_account" : "user";
 
   const service = await getProviderConnectionService();
+  // Two resolution paths:
+  //   - provider key  → resolve the CALLER's OWN connection for that provider.
+  //     This is how caller-scoped MCP credential sources resolve per user/SA.
+  //   - connection id → fetch that specific connection. Cross-owner access is
+  //     gated below by an explicit OpenFGA `secret_ref:provider_connection:<id>#use`
+  //     grant (the service-account delegation path). This is NOT the removed
+  //     "pinned"/all-callers impersonation scope — that lived in the credential
+  //     SOURCE config and is gone; a caller can only reach another principal's
+  //     connection here with a deliberate per-connection grant.
   const connection = providerConnectionId
     ? await service.getConnection(providerConnectionId)
     : (await service.listConnections({ type: ownerType, id: identity.sub })).find(
         (candidate) => candidate.provider === provider && candidate.status === "connected",
       );
-  if (!connection) {
+  if (!connection || connection.status !== "connected") {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
 
+  // Owned-by-caller connections need no extra grant. For any other owner, require
+  // an explicit per-connection `use` permission (defense in depth + SA delegation).
   const callerOwnsConnection =
     connection.owner.type === ownerType && connection.owner.id === identity.sub;
   if (!callerOwnsConnection) {
-    let pinnedOnRequestedServer = false;
-    if (mcpServerId && providerConnectionId) {
-      const collection = await getCollection<MCPServerConfig>("mcp_servers");
-      const server = await collection.findOne({ _id: mcpServerId });
-      pinnedOnRequestedServer = Boolean(
-        findPinnedCredentialSource(server?.credential_sources, providerConnectionId),
-      );
-    }
-    if (pinnedOnRequestedServer) {
-      await requireResourcePermission(
-        { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
-        { type: "mcp_server", id: mcpServerId, action: "use" },
-      );
-    } else {
-      await requireResourcePermission(
-        { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
-        { type: "secret_ref", id: `provider_connection:${connection.id}`, action: "use" },
-      );
-    }
+    await requireResourcePermission(
+      { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
+      { type: "secret_ref", id: `provider_connection:${connection.id}`, action: "use" },
+    );
   }
   const token = await service.refreshConnection(connection.id);
 

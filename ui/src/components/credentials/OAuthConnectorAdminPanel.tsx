@@ -11,8 +11,13 @@ interface OAuthConnectorMetadata {
   name: string;
   provider: string;
   clientId: string;
+  authorizationUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  redirectUri: string;
   enabled?: boolean;
   clientSecretConfigured?: boolean;
+  pkce?: boolean;
 }
 
 async function parseApiResponse<T>(response: Response): Promise<T> {
@@ -31,8 +36,10 @@ export function OAuthConnectorAdminPanel() {
     tokenUrl: "",
     scopes: "",
     redirectUri: "",
+    pkce: false,
   });
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [editingConnector, setEditingConnector] = React.useState<OAuthConnectorMetadata | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const loadConnectors = React.useCallback(async () => {
@@ -73,23 +80,34 @@ export function OAuthConnectorAdminPanel() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const response = await fetch("/api/admin/credentials/oauth-connectors", {
-      method: "POST",
+    const body = {
+      ...form,
+      scopes: form.scopes
+        .split(/[,\s]+/)
+        .map((scope) => scope.trim())
+        .filter(Boolean),
+    };
+    const url = editingConnector
+      ? `/api/admin/credentials/oauth-connectors/${editingConnector.id}`
+      : "/api/admin/credentials/oauth-connectors";
+    const method = editingConnector ? "PUT" : "POST";
+    const response = await fetch(url, {
+      method,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        scopes: form.scopes
-          .split(/[,\s]+/)
-          .map((scope) => scope.trim())
-          .filter(Boolean),
-      }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       setError("Could not save OAuth connector");
       return;
     }
     const connector = await parseApiResponse<OAuthConnectorMetadata>(response);
-    setConnectors((current) => [...current, connector].sort((a, b) => a.name.localeCompare(b.name)));
+    if (editingConnector) {
+      setConnectors((current) =>
+        current.map((c) => (c.id === connector.id ? connector : c)).sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    } else {
+      setConnectors((current) => [...current, connector].sort((a, b) => a.name.localeCompare(b.name)));
+    }
     setForm({
       name: "",
       provider: "",
@@ -99,8 +117,38 @@ export function OAuthConnectorAdminPanel() {
       tokenUrl: "",
       scopes: "",
       redirectUri: "",
+      pkce: false,
     });
+    setEditingConnector(null);
     setCreateOpen(false);
+  };
+
+  const handleEdit = (connector: OAuthConnectorMetadata) => {
+    setEditingConnector(connector);
+    setForm({
+      name: connector.name,
+      provider: connector.provider,
+      clientId: connector.clientId,
+      clientSecret: "",
+      authorizationUrl: connector.authorizationUrl,
+      tokenUrl: connector.tokenUrl,
+      scopes: connector.scopes.join(" "),
+      redirectUri: connector.redirectUri,
+      pkce: connector.pkce ?? false,
+    });
+    setCreateOpen(true);
+  };
+
+  const handleDelete = async (connector: OAuthConnectorMetadata) => {
+    if (!confirm(`Delete "${connector.name}"? This will disable it and cannot be undone.`)) return;
+    const response = await fetch(`/api/admin/credentials/oauth-connectors/${connector.id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      setError(`Could not delete ${connector.name}`);
+      return;
+    }
+    setConnectors((current) => current.filter((c) => c.id !== connector.id));
   };
 
   const handleEnabledChange = async (connector: OAuthConnectorMetadata, enabled: boolean) => {
@@ -139,7 +187,7 @@ export function OAuthConnectorAdminPanel() {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Add OAuth Provider"
+          aria-label={editingConnector ? "Edit OAuth Provider" : "Add OAuth Provider"}
           className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
         >
           <form
@@ -148,7 +196,7 @@ export function OAuthConnectorAdminPanel() {
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-medium">Add OAuth Provider</h2>
+                <h2 className="text-lg font-medium">{editingConnector ? "Edit OAuth Provider" : "Add OAuth Provider"}</h2>
                 <p className="text-sm text-muted-foreground">
                   Configure a standard authorization-code connector for user connections.
                 </p>
@@ -156,7 +204,7 @@ export function OAuthConnectorAdminPanel() {
               <button
                 type="button"
                 className="text-sm text-muted-foreground"
-                onClick={() => setCreateOpen(false)}
+                onClick={() => { setCreateOpen(false); setEditingConnector(null); }}
               >
                 Close
               </button>
@@ -189,9 +237,19 @@ export function OAuthConnectorAdminPanel() {
                 <span>Client ID</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientId} onChange={updateForm("clientId")} required />
               </label>
-              <label className="space-y-1 text-sm">
-                <span>Client secret</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientSecret} onChange={updateForm("clientSecret")} required type="password" />
+              {!form.pkce && (
+                <label className="space-y-1 text-sm">
+                  <span>Client secret</span>
+                  <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientSecret} onChange={updateForm("clientSecret")} required type="password" />
+                </label>
+              )}
+              <label className="flex items-center gap-2 text-sm md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={form.pkce}
+                  onChange={(e) => setForm((current) => ({ ...current, pkce: e.target.checked, clientSecret: "" }))}
+                />
+                <span>Public client (PKCE only — no client secret)</span>
               </label>
               <label className="space-y-1 text-sm">
                 <span>Authorization URL</span>
@@ -228,21 +286,42 @@ export function OAuthConnectorAdminPanel() {
                   <p className="text-xs text-muted-foreground">{connector.provider} / {connector.clientId}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
-                      {connector.clientSecretConfigured ? "client secret configured" : "client secret missing"}
+                      {connector.pkce ? "public client (PKCE)" : connector.clientSecretConfigured ? "client secret configured" : "client secret missing"}
                     </span>
                     <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
                       {connector.enabled === false ? "disabled" : "enabled"}
                     </span>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handleEnabledChange(connector, connector.enabled === false)}
-                >
-                  {connector.enabled === false ? "Enable" : "Disable"}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Edit ${connector.name}`}
+                    onClick={() => handleEdit(connector)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`${connector.enabled === false ? "Enable" : "Disable"} ${connector.name}`}
+                    onClick={() => void handleEnabledChange(connector, connector.enabled === false)}
+                  >
+                    {connector.enabled === false ? "Enable" : "Disable"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    aria-label={`Delete ${connector.name}`}
+                    onClick={() => void handleDelete(connector)}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

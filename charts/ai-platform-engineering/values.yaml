@@ -164,14 +164,12 @@ global:
           tag: ""              # defaults to agentgateway subchart appVersion
           pullPolicy: IfNotPresent
         pollSeconds: 5
-        # gRPC host:port of the OpenFGA authz bridge used as ext_authz on every MCP route.
-        # Defaults to <release>-openfga-authz-bridge:9100 (matches the Helm-rendered service name).
+        # gRPC host:port of the OpenFGA authz bridge used as ext_authz on every
+        # discovered MCP route (passed to the bridge as AGENTGATEWAY_AUTHZ_HOST).
+        # Defaults to <release>-openfga-authz-bridge:9100 (matches the Helm-rendered
+        # service name and the static-config generator). Leave empty unless the
+        # authz bridge runs under a non-default service name or port.
         authzHost: ""
-        # Supply a pre-existing Secret instead of the plain authzHost value above.
-        # When name is set, authzHost is ignored and the value is read from the Secret.
-        authzHostSecret:
-          name: ""           # name of the Secret
-          key: AGENTGATEWAY_AUTHZ_HOST  # key inside the Secret
         ui:
           # Internal BFF route that publishes sanitized AgentGateway MCP targets.
           url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets

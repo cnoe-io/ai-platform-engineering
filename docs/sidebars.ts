@@ -298,7 +298,6 @@ const sidebars: SidebarsConfig = {
             { type: 'doc', id: 'ui/index', label: 'Overview' },
             { type: 'doc', id: 'ui/features', label: 'Features' },
             { type: 'doc', id: 'features/admin-settings', label: 'Admin Settings' },
-            { type: 'doc', id: 'ui/auth-flow', label: 'Authentication Flow' },
             { type: 'doc', id: 'ui/configuration', label: 'Configuration' },
             { type: 'doc', id: 'ui/customization', label: 'Customization & Branding' },
             { type: 'doc', id: 'ui/development', label: 'Development Guide' },
@@ -342,6 +341,8 @@ const sidebars: SidebarsConfig = {
           label: 'Security',
           items: [
             { type: 'doc', id: 'security/index', label: 'Overview' },
+            { type: 'doc', id: 'security/auth-flow', label: 'Authentication Flow' },
+            { type: 'doc', id: 'security/agent-context-hmac', label: 'Agent Context HMAC' },
             {
               type: 'category',
               label: 'RBAC',

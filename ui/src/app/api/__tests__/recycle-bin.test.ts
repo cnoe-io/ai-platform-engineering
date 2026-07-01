@@ -558,13 +558,17 @@ describe('Archive API', () => {
       await GET_CONVERSATIONS(req);
 
       const findCall = convCollection.find.mock.calls[0][0];
-      // Ownership scope ($or) must be present and non-empty.
-      expect(findCall.$or).toBeDefined();
-      expect(findCall.$or).toEqual(
+      // Ownership scope ($or) must be present inside the $and candidate
+      // filters and non-empty.
+      expect(findCall.$and).toEqual(
         expect.arrayContaining([
-          { owner_id: 'user@example.com' },
-          { 'sharing.shared_with': 'user@example.com' },
-          { 'sharing.is_public': true },
+          expect.objectContaining({
+            $or: expect.arrayContaining([
+              { owner_id: 'user@example.com' },
+              { 'sharing.shared_with': 'user@example.com' },
+              { 'sharing.shared_with_teams.0': { $exists: true } },
+            ]),
+          }),
         ]),
       );
       // Source narrow must live inside $and (top-level `query.source`

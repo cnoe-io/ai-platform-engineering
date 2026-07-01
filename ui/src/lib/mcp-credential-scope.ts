@@ -1,31 +1,18 @@
 import type { MCPCredentialSource } from "@/types/dynamic-agent";
 
-export type McpConnectionScope = "caller" | "pinned";
+// Provider-connection credential sources are always caller-scoped: each caller
+// resolves their OWN connection (by provider key, or by the connection id's
+// provider). The legacy "pinned" scope — a single admin connection reused for
+// every caller — was removed because it let one user act as another's identity
+// against the upstream MCP. The `connection_scope` field is still accepted on
+// the wire for backward-compatible parsing of old documents, but is ignored.
+export type McpConnectionScope = "caller";
 
-export function effectiveConnectionScope(source: MCPCredentialSource): McpConnectionScope {
-  if (source.connection_scope === "pinned" || source.connection_scope === "caller") {
-    return source.connection_scope;
-  }
-  const connectionId = source.provider_connection_id?.trim() ?? "";
-  const providerKey = source.provider?.trim() ?? "";
-  if (connectionId && !providerKey) {
-    return "pinned";
-  }
+// Always caller-scoped now (the "pinned"/all-callers scope was removed). The
+// source argument is accepted and ignored so existing call sites compile.
+export function effectiveConnectionScope(source?: MCPCredentialSource): McpConnectionScope {
+  void source;
   return "caller";
-}
-
-export function findPinnedCredentialSource(
-  sources: MCPCredentialSource[] | undefined,
-  providerConnectionId: string,
-): MCPCredentialSource | undefined {
-  const normalizedId = providerConnectionId.trim();
-  if (!normalizedId) return undefined;
-  return (sources ?? []).find(
-    (source) =>
-      source.kind === "provider_connection" &&
-      effectiveConnectionScope(source) === "pinned" &&
-      source.provider_connection_id?.trim() === normalizedId,
-  );
 }
 
 export function normalizeCustomProviderCredentialSource(
@@ -35,19 +22,8 @@ export function normalizeCustomProviderCredentialSource(
   const name = source.name.trim();
   if (!name) return null;
 
-  const scope = effectiveConnectionScope(source);
-  if (scope === "pinned") {
-    const providerConnectionId = source.provider_connection_id?.trim();
-    if (!providerConnectionId) return null;
-    return {
-      kind: "provider_connection",
-      target: source.target,
-      name,
-      connection_scope: "pinned",
-      provider_connection_id: providerConnectionId,
-    };
-  }
-
+  // Resolve the provider key directly, or derive it from a (possibly legacy
+  // pinned) connection id so the source becomes caller-scoped.
   const provider =
     source.provider?.trim() ||
     providerConnections.find((connection) => connection.id === source.provider_connection_id)?.provider;

@@ -1,3 +1,70 @@
+## 0.5.33 (2026-06-30)
+
+### Perf
+
+- **teams**: stop rewriting membership tuples on resource save
+
+## 0.5.32-dev.1 (2026-06-30)
+
+### Feat
+
+- **openfga-authz-bridge**: add callerToolCheck.enabled value to subchart
+
+## 0.5.32 (2026-06-30)
+
+## 0.5.31-dev.1 (2026-06-30)
+
+### Fix
+
+- **agentgateway**: make config-bridge ext_authz host release-aware
+- **docs**: correct broken cross-link in architecture/gateway.md (#2075)
+
+### Refactor
+
+- **agentgateway**: drop authzHostSecret, keep plain authzHost
+
+## 0.5.31 (2026-06-30)
+
+### Fix
+
+- **webex**: suppress duplicate wizard title and update tests
+- **webex**: add two-tab nav between Configure and Configured spaces
+
+## 0.5.30 (2026-06-29)
+
+### Fix
+
+- **ui**: restore scroll in team dialog lists (#2074)
+
+## 0.5.29 (2026-06-29)
+
+## 0.5.28-dev.3 (2026-06-29)
+
+### Feat
+
+- **credentials**: PKCE public-client OAuth connectors; remove pinned MCP connection scope (#2071)
+- **credentials**: add hash tabs for secrets (#2065)
+
+### Fix
+
+- **workflows**: avoid raw step response rendering
+- **health**: probe self API routes via internal base URL, not request origin (#2067)
+- signed agent context goes stale after 5min (#2069)
+
+## 0.5.28-dev.1 (2026-06-29)
+
+### Fix
+
+- **chart**: A2A_BASE_URL default points to dynamic-agents:8001
+- **health**: update tests and chart template for localhost self-call fix
+- **health**: use localhost for self-referential capability probes
+
+## 0.5.28 (2026-06-29)
+
+### Fix
+
+- **health**: restore AppHeader capability status
+
 ## 0.5.27 (2026-06-28)
 
 ### Feat

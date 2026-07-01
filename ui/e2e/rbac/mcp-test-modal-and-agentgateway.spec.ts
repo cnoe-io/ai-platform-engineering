@@ -511,15 +511,15 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
 
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-      await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
+      await page.getByLabel(/^Provider$/i).selectOption("atlassian");
       await page.getByRole("button", { name: "Create Server" }).click();
 
       await expect.poll(() => mocks.createRequests.length).toBe(1);
       expect(mocks.createRequests[0].credential_sources).toEqual([
         expect.objectContaining({
           kind: "provider_connection",
-          connection_scope: "pinned",
-          provider_connection_id: "conn-atlassian",
+          connection_scope: "caller",
+          provider: "atlassian",
         }),
       ]);
 

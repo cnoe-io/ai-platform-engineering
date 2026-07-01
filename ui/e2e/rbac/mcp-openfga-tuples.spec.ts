@@ -1081,7 +1081,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
   });
 
-  test("save success explains skipped team members without dropping the selected grants", async ({
+  test("save success shows Saved notice without dropping the selected grants", async ({
     page,
   }) => {
     const mocks = await installTeamResourceMocks(
@@ -1101,12 +1101,6 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
           },
         },
       ],
-      {
-        putResourcesData: {
-          members_updated: ["alice@example.com", "bob@example.com"],
-          members_skipped: ["future-user@example.com"],
-        },
-      },
     );
 
     await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
@@ -1123,8 +1117,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.getByRole("button", { name: "Save agent access" }).click();
     await putResponse;
 
-    await expect(page.getByText(/Saved\. 2 member\(s\) updated; 1 skipped/)).toBeVisible();
-    await expect(page.getByText("future-user@example.com")).toBeVisible();
+    await expect(page.getByText(/Saved\./)).toBeVisible();
     await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
     expect(mocks.resourcePutBodies[0]).toMatchObject({
       agents: ["agent-sre"],
@@ -1368,8 +1361,12 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-    await expect(page.getByLabel(/Provider connection/i)).toContainText("Atlassian Cloud");
-    await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
+    // Provider connections are always caller-scoped now: admins pick the OAuth
+    // provider (by connector name) and each caller resolves their OWN
+    // connection at runtime. The shared all-callers "pinned" scope and the
+    // per-connection picker were removed because they enabled impersonation.
+    await expect(page.getByLabel(/^Provider$/i)).toContainText("Atlassian Cloud");
+    await page.getByLabel(/^Provider$/i).selectOption("atlassian");
 
     await page.getByRole("button", { name: "Create Server" }).click();
 
@@ -1379,8 +1376,8 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
         kind: "provider_connection",
         target: "header",
         name: "X-CAIPE-Provider-Token",
-        connection_scope: "pinned",
-        provider_connection_id: "conn-atlassian",
+        connection_scope: "caller",
+        provider: "atlassian",
       },
     ]);
   });

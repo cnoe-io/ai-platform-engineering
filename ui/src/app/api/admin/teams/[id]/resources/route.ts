@@ -35,16 +35,12 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { reconcileTupleDiff } from "@/lib/authz";
 import {
-findUserIdByEmail,
-} from "@/lib/rbac/keycloak-admin";
-import {
 buildTeamResourceTupleDiff,
 teamToolWildcardSentinelTuple,
 TEAM_TOOL_WILDCARD_SENTINEL_OBJECT,
 } from "@/lib/rbac/openfga";
 import { TeamResourceListingCache } from "@/lib/rbac/team-resource-listing";
 import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
-import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
 import { ObjectId } from "mongodb";
 import { NextRequest,NextResponse } from "next/server";
@@ -404,36 +400,16 @@ export const PUT = withErrorHandler(
       const agentAdminDiff = diff(prevAgentAdmins, nextAgentAdmins);
       const toolDiff = diff(prevTools, nextTools);
 
-      // ── 2. Resolve current member subjects for OpenFGA team membership.
-      //
-      //    Member list comes from the canonical team_membership_sources
-      //    store (post 2026-05-26 canonical-membership refactor); deduped
-      //    by identity, status:"active" only. A team can have a member
-      //    email that doesn't have a Keycloak account yet (e.g. invited
-      //    but never logged in). We log + skip those rather than failing
-      //    the whole PUT — the UI flags them in the response. Subject-
-      //    only rows (no email) are also skipped because Keycloak lookup
-      //    is by email.
-      const canonicalMembers = await loadActiveTeamMembers(slug);
-      const memberEmails: string[] = canonicalMembers
-        .map((m) => m.user_email)
-        .filter((email): email is string => typeof email === "string" && email.length > 0);
-      const skippedMembers: string[] = [];
-      const resolvedMembers: string[] = [];
-      const resolvedMemberUserIds: string[] = [];
-
-      for (const memberEmail of memberEmails) {
-        const userId = await findUserIdByEmail(memberEmail);
-        if (!userId) {
-          skippedMembers.push(memberEmail);
-          continue;
-        }
-        resolvedMemberUserIds.push(userId);
-        resolvedMembers.push(memberEmail);
-      }
-
-      // ── 3. Reconcile OpenFGA ReBAC tuples. OpenFGA owns relationship facts;
+      // ── 2. Reconcile OpenFGA ReBAC tuples. OpenFGA owns relationship facts;
       //    there is no Mongo authz array to persist anymore.
+      //
+      //    Grants are keyed on the `team:<slug>#member` / `#admin` userset, so a
+      //    member's access resolves transitively at check time via their
+      //    `user:<id> member team:<slug>` membership tuple. Those membership
+      //    tuples are owned by the team-membership writers (members route +
+      //    sync/audit reconcilers), so this path deliberately does NOT touch
+      //    them — it used to re-resolve every member email→id against Keycloak
+      //    (an O(members) serial lookup) on every save for no authorization gain.
       //
       //    Treat Save as authoritative: selected resources are desired writes
       //    (the writer filters tuples that already exist), and removals come
@@ -442,7 +418,6 @@ export const PUT = withErrorHandler(
       //    explicit per-server prefixes above.
       const tupleDiffInput = {
         teamSlug: slug,
-        memberUserIds: resolvedMemberUserIds,
         agents: { added: nextAgents, removed: agentDiff.removed },
         agentAdmins: { added: nextAgentAdmins, removed: agentAdminDiff.removed },
         tools: { added: nextTools, removed: toolDiff.removed },
@@ -468,7 +443,7 @@ export const PUT = withErrorHandler(
         tenantId: session.org,
       });
 
-      // ── 4. Touch updated_at and drop any legacy `resources` array (FGA is the
+      // ── 3. Touch updated_at and drop any legacy `resources` array (FGA is the
       //    single source of truth; the migration backfills + unsets in bulk,
       //    this keeps re-saved teams clean immediately).
       const now = new Date();
@@ -481,7 +456,7 @@ export const PUT = withErrorHandler(
       );
 
       console.log(
-        `[Admin TeamResources] PUT team=${id} agents+=${agentDiff.added.length}/-${agentDiff.removed.length} agent_admins+=${agentAdminDiff.added.length}/-${agentAdminDiff.removed.length} tools+=${toolDiff.added.length}/-${toolDiff.removed.length} wildcard=${wildcard ? "on" : "off"} members_resolved=${resolvedMembers.length} members_skipped=${skippedMembers.length} by=${user.email}`
+        `[Admin TeamResources] PUT team=${id} agents+=${agentDiff.added.length}/-${agentDiff.removed.length} agent_admins+=${agentAdminDiff.added.length}/-${agentAdminDiff.removed.length} tools+=${toolDiff.added.length}/-${toolDiff.removed.length} wildcard=${wildcard ? "on" : "off"} by=${user.email}`
       );
 
       return successResponse({
@@ -494,9 +469,6 @@ export const PUT = withErrorHandler(
           tools_added: toolDiff.added,
           tools_removed: toolDiff.removed,
         },
-        members_resolved: resolvedMembers,
-        members_updated: resolvedMembers,
-        members_skipped: skippedMembers,
         openfga,
       });
   }

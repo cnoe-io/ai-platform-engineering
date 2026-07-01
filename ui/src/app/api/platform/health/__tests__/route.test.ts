@@ -43,6 +43,7 @@ describe("/api/platform/health", () => {
     jest.clearAllMocks();
     process.env = {
       ...originalEnv,
+      NEXTAUTH_URL: "http://localhost:3000",
       A2A_BASE_URL: "http://chat-runtime:8001",
       DYNAMIC_AGENTS_ENABLED: "true",
       DYNAMIC_AGENTS_URL: "http://dynamic-agents:8001",
@@ -106,11 +107,11 @@ describe("/api/platform/health", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost/api/dynamic-agents/health",
+      "http://localhost:3000/api/dynamic-agents/health",
       expect.objectContaining({ method: "GET" }),
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost/api/rag/healthz",
+      "http://localhost:3000/api/rag/healthz",
       expect.objectContaining({ method: "GET" }),
     );
   });

@@ -7,7 +7,9 @@ import React from "react";
 
 import {
   describeProviderConnectionHealth,
+  formatExpiresInLabel,
   formatRelativeRefreshLabel,
+  supportsProfileCheck,
 } from "@/lib/credentials/provider-connection-display";
 
 interface ProviderConnection {
@@ -18,6 +20,9 @@ interface ProviderConnection {
   updatedAt?: string | Date;
   connectedAt?: string | Date;
   expiresAt?: string | Date;
+  // False ⇒ no refresh token; connection is valid now but will expire and
+  // need manual re-auth. Absent on legacy connections ⇒ assume renewable.
+  renewable?: boolean;
   profileSummary?: string;
   requestedScopes?: string[];
   grantedScopes?: string[];
@@ -85,7 +90,6 @@ function oauthPopupFeatures(): string {
     "height=760",
     "resizable=yes",
     "scrollbars=yes",
-    "noopener=yes",
   ].join(",");
 }
 
@@ -479,8 +483,11 @@ export function ProviderConnections({
                           </p>
                           {connected && (
                             <p className="text-xs text-muted-foreground/80">
-                              {formatRelativeRefreshLabel(connection?.updatedAt ?? connection?.connectedAt) ??
-                                formatDateTime(connection?.updatedAt)}
+                              {connection?.renewable === false
+                                ? formatExpiresInLabel(connection?.expiresAt) ??
+                                  "manual reconnect at expiry"
+                                : formatRelativeRefreshLabel(connection?.updatedAt ?? connection?.connectedAt) ??
+                                  formatDateTime(connection?.updatedAt)}
                             </p>
                           )}
                         </div>
@@ -488,7 +495,7 @@ export function ProviderConnections({
                       <td className="px-4 py-5 align-middle">
                         <div className="flex items-center gap-2">
                           <ConnectionStatusMark connection={connection} providerLabel={profileLabel} />
-                          {connection && (
+                          {connection && supportsProfileCheck(connector.provider) && (
                             <button
                               type="button"
                               className={cx(
@@ -1008,6 +1015,9 @@ function healthTone(health: string): "good" | "warning" | "danger" | "neutral" {
   switch (health) {
     case "healthy":
     case "connected":
+    // Connected and usable now — it simply won't auto-renew. Green, not amber:
+    // amber is reserved for connections that are within minutes of lapsing.
+    case "no auto-renew":
       return "good";
     case "expiring soon":
     case "relink required":
