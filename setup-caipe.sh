@@ -7410,6 +7410,31 @@ cmd_cleanup() {
     log "No CAIPE release found"
   fi
 
+  # caipe-postgres / caipe-mongodb are deployed as their OWN Helm releases
+  # (see deploy_postgres / deploy_mongodb), separate from the caipe umbrella.
+  # They MUST be uninstalled here, while their release-tracking secrets still
+  # exist. If we skip this, the later "kubectl delete secret --all" wipes the
+  # release tracking (orphaning the live StatefulSet/Deployment) and the
+  # subsequent "kubectl delete pvc --all" hangs forever waiting on PVCs the
+  # still-running pods hold via the pvc-protection finalizer.
+  if helm status "${SHARED_PG_SERVICE}" -n caipe &>/dev/null; then
+    if ask_yn "Uninstall Postgres Helm release (${SHARED_PG_SERVICE})?" "y"; then
+      helm uninstall "${SHARED_PG_SERVICE}" -n caipe
+      log "Postgres uninstalled"
+    fi
+  else
+    log "No Postgres release found"
+  fi
+
+  if helm status caipe-mongodb -n caipe &>/dev/null; then
+    if ask_yn "Uninstall MongoDB Helm release (caipe-mongodb)?" "y"; then
+      helm uninstall caipe-mongodb -n caipe
+      log "MongoDB uninstalled"
+    fi
+  else
+    log "No MongoDB release found"
+  fi
+
   if helm status langfuse -n langfuse &>/dev/null; then
     if ask_yn "Uninstall Langfuse Helm release?" "y"; then
       helm uninstall langfuse -n langfuse
