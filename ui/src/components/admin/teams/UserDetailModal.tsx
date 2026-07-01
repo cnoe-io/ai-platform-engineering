@@ -26,17 +26,16 @@ type ProfileUser = {
   createdAt?: number | null;
   attributes: Record<string, string[]>;
   slackLinkStatus: "linked" | "unlinked";
-  sessions: Array<{
-    id: string;
-    start?: number;
-    lastAccess?: number;
-  }>;
+  teams: Array<{ team_id: string; tenant_id: string }>;
+};
+
+type IdentityInfo = {
+  sessions: Array<{ id: string; start?: number; lastAccess?: number }>;
   federatedIdentities: Array<{
     identityProvider: string;
     userId: string;
     userName: string;
   }>;
-  teams: Array<{ team_id: string; tenant_id: string }>;
   lastAccess: number | null;
 };
 
@@ -188,6 +187,9 @@ export function UserDetailModal({
   const [accessLoading, setAccessLoading] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [teamsExpanded, setTeamsExpanded] = useState(false);
+  // Identity section (lazy — sessions + federated identities from Keycloak)
+  const [identity, setIdentity] = useState<IdentityInfo | null>(null);
+  const [identityLoading, setIdentityLoading] = useState(true);
 
   const refreshProfile = useCallback(async () => {
     setProfileError(null);
@@ -232,6 +234,23 @@ export function UserDetailModal({
       setTeamOptionsFetched([]);
     }
   }, [teamOptionsProp]);
+
+  const loadIdentity = useCallback(async () => {
+    setIdentityLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/identity`);
+      const json = (await readJson(res)) as {
+        success?: boolean;
+        data?: IdentityInfo;
+        error?: string;
+      } | null;
+      if (res.ok && json?.success && json.data) {
+        setIdentity(json.data);
+      }
+    } finally {
+      setIdentityLoading(false);
+    }
+  }, [userId]);
 
   const loadAccess = useCallback(async () => {
     setAccessError(null);
@@ -284,6 +303,8 @@ export function UserDetailModal({
     setAccess(null);
     setAccessLoading(true);
     setAccessError(null);
+    setIdentity(null);
+    setIdentityLoading(true);
     if (!readOnly && !teamOptionsProp) setTeamOptionsLoading(true);
 
     refreshProfile()
@@ -302,11 +323,12 @@ export function UserDetailModal({
     }
 
     loadAccess();
+    loadIdentity();
 
     return () => {
       cancelled = true;
     };
-  }, [userId, readOnly, refreshProfile, loadTeams, loadAccess]);
+  }, [userId, readOnly, refreshProfile, loadTeams, loadAccess, loadIdentity]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {
@@ -366,10 +388,10 @@ export function UserDetailModal({
   }, [teamOptions, memberTeamIds]);
 
   const idpLabel = useMemo(() => {
-    const feds = user?.federatedIdentities ?? [];
+    const feds = identity?.federatedIdentities ?? [];
     if (feds.length === 0) return "Local";
     return feds.map((f) => f.identityProvider).join(", ") || "Local";
-  }, [user?.federatedIdentities]);
+  }, [identity?.federatedIdentities]);
 
   const accessTotal = useMemo(() => {
     if (!access) return 0;
@@ -384,8 +406,8 @@ export function UserDetailModal({
   const webexLinked = webexUserId.length > 0;
 
   const lastLoginLabel =
-    user?.lastAccess != null && user.lastAccess > 0
-      ? formatTs(user.lastAccess)
+    identity?.lastAccess != null && identity.lastAccess > 0
+      ? formatTs(identity.lastAccess)
       : "Never";
 
   const createdLabel =
@@ -686,7 +708,9 @@ export function UserDetailModal({
                 <div>
                   <dt className="text-muted-foreground">IdP source</dt>
                   <dd className="font-medium text-foreground mt-0.5">
-                    {idpLabel}
+                    {identityLoading ? (
+                      <span className="inline-block h-3 w-16 rounded bg-muted animate-pulse" />
+                    ) : idpLabel}
                   </dd>
                 </div>
                 <div>
@@ -752,7 +776,9 @@ export function UserDetailModal({
                 <div>
                   <dt className="text-muted-foreground">Last login</dt>
                   <dd className="font-medium text-foreground mt-0.5">
-                    {lastLoginLabel}
+                    {identityLoading ? (
+                      <span className="inline-block h-3 w-24 rounded bg-muted animate-pulse" />
+                    ) : lastLoginLabel}
                   </dd>
                 </div>
                 <div>
