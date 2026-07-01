@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
@@ -34,6 +35,8 @@ from autonomous_agents.config import get_settings
 from autonomous_agents.models import Acknowledgement
 
 logger = logging.getLogger("autonomous_agents")
+
+_service_token_cache: tuple[str, float] | None = None
 
 __all__ = [
     "DynamicAgentsClientError",
@@ -104,6 +107,58 @@ def _task_headers(owner_email: str) -> dict[str, str]:
         "X-User-Context": _build_user_context_header(owner_email),
         "Content-Type": "application/json",
     }
+
+
+async def _mint_service_bearer_token(timeout: float) -> str | None:
+    """Mint a service-to-service token for dynamic-agents, if configured.
+
+    Dynamic-agents can run with ``DA_REQUIRE_BEARER=true``. In that mode the
+    legacy trusted ``X-User-Context`` header is not enough; the scheduler must
+    authenticate as a service principal and then let downstream ReBAC decide
+    whether that principal may use the requested agent.
+    """
+    global _service_token_cache
+
+    settings = get_settings()
+    token_url = settings.dynamic_agents_oauth2_token_url
+    client_id = settings.dynamic_agents_oauth2_client_id
+    client_secret = settings.dynamic_agents_oauth2_client_secret
+    if not token_url or not client_id or not client_secret:
+        return None
+
+    now = time.monotonic()
+    if _service_token_cache and _service_token_cache[1] > now + 30:
+        return _service_token_cache[0]
+
+    form = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    if settings.dynamic_agents_oauth2_scope:
+        form["scope"] = settings.dynamic_agents_oauth2_scope
+
+    async with httpx.AsyncClient(timeout=min(timeout, 15.0)) as client:
+        response = await client.post(token_url, data=form)
+    response.raise_for_status()
+    payload = response.json()
+    token = payload.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise DynamicAgentsClientError(
+            "Dynamic-agents service-token endpoint returned no access_token."
+        )
+    expires_in = payload.get("expires_in")
+    ttl = float(expires_in) if isinstance(expires_in, (int, float)) else 300.0
+    _service_token_cache = (token, now + max(ttl - 30.0, 30.0))
+    return token
+
+
+async def _task_headers_with_auth(owner_email: str, timeout: float) -> dict[str, str]:
+    headers = _task_headers(owner_email)
+    token = await _mint_service_bearer_token(timeout)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def _normalize_base_url(url: str) -> str:
@@ -197,7 +252,13 @@ async def invoke_dynamic_agent(
     _effective_email = owner_email or get_settings().dynamic_agents_system_email
     try:
         async with httpx.AsyncClient(timeout=effective_timeout) as client:
-            resp = await client.post(url, json=body, headers=_task_headers(_effective_email))
+            resp = await client.post(
+                url,
+                json=body,
+                headers=await _task_headers_with_auth(
+                    _effective_email, effective_timeout
+                ),
+            )
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         # Transport failure -- the dynamic-agents service didn't answer.
         # Re-raise as a typed error so the scheduler records the run as
@@ -491,7 +552,10 @@ async def invoke_dynamic_agent_streaming(
     sse_error: str | None = None
 
     _effective_email = owner_email or get_settings().dynamic_agents_system_email
-    headers = {**_task_headers(_effective_email), "Accept": "text/event-stream"}
+    headers = {
+        **(await _task_headers_with_auth(_effective_email, effective_timeout)),
+        "Accept": "text/event-stream",
+    }
 
     try:
         async with httpx.AsyncClient(timeout=effective_timeout) as client:

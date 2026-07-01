@@ -1090,6 +1090,13 @@ services:
       # Dynamic-agents runtime endpoint -- every autonomous task runs against a
       # dynamic agent selected by the task's dynamic_agent_id.
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Dynamic-agents may require Bearer auth (DA_REQUIRE_BEARER=true). The
+      # autonomous scheduler authenticates as a service principal, while
+      # X-User-Context still carries the task owner's email for attribution.
+      - DYNAMIC_AGENTS_OAUTH2_TOKEN_URL=${DYNAMIC_AGENTS_OAUTH2_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - DYNAMIC_AGENTS_OAUTH2_CLIENT_ID=${DYNAMIC_AGENTS_OAUTH2_CLIENT_ID:-caipe-platform}
+      - DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET=${DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - DYNAMIC_AGENTS_OAUTH2_SCOPE=${DYNAMIC_AGENTS_OAUTH2_SCOPE:-openid profile email}
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Publish completed runs into the UI conversations collection so

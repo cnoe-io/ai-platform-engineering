@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+import autonomous_agents.services.dynamic_agents_client as da_client
 from autonomous_agents.config import get_settings
 from autonomous_agents.services.dynamic_agents_client import (
     DynamicAgentsClientError,
@@ -31,7 +32,9 @@ from autonomous_agents.services.dynamic_agents_client import (
 def _reset_settings_cache():
     """Clear ``get_settings`` lru_cache so per-test env changes win."""
     get_settings.cache_clear()
+    da_client._service_token_cache = None
     yield
+    da_client._service_token_cache = None
     get_settings.cache_clear()
 
 
@@ -39,6 +42,10 @@ def _reset_settings_cache():
 def configured(monkeypatch):
     """Set DYNAMIC_AGENTS_URL to a fake host."""
     monkeypatch.setenv("DYNAMIC_AGENTS_URL", "http://dynamic-agents-test:8001")
+    monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_TOKEN_URL", raising=False)
+    monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_CLIENT_ID", raising=False)
+    monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("DYNAMIC_AGENTS_OAUTH2_SCOPE", raising=False)
     get_settings.cache_clear()
     yield
 
@@ -118,6 +125,38 @@ class TestInvokeDynamicAgent:
         assert call_url.endswith("/api/v1/chat/invoke")
         body = client.post.await_args.kwargs["json"]
         assert body["message"] == "hi"
+
+    @pytest.mark.asyncio
+    async def test_configured_service_token_is_sent_as_bearer(self, configured, monkeypatch):
+        """When OAuth2 service credentials are configured, the DA request carries Authorization."""
+        monkeypatch.setenv("DYNAMIC_AGENTS_OAUTH2_TOKEN_URL", "http://keycloak/token")
+        monkeypatch.setenv("DYNAMIC_AGENTS_OAUTH2_CLIENT_ID", "caipe-platform")
+        monkeypatch.setenv("DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET", "secret")
+        get_settings.cache_clear()
+
+        token_mint = AsyncMock(return_value="svc-token")
+        factory, client = _mock_async_client(
+            _resp(200, {"success": True, "content": "ok"})
+        )
+
+        with (
+            patch(
+                "autonomous_agents.services.dynamic_agents_client._mint_service_bearer_token",
+                token_mint,
+            ),
+            patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory),
+        ):
+            content, _ = await invoke_dynamic_agent(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                owner_email="alice@example.com",
+            )
+
+        assert content == "ok"
+        token_mint.assert_awaited_once()
+        headers = client.post.await_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer svc-token"
 
     @pytest.mark.asyncio
     async def test_appends_context_to_message(self, configured):

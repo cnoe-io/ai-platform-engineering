@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     dynamic_agents_preflight_timeout_seconds: float = Field(
         default=10.0, gt=0
     )
+    dynamic_agents_oauth2_token_url: str | None = None
+    dynamic_agents_oauth2_client_id: str | None = None
+    dynamic_agents_oauth2_client_secret: str | None = None
+    dynamic_agents_oauth2_scope: str | None = None
 
     @field_validator(
         "dynamic_agents_timeout_seconds",
