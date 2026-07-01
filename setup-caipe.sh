@@ -5892,6 +5892,10 @@ deploy_caipe() {
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
+    # Keycloak's post-install hook (init-token-exchange) can't run until Keycloak
+    # finishes its cold boot. helm's default 5m timeout leaves almost no margin 
+    # and aborts the release mid-boot, so give the hook real headroom.
+    --timeout 10m
     --set tags.caipe-ui=true
     --set tags.mcp-netutils=true
     # The UI reaches the dynamic-agents runtime server-side via DYNAMIC_AGENTS_URL.
@@ -7372,6 +7376,24 @@ monitor_port_forwards() {
 }
 
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
+
+# Delete a whole namespace for a clean uninstall. Deleting the namespace cascades
+# to every remaining namespaced resource (workloads, configmaps, secrets, PVCs),
+# so it doesn't matter what the earlier per-type prompts left behind. --timeout
+# bounds finalizer waits (e.g. a PVC still held by a running pod) so cleanup can't
+# hang forever (warn instead). No-op if the namespace doesn't exist.
+_delete_namespace_clean() {
+  local ns="$1"
+  kubectl get namespace "$ns" &>/dev/null || return 0
+  if ask_yn "Delete ${ns} namespace?" "y"; then
+    if ! kubectl delete namespace "$ns" --timeout=120s 2>/dev/null; then
+      warn "${ns} namespace did not finalize within 120s (a resource has a pending finalizer) — it will remain in Terminating"
+    else
+      log "${ns} namespace deleted"
+    fi
+  fi
+}
+
 cmd_cleanup() {
   echo ""
   echo -e "${BLUE}${BOLD}╔══════════════════════════════════════════════╗${NC}"
@@ -7408,6 +7430,31 @@ cmd_cleanup() {
     fi
   else
     log "No CAIPE release found"
+  fi
+
+  # caipe-postgres / caipe-mongodb are deployed as their OWN Helm releases
+  # (see deploy_postgres / deploy_mongodb), separate from the caipe umbrella.
+  # They MUST be uninstalled here, while their release-tracking secrets still
+  # exist. If we skip this, the later "kubectl delete secret --all" wipes the
+  # release tracking (orphaning the live StatefulSet/Deployment) and the
+  # subsequent "kubectl delete pvc --all" hangs forever waiting on PVCs the
+  # still-running pods hold via the pvc-protection finalizer.
+  if helm status "${SHARED_PG_SERVICE}" -n caipe &>/dev/null; then
+    if ask_yn "Uninstall Postgres Helm release (${SHARED_PG_SERVICE})?" "y"; then
+      helm uninstall "${SHARED_PG_SERVICE}" -n caipe
+      log "Postgres uninstalled"
+    fi
+  else
+    log "No Postgres release found"
+  fi
+
+  if helm status caipe-mongodb -n caipe &>/dev/null; then
+    if ask_yn "Uninstall MongoDB Helm release (caipe-mongodb)?" "y"; then
+      helm uninstall caipe-mongodb -n caipe
+      log "MongoDB uninstalled"
+    fi
+  else
+    log "No MongoDB release found"
   fi
 
   if helm status langfuse -n langfuse &>/dev/null; then
@@ -7456,9 +7503,54 @@ cmd_cleanup() {
       kubectl delete agentgatewaybackend,httproute -l app.kubernetes.io/managed-by=setup-caipe -n caipe 2>/dev/null || true
       kubectl delete gateway agentgateway-proxy -n agentgateway-system 2>/dev/null || true
       helm uninstall agentgateway -n agentgateway-system 2>/dev/null || true
+      log "AgentGateway uninstalled"
+    fi
+  fi
+
+  # AgentGateway CRDs are their own Helm release, separate from the main
+  # agentgateway release. Gate them independently so they aren't orphaned when
+  # the main release is gone.
+  if helm status agentgateway-crds -n agentgateway-system &>/dev/null; then
+    if ask_yn "Uninstall AgentGateway CRDs?" "y"; then
       helm uninstall agentgateway-crds -n agentgateway-system 2>/dev/null || true
       kubectl delete namespace agentgateway-system 2>/dev/null || true
-      log "AgentGateway uninstalled"
+      log "AgentGateway CRDs uninstalled"
+    fi
+  fi
+
+  # The upstream Gateway API CRDs (*.gateway.networking.k8s.io) are applied via
+  # raw kubectl manifests (see _install_agentgateway_crds), not Helm, so they
+  # belong to no release and survive both uninstalls above unless the kind
+  # cluster is deleted. They are cluster-scoped shared infra and may be used by
+  # other workloads, so gate them independently and default to "n". Deleting the
+  # CRDs cascade-deletes any remaining Gateway/HTTPRoute/etc. objects.
+  if kubectl get crd -o name 2>/dev/null | grep -q '\.gateway\.networking\.k8s\.io$'; then
+    if ask_yn "Uninstall Gateway API CRDs (*.gateway.networking.k8s.io)?" "n"; then
+      kubectl get crd -o name 2>/dev/null | grep '\.gateway\.networking\.k8s\.io$' | xargs -r kubectl delete 2>/dev/null || true
+      log "Gateway API CRDs uninstalled"
+    fi
+  fi
+
+  # ingress-nginx is a cluster-scoped Helm release (see install_nginx_ingress).
+  # Unless the kind cluster is deleted, it survives cleanup, so offer to remove
+  # it here too (default with "n" as it may be shared with other workloads).
+  if helm status ingress-nginx -n ingress-nginx &>/dev/null; then
+    if ask_yn "Uninstall ingress-nginx Helm release?" "n"; then
+      helm uninstall ingress-nginx -n ingress-nginx 2>/dev/null || true
+      kubectl delete namespace ingress-nginx 2>/dev/null || true
+      log "ingress-nginx uninstalled"
+    fi
+  fi
+
+  # MetalLB is applied via kubectl manifests (see install_metallb), not Helm, so
+  # it survives cleanup unless the kind cluster is deleted. Offer to remove it:
+  # the namespace clears the controller/speaker/pools, then the cluster-scoped
+  # CRDs. Default with "n", it's shared cluster infra.
+  if kubectl get namespace metallb-system &>/dev/null; then
+    if ask_yn "Uninstall MetalLB?" "n"; then
+      kubectl delete namespace metallb-system 2>/dev/null || true
+      kubectl get crd -o name 2>/dev/null | grep '\.metallb\.io$' | xargs -r kubectl delete 2>/dev/null || true
+      log "MetalLB uninstalled"
     fi
   fi
 
@@ -7466,7 +7558,10 @@ cmd_cleanup() {
 
   if kubectl get secret llm-secret -n caipe &>/dev/null || kubectl get secret langfuse-secret -n caipe &>/dev/null; then
     if ask_yn "Delete all secrets in caipe namespace?" "y"; then
-      kubectl delete secret --all -n caipe 2>/dev/null || true
+      # Exclude Helm release-tracking secrets (type helm.sh/release.v1). Wiping
+      # them while a release is still installed (e.g. the caipe uninstall above
+      # was declined) orphans the live workloads.
+      kubectl delete secret --all -n caipe --field-selector 'type!=helm.sh/release.v1' 2>/dev/null || true
       log "Secrets in caipe namespace deleted"
     fi
   fi
@@ -7475,8 +7570,14 @@ cmd_cleanup() {
   caipe_pvc_count=$(kubectl get pvc -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$caipe_pvc_count" -gt 0 ]]; then
     if ask_yn "Delete CAIPE persistent volume claims ($caipe_pvc_count PVCs)?" "y"; then
-      kubectl delete pvc --all -n caipe 2>/dev/null || true
-      log "CAIPE PVCs deleted"
+      # --timeout bounds the wait: a PVC still held by a running pod sits in
+      # Terminating (pvc-protection finalizer). Without a timeout the default
+      # --wait blocks forever and hangs the whole cleanup. Bound it, then warn.
+      if ! kubectl delete pvc --all -n caipe --timeout=120s 2>/dev/null; then
+        warn "Some CAIPE PVCs did not finalize within 120s (likely still held by a running pod) — they will remain in Terminating"
+      else
+        log "CAIPE PVCs deleted"
+      fi
     fi
   fi
 
@@ -7488,29 +7589,18 @@ cmd_cleanup() {
     fi
   fi
 
+  # Helm hook Jobs (e.g. openfga-init/migrate) set hook-delete-policy
+  # before-hook-creation, so `helm uninstall` leaves their completed pods behind.
+  # They keep the namespace non-empty and block the namespace deletion below.
+  if [[ "$(kubectl get jobs -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]]; then
+    kubectl delete jobs --all -n caipe 2>/dev/null || true
+    log "Leftover Jobs in caipe namespace deleted"
+  fi
+
   step "Namespaces"
 
-  local caipe_resources langfuse_resources
-  caipe_resources=$(kubectl get all -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
-  langfuse_resources=$(kubectl get all -n langfuse --no-headers 2>/dev/null | wc -l | tr -d ' ')
-
-  if [[ "$caipe_resources" -eq 0 ]]; then
-    if ask_yn "Delete empty caipe namespace?" "n"; then
-      kubectl delete namespace caipe 2>/dev/null || true
-      log "caipe namespace deleted"
-    fi
-  elif [[ "$caipe_resources" -gt 0 ]]; then
-    warn "caipe namespace still has $caipe_resources resources, skipping deletion"
-  fi
-
-  if [[ "$langfuse_resources" -eq 0 ]]; then
-    if ask_yn "Delete empty langfuse namespace?" "n"; then
-      kubectl delete namespace langfuse 2>/dev/null || true
-      log "langfuse namespace deleted"
-    fi
-  elif [[ "$langfuse_resources" -gt 0 ]]; then
-    warn "langfuse namespace still has $langfuse_resources resources, skipping deletion"
-  fi
+  _delete_namespace_clean caipe
+  _delete_namespace_clean langfuse
 
   if command -v kind &>/dev/null; then
     step "Kind cluster"
