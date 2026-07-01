@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 
 from dynamic_agents.config import get_settings
 from dynamic_agents.metrics import PrometheusHTTPMiddleware
-from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, files, health, mcp_servers, middleware
+from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, directory, files, health, mcp_servers, middleware
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
 from dynamic_agents.services.runtime_cache import RuntimeCapacityError, RuntimeInitError, get_runtime_cache
 
@@ -100,10 +100,46 @@ async def lifespan(app: FastAPI):
         store.ensure_ttl_index()
         logger.info("GridFS TTL index ensured (per-document expireAt)")
 
+    # Start AGNTCY Directory sync if enabled
+    from dynamic_agents.services.directory_sync import get_directory_sync
+
+    directory_sync = get_directory_sync()
+    if directory_sync is not None:
+        directory_sync.start()
+
+    # Self-register built-in MCP servers to Directory if enabled.
+    # Uses reconcile loop (if DIRECTORY_REGISTER_INTERVAL > 0) to handle
+    # servers that appear after startup (e.g., from AgentGateway discovery).
+    from dynamic_agents.services.directory_register import get_directory_register
+
+    directory_register = get_directory_register()
+    if directory_register is not None and mongo._db is not None:
+        try:
+            from dynamic_agents.config import get_settings as _get_settings
+
+            _settings = _get_settings()
+            collection = mongo._db[_settings.mcp_servers_collection]
+            servers = list(collection.find({"enabled": True, "source": {"$ne": "directory"}}))
+            if servers:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, directory_register.register_servers, servers)
+            # Start reconcile loop if configured (handles late-arriving servers)
+            directory_register.start()
+        except Exception as exc:
+            logger.warning("Directory self-registration failed: %s", exc)
+
     yield
 
     # Cleanup on shutdown
     logger.info("Shutting down Dynamic Agents service...")
+
+    # Stop Directory sync if running
+    if directory_sync is not None:
+        await directory_sync.stop()
+
+    # Stop Directory self-registration if running
+    if directory_register is not None:
+        await directory_register.stop()
 
     # Stop sweep and clear agent runtime cache
     await cache.stop()
@@ -154,6 +190,7 @@ def create_app() -> FastAPI:
     app.include_router(files.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(middleware.router, prefix="/api/v1")
+    app.include_router(directory.router, prefix="/api/v1")
 
     @app.exception_handler(RuntimeInitError)
     async def runtime_init_error_handler(request: Request, exc: RuntimeInitError):

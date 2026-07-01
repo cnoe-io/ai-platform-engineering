@@ -186,6 +186,25 @@ config:
   # attributes (tool defs, message history) blow up. 256 KiB
   # default. Set to "0" to disable.
   SKILL_TRACE_MAX_ATTR_BYTES: "262144"
+  # ─── AGNTCY Directory (agent discovery & self-registration) ──────────────
+  # Enable Directory sync service to discover external agents
+  DIRECTORY_ENABLED: "false"
+  # Base URL for Directory REST API (AI Finder)
+  DIRECTORY_BASE_URL: ""
+  # Label filter for Directory search (comma-separated key=value pairs)
+  DIRECTORY_LABEL_FILTER: ""
+  # Sync interval in seconds
+  DIRECTORY_SYNC_INTERVAL: "300"
+  # Enable self-registration (publish built-in MCP servers to Directory)
+  DIRECTORY_SELF_REGISTER: "false"
+  # gRPC server address for Directory SDK (host:port)
+  DIRECTORY_SERVER_ADDRESS: ""
+  # Labels to attach to self-registered records (comma-separated key=value)
+  DIRECTORY_REGISTER_LABELS: ""
+  # Self-registration reconcile interval in seconds
+  DIRECTORY_REGISTER_INTERVAL: "300"
+  # Publish records to Directory routing network
+  DIRECTORY_REGISTER_PUBLISH: "true"
 
 agentContext:
   # Secret shared with openfga-authz-bridge for signed agent_id context headers.
