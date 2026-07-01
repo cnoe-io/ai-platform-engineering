@@ -84,7 +84,7 @@ if RBAC_ENABLED:
     )
     from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
     from utils.obo_exchange import impersonate_user, impersonate_service_account, OboExchangeError
-    from utils.slack_rebac import get_slack_channel_rebac_evaluator
+    from utils.slack_rebac import get_slack_channel_rebac_evaluator, is_missing_channel_grant
     from utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
     from utils.service_account_resolver import get_unlinked_service_account_sub
     from utils.keycloak_admin import user_is_federated, realm_has_enabled_idp_broker
@@ -280,6 +280,30 @@ def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: 
         obo_token=obo_token if isinstance(obo_token, str) else None,
     )
     if decision.channel_allowed:
+        return None
+
+    # `channel_allowed=False` covers two very different situations that must NOT
+    # look the same to the user:
+    #   - missing_channel_grant → the agent genuinely isn't assigned here.
+    #   - pdp_unavailable        → we couldn't reach/parse the PDP (timeout, 5xx
+    #                              from the BFF, OpenFGA blip, or no OBO token).
+    # Only the first is an admin-actionable misconfiguration. Surfacing the
+    # "not assigned — ask an admin" message on a transient PDP failure sends
+    # users to chase a config problem that doesn't exist (observed twice in
+    # dev when the grant was in fact present).
+    #
+    # On a transient failure we FAIL OPEN for this channel-grant pre-check: the
+    # request proceeds and the API's independent gates still apply downstream
+    # (`agent#can_use` when the conversation is created, plus `conversation#write`),
+    # so no authorization is actually bypassed — we just avoid a misleading deny.
+    if not is_missing_channel_grant(decision):
+        logger.warning(
+            "Slack channel grant check unavailable channel={} agent={} reason={} — "
+            "failing open (downstream API gates still apply)",
+            channel_id,
+            agent_id,
+            decision.reason,
+        )
         return None
 
     logger.info(

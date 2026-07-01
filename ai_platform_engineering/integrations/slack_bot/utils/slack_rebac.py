@@ -44,6 +44,25 @@ class SlackChannelRebacDecision:
 PostCheck = Callable[[str, dict[str, object], str], SlackChannelRebacDecision]
 
 
+def is_missing_channel_grant(decision: SlackChannelRebacDecision) -> bool:
+    """Return True only when the channel genuinely lacks the agent grant.
+
+    A denied decision (``channel_allowed=False``) can mean either:
+      - ``missing_channel_grant`` — an admin-actionable misconfiguration; the
+        agent really isn't assigned to this channel.
+      - anything else (``pdp_unavailable``, ``unsupported_action``) — a transient
+        or non-actionable condition where we could not obtain a real grant answer.
+
+    Callers use this to decide whether to surface the "not assigned — ask an
+    admin" message. On a non-actionable denial they should fail open for this
+    pre-check: the API's independent gates (``agent#can_use`` at conversation
+    creation and ``conversation#write``) still apply downstream, so nothing is
+    actually bypassed — we just avoid telling users to chase a config problem
+    that may not exist.
+    """
+    return not decision.channel_allowed and decision.reason == "missing_channel_grant"
+
+
 def _default_base_url() -> str:
     return (
         os.environ.get("SLACK_REBAC_API_URL")
@@ -103,7 +122,6 @@ class SlackChannelRebacEvaluator:
             return SlackChannelRebacDecision(
                 allowed=False,
                 channel_allowed=False,
-                user_allowed=False,
                 reason="pdp_unavailable",
             )
         return _http_post_check(self.base_url, path, payload, token)
@@ -130,7 +148,6 @@ class SlackChannelRebacEvaluator:
             return SlackChannelRebacDecision(
                 allowed=False,
                 channel_allowed=False,
-                user_allowed=False,
                 reason="pdp_unavailable",
             )
 
