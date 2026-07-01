@@ -514,7 +514,7 @@ export function ProjectOnboardingWizard({
                       {bsOpen ? (
                         <div className="mt-3 rounded-xl border border-border/60 bg-card/40 p-3">
                           <p className="px-1 pb-2 text-xs text-muted-foreground">
-                            Select a Backstage system to pre-fill this project — name, description,
+                            Select a Backstage system to pre-fill this project: name, description,
                             initiatives, and repos (all still editable).
                           </p>
                           {/* Optional filter over the listed systems. */}
@@ -599,7 +599,7 @@ export function ProjectOnboardingWizard({
                       />
                       {!teamsLoading && teams.length === 0 && (
                         <span className="block text-xs text-muted-foreground">
-                          No teams available — ask an admin to add you to one (a
+                          No teams available. Ask an admin to add you to one (a
                           project must belong to a team).
                         </span>
                       )}
@@ -730,7 +730,7 @@ export function ProjectOnboardingWizard({
 
                         {on && !isSource ? (
                           <div className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
-                            Enabled — added to this project when you create it.
+                            Enabled. Added to this project when you create it.
                           </div>
                         ) : null}
                       </div>

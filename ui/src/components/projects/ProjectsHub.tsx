@@ -74,10 +74,10 @@ function freshnessLabel(lastIngestedAt: string | Date | null | undefined): {
   }
   if (diffD < 30) {
     const w = Math.floor(diffD / 7);
-    return { text: `${w}w ago`, tooltip: `Last ingested ${w} week${w === 1 ? "" : "s"} ago — consider re-ingesting`, className: "text-amber-500" };
+    return { text: `${w}w ago`, tooltip: `Last ingested ${w} week${w === 1 ? "" : "s"} ago. Consider re-ingesting.`, className: "text-amber-500" };
   }
   const mo = Math.floor(diffD / 30);
-  return { text: `${mo}mo ago`, tooltip: `Last ingested ${mo} month${mo === 1 ? "" : "s"} ago — likely stale`, className: "text-amber-500" };
+  return { text: `${mo}mo ago`, tooltip: `Last ingested ${mo} month${mo === 1 ? "" : "s"} ago. Likely stale.`, className: "text-amber-500" };
 }
 
 function groupProjects(
