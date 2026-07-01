@@ -239,9 +239,9 @@ function GlossaryStep() {
         {"\n"}
         <span className="text-sky-400">type</span>: glossary
         {"\n"}
-        <span className="text-sky-400">term</span>: OIDC
+        <span className="text-sky-400">term</span>: TLA
         {"\n"}
-        <span className="text-sky-400">expansion</span>: OpenID Connect
+        <span className="text-sky-400">expansion</span>: Three-Letter Acronym
         {"\n"}
         <span className="text-sky-400">scope</span>: <span className="text-amber-300">project</span>
         {"\n"}
@@ -249,8 +249,8 @@ function GlossaryStep() {
       </Terminal>
       <p className="text-sm leading-relaxed text-muted-foreground">
         Hover a linked term to preview it inline:{" "}
-        <GlossaryTerm definition="OpenID Connect — the identity layer over OAuth 2.0.">
-          OIDC
+        <GlossaryTerm definition="Three-Letter Acronym — a stand-in for whatever your team's shorthand is.">
+          TLA
         </GlossaryTerm>
         .
       </p>
@@ -308,7 +308,7 @@ function BhagLadder() {
   return (
     <div className="rounded-lg border bg-muted/30 px-4 py-4">
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {["Atlas", "Beacon", "Mycelium"].map((p) => (
+        {["Atlas", "Beacon", "Carbon"].map((p) => (
           <span
             key={p}
             className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium"
@@ -324,7 +324,7 @@ function BhagLadder() {
       </div>
       <div className="flex justify-center">
         <span className="gradient-primary-br inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white">
-          <Target className="h-3.5 w-3.5" /> Ship OIDC everywhere
+          <Target className="h-3.5 w-3.5" /> Project Horizon
         </span>
       </div>
     </div>
