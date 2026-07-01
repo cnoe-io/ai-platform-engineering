@@ -11,5 +11,9 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    - port: 9000
+      targetPort: management
+      protocol: TCP
+      name: management
   selector:
     {{- include "keycloak.selectorLabels" . | nindent 4 }}
