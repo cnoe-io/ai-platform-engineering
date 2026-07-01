@@ -55,6 +55,16 @@ audit:
   tenantId: default
   subjectSalt: caipe-098-audit
 
+callerToolCheck:
+  # Set to true after backfilling direct caller tool grants (FR-012c).
+  enabled: false
+
+slack:
+  # Workspace alias used to construct the FGA slack_channel subject
+  # (e.g. "T0123ABCD").  Mirrors SLACK_WORKSPACE_ALIAS / SLACK_WORKSPACE_ID
+  # in the BFF.  Leave empty to fall back to the bridge's "workspace-default".
+  workspaceAlias: ""
+
 resources:
   requests:
     cpu: 50m
