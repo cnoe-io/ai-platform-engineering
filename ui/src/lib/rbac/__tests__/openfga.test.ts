@@ -774,6 +774,8 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       { user: "organization:default#admin", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "team:platform#member", relation: "user", object: "agent:agent-platform-helper" },
       { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
+      // owner team members get full management access
+      { user: "team:platform#member", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
     ]);
     expect(diff.deletes).toEqual([
