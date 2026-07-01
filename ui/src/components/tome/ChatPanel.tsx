@@ -7,6 +7,7 @@ import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import type { ChatPart as Part } from "@/types/tome";
 
 /**
@@ -38,9 +39,11 @@ interface Props {
   onPagesChanged?: () => void;
   /** Open a wiki page (referenced by a tool chip) in the artifact pane. */
   onOpenPage?: (path: string) => void;
+  /** Resolve a glossary term slug to its definition for the hover card. */
+  glossaryPreview?: GlossaryResolver;
 }
 
-export function ChatPanel({ slug, onPagesChanged, onOpenPage }: Props) {
+export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -259,17 +262,22 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage }: Props) {
   return (
     <div className="flex h-full flex-col">
       <ScrollArea viewportRef={scrollRef} className="flex-1">
-        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
+        <div className="mx-auto flex max-w-4xl flex-col gap-5 px-6 py-8">
           {messages.length === 0 && !loadingHistory && <EmptyState slug={slug} />}
           {messages.map((m, i) => (
-            <MessageRow key={i} msg={m} onOpenPage={onOpenPage} />
+            <MessageRow
+              key={i}
+              msg={m}
+              onOpenPage={onOpenPage}
+              glossaryPreview={glossaryPreview}
+            />
           ))}
         </div>
       </ScrollArea>
 
       {/* Floating composer — no hard divider above it; sits over the transcript. */}
       <div className="pointer-events-none px-4 pb-5 pt-2">
-        <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
+        <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
           <TextareaAutosize
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -322,9 +330,11 @@ function EmptyState({ slug }: { slug: string }) {
 function MessageRow({
   msg,
   onOpenPage,
+  glossaryPreview,
 }: {
   msg: ChatMsg;
   onOpenPage?: (path: string) => void;
+  glossaryPreview?: GlossaryResolver;
 }) {
   const isUser = msg.role === "user";
 
@@ -354,7 +364,7 @@ function MessageRow({
       <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
         <Bot className="h-4 w-4 text-primary" />
       </div>
-      <div className="flex max-w-[80%] flex-col gap-2">
+      <div className="flex max-w-[90%] flex-col gap-2">
         {msg.parts.map((p, i) =>
           p.kind === "tool" ? (
             <ToolChip
@@ -372,6 +382,8 @@ function MessageRow({
                 content={p.text}
                 isStreaming={Boolean(msg.pending) && i === lastTextIdx}
                 variant="final"
+                onInternalLink={onOpenPage}
+                glossaryPreview={glossaryPreview}
               />
             </div>
           ),

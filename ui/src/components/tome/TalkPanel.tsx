@@ -72,7 +72,14 @@ interface Participant {
   isAgent: boolean;
 }
 
-export function TalkPanel({ slug }: { slug: string }) {
+export function TalkPanel({
+  slug,
+  onOpenPage,
+}: {
+  slug: string;
+  /** Navigate to a wiki page when an internal `tome://` link is clicked. */
+  onOpenPage?: (path: string) => void;
+}) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
   // Mycelium's `total` is just the returned-page size, not a grand total, so we
   // can't use it for hasMore. Instead we stop paging when an older fetch returns
@@ -284,7 +291,7 @@ export function TalkPanel({ slug }: { slug: string }) {
         </div>
       )}
       <ScrollArea viewportRef={viewportRef} className="flex-1">
-        <div className="mx-auto flex max-w-3xl flex-col gap-0 p-4">
+        <div className="mx-auto flex max-w-4xl flex-col gap-0 p-4">
           {loadingOlder && (
             <div className="flex justify-center py-1 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -298,9 +305,17 @@ export function TalkPanel({ slug }: { slug: string }) {
           {loading && messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p>
           ) : messages.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-40" />
-              No messages yet. Start the conversation about this project.
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <MessagesSquare className="h-6 w-6 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold">Talk about {slug}</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                The project&apos;s talk page: discussion about{" "}
+                <span className="font-medium">{slug}</span>, powered by Mycelium. People and
+                agents post decisions, questions, and updates here. The wiki holds the durable
+                context; this holds the conversation that shapes it.
+              </p>
             </div>
           ) : (
             messages.map((m, i) => {
@@ -354,7 +369,11 @@ export function TalkPanel({ slug }: { slug: string }) {
                     </>
                   )}
                   <div className="break-words text-sm text-foreground/90">
-                    <MarkdownRenderer content={m.content} variant="final" />
+                    <MarkdownRenderer
+                      content={m.content}
+                      variant="final"
+                      onInternalLink={onOpenPage}
+                    />
                   </div>
                 </div>
               );
@@ -366,11 +385,11 @@ export function TalkPanel({ slug }: { slug: string }) {
       {/* Composer, matches the agent chat's floating bar aesthetic. */}
       <div className="pointer-events-none px-4 pb-2 pt-2">
         {error && (
-          <p className="pointer-events-auto mx-auto mb-1.5 max-w-3xl text-center text-xs text-destructive">
+          <p className="pointer-events-auto mx-auto mb-1.5 max-w-4xl text-center text-xs text-destructive">
             {error}
           </p>
         )}
-        <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
+        <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-2 rounded-2xl border bg-background/95 px-3 py-2 shadow-lg backdrop-blur transition focus-within:ring-2 focus-within:ring-ring">
           <TextareaAutosize
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -399,7 +418,7 @@ export function TalkPanel({ slug }: { slug: string }) {
             )}
           </Button>
         </div>
-        <div className="pointer-events-auto mx-auto mt-1.5 max-w-3xl text-center text-[11px] text-muted-foreground">
+        <div className="pointer-events-auto mx-auto mt-1.5 max-w-4xl text-center text-[11px] text-muted-foreground">
           <a
             href="https://mycelium-io.github.io/"
             target="_blank"

@@ -161,6 +161,53 @@
   text-decoration-color: hsl(var(--primary));
 }
 
+/* Internal wiki links (`tome://` / bare *.md): a "page reference" look — a
+   small page glyph + dashed underline that solidifies on hover — distinct
+   from external anchors. Icon var (`--tome-link-icon`) is defined in globals.css. */
+.streaming-markdown .md-link.tome-link {
+  text-decoration-style: dashed;
+  text-decoration-color: hsl(var(--primary) / 0.45);
+  text-underline-offset: 3px;
+  border-radius: 3px;
+  padding: 0 0.12em;
+}
+.streaming-markdown .md-link.tome-link::before {
+  content: "";
+  display: inline-block;
+  width: 0.82em;
+  height: 0.82em;
+  margin-right: 0.18em;
+  vertical-align: -0.08em;
+  background-color: currentColor;
+  opacity: 0.72;
+  -webkit-mask: var(--tome-link-icon) center / contain no-repeat;
+  mask: var(--tome-link-icon) center / contain no-repeat;
+}
+.streaming-markdown .md-link.tome-link:hover {
+  background: hsl(var(--primary) / 0.08);
+  text-decoration-color: hsl(var(--primary));
+}
+
+/* Glossary term reference: a subtle inline reference (dotted underline, no page
+   glyph), with a hover definition card. Distinct from page links above. */
+.streaming-markdown .md-link.tome-glossary-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.55);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.streaming-markdown .md-link.tome-glossary-link:hover {
+  text-decoration-color: hsl(var(--primary));
+}
+/* Dangling glossary reference (resolves to nothing): muted, wavy amber. */
+.streaming-markdown .md-link.tome-glossary-dangling {
+  color: hsl(var(--muted-foreground));
+  text-decoration-style: wavy;
+  text-decoration-color: hsl(38 92% 50% / 0.7);
+}
+
 /* Inline code */
 .streaming-markdown.md-final :not(pre) > code {
   background: hsl(var(--muted) / 0.8);
@@ -173,11 +220,21 @@
 }
 
 /* Tables */
-.streaming-markdown.md-final table {
-  width: 100%;
-  font-size: 0.875rem;
+/* Scroll wrapper (added by MarkdownRenderer's decorateTables): a wide table
+   scrolls horizontally within the message instead of cramming its columns. */
+.streaming-markdown .md-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+.streaming-markdown.md-final table {
+  /* Size to content but fill the message when narrow; overflow scrolls. */
+  width: auto;
+  min-width: 100%;
+  font-size: 0.875rem;
+  margin: 0;
   border-collapse: collapse;
 }
 
@@ -191,14 +248,17 @@
   font-weight: 600;
   color: hsl(var(--foreground));
   border-bottom: 1px solid hsl(var(--border) / 0.5);
-  word-break: break-word;
+  /* Headers are short labels: keep them on one line so columns don't collapse. */
+  white-space: nowrap;
 }
 
 .streaming-markdown.md-final td {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid hsl(var(--border) / 0.3);
   color: hsl(var(--foreground) / 0.9);
-  word-break: break-word;
+  /* Wrap at spaces only — never mid-word (the char-by-char "Myceliu mm" bug). */
+  word-break: normal;
+  overflow-wrap: normal;
   vertical-align: top;
 }
 

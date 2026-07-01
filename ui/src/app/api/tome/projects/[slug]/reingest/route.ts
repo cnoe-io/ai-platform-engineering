@@ -16,6 +16,16 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
 
+  // A BHAG has no sources to ingest — its wiki is a synthesis of the projects
+  // tagged to it. Route those runs through the dedicated /synthesize endpoint.
+  if (tctx.project.type === "bhag") {
+    throw new ApiError(
+      "BHAGs don't ingest sources. Use BHAG synthesis instead.",
+      400,
+      "USE_SYNTHESIS",
+    );
+  }
+
   if (!process.env.TOME_AGENT_URL) {
     throw new ApiError(
       "Tome agent is not configured (set TOME_AGENT_URL).",
@@ -24,10 +34,18 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     );
   }
 
-  const body = (await request.json().catch(() => ({}))) as { seed?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    seed?: string;
+    webexMeetings?: { id: string; title: string; start: string }[];
+    seedStablePages?: boolean;
+  };
 
   try {
-    const { runId } = await startIngestRun(tctx, { seed: body.seed ?? null });
+    const { runId } = await startIngestRun(tctx, {
+      seed: body.seed ?? null,
+      webexMeetings: body.webexMeetings,
+      seedStablePages: body.seedStablePages,
+    });
     return successResponse({ runId });
   } catch (e) {
     if (e instanceof IngestInProgressError) {

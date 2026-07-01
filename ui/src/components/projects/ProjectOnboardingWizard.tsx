@@ -25,12 +25,21 @@ import {
 } from "react";
 
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { LabelComboBox } from "@/components/projects/LabelComboBox";
+import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { SourcePicker } from "@/components/projects/source-pickers";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
 import type { ProjectDocument } from "@/types/projects";
 
 type SourceKind = "github" | "confluence" | "webex";
+
+/** Source kind → credentials provider id for the shared `ProviderLogo`. */
+const SOURCE_PROVIDER: Record<SourceKind, string> = {
+  github: "github",
+  confluence: "atlassian",
+  webex: "webex",
+};
 
 interface OnboardingStepConfig {
   id: string;
@@ -505,7 +514,7 @@ export function ProjectOnboardingWizard({
                       {bsOpen ? (
                         <div className="mt-3 rounded-xl border border-border/60 bg-card/40 p-3">
                           <p className="px-1 pb-2 text-xs text-muted-foreground">
-                            Select a Backstage system to pre-fill this project — name, description,
+                            Select a Backstage system to pre-fill this project: name, description,
                             initiatives, and repos (all still editable).
                           </p>
                           {/* Optional filter over the listed systems. */}
@@ -590,7 +599,7 @@ export function ProjectOnboardingWizard({
                       />
                       {!teamsLoading && teams.length === 0 && (
                         <span className="block text-xs text-muted-foreground">
-                          No teams available — ask an admin to add you to one (a
+                          No teams available. Ask an admin to add you to one (a
                           project must belong to a team).
                         </span>
                       )}
@@ -599,25 +608,27 @@ export function ProjectOnboardingWizard({
                   <div className="space-y-4">
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">BHAG / Initiatives</span>
-                      <ComboBox
+                      <LabelComboBox
                         ariaLabel="BHAG / Initiatives"
                         value={initiativesRaw}
                         onChange={setInitiativesRaw}
                         options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
                         placeholder="Agentic-2026, Platform Modernization"
                         multi
+                        inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                       <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Swim Lanes</span>
-                      <ComboBox
+                      <LabelComboBox
                         ariaLabel="Swim Lanes"
                         value={swimlanesRaw}
                         onChange={setSwimlanesRaw}
                         options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
                         placeholder="Now, Next, Later"
                         multi
+                        inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                       <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
@@ -656,7 +667,7 @@ export function ProjectOnboardingWizard({
                             setEnabled((prev) => ({ ...prev, [step.id]: !on }))
                           }
                           aria-pressed={on}
-                          className="flex w-full items-center gap-3 p-4 text-left transition hover:bg-accent/30"
+                          className="group flex w-full items-center gap-3 p-4 text-left transition hover:bg-accent/30"
                         >
                           <span
                             className={cn(
@@ -668,6 +679,12 @@ export function ProjectOnboardingWizard({
                           >
                             {on ? <Check className="h-3.5 w-3.5" /> : null}
                           </span>
+                          {isSource && step.source ? (
+                            <ProviderLogo
+                              provider={SOURCE_PROVIDER[step.source]}
+                              className="h-5 w-5 shrink-0 object-contain grayscale transition-all group-hover:grayscale-0"
+                            />
+                          ) : null}
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-medium">
                               {step.title}
@@ -713,7 +730,7 @@ export function ProjectOnboardingWizard({
 
                         {on && !isSource ? (
                           <div className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
-                            Enabled — added to this project when you create it.
+                            Enabled. Added to this project when you create it.
                           </div>
                         ) : null}
                       </div>
@@ -752,11 +769,28 @@ export function ProjectOnboardingWizard({
                       .map((s) => s.title);
                     const showGithub = enabledSourceKinds.has("github");
                     const showConfluence = enabledSourceKinds.has("confluence");
+                    const showWebex = enabledSourceKinds.has("webex");
+                    const rooms = webexRooms.map(toWebexRoomSource);
+                    const SourceLabel = ({
+                      provider,
+                      name,
+                    }: {
+                      provider: string;
+                      name: string;
+                    }) => (
+                      <span className="flex items-center gap-1.5 text-foreground">
+                        <ProviderLogo
+                          provider={provider}
+                          className="h-4 w-4 shrink-0 object-contain"
+                        />
+                        {name}
+                      </span>
+                    );
                     const Row = ({
                       label,
                       children,
                     }: {
-                      label: string;
+                      label: ReactNode;
                       children: ReactNode;
                     }) => (
                       <div className="grid grid-cols-[8rem_1fr] gap-3 px-4 py-3 text-sm">
@@ -790,17 +824,22 @@ export function ProjectOnboardingWizard({
                               : muted}
                           </Row>
                           {showGithub ? (
-                            <Row label="GitHub repos">
+                            <Row label={<SourceLabel provider="github" name="GitHub" />}>
                               {repos.length ? (
-                                <span className="flex flex-wrap gap-1.5">
-                                  {repos.map((r) => (
-                                    <span
-                                      key={r}
-                                      className="rounded-md bg-muted px-2 py-0.5 text-xs"
-                                    >
-                                      {r.replace(/^https?:\/\/github\.com\//i, "")}
-                                    </span>
-                                  ))}
+                                <span className="space-y-1.5">
+                                  <span className="block text-xs text-muted-foreground">
+                                    {repos.length} repo{repos.length === 1 ? "" : "s"}
+                                  </span>
+                                  <span className="flex flex-wrap gap-1.5">
+                                    {repos.map((r) => (
+                                      <span
+                                        key={r}
+                                        className="rounded-md bg-muted px-2 py-0.5 text-xs"
+                                      >
+                                        {r.replace(/^https?:\/\/github\.com\//i, "")}
+                                      </span>
+                                    ))}
+                                  </span>
                                 </span>
                               ) : (
                                 muted
@@ -808,8 +847,40 @@ export function ProjectOnboardingWizard({
                             </Row>
                           ) : null}
                           {showConfluence ? (
-                            <Row label="Confluence">
-                              {confluenceUrl.trim() || muted}
+                            <Row label={<SourceLabel provider="atlassian" name="Confluence" />}>
+                              {confluenceUrl.trim() ? (
+                                <span className="space-y-1.5">
+                                  <span className="block text-xs text-muted-foreground">1 space</span>
+                                  <span className="block break-all text-xs">
+                                    {confluenceUrl.trim()}
+                                  </span>
+                                </span>
+                              ) : (
+                                muted
+                              )}
+                            </Row>
+                          ) : null}
+                          {showWebex ? (
+                            <Row label={<SourceLabel provider="webex" name="Webex" />}>
+                              {rooms.length ? (
+                                <span className="space-y-1.5">
+                                  <span className="block text-xs text-muted-foreground">
+                                    {rooms.length} room{rooms.length === 1 ? "" : "s"}
+                                  </span>
+                                  <span className="flex flex-wrap gap-1.5">
+                                    {rooms.map((r) => (
+                                      <span
+                                        key={r.room_id}
+                                        className="rounded-md bg-muted px-2 py-0.5 text-xs"
+                                      >
+                                        {r.name || r.room_id}
+                                      </span>
+                                    ))}
+                                  </span>
+                                </span>
+                              ) : (
+                                muted
+                              )}
                             </Row>
                           ) : null}
                           {initiatives.length ? (
@@ -869,94 +940,3 @@ export function ProjectOnboardingWizard({
   );
 }
 
-/** Replace the active token (last comma/newline segment) for multi-value fields. */
-function applyComboSelection(current: string, selected: string, multi: boolean): string {
-  if (!multi) return selected;
-  const lastDelim = Math.max(current.lastIndexOf(","), current.lastIndexOf("\n"));
-  const head = lastDelim >= 0 ? current.slice(0, lastDelim + 1) : "";
-  return `${head ? head.trimEnd() + " " : ""}${selected}, `;
-}
-
-/**
- * Styled, scrollable combobox: a text input with a filtered dropdown of
- * suggestions that stays inside the dialog (unlike the native <datalist>).
- * Free-text is always allowed; `multi` appends comma-separated selections.
- */
-function ComboBox({
-  value,
-  onChange,
-  options,
-  placeholder,
-  multi = false,
-  onType,
-  ariaLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  placeholder?: string;
-  multi?: boolean;
-  onType?: (v: string) => void;
-  ariaLabel?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-
-  const lastToken = (multi ? (value.split(/[\n,]/).pop() ?? "") : value).trim().toLowerCase();
-  const filtered = options
-    .filter(
-      (o) =>
-        !lastToken ||
-        o.label.toLowerCase().includes(lastToken) ||
-        o.value.toLowerCase().includes(lastToken),
-    )
-    .slice(0, 50);
-
-  return (
-    <div ref={ref} className="relative">
-      <input
-        aria-label={ariaLabel}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          onType?.(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-      />
-      {open && filtered.length > 0 ? (
-        <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-auto rounded-xl border border-border/60 bg-card shadow-xl">
-          {filtered.map((o) => (
-            <button
-              type="button"
-              key={o.value}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChange(applyComboSelection(value, o.value, multi));
-                onType?.("");
-                setOpen(false);
-              }}
-              className="block w-full px-3 py-2 text-left transition hover:bg-accent/60"
-            >
-              <span className="block truncate text-sm">{o.label}</span>
-              {o.label !== o.value ? (
-                <span className="block truncate text-xs text-muted-foreground">{o.value}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}

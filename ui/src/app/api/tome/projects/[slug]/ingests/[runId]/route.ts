@@ -1,4 +1,5 @@
 // One ingest run with its full log — polled by the live log viewer.
+// DELETE cancels a running run (marks it failed; background stream self-terminates).
 
 import { NextRequest } from "next/server";
 
@@ -28,6 +29,26 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     finished_at: run.finished_at ?? null,
     error: run.error ?? null,
     report_id: run.report_id ?? null,
+    cascade_id: run.cascade_id ?? null,
+    cascade_role: run.cascade_role ?? null,
     log: (run.log ?? []).join("\n"),
   });
+});
+
+export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
+  const { slug, runId } = await ctx.params;
+  const { projectId } = await loadTomeProject(request, slug);
+
+  const runs = await getTomeIngestRunsCollection();
+  const run = await runs.findOne({ _id: runId, project_id: projectId });
+  if (!run) throw new ApiError("Ingest run not found", 404, "RUN_NOT_FOUND");
+  if (run.status !== "running" && run.status !== "queued") {
+    throw new ApiError("Run is not active", 409, "RUN_NOT_ACTIVE");
+  }
+
+  await runs.updateOne(
+    { _id: runId },
+    { $set: { status: "failed", error: "Stopped by user", finished_at: new Date() } },
+  );
+  return successResponse({ ok: true });
 });

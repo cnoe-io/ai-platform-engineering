@@ -15,7 +15,7 @@ import {
   getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
+import { canManageProjectsOrganization, isProjectTeamMember } from "@/lib/projects/project-admin";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { isTomeServerEnabled } from "./guard";
 import type { ProjectDocument } from "@/types/projects";
@@ -57,8 +57,13 @@ export async function loadTomeProject(
   }
 
   const isOwner = Boolean(user.email) && project.owner_id === user.email;
-  const isMember =
+  // An explicit per-project member, or a member of the project's team (canonical,
+  // matching visibility). Team membership is the reliable signal; member_ids is a
+  // legacy per-project list and is often empty.
+  const isExplicitMember =
     Boolean(user.email) && project.member_ids?.includes(user.email ?? "");
+  const isTeamMember = await isProjectTeamMember(project, user.email);
+  const isMember = Boolean(isExplicitMember) || isTeamMember;
   // Bootstrap admins (BOOTSTRAP_ADMIN_EMAILS) are honored even for API-key /
   // bearer callers, so the Tome MCP mirrors what an admin sees in the web UI —
   // the OpenFGA org-manage check only succeeds for cookie sessions carrying a
@@ -93,7 +98,7 @@ export async function ensureTomeTile(slug: string): Promise<void> {
     {
       $set: {
         "integrations.tome_url": `/projects/${slug}/tome`,
-        "integrations.tome_label": "Tome",
+        "integrations.tome_label": "TOME",
         updated_at: new Date(),
       },
     },

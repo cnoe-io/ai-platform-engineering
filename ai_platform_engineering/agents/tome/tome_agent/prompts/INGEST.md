@@ -87,6 +87,14 @@ information, and a stable wiki is a feature, not a failure.
   it in, don't transcribe it, and let the GitHub/Confluence/Webex evidence win
   on facts.
 
+**If a connector returns 401/403 / auth errors (or a GitHub rate limit)** that
+source isn't connected (GitHub is read *unauthenticated* unless connected — so
+private repos fail and public ones throttle). Do NOT fabricate its content or
+silently drop it: leave the affected page as-is (or note in one sentence that the
+source couldn't be read this run) and state that connecting the provider on the
+Connections page (`/credentials`) will populate it on the next ingest. Surface it
+in your final summary so it shows in the run log.
+
 ## Wiki tree shape
 
 **Top-level pages** explain the Project as a whole (this is where synthesis
@@ -97,12 +105,13 @@ lives — the most valuable pages):
 - `marketing.md` — positioning, comms, GTM (sparse until there's signal)
 - `conversations.md` — the cross-source narrative: what's being debated/decided
 - `standup.md` — report-card surface (special format, see below)
+- `glossary/` — the project's vocabulary, one file per term (see Glossary below)
 - `memory.md` — your hidden working memory
 
 **Per-source subtrees** are *thin* — orientation, not transcripts. Synthesis
 belongs up top; per-source pages cover what's specific to that one source.
 - `repos/<slug>/` — per GitHub repo: `overview.md`, `architecture.md`,
-  `status.md`, `activity.md`, plus `team.md`/`glossary.md`/`conversations.md`
+  `status.md`, `activity.md`, plus `team.md`/`conversations.md`
   where warranted. Code-level specifics live here.
 - `webex/<slug>/` — per Webex room: `overview.md`, `activity.md`. Use the
   `mcp__webex__*` tools: `webex_list_messages(roomId)` lists messages newest-first
@@ -145,6 +154,57 @@ Path is the nesting signal — `architecture/backend.md` nests under
 when a subtopic genuinely deserves its own page; a flat 5-page wiki beats a
 3-deep tree of one-paragraph stubs.
 
+## Glossary — one file per term
+
+The glossary is a **project-level collection**, not a page and not per-repo.
+Each term is its own file at `glossary/<slug>.md` where `<slug>` is the term
+lowercased with non-alphanumerics as `-` (e.g. `TOME` → `glossary/tome.md`,
+`L9 protocol` → `glossary/l9-protocol.md`).
+
+Each term file carries typed frontmatter the UI renders as a form:
+
+```
+---
+type: glossary
+title: TOME
+kind: dynamic
+term: TOME
+expansion: Team Outshift Memory Engine
+scope: project
+aliases: [tome, t.o.m.e.]
+term_kind: acronym
+status: current
+---
+
+What the term means, in prose — a sentence or three. Link related terms or
+pages with the `tome://` scheme.
+```
+
+Field rules:
+- `type: glossary` (required) and `term` (required) are the only hard floor — a
+  half-filled entry is still valid. Fill the rest when you know them.
+- `title` mirrors `term` (it's what the sidebar shows).
+- `kind: dynamic` so you maintain it on each ingest. Never flip it to `stable`
+  yourself — that's a human/steward signal to stop editing.
+- `expansion` — only for acronyms; omit for plain terms.
+- `scope` — one of `org | project | bhag | swimlane`. Default `project`. Use
+  `org` only for vocabulary that's genuinely shared across all projects.
+- `aliases` — other spellings/abbreviations people use for the same term.
+- `term_kind` — `acronym` or `term`.
+- `status` — `current`, or `deprecated` when a term falls out of use (retire by
+  marking deprecated, don't delete — history matters).
+
+When to create vs update: **create** a term file the first time a
+project-specific or non-obvious term appears in the sources; **update** an
+existing one when its meaning shifts or you learn its expansion/aliases. Don't
+glossary common English or widely-known tech terms — only what a new teammate
+on *this* project wouldn't already know. A handful of high-value terms beats an
+exhaustive dictionary.
+
+**Migration:** if you find a legacy single `glossary.md` (top-level or under any
+`repos/<slug>/`), split each term it defines into its own `glossary/<slug>.md`
+file with the frontmatter above, then delete the old `glossary.md`. Do this once.
+
 ## Frontmatter format
 
 Every page MUST keep this YAML frontmatter intact:
@@ -162,25 +222,28 @@ order: <integer>
 notes (recurring patterns, how this team works). Keep entries tight. Not
 surfaced to users by default.
 
-## Repo maintainer steering (`.ttt/wiki.md`)
+## Repo maintainer steering (`.tome/wiki.md`)
 
-Repos may include a `.ttt/wiki.md` — llms.txt-style hints on what to emphasize,
+Repos may include a `.tome/wiki.md` — AGENTS.md-style hints on what to emphasize,
 canonical source-of-truth files, and what's out of scope. When present it's
 pre-injected as a `REPO MAINTAINER STEERING` block below. Treat it as
 authoritative; follow its file links via `github_get_file` / `github_list_dir`
 to ground your writing in real code.
 
-## Repo relationships (`.ttt/relationships.yaml`)
-
-Repos may declare cross-repo edges: `depends_on`, `consumed_by`, `supersedes`,
-`related`. When present they're pre-injected per-repo. Use them to ground the
-top-level `architecture.md` (cross-repo picture in prose) and per-repo
-architecture/overview. Cite related repos as markdown links
-(`[owner/name](https://github.com/owner/name)`).
-
 ## Page conventions
 
 Write conceptually (per the rule at the top). A few specifics:
+
+- **Link other wiki pages with the `tome://` scheme** so they open in-app:
+  `[Architecture](tome://architecture.md)`,
+  `[repo status](tome://repos/mycelium/status.md)`. Use the same-project path
+  (relative to the wiki root); don't author bare paths or guessed URLs for
+  in-wiki links. External sources (GitHub/Confluence/Webex) still use their real
+  `https://` URLs.
+  - **Cross-project links** name the project explicitly with `@`:
+    `tome://@<project-slug>/<path>` (e.g. `tome://@atlas/glossary/mcp.md`). Only
+    use this when you actually know the other project's slug; otherwise keep
+    links same-project (relative).
 
 - **`standup.md`** (report card — keep this exact structure, it's UI-rendered):
   - `## What is this` (one or two sentences)

@@ -209,7 +209,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_get_project",
     description:
-      "Get a single project's detail: name, status, and attached sources (repos, Confluence URL, Webex rooms). `project_slug` is required.",
+      "Get a single project's detail: name, status, attached sources (repos, Confluence URL, Webex rooms), and the BHAG(s) it's tagged to (its strategic goals). `project_slug` is required.",
     inputSchema: schema({ project_slug: STR }, ["project_slug"]),
     handler: async (_req, fwd, args) => {
       const slug = String(args.project_slug);
@@ -217,11 +217,130 @@ const TOOLS: ToolDef[] = [
       const p = data?.project ?? {};
       return toolText(
         JSON.stringify(
-          { slug: p.slug, name: p.name ?? p.title, status: p.status, sources: p.sources },
+          {
+            slug: p.slug,
+            name: p.name ?? p.title,
+            type: p.type ?? "project",
+            status: p.status,
+            sources: p.sources,
+            // The BHAGs this project ladders up to (initiative tags).
+            bhags: p.labels?.initiatives ?? [],
+          },
           null,
           2,
         ),
       );
+    },
+  },
+  {
+    name: "tome_list_bhags",
+    description:
+      "List BHAGs (Big Hairy Audacious Goals) the user can access. A BHAG is a strategic goal that spans multiple projects and has its own wiki. Returns slug, name, and status for each.",
+    inputSchema: schema({}),
+    handler: async (_req, fwd) => {
+      const data = ensureOk(await fwd("GET", "/api/projects?type=bhag"), "list bhags");
+      const bhags = (data?.projects ?? []).map((b: any) => ({
+        slug: b.slug,
+        name: b.name ?? b.title,
+        status: b.status,
+      }));
+      return toolText(JSON.stringify(bhags, null, 2));
+    },
+  },
+  {
+    name: "tome_get_bhag",
+    description:
+      "Get a BHAG's detail plus the projects tagged to it. Returns name, status, the BHAG's own wiki page tree, and `child_projects` (the projects that ladder up to this goal). `bhag_slug` is required.",
+    inputSchema: schema({ bhag_slug: STR }, ["bhag_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.bhag_slug));
+      const data = ensureOk(await fwd("GET", `/api/projects/${slug}`), "get bhag");
+      const b = data?.project ?? {};
+      if ((b.type ?? "project") !== "bhag") {
+        return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
+      }
+      const name = b.name ?? b.title ?? "";
+      const childData = ensureOk(
+        await fwd("GET", `/api/projects?initiative=${encodeURIComponent(name)}`),
+        "list child projects",
+      );
+      const children = (childData?.projects ?? []).map((c: any) => ({
+        slug: c.slug,
+        name: c.name ?? c.title,
+        status: c.status,
+      }));
+      return toolText(
+        JSON.stringify(
+          { slug: b.slug, name, status: b.status, child_projects: children },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_get_bhag_synthesis_context",
+    description:
+      "Gather everything needed to synthesize a BHAG: the BHAG's own wiki pages plus the wiki pages of every project tagged to it. Use this to author/refresh the BHAG's dynamic pages (a cross-project synthesis). `bhag_slug` is required. Note: this is the human/MCP-client path; the in-product agent can synthesize in-app via the BHAG's Synthesize action.",
+    inputSchema: schema({ bhag_slug: STR }, ["bhag_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.bhag_slug));
+      const data = ensureOk(await fwd("GET", `/api/projects/${slug}`), "get bhag");
+      const b = data?.project ?? {};
+      if ((b.type ?? "project") !== "bhag") {
+        return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
+      }
+      const name = b.name ?? b.title ?? "";
+      const childData = ensureOk(
+        await fwd("GET", `/api/projects?initiative=${encodeURIComponent(name)}`),
+        "list child projects",
+      );
+      const children = (childData?.projects ?? []) as any[];
+
+      const fetchPages = async (s: string) => {
+        try {
+          const pd = ensureOk(
+            await fwd("GET", `/api/tome/projects/${encodeURIComponent(s)}/pages`),
+            "get pages",
+          );
+          return pd?.pages ?? {};
+        } catch {
+          return {};
+        }
+      };
+
+      const bhagPages = await fetchPages(b.slug);
+      const childContext = [];
+      for (const c of children) {
+        childContext.push({
+          slug: c.slug,
+          name: c.name ?? c.title,
+          status: c.status,
+          pages: await fetchPages(c.slug),
+        });
+      }
+      return toolText(
+        JSON.stringify(
+          { bhag: { slug: b.slug, name, pages: bhagPages }, children: childContext },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_resolve_ref",
+    description:
+      "Resolve a tome:// reference to its target before authoring a link, or to fetch a glossary definition. `ref` is a tome:// reference (e.g. `tome://overview.md` or `tome://glossary/<term>.md`). Glossary terms resolve within the project; org-scoped terms also resolve across projects. Returns whether the target exists and, for glossary, the term definition + source project.",
+    inputSchema: schema({ project_slug: STR, ref: STR }, ["project_slug", "ref"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const ref = encodeURIComponent(String(args.ref));
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/resolve?ref=${ref}`),
+        "resolve ref",
+      );
+      return toolText(JSON.stringify(data, null, 2));
     },
   },
   {
@@ -302,13 +421,73 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "tome_reingest",
+    name: "tome_list_webex_meetings",
     description:
-      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint. Returns the new run id.",
-    inputSchema: schema({ project_slug: STR, seed: STR }, ["project_slug"]),
+      "List recent recorded Webex meetings available for a project's ingest run. Returns [] when the user has no Webex OAuth connection. Use the returned `id`, `title`, and `start` fields to select meetings for `tome_reingest`. `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
     handler: async (_req, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
-      const body = args.seed ? { seed: String(args.seed) } : {};
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/webex-meetings`),
+        "list webex meetings",
+      );
+      return toolText(JSON.stringify(data?.meetings ?? [], null, 2));
+    },
+  },
+  {
+    name: "tome_preflight_ingest",
+    description:
+      "Check whether the authenticated user's credentials have resource-level access to every source attached to a project — not just that a provider is connected, but that they can actually read each repo, Confluence space, or Webex room. Call this before `tome_reingest` to avoid a silent partial ingest. Returns `can_ingest` (true if all sources are accessible), a per-source breakdown (accessible vs inaccessible items), and a `credentials_url` the user should visit to reconnect any provider that is missing or lacks access. `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(
+        await fwd("POST", `/api/tome/projects/${slug}/preflight`),
+        "preflight ingest",
+      );
+      if (!data) return toolText("No preflight result returned.");
+      const lines: string[] = [];
+      lines.push(`can_ingest: ${data.can_ingest}`);
+      for (const s of data.sources ?? []) {
+        if (s.no_token) {
+          lines.push(`${s.label}: not connected — visit ${data.credentials_url} to connect`);
+        } else if (s.inaccessible?.length > 0) {
+          lines.push(`${s.label}: accessible [${s.accessible?.join(", ") || "none"}], no access [${s.inaccessible.join(", ")}] — visit ${data.credentials_url} to reconnect or update scopes`);
+        } else {
+          lines.push(`${s.label}: all sources accessible [${s.accessible?.join(", ")}]`);
+        }
+      }
+      if ((data.sources ?? []).length === 0) lines.push("No sources attached to this project.");
+      return toolText(lines.join("\n"));
+    },
+  },
+  {
+    name: "tome_reingest",
+    description:
+      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. Returns the new run id.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        seed: STR,
+        webex_meetings: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { id: STR, title: STR, start: STR },
+            required: ["id", "title", "start"],
+            additionalProperties: false,
+          },
+        },
+      },
+      ["project_slug"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const body: Record<string, unknown> = {};
+      if (args.seed) body.seed = String(args.seed);
+      if (Array.isArray(args.webex_meetings) && args.webex_meetings.length > 0) {
+        body.webexMeetings = args.webex_meetings;
+      }
       const r = await fwd("POST", `/api/tome/projects/${slug}/reingest`, body);
       const data = ensureOk(r, "reingest");
       return toolText(`Ingest started. runId=${data?.runId}`);
@@ -317,11 +496,12 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_create_project",
     description:
-      "Create a new Tome project. `name` and `team_id` (team slug) are required. Optional: `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
+      "Create a new Tome project or BHAG. `name` and `team_id` (team slug) are required. Optional: `type` (\"project\" default, or \"bhag\" for a strategic-goal entity — a BHAG ignores sources), `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
     inputSchema: schema(
       {
         name: STR,
         team_id: STR,
+        type: { type: "string", enum: ["project", "bhag"] },
         description: STR,
         github_repos: { type: "array", items: STR },
         confluence_url: STR,
@@ -334,13 +514,15 @@ const TOOLS: ToolDef[] = [
     ),
     handler: async (_req, fwd, args) => {
       const body: Record<string, unknown> = { name: String(args.name), team_id: String(args.team_id) };
+      if (args.type === "bhag") body.type = "bhag";
       if (args.description) body.description = String(args.description);
       if (Array.isArray(args.github_repos)) body.github_repos = args.github_repos;
       if (args.confluence_url) body.confluence_url = String(args.confluence_url);
       if (Array.isArray(args.webex_rooms)) body.webex_rooms = args.webex_rooms;
       const data = ensureOk(await fwd("POST", "/api/projects", body), "create project");
       const p = data?.project ?? {};
-      return toolText(`Created project "${p.name}" (slug=${p.slug}, status=${p.status}).`);
+      const kind = p.type === "bhag" ? "BHAG" : "project";
+      return toolText(`Created ${kind} "${p.name}" (slug=${p.slug}, status=${p.status}).`);
     },
   },
   {

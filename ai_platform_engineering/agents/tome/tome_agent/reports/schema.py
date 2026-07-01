@@ -10,6 +10,7 @@ stable pages.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal, cast, get_args
 
@@ -132,7 +133,6 @@ STABLE_SEED_BODIES: dict[str, str] = {
 REPO_TEMPLATE: tuple[PageSpec, ...] = (
     PageSpec("overview.md",       "dynamic", "Overview",        0),
     PageSpec("team.md",           "dynamic", "Team",           10),
-    PageSpec("glossary.md",       "dynamic", "Glossary",       20),
     PageSpec("architecture.md",   "dynamic", "Architecture",   30),
     PageSpec("status.md",         "dynamic", "Status",         40),
     PageSpec("activity.md",       "dynamic", "Activity",       50),
@@ -198,6 +198,19 @@ FM_KIND = "kind"
 FM_ORDER = "order"
 FM_GROUNDED_BY = "grounded_by"
 
+# `type` marks a structured entry whose body is preceded by typed frontmatter
+# the UI renders as a form (e.g. glossary terms). Distinct from `kind` (the page
+# lifecycle: stable/dynamic/hidden/report).
+FM_TYPE = "type"
+
+# Glossary term entries (type: glossary) — see GLOSSARY_* below
+FM_TERM = "term"
+FM_EXPANSION = "expansion"
+FM_SCOPE = "scope"
+FM_ALIASES = "aliases"
+FM_TERM_KIND = "term_kind"
+FM_STATUS = "status"
+
 # Webex meeting pages
 FM_MEETING_ID = "meeting_id"
 FM_DATE = "date"
@@ -221,6 +234,55 @@ CONFLUENCE_PAGE_FRONTMATTER: dict[str, str] = {
     FM_CONFLUENCE_PAGE_ID: "<page_id>",
     FM_SPACE_KEY: "<space key>",
 }
+
+
+# ---------------------------------------------------------------------------
+# Glossary — a project-level collection of term entries, one file per term at
+# `glossary/<slug>.md`. Each entry carries `type: glossary` + typed frontmatter
+# so the UI renders a structured editor (dropdowns) above the prose body.
+#
+# One file per entry with typed frontmatter; other structured entry types can
+# reuse the same shape with a different `type`.
+#
+# Glossary lives at the PROJECT level only — there is no per-repo glossary. The
+# `scope` field carries the cross-cutting meaning (org-wide vs this project vs a
+# BHAG/swimlane), independent of where the file physically sits.
+# ---------------------------------------------------------------------------
+
+GLOSSARY_DIR = "glossary"
+GLOSSARY_TYPE = "glossary"
+
+# Controlled vocabularies (permissive — unknown values are tolerated, the UI
+# just falls back to the first option). Keep in sync with ui/src/lib/tome/schema.ts.
+GLOSSARY_SCOPES: tuple[str, ...] = ("org", "project", "bhag", "swimlane")
+GLOSSARY_TERM_KINDS: tuple[str, ...] = ("acronym", "term")
+GLOSSARY_STATUSES: tuple[str, ...] = ("current", "deprecated")
+
+# Permissive floor: a glossary entry is valid with only `type` + `term`. The
+# rest are recommended. `kind: dynamic` keeps the agent maintaining the entry on
+# ingest; a steward flips it to `stable` to pin curated wording.
+GLOSSARY_TERM_FRONTMATTER: dict[str, str] = {
+    FM_TYPE: GLOSSARY_TYPE,
+    FM_TITLE: "<Term>",
+    FM_KIND: "dynamic",
+    FM_TERM: "<Term>",
+    FM_EXPANSION: "<full expansion if an acronym; omit otherwise>",
+    FM_SCOPE: "project",
+    FM_ALIASES: "[alias1, alias2]",
+    FM_TERM_KIND: "acronym | term",
+    FM_STATUS: "current",
+}
+
+
+def glossary_term_path(slug: str) -> str:
+    """Path for a glossary term file given its slug, e.g. `tome` → `glossary/tome.md`."""
+    return f"{GLOSSARY_DIR}/{slug}.md"
+
+
+def glossary_slug(term: str) -> str:
+    """Derive a filename slug from a term: lowercase, non-alphanumerics → `-`."""
+    s = re.sub(r"[^a-z0-9]+", "-", term.strip().lower()).strip("-")
+    return s or "term"
 
 
 def frontmatter_example(fields: dict[str, str]) -> str:
@@ -258,14 +320,13 @@ def default_hidden_paths() -> list[str]:
 
 
 # Pages the founding synthesizer is responsible for filling in on greenfield
-# (overview / team / glossary / architecture). These were the original
+# (overview / team / architecture). These were the original
 # "stable" set; they're now kind=dynamic by default but the static path's
 # greenfield still routes them through the founding synthesizer because that
 # prompt knows how to derive identity content from raw deltas.
 FOUNDING_PATHS: tuple[str, ...] = (
     "overview.md",
     "team.md",
-    "glossary.md",
     "architecture.md",
 )
 

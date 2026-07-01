@@ -90,6 +90,15 @@ export interface Report {
 
 export type IngestRunStatus = "queued" | "running" | "succeeded" | "failed";
 
+/** What the queue worker needs to actually start a queued run later. */
+export interface IngestDispatch {
+  /** Agent endpoint: "/ingest" (source pull) or "/synthesize" (BHAG roll-up). */
+  endpoint: string;
+  seed?: string | null;
+  seedStablePages?: boolean;
+  webexMeetings?: { id: string; title: string; start: string }[];
+}
+
 /** Lifecycle + streamed log for one ingest run. */
 export interface IngestRun {
   _id?: string;
@@ -102,6 +111,16 @@ export interface IngestRun {
   error?: string;
   started_at: Date;
   finished_at?: Date;
+  /** Groups the runs of one BHAG cascade (N child re-ingests + the parent synthesize). */
+  cascade_id?: string;
+  cascade_role?: "child" | "parent";
+  /** OIDC sub of the triggering user; the worker re-resolves their forwarded
+   *  OAuth credentials at dispatch time (the request session is long gone). */
+  triggered_by_sub?: string;
+  /** Params the worker uses to start a queued run; absent on the immediate path. */
+  dispatch?: IngestDispatch;
+  /** When the run was enqueued (queued runs); start time is `started_at`. */
+  queued_at?: Date;
 }
 
 export interface ChatSession {

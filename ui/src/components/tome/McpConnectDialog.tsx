@@ -117,7 +117,7 @@ export function McpConnectDialog() {
             Connect via MCP
           </DialogTitle>
           <DialogDescription>
-            Use these Tome projects from an MCP client (Claude Code, Claude Desktop, Cursor). Generate
+            Use these TOME projects from an MCP client (Claude Code, Claude Desktop, Cursor). Generate
             a personal API key and paste the config into your client.
           </DialogDescription>
         </DialogHeader>

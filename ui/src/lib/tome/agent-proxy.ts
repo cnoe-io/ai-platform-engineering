@@ -11,6 +11,7 @@
 import { collectForwardedCredentials } from "@/lib/projects/onboarding-providers";
 import { webexRoomSlug } from "@/lib/projects/webex-room";
 
+import { resolveBhagChildren } from "./bhag";
 import { getPageStore } from "./page-store";
 import { stablePathsIn } from "./schema";
 import type { TomeProjectContext } from "./tome-api";
@@ -21,34 +22,36 @@ import type { ProjectDocument } from "@/types/projects";
  * request and routes them to the right MCP per-call. Values are strings on
  * the wire (incl. `expires_in`); the agent parses defensively.
  */
-type ForwardedCredentials = Record<string, Record<string, string>>;
+export type ForwardedCredentials = Record<string, Record<string, string>>;
 
 /** Providers we recognize as "tome connectors" — matches MCP slugs on the agent. */
 type Provider = "github" | "atlassian" | "webex";
 
-/**
- * Which provider credentials this run needs, derived from project sources alone.
- * A connector with no attached sources gets no credential lookup. Source
- * presence is the single source of truth — the integrations step already
- * filters by deployment config upstream.
- */
-function enabledProviders(ctx: TomeProjectContext): Provider[] {
-  const out: Provider[] = [];
-  const sources = ctx.project.sources;
-  if ((sources?.repos ?? []).length > 0) out.push("github");
-  // Confluence sources come either as a typed array or the legacy single URL.
-  if (projectConfluenceSpaces(ctx.project).length > 0) out.push("atlassian");
-  if (projectWebexRooms(ctx.project).length > 0) out.push("webex");
-  return out;
-}
+/** All providers the agent understands. We always resolve all of them — the
+ * credential store returns nothing for providers the user hasn't connected,
+ * so subsetting by project sources is unnecessary gatekeeping. */
+const ALL_PROVIDERS: Provider[] = ["github", "atlassian", "webex"];
 
 /** Extract the OIDC `sub` from a session for credential lookup; "" if unknown. */
-function sessionSub(session: unknown): string {
+export function sessionSub(session: unknown): string {
   if (session && typeof session === "object" && "sub" in session) {
     const sub = (session as { sub?: unknown }).sub;
     if (typeof sub === "string" && sub.trim()) return sub.trim();
   }
   return "";
+}
+
+/**
+ * Resolve a user's forwarded credentials directly from their OIDC `sub`. The
+ * queue worker uses this to re-resolve creds when it starts a previously-queued
+ * run (the original request session is gone by then). Returns `{}` for an empty
+ * sub or a user with nothing connected.
+ */
+export async function resolveCredentialsForSub(
+  sub: string,
+): Promise<ForwardedCredentials> {
+  if (!sub) return {};
+  return collectForwardedCredentials(sub, ALL_PROVIDERS);
 }
 
 /**
@@ -60,11 +63,7 @@ function sessionSub(session: unknown): string {
 export async function resolveForwardedCredentials(
   ctx: TomeProjectContext,
 ): Promise<ForwardedCredentials> {
-  const providers = enabledProviders(ctx);
-  if (providers.length === 0) return {};
-  const sub = sessionSub(ctx.session);
-  if (!sub) return {};
-  return collectForwardedCredentials(sub, providers);
+  return resolveCredentialsForSub(sessionSub(ctx.session));
 }
 
 /** RepoSnapshot — mirrors contract.RepoSnapshot. */
@@ -89,6 +88,13 @@ interface WebexRoomSnapshot {
   room_id: string;
 }
 
+/** ChildProjectSnapshot — mirrors contract.ChildProjectSnapshot. */
+interface ChildProjectSnapshot {
+  project_id: string;
+  slug: string;
+  name: string;
+}
+
 /** ProjectSnapshot — mirrors contract.ProjectSnapshot. */
 interface ProjectSnapshot {
   project_id: string;
@@ -97,9 +103,11 @@ interface ProjectSnapshot {
   charter: string;
   phase: string | null;
   cadence: string | null;
+  project_type: "project" | "bhag";
   repos: RepoSnapshot[];
   webex_rooms: WebexRoomSnapshot[];
   confluence_spaces: ConfluenceSpaceSnapshot[];
+  child_projects: ChildProjectSnapshot[];
 }
 
 /** ChatRequest — mirrors contract.ChatRequest. */
@@ -124,6 +132,12 @@ export interface AgentIngestRequest {
   connector_data: Record<string, unknown>;
   snapshot: ProjectSnapshot;
   is_greenfield: boolean;
+  /**
+   * Opt-in (default false), greenfield only. Authorizes the agent to write a
+   * best-effort DRAFT into the stable pages (charter/objectives/roadmap).
+   * When false, stable pages stay human-owned and untouched.
+   */
+  seed_stable_pages: boolean;
   report_id: string;
   /** Same as `AgentChatRequest.credentials`. */
   credentials: ForwardedCredentials;
@@ -229,6 +243,7 @@ function projectConfluenceSpaces(
 export function buildSnapshotFromProject(
   project: ProjectDocument & { _id: string },
 ): ProjectSnapshot {
+  const isBhag = project.type === "bhag";
   return {
     project_id: project._id,
     slug: project.slug,
@@ -236,9 +251,12 @@ export function buildSnapshotFromProject(
     charter: project.description ?? "",
     phase: null,
     cadence: null,
-    repos: (project.sources?.repos ?? []).map(toRepoSnapshot),
-    webex_rooms: projectWebexRooms(project),
-    confluence_spaces: projectConfluenceSpaces(project),
+    project_type: isBhag ? "bhag" : "project",
+    // A BHAG has no connectors — sources are empty regardless of any stale data.
+    repos: isBhag ? [] : (project.sources?.repos ?? []).map(toRepoSnapshot),
+    webex_rooms: isBhag ? [] : projectWebexRooms(project),
+    confluence_spaces: isBhag ? [] : projectConfluenceSpaces(project),
+    child_projects: [],
   };
 }
 
@@ -267,10 +285,17 @@ export async function buildChatRequest(
     loadStablePages(ctx.projectId),
     resolveForwardedCredentials(ctx),
   ]);
+  const snapshot = buildSnapshot(ctx);
+  // A BHAG has no sources of its own — its "context" is the wikis of its tagged
+  // child projects. Carry them so chat can read across them (the agent widens
+  // its read fence to the children's on-disk wikis).
+  if (ctx.project.type === "bhag") {
+    snapshot.child_projects = await resolveBhagChildren(ctx.project.name);
+  }
   return {
     message: opts.message,
     sdk_session_id: opts.sdkSessionId,
-    snapshot: buildSnapshot(ctx),
+    snapshot,
     stable_pages: stablePages,
     role: ctx.canEdit ? "editor" : "viewer",
     credentials,
@@ -286,7 +311,7 @@ export async function buildChatRequest(
  * resolves them before async dispatch.
  */
 export function buildIngestRequest(
-  ctx: TomeProjectContext,
+  project: ProjectDocument & { _id: string },
   opts: {
     runId: string;
     reportId: string;
@@ -294,15 +319,23 @@ export function buildIngestRequest(
     isGreenfield: boolean;
     connectorData?: Record<string, unknown>;
     credentials?: ForwardedCredentials;
+    seedStablePages?: boolean;
+    /** BHAG only: the projects tagged to this goal, to synthesize. */
+    childProjects?: ChildProjectSnapshot[];
   },
 ): AgentIngestRequest {
+  const snapshot = buildSnapshotFromProject(project);
+  if (opts.childProjects?.length) {
+    snapshot.child_projects = opts.childProjects;
+  }
   return {
     run_id: opts.runId,
     report_id: opts.reportId,
     seed: opts.seed,
     connector_data: opts.connectorData ?? {},
-    snapshot: buildSnapshot(ctx),
+    snapshot,
     is_greenfield: opts.isGreenfield,
+    seed_stable_pages: opts.seedStablePages ?? false,
     credentials: opts.credentials ?? {},
   };
 }

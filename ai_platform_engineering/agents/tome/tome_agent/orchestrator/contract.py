@@ -48,6 +48,16 @@ class ConfluenceSpaceSnapshot(BaseModel):
     base_url: str = ""
 
 
+class ChildProjectSnapshot(BaseModel):
+    """A project tagged to a BHAG. The agent reads each child's on-disk wiki
+    (materialized at `<TTT_PROJECT_ROOT>/<project_id>/` by the workspace sync)
+    to synthesize the BHAG wiki — a BHAG has no sources of its own."""
+
+    project_id: str  # CAIPE project id; also the on-disk workspace dir name
+    slug: str = ""
+    name: str = ""
+
+
 class ProjectSnapshot(BaseModel):
     """Everything the agent needs to build its system prompt and run a turn.
 
@@ -61,9 +71,15 @@ class ProjectSnapshot(BaseModel):
     charter: str = ""
     phase: str | None = None
     cadence: str | None = None
+    project_type: Literal["project", "bhag"] = "project"
+    """Project kind. A `bhag` is a strategic goal whose wiki is synthesized by
+    rolling up its `child_projects` (it has no sources of its own)."""
     repos: list[RepoSnapshot] = Field(default_factory=list)
     webex_rooms: list[WebexRoomSnapshot] = Field(default_factory=list)
     confluence_spaces: list[ConfluenceSpaceSnapshot] = Field(default_factory=list)
+    child_projects: list[ChildProjectSnapshot] = Field(default_factory=list)
+    """BHAG only: the projects tagged to this goal. The agent reads each one's
+    on-disk wiki to build the synthesis."""
 
 
 # ---------- agent inbound: /chat ----------
@@ -75,7 +91,7 @@ class ChatRequest(BaseModel):
     snapshot: ProjectSnapshot
     stable_pages: dict[str, str] = Field(default_factory=dict)
     """Map of `path -> markdown` for stable pages the chat prompt references
-    (overview, team, glossary, architecture). Backend reads from sqlite
+    (overview, team, architecture). Backend reads from sqlite
     before dispatching."""
     role: str = "editor"
     """The requesting user's effective role: 'viewer' or 'editor'. The agent
@@ -98,6 +114,11 @@ class IngestRequest(BaseModel):
     connector_data: dict[str, Any] = Field(default_factory=dict)
     snapshot: ProjectSnapshot
     is_greenfield: bool
+    seed_stable_pages: bool = False
+    """Opt-in (default false), greenfield only. When true the agent writes a
+    best-effort DRAFT into the stable pages (charter/objectives/roadmap),
+    clearly marked for human review. When false, stable pages are human-owned
+    and the agent never writes them."""
     report_id: UUID
     """Backend pre-creates the `Report` row so persist-hook callbacks can
     tag revisions with it. Agent never invents these IDs."""
@@ -166,6 +187,7 @@ __all__ = [
     "ChatEventPayload",
     "ChatEventType",
     "ChatRequest",
+    "ChildProjectSnapshot",
     "ConfluenceSpaceSnapshot",
     "HealthResponse",
     "IngestEventPayload",

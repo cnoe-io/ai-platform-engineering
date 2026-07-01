@@ -1,17 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   MessageSquare,
   MessagesSquare,
   Plug,
+  Tags,
+  Target,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { GlossaryTerm } from "@/components/tome/GlossaryTerm";
 import { cn } from "@/lib/utils";
 
 /**
@@ -128,7 +131,9 @@ function buildSteps(projectName?: string): Step[] {
   return [
     { node: <WelcomeStep name={name} /> },
     { node: <PagesStep /> },
+    { node: <GlossaryStep /> },
     { node: <IngestStep /> },
+    { node: <BhagStep /> },
     { node: <AgentStep /> },
     { node: <TalkStep /> },
     { node: <McpStep /> },
@@ -168,20 +173,31 @@ function StepHeader({
 
 function WelcomeStep({ name }: { name: string }) {
   return (
-    <div className="space-y-5">
-      <StepHeader
-        icon={<BookOpen className="h-5 w-5" />}
-        eyebrow="Welcome to Tome"
-        title={`A living wiki for ${name}`}
-      >
+    <div className="flex flex-col items-center space-y-4 text-center">
+      <Image
+        src="/tome-logo.png"
+        alt="TOME"
+        width={144}
+        height={144}
+        priority
+        className="h-32 w-32 drop-shadow-[0_0_28px_rgba(56,189,248,0.25)]"
+      />
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+        Welcome to TOME
+      </p>
+      <h2 className="text-xl font-semibold leading-tight">
+        A living wiki for{" "}
+        <span className="text-emerald-500 dark:text-emerald-400">{name}</span>
+      </h2>
+      <div className="max-w-sm space-y-2 text-sm leading-relaxed text-muted-foreground">
         <p>
           The agent curates the wiki from your sources, so your team and your
           coding agents share one living source of truth about the project.
         </p>
-        <p className="mt-2 text-xs text-muted-foreground/80">
+        <p className="text-xs text-muted-foreground/80">
           Built for Tiny Teams with Tokens.
         </p>
-      </StepHeader>
+      </div>
     </div>
   );
 }
@@ -211,16 +227,107 @@ function PagesStep() {
   );
 }
 
+function GlossaryStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader icon={<Tags className="h-5 w-5" />} eyebrow="Glossary" title="A shared vocabulary">
+        Define the project&apos;s terms once. The agent keeps a glossary with one
+        entry per term and links them wherever they appear, so a new teammate or
+        agent can hover any term to see what it means.
+      </StepHeader>
+      <Terminal>
+        <span className="text-muted-foreground/60">---</span>
+        {"\n"}
+        <span className="text-sky-400">type</span>: glossary
+        {"\n"}
+        <span className="text-sky-400">term</span>: TLA
+        {"\n"}
+        <span className="text-sky-400">expansion</span>: Three-Letter Acronym
+        {"\n"}
+        <span className="text-sky-400">scope</span>: <span className="text-amber-300">project</span>
+        {"\n"}
+        <span className="text-muted-foreground/60">---</span>
+      </Terminal>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Hover a linked term to preview it inline:{" "}
+        <GlossaryTerm definition="Three-Letter Acronym. A stand-in for whatever your team's shorthand is.">
+          TLA
+        </GlossaryTerm>
+        .
+      </p>
+    </div>
+  );
+}
+
 function IngestStep() {
   return (
     <div className="space-y-4">
       <StepHeader eyebrow="Ingest" title="The agent rebuilds the wiki from your sources">
         Run an ingest and the agent pulls from your{" "}
         <span className="font-medium text-foreground">GitHub repos, Confluence spaces, and Webex rooms</span>, then
-        synthesizes them into the wiki, rewriting <em>dynamic</em> pages and leaving your <em>stable</em> ones
-        untouched.
+        synthesizes them into the wiki, rewriting{" "}
+        <GlossaryTerm definition="Agent-owned. Rewritten on each ingest to stay current.">dynamic</GlossaryTerm>{" "}
+        pages and leaving your{" "}
+        <GlossaryTerm definition="Pinned by you. The agent won't rewrite it; your source of truth.">stable</GlossaryTerm>{" "}
+        ones untouched.
       </StepHeader>
       <IngestDemo />
+      <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+        <p className="mb-1 font-medium text-foreground">Steer the agent from your repo</p>
+        Drop a <code className="rounded bg-muted px-1 py-0.5">.tome/wiki.md</code> at a repo&apos;s root,
+        like an <code className="rounded bg-muted px-1 py-0.5">AGENTS.md</code> for the ingest agent:
+        notes it treats as authoritative about what the project is, which files are the real source of
+        truth, and what to emphasize. It&apos;s picked up automatically on the next ingest.
+      </div>
+    </div>
+  );
+}
+
+function BhagStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader
+        icon={<Target className="h-5 w-5" />}
+        eyebrow="BHAG"
+        title="Roll many projects up into one goal"
+      >
+        A BHAG (Big Hairy Audacious Goal) is a strategic goal with no sources of
+        its own. Tag projects to it and the agent{" "}
+        <span className="font-medium text-foreground">synthesizes</span> its wiki
+        from theirs, a living roll-up of where the whole effort stands.
+      </StepHeader>
+      <BhagLadder />
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Group the projects hub by BHAG to see each goal and the work laddering up
+        to it.
+      </p>
+    </div>
+  );
+}
+
+function BhagLadder() {
+  return (
+    <div className="rounded-lg border bg-muted/30 px-4 py-4">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {["Atlas", "Beacon", "Carbon"].map((p) => (
+          <span
+            key={p}
+            className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium"
+          >
+            {p}
+          </span>
+        ))}
+      </div>
+      <div className="my-2 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+        <span className="h-px w-8 bg-border" />
+        synthesized
+        <span className="h-px w-8 bg-border" />
+      </div>
+      <div className="flex justify-center">
+        <span className="gradient-primary-br inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white">
+          <Target className="h-3.5 w-3.5" /> Project Horizon
+        </span>
+      </div>
     </div>
   );
 }
@@ -388,7 +495,7 @@ function TranscriptLine({ line }: { line: Line }) {
 function McpStep() {
   return (
     <div className="space-y-4">
-      <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring Tome into your coding agent">
+      <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring TOME into your coding agent">
         Connect Claude, Cursor, or Claude Code over MCP so your agent can read
         this project&apos;s wiki and Talk page right where you write code, with
         no copy-paste.
@@ -405,7 +512,7 @@ function McpStep() {
       <p className="text-sm leading-relaxed text-muted-foreground">
         Your agent gets tools to list projects, read pages, and post to Talk.
         Grab your key and the exact command from{" "}
-        <span className="font-medium text-foreground">Connect via MCP</span> in the Tome header.
+        <span className="font-medium text-foreground">Connect via MCP</span> in the TOME header.
       </p>
     </div>
   );
@@ -510,12 +617,16 @@ function IngestDemo() {
 
   return (
     <Terminal>
-      {lines.slice(0, shown).map((l, i) => (
-        <div key={i} className={l.c}>
-          {l.t}
-        </div>
-      ))}
-      {shown < lines.length && <Cursor />}
+      {/* Reserve full height up front so revealing lines fills the box instead
+          of growing it (no jumpy reflow as the animation types in). */}
+      <div className="min-h-[168px]">
+        {lines.slice(0, shown).map((l, i) => (
+          <div key={i} className={l.c}>
+            {l.t}
+          </div>
+        ))}
+        {shown < lines.length && <Cursor />}
+      </div>
     </Terminal>
   );
 }

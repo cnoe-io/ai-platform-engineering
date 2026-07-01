@@ -168,11 +168,25 @@ async def append_log(run_id: UUID, line: str) -> None:
 
 # ---------- sync wrappers for SDK PostToolUse hooks ----------
 
+def fetch_all_projects() -> list[dict[str, str]]:
+    """List every project the backend knows about, as `[{project_id, slug,
+    name}]`. Used by the persistent-workspace loader/sync to enumerate which
+    project dirs to materialize on disk. Agent-token authed; no per-request
+    project scope needed."""
+    url = f"{_backend_url()}/api/internal/projects"
+    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+        resp = client.get(url, headers=_auth_headers())
+        resp.raise_for_status()
+        data = resp.json()
+        projects = data.get("projects", data) if isinstance(data, dict) else data
+        return projects if isinstance(projects, list) else []
+
+
 def fetch_all_pages_sync(project_id: str | None = None) -> dict[str, str]:
     """All current pages as `{path: markdown}` from the backend. Used to
-    rehydrate the agent's `/project` working copy at the start of a run so
-    its filesystem tools (Read/Glob/Grep) never see stale content. Sync so it
-    can run inside the sync `build_agent_options` factory."""
+    materialize a project's on-disk working copy (startup load, periodic sync,
+    and at the start of an ingest) so the agent's filesystem tools
+    (Read/Glob/Grep) never see stale content. Sync so it can run off-thread."""
     pid = project_id or _project_id()
     url = f"{_backend_url()}/api/internal/projects/{pid}/pages"
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:

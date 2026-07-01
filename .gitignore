@@ -206,6 +206,7 @@ charts/*/tmp/*
 ## Only allow svg
 *.png
 !ai_platform_engineering/knowledge_bases/rag/webui/src/assets/icons/*.png
+!ui/public/tome-logo.png
 *.jpg
 *.jpeg
 

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     ingest_model: str = "claude-haiku-4-5"
     chat_model: str = "claude-sonnet-4-6"
     log_level: str = "INFO"
+    # Persistent workspace: how often the background task re-pulls all project
+    # wikis from the backend (source of truth) into the on-disk working copies.
+    tome_sync_interval_seconds: int = 300
 
     @field_validator("log_level")
     @classmethod

@@ -20,10 +20,10 @@ backend's `/internal/...` auth dependency.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -32,10 +32,11 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from tome_agent.agent import http_client
+from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
+from tome_agent.agent.compact import stream_compaction
 from tome_agent.agent.ingestor import stream_ingest
-from tome_agent.agent.loop import project_root
+from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
 from tome_agent.orchestrator.contract import (
     ChatEventPayload,
@@ -67,13 +68,32 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "At least one of ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN must be set"
         )
-    # The agent is multi-project: it has no single project to probe at startup.
-    # Each request fetches a fresh snapshot for its own project_id; the per-request
-    # path is the real readiness signal. Mark ready once basic env is present.
     if not os.environ.get("TTT_BACKEND_URL"):
         log.warning("agent missing TTT_BACKEND_URL — requests will fail at callback time")
+
+    # Persistent workspace: materialize every project's wiki to disk before
+    # serving, then keep them fresh on a timer. Best-effort — a backend hiccup
+    # at startup shouldn't stop the agent from coming up; the periodic sync and
+    # the per-ingest refresh will catch anything missed here.
+    try:
+        await workspace.sync_all_projects()
+    except Exception:
+        log.warning("initial workspace load failed; continuing", exc_info=True)
     _state.ready = True
-    yield
+
+    sync_task = asyncio.create_task(
+        workspace.sync_loop(settings.tome_sync_interval_seconds)
+    )
+    try:
+        yield
+    finally:
+        sync_task.cancel()
+        try:
+            await sync_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.warning("sync task shutdown error", exc_info=True)
 
 
 app = FastAPI(title="tome-agent", lifespan=lifespan)
@@ -117,16 +137,6 @@ def metrics() -> str:
 # ---------- chat ----------
 
 
-def _yank_working_copy(project_id: str) -> None:
-    """Remove this project's scratch working copy after a run. It's rehydrated
-    from the backend (source of truth) at the next run, so nothing is lost —
-    this just keeps one project's files from lingering in the shared container."""
-    try:
-        shutil.rmtree(project_root(project_id), ignore_errors=True)
-    except Exception:
-        log.warning("failed to remove working copy for %s", project_id, exc_info=True)
-
-
 def _sse_format(event: ChatEventPayload | IngestEventPayload) -> bytes:
     """Render a typed event as SSE wire format. The `event:` line carries
     the payload type so the backend's proxy can dispatch without parsing
@@ -160,7 +170,6 @@ async def chat_endpoint(body: ChatRequest):
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
             _state.last_activity_at = datetime.now(timezone.utc)
-            _yank_working_copy(body.snapshot.project_id)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -178,23 +187,108 @@ async def ingest_endpoint(body: IngestRequest):
         # AND scope per-connector OAuth credentials to the requesting user
         # (set inside the generator so awaited stream_* calls inherit both
         # ContextVars).
-        http_client.set_active_project_id(body.snapshot.project_id)
+        pid = body.snapshot.project_id
+        http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
         _state.in_flight_runs += 1
         _state.last_activity_at = datetime.now(timezone.utc)
         try:
-            async for event in stream_ingest(
-                run_id=body.run_id,
-                seed=body.seed,
-                connector_data=body.connector_data,
-                snapshot=body.snapshot,
-                is_greenfield=body.is_greenfield,
-                report_id=body.report_id,
-            ):
-                yield _sse_format(event)
+            # Hold the per-project lock for the whole run (serializing it
+            # against other ingests and the periodic sync), and refresh the
+            # on-disk copy from the source of truth first so the ingest edits
+            # the latest committed state.
+            async with workspace.project_lock(pid):
+                await workspace.refresh_project(pid)
+                async for event in stream_ingest(
+                    run_id=body.run_id,
+                    seed=body.seed,
+                    connector_data=body.connector_data,
+                    snapshot=body.snapshot,
+                    is_greenfield=body.is_greenfield,
+                    seed_stable_pages=body.seed_stable_pages,
+                    report_id=body.report_id,
+                ):
+                    yield _sse_format(event)
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
             _state.last_activity_at = datetime.now(timezone.utc)
-            _yank_working_copy(body.snapshot.project_id)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ---------- compaction (in-place wiki editing pass) ----------
+
+
+@app.post("/compact")
+async def compact_endpoint(body: IngestRequest):
+    """Compaction: tighten the prose of a project's dynamic wiki pages and fix
+    stale `tome://` links. An in-place editing pass — it pulls no sources and
+    removes no pages. Holds the project lock and refreshes the on-disk wiki first,
+    like `/ingest`."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        pid = body.snapshot.project_id
+        http_client.set_active_project_id(pid)
+        http_client.set_active_credentials(body.credentials)
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(timezone.utc)
+        try:
+            async with workspace.project_lock(pid):
+                await workspace.refresh_project(pid)
+                async for event in stream_compaction(
+                    run_id=body.run_id,
+                    seed=body.seed,
+                    snapshot=body.snapshot,
+                    report_id=body.report_id,
+                ):
+                    yield _sse_format(event)
+        finally:
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(timezone.utc)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ---------- BHAG synthesis (cross-project synthesis) ----------
+
+
+@app.post("/synthesize")
+async def synthesize_endpoint(body: IngestRequest):
+    """BHAG synthesis: synthesize a strategic goal's wiki from its tagged child
+    projects' wikis. Distinct from `/ingest` (which pulls a single project's
+    sources) — the first of a suite of cross-project subagents. Reuses the
+    IngestRequest contract; `snapshot.child_projects` carries the children."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        pid = body.snapshot.project_id
+        http_client.set_active_project_id(pid)
+        http_client.set_active_credentials(body.credentials)
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(timezone.utc)
+        try:
+            async with workspace.project_lock(pid):
+                await workspace.refresh_project(pid)
+                # Refresh each child's on-disk wiki from the source of truth so
+                # the synthesis reads the latest committed state. Each under its
+                # own lock.
+                for child in body.snapshot.child_projects:
+                    async with workspace.project_lock(child.project_id):
+                        await workspace.refresh_project(child.project_id)
+                async for event in stream_synthesis(
+                    run_id=body.run_id,
+                    seed=body.seed,
+                    snapshot=body.snapshot,
+                    is_greenfield=body.is_greenfield,
+                    seed_stable_pages=body.seed_stable_pages,
+                    report_id=body.report_id,
+                ):
+                    yield _sse_format(event)
+        finally:
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(timezone.utc)
 
     return StreamingResponse(gen(), media_type="text/event-stream")

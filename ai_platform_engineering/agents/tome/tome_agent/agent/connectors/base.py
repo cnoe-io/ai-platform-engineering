@@ -93,7 +93,7 @@ class Connector(ABC, Generic[ExtraT]):
         *,
         github_token: str = "",
     ) -> ExtraT | None:
-        """Optional connector-fetched context (e.g. GitHub relationships +
+        """Optional connector-fetched context (e.g. GitHub `.tome/wiki.md`
         steering). Returned as the connector's typed extra model so the
         ingestor can pass it straight through to system_prompt_block /
         log_lines / prompt_extension. Default: None."""

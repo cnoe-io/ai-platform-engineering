@@ -1,6 +1,12 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import {
+  parseTomeHref,
+  wikiRoute,
+  type GlossaryPreview,
+  type GlossaryResolver,
+} from "@/lib/tome/tome-links";
 import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
@@ -36,6 +42,19 @@ const sharedMarkedOptions = {
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
+      // Internal wiki link (`tome://<path>` or bare `*.md`) → tag for click
+      // routing instead of a (broken) browser navigation.
+      const internal = parseTomeHref(href);
+      if (internal) {
+        const pathAttr = internal.path.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        // Glossary term link: inline reference + hover definition, click still
+        // navigates to the term page. Distinct class from ordinary page links.
+        if (internal.glossaryTerm) {
+          const termAttr = internal.glossaryTerm.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+          return `<a href="${href}" data-tome-path="${pathAttr}" data-glossary-term="${termAttr}"${titleAttr} class="md-link tome-glossary-link">${text}</a>`;
+        }
+        return `<a href="${href}" data-tome-path="${pathAttr}"${titleAttr} class="md-link tome-link">${text}</a>`;
+      }
       const isRelative = href.startsWith("/") || href.startsWith("#");
       const targetAttr = isRelative ? "" : ' target="_blank" rel="noopener noreferrer"';
       return `<a href="${href}"${titleAttr} class="md-link"${targetAttr}>${text}</a>`;
@@ -91,6 +110,12 @@ const purifyConfig = {
   USE_PROFILES: { html: true },
   FORBID_TAGS: ["style"] as string[],
   FORBID_CONTENTS: ["style", "script"] as string[],
+  // Allow the `tome:` scheme (internal wiki links) alongside DOMPurify's
+  // defaults. Without this, DOMPurify drops the `tome://` href as an unknown
+  // scheme, leaving the anchor unclickable (the click handler resolves the
+  // route from the href). Data attributes survive sanitizing, the href doesn't.
+  ALLOWED_URI_REGEXP:
+    /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|tome):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 };
 
 function sanitize(html: string): string {
@@ -134,6 +159,25 @@ function decorateCopyButtons(root: HTMLDivElement) {
     pre.parentNode!.replaceChild(wrapper, pre);
     wrapper.appendChild(header);
     wrapper.appendChild(pre);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Table decoration — wrap each table so wide tables scroll
+// horizontally within the message instead of cramming its columns.
+// ═══════════════════════════════════════════════════════════════
+
+const TABLE_WRAP_ATTR = "data-md-table";
+
+function decorateTables(root: HTMLElement) {
+  const tables = root.querySelectorAll("table");
+  for (const table of tables) {
+    if (table.parentElement?.hasAttribute(TABLE_WRAP_ATTR)) continue;
+    const wrapper = document.createElement("div");
+    wrapper.setAttribute(TABLE_WRAP_ATTR, "");
+    wrapper.className = "md-table-wrap";
+    table.parentNode!.replaceChild(wrapper, table);
+    wrapper.appendChild(table);
   }
 }
 
@@ -194,6 +238,14 @@ interface MarkdownRendererProps {
    */
   variant?: "thinking" | "final" | "user";
   className?: string;
+  /**
+   * Click handler for internal wiki links (`tome://<path>` / bare `*.md`). When
+   * provided, such links route through this (SPA navigation) instead of a raw
+   * browser href. External links are unaffected.
+   */
+  onInternalLink?: (path: string) => void;
+  /** Resolve a glossary term slug to its definition for the hover card. */
+  glossaryPreview?: GlossaryResolver;
 }
 
 /**
@@ -212,9 +264,20 @@ export function MarkdownRenderer({
   isStreaming,
   variant = "final",
   className,
+  onInternalLink,
+  glossaryPreview,
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Latest callbacks, read by the (set-up-once) delegated DOM handlers.
+  const onInternalLinkRef = useRef(onInternalLink);
+  useEffect(() => {
+    onInternalLinkRef.current = onInternalLink;
+  }, [onInternalLink]);
+  const glossaryPreviewRef = useRef(glossaryPreview);
+  useEffect(() => {
+    glossaryPreviewRef.current = glossaryPreview;
+  }, [glossaryPreview]);
   // Monotonic counter to ensure only the latest parse result is applied.
   // During rapid streaming, many parses may be in-flight concurrently;
   // we only want the most recently *requested* one to patch the DOM.
@@ -247,6 +310,7 @@ export function MarkdownRenderer({
     const temp = document.createElement("div");
     temp.innerHTML = html;
     decorateCopyButtons(temp);
+    decorateTables(temp);
 
     morphdom(container, temp, {
       childrenOnly: true,
@@ -292,8 +356,111 @@ export function MarkdownRenderer({
 
     // Set up event delegation once
     if (!cleanupRef.current) {
+      const handleInternalLinkClick = (e: MouseEvent) => {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        const anchor = target.closest("a.tome-link, a.tome-glossary-link");
+        if (!(anchor instanceof HTMLAnchorElement)) return;
+        const internal = parseTomeHref(anchor.getAttribute("href") || "");
+        if (!internal) return;
+        // Cross-project (@project) ref → navigate to that project's wiki route.
+        if (internal.project) {
+          e.preventDefault();
+          window.location.assign(wikiRoute(internal.project, internal.path));
+          return;
+        }
+        if (onInternalLinkRef.current) {
+          e.preventDefault();
+          onInternalLinkRef.current(internal.path);
+        }
+      };
+      // Glossary hover card: look up the term's definition and float a card
+      // below the link. The card markup + styles match the wiki body surface.
+      let card: HTMLDivElement | null = null;
+      const cache = new Map<string, GlossaryPreview | null>();
+      const hideCard = () => {
+        card?.remove();
+        card = null;
+      };
+      const floatCard = (anchor: HTMLAnchorElement, build: (c: HTMLDivElement) => void) => {
+        hideCard();
+        card = document.createElement("div");
+        card.className = "tome-glossary-card";
+        build(card);
+        document.body.appendChild(card);
+        const r = anchor.getBoundingClientRect();
+        const w = card.offsetWidth;
+        card.style.top = `${r.bottom + 6}px`;
+        card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+      };
+      const renderCard = (anchor: HTMLAnchorElement, p: GlossaryPreview) =>
+        floatCard(anchor, (c) => {
+          const head = document.createElement("div");
+          head.className = "tome-glossary-card-term";
+          head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
+          const def = document.createElement("div");
+          def.className = "tome-glossary-card-def";
+          def.textContent = p.definition || "No definition yet.";
+          c.append(head, def);
+        });
+      const renderUnresolved = (anchor: HTMLAnchorElement) =>
+        floatCard(anchor, (c) => {
+          c.classList.add("tome-glossary-card-unresolved");
+          const head = document.createElement("div");
+          head.className = "tome-glossary-card-term";
+          head.textContent = "Unresolved reference";
+          const def = document.createElement("div");
+          def.className = "tome-glossary-card-def";
+          def.textContent =
+            "This term doesn't resolve here. The link may point at the wrong project or a term that no longer exists.";
+          c.append(head, def);
+        });
+      const markDangling = (href: string) => {
+        container.querySelectorAll<HTMLAnchorElement>("a.tome-glossary-link").forEach((a) => {
+          if (a.getAttribute("href") === href) a.classList.add("tome-glossary-dangling");
+        });
+      };
+      const handleGlossaryOver = (e: MouseEvent) => {
+        const anchor = (e.target as HTMLElement | null)?.closest?.(
+          "a.tome-glossary-link",
+        ) as HTMLAnchorElement | null;
+        if (!anchor) return;
+        const href = anchor.getAttribute("href") || "";
+        const fn = glossaryPreviewRef.current;
+        if (!fn) return;
+        if (cache.has(href)) {
+          const p = cache.get(href);
+          if (p) renderCard(anchor, p);
+          else renderUnresolved(anchor);
+          return;
+        }
+        Promise.resolve(fn(href))
+          .then((p) => {
+            cache.set(href, p ?? null);
+            if (p === null) markDangling(href);
+            if (!anchor.matches(":hover")) return;
+            if (p) renderCard(anchor, p);
+            else renderUnresolved(anchor);
+          })
+          .catch(() => {});
+      };
+      const handleGlossaryOut = (e: MouseEvent) => {
+        const anchor = (e.target as HTMLElement | null)?.closest?.(
+          "a.tome-glossary-link",
+        ) as HTMLAnchorElement | null;
+        if (anchor) hideCard();
+      };
       container.addEventListener("click", handleCopyClick);
-      cleanupRef.current = () => container.removeEventListener("click", handleCopyClick);
+      container.addEventListener("click", handleInternalLinkClick);
+      container.addEventListener("mouseover", handleGlossaryOver);
+      container.addEventListener("mouseout", handleGlossaryOut);
+      cleanupRef.current = () => {
+        container.removeEventListener("click", handleCopyClick);
+        container.removeEventListener("click", handleInternalLinkClick);
+        container.removeEventListener("mouseover", handleGlossaryOver);
+        container.removeEventListener("mouseout", handleGlossaryOut);
+        hideCard();
+      };
     }
   }, []);
 

@@ -752,6 +752,7 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
+        'Navigation',
         'Release notes',
         'AI Review',
         'Credentials',

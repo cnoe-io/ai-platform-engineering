@@ -32,6 +32,7 @@ from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.loop import (
     build_agent_options,
     build_citation_guidance,
+    project_root,
     sources_for_connector,
 )
 from tome_agent.orchestrator.contract import ChatEventPayload, ProjectSnapshot
@@ -111,6 +112,20 @@ Project anchor (top-level overview — read repo-specific overviews under `repos
 
 {_strip("overview.md")}"""
 
+    # BHAG: this project's "sources" are the wikis of its tagged child projects,
+    # materialized read-only on disk. List them so chat can read across them.
+    children = snapshot.child_projects or []
+    if children:
+        child_lines = "\n".join(
+            f"    - `{project_root(c.project_id)}/` ({c.name})" for c in children
+        )
+        project_block += (
+            "\n\nCHILD PROJECT WIKIS — this is a BHAG (a strategic goal spanning the "
+            "projects tagged to it). Read these child wikis with Read/Glob/Grep to "
+            "answer cross-project questions; they are read-only (never write to them):\n"
+            f"{child_lines}"
+        )
+
     base = f"{prompts.load('CHAT')}\n\n---\n\n{project_block}"
     if os.environ.get("TTT_AGENT_ROLE") == "viewer":
         return f"{_READ_ONLY_NOTICE}\n\n---\n\n{base}"
@@ -129,33 +144,74 @@ async def stream_chat(
 
     system_prompt = build_system_prompt(snapshot, stable_pages)
 
-    options = build_agent_options(
-        snapshot=snapshot,
-        system_prompt=system_prompt,
-        model=_chat_model(),
-        max_turns=MAX_TURNS,
-        persist_author="ttt-chat",
-        report_id=None,
-        resume=sdk_session_id,
-        include_partial_messages=True,
-    )
+    # BHAG chat reads its tagged children's on-disk wikis (kept fresh by the
+    # workspace sync). Widen the read fence to them; writes stay confined to cwd.
+    child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
 
-    try:
-        result_seen = False
-        async for message in query(prompt=user_message, options=options):
-            if isinstance(message, ResultMessage):
-                result_seen = True
-            async for event in _translate(message):
-                yield event
-    except Exception as e:
-        if result_seen:
-            log.warning(
-                "chat stream raised after ResultMessage (skill tool-deny artifact, ignoring)",
-                exc_info=True,
-            )
-        else:
-            log.exception("chat stream failed")
-            yield ChatEventPayload(type="error", data={"message": f"{type(e).__name__}: {e}"})
+    def _options(resume: str | None) -> Any:
+        return build_agent_options(
+            snapshot=snapshot,
+            system_prompt=system_prompt,
+            model=_chat_model(),
+            max_turns=MAX_TURNS,
+            persist_author="ttt-chat",
+            report_id=None,
+            resume=resume,
+            include_partial_messages=True,
+            extra_read_dirs=child_read_dirs,
+        )
+
+    # One attempt. Records progress in `state` and captures (never raises) any
+    # exception, so the caller can decide whether to fall back to a fresh
+    # session. A fresh `init`/`done` event carries the new session_id back to
+    # the client, so it stops reusing a dead id.
+    async def _attempt(resume: str | None, state: dict) -> AsyncIterator[ChatEventPayload]:
+        try:
+            async for message in query(prompt=user_message, options=_options(resume)):
+                if isinstance(message, ResultMessage):
+                    state["result_seen"] = True
+                async for event in _translate(message):
+                    state["emitted"] = True
+                    yield event
+        except Exception as e:  # noqa: BLE001 — surfaced/handled by the caller
+            state["error"] = e
+
+    state: dict = {"emitted": False, "result_seen": False, "error": None}
+    async for event in _attempt(sdk_session_id, state):
+        yield event
+
+    err = state["error"]
+    if err is None:
+        return
+    if state["result_seen"]:
+        # Error after a successful result is a known SDK skill tool-deny
+        # artifact — the turn already produced its answer; ignore it.
+        log.warning("chat stream raised after ResultMessage (ignoring)", exc_info=err)
+        return
+
+    # Resume failed before producing anything — almost always a lost/evicted
+    # transcript ("No conversation found with session ID"). Retry once on a
+    # fresh session so chat self-heals instead of staying wedged on a dead id.
+    if sdk_session_id and not state["emitted"]:
+        log.warning(
+            "chat resume failed for session %s (%s) — retrying with a fresh session",
+            sdk_session_id,
+            type(err).__name__,
+        )
+        retry: dict = {"emitted": False, "result_seen": False, "error": None}
+        async for event in _attempt(None, retry):
+            yield event
+        rerr = retry["error"]
+        if rerr is None or retry["result_seen"]:
+            if rerr is not None:
+                log.warning("chat retry raised after ResultMessage (ignoring)", exc_info=rerr)
+            return
+        log.error("chat stream failed on fresh-session retry", exc_info=rerr)
+        yield ChatEventPayload(type="error", data={"message": f"{type(rerr).__name__}: {rerr}"})
+        return
+
+    log.error("chat stream failed", exc_info=err)
+    yield ChatEventPayload(type="error", data={"message": f"{type(err).__name__}: {err}"})
 
 
 async def _translate(message: Any) -> AsyncIterator[ChatEventPayload]:

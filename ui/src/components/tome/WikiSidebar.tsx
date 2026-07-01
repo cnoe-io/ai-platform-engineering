@@ -36,6 +36,10 @@ export function WikiSidebar({ tree, selectedPath, onSelect, showHidden, onDelete
 const STEP_PX = 12;
 const BASE_PX = 8;
 
+// Collection-root folders that start collapsed, so the rail leads with the
+// top-level synthesis pages rather than per-source subtrees or the glossary.
+const COLLAPSED_ROOTS = new Set(["repos", "webex", "confluence", "glossary"]);
+
 function NodeList({
   nodes,
   depth,
@@ -79,9 +83,10 @@ function TreeNode({
   node: PageTreeNode;
   depth: number;
 } & Omit<Props, "tree">) {
-  const [open, setOpen] = useState(true);
-  const indent = { paddingLeft: `${depth * STEP_PX + BASE_PX}px` };
   const hasChildren = node.children.length > 0;
+  const leaf = node.path.split("/").pop() ?? node.path;
+  const [open, setOpen] = useState(!COLLAPSED_ROOTS.has(leaf));
+  const indent = { paddingLeft: `${depth * STEP_PX + BASE_PX}px` };
 
   const children = hasChildren && (
     <NodeList
@@ -112,6 +117,11 @@ function TreeNode({
             )}
           />
           <span className="truncate">{node.title}</span>
+          {hasChildren && (
+            <span className="ml-auto shrink-0 pl-2 text-[10px] font-normal tabular-nums text-muted-foreground/70">
+              {node.children.length}
+            </span>
+          )}
         </button>
         {open && children}
       </>
@@ -142,7 +152,7 @@ function TreeNode({
           <span className="h-3 w-3 shrink-0" aria-hidden />
           <span className="truncate">{node.title}</span>
         </button>
-        <span className="shrink-0">
+        <span className="flex shrink-0 items-center">
           <KindBadge kind={node.kind as PageKind} iconOnly />
         </span>
         {onDelete && (

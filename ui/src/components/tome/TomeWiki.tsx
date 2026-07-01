@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUpRight,
   ChevronRight,
   Eye,
   EyeOff,
@@ -14,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Target,
   Upload,
 } from "lucide-react";
 
@@ -37,12 +39,15 @@ import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
+import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
+import { parseTomeHref } from "@/lib/tome/tome-links";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
+import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
 
@@ -152,9 +157,14 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
-  const [seeding, setSeeding] = useState(false);
   // First-run onboarding: project title (for the modal copy) + open state.
   const [projectTitle, setProjectTitle] = useState<string | null>(null);
+  // BHAG awareness: this project's kind, the initiatives it's tagged with, and
+  // the BHAG entities those initiatives resolve to (for the up-link chip).
+  const [projectType, setProjectType] = useState<"project" | "bhag">("project");
+  const [initiatives, setInitiatives] = useState<string[]>([]);
+  const [parentBhags, setParentBhags] = useState<{ slug: string; name: string }[]>([]);
+  const isBhag = projectType === "bhag";
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
@@ -178,21 +188,81 @@ export function TomeWiki({ slug }: { slug: string }) {
     void load();
   }, [load]);
 
-  // Project title for the onboarding modal copy (falls back to a generic line).
+  // Locked = an ingest is in flight. Derived from the same ingest-run signal
+  // the ingest panel polls (no extra project fetch). Drives the editor's
+  // read-only banner. On the running→idle transition, reload pages so the
+  // agent's fresh rewrite shows without a manual refresh.
+  const [locked, setLocked] = useState(false);
+  const prevLockedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`/api/tome/projects/${slug}/ingests`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const runs = (json?.data?.runs ?? []) as Array<{ status?: string }>;
+        const active = runs.some(
+          (r) => r.status === "running" || r.status === "queued",
+        );
+        if (cancelled) return;
+        if (prevLockedRef.current && !active) void load();
+        prevLockedRef.current = active;
+        setLocked(active);
+      } catch {
+        /* best-effort — leave the last known state */
+      }
+    };
+    void check();
+    const t = setInterval(check, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [slug, load]);
+
+  // Project title (onboarding modal copy) + BHAG awareness (kind + the
+  // initiatives this project is tagged with).
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/projects/${slug}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const t = body?.data?.project?.title;
-        if (typeof t === "string" && t) setProjectTitle(t);
+        const p = body?.data?.project;
+        if (!p) return;
+        if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
+        setProjectType(p.type === "bhag" ? "bhag" : "project");
+        setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [slug]);
+
+  // Resolve this project's initiative tags to BHAG entities so a regular
+  // project can surface a clickable up-link to its strategic goal(s). Skipped
+  // for BHAGs themselves and for untagged projects.
+  useEffect(() => {
+    if (isBhag || initiatives.length === 0) {
+      setParentBhags([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=bhag`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const all = (body?.data?.projects ?? []) as { slug: string; name: string }[];
+        const want = new Set(initiatives.map((i) => normLabel(i)));
+        setParentBhags(all.filter((b) => want.has(normLabel(b.name))));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, isBhag, initiatives]);
 
   // Show the first-run walkthrough once per browser. The Help button reopens it.
   useEffect(() => {
@@ -214,6 +284,49 @@ export function TomeWiki({ slug }: { slug: string }) {
     [navigate],
   );
   const openArtifact = useCallback((path: string) => setArtifactPath(path), []);
+
+  // Resolve a glossary reference to its definition for the hover card. A
+  // same-project (bare) term is already loaded in `data.pages` and resolves
+  // from memory; a cross-project `tome://@<project>/glossary/<slug>` ref goes
+  // through the resolver endpoint.
+  const glossaryPreview = useCallback(
+    async (ref: string): Promise<GlossaryPreview | null> => {
+      const target = parseTomeHref(ref);
+      if (!target?.glossaryTerm) return null;
+
+      // Same-project (bare): every page is loaded, so a miss is *definitively*
+      // unresolved (return null → dangling). No fetch needed.
+      if (!target.project) {
+        const md = data?.pages[`glossary/${target.glossaryTerm}.md`];
+        if (md === undefined) return null;
+        const [fm, bodyRaw] = parseFrontmatter(md);
+        const termStr = String(fm.term ?? fm.title ?? target.glossaryTerm);
+        const expansion =
+          typeof fm.expansion === "string" && fm.expansion.trim()
+            ? fm.expansion.trim()
+            : undefined;
+        const definition = bodyRaw.replace(/^#.*$/m, "").trim().slice(0, 400);
+        return { term: termStr, expansion, definition };
+      }
+
+      // Cross-project: a non-ok response is transient — throw so the caller
+      // leaves the link unmarked. A resolved not-found returns null (dangling).
+      const res = await fetch(
+        `/api/tome/projects/${slug}/resolve?ref=${encodeURIComponent(ref)}`,
+      );
+      if (!res.ok) throw new Error(`resolve failed (${res.status})`);
+      const d = (await res.json())?.data;
+      if (d?.kind === "glossary" && d.found) {
+        return {
+          term: d.term ?? target.glossaryTerm,
+          expansion: d.expansion,
+          definition: d.definition ?? "",
+        };
+      }
+      return null;
+    },
+    [data, slug],
+  );
 
   const loading = data === null && !error;
   const isEmpty = data !== null && Object.keys(data.pages).length === 0;
@@ -281,6 +394,33 @@ export function TomeWiki({ slug }: { slug: string }) {
     [slug, load, view, navigate],
   );
 
+  // Rename a page: write its markdown to the new path, then tombstone the old
+  // one (there's no move endpoint). History starts fresh on the new path.
+  const renamePage = useCallback(
+    async (oldPath: string, rawNew: string) => {
+      let next = rawNew.trim().replace(/^\/+/, "");
+      if (!next) return;
+      if (!/\.(md|mdx)$/i.test(next)) next += ".md";
+      if (next === oldPath) return;
+      if (data?.pages[next] !== undefined) {
+        throw new Error(`A page already exists at ${next}`);
+      }
+      const md = data?.pages[oldPath];
+      if (md === undefined) throw new Error("Page not found");
+      await writeMarkdown(next, md, `rename ${oldPath} to ${next}`);
+      const res = await fetch(`/api/tome/projects/${slug}/pages/${oldPath}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`rename failed to remove old page (${res.status})`);
+      await load();
+      if (view.kind === "page" && view.path === oldPath) {
+        navigate({ kind: "page", path: next });
+      }
+      setArtifactPath((p) => (p === oldPath ? next : p));
+    },
+    [data, slug, writeMarkdown, load, navigate, view],
+  );
+
   // Import .md/.mdx files as wiki pages (each file's text → PUT /pages).
   // Nested layout is preserved via webkitRelativePath when a folder is dropped.
   const uploadPages = useCallback(
@@ -304,20 +444,6 @@ export function TomeWiki({ slug }: { slug: string }) {
     [writeMarkdown, load],
   );
 
-  const handleSeed = useCallback(async () => {
-    setSeeding(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/tome/projects/${slug}/pages`, { method: "POST" });
-      if (!res.ok) throw new Error(`seed failed (${res.status})`);
-      await load();
-    } catch (e) {
-      setError(String((e as Error)?.message ?? e));
-    } finally {
-      setSeeding(false);
-    }
-  }, [slug, load]);
-
   const crumbs = useMemo<Crumb[]>(() => {
     switch (view.kind) {
       case "agent":
@@ -327,8 +453,27 @@ export function TomeWiki({ slug }: { slug: string }) {
       case "settings":
         return [{ label: "Settings" }];
       case "page": {
-        const md = data?.pages[view.path] ?? "";
-        return [{ label: pageTitleOf(view.path, md) }];
+        const pages = data?.pages ?? {};
+        const md = pages[view.path] ?? "";
+        const segments = view.path.split("/");
+        const folders = segments.slice(0, -1); // ancestor folders, leaf excluded
+        const crumbs: Crumb[] = [];
+        let prefix = "";
+        for (const seg of folders) {
+          prefix = prefix ? `${prefix}/${seg}` : seg;
+          // Clickable to the folder's landing page if one exists (nest-parent
+          // `<folder>.md`, or a conventional index/overview under it).
+          const indexPath = [`${prefix}.md`, `${prefix}/index.md`, `${prefix}/overview.md`].find(
+            (p) => pages[p] !== undefined,
+          );
+          crumbs.push(
+            indexPath
+              ? { label: seg, onClick: () => navigate({ kind: "page", path: indexPath }) }
+              : { label: seg },
+          );
+        }
+        crumbs.push({ label: pageTitleOf(view.path, md) });
+        return crumbs;
       }
       case "pageHistory": {
         const md = data?.pages[view.path] ?? "";
@@ -342,17 +487,23 @@ export function TomeWiki({ slug }: { slug: string }) {
         ];
       }
       case "ingest":
-        return [{ label: "Schedule new ingest" }];
+        return [{ label: "Ingest" }];
       case "ingestRun":
         return [
           {
-            label: "Schedule new ingest",
+            label: "Ingest",
             onClick: () => navigate({ kind: "ingest" }),
           },
           { label: "Run" },
         ];
     }
   }, [view, data, navigate]);
+
+  // Initiative tag (normalized) → its BHAG wiki entity, when one exists.
+  const bhagByInitiative = useMemo(
+    () => new Map(parentBhags.map((b) => [normLabel(b.name), b])),
+    [parentBhags],
+  );
 
   const navActive = {
     agent: view.kind === "agent",
@@ -382,6 +533,46 @@ export function TomeWiki({ slug }: { slug: string }) {
               ...crumbs,
             ]}
           />
+          {isBhag && (
+            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+              <Target className="h-3 w-3" />
+              BHAG
+            </span>
+          )}
+          {/* Up-links: a project can be tagged to many BHAGs (initiatives are
+              multi-value tags). Render a chip per tag; the ones promoted to a
+              BHAG wiki link to it, the rest show membership without a link. */}
+          {!isBhag &&
+            initiatives.map((init) => {
+              const b = bhagByInitiative.get(normLabel(init));
+              return b ? (
+                <Tooltip key={init}>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={`/projects/${b.slug}/tome`}
+                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/30 px-2 py-0.5 text-[11px] font-medium text-violet-300 transition hover:border-violet-500 hover:bg-violet-900/50"
+                    >
+                      <Target className="h-3 w-3" />
+                      {b.name}
+                      <ArrowUpRight className="h-3 w-3" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Open the BHAG wiki: {b.name}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Tooltip key={init}>
+                  <TooltipTrigger asChild>
+                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-800/30 px-2 py-0.5 text-[11px] font-medium text-violet-300/60">
+                      <Target className="h-3 w-3" />
+                      {init}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="w-56 whitespace-normal">
+                    Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet. Create one from the Projects hub.
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <McpConnectDialog />
             <Tooltip>
@@ -391,12 +582,12 @@ export function TomeWiki({ slug }: { slug: string }) {
                   size="icon"
                   className="h-8 w-8 text-muted-foreground"
                   onClick={() => setOnboardingOpen(true)}
-                  aria-label="What is Tome?"
+                  aria-label="What is TOME?"
                 >
                   <HelpCircle className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">What is Tome?</TooltipContent>
+              <TooltipContent side="bottom">What is TOME?</TooltipContent>
             </Tooltip>
           </div>
         </header>
@@ -422,12 +613,16 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipDescription="Chat with the project's agent: ask it questions about the project, or have it draft, refine, and reorganize the wiki pages it reads and writes."
                   />
                   <NavItem
-                    icon={<RefreshCw className="h-4 w-4" />}
-                    label="Schedule new ingest"
+                    icon={<RefreshCw className={cn("h-4 w-4", locked && "animate-spin")} />}
+                    label={isBhag ? "Synthesize" : "Ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
-                    tipTitle="Schedule new ingest"
-                    tipDescription="Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
+                    tipTitle={isBhag ? "Synthesize" : "Ingest"}
+                    tipDescription={
+                      isBhag
+                        ? "Synthesize this BHAG: the agent reads the wikis of the projects tagged to it and writes the strategic view. A BHAG has no sources of its own."
+                        : "Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
+                    }
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
@@ -575,8 +770,8 @@ export function TomeWiki({ slug }: { slug: string }) {
                 ) : isEmpty ? (
                   <div className="px-2 py-2 text-xs text-muted-foreground">
                     <p className="mb-2">No wiki pages yet.</p>
-                    <Button size="sm" onClick={handleSeed} disabled={seeding}>
-                      {seeding ? "Seeding…" : "Seed wiki"}
+                    <Button size="sm" onClick={() => navigate({ kind: "ingest" })}>
+                      Run an ingest
                     </Button>
                   </div>
                 ) : (
@@ -599,7 +794,12 @@ export function TomeWiki({ slug }: { slug: string }) {
             {view.kind === "agent" ? (
               <>
                 <div className="min-w-0 flex-1">
-                  <ChatPanel slug={slug} onPagesChanged={load} onOpenPage={openArtifact} />
+                  <ChatPanel
+                    slug={slug}
+                    onPagesChanged={load}
+                    onOpenPage={openArtifact}
+                    glossaryPreview={glossaryPreview}
+                  />
                 </div>
                 {artifactPath && (
                   <div className="w-[45%] min-w-[360px] shrink-0 border-l">
@@ -611,6 +811,10 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onWrite={writeMarkdown}
                         onReload={load}
                         onClose={() => setArtifactPath(null)}
+                        locked={locked}
+                        onNavigate={openArtifact}
+                        glossaryPreview={glossaryPreview}
+                        onRename={renamePage}
                       />
                     ) : (
                       <ContentLoading />
@@ -620,7 +824,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               </>
             ) : view.kind === "talk" ? (
               <div className="min-w-0 flex-1">
-                <TalkPanel slug={slug} />
+                <TalkPanel slug={slug} onOpenPage={(path) => navigate({ kind: "page", path })} />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
@@ -631,13 +835,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <IngestPanel
                   slug={slug}
                   canEdit
+                  isBhag={isBhag}
                   onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
                   onRunStarted={(runId) => navigate({ kind: "ingestRun", runId })}
                 />
               </div>
             ) : view.kind === "ingestRun" ? (
               <div className="min-w-0 flex-1">
-                <IngestRunView slug={slug} runId={view.runId} onPagesChanged={load} />
+                <IngestRunView key={view.runId} slug={slug} runId={view.runId} onPagesChanged={load} />
               </div>
             ) : view.kind === "pageHistory" ? (
               <div className="min-w-0 flex-1">
@@ -658,6 +863,10 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onOpenHistory={() =>
                       navigate({ kind: "pageHistory", path: view.path })
                     }
+                    locked={locked}
+                    onNavigate={(path) => navigate({ kind: "page", path })}
+                    glossaryPreview={glossaryPreview}
+                    onRename={renamePage}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">Page not found.</p>
