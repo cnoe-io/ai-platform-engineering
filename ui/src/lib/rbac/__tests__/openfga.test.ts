@@ -312,7 +312,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         type: "team",
         relation: "admin",
       });
-      expect(directlyRelatedUserTypes(modelPath, "agent", "manager")).not.toContainEqual({
+      expect(directlyRelatedUserTypes(modelPath, "agent", "manager")).toContainEqual({
         type: "team",
         relation: "member",
       });

@@ -189,5 +189,61 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
         expect.objectContaining({ relation: "writer" }),
       ]),
     );
+    // shared-only teams must NOT receive the member manager grant
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        { user: "team:sre#member", relation: "manager", object: "agent:agent-test" },
+      ]),
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        { user: "team:ops#member", relation: "manager", object: "agent:agent-test" },
+      ]),
+    );
+  });
+
+  it("emits no member manager write when ownerTeamSlug is absent", () => {
+    const diff = buildAgentRelationshipTupleDiff({
+      agentId: "agent-test",
+      previousAllowedTools: {},
+      nextAllowedTools: {},
+      ownerSubject: "alice-sub",
+      organizationId: "caipe",
+      // no ownerTeamSlug
+    });
+
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: "manager", user: expect.stringContaining("#member") }),
+      ]),
+    );
+    expect(diff.deletes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: "manager", user: expect.stringContaining("#member") }),
+      ]),
+    );
+  });
+
+  it("deletes member manager grant when owner team is removed (transfer to no team)", () => {
+    const diff = buildAgentRelationshipTupleDiff({
+      agentId: "agent-test",
+      previousAllowedTools: {},
+      nextAllowedTools: {},
+      ownerSubject: "alice-sub",
+      organizationId: "caipe",
+      ownerTeamSlug: undefined,
+      previousOwnerTeamSlug: "platform",
+    });
+
+    expect(diff.deletes).toEqual(
+      expect.arrayContaining([
+        { user: "team:platform#member", relation: "manager", object: "agent:agent-test" },
+      ]),
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: "manager", user: expect.stringContaining("#member") }),
+      ]),
+    );
   });
 });
