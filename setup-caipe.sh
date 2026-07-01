@@ -7496,6 +7496,26 @@ cmd_cleanup() {
     fi
   fi
 
+  # ingress-nginx is a cluster-scoped Helm release (see install_nginx_ingress).
+  # Unless the kind cluster is deleted, it survives cleanup, so offer to remove
+  # it here too (default with "n" as it may be shared with other workloads).
+  if helm status ingress-nginx -n ingress-nginx &>/dev/null; then
+    if ask_yn "Uninstall ingress-nginx Helm release?" "n"; then
+      helm uninstall ingress-nginx -n ingress-nginx 2>/dev/null || true
+      kubectl delete namespace ingress-nginx 2>/dev/null || true
+      log "ingress-nginx uninstalled"
+    fi
+  fi
+
+  # MetalLB is applied via kubectl manifests (see install_metallb), not Helm, so
+  # it survives cleanup unless the kind cluster is deleted. Offer to remove it:
+  # the namespace clears the controller/speaker/pools, then the cluster-scoped
+  # CRDs. Default with "n", it's shared cluster infra.
+  if kubectl get namespace metallb-system &>/dev/null; then
+    if ask_yn "Uninstall MetalLB?" "n"; then
+      kubectl delete namespace metallb-system 2>/dev/null || true
+      kubectl get crd -o name 2>/dev/null | grep '\.metallb\.io$' | xargs -r kubectl delete 2>/dev/null || true
+      log "MetalLB uninstalled"
     fi
   fi
 
