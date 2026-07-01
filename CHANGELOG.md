@@ -1,3 +1,26 @@
+## 0.5.34 (2026-07-01)
+
+### Feat
+
+- **conversations**: open Slack conversations to all thread participants
+
+### Perf
+
+- **admin**: use fast teams endpoint in user detail modal fallback
+- **admin**: use fast teams endpoint in connector onboarding wizard
+- **admin**: lazy-load sessions and federated identities in user detail modal
+- **admin**: reuse parent teams list in user detail modal
+- **admin**: parallelize user detail loading and progressive-render modal
+
+## 0.5.33-dev.2 (2026-07-01)
+
+### Fix
+
+- **metrics**: expose keycloak management port and add per-component ServiceMonitors
+- **rbac**: add team#member to agent manager relation in OpenFGA model
+- **agents**: show correct read-only message when user lacks edit permission
+- **agents**: grant owner team members full manage access on agents
+
 ## 0.5.33 (2026-06-30)
 
 ### Perf

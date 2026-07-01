@@ -1516,6 +1516,7 @@ function AdminPage() {
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
                     readOnly={!isAdmin}
+                    teamOptions={teams.length > 0 ? teams.map((t) => ({ teamId: t.name, label: t.name })) : undefined}
                   />
                 )}
               </TabsContent>
