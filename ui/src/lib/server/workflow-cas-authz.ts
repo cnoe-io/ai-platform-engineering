@@ -107,6 +107,7 @@ export interface WorkflowRunAccessDocument {
   _id: string;
   workflow_config_id: string;
   owner_subject?: Subject | null;
+  shared_with?: "private" | "workspace" | "admin" | null;
 }
 
 /**
@@ -172,6 +173,7 @@ export async function requireWorkflowRunAccess(
     );
   }
   const configAction = workflowActionForRunAction(action);
+
   if (ownerMatches(run, subject)) {
     auditWorkflowRunDecision(session, subject, run, configAction, {
       decision: "ALLOW",
@@ -181,6 +183,50 @@ export async function requireWorkflowRunAccess(
     });
     return;
   }
+
+  // Shared runs: non-owners may read (not mutate) when visibility allows it.
+  if (run.owner_subject && action === "read") {
+    const visibility = run.shared_with ?? "private";
+
+    if (visibility === "workspace") {
+      auditWorkflowRunDecision(session, subject, run, configAction, {
+        decision: "ALLOW",
+        reason: "OK",
+        retriable: false,
+        via: "workflow_run_shared_workspace",
+      });
+      return;
+    }
+
+    if (visibility === "admin") {
+      const ctx = ctxFromSession(session);
+      const orgAdmin = await authorize(
+        { subject, resource: { type: "organization", id: ORG_KEY }, action: "manage" },
+        ctx,
+      );
+      if (orgAdmin.decision === "ALLOW") {
+        auditWorkflowRunDecision(session, subject, run, configAction, {
+          decision: "ALLOW",
+          reason: "OK",
+          retriable: false,
+          via: "workflow_run_shared_admin",
+        });
+        return;
+      }
+      if (orgAdmin.reason === "AUTHZ_UNAVAILABLE" || orgAdmin.retriable) {
+        throw unavailableError();
+      }
+    }
+
+    auditWorkflowRunDecision(session, subject, run, configAction, {
+      decision: "DENY",
+      reason: "NO_CAPABILITY",
+      retriable: false,
+      via: "workflow_run_owner_mismatch",
+    });
+    throw workflowRunForbiddenError();
+  }
+
   if (run.owner_subject) {
     auditWorkflowRunDecision(session, subject, run, configAction, {
       decision: "DENY",

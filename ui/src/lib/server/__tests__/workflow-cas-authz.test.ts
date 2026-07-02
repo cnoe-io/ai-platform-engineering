@@ -258,3 +258,83 @@ describe("workflowSubjectFromSession", () => {
     });
   });
 });
+
+describe("requireWorkflowRunAccess — shared_with visibility", () => {
+  const bobRun = {
+    _id: "run-bob",
+    workflow_config_id: "wf-1",
+    owner_subject: { type: "user" as const, id: "bob" },
+  };
+
+  it("allows any authenticated user to read when shared_with=workspace", async () => {
+    const sharedRun = { ...bobRun, shared_with: "workspace" as const };
+    await expect(requireWorkflowRunAccess(session, sharedRun, "read")).resolves.toBeUndefined();
+    expect(mockAuthorize).not.toHaveBeenCalled();
+    expect(mockEmitDecisionAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "read",
+      expect.objectContaining({ via: "workflow_run_shared_workspace" }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("blocks non-owners from write/delete even when shared_with=workspace", async () => {
+    const sharedRun = { ...bobRun, shared_with: "workspace" as const };
+    await expect(requireWorkflowRunAccess(session, sharedRun, "write")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "WORKFLOW_RUN_FORBIDDEN",
+    });
+    await expect(requireWorkflowRunAccess(session, sharedRun, "delete")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "WORKFLOW_RUN_FORBIDDEN",
+    });
+  });
+
+  it("allows org-admin to read when shared_with=admin", async () => {
+    const adminSharedRun = { ...bobRun, shared_with: "admin" as const };
+    mockAuthorize.mockResolvedValueOnce(ALLOW); // org-admin check
+    await expect(requireWorkflowRunAccess(session, adminSharedRun, "read")).resolves.toBeUndefined();
+    expect(mockEmitDecisionAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "read",
+      expect.objectContaining({ via: "workflow_run_shared_admin" }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("blocks non-admin from reading when shared_with=admin", async () => {
+    const adminSharedRun = { ...bobRun, shared_with: "admin" as const };
+    mockAuthorize.mockResolvedValueOnce(DENY); // not org admin
+    await expect(requireWorkflowRunAccess(session, adminSharedRun, "read")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "WORKFLOW_RUN_FORBIDDEN",
+    });
+  });
+
+  it("blocks non-owner reads when shared_with=private (or unset)", async () => {
+    const privateRun = { ...bobRun, shared_with: "private" as const };
+    await expect(requireWorkflowRunAccess(session, privateRun, "read")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "WORKFLOW_RUN_FORBIDDEN",
+    });
+    // null / undefined behaves identically to "private"
+    const defaultRun = { ...bobRun };
+    await expect(requireWorkflowRunAccess(session, defaultRun, "read")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "WORKFLOW_RUN_FORBIDDEN",
+    });
+  });
+
+  it("throws 503 when CAS is unavailable during admin-visibility check", async () => {
+    const adminSharedRun = { ...bobRun, shared_with: "admin" as const };
+    mockAuthorize.mockResolvedValueOnce({ decision: "DENY", reason: "AUTHZ_UNAVAILABLE", retriable: true });
+    await expect(requireWorkflowRunAccess(session, adminSharedRun, "read")).rejects.toMatchObject({
+      statusCode: 503,
+      code: "AUTHZ_UNAVAILABLE",
+    });
+  });
+});
