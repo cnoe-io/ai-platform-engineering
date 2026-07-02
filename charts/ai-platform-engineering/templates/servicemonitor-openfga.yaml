@@ -21,6 +21,9 @@ spec:
     matchLabels:
       app.kubernetes.io/name: openfga
       app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - key: job-name
+        operator: DoesNotExist
   endpoints:
     - port: metrics
       path: {{ .Values.metrics.path | default "/metrics" }}
