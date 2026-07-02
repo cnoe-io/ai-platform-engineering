@@ -1557,6 +1557,45 @@ else
 fi
 
 # -------------------------------------------------------------------
+# caipe-cli public PKCE client
+#
+# Public client (no secret) used by the CLI's OAuth 2.0 PKCE browser
+# and device auth flows. redirect_uris covers the local callback server
+# on port 8085 that loginBrowser() spins up. Idempotent — skipped when
+# the client already exists.
+#
+# CAIPE_CLI_CLIENT_ID defaults to "caipe-cli" but can be overridden
+# via env so operators who renamed the client in their overlay don't
+# break on re-run.
+# -------------------------------------------------------------------
+CLI_CLIENT_ID="${CAIPE_CLI_CLIENT_ID:-caipe-cli}"
+echo "[init-idp] Ensuring '${CLI_CLIENT_ID}' PKCE client exists ..."
+CLI_EXISTS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=${CLI_CLIENT_ID}" 2>/dev/null \
+  | grep -o '"id" *:' | wc -l | tr -d ' ')
+if [ "${CLI_EXISTS}" = "0" ]; then
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients" \
+    -d "{
+      \"clientId\":\"${CLI_CLIENT_ID}\",
+      \"name\":\"CAIPE CLI\",
+      \"description\":\"Public PKCE client for the caipe-cli terminal tool\",
+      \"enabled\":true,
+      \"publicClient\":true,
+      \"standardFlowEnabled\":true,
+      \"directAccessGrantsEnabled\":false,
+      \"serviceAccountsEnabled\":false,
+      \"protocol\":\"openid-connect\",
+      \"redirectUris\":[\"http://127.0.0.1:8085/callback\",\"http://localhost:8085/callback\"],
+      \"webOrigins\":[\"http://127.0.0.1:8085\",\"http://localhost:8085\"],
+      \"attributes\":{\"pkce.code.challenge.method\":\"S256\"}
+    }" && echo "[init-idp]   Created '${CLI_CLIENT_ID}' PKCE client." \
+    || echo "[init-idp]   WARNING: failed to create '${CLI_CLIENT_ID}' client."
+else
+  echo "[init-idp]   '${CLI_CLIENT_ID}' client already exists — skipping."
+fi
+
+# -------------------------------------------------------------------
 # Spec 104: allow caipe-slack-bot to perform token-exchange whose
 # *target audience* is the CAIPE UI BFF resource server (`caipe-platform`
 # by default). Keycloak gates token-exchange

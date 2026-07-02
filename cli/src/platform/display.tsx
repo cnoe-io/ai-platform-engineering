@@ -23,7 +23,7 @@ const LOGO_LINES = [
   "  ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚══════╝",
 ];
 
-const TAGLINE = "AI-assisted coding, workflows, and platform engineering";
+const TAGLINE = "Custom Agents, workflows and more... caipe.io";
 const VERSION_COLOR = NO_COLOR ? "" : "\x1b[90m";
 const CYAN = NO_COLOR ? "" : "\x1b[96m";
 const RESET = NO_COLOR ? "" : "\x1b[0m";
