@@ -14,15 +14,15 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  # agentgateway exposes /metrics on the admin port (15000), not the http port (4000).
-  # A dedicated ServiceMonitor is used so the admin endpoint is only applied to
-  # agentgateway and does not generate failed scrape targets on other services.
+  # agentgateway exposes /metrics on the stats port (15020), not the http port (4000)
+  # or admin port (15000, which is the admin UI). A dedicated ServiceMonitor is used
+  # so the stats endpoint is only applied to agentgateway.
   selector:
     matchLabels:
       app.kubernetes.io/name: agentgateway
       app.kubernetes.io/instance: {{ .Release.Name }}
   endpoints:
-    - port: admin
+    - port: stats
       path: {{ .Values.metrics.path | default "/metrics" }}
       interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
