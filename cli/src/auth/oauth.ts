@@ -208,14 +208,18 @@ export async function exchangeCode(
 // PKCE browser flow
 // ---------------------------------------------------------------------------
 
+// Port for the local PKCE callback server.
+// Must match the redirect URIs registered on the caipe-cli Keycloak client.
+const CALLBACK_PORT = 8085;
+
 export async function loginBrowser(serverUrl: string, clientId: string): Promise<TokenSet> {
   const { verifier, challenge } = generatePKCE();
-  const redirectUri = "http://127.0.0.1:7842/callback";
+  const redirectUri = `http://127.0.0.1:${CALLBACK_PORT}/callback`;
   const state = randomBytes(16).toString("hex");
 
   // Start the callback server FIRST — before any network calls or browser open —
   // so it is definitely listening by the time the IdP redirect arrives.
-  const { ready, result: callbackResult } = startCallbackServer(7842);
+  const { ready, result: callbackResult } = startCallbackServer(CALLBACK_PORT);
   await ready;
 
   // Discovery may involve a network round-trip; server is already up by now.
@@ -223,7 +227,7 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
   const authUrl = `${ep.authorizationEndpoint}?response_type=code&client_id=${encodeURIComponent(ep.clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=${state}`;
 
   if (process.env.CAIPE_AUTH_DEBUG === "1") {
-    process.stderr.write("[caipe-auth] Callback server ready on port 7842\n");
+    process.stderr.write(`[caipe-auth] Callback server ready on port ${CALLBACK_PORT}\n`);
   }
 
   process.stdout.write("\nOpening browser for authentication…\n");
@@ -232,7 +236,7 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
   process.stdout.write("Waiting for authorization…");
 
   if (process.env.CAIPE_AUTH_DEBUG === "1") {
-    process.stderr.write("\n[caipe-auth] Browser opened — waiting for localhost:7842 callback\n");
+    process.stderr.write(`\n[caipe-auth] Browser opened — waiting for localhost:${CALLBACK_PORT} callback\n`);
   }
 
   // Race the callback against a 5-minute timeout
