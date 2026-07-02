@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { startIngestRun, IngestInProgressError } from "@/lib/tome/ingest-runner";
 import { getPageStore } from "@/lib/tome/page-store";
 
@@ -45,6 +46,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     const { runId } = await startIngestRun(tctx, {
       seed: body.seed ?? null,
       agentEndpoint: "/compact",
+    });
+    auditTome({
+      action: "tome.compact.trigger",
+      actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+      projectSlug: slug,
+      metadata: { run_id: runId },
     });
     return successResponse({ runId });
   } catch (e) {

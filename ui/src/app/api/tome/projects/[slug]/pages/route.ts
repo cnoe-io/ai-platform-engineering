@@ -13,6 +13,7 @@ import {
   loadTomeProject,
   requireTomeEditor,
 } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getPageStore } from "@/lib/tome/page-store";
 import { buildTree } from "@/lib/tome/schema";
 import { seedGreenfieldIfEmpty } from "@/lib/tome/seed";
@@ -43,6 +44,16 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
   // Surface the wiki as an Apps tile on the project page (idempotent).
   await ensureTomeTile(slug);
+
+  // Only audit when the seed actually created pages (the op is idempotent).
+  if (seeded) {
+    auditTome({
+      action: "tome.page.seed",
+      actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+      projectSlug: slug,
+      metadata: { pages_created: seeded },
+    });
+  }
 
   return successResponse({ slug, seeded });
 });

@@ -22,6 +22,7 @@ import { projectMatchesLabels, sanitizeLabels } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import type { CreateProjectRequest, ProjectDocument, ProjectType } from "@/types/projects";
 import type { Team } from "@/types/teams";
 
@@ -166,7 +167,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB not configured", 503, "MONGODB_NOT_CONFIGURED");
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const body = (await request.json()) as CreateProjectRequest;
 
   if (!body.name?.trim()) {
@@ -271,6 +272,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   };
 
   const result = await projects.insertOne(doc as ProjectDocument & { _id?: ObjectId });
+
+  auditTome({
+    action: "tome.project.create",
+    actor: tomeActorFromAuth({ user, session }),
+    projectSlug: slug,
+    metadata: { type: projectType, name: doc.name, team_slug: teamSlug },
+  });
 
   return successResponse(
     { project: { ...doc, _id: String(result.insertedId) } },

@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
 export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug, runId } = await ctx.params;
-  const { projectId } = await loadTomeProject(request, slug);
+  const tctx = await loadTomeProject(request, slug);
+  const { projectId } = tctx;
 
   const runs = await getTomeIngestRunsCollection();
   const run = await runs.findOne({ _id: runId, project_id: projectId });
@@ -51,5 +53,13 @@ export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) =>
     { _id: runId },
     { $set: { status: "failed", error: "Stopped by user", finished_at: new Date() } },
   );
+
+  auditTome({
+    action: "tome.ingest.cancel",
+    actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+    projectSlug: slug,
+    metadata: { run_id: runId },
+  });
+
   return successResponse({ ok: true });
 });

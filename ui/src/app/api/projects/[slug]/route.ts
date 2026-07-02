@@ -16,6 +16,7 @@ import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import { auditTome, tomeActorFromAuth, type TomeAuditActor } from "@/lib/tome/audit";
 import type { ProjectDocument } from "@/types/projects";
 import type { Team } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
@@ -56,6 +57,42 @@ async function canAssignToTeam(
     team_slug: team.slug,
   });
   return Boolean(row);
+}
+
+/** Emit `tome.source.attach`/`detach` events for what changed between the
+ * project's sources before and after a PATCH. Repos + Confluence URL compared
+ * by value; Webex rooms by `room_id`. */
+function auditSourceChanges(
+  slug: string,
+  actor: TomeAuditActor,
+  before: ProjectDocument["sources"] | undefined,
+  after: ProjectDocument["sources"] | undefined,
+): void {
+  const emit = (
+    action: "tome.source.attach" | "tome.source.detach",
+    sourceType: string,
+    ref: string,
+  ) => auditTome({ action, actor, projectSlug: slug, metadata: { source_type: sourceType, ref } });
+
+  const diffList = (type: string, oldArr: string[], newArr: string[]) => {
+    const o = new Set(oldArr.filter(Boolean));
+    const n = new Set(newArr.filter(Boolean));
+    for (const ref of n) if (!o.has(ref)) emit("tome.source.attach", type, ref);
+    for (const ref of o) if (!n.has(ref)) emit("tome.source.detach", type, ref);
+  };
+
+  diffList("repo", before?.repos ?? [], after?.repos ?? []);
+  diffList(
+    "webex_room",
+    (before?.webex_rooms ?? []).map((r) => r.room_id).filter(Boolean),
+    (after?.webex_rooms ?? []).map((r) => r.room_id).filter(Boolean),
+  );
+  const oldConf = before?.confluence_url?.trim() || "";
+  const newConf = after?.confluence_url?.trim() || "";
+  if (oldConf !== newConf) {
+    if (newConf) emit("tome.source.attach", "confluence", newConf);
+    else if (oldConf) emit("tome.source.detach", "confluence", oldConf);
+  }
 }
 
 export const GET = withErrorHandler(
@@ -118,6 +155,14 @@ export const DELETE = withErrorHandler(
     const externalDeletes = await runOnboardingDeletes(project, sub);
 
     await projects.deleteOne({ _id: project._id });
+
+    auditTome({
+      action: "tome.project.delete",
+      actor: tomeActorFromAuth({ user, session }),
+      projectSlug: slug,
+      metadata: { type: project.type ?? "project", name: project.name },
+    });
+
     return successResponse({ deleted: true, slug, external: externalDeletes });
   },
 );
@@ -229,6 +274,23 @@ export const PATCH = withErrorHandler(
 
     const sub = (session as { sub?: string } | undefined)?.sub;
     const externalUpdates = await runOnboardingUpdates(updated, sub);
+
+    const actor = tomeActorFromAuth({ user, session });
+    // Metadata edit vs source change are distinct audit actions; a PATCH can be
+    // either or both.
+    const metaChanged = [
+      "title",
+      "description",
+      "labels.initiatives",
+      "labels.swimlanes",
+      "team_id",
+    ].some((k) => k in $set);
+    if (metaChanged) {
+      auditTome({ action: "tome.project.update", actor, projectSlug: slug });
+    }
+    if (body.sources) {
+      auditSourceChanges(slug, actor, project.sources, updated.sources);
+    }
 
     return successResponse({
       project: { ...updated, _id: String(updated._id) },

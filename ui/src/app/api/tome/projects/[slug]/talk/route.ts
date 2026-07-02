@@ -11,6 +11,7 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { isMyceliumConfigured, listMessages, sendMessage } from "@/lib/tome/mycelium";
 import type { MyceliumMessage } from "@/lib/tome/mycelium";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
@@ -107,5 +108,13 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     content: body.message.trim(),
     message_type: viaBearer ? "announce" : "broadcast",
   });
+
+  auditTome({
+    action: "tome.talk.post",
+    actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+    projectSlug: slug,
+    metadata: { via: viaBearer ? "agent" : "web" },
+  });
+
   return successResponse({ message }, 201);
 });

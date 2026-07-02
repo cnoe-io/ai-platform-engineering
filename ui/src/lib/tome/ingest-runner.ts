@@ -32,6 +32,7 @@ import {
 } from "./ingest-format";
 import { parseFrontmatter, stableSeedTemplates } from "./schema";
 import { injectCharterIntro } from "./seed";
+import { auditTome } from "./audit";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
 import type { IngestDispatch, IngestRun, Report } from "@/types/tome";
@@ -244,6 +245,7 @@ async function failRun(runId: string, e: unknown): Promise<void> {
     { _id: runId },
     { $set: { status: "failed", error: msg, finished_at: new Date() } },
   );
+  await auditRunLifecycle(runId, "tome.ingest.failed", { error: msg, phase: "prepare" });
   const run = await runs.findOne({ _id: runId });
   if (run) await setProjectLocked(run.project_id, false);
 }
@@ -378,6 +380,7 @@ export async function reapStaleRuns(maxAgeMs: number): Promise<number> {
       { _id: r._id },
       { $set: { status: "failed", error: "stale (worker restart or timeout)", finished_at: new Date() } },
     );
+    await auditRunLifecycle(r._id, "tome.ingest.failed", { error: "stale", phase: "reap" });
     await setProjectLocked(r.project_id, false);
   }
   return stale.length;
@@ -386,6 +389,43 @@ export async function reapStaleRuns(maxAgeMs: number): Promise<number> {
 async function appendLog(runId: string, line: string): Promise<void> {
   const runs = await getTomeIngestRunsCollection();
   await runs.updateOne({ _id: runId }, { $push: { log: line } });
+}
+
+/**
+ * Emit a run-lifecycle audit event (`started`/`finished`/`failed`). The run
+ * carries the triggering `sub`; the project gives the slug for the resource
+ * ref. Never throws — auditing must not affect the run. The `endpoint` in
+ * metadata distinguishes ingest vs synthesize vs compact (they share this
+ * lifecycle). */
+async function auditRunLifecycle(
+  runId: string,
+  action: "tome.ingest.started" | "tome.ingest.finished" | "tome.ingest.failed",
+  extra?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const runs = await getTomeIngestRunsCollection();
+    const run = await runs.findOne({ _id: runId });
+    if (!run) return;
+    const project = await loadProjectById(run.project_id);
+    const sub = run.triggered_by_sub;
+    auditTome({
+      action,
+      actor: sub ? { type: "user", id: sub } : { type: "service", id: "tome-system" },
+      projectSlug: project?.slug ?? run.project_id,
+      outcome: action === "tome.ingest.failed" ? "error" : "success",
+      metadata: {
+        run_id: runId,
+        report_id: run.report_id ?? undefined,
+        endpoint: run.dispatch?.endpoint ?? "/ingest",
+        greenfield: run.greenfield,
+        cascade_id: run.cascade_id ?? undefined,
+        cascade_role: run.cascade_role ?? undefined,
+        ...extra,
+      },
+    });
+  } catch (e) {
+    console.warn(`auditRunLifecycle(${runId}, ${action}) failed`, e);
+  }
 }
 
 /** Store the latest cumulative token usage so the run header can show it live. */
@@ -415,6 +455,7 @@ async function driveIngest(
     // Lock the project for the run's duration — humans can't edit pages (409)
     // while the agent rewrites. Cleared in the finally below.
     await setProjectLocked(projectId, true);
+    await auditRunLifecycle(runId, "tome.ingest.started");
     if (!agentUrl) throw new Error("TOME_AGENT_URL not configured");
     const path = agentEndpoint.startsWith("/") ? agentEndpoint : `/${agentEndpoint}`;
     const res = await fetch(`${agentUrl.replace(/\/$/, "")}${path}`, {
@@ -446,6 +487,7 @@ async function driveIngest(
       { _id: runId },
       { $set: { status: "succeeded", finished_at: new Date() } },
     );
+    await auditRunLifecycle(runId, "tome.ingest.finished");
   } catch (e) {
     await appendLog(runId, `[--:--:--] ✗ ${String((e as Error)?.message ?? e)}`);
     await runs.updateOne(
@@ -458,6 +500,9 @@ async function driveIngest(
         },
       },
     );
+    await auditRunLifecycle(runId, "tome.ingest.failed", {
+      error: String((e as Error)?.message ?? e),
+    });
   } finally {
     // Always unlock — success, failure, or agent crash — so a stuck flag never
     // leaves the wiki read-only.
