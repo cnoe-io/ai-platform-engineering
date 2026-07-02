@@ -1607,8 +1607,8 @@ function AdminPage() {
                         <CardHeader>
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="flex items-center gap-2">
-                                <CardTitle className="text-lg">{team.name}</CardTitle>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <CardTitle className="text-lg min-w-0 break-words">{team.name}</CardTitle>
                                 {(team.idp_source_types?.length ?? 0) > 0 && (
                                   <IdpSyncedBadge sourceTypes={team.idp_source_types!} />
                                 )}
