@@ -185,16 +185,41 @@ describe("requireWorkflowRunAccess", () => {
     );
   });
 
-  it("denies non-owner access to owner-scoped runs without falling back to workflow access", async () => {
-    mockAuthorize.mockResolvedValueOnce(DENY).mockResolvedValueOnce(ALLOW);
+  it("denies non-owner non-admin access to owner-scoped runs without falling back to workflow access", async () => {
+    mockAuthorize.mockResolvedValueOnce(DENY); // not org-admin
     await expect(requireWorkflowRunAccess(session, otherRun, "read")).rejects.toMatchObject({
       statusCode: 403,
       code: "WORKFLOW_RUN_FORBIDDEN",
     });
-    expect(mockAuthorize).not.toHaveBeenCalled();
+    // Only the org-admin check fires; no per-workflow-config CAS call
+    expect(mockAuthorize).toHaveBeenCalledTimes(1);
+    expect(mockAuthorize).toHaveBeenCalledWith(
+      expect.objectContaining({ resource: { type: "organization", id: "caipe" }, action: "manage" }),
+      expect.anything(),
+    );
+  });
+
+  it("allows org-admins to read any run regardless of sharing settings", async () => {
+    mockAuthorize.mockResolvedValueOnce(ALLOW); // org-admin
+    await expect(requireWorkflowRunAccess(session, otherRun, "read")).resolves.toBeUndefined();
+    expect(mockEmitDecisionAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "read",
+      expect.objectContaining({ via: "workflow_run_org_admin" }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("allows org-admins to cancel/delete any run", async () => {
+    mockAuthorize.mockResolvedValue(ALLOW); // org-admin
+    await expect(requireWorkflowRunAccess(session, otherRun, "cancel")).resolves.toBeUndefined();
+    await expect(requireWorkflowRunAccess(session, otherRun, "delete")).resolves.toBeUndefined();
   });
 
   it("audits non-owner denials for owner-scoped workflow runs", async () => {
+    mockAuthorize.mockResolvedValueOnce(DENY); // not org-admin
     await expect(requireWorkflowRunAccess(session, otherRun, "read")).rejects.toMatchObject({
       statusCode: 403,
       code: "WORKFLOW_RUN_FORBIDDEN",
@@ -266,10 +291,10 @@ describe("requireWorkflowRunAccess — shared_with visibility", () => {
     owner_subject: { type: "user" as const, id: "bob" },
   };
 
-  it("allows any authenticated user to read when shared_with=workspace", async () => {
+  it("allows any authenticated non-admin to read when shared_with=workspace", async () => {
     const sharedRun = { ...bobRun, shared_with: "workspace" as const };
+    mockAuthorize.mockResolvedValueOnce(DENY); // not org-admin
     await expect(requireWorkflowRunAccess(session, sharedRun, "read")).resolves.toBeUndefined();
-    expect(mockAuthorize).not.toHaveBeenCalled();
     expect(mockEmitDecisionAudit).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -280,59 +305,38 @@ describe("requireWorkflowRunAccess — shared_with visibility", () => {
     );
   });
 
-  it("blocks non-owners from write/delete even when shared_with=workspace", async () => {
+  it("blocks non-owner non-admins from write/delete even when shared_with=workspace", async () => {
     const sharedRun = { ...bobRun, shared_with: "workspace" as const };
+    mockAuthorize.mockResolvedValue(DENY); // not org-admin
     await expect(requireWorkflowRunAccess(session, sharedRun, "write")).rejects.toMatchObject({
       statusCode: 403,
       code: "WORKFLOW_RUN_FORBIDDEN",
     });
+    mockAuthorize.mockResolvedValue(DENY);
     await expect(requireWorkflowRunAccess(session, sharedRun, "delete")).rejects.toMatchObject({
       statusCode: 403,
       code: "WORKFLOW_RUN_FORBIDDEN",
     });
   });
 
-  it("allows org-admin to read when shared_with=admin", async () => {
-    const adminSharedRun = { ...bobRun, shared_with: "admin" as const };
-    mockAuthorize.mockResolvedValueOnce(ALLOW); // org-admin check
-    await expect(requireWorkflowRunAccess(session, adminSharedRun, "read")).resolves.toBeUndefined();
-    expect(mockEmitDecisionAudit).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      "read",
-      expect.objectContaining({ via: "workflow_run_shared_admin" }),
-      expect.anything(),
-      expect.anything(),
-    );
-  });
-
-  it("blocks non-admin from reading when shared_with=admin", async () => {
-    const adminSharedRun = { ...bobRun, shared_with: "admin" as const };
-    mockAuthorize.mockResolvedValueOnce(DENY); // not org admin
-    await expect(requireWorkflowRunAccess(session, adminSharedRun, "read")).rejects.toMatchObject({
-      statusCode: 403,
-      code: "WORKFLOW_RUN_FORBIDDEN",
-    });
-  });
-
   it("blocks non-owner reads when shared_with=private (or unset)", async () => {
+    mockAuthorize.mockResolvedValueOnce(DENY); // not org-admin
     const privateRun = { ...bobRun, shared_with: "private" as const };
     await expect(requireWorkflowRunAccess(session, privateRun, "read")).rejects.toMatchObject({
       statusCode: 403,
       code: "WORKFLOW_RUN_FORBIDDEN",
     });
-    // null / undefined behaves identically to "private"
-    const defaultRun = { ...bobRun };
-    await expect(requireWorkflowRunAccess(session, defaultRun, "read")).rejects.toMatchObject({
+    // null / undefined defaults to "private"
+    mockAuthorize.mockResolvedValueOnce(DENY);
+    await expect(requireWorkflowRunAccess(session, { ...bobRun }, "read")).rejects.toMatchObject({
       statusCode: 403,
       code: "WORKFLOW_RUN_FORBIDDEN",
     });
   });
 
-  it("throws 503 when CAS is unavailable during admin-visibility check", async () => {
-    const adminSharedRun = { ...bobRun, shared_with: "admin" as const };
+  it("throws 503 when CAS is unavailable during the org-admin check", async () => {
     mockAuthorize.mockResolvedValueOnce({ decision: "DENY", reason: "AUTHZ_UNAVAILABLE", retriable: true });
-    await expect(requireWorkflowRunAccess(session, adminSharedRun, "read")).rejects.toMatchObject({
+    await expect(requireWorkflowRunAccess(session, bobRun, "read")).rejects.toMatchObject({
       statusCode: 503,
       code: "AUTHZ_UNAVAILABLE",
     });

@@ -184,50 +184,40 @@ export async function requireWorkflowRunAccess(
     return;
   }
 
-  // Shared runs: non-owners may read (not mutate) when visibility allows it.
-  if (run.owner_subject && action === "read") {
-    const visibility = run.shared_with ?? "private";
-
-    if (visibility === "workspace") {
+  // Org-admins can read and mutate any run regardless of sharing settings.
+  if (run.owner_subject) {
+    const ctx = ctxFromSession(session);
+    const orgAdmin = await authorize(
+      { subject, resource: { type: "organization", id: ORG_KEY }, action: "manage" },
+      ctx,
+    );
+    if (orgAdmin.reason === "AUTHZ_UNAVAILABLE" || orgAdmin.retriable) {
+      throw unavailableError();
+    }
+    if (orgAdmin.decision === "ALLOW") {
       auditWorkflowRunDecision(session, subject, run, configAction, {
         decision: "ALLOW",
         reason: "OK",
         retriable: false,
-        via: "workflow_run_shared_workspace",
+        via: "workflow_run_org_admin",
       });
       return;
     }
 
-    if (visibility === "admin") {
-      const ctx = ctxFromSession(session);
-      const orgAdmin = await authorize(
-        { subject, resource: { type: "organization", id: ORG_KEY }, action: "manage" },
-        ctx,
-      );
-      if (orgAdmin.decision === "ALLOW") {
+    // Non-admins: apply sharing visibility (read-only).
+    if (action === "read") {
+      const visibility = run.shared_with ?? "private";
+      if (visibility === "workspace") {
         auditWorkflowRunDecision(session, subject, run, configAction, {
           decision: "ALLOW",
           reason: "OK",
           retriable: false,
-          via: "workflow_run_shared_admin",
+          via: "workflow_run_shared_workspace",
         });
         return;
       }
-      if (orgAdmin.reason === "AUTHZ_UNAVAILABLE" || orgAdmin.retriable) {
-        throw unavailableError();
-      }
     }
 
-    auditWorkflowRunDecision(session, subject, run, configAction, {
-      decision: "DENY",
-      reason: "NO_CAPABILITY",
-      retriable: false,
-      via: "workflow_run_owner_mismatch",
-    });
-    throw workflowRunForbiddenError();
-  }
-
-  if (run.owner_subject) {
     auditWorkflowRunDecision(session, subject, run, configAction, {
       decision: "DENY",
       reason: "NO_CAPABILITY",
