@@ -6,7 +6,7 @@ description: Parent chart to deploy CAIPE — dynamic agents, per-agent MCP serv
 sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.5.34-dev.1-chart.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+version: 0.5.34-dev.1-chart.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:
   # Single MCP-server chart used multiple times with different aliases.
   # Each alias deploys one agent's MCP server (Deployment + Service).
@@ -192,7 +192,7 @@ dependencies:
   # wiring. There is no upstream Keycloak chart that provides these CAIPE
   # bootstrap invariants without additional Jobs/templates.
   - name: keycloak
-    version: 0.5.34-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.5.34-dev.1-chart.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - keycloak
   # OpenFGA relationship authorization service

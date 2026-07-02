@@ -131,6 +131,31 @@ uiClient:
       key: ""
       property: ""
 
+# ---------- CAIPE CLI OIDC client ----------
+# Public client (authorization-code + PKCE) that lets local developer CLIs mint
+# a real-user JWT with aud=caipe-platform — accepted by Dynamic Agents,
+# AgentGateway, and MCP servers in one login. No client secret.
+#
+# The client id is configurable so downstream realms can rename it to match
+# their branding (e.g. a realm named "forge" would set clientId: forge-cli).
+# Override redirectUris/webOrigins if your CLI uses a different loopback port.
+#
+# accessTokenLifespan (seconds) sets a per-client access-token lifespan so a
+# single login lasts a full working session — 28800 = 8h, which matches the
+# realm ssoSessionIdleTimeout and avoids re-authenticating throughout the day.
+# Keep it <= ssoSessionMaxLifespan (86400). Omit to inherit the realm default.
+cliClient:
+  clientId: "caipe-cli"
+  accessTokenLifespan: 28800
+  redirectUris:
+    - "http://localhost:8085"
+    - "http://localhost:8085/*"
+    - "http://127.0.0.1:8085"
+    - "http://127.0.0.1:8085/*"
+  webOrigins:
+    - "http://localhost:8085"
+    - "http://127.0.0.1:8085"
+
 # ---------- CAIPE platform OIDC client ----------
 # The realm import ships the `caipe-platform` confidential client with a
 # placeholder secret ("caipe-platform-dev-secret") so first-boot import works
