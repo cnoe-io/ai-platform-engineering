@@ -153,3 +153,15 @@ class WebexConnector(Connector[WebexExtra]):
         if meetings:
             lines.append(f"· webex meetings: {len(meetings)} selected for transcript ingestion")
         return lines
+
+    def citation_guidance(self, sources: list[SourceItem]) -> str:
+        if not sources:
+            return ""
+        room_names = ", ".join(f"`{s.slug}`" for s in sources)
+        return (
+            f"WEBEX CITATION FORMAT: When citing Webex messages from the {room_names} "
+            "room(s), use markdown links to message permalinks where available. "
+            "Format: `[message summary](webex message URL)`. If a message permalink "
+            "is not available, cite the message id in brackets (e.g. `[message Y2F0...Z]`) "
+            "and the renderer will attempt to resolve it to the room URL as a fallback."
+        )

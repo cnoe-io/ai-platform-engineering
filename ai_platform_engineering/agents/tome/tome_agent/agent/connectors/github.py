@@ -102,3 +102,36 @@ class GitHubConnector(Connector[GitHubExtra]):
 
     def citation_urls(self, sources: list[SourceItem]) -> list[str]:
         return [s.extra.get("url", "") for s in sources if s.extra.get("url")]
+
+    def citation_guidance(self, sources: list[SourceItem]) -> str:
+        from tome_agent.agent.loop import _normalize_repo_slug
+
+        urls = self.citation_urls(sources)
+        canonical = [r for r in (_normalize_repo_slug(r) for r in urls) if r]
+        if not canonical:
+            return (
+                "CITATION FORMAT: When you cite a commit, issue, or PR, use a normal "
+                "markdown link like `[commit `a1b2c3d`](URL)` so the renderer makes "
+                "it clickable. If you don't know the canonical URL, leave the "
+                "citation as plain text in brackets — the renderer has a fallback."
+            )
+
+        primary = canonical[0]
+        examples = [
+            f"`[commit `a1b2c3d`](https://github.com/{primary}/commit/a1b2c3d)`",
+            f"`[issue #142](https://github.com/{primary}/issues/142)`",
+            f"`[PR #99](https://github.com/{primary}/pull/99)`",
+            "`[@alice](https://github.com/alice)` for people (or just write `@alice` — the renderer resolves it)",
+        ]
+
+        repo_list = "\n".join(f"  - https://github.com/{r}" for r in canonical)
+        return (
+            "CITATION FORMAT: When you cite something, use a markdown link so the "
+            "renderer makes it clickable.\n\n"
+            f"Project repos:\n{repo_list}\n\n"
+            "Examples (use the repo the item lives in — don't guess across repos):\n"
+            + "\n".join(f"  - {e}" for e in examples)
+            + "\n\nIf you don't know the canonical URL for a citation, leave it as plain "
+            "bracketed text (e.g. `[commit a1b2c3d]`) — there's a renderer-side "
+            "fallback that resolves common patterns."
+        )

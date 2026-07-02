@@ -162,3 +162,17 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
         if pages:
             lines.append(f"· confluence pages: {len(pages)} selected for content ingestion")
         return lines
+
+    def citation_guidance(self, sources: list[SourceItem]) -> str:
+        if not sources:
+            return ""
+        space_list = "\n".join(
+            f"  - `{s.slug}` ({s.display_name}): {s.extra.get('base_url', '')}"
+            for s in sources
+        )
+        return (
+            "CONFLUENCE CITATION FORMAT: When citing Confluence pages, use markdown "
+            "links to the page URLs. Format: `[page title](page URL)`. Include the "
+            "space key and page id in the URL when available for precise navigation.\n\n"
+            "Confluence spaces and base URLs:\n" + space_list
+        )

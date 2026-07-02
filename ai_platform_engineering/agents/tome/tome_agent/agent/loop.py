@@ -60,37 +60,6 @@ def _normalize_repo_slug(repo: str) -> str | None:
     return f"{parts[0]}/{parts[1]}"
 
 
-def build_citation_guidance(repos: list[str]) -> str:
-    canonical = [r for r in (_normalize_repo_slug(r) for r in repos) if r]
-    if not canonical:
-        return (
-            "CITATION FORMAT: When you cite a commit, issue, or PR, use a normal "
-            "markdown link like `[commit `a1b2c3d`](URL)` so the renderer makes "
-            "it clickable. If you don't know the canonical URL, leave the "
-            "citation as plain text in brackets — the renderer has a fallback."
-        )
-
-    primary = canonical[0]
-    examples = [
-        f"`[commit `a1b2c3d`](https://github.com/{primary}/commit/a1b2c3d)`",
-        f"`[issue #142](https://github.com/{primary}/issues/142)`",
-        f"`[PR #99](https://github.com/{primary}/pull/99)`",
-        "`[@alice](https://github.com/alice)` for people (or just write `@alice` — the renderer resolves it)",
-    ]
-
-    repo_list = "\n".join(f"  - https://github.com/{r}" for r in canonical)
-    return (
-        "CITATION FORMAT: When you cite something, use a markdown link so the "
-        "renderer makes it clickable.\n\n"
-        f"Project repos:\n{repo_list}\n\n"
-        "Examples (use the repo the item lives in — don't guess across repos):\n"
-        + "\n".join(f"  - {e}" for e in examples)
-        + "\n\nIf you don't know the canonical URL for a citation, leave it as plain "
-        "bracketed text (e.g. `[commit a1b2c3d]`) — there's a renderer-side "
-        "fallback that resolves common patterns."
-    )
-
-
 def make_deny_unsafe_tools_hook():
     """PreToolUse hook that hard-denies tools that bypass the persist hook
     or grant arbitrary code execution (Bash can `cat > path` past the

@@ -24,7 +24,6 @@ from tome_agent.agent.connectors.base import format_pages
 from tome_agent.agent.connectors.github import GitHubExtra
 from tome_agent.agent.loop import (
     build_agent_options,
-    build_citation_guidance,
     sources_for_connector,
 )
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
@@ -52,7 +51,7 @@ def _build_system_prompt(
 
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []
-    citation_urls: list[str] = []
+    citation_guidance_blocks: list[str] = []
     steering: list[tuple[str, str]] = []
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
@@ -62,7 +61,9 @@ def _build_system_prompt(
         connector_blocks.append(
             connector.system_prompt_block(sources, extra_data=extra)
         )
-        citation_urls.extend(connector.citation_urls(sources))
+        guidance = connector.citation_guidance(sources)
+        if guidance:
+            citation_guidance_blocks.append(guidance)
 
     steering_block = ""
     if steering:
@@ -116,6 +117,7 @@ def _build_system_prompt(
     phase = snapshot.phase or "(unset)"
     cadence = snapshot.cadence or "(unset)"
     connector_sections = "\n\n".join(connector_blocks)
+    citation_section = "\n\n".join(citation_guidance_blocks)
 
     project_block = f"""PROJECT: "{snapshot.name}"
 phase: {phase}    cadence: {cadence}
@@ -129,9 +131,10 @@ PROJECT CHARTER (seed context, may be empty):
 
 {connector_sections}
 
-{mode_block}
+{mode_block}"""
 
-{build_citation_guidance(citation_urls)}"""
+    if citation_section:
+        project_block += f"\n\n{citation_section}"
 
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
 
