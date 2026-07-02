@@ -23,6 +23,7 @@ import {
 import { provisionShellUser } from "@/lib/rbac/keycloak-admin";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
+import { getRbacCollection } from "./mongo-collections";
 import type { IdpSyncRun } from "./mongo-collections";
 
 interface TeamDocument {
@@ -210,11 +211,30 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
       partialFetch,
     });
 
+    const now = new Date().toISOString();
     const result = await applyIdentityGroupSyncPlan({
       plan,
       actor,
-      now: new Date().toISOString(),
+      now,
     });
+
+    // On a full fetch, sweep for already-orphaned identity_group_sync teams
+    // that pre-date this fix (their sources were previously removed but the
+    // team document was never archived). Phase 3 inside applyIdentityGroupSyncPlan
+    // only catches teams whose sources are removed in the current run; this
+    // catches everything that slipped through before.
+    let sweptArchived = 0;
+    if (!partialFetch) {
+      try {
+        sweptArchived = await archiveAlreadyOrphanedSyncTeams({ provider, actor, now });
+      } catch (sweepErr) {
+        console.error(
+          `[IdpSync] run ${runId}: orphan sweep failed; stale teams may remain active`,
+          sweepErr,
+        );
+      }
+    }
+    const totalArchived = result.teamsArchived + sweptArchived;
 
     await updateIdpSyncRun(runId, {
       status: "success",
@@ -227,7 +247,7 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     console.log(
       `[IdpSync] run ${runId} success: ${groups.length} groups, ` +
         `+${result.membershipSourcesAdded}/-${result.membershipSourcesRemoved} memberships, ` +
-        `${result.teamsArchived} teams archived`
+        `${totalArchived} teams archived (${sweptArchived} from sweep)`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -242,4 +262,55 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
   } finally {
     clearInterval(heartbeat);
   }
+}
+
+/**
+ * Sweep for identity_group_sync teams that are already orphaned from previous
+ * syncs (their managed membership sources are all removed, but the team doc
+ * was never archived because the archival logic didn't exist yet). Only runs
+ * on full (non-filtered) fetches so we never archive teams that simply weren't
+ * in scope for a scoped sync.
+ *
+ * Strategy: find all non-archived identity_group_sync teams, then find which
+ * ones have at least one active managed membership source for this provider.
+ * Any team not in that second set gets archived.
+ */
+async function archiveAlreadyOrphanedSyncTeams(input: {
+  provider: string;
+  actor: string;
+  now: string;
+}): Promise<number> {
+  const teamsCol = await getCollection<TeamDocument & Record<string, unknown>>("teams");
+  const sourcesCol = await getRbacCollection<Record<string, unknown>>("teamMembershipSources");
+
+  // All non-archived identity_group_sync team slugs.
+  const syncTeams = await teamsCol
+    .find({ source: "identity_group_sync", status: { $ne: "archived" } })
+    .project({ slug: 1 })
+    .toArray();
+  if (syncTeams.length === 0) return 0;
+
+  const allSlugs = syncTeams.map((t) => t.slug as string).filter(Boolean);
+
+  // Which of those slugs have at least one active managed source for this provider?
+  const activeDocs = await sourcesCol
+    .distinct("team_slug", {
+      team_slug: { $in: allSlugs },
+      provider_id: input.provider,
+      managed: true,
+      status: "active",
+    });
+  const activeSlugs = new Set(activeDocs);
+
+  const orphanedSlugs = allSlugs.filter((slug) => !activeSlugs.has(slug));
+  if (orphanedSlugs.length === 0) return 0;
+
+  const result = await teamsCol.updateMany(
+    { slug: { $in: orphanedSlugs }, source: "identity_group_sync", status: { $ne: "archived" } },
+    { $set: { status: "archived", updated_by: input.actor, updated_at: new Date(input.now) } },
+  );
+  if (result.modifiedCount > 0) {
+    console.log(`[IdpSync] orphan sweep archived ${result.modifiedCount} stale identity_group_sync team(s): ${orphanedSlugs.join(", ")}`);
+  }
+  return result.modifiedCount;
 }
