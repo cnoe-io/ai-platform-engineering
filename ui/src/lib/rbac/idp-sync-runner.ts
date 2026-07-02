@@ -21,6 +21,7 @@ import {
   updateIdpSyncRun,
 } from "@/lib/rbac/idp-sync-store";
 import { provisionShellUser } from "@/lib/rbac/keycloak-admin";
+import { stripArchivedTeamResourceGrants } from "@/lib/rbac/archived-team-grants";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
 import { getRbacCollection } from "./mongo-collections";
@@ -320,6 +321,24 @@ async function archiveAlreadyOrphanedSyncTeams(input: {
   }
   if (totalModified > 0) {
     console.log(`[IdpSync] orphan sweep archived ${totalModified} stale identity_group_sync team(s)`);
+    // Revoke the archived teams' resource-grant tuples so archival actually
+    // removes access (OpenFGA never checks team.status). Reads the store once
+    // and filters to these slugs, so it scales with store size rather than
+    // slug count. Best-effort — the self-check repairs anything left behind.
+    try {
+      const strip = await stripArchivedTeamResourceGrants(orphanedSlugs);
+      if (strip.tuplesDeleted > 0) {
+        console.log(
+          `[IdpSync] orphan sweep stripped ${strip.tuplesDeleted} resource-grant tuple(s) ` +
+            `from archived teams`,
+        );
+      }
+    } catch (stripErr) {
+      console.error(
+        "[IdpSync] orphan sweep grant-strip failed; archived teams may still grant access until self-check repair",
+        stripErr,
+      );
+    }
   }
   return totalModified;
 }

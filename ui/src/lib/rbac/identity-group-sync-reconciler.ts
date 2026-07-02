@@ -4,6 +4,7 @@ IdentityGroupSyncDryRunResult,
 TeamMembershipSource,
 } from "@/types/identity-group-sync";
 
+import { stripArchivedTeamResourceGrants } from "./archived-team-grants";
 import {
 OpenFgaWriteError,
 writeOpenFgaTuples,
@@ -148,9 +149,25 @@ export async function applyIdentityGroupSyncPlan(
           actor: input.actor,
           now: input.now,
         });
+        // Archiving the Mongo doc is cosmetic on its own — OpenFGA never
+        // consults team.status. Strip the team's resource-grant tuples so an
+        // archived team stops granting `team:<slug>#member can_use ...`. Only
+        // strips teams we actually archived this run; the roster is kept so
+        // un-archiving can replay grants. Best-effort: the membership reconcile
+        // already committed, and the self-check can repair any grant that
+        // survives here.
+        if (teamsArchived > 0) {
+          const strip = await stripArchivedTeamResourceGrants(orphanedSlugs);
+          if (strip.tuplesDeleted > 0) {
+            console.log(
+              `[identity-group-sync] stripped ${strip.tuplesDeleted} resource-grant tuple(s) ` +
+                `from ${orphanedSlugs.size} archived team(s)`,
+            );
+          }
+        }
       } catch (archiveErr) {
         console.error(
-          "[identity-group-sync] phase 3 team archival failed; orphaned teams may remain active",
+          "[identity-group-sync] phase 3 team archival/grant-strip failed; orphaned teams may remain active",
           archiveErr,
         );
       }

@@ -572,6 +572,64 @@ describe("deriveRbacSelfCheckReport", () => {
     expect(report.status).toBe("pass");
   });
 
+  it("flags lingering resource grants from an archived team as revocable and does not expect them", () => {
+    // An archived team must grant nothing. Its resource-grant tuples should be
+    // stripped at archive time; if one survives it must surface as a revocable
+    // orphan candidate — NOT be re-added by repair.
+    const report = deriveRbacSelfCheckReport(baseInput({
+      teams: [{ slug: "retired-team", name: "Retired Team", status: "archived" }],
+      dynamicAgents: [
+        {
+          _id: "agent-shared",
+          name: "Shared Agent",
+          visibility: "team",
+          owner_team_slug: "retired-team",
+        },
+      ],
+      actualTuples: [
+        { user: "organization:caipe#admin", relation: "manager", object: "agent:agent-shared" },
+        // Lingering grant from the archived team — must be flagged, not expected.
+        { user: "team:retired-team#member", relation: "user", object: "agent:agent-shared" },
+        { user: "team:retired-team#admin", relation: "manager", object: "agent:agent-shared" },
+      ],
+    }));
+
+    // Archival stripped these grants from the expected set, so they are not
+    // "missing" (repair must not rewrite them).
+    expect(report.summary.missing_tuples).toBe(0);
+    expect(repairableMissingTuples(report)).toEqual([]);
+    // The survivors are revocable orphan candidates.
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "orphan_candidate",
+          title: "Archived-team resource grant",
+          detail: expect.stringContaining("Team retired-team is archived"),
+          review_action: expect.objectContaining({ type: "revoke_tuple" }),
+          tuple: { user: "team:retired-team#member", relation: "user", object: "agent:agent-shared" },
+        }),
+      ]),
+    );
+  });
+
+  it("keeps an archived team's membership roster expected so un-archive can restore grants", () => {
+    // The team-as-OBJECT roster is intentionally kept on archive; it must not be
+    // reported as a stale deleted-team membership or repaired away.
+    const report = deriveRbacSelfCheckReport(baseInput({
+      teams: [{ slug: "retired-team", name: "Retired Team", status: "archived" }],
+      teamMembershipSources: [
+        { team_slug: "retired-team", user_subject: "user-1", relationship: "member" },
+      ],
+      actualTuples: [
+        { user: "user:user-1", relation: "member", object: "team:retired-team" },
+      ],
+    }));
+
+    expect(report.summary.missing_tuples).toBe(0);
+    expect(report.summary.orphan_candidates).toBe(0);
+    expect(report.status).toBe("pass");
+  });
+
   it("passes when every expected tuple is present", () => {
     const report = deriveRbacSelfCheckReport(baseInput({
       teamMembershipSources: [

@@ -407,6 +407,12 @@ function scopeResourceExists(type: string, id: string, resourceIndex: ResourceIn
 
 interface ResourceIndex {
   teamSlugs: Set<string>;
+  // Slugs whose team doc has status "archived". These stay in `teamSlugs` (so
+  // the membership roster is still recognized and not flagged as a deleted-team
+  // orphan), but they grant NOTHING: archiving strips a team's resource-grant
+  // tuples, so the self-check must neither expect those grants (else repair
+  // re-creates them) nor treat their absence as drift.
+  archivedTeamSlugs: Set<string>;
   agentIds: Set<string>;
   agentAccessByObject: Map<string, {
     label?: string;
@@ -432,6 +438,12 @@ interface ResourceIndex {
 
 function buildResourceIndex(input: RbacSelfCheckInventoryInput): ResourceIndex {
   const teamSlugs = new Set(input.teams.map((team) => team.slug).filter(isValidOpenFgaId));
+  const archivedTeamSlugs = new Set(
+    input.teams
+      .filter((team) => team.status === "archived")
+      .map((team) => team.slug)
+      .filter(isValidOpenFgaId),
+  );
   const agentAccessByObject = new Map<string, { label?: string; visibility?: string; teamSlugs: Set<string> }>();
   for (const agent of input.dynamicAgents) {
     const agentId = normalizeAgentId(agent);
@@ -487,6 +499,7 @@ function buildResourceIndex(input: RbacSelfCheckInventoryInput): ResourceIndex {
 
   return {
     teamSlugs,
+    archivedTeamSlugs,
     agentIds: new Set(input.dynamicAgents.map(normalizeAgentId).filter(isValidOpenFgaId)),
     agentAccessByObject,
     mcpServerIds: new Set(input.mcpServers.map(normalizeObjectId).filter(isValidOpenFgaId)),
@@ -1051,6 +1064,23 @@ function teamSlugFromUserset(user: string): string | null {
   return match?.[1] ?? null;
 }
 
+/**
+ * True when `tuple` grants a resource THROUGH an archived team's userset —
+ * i.e. its subject is `team:<archived-slug>#member|admin|owner`. Archiving a
+ * team strips exactly these tuples (see archived-team-grants.ts), so the
+ * self-check must (1) drop them from the expected set — otherwise "repair
+ * missing tuples" would immediately rewrite what archival just removed — and
+ * (2) flag any that still linger in OpenFGA as revocable orphan candidates.
+ *
+ * The team-as-OBJECT roster (`user:<sub> member team:<archived-slug>`) is NOT
+ * matched here: that membership is intentionally kept so un-archiving can
+ * replay grants, so it stays an expected tuple.
+ */
+function isArchivedTeamGrant(tuple: RbacSelfCheckTuple, archivedTeamSlugs: Set<string>): boolean {
+  const slug = teamSlugFromUserset(tuple.user);
+  return slug !== null && archivedTeamSlugs.has(slug);
+}
+
 function directTeamMembershipTuple(tuple: RbacSelfCheckTuple): { subject: string; teamSlug: string } | null {
   const userMatch = /^user:([^#]+)$/.exec(tuple.user);
   const objectMatch = /^team:([^#]+)$/.exec(tuple.object);
@@ -1137,6 +1167,26 @@ function orphanCandidateFinding(tuple: RbacSelfCheckTuple, resourceIndex: Resour
   }
 
   const teamSlug = teamSlugFromUserset(tuple.user);
+
+  // A grant flowing through an archived team's userset should not exist —
+  // archival strips these. If one lingers, it's still granting access
+  // (OpenFGA never checks team.status), so surface it as revocable. This is
+  // the self-check's safety net for the archive-time strip.
+  if (teamSlug && resourceIndex.archivedTeamSlugs.has(teamSlug)) {
+    return {
+      id: findingId("orphan", text),
+      severity: "orphan_candidate",
+      source: "openfga",
+      title: "Archived-team resource grant",
+      detail: `${text}. Team ${teamSlug} is archived, so it must not grant any resource access.`,
+      fix: "Revoke this tuple so the archived team stops granting access. Un-archive the team first if this grant should be restored.",
+      tuple,
+      repairable: false,
+      review_action: revokeReviewAction("The granting team is archived and must not confer access."),
+      resource: { type: "team", id: teamSlug },
+    };
+  }
+
   const activeAgentAccess = resourceIndex.agentAccessByObject.get(tuple.object);
   if (objectRef.type === "agent" && teamSlug && activeAgentAccess?.visibility === "global") {
     const agentLabel = activeAgentAccess.label ?? objectRef.id;
@@ -1324,7 +1374,13 @@ export function deriveRbacSelfCheckReport(
   const allExpectedTuples = uniqueTuples([
     ...sourceExpectedTuples,
     ...currentBaselineAccessTuples(input, actualKeys),
-  ]);
+  ])
+    // Archived teams grant nothing: drop any expected grant flowing through an
+    // archived team's `#member`/`#admin`/`#owner` userset. Keeping these would
+    // (a) report them as `missing` (archival stripped them) and (b) let the
+    // repair action rewrite the very tuples archival removed. The team-as-object
+    // roster is untouched, so membership stays expected and is not flagged.
+    .filter((tuple) => !isArchivedTeamGrant(tuple, resourceIndex.archivedTeamSlugs));
   const expectedTuples = allExpectedTuples.filter((tuple) => sourceInScope(tuple.source, scope));
   const staleReferences = allStaleReferences.filter((reference) => sourceInScope(reference.source, scope));
   const allExpectedKeys = new Set(allExpectedTuples.map(tupleKey));
