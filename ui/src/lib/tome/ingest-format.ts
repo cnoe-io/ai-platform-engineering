@@ -43,16 +43,18 @@ function kfmt(n: unknown): string {
 }
 
 /**
- * Compact token summary from a usage block ({input, output, cache_read,
- * cache_write}). Leads with output (the expensive half), then uncached input,
- * then cache reads. Returns "" when there's nothing to show.
+ * Compact token summary from a cumulative usage block ({output, input}). Leads
+ * with output (the expensive half). Returns "" when there's nothing to show.
+ * Only additive fields are shown — cache reads re-count the same prefix each
+ * turn, so a cumulative "cached" figure is misleading and deliberately omitted.
  */
-function formatTokens(t: Record<string, unknown> | undefined | null): string {
+export function formatTokens(
+  t: Record<string, unknown> | undefined | null,
+): string {
   if (!t) return "";
   const parts: string[] = [];
   if (t.output != null) parts.push(`${kfmt(t.output)} out`);
   if (t.input != null) parts.push(`${kfmt(t.input)} in`);
-  if (t.cache_read != null) parts.push(`${kfmt(t.cache_read)} cached`);
   return parts.join(" · ");
 }
 
@@ -74,7 +76,9 @@ export function formatIngestEvent(ev: IngestEvent): string {
     case "page_written":
       return `[${t}] ✎ wrote ${String(d.path ?? "?")} (${Number(d.bytes ?? 0)} bytes)`;
     case "usage":
-      return `[${t}] · tokens: ${formatTokens(d)}`;
+      // Usage snapshots drive the run header, not the log — the runner routes
+      // them to run state before this formatter is reached. Empty = no line.
+      return "";
     case "done": {
       const cost =
         typeof d.cost_usd === "number" ? `$${d.cost_usd.toFixed(4)}` : "?";

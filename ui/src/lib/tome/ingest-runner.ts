@@ -388,6 +388,19 @@ async function appendLog(runId: string, line: string): Promise<void> {
   await runs.updateOne({ _id: runId }, { $push: { log: line } });
 }
 
+/** Store the latest cumulative token usage so the run header can show it live. */
+async function setRunUsage(
+  runId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const usage = {
+    output: Number(data.output ?? 0),
+    input: Number(data.input ?? 0),
+  };
+  const runs = await getTomeIngestRunsCollection();
+  await runs.updateOne({ _id: runId }, { $set: { usage } });
+}
+
 async function driveIngest(
   projectId: string,
   runId: string,
@@ -415,7 +428,13 @@ async function driveIngest(
     }
 
     for await (const ev of parseSse(res.body)) {
-      await appendLog(runId, formatIngestEvent(ev));
+      // Usage snapshots update the run header in place (see IngestRunView),
+      // not the log — a per-turn token line floods the tail.
+      if (ev.type === "usage") {
+        await setRunUsage(runId, ev.data);
+      } else {
+        await appendLog(runId, formatIngestEvent(ev));
+      }
     }
 
     // Finalize: summary from overview.md's first content line.

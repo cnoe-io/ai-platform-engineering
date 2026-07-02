@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Square } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { formatTokens } from "@/lib/tome/ingest-format";
 
 /**
  * Live (and historical) ingest log — a Docker-style tail of one run. Polls the
@@ -25,6 +26,7 @@ interface RunDetail {
   log: string;
   cascade_id?: string | null;
   cascade_role?: "child" | "parent" | null;
+  usage?: { output: number; input: number } | null;
 }
 
 interface CascadeChild {
@@ -182,6 +184,7 @@ function RunLogPane({
 
   const status = run?.status ?? "queued";
   const active = status === "running" || status === "queued";
+  const tokens = run?.usage ? formatTokens(run.usage) : "";
 
   // Auto-scroll to bottom while the run is active.
   useEffect(() => {
@@ -200,6 +203,11 @@ function RunLogPane({
           <span className="truncate text-xs font-medium uppercase tracking-wider text-neutral-400">
             {label} · {status}
           </span>
+          {tokens && (
+            <span className="truncate text-xs font-medium tabular-nums text-neutral-500">
+              · {tokens}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {allowStop && active && (

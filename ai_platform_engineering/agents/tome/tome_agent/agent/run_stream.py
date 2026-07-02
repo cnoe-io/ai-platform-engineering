@@ -85,10 +85,12 @@ async def consume_agent_query(
     result_seen = False
     tool_call_count = 0
     tool_call_names: dict[str, str] = {}
-    # Running token totals across every model turn (top-level and subagent). Each
-    # AssistantMessage.usage is that one request's usage, so summing gives the
-    # session total. Surfaced live so the pane shows spend as the agent works.
+    # Running token totals across every model turn (top-level and subagent).
+    # Only `output` and `input` are summed — they're fresh each turn, so they
+    # accumulate. `cache_read` is NOT summed: every turn re-reads the same cached
+    # prefix, so summing it counts one ~40k context N times (a misleading 700k+).
     usage_acc: dict[str, int] = {}
+    _ADDITIVE_USAGE = ("output", "input")
     # Per-subagent state so nested work surfaces in the log instead of a silent
     # multi-minute gap (#69). `subagent_desc` labels the terminal line; the SDK
     # emits a terminal status via either a TaskNotification or a TaskUpdated, so
@@ -131,12 +133,13 @@ async def consume_agent_query(
                             for line in text.splitlines():
                                 if line.strip():
                                     yield emit_log(f"{prefix} {line}")
-                # Fold this turn's usage into the running total. Emit a live
-                # snapshot only on top-level turns — subagent turns are already
-                # summed in, and the next top-level turn's snapshot reflects them.
+                # Fold this turn's additive usage into the running total. Emit a
+                # live snapshot only on top-level turns — subagent turns are
+                # already summed in, and the next top-level snapshot reflects them.
                 turn_usage = extract_usage(getattr(message, "usage", None))
-                for k, v in turn_usage.items():
-                    usage_acc[k] = usage_acc.get(k, 0) + v
+                for k in _ADDITIVE_USAGE:
+                    if k in turn_usage:
+                        usage_acc[k] = usage_acc.get(k, 0) + turn_usage[k]
                 if turn_usage and not nested:
                     yield IngestEventPayload(
                         type="usage",
@@ -210,9 +213,6 @@ async def consume_agent_query(
                         message.subtype,
                         getattr(message, "errors", None),
                     )
-                # Prefer the ResultMessage's authoritative session usage; fall
-                # back to our per-turn accumulator if the CLI omits it.
-                final_usage = extract_usage(getattr(message, "usage", None)) or usage_acc
                 yield IngestEventPayload(
                     type="done",
                     data={
@@ -220,7 +220,8 @@ async def consume_agent_query(
                         "turns": getattr(message, "num_turns", None),
                         "tool_calls": tool_call_count,
                         "cost_usd": getattr(message, "total_cost_usd", None),
-                        "tokens": final_usage,
+                        # The cumulative additive total the pane watched climb.
+                        "tokens": dict(usage_acc),
                         "ts": now_iso(),
                     },
                 )

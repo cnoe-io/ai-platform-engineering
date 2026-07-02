@@ -121,6 +121,8 @@ export interface IngestRun {
   dispatch?: IngestDispatch;
   /** When the run was enqueued (queued runs); start time is `started_at`. */
   queued_at?: Date;
+  /** Latest cumulative token usage, updated live during the run for the header. */
+  usage?: { output: number; input: number };
 }
 
 export interface ChatSession {
