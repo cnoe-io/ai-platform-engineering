@@ -204,7 +204,7 @@ export function TimeseriesChart({
     // Rank series by max value so we show the most active ones in the legend
     const maxBySeries = allSeries.map((name) => ({
       name,
-      max: Math.max(...sorted.map((row) => (row as Record<string, number>)[name] ?? 0)),
+      max: Math.max(...sorted.map((row) => (row as Record<string, unknown>)[name] as number ?? 0)),
     }));
     maxBySeries.sort((a, b) => b.max - a.max);
 
