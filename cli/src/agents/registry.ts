@@ -78,18 +78,13 @@ export function checkAvailability(agent: Agent): boolean {
 }
 
 /**
- * Validate that `requestedProtocol` is supported by `agent`.
- *
- * If the agent has no `protocols` field, assumes A2A and returns valid for a2a.
+ * Validate that the agent supports agui.
+ * If the agent has no `protocols` field, assumes agui.
  */
-export function validateProtocol(agent: Agent, requestedProtocol: string): ValidationResult {
-  const supported = agent.protocols?.length > 0 ? agent.protocols : ["a2a"];
-
-  if ((supported as string[]).includes(requestedProtocol)) {
-    return { valid: true, supported: supported as string[] };
-  }
-
-  return { valid: false, supported: supported as string[] };
+export function validateProtocol(agent: Agent): ValidationResult {
+  const supported = agent.protocols?.length > 0 ? (agent.protocols as string[]) : ["agui"];
+  const valid = supported.includes("agui");
+  return { valid, supported };
 }
 
 // ---------------------------------------------------------------------------

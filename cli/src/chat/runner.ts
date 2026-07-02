@@ -2,9 +2,9 @@
  * caipe chat command runner.
  *
  * Handles both interactive (Ink REPL) and headless (no TTY) modes.
- * Protocol validation against agent capabilities.
- * First-run setup wizard if no server URL configured.
+ * All streaming uses AG-UI via /api/v1/chat/stream/start on the caipe-ui BFF.
  */
+// assisted-by claude code claude-sonnet-4-6
 
 import { render } from "ink";
 import React from "react";
@@ -14,11 +14,8 @@ import { getValidToken } from "../auth/tokens.js";
 import {
   ServerNotConfigured,
   authEndpoints,
-  getA2aUrl,
   getAuthUrl,
-  serverEndpoints,
 } from "../platform/config.js";
-import { discoverAgentConfig } from "../platform/discovery.js";
 import { printLogo } from "../platform/display.js";
 import { runSetupWizard } from "../platform/setup.js";
 import { Repl } from "./Repl.js";
@@ -40,7 +37,6 @@ try {
 
 interface ChatOpts {
   agent?: string;
-  protocol?: string;
   noContext?: boolean;
   resume?: string;
   headless?: boolean;
@@ -69,7 +65,6 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
       output: (opts.output as "text" | "json" | "ndjson") ?? "text",
       interactiveStdin: opts.interactiveStdin ?? false,
       agentName: opts.agent ?? globalOpts.agent ?? "default",
-      protocol: (opts.protocol as "a2a" | "agui") ?? "a2a",
       noContext: opts.noContext ?? false,
     });
     return;
@@ -94,30 +89,6 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
 
   // Resolve agent
   const agentName = opts.agent ?? globalOpts.agent ?? "default";
-  const protocol = (opts.protocol ?? "a2a") as "a2a" | "agui";
-
-  // Optionally validate protocol against agent capabilities
-  // (registry fetch is best-effort; don't block chat if registry is down)
-  try {
-    const { fetchAgents, validateProtocol } = await import("../agents/registry.js");
-    const agents = await fetchAgents(authUrl, async () => getValidToken(authUrl));
-    const agent = agents.find((a) => a.name === agentName);
-    if (agent) {
-      const validation = validateProtocol(agent, protocol);
-      if (!validation.valid) {
-        process.stdout.write(
-          `\nAgent "${agentName}" does not support protocol "${protocol}" (supports: ${validation.supported.join(", ")}). Switch protocol and continue? [y/N] `,
-        );
-        const answer = await readLine();
-        if (!answer.trim().toLowerCase().startsWith("y")) {
-          process.stderr.write("[ERROR] Aborted — unsupported protocol.\n");
-          process.exit(3);
-        }
-      }
-    }
-  } catch {
-    // Registry unreachable — proceed with requested protocol
-  }
 
   // Gather context
   const cwd = process.cwd();
@@ -129,28 +100,14 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
     const { loadSession, createSession: makeSession } = await import("./history.js");
     const existing = loadSession(opts.resume);
     session = existing ?? makeSession({ agentName, workingDir: cwd });
-    session = { ...session, protocol };
   } else {
-    session = createSession({ agentName, workingDir: cwd, protocol });
+    session = createSession({ agentName, workingDir: cwd });
     session.memoryContext = systemContext;
   }
 
-  // Discover endpoint from /.well-known/agent.json; fall back to derived paths.
-  // Discovery uses the auth URL; A2A task endpoint may come from an explicit
-  // CAIPE_SERVER_URL / settings.server.url override, otherwise from the agent card.
-  const agentConfig = await discoverAgentConfig(authUrl);
-  const a2aUrl = getA2aUrl();
-  const authEp = authEndpoints(authUrl);
-  const taskEndpoint =
-    protocol === "agui"
-      ? a2aUrl
-        ? serverEndpoints(a2aUrl).aguiStream
-        : authEp.aguiStream
-      : (agentConfig.a2a?.endpoint ??
-        (a2aUrl ? serverEndpoints(a2aUrl).a2aTask : authEp.aguiStream));
-
-  // Create adapter
-  const adapter = createAdapter(protocol, DEFAULT_AGENT, taskEndpoint, () =>
+  // Stream endpoint: caipe-ui BFF at /api/v1/chat/stream/start
+  const ep = authEndpoints(authUrl);
+  const adapter = createAdapter(DEFAULT_AGENT, ep.streamStart, () =>
     getValidToken(authUrl),
   );
 
@@ -188,3 +145,5 @@ async function readLine(): Promise<string> {
     process.stdin.on("data", onData);
   });
 }
+
+void readLine; // keep for potential future use

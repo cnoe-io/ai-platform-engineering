@@ -44,7 +44,7 @@ export async function runAgentsList(
     for (const a of agents) {
       const dot = a.available ? "✓" : "✗";
       process.stdout.write(
-        `${dot} ${a.name.padEnd(20)} ${a.domain.padEnd(12)} ${(a.protocols ?? ["a2a"]).join(",")}\n`,
+        `${dot} ${a.name.padEnd(20)} ${a.domain.padEnd(12)} ${(a.protocols ?? ["agui"]).join(",")}\n`,
       );
     }
     return;
@@ -66,7 +66,7 @@ export async function runAgentsInfo(name: string, globalOpts: GlobalOpts): Promi
   process.stdout.write(`\nAgent: ${agent.displayName}\n`);
   process.stdout.write(`  Name:        ${agent.name}\n`);
   process.stdout.write(`  Domain:      ${agent.domain}\n`);
-  process.stdout.write(`  Protocols:   ${(agent.protocols ?? ["a2a"]).join(", ")}\n`);
+  process.stdout.write(`  Protocols:   ${(agent.protocols ?? ["agui"]).join(", ")}\n`);
   process.stdout.write(`  Available:   ${agent.available ? "yes" : "no"}\n`);
   process.stdout.write(`  Endpoint:    ${agent.endpoint}\n`);
   process.stdout.write(`  Description: ${agent.description}\n\n`);

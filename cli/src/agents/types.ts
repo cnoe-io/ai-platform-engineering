@@ -7,7 +7,7 @@ export interface Agent {
   displayName: string;
   description: string;
   endpoint: string;
-  protocols: ("a2a" | "agui")[];
+  protocols: ("agui")[];
   available: boolean;
   domain: string;
 }
@@ -17,7 +17,7 @@ export const DEFAULT_AGENT: Agent = {
   displayName: "Default Agent",
   description: "General-purpose CAIPE server agent",
   endpoint: "",
-  protocols: ["a2a"],
+  protocols: ["agui"],
   available: true,
   domain: "general",
 };

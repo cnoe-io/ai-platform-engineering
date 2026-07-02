@@ -109,7 +109,7 @@ describe("StreamAdapter contract", () => {
     const { createAdapter } = await import("../src/chat/stream");
     const { DEFAULT_AGENT } = await import("../src/agents/types");
 
-    const adapter = createAdapter("a2a", DEFAULT_AGENT, "https://caipe.test", async () => "tok");
+    const adapter = createAdapter(DEFAULT_AGENT, "https://caipe.test/api/v1/chat/stream/start", async () => "tok");
     expect(typeof adapter.connect).toBe("function");
   });
 
@@ -135,7 +135,7 @@ describe("StreamAdapter contract", () => {
       )) as unknown as typeof fetch;
 
     try {
-      const adapter = createAdapter("a2a", DEFAULT_AGENT, "https://caipe.test", async () => "tok");
+      const adapter = createAdapter(DEFAULT_AGENT, "https://caipe.test/api/v1/chat/stream/start", async () => "tok");
       const iter = adapter.connect({
         prompt: "test",
         systemContext: "",

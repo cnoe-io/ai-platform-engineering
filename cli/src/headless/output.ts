@@ -14,7 +14,7 @@ export type OutputFormat = "text" | "json" | "ndjson";
 
 export interface OutputWriter {
   write(event: StreamEvent): void;
-  flush(agentName: string, protocol: string): void;
+  flush(agentName: string): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,8 +46,7 @@ class TextWriter implements OutputWriter {
     }
   }
 
-  flush(_agentName: string, _protocol: string): void {
-    // Ensure final newline
+  flush(_agentName: string): void {
     process.stdout.write("\n");
   }
 }
@@ -58,8 +57,6 @@ class TextWriter implements OutputWriter {
 
 class JsonWriter implements OutputWriter {
   private accumulated = "";
-  private agentName = "default";
-  private protocol = "a2a";
 
   write(event: StreamEvent): void {
     if (event.type === "token") {
@@ -70,9 +67,9 @@ class JsonWriter implements OutputWriter {
     }
   }
 
-  flush(agentName: string, protocol: string): void {
+  flush(agentName: string): void {
     process.stdout.write(
-      `${JSON.stringify({ response: this.accumulated, agent: agentName, protocol })}\n`,
+      `${JSON.stringify({ response: this.accumulated, agent: agentName, protocol: "agui" })}\n`,
     );
   }
 }
@@ -96,7 +93,7 @@ class NdjsonWriter implements OutputWriter {
     }
   }
 
-  flush(_agentName: string, _protocol: string): void {
+  flush(_agentName: string): void {
     // done event already emitted by write()
   }
 }

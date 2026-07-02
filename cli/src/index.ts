@@ -30,7 +30,6 @@ const chatCmd = program
   .command("chat")
   .description("Open an interactive streaming chat session (or headless when no TTY / --headless)")
   .option("--agent <name>", "Pin session to this CAIPE server agent")
-  .option("--protocol <protocol>", "Streaming protocol: a2a (default) or agui", "a2a")
   .option("--no-context", "Skip git/repo context gathering")
   .option("--resume <sessionId>", "Resume a previous session by ID")
   .option("--headless", "Force headless mode even when TTY is present")

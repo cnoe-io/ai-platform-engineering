@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 export interface Settings {
   server?: {
-    /** A2A backend URL (e.g. http://localhost:8000) — CAIPE_SERVER_URL */
+    /** Legacy field — kept for backward compat reading old settings.json */
     url?: string;
   };
   auth?: {
@@ -181,31 +181,6 @@ export function getAuthUrl(flagOverride?: string): string {
 }
 
 /**
- * Resolve the A2A backend URL.
- *
- * Priority: CAIPE_SERVER_URL → settings.server.url (only when auth.url is
- * also explicitly configured, so we don't confuse the old single-URL setup
- * where server.url held the UI address).
- *
- * Returns undefined when not explicitly set — callers fall back to the
- * a2a.endpoint field from /.well-known/agent.json discovery.
- */
-export function getA2aUrl(): string | undefined {
-  const envServer = process.env.CAIPE_SERVER_URL;
-  if (envServer && envServer.trim() !== "") {
-    return normalizeUrl(envServer);
-  }
-  const settings = readSettings();
-  const hasExplicitAuth =
-    (settings.auth?.url && settings.auth.url.trim() !== "") ||
-    (process.env.CAIPE_AUTH_URL && process.env.CAIPE_AUTH_URL.trim() !== "");
-  if (hasExplicitAuth && settings.server?.url && settings.server.url.trim() !== "") {
-    return normalizeUrl(settings.server.url);
-  }
-  return undefined;
-}
-
-/**
  * @deprecated Use getAuthUrl() for the UI/OAuth URL.
  * Kept as a thin alias so callers can be migrated incrementally.
  */
@@ -227,7 +202,7 @@ function normalizeUrl(raw: string): string {
 // Derived endpoint helpers
 // ---------------------------------------------------------------------------
 
-/** Fallback paths derived from the caipe-ui (auth) URL. */
+/** Endpoints derived from the caipe-ui (auth) URL. */
 export function authEndpoints(authUrl: string) {
   return {
     oauthBase: `${authUrl}/oauth`,
@@ -235,25 +210,8 @@ export function authEndpoints(authUrl: string) {
     token: `${authUrl}/oauth/token`,
     agentCard: `${authUrl}/.well-known/agent.json`,
     agents: `${authUrl}/api/v1/agents`,
-    aguiStream: `${authUrl}/api/agui/stream`,
+    streamStart: `${authUrl}/api/v1/chat/stream/start`,
     skills: `${authUrl}/api/skills`,
   };
 }
 
-/** Fallback paths derived from the A2A backend URL. */
-export function serverEndpoints(a2aUrl: string) {
-  return {
-    a2aTask: `${a2aUrl}/tasks/send`,
-    aguiStream: `${a2aUrl}/api/agui/stream`,
-    agents: `${a2aUrl}/api/v1/agents`,
-    skills: `${a2aUrl}/skills`,
-  };
-}
-
-/**
- * @deprecated Use authEndpoints(authUrl) or serverEndpoints(a2aUrl).
- * Kept temporarily so in-flight callers still compile.
- */
-export function endpoints(url: string) {
-  return { ...authEndpoints(url), ...serverEndpoints(url) };
-}

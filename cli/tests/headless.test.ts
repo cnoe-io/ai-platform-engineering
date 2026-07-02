@@ -118,7 +118,7 @@ describe("createOutputWriter", () => {
     const writer = createOutputWriter("text");
     writer.write({ type: "token", text: "Hello " });
     writer.write({ type: "token", text: "world" });
-    writer.flush("default", "a2a");
+    writer.flush("default");
 
     process.stdout.write = origWrite;
     expect(chunks.join("")).toContain("Hello world");
@@ -136,14 +136,14 @@ describe("createOutputWriter", () => {
     const writer = createOutputWriter("json");
     writer.write({ type: "token", text: "Hello " });
     writer.write({ type: "token", text: "world" });
-    writer.flush("argocd", "a2a");
+    writer.flush("argocd");
 
     process.stdout.write = origWrite;
     const output = chunks.join("");
     const parsed = JSON.parse(output);
     expect(parsed.response).toBe("Hello world");
     expect(parsed.agent).toBe("argocd");
-    expect(parsed.protocol).toBe("a2a");
+    expect(parsed.protocol).toBe("agui");
   });
 
   it("ndjson format emits per-event JSON lines", async () => {
@@ -158,7 +158,7 @@ describe("createOutputWriter", () => {
     const writer = createOutputWriter("ndjson");
     writer.write({ type: "token", text: "tok1" });
     writer.write({ type: "done" });
-    writer.flush("default", "a2a");
+    writer.flush("default");
 
     process.stdout.write = origWrite;
     const lines = chunks.join("").trim().split("\n").filter(Boolean);

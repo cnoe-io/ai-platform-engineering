@@ -26,7 +26,7 @@ export interface ChatSession {
   sessionId: string;
   agentName: string;
   agentEndpoint: string;
-  protocol: "a2a" | "agui";
+  protocol: "agui";
   headless: boolean;
   outputFormat: "text" | "json" | "ndjson";
   workingDir: string;
@@ -39,7 +39,7 @@ export interface ChatSession {
 export interface SessionSummary {
   sessionId: string;
   agentName: string;
-  protocol: "a2a" | "agui";
+  protocol: "agui";
   startedAt: string;
   messageCount: number;
 }
@@ -57,7 +57,7 @@ export function createSession(
   return {
     sessionId: randomUUID(),
     agentEndpoint: "",
-    protocol: "a2a",
+    protocol: "agui",
     headless: false,
     outputFormat: "text",
     repoRoot: null,
