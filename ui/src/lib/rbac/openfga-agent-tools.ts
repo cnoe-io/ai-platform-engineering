@@ -159,11 +159,10 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
     });
   }
   // Owner-team + shared-team grants are delegated to the shared
-  // `buildTeamGrantTuples` primitive (spec 2026-06-03, US1 / FR-003). Team
-  // members receive `user` (can_use / discover in the admin list). Config
-  // edits require owner, team admin (`manager`), or org admin — not member
-  // `writer`. The primitive handles the owner ∪ shared union, owner-team
-  // transition deletes, and shared-team revoke diffs.
+  // `buildTeamGrantTuples` primitive (spec 2026-06-03, US1 / FR-003). All
+  // team members receive `user` (can_use / discover). Owner team members
+  // additionally receive `manager` (full can_manage access per CAIPE policy);
+  // shared team members require team admin (`manager`) or org admin to edit.
   const agentObject = `agent:${input.agentId}`;
   const teamGrants = buildTeamGrantTuples({
     object: agentObject,
@@ -175,6 +174,20 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
   });
   writes.push(...teamGrants.writes);
   deletes.push(...teamGrants.deletes);
+
+  // Owner team members get full management access (can_manage). Write for
+  // the current owner team; delete for the previous owner when it changes
+  // so ownership transfers don't leave a stale manager grant on the old team.
+  if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
+    writes.push({ user: `team:${input.ownerTeamSlug}#member`, relation: "manager", object: agentObject });
+  }
+  if (
+    input.previousOwnerTeamSlug &&
+    isValidOpenFgaId(input.previousOwnerTeamSlug) &&
+    input.previousOwnerTeamSlug !== input.ownerTeamSlug
+  ) {
+    deletes.push({ user: `team:${input.previousOwnerTeamSlug}#member`, relation: "manager", object: agentObject });
+  }
 
   // Drop legacy member `writer` grants from older reconciles so team members
   // cannot mutate agent config (color, prompt, tools) without manage rights.

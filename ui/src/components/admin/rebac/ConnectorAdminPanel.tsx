@@ -618,8 +618,12 @@ export function ConnectorAdminPanel({
   // so `view` stays local there and the URL is left untouched.
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const singlePanelView = selfService ? undefined : adapter.singlePanelView;
-  const panelView: PanelView = selfService ? "channels" : singlePanelView ?? view;
+  // When a singlePanelView is set (e.g. Webex → "onboard"), allow toggling
+  // between that view and the configured-channels view via a compact 2-tab bar.
+  const [localSingleView, setLocalSingleView] = useState<PanelView>(singlePanelView ?? "channels");
+  const panelView: PanelView = selfService ? "channels" : singlePanelView ? localSingleView : view;
   const showTabBar = !selfService && !singlePanelView;
+  const showSinglePanelSwitcher = !selfService && Boolean(singlePanelView);
   const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
   const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
@@ -716,10 +720,12 @@ export function ConnectorAdminPanel({
   }, []);
 
   const loadTeams = useCallback(async () => {
-    const res = await fetch("/api/admin/teams");
+    // /api/dynamic-agents/teams returns only name+slug (no OpenFGA fan-out),
+    // and for admins returns all teams — sufficient for the picker.
+    const res = await fetch("/api/dynamic-agents/teams");
     if (!res.ok) throw new Error(await res.text());
-    const data = apiData<{ teams: TeamOption[] }>(await res.json());
-    setTeams(data.teams ?? []);
+    const json = await res.json() as { success?: boolean; data?: TeamOption[] };
+    setTeams(Array.isArray(json.data) ? json.data : []);
   }, []);
 
   const loadOnboardingDefaults = useCallback(async () => {
@@ -1144,7 +1150,8 @@ export function ConnectorAdminPanel({
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
-  const showCompactOnboardingHeader = !selfService && panelView === "onboard";
+  // Only use the compact inline header when there's no switcher to provide the title.
+  const showCompactOnboardingHeader = !selfService && panelView === "onboard" && !showSinglePanelSwitcher;
 
   const onboardingHeader = showCompactOnboardingHeader ? (
     <div className="flex min-w-0 items-center gap-2">
@@ -1167,6 +1174,10 @@ export function ConnectorAdminPanel({
         </TooltipContent>
       </Tooltip>
     </div>
+  ) : showSinglePanelSwitcher ? (
+    // The tab switcher already labels the active view; suppress the wizard's
+    // built-in "Configure {items}" heading to avoid a duplicate title.
+    <></>
   ) : null;
 
   return (
@@ -1191,6 +1202,25 @@ export function ConnectorAdminPanel({
                 {viewTitle[key]}
               </Button>
             ))}
+          </div>
+        )}
+
+        {/* Two-tab switcher for single-panel mode (e.g. Webex: Configure ↔ Configured) */}
+        {showSinglePanelSwitcher && (
+          <div role="tablist" aria-label={adapter.ariaLabels.tablist}
+            className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
+            <Button role="tab" type="button" size="sm"
+              variant={panelView === singlePanelView ? "default" : "ghost"}
+              aria-selected={panelView === singlePanelView}
+              onClick={() => setLocalSingleView(singlePanelView!)}>
+              {viewTitle[singlePanelView!]}
+            </Button>
+            <Button role="tab" type="button" size="sm"
+              variant={panelView === "channels" ? "default" : "ghost"}
+              aria-selected={panelView === "channels"}
+              onClick={() => setLocalSingleView("channels")}>
+              {viewTitle.channels}
+            </Button>
           </div>
         )}
 

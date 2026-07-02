@@ -219,6 +219,7 @@ export function DynamicAgentsTab() {
         agent={editingAgent}
         cloneFrom={cloningAgent}
         readOnly={Boolean(editingAgent?.config_driven || (editingAgent && !agentCanEdit(editingAgent)))}
+        readOnlyReason={editingAgent?.config_driven ? "config" : "permissions"}
         onSave={() => {
           setEditingAgent(null);
           setIsCreating(false);

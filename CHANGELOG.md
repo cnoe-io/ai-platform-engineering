@@ -1,3 +1,58 @@
+## 0.5.34 (2026-07-01)
+
+### Feat
+
+- **conversations**: open Slack conversations to all thread participants
+
+### Perf
+
+- **admin**: use fast teams endpoint in user detail modal fallback
+- **admin**: use fast teams endpoint in connector onboarding wizard
+- **admin**: lazy-load sessions and federated identities in user detail modal
+- **admin**: reuse parent teams list in user detail modal
+- **admin**: parallelize user detail loading and progressive-render modal
+
+## 0.5.33-dev.2 (2026-07-01)
+
+### Fix
+
+- **metrics**: expose keycloak management port and add per-component ServiceMonitors
+- **rbac**: add team#member to agent manager relation in OpenFGA model
+- **agents**: show correct read-only message when user lacks edit permission
+- **agents**: grant owner team members full manage access on agents
+
+## 0.5.33 (2026-06-30)
+
+### Perf
+
+- **teams**: stop rewriting membership tuples on resource save
+
+## 0.5.32-dev.1 (2026-06-30)
+
+### Feat
+
+- **openfga-authz-bridge**: add callerToolCheck.enabled value to subchart
+
+## 0.5.32 (2026-06-30)
+
+## 0.5.31-dev.1 (2026-06-30)
+
+### Fix
+
+- **agentgateway**: make config-bridge ext_authz host release-aware
+- **docs**: correct broken cross-link in architecture/gateway.md (#2075)
+
+### Refactor
+
+- **agentgateway**: drop authzHostSecret, keep plain authzHost
+
+## 0.5.31 (2026-06-30)
+
+### Fix
+
+- **webex**: suppress duplicate wizard title and update tests
+- **webex**: add two-tab nav between Configure and Configured spaces
+
 ## 0.5.30 (2026-06-29)
 
 ### Fix

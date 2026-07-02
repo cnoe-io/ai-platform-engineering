@@ -37,9 +37,17 @@ PUBLISHED_CONFIG_MODE = 0o644
 _VALID_AGENTGATEWAY_LOG_LEVELS = frozenset({"trace", "debug", "info", "warn", "error"})
 DEFAULT_AGENTGATEWAY_LOG_LEVEL = "info"
 
+# Host:port of the OpenFGA ext_authz bridge the gateway calls for every MCP
+# route. The default matches the Docker Compose service name. In Helm the
+# service is release-name-prefixed (e.g. `<release>-openfga-authz-bridge`), so
+# the chart sets AGENTGATEWAY_AUTHZ_HOST to the prefixed name. Without this the
+# gateway resolves a non-existent host, ext_authz fails, and the fail-closed
+# `denyWithStatus: 403` below rejects every discovered-server MCP call.
+DEFAULT_AUTHZ_HOST = os.getenv("AGENTGATEWAY_AUTHZ_HOST", "openfga-authz-bridge:9100").strip()
+
 DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
-        "host": "openfga-authz-bridge:9100",
+        "host": DEFAULT_AUTHZ_HOST,
         "failureMode": {"denyWithStatus": 403},
         # Forward the HTTP request body to the bridge so it can parse the
         # JSON-RPC `tools/call` method+name and run the caller-keyed per-tool

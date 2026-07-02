@@ -79,7 +79,7 @@ it raw). It then runs:
    - **`agent:agent_id can_call tool:server/name`** (wildcard fallback: `tool:server/*`)
 
 All checks must pass. The bridge fails **closed** — any error or timeout returns
-403 (never fail-open). See [Agent Context HMAC](./agent-context-hmac.md) for
+403 (never fail-open). See [Agent Context HMAC](../security/agent-context-hmac.md) for
 the full signed-header flow.
 
 ## Detailed Sequence

@@ -151,6 +151,15 @@ spec:
                 secretKeyRef:
                   name: {{ $cbTokenSecretName | quote }}
                   key: {{ $cbTokenSecretKey | quote }}
+            # ext_authz target the bridge writes into every discovered /mcp/<id>
+            # route. The service is release-name-prefixed, so default to the
+            # rendered name (matching the static-config generator's $extAuthHost);
+            # a non-prefixed host resolves to nothing and the fail-closed
+            # ext_authz policy rejects every discovered-server MCP call with 403.
+            {{- $extAuth := $agwGlobal.extAuth | default dict }}
+            {{- $defaultAuthzHost := printf "%s:%v" ($extAuth.serviceName | default (printf "%s-openfga-authz-bridge" .Release.Name)) ($extAuth.port | default 9100) }}
+            - name: AGENTGATEWAY_AUTHZ_HOST
+              value: {{ $cb.authzHost | default $defaultAuthzHost | quote }}
             {{- with $cb.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

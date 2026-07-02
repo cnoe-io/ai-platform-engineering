@@ -72,17 +72,16 @@ function setupFetchMock() {
         },
       });
     }
-    if (url === "/api/admin/teams") {
+    if (url === "/api/dynamic-agents/teams") {
       return response({
-        data: {
-          teams: [
-            {
-              _id: "team-1",
-              slug: "platform-engineering",
-              name: "Platform Engineering",
-            },
-          ],
-        },
+        success: true,
+        data: [
+          {
+            _id: "team-1",
+            slug: "platform-engineering",
+            name: "Platform Engineering",
+          },
+        ],
       });
     }
     if (url === "/api/admin/webex/spaces/defaults" && init?.method === "POST") {
@@ -270,22 +269,25 @@ it("shows the onboarding loading state while configured spaces seed the table", 
 
 // ── Single onboarding layout ────────────────────────────────────────────────
 
-it("renders Webex as a single onboarding view without Configured or Advanced tabs", async () => {
+it("renders Webex with a two-tab bar (Configure / Configured) but no Advanced tab", async () => {
   render(<WebexSpaceRebacPanel />);
 
-  expect(await screen.findByText("Configure spaces")).toBeInTheDocument();
+  // Default landing tab is "Configure spaces"
   expect(
-    screen.queryByRole("tablist", { name: "Webex admin views" }),
-  ).not.toBeInTheDocument();
+    await screen.findByRole("tab", { name: "Configure spaces" }),
+  ).toBeInTheDocument();
+  // "Configured spaces" tab is present for navigation back to the configured table
   expect(
-    screen.queryByRole("tab", { name: "Configured spaces" }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("tab", { name: "Configured spaces" }),
+  ).toBeInTheDocument();
+  // Two-tab switcher replaces the full 3-tab bar; no "Advanced" tab
   expect(
     screen.queryByRole("tab", { name: "Advanced" }),
   ).not.toBeInTheDocument();
   expect(
     screen.getByRole("button", { name: "Find spaces" }),
   ).toBeInTheDocument();
+  // Configured table and Advanced section are not visible on the default tab
   expect(
     screen.queryByRole("region", { name: "Configured Webex spaces" }),
   ).not.toBeInTheDocument();
@@ -300,7 +302,9 @@ it("ignores stale Webex subtab URL params and stays on onboarding", async () => 
   currentSearchParams = new URLSearchParams("subtab=advanced");
   render(<WebexSpaceRebacPanel />);
 
-  expect(await screen.findByText("Configure spaces")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("tab", { name: "Configure spaces" }),
+  ).toBeInTheDocument();
   expect(
     screen.getByRole("button", { name: "Find spaces" }),
   ).toBeInTheDocument();
