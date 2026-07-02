@@ -332,7 +332,7 @@ async function handleScheduledInvoke(
   try {
     scheduledRun = await resolveScheduledRunContext(scheduleId);
   } catch (error) {
-    console.error(`[invoke] Failed to resolve context for schedule ${scheduleId}:`, error);
+    console.error("[invoke] Failed to resolve context for schedule:", scheduleId, error);
     return NextResponse.json(
       { success: false, error: "Could not resolve scheduled run context" },
       { status: 502 },
@@ -351,7 +351,7 @@ async function handleScheduledInvoke(
   try {
     ownerToken = await mintScheduledOwnerToken(scheduledRun.sub);
   } catch (error) {
-    console.error(`[invoke] Failed to mint owner token for schedule ${scheduleId}:`, error);
+    console.error("[invoke] Failed to mint owner token for schedule:", scheduleId, error);
     return NextResponse.json(
       { success: false, error: "Could not mint owner credentials for scheduled run" },
       { status: 502 },
