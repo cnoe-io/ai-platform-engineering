@@ -471,11 +471,16 @@ export function Repl({
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamElapsed, setStreamElapsed] = useState(0);
+  const [streamPhase, setStreamPhase] = useState<"thinking" | "generating">("generating");
+  const [streamTokenCount, setStreamTokenCount] = useState(0);
+  const [totalTokenDisplay, setTotalTokenDisplay] = useState(0);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [pickerIndex, setPickerIndex] = useState(0);
   const [activeToolName, setActiveToolName] = useState<string | null>(null);
   const tokenCountRef = useRef(0);
   const streamStartRef = useRef(0);
+  const streamTokenRef = useRef(0);
+  const sessionStartRef = useRef(Date.now());
   const ctrlDCountRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingTokensRef = useRef("");
@@ -513,7 +518,7 @@ export function Repl({
     [pushStatic],
   );
 
-  const _pushTool = useCallback(
+  const pushToolItem = useCallback(
     (name: string) => {
       pushStatic({ kind: "tool", name });
     },
@@ -526,6 +531,10 @@ export function Repl({
     if (!text) return;
     pendingTokensRef.current = "";
     accumulatedRef.current += text;
+    // Switch from "Thinking…" to "Generating…" on first real token
+    setStreamPhase("generating");
+    streamTokenRef.current += Math.ceil(text.length / 4);
+    setStreamTokenCount(streamTokenRef.current);
     pushChunk(text);
   }, [pushChunk]);
 
@@ -585,12 +594,16 @@ export function Repl({
   useEffect(() => {
     if (!streaming) {
       setStreamElapsed(0);
+      setStreamPhase("generating");
+      setStreamTokenCount(0);
+      streamTokenRef.current = 0;
       return;
     }
     streamStartRef.current = Date.now();
+    setStreamPhase("thinking");
     const id = setInterval(() => {
       setStreamElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
-    }, 1000);
+    }, 250);
     return () => clearInterval(id);
   }, [streaming]);
 
@@ -608,6 +621,17 @@ export function Repl({
       agentName: session.agentName,
       tokenCount: null,
     }));
+
+    const turns = historyRef.current.filter((m) => m.role === "user").length;
+    const elapsedSec = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+    const mins = Math.floor(elapsedSec / 60);
+    const secs = elapsedSec % 60;
+    const duration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    const tokens = tokenCountRef.current;
+    process.stdout.write(
+      `\n  Session ended · ${turns} turn${turns !== 1 ? "s" : ""} · ~${tokens} tokens · ${duration}\n\n`,
+    );
+
     onExit({ ...session, messages: finishedMessages });
     exit();
   }, [session, onExit, exit]);
@@ -650,6 +674,7 @@ export function Repl({
           staticKeyRef.current = 0;
           historyRef.current = [];
           tokenCountRef.current = 0;
+          setTotalTokenDisplay(0);
           setGeneration((g) => g + 1);
           setStatusText("Context cleared.");
           setTimeout(() => setStatusText(null), 2000);
@@ -659,6 +684,7 @@ export function Repl({
           setStatusText("Compacting history…");
           historyRef.current = historyRef.current.slice(-6);
           tokenCountRef.current = Math.floor(tokenCountRef.current * 0.3);
+          setTotalTokenDisplay(tokenCountRef.current);
           setTimeout(() => setStatusText(null), 1500);
           break;
 
@@ -775,6 +801,7 @@ export function Repl({
       const prompt = parsed.prompt;
       pushUser(text);
       tokenCountRef.current += Math.ceil(prompt.length / 4);
+      setTotalTokenDisplay(tokenCountRef.current);
 
       // Start streaming — push chunks to Static (no flashing)
       accumulatedRef.current = "";
@@ -800,6 +827,13 @@ export function Repl({
               }, 150);
             }
           } else if (ev.type === "tool") {
+            // Flush pending tokens before showing the tool so it appears inline
+            if (flushTimerRef.current) {
+              clearTimeout(flushTimerRef.current);
+              flushTimerRef.current = null;
+            }
+            flushTokens();
+            pushToolItem(ev.name);
             setActiveToolName(ev.name);
           } else if (ev.type === "error") {
             pushAssistant(`[ERROR] ${ev.message}`);
@@ -825,6 +859,8 @@ export function Repl({
         }
         if (finalContent) {
           historyRef.current.push({ role: "assistant", content: finalContent });
+          tokenCountRef.current += Math.ceil(finalContent.length / 4);
+          setTotalTokenDisplay(tokenCountRef.current);
         }
 
         // Clear screen and rebuild everything with markdown rendering
@@ -849,6 +885,7 @@ export function Repl({
       pushUser,
       pushAssistant,
       pushStatic,
+      pushToolItem,
       rebuildWithMarkdown,
     ],
   );
@@ -972,16 +1009,24 @@ export function Repl({
           {streaming ? (
             <StreamingSpinner
               elapsed={streamElapsed}
-              label={activeToolName ? `⎔ ${activeToolName}` : "Generating"}
+              label={
+                activeToolName
+                  ? `⎔ ${activeToolName}`
+                  : streamPhase === "thinking"
+                    ? "Thinking"
+                    : "Generating"
+              }
+              tokenCount={streamTokenCount}
             />
           ) : statusText !== null ? (
             <Text dimColor>{statusText}</Text>
           ) : (
-            <Text dimColor>/ commands · Ctrl+C stop · Ctrl+D exit</Text>
+            <Text dimColor>/ commands · Esc abort · Ctrl+D exit</Text>
           )}
         </Box>
         <Text dimColor>
           {session.agentName !== "default" ? `${session.agentName} · ` : ""}
+          {totalTokenDisplay > 0 ? `~${totalTokenDisplay} tokens · ` : ""}
           {serverHost ?? ""}
         </Text>
       </Box>
