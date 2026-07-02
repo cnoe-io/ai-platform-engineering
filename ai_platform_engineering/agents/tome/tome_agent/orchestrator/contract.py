@@ -158,7 +158,7 @@ ChatEventType = Literal[
 ]
 
 IngestEventType = Literal[
-    "log", "tool_call", "tool_result", "page_written", "done", "error"
+    "log", "tool_call", "tool_result", "page_written", "usage", "done", "error"
 ]
 
 

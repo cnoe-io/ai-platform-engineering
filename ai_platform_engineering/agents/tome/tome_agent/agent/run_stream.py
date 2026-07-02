@@ -50,6 +50,28 @@ def stringify_tool_input(value: object) -> str:
         return str(value)[:300]
 
 
+# Anthropic usage-block keys → the short keys we surface to the ingest pane.
+_USAGE_FIELDS = {
+    "input": "input_tokens",
+    "output": "output_tokens",
+    "cache_read": "cache_read_input_tokens",
+    "cache_write": "cache_creation_input_tokens",
+}
+
+
+def extract_usage(usage: dict | None) -> dict[str, int]:
+    """Pull the token counts we display from an SDK message's `usage` block.
+    Only positive integers survive, so an empty/partial block yields {}."""
+    if not usage:
+        return {}
+    out: dict[str, int] = {}
+    for short, key in _USAGE_FIELDS.items():
+        v = usage.get(key)
+        if isinstance(v, int) and v > 0:
+            out[short] = v
+    return out
+
+
 async def consume_agent_query(
     prompt: str,
     options,
@@ -63,6 +85,10 @@ async def consume_agent_query(
     result_seen = False
     tool_call_count = 0
     tool_call_names: dict[str, str] = {}
+    # Running token totals across every model turn (top-level and subagent). Each
+    # AssistantMessage.usage is that one request's usage, so summing gives the
+    # session total. Surfaced live so the pane shows spend as the agent works.
+    usage_acc: dict[str, int] = {}
     # Per-subagent state so nested work surfaces in the log instead of a silent
     # multi-minute gap (#69). `subagent_desc` labels the terminal line; the SDK
     # emits a terminal status via either a TaskNotification or a TaskUpdated, so
@@ -105,6 +131,17 @@ async def consume_agent_query(
                             for line in text.splitlines():
                                 if line.strip():
                                     yield emit_log(f"{prefix} {line}")
+                # Fold this turn's usage into the running total. Emit a live
+                # snapshot only on top-level turns — subagent turns are already
+                # summed in, and the next top-level turn's snapshot reflects them.
+                turn_usage = extract_usage(getattr(message, "usage", None))
+                for k, v in turn_usage.items():
+                    usage_acc[k] = usage_acc.get(k, 0) + v
+                if turn_usage and not nested:
+                    yield IngestEventPayload(
+                        type="usage",
+                        data={**usage_acc, "ts": now_iso()},
+                    )
             elif isinstance(message, UserMessage):
                 # Skip a subagent's internal tool results — the task_progress
                 # heartbeat already conveys the subagent is alive and working.
@@ -173,6 +210,9 @@ async def consume_agent_query(
                         message.subtype,
                         getattr(message, "errors", None),
                     )
+                # Prefer the ResultMessage's authoritative session usage; fall
+                # back to our per-turn accumulator if the CLI omits it.
+                final_usage = extract_usage(getattr(message, "usage", None)) or usage_acc
                 yield IngestEventPayload(
                     type="done",
                     data={
@@ -180,6 +220,7 @@ async def consume_agent_query(
                         "turns": getattr(message, "num_turns", None),
                         "tool_calls": tool_call_count,
                         "cost_usd": getattr(message, "total_cost_usd", None),
+                        "tokens": final_usage,
                         "ts": now_iso(),
                     },
                 )

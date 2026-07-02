@@ -12,6 +12,7 @@ export type IngestEventType =
   | "tool_call"
   | "tool_result"
   | "page_written"
+  | "usage"
   | "done"
   | "error";
 
@@ -35,6 +36,26 @@ function ts(data: Record<string, unknown>): string {
   return hhmmss();
 }
 
+/** 1234 → "1.2k". Sub-1k stays exact. */
+function kfmt(n: unknown): string {
+  const v = Number(n ?? 0);
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+}
+
+/**
+ * Compact token summary from a usage block ({input, output, cache_read,
+ * cache_write}). Leads with output (the expensive half), then uncached input,
+ * then cache reads. Returns "" when there's nothing to show.
+ */
+function formatTokens(t: Record<string, unknown> | undefined | null): string {
+  if (!t) return "";
+  const parts: string[] = [];
+  if (t.output != null) parts.push(`${kfmt(t.output)} out`);
+  if (t.input != null) parts.push(`${kfmt(t.input)} in`);
+  if (t.cache_read != null) parts.push(`${kfmt(t.cache_read)} cached`);
+  return parts.join(" · ");
+}
+
 export function formatIngestEvent(ev: IngestEvent): string {
   const d = ev.data ?? {};
   const t = ts(d);
@@ -52,12 +73,16 @@ export function formatIngestEvent(ev: IngestEvent): string {
     }
     case "page_written":
       return `[${t}] ✎ wrote ${String(d.path ?? "?")} (${Number(d.bytes ?? 0)} bytes)`;
+    case "usage":
+      return `[${t}] · tokens: ${formatTokens(d)}`;
     case "done": {
       const cost =
         typeof d.cost_usd === "number" ? `$${d.cost_usd.toFixed(4)}` : "?";
+      const tokens = formatTokens(d.tokens as Record<string, unknown> | undefined);
+      const tokenPart = tokens ? `, tokens=(${tokens})` : "";
       return `[${t}] ✓ agent finished (subtype=${String(d.subtype ?? "?")}, turns=${String(
         d.turns ?? "?",
-      )}, tool_calls=${String(d.tool_calls ?? "?")}, cost=${cost})`;
+      )}, tool_calls=${String(d.tool_calls ?? "?")}, cost=${cost}${tokenPart})`;
     }
     case "error":
       return `[${t}] ✗ ${String(d.message ?? "?")}`;
