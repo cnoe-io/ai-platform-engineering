@@ -305,12 +305,21 @@ async function archiveAlreadyOrphanedSyncTeams(input: {
   const orphanedSlugs = allSlugs.filter((slug) => !activeSlugs.has(slug));
   if (orphanedSlugs.length === 0) return 0;
 
-  const result = await teamsCol.updateMany(
-    { slug: { $in: orphanedSlugs }, source: "identity_group_sync", status: { $ne: "archived" } },
-    { $set: { status: "archived", updated_by: input.actor, updated_at: new Date(input.now) } },
-  );
-  if (result.modifiedCount > 0) {
-    console.log(`[IdpSync] orphan sweep archived ${result.modifiedCount} stale identity_group_sync team(s): ${orphanedSlugs.join(", ")}`);
+  // Chunk to stay well under MongoDB's $in limit (MongoDB itself has no hard
+  // limit but the Node driver serializes BSON per-doc and large $in arrays
+  // can exceed the 16 MB document size limit — 500 is a safe batch size).
+  const BATCH_SIZE = 500;
+  let totalModified = 0;
+  for (let i = 0; i < orphanedSlugs.length; i += BATCH_SIZE) {
+    const batch = orphanedSlugs.slice(i, i + BATCH_SIZE);
+    const result = await teamsCol.updateMany(
+      { slug: { $in: batch }, source: "identity_group_sync", status: { $ne: "archived" } },
+      { $set: { status: "archived", updated_by: input.actor, updated_at: new Date(input.now) } },
+    );
+    totalModified += result.modifiedCount;
   }
-  return result.modifiedCount;
+  if (totalModified > 0) {
+    console.log(`[IdpSync] orphan sweep archived ${totalModified} stale identity_group_sync team(s)`);
+  }
+  return totalModified;
 }
