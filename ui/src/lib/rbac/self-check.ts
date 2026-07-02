@@ -653,6 +653,14 @@ function buildExpectedTuplesAndStaleReferences(
     });
     tuples.push(...teamGrants.tuples);
     staleReferences.push(...teamGrants.staleReferences);
+    // The agent reconciler also writes team:<ownerTeamSlug>#member manager for the
+    // owner team specifically (full can_manage for owner-team members). This is
+    // separate from the #admin manager tuple that teamGrantTuples emits for all
+    // teams. Without this, the tuple shows up as "unowned" after an ownership
+    // transfer because the self-check never expected it.
+    if (isValidOpenFgaId(agent.owner_team_slug) && resourceIndex.teamSlugs.has(agent.owner_team_slug)) {
+      tuples.push(expected("dynamic_agents.owner/shared teams", `team:${agent.owner_team_slug}#member`, "manager", object, resource));
+    }
     if (agent.visibility === "global") {
       tuples.push(expected("dynamic_agents.visibility", "user:*", "user", object, resource));
     }

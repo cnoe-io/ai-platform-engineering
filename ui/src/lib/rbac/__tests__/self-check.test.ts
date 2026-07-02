@@ -417,6 +417,7 @@ describe("deriveRbacSelfCheckReport", () => {
         { user: "organization:caipe#admin", relation: "manager", object: "agent:agent-private-project-agent" },
         { user: "team:current-team#member", relation: "user", object: "agent:agent-private-project-agent" },
         { user: "team:current-team#admin", relation: "manager", object: "agent:agent-private-project-agent" },
+        { user: "team:current-team#member", relation: "manager", object: "agent:agent-private-project-agent" },
         { user: "team:old-team#member", relation: "user", object: "agent:agent-private-project-agent" },
       ],
     }));
@@ -434,6 +435,37 @@ describe("deriveRbacSelfCheckReport", () => {
         }),
       ]),
     );
+  });
+
+  it("does not flag owner-team #member manager as unowned after an ownership transfer", () => {
+    // After transferring an agent from team A to team B, the reconciler writes
+    // team:team-b#member manager agent:<id> for the new owner. Before this fix
+    // the self-check did not expect that tuple and reported it as "Unowned tuple".
+    const report = deriveRbacSelfCheckReport(baseInput({
+      teams: [
+        { slug: "old-team", name: "Old Team" },
+        { slug: "new-owner-team", name: "New Owner Team" },
+      ],
+      dynamicAgents: [
+        {
+          _id: "agent-transferred",
+          name: "Transferred Agent",
+          visibility: "team",
+          owner_team_slug: "new-owner-team",
+        },
+      ],
+      actualTuples: [
+        { user: "organization:caipe#admin", relation: "manager", object: "agent:agent-transferred" },
+        { user: "team:new-owner-team#member", relation: "user", object: "agent:agent-transferred" },
+        { user: "team:new-owner-team#admin", relation: "manager", object: "agent:agent-transferred" },
+        // This is the owner-team #member manager tuple written by the agent reconciler.
+        { user: "team:new-owner-team#member", relation: "manager", object: "agent:agent-transferred" },
+      ],
+    }));
+
+    expect(report.summary.missing_tuples).toBe(0);
+    expect(report.summary.orphan_candidates).toBe(0);
+    expect(report.findings.filter((f) => f.severity === "orphan_candidate")).toHaveLength(0);
   });
 
   it("labels membership tuples for deleted teams as stale deleted-team memberships", () => {
