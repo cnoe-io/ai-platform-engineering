@@ -25,14 +25,11 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
-from kubernetes.client.exceptions import ApiException
-
 from caipe_scheduler.auth import CallerIdentity, authenticate_caller
 from caipe_scheduler.config import Settings, get_settings
 from caipe_scheduler.dispatcher import OneOffDispatcher
 from caipe_scheduler.k8s import CronJobOps, cronjob_name_for
 from caipe_scheduler.models import (
-  CronJobReconcileItem,
   CronJobReconcileRequest,
   CronJobReconcileResponse,
   LastRunReport,
@@ -44,6 +41,11 @@ from caipe_scheduler.models import (
   ScheduleOneOffCreate,
   ScheduleOneOffList,
   ScheduleOneOffRun,
+)
+from caipe_scheduler.reconciler import (
+  ScheduleNotFoundError,
+  reconcile_cronjob_runner_images,
+  reconcile_cronjobs_on_startup,
 )
 from caipe_scheduler.store import ScheduleStore
 from caipe_scheduler.validation import validate_cron, validate_message, validate_tz
@@ -109,6 +111,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
   settings = get_settings()
   store = get_store(settings)
   k8s = get_k8s(settings)
+  reconcile_cronjobs_on_startup(store=store, k8s=k8s, settings=settings)
   if settings.one_off_dispatch_enabled:
     _dispatcher = OneOffDispatcher(
       store=store,
@@ -149,112 +152,16 @@ def reconcile_cronjobs(
   k8s: Annotated[CronJobOps, Depends(get_k8s)],
   settings: Annotated[Settings, Depends(get_settings)],
 ) -> CronJobReconcileResponse:
-  if body.schedule_id:
-    doc = store.get(body.schedule_id)
-    if not doc:
-      raise HTTPException(404, "Schedule not found.")
-    schedules = [doc]
-  else:
-    schedules = store.list()
-
-  items: list[CronJobReconcileItem] = []
-  counts = {
-    "current": 0,
-    "would_patch": 0,
-    "patched": 0,
-    "missing": 0,
-    "failed": 0,
-  }
-
-  for schedule in schedules:
-    schedule_id = schedule.get("schedule_id")
-    cronjob_name = schedule.get("cronjob_name") or (cronjob_name_for(schedule_id) if schedule_id else None)
-    if not schedule_id or not cronjob_name:
-      counts["failed"] += 1
-      items.append(
-        CronJobReconcileItem(
-          schedule_id=schedule_id or "",
-          cronjob_name=cronjob_name or "",
-          status="error",
-          desired_image=settings.cron_runner_image,
-          desired_image_pull_policy=settings.cron_runner_image_pull_policy,
-          error="Schedule is missing schedule_id or cronjob_name.",
-        )
-      )
-      continue
-
-    try:
-      result = k8s.reconcile_runner_template(
-        cronjob_name=cronjob_name,
-        dry_run=body.dry_run,
-      )
-    except ApiException as exc:
-      if exc.status == 404:
-        counts["missing"] += 1
-        items.append(
-          CronJobReconcileItem(
-            schedule_id=schedule_id,
-            cronjob_name=cronjob_name,
-            status="missing",
-            desired_image=settings.cron_runner_image,
-            desired_image_pull_policy=settings.cron_runner_image_pull_policy,
-            error="CronJob does not exist.",
-          )
-        )
-        continue
-      counts["failed"] += 1
-      items.append(
-        CronJobReconcileItem(
-          schedule_id=schedule_id,
-          cronjob_name=cronjob_name,
-          status="error",
-          desired_image=settings.cron_runner_image,
-          desired_image_pull_policy=settings.cron_runner_image_pull_policy,
-          error=f"Kubernetes API error {exc.status}: {exc.reason or exc.body}",
-        )
-      )
-      continue
-    except Exception as exc:
-      counts["failed"] += 1
-      items.append(
-        CronJobReconcileItem(
-          schedule_id=schedule_id,
-          cronjob_name=cronjob_name,
-          status="error",
-          desired_image=settings.cron_runner_image,
-          desired_image_pull_policy=settings.cron_runner_image_pull_policy,
-          error=str(exc),
-        )
-      )
-      continue
-
-    changed = bool(result["changed"])
-    status = "would_patch" if body.dry_run and changed else ("patched" if changed else "current")
-    counts[status] += 1
-    items.append(
-      CronJobReconcileItem(
-        schedule_id=schedule_id,
-        cronjob_name=cronjob_name,
-        status=status,  # type: ignore[arg-type]
-        current_image=result["current_image"],
-        desired_image=result["desired_image"],
-        current_image_pull_policy=result["current_image_pull_policy"],
-        desired_image_pull_policy=result["desired_image_pull_policy"],
-      )
+  try:
+    return reconcile_cronjob_runner_images(
+      store=store,
+      k8s=k8s,
+      settings=settings,
+      dry_run=body.dry_run,
+      schedule_id=body.schedule_id,
     )
-
-  return CronJobReconcileResponse(
-    dry_run=body.dry_run,
-    desired_image=settings.cron_runner_image,
-    desired_image_pull_policy=settings.cron_runner_image_pull_policy,
-    total=len(schedules),
-    current=counts["current"],
-    would_patch=counts["would_patch"],
-    patched=counts["patched"],
-    missing=counts["missing"],
-    failed=counts["failed"],
-    items=items,
-  )
+  except ScheduleNotFoundError as exc:
+    raise HTTPException(404, "Schedule not found.") from exc
 
 
 @app.post(

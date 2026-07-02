@@ -179,6 +179,73 @@ describe("SchedulesPage", () => {
     expect(screen.queryByText("caipe-sched-schedule-1")).not.toBeInTheDocument();
   });
 
+  it("shows automatic runner updates in schedule change history", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          total: 1,
+          items: [
+            {
+              schedule_id: "schedule-1",
+              agent_id: "agent-1",
+              edit_agent_id: null,
+              agent_name: "Agent One",
+              title: "Daily Platform Report",
+              message_template: "Run the job",
+              attributes: {},
+              cron: "*/5 * * * *",
+              tz: "UTC",
+              enabled: true,
+              cronjob_name: "caipe-sched-schedule-1",
+              version: 1,
+              versions: [],
+              events: [
+                {
+                  event_id: "evt_runner_update",
+                  event_type: "runner_image_reconciled",
+                  occurred_at: "2026-07-02T15:45:00Z",
+                  actor_type: "system",
+                  actor_id: "caipe-scheduler",
+                  source: "deployment_reconcile",
+                  changed_fields: ["runner_image"],
+                  changes: {
+                    runner_image: {
+                      before: "caipe-cron-runner:old",
+                      after: "caipe-cron-runner:new",
+                    },
+                  },
+                },
+              ],
+              created_at: "2026-05-25T00:00:00Z",
+              updated_at: null,
+              last_run: null,
+              one_off_runs: [],
+            },
+          ],
+        },
+      }),
+    });
+
+    render(<SchedulesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Daily Platform Report")).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /modify schedule-1/i }));
+
+    expect(screen.getByText("Change History")).toBeInTheDocument();
+    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(
+      screen.getByText("Runner configuration automatically updated")
+    ).toBeInTheDocument();
+    expect(screen.getByText("New deployment")).toBeInTheDocument();
+    expect(screen.getByText("caipe-cron-runner:old")).toBeInTheDocument();
+    expect(screen.getByText("caipe-cron-runner:new")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rollback" })).not.toBeInTheDocument();
+  });
+
   it("collapses one-off runs under their recurring schedule", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,

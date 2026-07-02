@@ -20,6 +20,8 @@ Helm chart for **caipe-scheduler** - the cron schedule registry + k8s
 - `dynamic-agents` and `mcp-scheduler` only reach k8s through this scheduler's REST API.
 - This scheduler is the only component with `cronjobs.*` RBAC.
 - The CronJob podTemplate is hard-coded inside `caipe_scheduler/k8s.py`. Callers can only set `schedule`, `timeZone`, and the `SCHEDULE_ID` env. Image, command, mounts, and SA are baked.
+- Scheduler startup always reconciles existing CronJob runner images to the configured image.
+- The Deployment pod template includes a checksum of the scheduler ConfigMap, so changing the desired runner image rolls the scheduler and triggers reconciliation.
 - cron-runner pods get zero RBAC.
 - Pausing is native Kubernetes CronJob suspend: the scheduler patches `spec.suspend=true` when a schedule is disabled, and `spec.suspend=false` when resumed. Mongo `enabled` is updated in the same API call; cron-runner also no-ops if it fetches a disabled schedule.
 

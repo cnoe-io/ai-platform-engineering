@@ -89,6 +89,7 @@ class ScheduleStore:
     doc.setdefault("updated_at", now)
     doc.setdefault("version", 1)
     doc.setdefault("versions", [])
+    doc.setdefault("events", [])
     self._col.insert_one(doc)
 
   def patch(self, schedule_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
@@ -144,6 +145,20 @@ class ScheduleStore:
       {"schedule_id": schedule_id},
       update,
       return_document=ReturnDocument.AFTER,
+    )
+
+  def record_change_event(self, schedule_id: str, event: dict[str, Any]) -> None:
+    """Append non-restorable history without growing the schedule indefinitely."""
+    self._col.update_one(
+      {"schedule_id": schedule_id},
+      {
+        "$push": {
+          "events": {
+            "$each": [event],
+            "$slice": -50,
+          }
+        }
+      },
     )
 
   def set_cronjob_name(self, schedule_id: str, cronjob_name: str) -> None:

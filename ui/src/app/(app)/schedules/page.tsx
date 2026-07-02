@@ -100,6 +100,26 @@ interface ScheduleVersion {
   updated_at: string | null;
 }
 
+interface ScheduleEventChange {
+  before?: unknown;
+  after?: unknown;
+}
+
+interface ScheduleEvent {
+  event_id: string;
+  event_type: string;
+  occurred_at: string | null;
+  actor_type: "user" | "admin" | "system";
+  actor_id: string;
+  source: string;
+  changed_fields: string[];
+  changes: Record<string, ScheduleEventChange>;
+}
+
+type ScheduleHistoryEntry =
+  | { kind: "version"; occurredAt: string | null; version: ScheduleVersion }
+  | { kind: "event"; occurredAt: string | null; event: ScheduleEvent };
+
 interface ScheduleItem {
   schedule_id: string;
   agent_id: string;
@@ -114,6 +134,7 @@ interface ScheduleItem {
   cronjob_name: string | null;
   version: number;
   versions: ScheduleVersion[];
+  events: ScheduleEvent[];
   created_at: string | null;
   updated_at: string | null;
   last_run: ScheduleRun | null;
@@ -372,6 +393,43 @@ function changedFieldsLabel(version: ScheduleVersion): string {
     : "settings";
 }
 
+function scheduleChangeHistory(schedule: ScheduleItem): ScheduleHistoryEntry[] {
+  const entries: ScheduleHistoryEntry[] = [
+    ...(schedule.versions || []).map((version) => ({
+      kind: "version" as const,
+      occurredAt: version.superseded_at,
+      version,
+    })),
+    ...(schedule.events || []).map((event) => ({
+      kind: "event" as const,
+      occurredAt: event.occurred_at,
+      event,
+    })),
+  ];
+
+  return entries.sort((left, right) => {
+    const leftTime = left.occurredAt ? Date.parse(left.occurredAt) : 0;
+    const rightTime = right.occurredAt ? Date.parse(right.occurredAt) : 0;
+    return rightTime - leftTime;
+  });
+}
+
+function scheduleEventSourceLabel(source: string): string {
+  if (source === "deployment_reconcile") return "New deployment";
+  if (source === "operator_reconcile") return "Operator reconciliation";
+  return source.replace(/[_-]+/g, " ");
+}
+
+function historyValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not set";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function scheduleTitle(schedule: ScheduleItem): string {
   return schedule.title?.trim() || schedule.agent_name || schedule.schedule_id;
 }
@@ -435,6 +493,11 @@ export default function SchedulesPage() {
     if (!serverClock) return new Date(clockTick);
     return new Date(serverClock.serverNowMs + (clockTick - serverClock.clientNowMs));
   }, [clockTick, serverClock]);
+
+  const editingHistory = useMemo(
+    () => (editingItem ? scheduleChangeHistory(editingItem) : []),
+    [editingItem]
+  );
 
   const loadSchedules = useCallback(async () => {
     setError(null);
@@ -870,52 +933,104 @@ export default function SchedulesPage() {
                         <div className="space-y-3">
                           <div className="flex items-center gap-2 text-sm font-medium">
                             <History className="h-4 w-4" />
-                            Previous Versions
+                            Change History
                           </div>
-                          {editingItem.versions.length === 0 ? (
+                          {editingHistory.length === 0 ? (
                             <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                              No previous versions yet.
+                              No changes recorded yet.
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              {editingItem.versions.map((version) => (
-                                <div
-                                  key={`${version.version}-${version.superseded_at || "unknown"}`}
-                                  className="rounded-md border px-3 py-3"
-                                >
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="min-w-0 space-y-1">
-                                      <div className="text-sm font-medium">
-                                        Version {version.version}
+                              {editingHistory.map((entry) => {
+                                if (entry.kind === "event") {
+                                  const event = entry.event;
+                                  return (
+                                    <div
+                                      key={event.event_id || `${event.event_type}-${event.occurred_at}`}
+                                      className="rounded-md border px-3 py-3"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Badge variant="secondary">System</Badge>
+                                        <div className="text-sm font-medium">
+                                          Runner configuration automatically updated
+                                        </div>
                                       </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {formatDateTime(version.superseded_at)} -{" "}
-                                        {changedFieldsLabel(version)}
+                                      <div className="mt-1 flex flex-wrap gap-x-1 text-xs text-muted-foreground">
+                                        <span>{formatDateTime(event.occurred_at)}</span>
+                                        <span>-</span>
+                                        <span>{scheduleEventSourceLabel(event.source)}</span>
                                       </div>
-                                      <div className="font-mono text-xs">
-                                        {version.cron} - {version.tz}
+                                      <div className="mt-2 space-y-1">
+                                        {event.changed_fields.map((field) => {
+                                          const change = event.changes[field] || {};
+                                          return (
+                                            <div
+                                              key={field}
+                                              className="grid gap-1 text-xs sm:grid-cols-[minmax(8rem,auto)_1fr]"
+                                            >
+                                              <span className="text-muted-foreground">
+                                                {formatAttributeLabel(field)}
+                                              </span>
+                                              <div className="flex min-w-0 items-center gap-1 font-mono">
+                                                <span className="truncate" title={historyValue(change.before)}>
+                                                  {historyValue(change.before)}
+                                                </span>
+                                                <ChevronRight className="h-3 w-3 shrink-0" />
+                                                <span className="truncate" title={historyValue(change.after)}>
+                                                  {historyValue(change.after)}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     </div>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="min-w-24"
-                                      onClick={() => void rollbackToVersion(version)}
-                                      disabled={mutatingId === editingItem.schedule_id}
-                                    >
-                                      {mutatingId === editingItem.schedule_id ? (
-                                        <RefreshCw className="animate-spin" />
-                                      ) : (
-                                        <RotateCcw />
-                                      )}
-                                      Rollback
-                                    </Button>
+                                  );
+                                }
+
+                                const version = entry.version;
+                                return (
+                                  <div
+                                    key={`${version.version}-${version.superseded_at || "unknown"}`}
+                                    className="rounded-md border px-3 py-3"
+                                  >
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Badge variant="outline">Schedule edit</Badge>
+                                          <div className="text-sm font-medium">
+                                            Version {version.version}
+                                          </div>
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {formatDateTime(version.superseded_at)} -{" "}
+                                          {changedFieldsLabel(version)}
+                                        </div>
+                                        <div className="font-mono text-xs">
+                                          {version.cron} - {version.tz}
+                                        </div>
+                                      </div>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="min-w-24"
+                                        onClick={() => void rollbackToVersion(version)}
+                                        disabled={mutatingId === editingItem.schedule_id}
+                                      >
+                                        {mutatingId === editingItem.schedule_id ? (
+                                          <RefreshCw className="animate-spin" />
+                                        ) : (
+                                          <RotateCcw />
+                                        )}
+                                        Rollback
+                                      </Button>
+                                    </div>
+                                    <code className="mt-2 block max-h-20 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                                      {version.message_template}
+                                    </code>
                                   </div>
-                                  <code className="mt-2 block max-h-20 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                                    {version.message_template}
-                                  </code>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>

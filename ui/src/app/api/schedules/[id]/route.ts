@@ -26,6 +26,7 @@ interface RawSchedule {
   cronjob_name?: string | null;
   version?: number;
   versions?: RawScheduleVersion[];
+  events?: RawScheduleEvent[];
   created_at?: Date | string;
   updated_at?: Date | string;
   last_run?: {
@@ -53,6 +54,17 @@ interface RawScheduleVersion {
   updated_at?: Date | string | null;
 }
 
+interface RawScheduleEvent {
+  event_id?: string;
+  event_type?: string;
+  occurred_at?: Date | string | null;
+  actor_type?: "user" | "admin" | "system";
+  actor_id?: string;
+  source?: string;
+  changed_fields?: string[];
+  changes?: Record<string, { before?: unknown; after?: unknown }>;
+}
+
 interface SchedulerPatchBody {
   agent_id?: unknown;
   edit_agent_id?: unknown;
@@ -69,6 +81,19 @@ function iso(value: Date | string | undefined | null): string | null {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
   return value;
+}
+
+function mapScheduleEvent(event: RawScheduleEvent) {
+  return {
+    event_id: event.event_id || "",
+    event_type: event.event_type || "runner_image_reconciled",
+    occurred_at: iso(event.occurred_at),
+    actor_type: event.actor_type || "system",
+    actor_id: event.actor_id || "caipe-scheduler",
+    source: event.source || "deployment_reconcile",
+    changed_fields: event.changed_fields || [],
+    changes: event.changes || {},
+  };
 }
 
 function schedulerBaseUrl(): string {
@@ -233,6 +258,7 @@ function mapSchedule(doc: RawSchedule, agentName: string) {
         created_at: iso(version.created_at),
         updated_at: iso(version.updated_at),
       })),
+    events: (doc.events || []).map(mapScheduleEvent),
     created_at: iso(doc.created_at),
     updated_at: iso(doc.updated_at),
     last_run: doc.last_run

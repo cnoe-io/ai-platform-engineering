@@ -47,6 +47,26 @@ class ScheduleVersion(BaseModel):
   updated_at: datetime | None = None
 
 
+class ScheduleChange(BaseModel):
+  before: Any = None
+  after: Any = None
+
+
+class ScheduleEvent(BaseModel):
+  """Non-restorable schedule history, such as an infrastructure update."""
+
+  model_config = ConfigDict(extra="ignore")
+
+  event_id: str
+  event_type: Literal["runner_image_reconciled"]
+  occurred_at: datetime
+  actor_type: Literal["user", "admin", "system"]
+  actor_id: str
+  source: Literal["deployment_reconcile", "operator_reconcile"]
+  changed_fields: list[str] = Field(default_factory=list)
+  changes: dict[str, ScheduleChange] = Field(default_factory=dict)
+
+
 class ScheduleCreate(BaseModel):
   """Body of POST /v1/schedules."""
 
@@ -153,6 +173,7 @@ class Schedule(BaseModel):
   last_run: LastRun | None = None
   version: int = 1
   versions: list[ScheduleVersion] = Field(default_factory=list)
+  events: list[ScheduleEvent] = Field(default_factory=list)
 
 
 class ScheduleCreateResponse(BaseModel):

@@ -24,6 +24,7 @@ interface RawSchedule {
   cronjob_name?: string | null;
   version?: number;
   versions?: RawScheduleVersion[];
+  events?: RawScheduleEvent[];
   created_at?: Date | string;
   updated_at?: Date | string;
   last_run?: {
@@ -79,6 +80,17 @@ interface RawScheduleVersion {
   updated_at?: Date | string | null;
 }
 
+interface RawScheduleEvent {
+  event_id?: string;
+  event_type?: string;
+  occurred_at?: Date | string | null;
+  actor_type?: "user" | "admin" | "system";
+  actor_id?: string;
+  source?: string;
+  changed_fields?: string[];
+  changes?: Record<string, { before?: unknown; after?: unknown }>;
+}
+
 const ACTIVE_ONE_OFF_STATUSES: OneOffRunStatus[] = ["pending", "claimed", "fired"];
 const COMPLETED_ONE_OFF_STATUSES: OneOffRunStatus[] = [
   "succeeded",
@@ -111,6 +123,19 @@ function mapOneOffRun(doc: RawOneOffRun) {
     claimed_at: iso(doc.claimed_at),
     fired_at: iso(doc.fired_at),
     completed_at: iso(doc.completed_at),
+  };
+}
+
+function mapScheduleEvent(event: RawScheduleEvent) {
+  return {
+    event_id: event.event_id || "",
+    event_type: event.event_type || "runner_image_reconciled",
+    occurred_at: iso(event.occurred_at),
+    actor_type: event.actor_type || "system",
+    actor_id: event.actor_id || "caipe-scheduler",
+    source: event.source || "deployment_reconcile",
+    changed_fields: event.changed_fields || [],
+    changes: event.changes || {},
   };
 }
 
@@ -248,6 +273,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             created_at: iso(version.created_at),
             updated_at: iso(version.updated_at),
           })),
+        events: (doc.events || []).map(mapScheduleEvent),
         created_at: iso(doc.created_at),
         updated_at: iso(doc.updated_at),
         last_run: doc.last_run

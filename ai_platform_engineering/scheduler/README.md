@@ -63,12 +63,14 @@ exist. One-offs may carry an optional small `metadata` object into
 `SCHEDULED_RUN_METADATA` and the chat `client_context`; this supports domain
 retries and explicit exceptions without teaching the scheduler domain logic.
 
-`POST /v1/admin/reconcile-cronjobs` is an explicit admin/operator action used
-after changing `CRON_RUNNER_IMAGE`. It checks existing schedule CronJobs and can
-patch only the runner container image and pull policy in their future
-`jobTemplate`s. Use `{"dry_run": true}` first to inspect the report, then
-`{"dry_run": false}` to apply. Reconciliation is not performed automatically on
-scheduler startup.
+On startup, the scheduler automatically checks every persisted schedule CronJob
+and patches only the runner image and pull policy in future `jobTemplate`s when
+they differ from `CRON_RUNNER_IMAGE` and `CRON_RUNNER_IMAGE_PULL_POLICY`. The
+operation is idempotent and isolates per-CronJob failures. Successful image or
+pull-policy changes are recorded in the schedule's change history.
+
+`POST /v1/admin/reconcile-cronjobs` remains available as an operator fallback.
+Use `{"dry_run": true}` to inspect drift and `{"dry_run": false}` to repair it.
 
 ## Run locally
 
