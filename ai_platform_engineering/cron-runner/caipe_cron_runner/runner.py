@@ -1,22 +1,19 @@
-"""caipe-cron-runner main entry.
+"""
+caipe-cron-runner is used to run a single scheduled job fire, invoked by a k8s CronJob. It:
 
-Single-shot per cron fire:
-
-  1. Read SCHEDULE_ID from env.
-  2. GET <SCHEDULER_INTERNAL_URL>/v1/internal/schedules/<id>  (auth: SCHEDULER_SERVICE_TOKEN).
-  3. POST <CAIPE_API_URL><CAIPE_CHAT_PATH>           (auth: SCHEDULER_SERVICE_TOKEN).
+  1. Reads SCHEDULE_ID from env.
+  2. GET <SCHEDULER_INTERNAL_URL>/v1/internal/schedules/<id> (auth: SCHEDULER_SERVICE_TOKEN).
+  3. POST <CAIPE_API_URL><CAIPE_CHAT_PATH> (auth: SCHEDULER_SERVICE_TOKEN).
   4. POST <SCHEDULER_INTERNAL_URL>/v1/schedules/<id>/runs with status.
 
-Has no Mongo or k8s API access by design - the only secret it sees is its own
-service token, mounted from a k8s Secret at fire time.
+It has no Mongo or k8s API access by design - the only secret it sees is its own service token,
+which is mounted from a k8s Secret at fire time.
 
-Identity model (scheduled-job-auth Approach 2): the runner is a thin, low-
-privilege caller. It does NOT authenticate as the schedule owner and never
-sends a user identity the chat API is asked to trust. Instead it presents the
-shared ``X-Scheduler-Token`` to prove it is the scheduler subsystem, and the
-BFF (the platform auth boundary) loads the immutable owner from the schedule
-DB record and mints a real owner bearer via Keycloak token exchange before
-forwarding to Dynamic Agents. See docs/scheduled-job-auth-approaches.md.
+The runner is a thin, low-privilege caller. It does NOT authenticate as the schedule owner and
+never sends a user identity the chat API is asked to trust. Instead it presents the shared 
+X-Scheduler-Token to prove it is the scheduler subsystem, and the BFF (the platform auth boundary)
+loads the immutable owner from the schedule DB record and mints a real owner bearer via Keycloak
+token exchange before forwarding to Dynamic Agents. See docs/scheduled-job-auth-approaches.md.
 """
 
 from __future__ import annotations

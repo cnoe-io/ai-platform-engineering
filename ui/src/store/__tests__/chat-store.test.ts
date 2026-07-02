@@ -843,6 +843,36 @@ describe('chat-store', () => {
       expect(useChatStore.getState().conversations.map((c) => c.id)).toContain('shared-load');
     });
 
+    it('preserves scheduled-run metadata from the server conversation list', async () => {
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: 'scheduled-conversation',
+            title: 'Scheduled Chat',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            metadata: {
+              source: 'scheduler',
+              schedule_id: 'sched_123',
+              schedule_title: 'Daily platform report',
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      expect(useChatStore.getState().conversations[0]?.metadata).toEqual({
+        source: 'scheduler',
+        schedule_id: 'sched_123',
+        schedule_title: 'Daily platform report',
+      });
+    });
+
     it('removes conversations that exist locally but not on server', async () => {
       // Local state has 3 conversations
       const conv1 = makeConversation({ id: 'keep-1', title: 'Keep Me' });
