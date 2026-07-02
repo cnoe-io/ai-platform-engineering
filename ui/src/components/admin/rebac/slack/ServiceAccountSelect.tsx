@@ -123,7 +123,7 @@ export function ServiceAccountSelect({
   // When the caller lacks team membership the SA list is empty but a value may
   // already be saved on the route. Fall back to displayName so the picker shows
   // the current SA name rather than the "no SAs found" empty state.
-  const resolvedDisplayName = selected?.name ?? (value ? displayName : undefined);
+  const resolvedDisplayName = selected?.name ?? ((value || displayName) ? displayName : undefined);
 
   const filtered = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -147,7 +147,7 @@ export function ServiceAccountSelect({
             Retry
           </button>
         </div>
-      ) : serviceAccounts.length === 0 && !value ? (
+      ) : serviceAccounts.length === 0 && !value && !displayName ? (
         <p className="text-xs text-muted-foreground">
           {!teamSlug
             ? "No team assigned to this channel — assign a team first."
