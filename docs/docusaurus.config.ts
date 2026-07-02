@@ -65,6 +65,9 @@ const config: Config = {
       '@docusaurus/plugin-client-redirects',
       {
         redirects: [
+          // Intro page removed — redirect to Quick Start
+          {from: '/docs', to: '/docs/getting-started/quick-start'},
+          {from: '/docs/index', to: '/docs/getting-started/quick-start'},
           // Old docs-based release notes → new blog posts
           {from: '/releases/release-0.4.9', to: '/blog/releases/release-0.4.9'},
           {from: '/releases/release-0.4.8', to: '/blog/releases/release-0.4.8'},
@@ -167,6 +170,11 @@ const config: Config = {
           position: 'left',
           label: 'Docs',
         },
+        ...(versionsConfig ? [{
+          type: 'docsVersionDropdown' as const,
+          position: 'left' as const,
+          dropdownActiveClassDisabled: true,
+        }] : []),
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
