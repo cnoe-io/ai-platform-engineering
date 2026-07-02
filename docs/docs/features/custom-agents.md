@@ -12,11 +12,11 @@ Build your own agents with custom system prompts, tool access, and personas — 
 
 ## Dynamic Agents Service
 
-Standalone agent-builder service — deploy independently of the main supervisor.
+Dynamic Agents is the chat runtime and agent-builder service.
 
 - Each custom agent gets its own system prompt, tool access, and persona
 - Built-in MCP tool support: mount any MCP server into your agent at deploy time
-- REST + SSE API compatible with A2A and AG-UI protocols
+- REST + SSE API for browser, bot, and service callers
 - Deploy via Helm: `oci://ghcr.io/cnoe-io/charts/dynamic-agents`
 
 ## Agent Builder UI
@@ -43,7 +43,8 @@ Idempotent: safe to apply on upgrades without duplicating entries.
 
 ## Customizable System Prompts
 
-- Per-agent system prompts — different personas for Platform Engineer, SRE, Developer
+- Per-agent system prompts — different personas for SRE, Platform Engineer, Developer, and more
+- Ready-to-use SRE agent included out of the box — deploy immediately and customize prompts, tools, and workflows for your team
 - Prompt library: curated, evaluated prompts for common platform workflows
 - Override prompts at runtime via UI without redeploying the chart
 - Prompt versioning tied to Helm chart version for reproducibility

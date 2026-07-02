@@ -6,7 +6,7 @@
  * Designed to never block scans: write failures are logged and swallowed.
  */
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import type { ScanStatus } from "@/types/agent-skill";
 
 export type ScanTrigger =
@@ -42,7 +42,7 @@ export interface SkillScanHistoryDoc {
   actor?: string;
   scan_status: ScanStatus;
   scan_summary?: string;
-  /** True when the supervisor was unreachable / SKILL.md was empty. */
+  /** True when the scanner was unreachable / SKILL.md was empty. */
   scanner_unavailable?: boolean;
   /** Wall time of the scan call in ms. */
   duration_ms?: number;

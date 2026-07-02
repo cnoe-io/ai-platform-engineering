@@ -61,11 +61,47 @@ class Settings(BaseSettings):
     # Maximum allowed TTL (0 = no cap, infinite allowed)
     max_fs_ttl_seconds: int = 0
 
+    # /invoke endpoint persistence
+    # When False (default), each /invoke call uses an ephemeral in-memory runtime that is
+    # discarded after the request — no MongoDB writes, no conversation history across calls.
+    # Set to True to use the shared MongoDB-backed runtime cache, enabling multi-turn
+    # conversation history via /invoke at the cost of additional MongoDB load.
+    invoke_persist_history: bool = False
+
     # Runtime
     agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20
+
+    # Seed configuration path (for MCP servers and agents loaded at startup)
+    seed_config_path: str | None = None
+
+    # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
+    agent_gateway_url: str | None = None
+
+    # CAIPE credential service API used when USE_IMPERSONATION_TOKENS=true.
+    credential_api_url: str | None = None
+    credential_service_audience: str = "caipe-credential-service"
+
+    # CAIPE UI server base URL used by workflow tools to call back into the
+    # CAIPE API (e.g. trigger a workflow run, fetch run status).
+    # Example: "http://caipe-ui:3000" (in-cluster) or "https://caipe.example.com".
+    # Required when any agent has builtin_tools.workflows configured.
+    caipe_api_url: str = ""
+
+    # OAuth2 Client Credentials flow — used by workflow tools to obtain a
+    # short-lived service token before calling caipe_api_url.
+    # oauth2_token_url:     OIDC token endpoint (e.g. /realms/{realm}/protocol/openid-connect/token)
+    # oauth2_client_id:     service-account client ID
+    # oauth2_client_secret: service-account client secret (injected via ExternalSecret)
+    # oauth2_scope:         requested scopes (space-separated; leave empty to use defaults)
+    # oauth2_audience:      token audience claim (leave empty to use defaults)
+    oauth2_token_url: str = ""
+    oauth2_client_id: str = ""
+    oauth2_client_secret: str = ""
+    oauth2_scope: str = ""
+    oauth2_audience: str = ""
 
 
 @lru_cache

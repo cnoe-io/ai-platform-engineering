@@ -1,0 +1,266 @@
+{{- /*
+Creates agentgateway resources (Gateway, AgentgatewayBackend, HTTPRoute, AgentgatewayPolicy)
+for each enabled subagent whose mcp.agentgateway.enabled is true.
+
+When enabled, the single-node-agent-env ConfigMap redirects the agent's MCP traffic
+through the agentgateway proxy instead of connecting directly to the MCP sidecar.
+
+Prerequisites:
+  - global.agentgateway.enabled must be true (renders Gateway API route resources)
+  - global.agentgateway.routingMode must be "gateway-api" (the default). When set
+    to "static", NO custom resources are rendered here; MCP routes are written
+    into the standalone proxy's static config (agentgateway-static-config.yaml)
+    so the chart installs on clusters without the Gateway API / AgentGateway CRDs.
+  - an AgentGateway GatewayClass/controller must exist when using the Gateway API path
+  - Gateway API CRDs must be installed in the cluster
+*/ -}}
+{{- $routingMode := (.Values.global.agentgateway.routingMode | default "static") }}
+{{- if and .Values.global.agentgateway.enabled (eq $routingMode "gateway-api") }}
+{{- $gatewayName := printf "%s-agentgateway-proxy" .Release.Name }}
+{{- $gatewayPort := .Values.global.agentgateway.proxyPort | default 8080 }}
+{{- $hasAgentgatewayAgent := false }}
+{{- $extraMcpTargets := .Values.global.agentgateway.extraMcpTargets | default list }}
+{{- $knowledgeBaseTarget := .Values.global.agentgateway.knowledgeBaseTarget | default dict }}
+
+{{- /* Scan for any agent that has mcp.agentgateway.enabled */ -}}
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
+{{- if $enabled }}
+{{- $agentValues := index $.Values (printf "mcp-%s" $name) | default dict }}
+{{- $mcp := $agentValues.mcp | default dict }}
+{{- $agw := $mcp.agentgateway | default dict }}
+{{- if $agw.enabled }}
+{{- $hasAgentgatewayAgent = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $target := $extraMcpTargets }}
+{{- if or (not (hasKey $target "enabled")) $target.enabled }}
+{{- $hasAgentgatewayAgent = true }}
+{{- end }}
+{{- end }}
+{{- if or (not (hasKey $knowledgeBaseTarget "enabled")) $knowledgeBaseTarget.enabled }}
+{{- $hasAgentgatewayAgent = true }}
+{{- end }}
+
+{{- if $hasAgentgatewayAgent }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $gatewayName }}
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+    - name: http
+      port: {{ $gatewayPort }}
+      protocol: HTTP
+{{- $extAuth := .Values.global.agentgateway.extAuth | default dict }}
+{{- if $extAuth.enabled }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ $gatewayName }}-ext-auth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gatewayName }}
+  traffic:
+    extAuth:
+      backendRef:
+        name: {{ $extAuth.serviceName | default (printf "%s-openfga-authz-bridge" .Release.Name) }}
+        namespace: {{ $extAuth.serviceNamespace | default .Release.Namespace }}
+        port: {{ $extAuth.port | default 9100 }}
+      grpc: {}
+{{- end }}
+
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
+{{- if $enabled }}
+{{- $agentKey := printf "mcp-%s" $name }}
+{{- $agentValues := index $.Values $agentKey | default dict }}
+{{- $mcp := $agentValues.mcp | default dict }}
+{{- $agw := $mcp.agentgateway | default dict }}
+{{- if $agw.enabled }}
+{{- $mcpPort := $mcp.port | default 8000 }}
+{{- $mcpServiceName := printf "%s-%s-mcp" $.Release.Name $agentKey }}
+{{- $mcpHost := printf "%s.%s.svc.cluster.local" $mcpServiceName $.Release.Namespace }}
+{{- $protocol := $agw.protocol | default "StreamableHTTP" }}
+{{- $pathPrefix := printf "/mcp/%s" $name }}
+{{- $routeName := printf "%s-mcp-route" $name }}
+{{- $backendName := printf "%s-mcp-backend" $name }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: {{ $backendName }}
+spec:
+  mcp:
+    targets:
+      - name: {{ printf "%s-mcp" $name }}
+        static:
+          host: {{ $mcpHost }}
+          port: {{ $mcpPort }}
+          protocol: {{ $protocol }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $routeName }}
+spec:
+  parentRefs:
+    - name: {{ $gatewayName }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $pathPrefix }}
+      backendRefs:
+        - name: {{ $backendName }}
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+{{- if eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $agw) "true" }}
+---
+# Per-request provider/identity token: rewrite X-CAIPE-Provider-Token into the
+# upstream Authorization header for MCPs that opt into caller-token passthrough.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ $name }}-provider-token-auth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ $routeName }}
+  traffic:
+    transformation:
+      request:
+        set:
+          - name: authorization
+            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if or (not (hasKey $knowledgeBaseTarget "enabled")) $knowledgeBaseTarget.enabled }}
+{{- $kbHost := required "global.agentgateway.knowledgeBaseTarget.host is required" $knowledgeBaseTarget.host }}
+{{- $kbPort := required "global.agentgateway.knowledgeBaseTarget.port is required" $knowledgeBaseTarget.port }}
+{{- $kbProtocol := $knowledgeBaseTarget.protocol | default "StreamableHTTP" }}
+{{- $kbPathPrefix := $knowledgeBaseTarget.pathPrefix | default "/mcp/knowledge-base" }}
+{{- $kbProviderTokenAuth := eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $knowledgeBaseTarget) "true" }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: knowledge-base-extra-mcp-backend
+spec:
+  mcp:
+    targets:
+      - name: "knowledge-base"
+        static:
+          host: {{ tpl $kbHost $ | quote }}
+          port: {{ $kbPort }}
+          protocol: {{ $kbProtocol }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: knowledge-base-extra-mcp-route
+spec:
+  parentRefs:
+    - name: {{ $gatewayName }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $kbPathPrefix | quote }}
+      backendRefs:
+        - name: knowledge-base-extra-mcp-backend
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+{{- if $kbProviderTokenAuth }}
+---
+# Per-request provider/identity token: rewrite X-CAIPE-Provider-Token into the
+# upstream Authorization header for MCPs that opt into caller-token passthrough.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: knowledge-base-provider-token-auth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: knowledge-base-extra-mcp-route
+  traffic:
+    transformation:
+      request:
+        set:
+          - name: authorization
+            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+{{- end }}
+{{- end }}
+{{- range $target := $extraMcpTargets }}
+{{- if or (not (hasKey $target "enabled")) $target.enabled }}
+{{- $id := required "global.agentgateway.extraMcpTargets[].id is required" $target.id }}
+{{- $safeId := regexReplaceAll "[^a-z0-9-]" (lower $id) "-" | trunc 45 | trimSuffix "-" }}
+{{- $host := required (printf "global.agentgateway.extraMcpTargets[%s].host is required" $id) $target.host }}
+{{- $port := required (printf "global.agentgateway.extraMcpTargets[%s].port is required" $id) $target.port }}
+{{- $protocol := $target.protocol | default "StreamableHTTP" }}
+{{- $pathPrefix := $target.pathPrefix | default (printf "/mcp/%s" $id) }}
+{{- $providerTokenAuth := eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $target) "true" }}
+{{- $routeName := printf "%s-extra-mcp-route" $safeId }}
+{{- $backendName := printf "%s-extra-mcp-backend" $safeId }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: {{ $backendName }}
+spec:
+  mcp:
+    targets:
+      - name: {{ $id | quote }}
+        static:
+          host: {{ tpl $host $ | quote }}
+          port: {{ $port }}
+          protocol: {{ $protocol }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $routeName }}
+spec:
+  parentRefs:
+    - name: {{ $gatewayName }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $pathPrefix | quote }}
+      backendRefs:
+        - name: {{ $backendName }}
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+{{- if $providerTokenAuth }}
+---
+# Per-request provider/identity token: rewrite X-CAIPE-Provider-Token into the
+# upstream Authorization header for MCPs that opt into caller-token passthrough.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ $safeId }}-provider-token-auth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ $routeName }}
+  traffic:
+    transformation:
+      request:
+        set:
+          - name: authorization
+            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Layers, ExternalLink, X, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import { ChevronUp,ExternalLink,Layers,X } from "lucide-react";
+import { useEffect,useRef,useState } from "react";
 
 interface TechItem {
   name: string;
@@ -265,14 +265,14 @@ export function TechStackButton({ variant = "floating" }: TechStackButtonProps) 
               <p className="text-[10px] text-center text-muted-foreground">
                 Built with ❤️ by the{" "}
                 <a
-                  href="https://cnoe.io/"
+                  href="https://caipe.io/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline"
                 >
-                  CNOE
+                  caipe.io
                 </a>{" "}
-                community
+                OSS community
               </p>
             </div>
           </motion.div>

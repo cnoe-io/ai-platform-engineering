@@ -5,7 +5,7 @@ set -euo pipefail
 # Fails if any lockfile is out of date.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UV_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+UV_TIMEOUT="${UV_HTTP_TIMEOUT:-900}"
 
 status=0
 while IFS= read -r -d '' lockfile; do

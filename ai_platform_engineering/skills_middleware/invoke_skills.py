@@ -1,6 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Per-invoke entitled skill files for A2A / supervisor (T066, FR-020)."""
+"""Per-invoke entitled skill files for dynamic agents (T066, FR-020)."""
 
 from __future__ import annotations
 

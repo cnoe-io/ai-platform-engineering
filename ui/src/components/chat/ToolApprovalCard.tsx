@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Pencil } from "lucide-react";
-import CodeMirror from "@uiw/react-codemirror";
-import { json } from "@codemirror/lang-json";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { json } from "@codemirror/lang-json";
+import { oneDark } from "@codemirror/theme-one-dark";
+import CodeMirror from "@uiw/react-codemirror";
+import { Check,Pencil,X } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useCallback,useState } from "react";
 
 interface ToolApprovalCardProps {
   toolName: string;
@@ -16,6 +18,8 @@ interface ToolApprovalCardProps {
   onReject: () => void;
   onEdit: (editedArgs: Record<string, unknown>) => void;
   disabled?: boolean;
+  /** Total number of approvals in this batch (omitted or 1 = no count shown) */
+  totalCount?: number;
 }
 
 export function ToolApprovalCard({
@@ -26,10 +30,13 @@ export function ToolApprovalCard({
   onReject,
   onEdit,
   disabled = false,
+  totalCount,
 }: ToolApprovalCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedJson, setEditedJson] = useState(() => JSON.stringify(toolArgs, null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   const canApprove = allowedDecisions.includes("approve");
   const canReject = allowedDecisions.includes("reject");
@@ -49,7 +56,7 @@ export function ToolApprovalCard({
     <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground font-medium">Approval required</span>
+        <span className="text-xs text-muted-foreground font-medium">{totalCount && totalCount > 1 ? `${totalCount} Approvals required` : "Approval required"}</span>
         <Badge variant="outline" className="text-xs font-mono">
           {toolName}
         </Badge>
@@ -60,6 +67,7 @@ export function ToolApprovalCard({
         <CodeMirror
           value={isEditing ? editedJson : JSON.stringify(toolArgs, null, 2)}
           extensions={[json()]}
+          theme={isDark ? oneDark : "light"}
           editable={isEditing}
           readOnly={!isEditing}
           onChange={(value) => {

@@ -1,12 +1,12 @@
-import { NextRequest } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  requireAdmin,
-  successResponse,
-  ApiError,
-  validateCredentialsRef,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+validateCredentialsRef,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { NextRequest } from "next/server";
 
 /**
  * POST /api/skills/import
@@ -409,11 +409,10 @@ export async function runImport(
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
-    const body = (await request.json()) as Record<string, unknown>;
-    const result = await runImport(body);
-    return successResponse(result);
-  });
+  const body = (await request.json()) as Record<string, unknown>;
+  const result = await runImport(body);
+  return successResponse(result);
 });

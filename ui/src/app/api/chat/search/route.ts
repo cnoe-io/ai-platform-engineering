@@ -1,18 +1,23 @@
 // GET /api/chat/search - Search conversations by query and tags
 
-import { NextRequest } from 'next/server';
+import {
+getPaginationParams,
+paginatedResponse,
+withAuth,
+withErrorHandler,
+} from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  paginatedResponse,
-  getPaginationParams,
-} from '@/lib/api-middleware';
+  conversationVisibilityCandidateQuery,
+  filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
+} from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/chat/search
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const url = new URL(request.url);
     const query = url.searchParams.get('q') || '';
     const tagsParam = url.searchParams.get('tags');
@@ -21,13 +26,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { page, pageSize, skip } = getPaginationParams(request);
 
     const conversations = await getCollection<Conversation>('conversations');
+    const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
-    // Build search query
+    // Build search query from content filters and privacy-safe conversation candidates.
     const searchQuery: any = {
-      $or: [
-        { owner_id: user.email },
-        { 'sharing.shared_with': user.email },
-      ],
+      $and: [conversationVisibilityCandidateQuery(user.email, directShareConversationIds)],
     };
 
     // Add text search if query provided
@@ -58,6 +61,19 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    return paginatedResponse(items, total, page, pageSize);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+      session,
+      user.email,
+      items,
+      'discover',
+      directShareConversationIds,
+    );
+
+    return paginatedResponse(
+      visibleItems,
+      visibleItems.length < items.length ? visibleItems.length : total,
+      page,
+      pageSize
+    );
   });
 });

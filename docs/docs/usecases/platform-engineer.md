@@ -34,27 +34,18 @@ A Platform Engineer designs a Kubernetes-based infrastructure to support microse
 
 ## Getting Started
 
-CAIPE provides multiple Platform Engineer personas with different agent combinations:
+CAIPE provides multiple Platform Engineer personas with different integration combinations:
 
 ```bash
-# Full platform engineer with all agents
-cd docker-compose
-docker compose -f docker-compose.platform-engineer.yaml --profile a2a-p2p up
-
-# DevOps engineer persona
-docker compose -f docker-compose.devops-engineer.yaml --profile a2a-p2p up
-
-# Basic CAIPE setup
-docker compose -f docker-compose.caipe-basic.yaml --profile a2a-p2p up
-
-# Generate fresh compose files
-make generate-docker-compose PERSONAS="platform-engineer devops-engineer"
+# Start the core stack with common platform integrations
+docker compose --profile argocd --profile github --profile jira --profile pagerduty up
 ```
 
 ### Available Personas
 
-- **platform-engineer**: Complete setup with ArgoCD, AWS, Backstage, Confluence, GitHub, Jira, Komodor, PagerDuty, Slack, Splunk, Weather, Webex, and Petstore agents
-- **devops-engineer**: DevOps-focused setup with ArgoCD, AWS, GitHub, Jira, Komodor, and PagerDuty agents
-- **caipe-basic**: Minimal setup with Weather and Petstore agents for getting started
+- **sre**: Ready-to-use SRE agent with PagerDuty, Kubernetes, Splunk, GitHub, and Slack integrations — customizable for your team's on-call and incident workflows
+- **platform-engineer**: Complete setup with ArgoCD, AWS, Backstage, Confluence, GitHub, Jira, Komodor, PagerDuty, Slack, Splunk, and Webex integrations
+- **devops-engineer**: DevOps-focused setup with ArgoCD, AWS, GitHub, Jira, Komodor, and PagerDuty integrations
+- **caipe-basic**: Minimal setup with the UI, Dynamic Agents runtime, RAG, and a small set of MCP tools
 
-See the [docker-compose.yaml](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docker-compose.yaml) for detailed information about all available personas.
+See the [docker-compose.yaml](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docker-compose.yaml) for the available Compose profiles.

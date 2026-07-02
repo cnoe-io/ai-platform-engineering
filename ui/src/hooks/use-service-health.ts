@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useBatchPrometheus, type BatchQuery } from "./use-prometheus";
+import { useBatchPrometheus,type BatchQuery } from "./use-prometheus";
 
 // ────────────────────────────────────────────────────────────────
 // Types
@@ -27,29 +27,29 @@ export interface UseServiceHealthReturn {
 
 // ────────────────────────────────────────────────────────────────
 // Queries
+//
+// Health is derived from the `da_*` metrics emitted by the Dynamic Agents
+// service.
+// `da_up` matches the dynamic-agents scrape target by service name.
 // ────────────────────────────────────────────────────────────────
 
 const HEALTH_QUERIES: BatchQuery[] = [
   {
-    id: "supervisor_up",
-    query: 'up{job=~".*supervisor.*"}',
+    id: "da_up",
+    query: 'up{job=~".*dynamic.*"}',
   },
   {
-    id: "enabled_agents",
-    query: "count(enabled_subagents == 1)",
-  },
-  {
-    id: "supervisor_success_rate",
+    id: "turn_success_rate",
     query:
-      'sum(agent_requests_total{status="success"}) / sum(agent_requests_total) * 100',
+      'sum(da_turns_total{status="success"}) / sum(da_turns_total) * 100',
   },
   {
-    id: "request_rate_5m",
-    query: "sum(rate(agent_requests_total[5m]))",
+    id: "turn_rate_5m",
+    query: "sum(rate(da_turns_total[5m]))",
   },
   {
-    id: "agent_statuses",
-    query: "enabled_subagents",
+    id: "agent_turns",
+    query: "sum by (agent_name) (da_turns_total)",
   },
 ];
 
@@ -77,74 +77,72 @@ export function useServiceHealth(
 
     const svcList: ServiceHealth[] = [];
 
-    // Supervisor Agent
-    const supervisorResult = results.supervisor_up?.data?.result;
-    if (supervisorResult && supervisorResult.length > 0) {
-      const val = parseFloat(supervisorResult[0].value?.[1] || "0");
+    // Dynamic Agents service (scrape target up/down)
+    const upResult = results.da_up?.data?.result;
+    if (upResult && upResult.length > 0) {
+      // A target is healthy when at least one instance reports up=1.
+      const anyUp = upResult.some((m) => parseFloat(m.value?.[1] || "0") === 1);
       svcList.push({
-        name: "Supervisor Agent",
-        status: val === 1 ? "healthy" : "down",
-        detail: val === 1 ? "Running" : "Not responding",
-        value: val,
+        name: "Dynamic Agents",
+        status: anyUp ? "healthy" : "down",
+        detail: anyUp ? "Running" : "Not responding",
+        value: anyUp ? 1 : 0,
       });
     } else {
       svcList.push({
-        name: "Supervisor Agent",
+        name: "Dynamic Agents",
         status: "unknown",
         detail: "No data",
       });
     }
 
-    // Enabled Sub-agents
-    const agentCountResult = results.enabled_agents?.data?.result;
-    const agentCount = agentCountResult?.[0]?.value?.[1];
-    if (agentCount !== undefined) {
-      const n = parseInt(agentCount, 10);
+    // Per-agent activity — agents that have handled at least one turn.
+    const agentTurnsResult = results.agent_turns?.data?.result;
+    if (agentTurnsResult) {
+      const activeAgents = agentTurnsResult.filter(
+        (m) => parseFloat(m.value?.[1] || "0") > 0,
+      );
       svcList.push({
-        name: "Sub-agents",
-        status: n > 0 ? "healthy" : "down",
-        detail: `${n} agent${n !== 1 ? "s" : ""} enabled`,
-        value: n,
+        name: "Active Agents",
+        status: activeAgents.length > 0 ? "healthy" : "unknown",
+        detail: `${activeAgents.length} agent${activeAgents.length !== 1 ? "s" : ""} active`,
+        value: activeAgents.length,
       });
-    }
 
-    // Individual agent status
-    const agentStatusResult = results.agent_statuses?.data?.result;
-    if (agentStatusResult) {
-      for (const m of agentStatusResult) {
+      for (const m of agentTurnsResult) {
         const name = m.metric.agent_name || "unknown";
-        const val = parseFloat(m.value?.[1] || "0");
+        const turns = parseFloat(m.value?.[1] || "0");
         svcList.push({
           name: `Agent: ${name}`,
-          status: val === 1 ? "healthy" : "down",
-          detail: val === 1 ? "Enabled" : "Disabled",
-          value: val,
+          status: turns > 0 ? "healthy" : "unknown",
+          detail: `${turns.toLocaleString()} turn${turns !== 1 ? "s" : ""}`,
+          value: turns,
         });
       }
     }
 
-    // Success Rate
-    const successRateResult = results.supervisor_success_rate?.data?.result;
+    // Turn success rate
+    const successRateResult = results.turn_success_rate?.data?.result;
     if (successRateResult && successRateResult.length > 0) {
       const rate = parseFloat(successRateResult[0].value?.[1] || "0");
       const status: HealthStatus =
         isNaN(rate) ? "unknown" : rate >= 95 ? "healthy" : rate >= 80 ? "degraded" : "down";
       svcList.push({
-        name: "Success Rate",
+        name: "Turn Success Rate",
         status,
         detail: isNaN(rate) ? "No data" : `${rate.toFixed(1)}%`,
         value: rate,
       });
     }
 
-    // Request Rate
-    const reqRateResult = results.request_rate_5m?.data?.result;
-    if (reqRateResult && reqRateResult.length > 0) {
-      const rate = parseFloat(reqRateResult[0].value?.[1] || "0");
+    // Turn rate
+    const turnRateResult = results.turn_rate_5m?.data?.result;
+    if (turnRateResult && turnRateResult.length > 0) {
+      const rate = parseFloat(turnRateResult[0].value?.[1] || "0");
       svcList.push({
-        name: "Request Rate",
+        name: "Turn Rate",
         status: "healthy",
-        detail: `${rate.toFixed(2)} req/s`,
+        detail: `${rate.toFixed(2)} turns/s`,
         value: rate,
       });
     }

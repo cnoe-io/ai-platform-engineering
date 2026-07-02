@@ -23,8 +23,7 @@
  *
  * # Why zustand
  *
- * Aligns with existing project convention (see
- * unsaved-changes-store, feature-flag-store, task-config-store).
+ * Aligns with existing project convention for small UI state stores.
  * No context wiring; selectors are cheap; no React-tree
  * dependency for the AbortController plumbing the
  * crawl-stream-client owns.
@@ -39,8 +38,8 @@
  * store.
  */
 
-import { create } from "zustand";
 import type { CrawlEvent } from "@/lib/crawl-events";
+import { create } from "zustand";
 
 // ---------------------------------------------------------------------------
 // Run model

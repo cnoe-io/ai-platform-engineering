@@ -10,31 +10,35 @@ on:
         type: string
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   # Commit version bump (pyproject.toml + Chart.yaml), changelog, and tag
   commit-release:
     name: Commit Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ github.event.inputs.version }}
     outputs:
       current_version: ${{ steps.validate.outputs.current_version }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
         with:
           egress-policy: audit
 
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: main
           fetch-depth: 0
@@ -42,7 +46,9 @@ jobs:
 
       - name: ✅ Validate version format
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          VERSION="$RELEASE_VERSION"
           echo "📦 Requested version: $VERSION"
 
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -59,7 +65,7 @@ jobs:
           # Extract current version from pyproject.toml (strip any pre-release suffix to bare x.y.z)
           RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           CURRENT_BARE=$(echo "$RAW_VERSION" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          NEW_VERSION="$RELEASE_VERSION"
 
           echo "📋 Current version (raw): $RAW_VERSION"
           echo "📋 Current version (bare): $CURRENT_BARE"
@@ -81,7 +87,9 @@ jobs:
 
       - name: 🔍 Check tag doesn't already exist
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
           if git tag -l "$NEW_VERSION" | grep -q .; then
             echo "❌ ERROR: Tag '$NEW_VERSION' already exists"
             exit 1
@@ -89,12 +97,12 @@ jobs:
           echo "✅ Tag '$NEW_VERSION' does not exist"
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
       - name: 📦 Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: 📦 Prepare release (update files + changelog + verify)
         uses: ./.github/actions/prepare-release
@@ -103,7 +111,9 @@ jobs:
 
       - name:  Commit, tag, and push
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
 
           # Configure git
           git config user.name "github-actions[bot]"
@@ -142,19 +152,26 @@ jobs:
     name: Create Draft Release
     needs: commit-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ github.event.inputs.version }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 🚀 Create GitHub Release (Draft)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
           echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION..."
 
           gh release create "$NEW_VERSION" \
@@ -169,7 +186,9 @@ jobs:
 
       - name: 📊 Summary
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
           CURRENT_VERSION="${{ needs.commit-release.outputs.current_version }}"
 
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
@@ -191,13 +210,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### CI (triggered by tag push) ⏳" >> $GITHUB_STEP_SUMMARY
           echo "CI workflows run from the pushed \`$NEW_VERSION\` tag and publish matching artifacts when complete:" >> $GITHUB_STEP_SUMMARY
-          echo "- Supervisor agent" >> $GITHUB_STEP_SUMMARY
           echo "- Dynamic agents" >> $GITHUB_STEP_SUMMARY
-          echo "- A2A sub-agents" >> $GITHUB_STEP_SUMMARY
-          echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
+          echo "- MCP servers" >> $GITHUB_STEP_SUMMARY
           echo "- RAG components" >> $GITHUB_STEP_SUMMARY
           echo "- CAIPE UI" >> $GITHUB_STEP_SUMMARY
           echo "- Slack bot" >> $GITHUB_STEP_SUMMARY
+          echo "- Webex bot" >> $GITHUB_STEP_SUMMARY
           echo "- Helm charts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GitHub Release (Draft) 📝" >> $GITHUB_STEP_SUMMARY

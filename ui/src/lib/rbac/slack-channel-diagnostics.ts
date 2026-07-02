@@ -1,0 +1,128 @@
+import { ambiguousRoutesMessage } from "@/lib/rbac/connector-diagnostic-messages";
+import {
+  type ConnectorDiagnostics,
+  type ConnectorDiagnosticsAdapter,
+  type ConnectorHealthSummary,
+  type ConnectorRouteMetadata,
+  type ConnectorRuntimeRouteDiagnostic,
+  computeConnectorDiagnostics,
+  computeConnectorHealthSummary,
+  computeConnectorHealthSummaries,
+} from "@/lib/rbac/connector-diagnostics";
+import { readOpenFgaTuples } from "@/lib/rbac/openfga";
+import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
+import { listSlackChannelAgentRoutes } from "@/lib/rbac/slack-channel-route-store";
+
+export type SlackRuntimeRouteDiagnostic = ConnectorRuntimeRouteDiagnostic;
+
+export type SlackChannelLastRuntimeError = NonNullable<ConnectorDiagnostics["last_runtime_error"]>;
+
+export interface SlackChannelDiagnostics extends Omit<ConnectorDiagnostics, "item_id"> {
+  channel_id: string;
+}
+
+export type SlackChannelHealthSummary = ConnectorHealthSummary;
+
+export interface SlackChannelHealthSummaryTarget {
+  workspaceId: string;
+  channelId: string;
+}
+
+function agentIdFromObject(object: string): string | null {
+  if (!object.startsWith("agent:")) return null;
+  const agentId = object.slice("agent:".length).trim();
+  return agentId || null;
+}
+
+async function listOpenFgaSlackChannelAgentIds(workspaceId: string, channelId: string): Promise<string[]> {
+  const subject = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
+  const seen = new Set<string>();
+  let continuationToken: string | undefined;
+  do {
+    const result = await readOpenFgaTuples({
+      tuple: { user: subject, relation: "user", object: "agent:" },
+      pageSize: 100,
+      ...(continuationToken ? { continuationToken } : {}),
+    });
+    for (const tuple of result.tuples) {
+      const agentId = agentIdFromObject(tuple.key.object);
+      if (agentId) seen.add(agentId);
+    }
+    continuationToken = result.continuationToken;
+  } while (continuationToken);
+  return Array.from(seen);
+}
+
+function buildAmbiguousRouteWarnings(routes: ConnectorRuntimeRouteDiagnostic[]): string[] {
+  // Surface real misconfiguration: two enabled routes that match the
+  // same incoming message at the same priority. The Slack bot uses the
+  // lowest priority number first, then agent name as a tie-break.
+  const eligible = routes.filter((route) => route.openfga_tuple);
+  const warnings: string[] = [];
+  for (const mode of ["mention", "message"] as const) {
+    const candidates = eligible.filter((route) => route.runtime_matches[mode]);
+    if (candidates.length < 2) continue;
+    const byPriority = new Map<number, string[]>();
+    for (const route of candidates) {
+      const ids = byPriority.get(route.priority) ?? [];
+      ids.push(route.agent_id);
+      byPriority.set(route.priority, ids);
+    }
+    for (const [priority, agentIds] of byPriority) {
+      if (agentIds.length < 2) continue;
+      warnings.push(ambiguousRoutesMessage(agentIds, mode, priority));
+    }
+  }
+  return warnings;
+}
+
+const SLACK_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
+  kind: "slack_channel",
+  botLabel: "Slack bot",
+  runtimeLabel: "Slack runtime",
+  tupleNoun: "channel-agent",
+  auditComponent: "slack_bot",
+  auditResourceRef: (workspaceId, channelId) =>
+    `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`,
+  listOpenFgaAgentIds: listOpenFgaSlackChannelAgentIds,
+  listRouteMetadata: async (workspaceId, channelId): Promise<ConnectorRouteMetadata[]> => {
+    const rows = await listSlackChannelAgentRoutes(workspaceId, channelId);
+    return rows.map((route) => ({
+      agent_id: route.agent_id,
+      priority: route.priority,
+      users: route.users ? { listen: route.users.listen } : undefined,
+    }));
+  },
+  buildAmbiguousRouteWarnings,
+};
+
+export async function computeSlackChannelDiagnostics(
+  workspaceId: string,
+  channelId: string,
+): Promise<SlackChannelDiagnostics> {
+  const diagnostics = await computeConnectorDiagnostics(SLACK_DIAGNOSTICS_ADAPTER, workspaceId, channelId);
+  return {
+    workspace_id: diagnostics.workspace_id,
+    channel_id: diagnostics.item_id,
+    openfga: diagnostics.openfga,
+    routes: diagnostics.routes,
+    warnings: diagnostics.warnings,
+    last_runtime_error: diagnostics.last_runtime_error,
+  };
+}
+
+export async function computeSlackChannelHealthSummary(
+  workspaceId: string,
+  channelId: string,
+): Promise<SlackChannelHealthSummary> {
+  return computeConnectorHealthSummary(SLACK_DIAGNOSTICS_ADAPTER, workspaceId, channelId);
+}
+
+export async function computeSlackChannelHealthSummaries(
+  targets: SlackChannelHealthSummaryTarget[],
+): Promise<SlackChannelHealthSummary[]> {
+  return computeConnectorHealthSummaries(
+    SLACK_DIAGNOSTICS_ADAPTER,
+    targets.map((target) => ({ workspaceId: target.workspaceId, itemId: target.channelId })),
+  );
+}

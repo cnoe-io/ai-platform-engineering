@@ -1,23 +1,24 @@
 // PUT /api/chat/messages/[id] - Update message (content, metadata, events)
 // [id] can be either a MongoDB ObjectId or a client-generated message_id (UUID)
 
-import { NextRequest } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Message, UpdateMessageRequest } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import { requireResourcePermission } from '@/lib/rbac/resource-authz';
+import type { Message,UpdateMessageRequest } from '@/types/mongodb';
+import { ObjectId } from 'mongodb';
+import { NextRequest } from 'next/server';
 
 // PUT /api/chat/messages/[id]
 export const PUT = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const messageId = params.id;
     const body: UpdateMessageRequest = await request.json();
@@ -38,6 +39,11 @@ export const PUT = withErrorHandler(async (
     if (!message) {
       throw new ApiError('Message not found', 404);
     }
+    await requireResourcePermission(session, {
+      type: 'conversation',
+      id: message.conversation_id,
+      action: 'write',
+    });
 
     // Build update
     const update: any = {};
@@ -59,10 +65,6 @@ export const PUT = withErrorHandler(async (
       if (body.metadata.task_id !== undefined) {
         update['metadata.task_id'] = body.metadata.task_id;
       }
-    }
-
-    if (body.a2a_events !== undefined) {
-      update.a2a_events = body.a2a_events;
     }
 
     if (Object.keys(update).length === 0) {

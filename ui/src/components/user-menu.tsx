@@ -1,79 +1,29 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useSession, signIn, signOut } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X, SlidersHorizontal } from "lucide-react";
-import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { PreferencesModal } from "@/components/preferences-modal";
+import type { ChangelogRelease } from "@/app/api/changelog/route";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { config } from "@/lib/config";
-import type { ChangelogRelease, ChangelogItem } from "@/app/api/changelog/route";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-// Tech Stack Data
-interface TechItem {
-  name: string;
-  description: string;
-  url: string;
-  category: "platform" | "protocol" | "frontend" | "backend" | "community";
-}
-
-// Helper to get platform name dynamically — uses config.appName
-// since techStack is defined at module level (outside component scope).
-function getPlatformName(): string {
-  return config.appName;
-}
-
-// Helper to get platform description dynamically — uses hardcoded defaults
-// since techStack is defined at module level (outside component scope).
-// The actual values shown in the dialog will come from the config module.
-function getPlatformDescription(): string {
-  return "Multi-Agent Workflow Automation - Where Humans and AI agents collaborate to deliver high quality outcomes.";
-}
-
-const techStack: TechItem[] = [
-  { get name() { return getPlatformName(); }, get description() { return getPlatformDescription(); }, url: "https://caipe.io", category: "platform" },
-  { name: "A2A Protocol", description: "Agent-to-Agent protocol for inter-agent communication (by Google)", url: "https://google.github.io/A2A/", category: "protocol" },
-  { name: "A2UI", description: "Agent-to-User Interface specification for declarative UI widgets", url: "https://a2ui.org/", category: "protocol" },
-  { name: "MCP", description: "Model Context Protocol for AI tool integration (by Anthropic)", url: "https://modelcontextprotocol.io/", category: "protocol" },
-  { name: "Next.js 15", description: "React framework with App Router and Server Components", url: "https://nextjs.org/", category: "frontend" },
-  { name: "React 19", description: "JavaScript library for building user interfaces", url: "https://react.dev/", category: "frontend" },
-  { name: "TypeScript", description: "Typed superset of JavaScript for better developer experience", url: "https://www.typescriptlang.org/", category: "frontend" },
-  { name: "Tailwind CSS", description: "Utility-first CSS framework for rapid UI development", url: "https://tailwindcss.com/", category: "frontend" },
-  { name: "Radix UI", description: "Unstyled, accessible UI components for React", url: "https://www.radix-ui.com/", category: "frontend" },
-  { name: "Zustand", description: "Lightweight state management for React applications", url: "https://zustand-demo.pmnd.rs/", category: "frontend" },
-  { name: "Framer Motion", description: "Production-ready animation library for React", url: "https://www.framer.com/motion/", category: "frontend" },
-  { name: "Sigma.js", description: "JavaScript library for graph visualization and analysis", url: "https://www.sigmajs.org/", category: "frontend" },
-  { name: "NextAuth.js", description: "Authentication for Next.js applications with OAuth 2.0 support", url: "https://next-auth.js.org/", category: "frontend" },
-  { name: "LangGraph", description: "Framework for building stateful, multi-actor applications with LLMs", url: "https://langchain-ai.github.io/langgraph/", category: "backend" },
-  { name: "Python 3.11+", description: "Backend agent implementation with asyncio support", url: "https://www.python.org/", category: "backend" },
-  { name: "CNOE", description: "Cloud Native Operational Excellence - Open source IDP reference implementations", url: "https://cnoe.io/", category: "community" },
-];
-
-const categoryLabels: Record<TechItem["category"], string> = {
-  platform: "Platform",
-  protocol: "Protocols",
-  frontend: "Frontend",
-  backend: "Backend",
-  community: "Community",
-};
-
-const categoryColors: Record<TechItem["category"], string> = {
-  platform: "gradient-primary-br",
-  protocol: "bg-gradient-to-br from-purple-500 to-purple-600",
-  frontend: "bg-gradient-to-br from-blue-500 to-blue-600",
-  backend: "bg-gradient-to-br from-orange-500 to-orange-600",
-  community: "bg-gradient-to-br from-green-500 to-green-600",
-};
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { config } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import {
+CATEGORY_LABELS,
+FEATURE_FLAGS,
+useFeatureFlagStore,
+type FeatureFlag,
+type FeatureFlagCategory,
+type FeatureFlagIcon,
+} from "@/store/feature-flag-store";
+import { AnimatePresence,motion } from "framer-motion";
+import { ArrowDownToLine,Brain,Bug,Check,ChevronDown,ChevronRight,ChevronUp,Clock,Code,Copy,ExternalLink,Eye,FileText,Hash,Info,KeyRound,Layers,Lightbulb,LogIn,LogOut,RefreshCw,Search,Settings,Shield,SlidersHorizontal,Sparkles,Tag,Users,Wrench,X } from "lucide-react";
+import { signIn,signOut,useSession } from "next-auth/react";
+import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 /**
  * Config debug display: render a key-value row for the debug tab.
@@ -272,17 +222,96 @@ function ChangelogSection({ release, defaultOpen, onScopeClick }: {
   );
 }
 
+const FLAG_ICONS: Record<FeatureFlagIcon, React.ReactNode> = {
+  Brain: <Brain className="h-4 w-4" />,
+  Bug: <Bug className="h-4 w-4" />,
+  Eye: <Eye className="h-4 w-4" />,
+  ArrowDownToLine: <ArrowDownToLine className="h-4 w-4" />,
+  Clock: <Clock className="h-4 w-4" />,
+};
+
+const CATEGORY_ORDER: FeatureFlagCategory[] = ["ai", "chat", "developer"];
+
+function FlagRow({ flag }: { flag: FeatureFlag }) {
+  const { flags, toggle } = useFeatureFlagStore();
+  const [showInfo, setShowInfo] = useState(false);
+  const enabled = flags[flag.id] ?? flag.defaultValue;
+
+  return (
+    <div className="rounded-lg border border-border hover:border-border/80 transition-colors">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className={cn(
+          "shrink-0 p-1.5 rounded-lg transition-colors",
+          enabled ? "text-primary bg-primary/10" : "text-muted-foreground bg-muted/50"
+        )}>
+          {FLAG_ICONS[flag.icon]}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium">{flag.label}</span>
+            <button
+              onClick={() => setShowInfo(!showInfo)}
+              className={cn(
+                "p-0.5 rounded transition-colors",
+                showInfo ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"
+              )}
+              aria-label={`Info about ${flag.label}`}
+            >
+              <Info className="h-3 w-3" />
+            </button>
+          </div>
+          <span className="text-xs text-muted-foreground">{flag.description}</span>
+        </div>
+        <button
+          onClick={() => toggle(flag.id)}
+          className="shrink-0"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={`Toggle ${flag.label}`}
+        >
+          <div className={cn(
+            "relative w-10 h-6 rounded-full transition-colors",
+            enabled ? "bg-primary" : "bg-muted-foreground/30"
+          )}>
+            <div className={cn(
+              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+              enabled ? "translate-x-[18px]" : "translate-x-0.5"
+            )} />
+          </div>
+        </button>
+      </div>
+      {showInfo && (
+        <div className="px-4 pb-3">
+          <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 text-xs text-muted-foreground leading-relaxed">
+            {flag.detail}
+            {flag.docsUrl && (
+              <a
+                href={flag.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 mt-1.5 text-primary hover:underline font-medium"
+              >
+                Learn more
+                <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function UserMenu() {
   const { data: session, status, update } = useSession();
   const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);
-  const [prefsOpen, setPrefsOpen] = useState(false);
   const [systemOpen, setSystemOpen] = useState(false);
-  const [systemTab, setSystemTab] = useState("oidc");
+  const [systemTab, setSystemTab] = useState("preferences");
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
-  const [idTokenCopied, setIdTokenCopied] = useState(false);
   const [changelogReleases, setChangelogReleases] = useState<ChangelogRelease[]>([]);
   const [changelogScopes, setChangelogScopes] = useState<string[]>([]);
   const [changelogScopeFilter, setChangelogScopeFilter] = useState<string | null>(null);
@@ -291,6 +320,17 @@ export function UserMenu() {
   const [changelogError, setChangelogError] = useState<string | null>(null);
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [rbacPosture, setRbacPosture] = useState<{
+    realm_roles: string[];
+    per_kb_roles: string[];
+    per_agent_roles: string[];
+    teams: Array<{ _id: string; name: string; role?: string }>;
+    idp_source: string;
+    slack_linked: boolean;
+    role: string;
+  } | null>(null);
+  const [rbacLoading, setRbacLoading] = useState(false);
+  const rbacFetched = useRef(false);
 
   const fetchChangelog = useCallback(async () => {
     if (changelogFetched.current) return;
@@ -311,6 +351,22 @@ export function UserMenu() {
     }
   }, []);
 
+  const fetchRbacPosture = useCallback(async () => {
+    if (rbacFetched.current) return;
+    rbacFetched.current = true;
+    setRbacLoading(true);
+    try {
+      const res = await fetch("/api/auth/my-roles");
+      if (!res.ok) throw new Error("Failed to fetch RBAC posture");
+      const data = await res.json();
+      setRbacPosture(data);
+    } catch (err) {
+      console.error("[UserMenu] RBAC posture fetch failed:", err);
+    } finally {
+      setRbacLoading(false);
+    }
+  }, []);
+
   useEffect(() => { initialize(); }, [initialize]);
 
   // Close on outside click - MUST be called before any returns (Rules of Hooks)
@@ -328,8 +384,7 @@ export function UserMenu() {
 
   useEffect(() => {
     function handleOpenChangelog() {
-      setSystemTab("changelog");
-      setSystemOpen(true);
+      setAboutOpen(true);
       setOpen(false);
       fetchChangelog();
     }
@@ -382,7 +437,7 @@ export function UserMenu() {
     }
   };
 
-  const decodedToken = session?.idToken ? decodeJWT(session.idToken) : null;
+  const decodedToken = session?.accessToken ? decodeJWT(session.accessToken) : null;
 
   // Handle manual token refresh
   const handleRefreshToken = async () => {
@@ -418,18 +473,6 @@ export function UserMenu() {
     }
   };
 
-  // Handle copy ID token to clipboard
-  const handleCopyIdToken = async () => {
-    if (!session?.idToken) return;
-    try {
-      await navigator.clipboard.writeText(session.idToken);
-      setIdTokenCopied(true);
-      setTimeout(() => setIdTokenCopied(false), 2000);
-    } catch (err) {
-      console.error('[UserMenu] Failed to copy ID token:', err);
-    }
-  };
-
   // Authenticated - show user menu
   const userInitials = session?.user?.name
     ? session.user.name
@@ -452,29 +495,20 @@ export function UserMenu() {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setOpen(!open)}
+        aria-label={`User menu for ${displayName}`}
         className={cn(
-          "flex items-center gap-2 px-2 py-1 rounded-full transition-colors",
-          open
-            ? "bg-primary/10"
-            : "hover:bg-muted"
+          "flex items-center gap-1.5 px-1.5 py-1 rounded-full transition-colors",
+          open ? "bg-primary/10" : "hover:bg-muted"
         )}
       >
         {session?.user?.image ? (
-          <img
-            src={session.user.image}
-            alt={displayName}
-            className="h-6 w-6 rounded-full"
-          />
+          <img src={session.user.image} alt={displayName} className="h-6 w-6 rounded-full" />
         ) : (
           <div className="h-6 w-6 rounded-full gradient-primary-br flex items-center justify-center">
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
           </div>
         )}
-        <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>
-        <ChevronDown className={cn(
-          "h-3 w-3 text-muted-foreground transition-transform",
-          open && "rotate-180"
-        )} />
+        <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform duration-200", open && "rotate-180")} />
       </button>
 
       <AnimatePresence>
@@ -537,18 +571,19 @@ export function UserMenu() {
               </div>
             </div>
 
-            {/* System Section — single menu item for all system info */}
+            {/* Settings — single entry for all settings + system info */}
             <div className="border-b border-border">
               <button
                 onClick={() => {
                   setSystemOpen(true);
+                  setSystemTab("preferences");
                   setOpen(false);
                 }}
                 className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <Settings className="h-3.5 w-3.5" />
-                  <span>System</span>
+                  <span>Settings</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -571,18 +606,19 @@ export function UserMenu() {
               </div>
             )}
 
-            {/* Preferences */}
+            {/* About */}
             <div className="border-b border-border">
               <button
                 onClick={() => {
-                  setPrefsOpen(true);
+                  setAboutOpen(true);
                   setOpen(false);
+                  fetchChangelog();
                 }}
                 className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                  <span>Preferences</span>
+                  <Info className="h-3.5 w-3.5" />
+                  <span>About</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -605,11 +641,8 @@ export function UserMenu() {
         )}
       </AnimatePresence>
 
-      {/* Preferences Modal */}
-      <PreferencesModal open={prefsOpen} onOpenChange={setPrefsOpen} />
-
-      {/* System Dialog — tabbed: OIDC Token, Debug, Built With */}
-      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("oidc"); }}>
+      {/* Settings Dialog — tabbed: Preferences, My RBAC, OIDC Token, Debug, About */}
+      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("preferences"); }}>
         <DialogContent className="max-w-4xl max-h-[85vh] p-0">
           <DialogHeader className="p-6 pb-4 border-b border-border">
             <div className="flex items-center gap-3">
@@ -617,7 +650,7 @@ export function UserMenu() {
                 <Settings className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle>System — {config.appName}</DialogTitle>
+                <DialogTitle>Settings — {config.appName}</DialogTitle>
                 <DialogDescription>
                   {config.tagline}
                 </DialogDescription>
@@ -625,9 +658,23 @@ export function UserMenu() {
             </div>
           </DialogHeader>
 
-          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); }}>
+          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "rbac") fetchRbacPosture(); }}>
             <div className="px-6 pt-2 border-b border-border">
               <TabsList className="bg-transparent h-auto p-0 gap-4">
+                <TabsTrigger
+                  value="preferences"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                  Preferences
+                </TabsTrigger>
+                <TabsTrigger
+                  value="rbac"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                  My RBAC
+                </TabsTrigger>
                 <TabsTrigger
                   value="oidc"
                   className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
@@ -642,22 +689,196 @@ export function UserMenu() {
                   <Bug className="h-3.5 w-3.5 mr-1.5" />
                   Debug
                 </TabsTrigger>
-                <TabsTrigger
-                  value="built-with"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <Layers className="h-3.5 w-3.5 mr-1.5" />
-                  Built With
-                </TabsTrigger>
-                <TabsTrigger
-                  value="changelog"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <FileText className="h-3.5 w-3.5 mr-1.5" />
-                  Changelog
-                </TabsTrigger>
               </TabsList>
             </div>
+
+            {/* Preferences Tab */}
+            <TabsContent value="preferences" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
+                {CATEGORY_ORDER
+                  .map((cat) => ({
+                    category: cat as FeatureFlagCategory,
+                    label: CATEGORY_LABELS[cat as FeatureFlagCategory],
+                    flags: FEATURE_FLAGS.filter((f) => f.category === cat),
+                  }))
+                  .filter((g) => g.flags.length > 0)
+                  .map(({ category, label, flags }) => (
+                    <div key={category}>
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                        {label}
+                      </h3>
+                      <div className="space-y-2">
+                        {flags.map((flag) => (
+                          <FlagRow key={flag.id} flag={flag} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <div className="p-4 border-t border-border bg-muted/20">
+                <p className="text-[11px] text-center text-muted-foreground">
+                  These preferences apply to your account only and sync across devices.
+                </p>
+              </div>
+            </TabsContent>
+
+            {/* My RBAC Tab */}
+            <TabsContent value="rbac" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
+                {rbacLoading && (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {!rbacLoading && rbacPosture && (
+                  <>
+                    {/* Platform Role */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Shield className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">Platform Role</span>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        <span className={cn(
+                          "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold",
+                          rbacPosture.role === "admin"
+                            ? "bg-primary/20 text-primary border border-primary/30"
+                            : "bg-muted text-muted-foreground border border-border"
+                        )}>
+                          {rbacPosture.role === "admin" ? "Admin" : "User"}
+                        </span>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          IdP: <span className="font-mono">{rbacPosture.idp_source}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Slack: {rbacPosture.slack_linked ? (
+                            <span className="text-green-600 dark:text-green-500 font-medium">Linked</span>
+                          ) : (
+                            <span className="text-muted-foreground">Not linked</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Realm Roles */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <KeyRound className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">Realm Roles</span>
+                        <span className="text-xs text-muted-foreground/70">({rbacPosture.realm_roles.length})</span>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        {rbacPosture.realm_roles.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {rbacPosture.realm_roles.map((role) => (
+                              <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                                {role}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No realm roles assigned</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Teams */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">Teams</span>
+                        <span className="text-xs text-muted-foreground/70">({rbacPosture.teams.length})</span>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        {rbacPosture.teams.length > 0 ? (
+                          <div className="space-y-2">
+                            {rbacPosture.teams.map((team) => (
+                              <div key={team._id} className="flex items-center justify-between">
+                                <span className="text-sm font-medium">{team.name}</span>
+                                {team.role && (
+                                  <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                    {team.role}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not a member of any team</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Per-KB Roles */}
+                    {rbacPosture.per_kb_roles.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold">Knowledge Base Access</span>
+                          <span className="text-xs text-muted-foreground/70">({rbacPosture.per_kb_roles.length})</span>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                          <div className="space-y-1.5">
+                            {rbacPosture.per_kb_roles.map((role) => {
+                              const [type, id] = role.split(":");
+                              return (
+                                <div key={role} className="flex items-center justify-between text-xs">
+                                  <span className="font-mono text-foreground/80">{id}</span>
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                    type === "kb_admin"
+                                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                      : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                  )}>
+                                    {type === "kb_admin" ? "admin" : "reader"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Per-Agent Roles */}
+                    {rbacPosture.per_agent_roles.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Code className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold">Agent Access</span>
+                          <span className="text-xs text-muted-foreground/70">({rbacPosture.per_agent_roles.length})</span>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                          <div className="space-y-1.5">
+                            {rbacPosture.per_agent_roles.map((role) => {
+                              const [type, id] = role.split(":");
+                              return (
+                                <div key={role} className="flex items-center justify-between text-xs">
+                                  <span className="font-mono text-foreground/80">{id}</span>
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                    type === "agent_admin"
+                                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                      : "bg-green-500/10 text-green-600 dark:text-green-400"
+                                  )}>
+                                    {type === "agent_admin" ? "admin" : "user"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {!rbacLoading && !rbacPosture && (
+                  <div className="text-center py-12">
+                    <span className="text-xs text-muted-foreground">Unable to load RBAC posture</span>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
 
             {/* OIDC Token Tab */}
             <TabsContent value="oidc" className="mt-0">
@@ -716,50 +937,6 @@ export function UserMenu() {
                                   : 'Expired';
                               })()}
                             </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ID Token */}
-                    {session?.idToken && (
-                      <div className="bg-muted/30 rounded-lg p-3 border border-border">
-                        <div className="flex items-start gap-2">
-                          <KeyRound className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="text-xs font-medium">ID Token</div>
-                              <button
-                                onClick={handleCopyIdToken}
-                                className={cn(
-                                  "flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
-                                  idTokenCopied
-                                    ? "bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/30"
-                                    : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border"
-                                )}
-                                title="Copy ID token to clipboard (contains group claims)"
-                              >
-                                {idTokenCopied ? (
-                                  <>
-                                    <Check className="h-3 w-3" />
-                                    Copied
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="h-3 w-3" />
-                                    Copy Token
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Contains user identity, group memberships, and OIDC claims
-                            </div>
-                            {decodedToken?.exp && (
-                              <div className="text-xs text-muted-foreground/70 mt-1">
-                                Expires: {new Date(decodedToken.exp * 1000).toLocaleString()}
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -841,7 +1018,7 @@ export function UserMenu() {
                   </div>
                 </div>
 
-                {/* Group Memberships from decoded token */}
+                {/* Group Memberships from decoded access token */}
                 {(() => {
                   const groups: string[] = [];
                   if (decodedToken) {
@@ -869,7 +1046,7 @@ export function UserMenu() {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground/70 ml-6">
-                          OIDC groups from ID token claims
+                          OIDC groups from access token claims
                         </p>
                       </div>
                       <div className="bg-muted/30 rounded-lg p-4 border border-border">
@@ -957,7 +1134,7 @@ export function UserMenu() {
                     <span className="text-sm font-semibold">Services</span>
                   </div>
                   <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-0">
-                    <ConfigRow label={`${config.appName} URL`} value={config.caipeUrl} />
+                    <ConfigRow label="Dynamic Agents URL" value={config.dynamicAgentsUrl} />
                     <ConfigRow label="RAG URL" value={config.ragUrl} />
                     <ConfigRow label="Environment" value={config.isDev ? "development" : config.isProd ? "production" : "unknown"} />
                   </div>
@@ -978,56 +1155,42 @@ export function UserMenu() {
               </div>
             </TabsContent>
 
-            {/* Built With Tab */}
-            <TabsContent value="built-with" className="mt-0">
-              <div className="p-6 overflow-y-auto max-h-[50vh]">
-                {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => {
-                  const items = techStack.filter(item => item.category === category);
-                  if (items.length === 0) return null;
+          </Tabs>
 
-                  return (
-                    <div key={category} className="mb-6 last:mb-0">
-                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                        {categoryLabels[category]}
-                      </h3>
-                      <div className="space-y-2">
-                        {items.map((tech) => (
-                          <a
-                            key={tech.name}
-                            href={tech.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors group border border-transparent hover:border-border"
-                          >
-                            <div className={cn(
-                              "w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-white text-xs font-bold",
-                              categoryColors[tech.category]
-                            )}>
-                              {tech.name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-sm group-hover:text-primary transition-colors">
-                                  {tech.name}
-                                </span>
-                                <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </div>
-                              <p className="text-xs text-muted-foreground leading-relaxed">
-                                {tech.description}
-                              </p>
-                            </div>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+          <div className="p-4 border-t border-border bg-muted/20">
+            <p className="text-xs text-center text-muted-foreground">
+              Built with ❤️ by the{" "}
+              <a
+                href="https://caipe.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                caipe.io
+              </a>{" "}
+              OSS community
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* assisted-by Codex Codex-sonnet-4-6 */}
+      {/* About Dialog — Changelog */}
+      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] p-0">
+          <DialogHeader className="p-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl gradient-primary-br">
+                <Info className="h-5 w-5 text-white" />
               </div>
-            </TabsContent>
+              <div>
+                <DialogTitle>About — {config.appName}</DialogTitle>
+                <DialogDescription>{config.tagline}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
 
-            {/* Changelog Tab */}
-            <TabsContent value="changelog" className="mt-0">
-              <div className="flex flex-col max-h-[60vh]">
+          <div className="flex flex-col max-h-[60vh]">
                 {changelogLoading && (
                   <div className="flex items-center justify-center py-12 px-6">
                     <div className="flex flex-col items-center gap-3">
@@ -1036,7 +1199,6 @@ export function UserMenu() {
                     </div>
                   </div>
                 )}
-
                 {changelogError && (
                   <div className="flex flex-col items-center gap-3 py-12 px-6">
                     <p className="text-sm text-muted-foreground">{changelogError}</p>
@@ -1048,16 +1210,13 @@ export function UserMenu() {
                     </button>
                   </div>
                 )}
-
                 {!changelogLoading && !changelogError && changelogReleases.length === 0 && (
                   <div className="flex items-center justify-center py-12 px-6">
                     <span className="text-xs text-muted-foreground">No releases found</span>
                   </div>
                 )}
-
                 {!changelogLoading && !changelogError && changelogReleases.length > 0 && (
                   <>
-                    {/* Sticky scope filter bar */}
                     <div className="px-6 pt-4 pb-3 border-b border-border bg-card sticky top-0 z-10 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-muted-foreground">
@@ -1073,9 +1232,7 @@ export function UserMenu() {
                               </button>
                             </>
                           ) : (
-                            <>
-                              {changelogReleases.length} stable release{changelogReleases.length !== 1 ? "s" : ""}
-                            </>
+                            <>{changelogReleases.length} stable release{changelogReleases.length !== 1 ? "s" : ""}</>
                           )}
                         </p>
                         <a
@@ -1145,14 +1302,11 @@ export function UserMenu() {
                         </div>
                       )}
                     </div>
-
-                    {/* Scrollable release list */}
                     <div className="p-6 overflow-y-auto flex-1 space-y-3">
                       {(() => {
                         const filtered = changelogReleases
                           .map((r) => filterReleaseByScope(r, changelogScopeFilter))
                           .filter((r): r is ChangelogRelease => r !== null);
-
                         if (filtered.length === 0) {
                           return (
                             <div className="flex flex-col items-center gap-2 py-12">
@@ -1168,7 +1322,6 @@ export function UserMenu() {
                             </div>
                           );
                         }
-
                         return filtered.map((release, idx) => (
                           <ChangelogSection
                             key={release.version}
@@ -1182,21 +1335,19 @@ export function UserMenu() {
                   </>
                 )}
               </div>
-            </TabsContent>
-          </Tabs>
 
           <div className="p-4 border-t border-border bg-muted/20">
             <p className="text-xs text-center text-muted-foreground">
               Built with ❤️ by the{" "}
               <a
-                href="https://cnoe.io/"
+                href="https://caipe.io/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                CNOE
+                caipe.io
               </a>{" "}
-              community
+              OSS community
             </p>
           </div>
         </DialogContent>

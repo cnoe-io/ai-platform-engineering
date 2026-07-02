@@ -241,7 +241,7 @@ Before any PR merges, these must pass:
 
 ```bash
 make lint            # Ruff linting (Python)
-make test            # All tests (supervisor + multi-agents + agents)
+make test            # Backend, runtime, and integration tests
 make caipe-ui-tests  # UI Jest tests
 ```
 

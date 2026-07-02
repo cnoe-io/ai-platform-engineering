@@ -28,6 +28,8 @@ import { ObjectId } from 'mongodb';
 
 // Mock NextAuth
 const mockGetServerSession = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
+const mockListOpenFgaObjects = jest.fn(async () => ({ objects: [] as string[] }));
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
@@ -35,7 +37,67 @@ jest.mock('next-auth', () => ({
 // Mock auth config
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  // Post 2026-05-26 canonical-membership refactor: GET
+  // /api/admin/teams/[id] now decorates the response with an OpenFGA
+  // sync report (`computeTeamMembershipSyncReport`) and therefore calls
+  // `readTeamOpenFgaTuples` -> `isOpenFgaConfigured`/`readOpenFgaTuples`.
+  // We treat OpenFGA as unconfigured in this admin-CRUD suite so the
+  // route returns a null sync report instead of crashing on undefined
+  // helpers. The dedicated team-openfga-sync-status.test.ts suite
+  // exercises the configured path.
+  isOpenFgaConfigured: jest.fn(() => false),
+  readOpenFgaTuples: jest.fn(async () => ({ tuples: [], continuationToken: undefined })),
+  writeOpenFgaTuples: jest.fn(async () => ({ enabled: false, writes: 0, deletes: 0 })),
+  // FR-025 team-deletion guard: DELETE lists owned service accounts before
+  // deleting. Also drives the live KB-count decoration on GET. Default returns
+  // no objects; the kb_count test overrides it per (user, relation) tuple.
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...(args as [])),
+  // `team-resource-listing` (the live KB + resource count helpers GET decorates
+  // each row with) imports these from openfga; provide pass-through impls so the
+  // batch helpers run against the mocked `listOpenFgaObjects` above.
+  openFgaReadConcurrency: jest.fn(() => 8),
+  mapWithConcurrency: jest.fn(
+    async <T, R>(items: readonly T[], _limit: number, fn: (item: T, index: number) => Promise<R>) =>
+      Promise.all(items.map((item, index) => fn(item, index))),
+  ),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+// `ensureTeamClientScope` / `deleteTeamClientScope` from
+// `keycloak-admin.ts`. The team CRUD routes no longer import them,
+// so the mock only needs `isValidTeamSlug`. The stale mock entries
+// were leftovers from before the demolition.
+jest.mock('@/lib/rbac/keycloak-admin', () => ({
+  isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
+}));
+
+/** After resetModules(), re-require the mock so we configure the fresh jest.fn(). */
+function setDefaultCheckPermissionMock() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { checkPermission } = require('@/lib/rbac/keycloak-authz') as {
+    checkPermission: jest.Mock;
+  };
+  checkPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
+}
+
+function resetRouteModules() {
+  jest.resetModules();
+  setDefaultCheckPermissionMock();
+}
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -60,18 +122,31 @@ jest.mock('@/lib/mongodb', () => ({
 // ============================================================================
 
 function createMockCollection() {
+  // Cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // Post 2026-05-26 canonical-membership refactor, route handlers
+  // query team_membership_sources via toArray() directly.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     deleteOne: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+    // `team-membership-source-store.upsertTeamMembershipSource()` now
+    // calls `deleteMany` after `updateOne` to collapse stale
+    // `status:"removed"` orphan rows (introduced together with the
+    // OpenFGA admin-implies-member model change). Routes that create
+    // teams hit that path indirectly through membership-source writes,
+    // so the shared mock collection has to advertise `deleteMany` too
+    // or the POST route fails with HTTP 500.
+    deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     countDocuments: jest.fn().mockResolvedValue(0),
+    aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
   };
 }
 
@@ -79,10 +154,20 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'), options);
 }
 
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    sub: 'admin-user-sub',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -90,13 +175,20 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    sub: 'regular-user-sub',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
 const TEST_TEAM_ID = new ObjectId();
+const TEST_TEAM_SLUG = 'platform-engineering';
 const TEST_TEAM = {
   _id: TEST_TEAM_ID,
   name: 'Platform Engineering',
+  // Required by the canonical-membership readers (post 2026-05-26
+  // refactor). Older tests didn't need a slug because the route read
+  // team.members[] directly.
+  slug: TEST_TEAM_SLUG,
   description: 'The platform team',
   owner_id: 'admin@example.com',
   created_at: new Date(),
@@ -107,14 +199,74 @@ const TEST_TEAM = {
   ],
 };
 
+/**
+ * Seed `team_membership_sources` to mirror TEST_TEAM.members so route
+ * handlers gating on canonical membership find the same identities.
+ * Pre 2026-05-26 the routes read team.members[] directly.
+ */
+function seedTestTeamCanonicalMembers() {
+  const sourcesCol = createMockCollection();
+  const rows = [
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'admin@example.com',
+      user_subject: 'kc-admin',
+      relationship: 'admin',
+      source_type: 'manual',
+      status: 'active',
+    },
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'member@example.com',
+      user_subject: 'kc-member',
+      relationship: 'member',
+      source_type: 'manual',
+      status: 'active',
+    },
+  ];
+  function rowMatches(filter: Record<string, unknown>, row: Record<string, unknown>): boolean {
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === '$or' && Array.isArray(value)) {
+        if (!value.some((c: Record<string, unknown>) => rowMatches(c, row))) return false;
+        continue;
+      }
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        if ('$ne' in (value as object) && row[key] === (value as { $ne: unknown }).$ne) return false;
+        if ('$in' in (value as object)) {
+          const arr = ((value as { $in: unknown[] }).$in) ?? [];
+          if (!arr.includes(row[key])) return false;
+        }
+        continue;
+      }
+      if (row[key] !== value) return false;
+    }
+    return true;
+  }
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const matched = rows.filter((r) => rowMatches(filter, r));
+    return {
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(matched) }),
+      toArray: jest.fn().mockResolvedValue(matched),
+    };
+  });
+  mockCollections['team_membership_sources'] = sourcesCol;
+}
+
 // ============================================================================
 // Test Setup
 // ============================================================================
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Clear mock collections
   Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user?: string }) => ({
+    allowed: tuple.user === 'user:admin-user-sub',
+  }));
+  setDefaultCheckPermissionMock();
+  // Default canonical seed mirrors TEST_TEAM.members; tests that need
+  // a different roster override mockCollections.team_membership_sources
+  // afterwards.
+  seedTestTeamCanonicalMembers();
 });
 
 // ============================================================================
@@ -125,7 +277,7 @@ describe('GET /api/admin/teams', () => {
   let GET: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/route');
     GET = mod.GET;
   });
@@ -137,30 +289,13 @@ describe('GET /api/admin/teams', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when user lacks admin_ui#view', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest('/api/admin/teams');
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin view access required');
-  });
-
-  it('allows non-admin users with view access to read teams (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
-    const teamsCol = createMockCollection();
-    teamsCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([TEST_TEAM]),
-      }),
-    });
-    mockCollections['teams'] = teamsCol;
-
-    const req = makeRequest('/api/admin/teams');
-    const res = await GET(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns teams list for admin', async () => {
@@ -182,6 +317,125 @@ describe('GET /api/admin/teams', () => {
     expect(body.data.teams).toHaveLength(1);
     expect(body.data.teams[0].name).toBe('Platform Engineering');
   });
+
+  it('marks team list responses as no-store so refreshes read MongoDB', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const req = makeRequest('/api/admin/teams?fresh=123');
+
+    const res = await GET(req);
+
+    expect(res.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+  });
+
+  it('decorates each team with member_count derived from team_membership_sources, ignoring stale team.members[]', async () => {
+    // Commit 4/8 of the canonical-team-membership refactor: the list
+    // endpoint now reports `member_count` aggregated from the canonical
+    // store. A team with a phantom legacy `team.members[]` array but
+    // ZERO canonical rows must report `member_count: 0` — that's what
+    // catches drift between the two stores in the Admin UI badge.
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const ghostTeamSlug = 'ghost-team';
+    const ghostTeam = {
+      _id: new ObjectId(),
+      name: 'Ghost Team',
+      slug: ghostTeamSlug,
+      members: [
+        // Stale embedded array — UI used to read .length here.
+        { user_id: 'phantom@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
+        { user_id: 'phantom2@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
+      ],
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([TEST_TEAM, ghostTeam]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    // Wire the canonical store's aggregate() to return TEST_TEAM_SLUG=2,
+    // ghost-team absent (=> defaults to 0). loadTeamMemberCounts seeds
+    // counts to 0 for every requested slug before consulting the cursor.
+    const sourcesCol = mockCollections['team_membership_sources'];
+    sourcesCol.aggregate = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ _id: TEST_TEAM_SLUG, count: 2 }]),
+    });
+
+    const req = makeRequest('/api/admin/teams');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      body.data.teams.map((t: { name: string; member_count: number }) => [t.name, t.member_count]),
+    );
+    expect(byName['Platform Engineering']).toBe(2);
+    expect(byName['Ghost Team']).toBe(0);
+  });
+
+  it('decorates each team with kb_count read live from OpenFGA (deduped), defaulting to 0', async () => {
+    // OpenFGA is now the single source of truth for team↔KB grants (the
+    // `team_kb_ownership` collection was dropped). The team-card "KBs" badge
+    // counts distinct `knowledge_base:<id>` objects the team holds across the
+    // reader/ingestor/manager relations; a team with no grants reports 0 so
+    // the badge renders a number instead of hiding.
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const kbTeam = {
+      _id: new ObjectId(),
+      name: 'KB Team',
+      slug: 'kb-team',
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+    const noKbTeam = {
+      _id: new ObjectId(),
+      name: 'No KB Team',
+      slug: 'no-kb-team',
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([kbTeam, noKbTeam]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    // Drive kb_count through OpenFGA list-objects. kb-team holds kb-a via
+    // `reader` AND `ingestor`; the strongest-permission merge in
+    // `listTeamKbGrants` collapses that to a single distinct KB, plus kb-b →
+    // count 2. no-kb-team holds nothing → 0.
+    mockListOpenFgaObjects.mockImplementation(
+      (async (args: { user: string; relation: string; type: string }) => {
+        if (args.type !== 'knowledge_base') return { objects: [] as string[] };
+        if (args.user === 'team:kb-team#member' && args.relation === 'reader') {
+          return { objects: ['knowledge_base:kb-a', 'knowledge_base:kb-b'] };
+        }
+        if (args.user === 'team:kb-team#member' && args.relation === 'ingestor') {
+          return { objects: ['knowledge_base:kb-a'] };
+        }
+        return { objects: [] as string[] };
+      }) as unknown as () => Promise<{ objects: string[] }>,
+    );
+
+    const req = makeRequest('/api/admin/teams');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      body.data.teams.map((t: { name: string; kb_count: number }) => [t.name, t.kb_count]),
+    );
+    expect(byName['KB Team']).toBe(2);
+    expect(byName['No KB Team']).toBe(0);
+  });
 });
 
 // ============================================================================
@@ -192,7 +446,7 @@ describe('POST /api/admin/teams', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/route');
     POST = mod.POST;
   });
@@ -249,11 +503,15 @@ describe('POST /api/admin/teams', () => {
     expect(body.data.message).toBe('Team created successfully');
     expect(teamsCol.insertOne).toHaveBeenCalledTimes(1);
 
-    // Verify the inserted team has the creator as owner
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the team document no
+    // longer carries an embedded `members[]` array. Membership lives
+    // exclusively in team_membership_sources (the upsert loop in the
+    // route is covered by team-creation-openfga-sync.test.ts).
     const insertedTeam = teamsCol.insertOne.mock.calls[0][0];
     expect(insertedTeam.name).toBe('New Team');
-    expect(insertedTeam.members).toHaveLength(2); // user1 + creator
-    expect(insertedTeam.members.some((m: any) => m.role === 'owner' && m.user_id === 'admin@example.com')).toBe(true);
+    expect(insertedTeam.members).toBeUndefined();
+    expect(insertedTeam.owner_id).toBe('admin@example.com');
   });
 
   it('rejects duplicate team name', async () => {
@@ -271,6 +529,14 @@ describe('POST /api/admin/teams', () => {
     const body = await res.json();
     expect(body.error).toContain('already exists');
   });
+
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // `ensureTeamClientScope` call from team creation, so the 502
+  // "identity setup failed" failure mode is no longer reachable: team
+  // creation no longer touches Keycloak. Any test that injected
+  // `ensureTeamClientScope.mockRejectedValueOnce(...)` was deleted with
+  // the helper. OpenFGA tuple-write failures continue to be tolerated
+  // (logged, not thrown) per the same comment in `route.ts`.
 });
 
 // ============================================================================
@@ -281,7 +547,7 @@ describe('GET /api/admin/teams/[id]', () => {
   let GET: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/route');
     GET = mod.GET;
   });
@@ -297,24 +563,11 @@ describe('GET /api/admin/teams/[id]', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when user is not authenticated', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}`);
     const res = await GET(req, makeContext(TEST_TEAM_ID.toString()));
     expect(res.status).toBe(403);
-  });
-
-  it('allows non-admin users with view access to read team details (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
-    const teamsCol = createMockCollection();
-    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
-    mockCollections['teams'] = teamsCol;
-
-    const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}`);
-    const res = await GET(req, makeContext(TEST_TEAM_ID.toString()));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
   });
 
   it('returns 400 for invalid ID format', async () => {
@@ -359,7 +612,7 @@ describe('PATCH /api/admin/teams/[id]', () => {
   let PATCH: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/route');
     PATCH = mod.PATCH;
   });
@@ -445,7 +698,7 @@ describe('DELETE /api/admin/teams/[id]', () => {
   let DELETE: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/route');
     DELETE = mod.DELETE;
   });
@@ -495,7 +748,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     POST = mod.POST;
   });
@@ -606,6 +859,14 @@ describe('POST /api/admin/teams/[id]/members', () => {
       .mockResolvedValueOnce(TEST_TEAM);
     mockCollections['teams'] = teamsCol;
 
+    // Capture the canonical-store upsert so we can pin the resolved role.
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): role is now persisted onto
+    // `team_membership_sources.relationship`, not into a $push on
+    // teams.members[].
+    const sourcesCol = createMockCollection();
+    mockCollections['team_membership_sources'] = sourcesCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members`, {
       method: 'POST',
       body: JSON.stringify({ user_id: 'new@example.com' }), // No role specified
@@ -613,10 +874,15 @@ describe('POST /api/admin/teams/[id]/members', () => {
     const res = await POST(req, makeContext(TEST_TEAM_ID.toString()));
 
     expect(res.status).toBe(201);
-    // Check the $push call contains role: 'member'
     const updateCall = teamsCol.updateOne.mock.calls[0];
-    const pushOp = updateCall[1].$push;
-    expect(pushOp.members.role).toBe('member');
+    expect(updateCall[1].$push).toBeUndefined();
+    // The canonical upsert is the role-of-truth; verify the source row
+    // was created with relationship: "member" (the default).
+    const relationshipValues = sourcesCol.updateOne.mock.calls.map((call: unknown[]) => {
+      const update = call[1] as { $set?: { relationship?: string } };
+      return update?.$set?.relationship;
+    });
+    expect(relationshipValues).toContain('member');
   });
 });
 
@@ -628,7 +894,7 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
   let DELETE: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     DELETE = mod.DELETE;
   });

@@ -15,9 +15,9 @@
 
 import { getCollection } from "@/lib/mongodb";
 import {
-  DEFAULT_GRADE_THRESHOLDS,
-  type ReviewConfig,
-  type ReviewCriterion,
+DEFAULT_GRADE_THRESHOLDS,
+type ReviewConfig,
+type ReviewCriterion,
 } from "@/types/ai-review";
 
 // ---------------------------------------------------------------------------
@@ -29,72 +29,99 @@ const AGENT_SYSTEM_PROMPT_CRITERIA: ReviewCriterion[] = [
     id: "clear-role-definition",
     name: "Clear role definition",
     severity: "error",
-    weight: 2,
+    weight: 15,
     micro_prompt:
-      "Does the prompt define the agent's role in 1–2 clear sentences (what it is, what it helps with)? Pass if a reader could state the agent's purpose after reading the first paragraph.",
+      "Does the prompt define the agent's role in 1–2 clear sentences stating what it is and what it does? Pass if a reader could accurately summarize the agent's purpose after reading the first paragraph.",
     expects_fix: true,
   },
   {
-    id: "behavior-rules-count",
-    name: "Lists 3–7 behavior rules",
-    severity: "warning",
-    weight: 1,
+    id: "sufficiently-scoped",
+    name: "Sufficiently scoped",
+    severity: "error",
+    weight: 15,
     micro_prompt:
-      "Does the prompt enumerate between 3 and 7 explicit behavior rules or guidelines (bullet list, numbered list, or clearly delimited sentences)? Fewer than 3 is too vague; more than 7 is hard to follow.",
+      "Is the prompt scoped to a specific domain, system, or task family rather than general-purpose assistance? Pass if the prompt names a concrete domain (e.g. 'infrastructure change reviews', 'Jira ticket triage') that meaningfully constrains what the agent handles.",
     expects_fix: true,
   },
   {
-    id: "no-second-person-preamble",
-    name: "No second-person preamble",
-    severity: "warning",
-    weight: 1,
+    id: "negative-constraints",
+    name: "Defines what agent must NOT do",
+    severity: "error",
+    weight: 15,
     micro_prompt:
-      "Does the prompt avoid starting with 'You are an AI assistant…' or similar boilerplate? A direct role statement (e.g. 'Reviews infra changes') is preferred. Pass if the opening line is not a formulaic 'You are…' preamble.",
+      "Does the prompt explicitly state what the agent must NOT do — actions to refuse, topics to avoid, or boundaries it must not cross? Pass if at least one clear prohibition or refusal condition is defined.",
     expects_fix: true,
   },
   {
     id: "tool-action-constraints",
     name: "Mentions tool / action constraints",
     severity: "warning",
-    weight: 1,
+    weight: 10,
     micro_prompt:
-      "Does the prompt mention which tools or actions the agent may or may not use (or explicitly note 'no tool restrictions apply')? Pass if there is any guidance on tool/action boundaries.",
+      "Does the prompt specify which tools the agent may or may not use, and include guidance on how or when to use them (edge cases, input format, usage conditions)? Pass if tool boundaries and at least basic usage guidance are present. If the agent has no tools, pass if this is explicitly acknowledged.",
     expects_fix: true,
   },
   {
     id: "output-format",
     name: "Specifies output format",
     severity: "warning",
-    weight: 1,
+    weight: 10,
     micro_prompt:
-      "Does the prompt specify how the agent should format its responses (markdown, JSON, plain text, length expectations, etc.)? Pass if any output format guidance is present.",
+      "Does the prompt specify how the agent should format its responses — structure (markdown, JSON, plain text), length, or verbosity? Pass if any output format guidance is present.",
+    expects_fix: true,
+  },
+  {
+    id: "failure-mode-handling",
+    name: "Handles failure modes",
+    severity: "warning",
+    weight: 10,
+    micro_prompt:
+      "Does the prompt define what the agent should do when inputs are malformed, required information is missing, or a tool or step fails mid-task? Pass if at least one error or ambiguity scenario is addressed.",
     expects_fix: true,
   },
   {
     id: "escalation-handoff",
     name: "Defines escalation / handoff",
-    severity: "info",
-    weight: 1,
-    micro_prompt:
-      "Does the prompt define what the agent should do when it cannot help — escalate to a human, hand off to another agent, or refuse politely? Pass if escalation/handoff behavior is described.",
-    expects_fix: true,
-  },
-  {
-    id: "no-ambiguous-absolutes",
-    name: "Avoids ambiguous absolutes",
-    severity: "info",
-    weight: 1,
-    micro_prompt:
-      "Does the prompt avoid unconditional 'always' / 'never' statements that lack qualifying conditions? Pass if absolutes are either absent or always paired with a clear condition.",
-    expects_fix: true,
-  },
-  {
-    id: "sufficiently-scoped",
-    name: "Sufficiently scoped",
     severity: "warning",
-    weight: 1,
+    weight: 10,
     micro_prompt:
-      "Is the prompt scoped to a specific domain or task family (not so generic that it could describe any assistant)? Pass if the prompt names a domain, system, or task family that constrains its responsibilities.",
+      "Does the prompt define what the agent should do when it cannot complete a request — escalate to a human, hand off to another agent, or refuse with a clear message? Pass if out-of-scope or failure-to-complete behavior is described.",
+    expects_fix: true,
+  },
+  {
+    id: "prompt-injection-resistance",
+    name: "Guards against prompt injection",
+    severity: "warning",
+    weight: 8,
+    micro_prompt:
+      "Does the prompt include language that guards against user-supplied instructions overriding the system guidelines? Pass if there is explicit guidance that external input (user messages, tool outputs, retrieved content) cannot supersede the agent's core rules.",
+    expects_fix: true,
+  },
+  {
+    id: "behavior-rules-present",
+    name: "Has explicit behavior rules",
+    severity: "warning",
+    weight: 5,
+    micro_prompt:
+      "Does the prompt include explicit behavioral guidelines beyond the role statement — rules that constrain how the agent acts, not just what it does? Pass if at least two distinct behavioral rules are present.",
+    expects_fix: true,
+  },
+  {
+    id: "conditional-constraints",
+    name: "Avoids unconditional absolutes",
+    severity: "info",
+    weight: 4,
+    micro_prompt:
+      "Do the agent's behavioral rules use conditional or qualified language ('if X, then Y') rather than unconditional absolutes without context? Pass if rules are conditional, or if any absolute ('always', 'never') is paired with a clear rationale or qualifying condition.",
+    expects_fix: true,
+  },
+  {
+    id: "specific-not-generic",
+    name: "Role is specific, not generic",
+    severity: "info",
+    weight: 3,
+    micro_prompt:
+      "Does the opening role statement name a specific system, tool, team, or domain rather than generic 'helpful assistant' language? Pass if the role description would not apply to any other agent without modification.",
     expects_fix: true,
   },
 ];
@@ -108,61 +135,88 @@ const SKILL_MD_CRITERIA: ReviewCriterion[] = [
     id: "yaml-frontmatter-present",
     name: "Has YAML frontmatter (name + description)",
     severity: "error",
-    weight: 2,
+    weight: 15,
     micro_prompt:
       "Does the document start with a YAML frontmatter block delimited by '---' that contains both a 'name' and a 'description' field? Pass only if both fields are present and non-empty inside the frontmatter.",
-    expects_fix: true,
-  },
-  {
-    id: "h1-matches-name",
-    name: "H1 matches frontmatter name",
-    severity: "warning",
-    weight: 1,
-    micro_prompt:
-      "Is the first markdown heading after the frontmatter an H1 (single '#') and does its text closely match the frontmatter 'name' field (case-insensitive, allowing minor punctuation differences)? Pass if both conditions hold.",
     expects_fix: true,
   },
   {
     id: "instructions-section",
     name: "Has Instructions section",
     severity: "error",
-    weight: 1,
+    weight: 15,
     micro_prompt:
       "Does the document include a section titled 'Instructions' (case-insensitive H2 or H3)? Pass if such a section exists and contains at least a sentence of content.",
     expects_fix: true,
   },
   {
-    id: "examples-section",
-    name: "Has Examples section",
-    severity: "warning",
-    weight: 1,
+    id: "description-trigger-condition",
+    name: "Description states when to use it",
+    severity: "error",
+    weight: 15,
     micro_prompt:
-      "Does the document include an 'Examples' section (case-insensitive H2 or H3) with at least one example? Pass if such a section exists and is non-empty.",
+      "Does the frontmatter 'description' field include a trigger condition — language telling the user or agent when to invoke this skill (e.g. 'Use when...', 'Use to...', or a clear use-case statement)? Pass if the description conveys not just what the skill does but when it applies.",
     expects_fix: true,
   },
   {
     id: "output-format-section",
     name: "Has Output Format section",
     severity: "warning",
-    weight: 1,
+    weight: 10,
     micro_prompt:
-      "Does the document describe the expected output format somewhere (an 'Output Format' section, or equivalent guidance under another heading)? Pass if output formatting is described.",
+      "Does the document describe the expected output format somewhere (an 'Output Format' section, or equivalent guidance under another heading)? Pass if output formatting is described — ideally with a rendered example, not just abstract description.",
+    expects_fix: true,
+  },
+  {
+    id: "examples-section",
+    name: "Has Examples section with realistic utterances",
+    severity: "warning",
+    weight: 10,
+    micro_prompt:
+      "Does the document include an 'Examples' section (case-insensitive H2 or H3) with at least one example that looks like a realistic user message or invocation (not an abstract description)? Pass if such a section exists and examples are phrased as plausible user inputs.",
+    expects_fix: true,
+  },
+  {
+    id: "instructions-actionable",
+    name: "Instructions are concrete and actionable",
+    severity: "warning",
+    weight: 10,
+    micro_prompt:
+      "Are the instructions concrete and step-oriented — numbered steps, phases, or specific actions — rather than vague guidance? Pass if a reader could follow the instructions to complete the task without additional interpretation.",
     expects_fix: true,
   },
   {
     id: "guidelines-mentioned",
-    name: "Mentions Guidelines",
-    severity: "info",
-    weight: 1,
+    name: "Has Guidelines section",
+    severity: "warning",
+    weight: 8,
     micro_prompt:
-      "Does the document include a 'Guidelines' section (or clearly labeled best-practices block) covering do/don't behavior? Pass if such guidance is present.",
+      "Does the document include a 'Guidelines' section (or clearly labeled best-practices block) covering do/don't behavior or constraints on how the skill should behave? Pass if such guidance is present.",
+    expects_fix: true,
+  },
+  {
+    id: "scope-bounded",
+    name: "Scoped to one task family",
+    severity: "warning",
+    weight: 7,
+    micro_prompt:
+      "Is the skill focused on a specific task or task family rather than being a catch-all? Pass if the skill's title, description, and instructions all point to a coherent, bounded purpose rather than covering many unrelated workflows.",
+    expects_fix: true,
+  },
+  {
+    id: "h1-matches-name",
+    name: "H1 matches frontmatter name",
+    severity: "info",
+    weight: 5,
+    micro_prompt:
+      "Is the first markdown heading after the frontmatter an H1 (single '#') and does its text closely match the frontmatter 'name' field (case-insensitive, allowing minor punctuation differences)? Pass if both conditions hold.",
     expects_fix: true,
   },
   {
     id: "kebab-case-skill-name",
     name: "Skill name is kebab-case",
-    severity: "warning",
-    weight: 1,
+    severity: "info",
+    weight: 3,
     micro_prompt:
       "Is the frontmatter 'name' field a single kebab-case slug (lowercase letters, digits, hyphens; no spaces or underscores)? Pass only if the name matches /^[a-z0-9][a-z0-9-]*$/.",
     expects_fix: true,
@@ -170,8 +224,8 @@ const SKILL_MD_CRITERIA: ReviewCriterion[] = [
   {
     id: "description-length",
     name: "Description ≤ 400 chars",
-    severity: "warning",
-    weight: 1,
+    severity: "info",
+    weight: 2,
     micro_prompt:
       "Is the frontmatter 'description' field 400 characters or fewer? Pass if the description exists and its length is within that limit.",
     expects_fix: true,

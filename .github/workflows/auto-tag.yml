@@ -1,5 +1,6 @@
 name: "[Release] Auto-tag on Push"
-description: "Automatically tag commits on main or branches with release/** prefix (release or hotfix branches) based on version changes"
+# Automatically tag commits on main or branches with release/** prefix
+# (release or hotfix branches) based on version changes.
 run-name: >-
   Auto-tag ${{
     github.ref == 'refs/heads/main' && 'dev (or new release)' ||
@@ -31,12 +32,11 @@ jobs:
     name: Determine version, update files, tag and push
     runs-on: ubuntu-latest
     # Don't run on commits pushed by the release bot or final release PR bumps (avoid infinite loops).
-    if: >
+    if: >-
       ${{
         !(
-          github.actor == 'caipe-release-bot[bot]' ||
-          github.event.head_commit.author.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
-          github.event.head_commit.committer.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
+          github.event.head_commit.author.email == 'caipe-ci-release[bot]@users.noreply.github.com' ||
+          github.event.head_commit.committer.email == 'caipe-ci-release[bot]@users.noreply.github.com' ||
           (
             startsWith(github.ref, 'refs/heads/release/') &&
             startsWith(github.event.head_commit.message, 'chore: bump version to ') &&
@@ -45,7 +45,6 @@ jobs:
             !contains(github.event.head_commit.message, '-chart.') &&
             !contains(github.event.head_commit.message, '-hotfix.') &&
             (
-              github.actor == 'github-actions[bot]' ||
               github.event.head_commit.author.email == 'github-actions[bot]@users.noreply.github.com' ||
               github.event.head_commit.committer.email == 'github-actions[bot]@users.noreply.github.com'
             )
@@ -54,21 +53,25 @@ jobs:
       }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-actions: write
+          permission-contents: write
+          permission-packages: write
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       # ── Release branch merge detection ──────────────────────────────
@@ -123,19 +126,36 @@ jobs:
 
           if [[ -n "$RELEASE_VERSION" ]]; then
             echo "🚀 Release branch merge detected — version: $RELEASE_VERSION"
-            echo "is_release_merge=true" >> $GITHUB_OUTPUT
-            echo "version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+            echo "is_release_merge=true" >> "$GITHUB_OUTPUT"
+            echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "ℹ️ Not a release branch merge — proceeding with normal auto-tag"
-            echo "is_release_merge=false" >> $GITHUB_OUTPUT
+            echo "is_release_merge=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 🏷️ Detect existing release tag on HEAD
+        id: existing-release-tag
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force --quiet || true
+          RELEASE_TAG=$(git tag --points-at HEAD | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+
+          if [[ -n "$RELEASE_TAG" ]]; then
+            echo "✅ HEAD is already release-tagged with $RELEASE_TAG; skipping dev auto-tag"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: 🚀 Dispatch release-manual for release merge
-        if: ${{ steps.release-merge.outputs.is_release_merge == 'true' }}
+        if: ${{ steps.release-merge.outputs.is_release_merge == 'true' && steps.existing-release-tag.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.release-merge.outputs.version }}
         run: |
-          VERSION="${{ steps.release-merge.outputs.version }}"
           echo "🚀 Dispatching release-manual.yml with version=$VERSION"
 
           gh workflow run release-manual.yml \
@@ -143,7 +163,7 @@ jobs:
             --ref main \
             -f version="$VERSION"
 
-          cat >> $GITHUB_STEP_SUMMARY << EOF
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
           # 🔀 Release Branch Merge Detected
 
           | Property | Value |
@@ -154,20 +174,40 @@ jobs:
           | **Commit** | \`${GITHUB_SHA}\` |
           EOF
 
+      - name: 📊 Existing release tag summary
+        if: ${{ steps.existing-release-tag.outputs.skip == 'true' }}
+        env:
+          RELEASE_TAG: ${{ steps.existing-release-tag.outputs.tag }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          # 🏷️ Auto-tag Skipped
+
+          | Property | Value |
+          |----------|-------|
+          | **Reason** | Current commit is already release-tagged |
+          | **Release tag** | \`${RELEASE_TAG}\` |
+          | **Branch** | \`${GITHUB_REF#refs/heads/}\` |
+          | **Commit** | \`${GITHUB_SHA}\` |
+
+          No dev tag was created because this commit already represents a release.
+          EOF
+
       # ── Normal auto-tag flow (skip if release merge) ───────────────────
       - name: 🐍 Set up Python
-        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
       - name: 📦 Install uv
-        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' }}
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
 
       # ── Shared Logic 1: determine version ──────────────────────────────
       - name: 🏷️ Determine version
-        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' }}
         id: version
         uses: ./.github/actions/determine-version
         with:
@@ -175,7 +215,7 @@ jobs:
 
       # ── Shared Logic 2: update version files ───────────────────────────
       - name: 📝 Update version files
-        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' }}
         id: update
         uses: ./.github/actions/update-version-files
         with:
@@ -183,19 +223,35 @@ jobs:
           diff_target: ${{ steps.version.outputs.diff_target }}
       # ── Commit + tag + push ────────────────────────────────────────────
       - name: 📤 Commit, tag, and push
-        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' }}
+        id: push-tag
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.update.outputs.final_version }}
         run: |
-          git config user.name "caipe-release-bot[bot]"
-          git config user.email "caipe-release-bot[bot]@users.noreply.github.com"
+          set -euo pipefail
+
+          git config user.name "caipe-ci-release[bot]"
+          git config user.email "caipe-ci-release[bot]@users.noreply.github.com"
+
+          # assisted-by Codex Codex-sonnet-4-6
+          # The workflow may be retried after a tag was already published; treat
+          # that as an idempotent success instead of failing on duplicate refs.
+          git fetch --tags --force --quiet || true
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null ||
+             git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "✅ Tag $TAG already exists; skipping commit/tag push"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=tag_exists" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # Check if there are changes to commit
           if git diff --quiet && git diff --cached --quiet; then
             echo "ℹ️ No file changes to commit"
           else
             # Stage version-related files
-            git add pyproject.toml uv.lock || true
+            git add pyproject.toml uv.lock docs/docusaurus.config.ts docs/src/pages/index.tsx || true
             find charts -name "Chart.yaml" -type f -exec git add {} +
 
             git commit -m "chore: bump version to $TAG"
@@ -203,19 +259,22 @@ jobs:
 
           # Create annotated tag and push
           git tag -a "$TAG" -m "Auto-tag $TAG"
-          git push origin HEAD "$TAG"
+          AUTH_HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
+            push origin "HEAD:${GITHUB_REF_NAME}" "$TAG"
 
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
           echo "✅ Pushed tag: $TAG"
 
       - name: 📊 Summary
-        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' && steps.push-tag.outputs.pushed == 'true' }}
         env:
           TAG: ${{ steps.update.outputs.final_version }}
         run: |
           IS_CHART_ONLY=false
           [[ "$TAG" =~ -chart\.[0-9]+$ ]] && IS_CHART_ONLY=true
 
-          cat >> $GITHUB_STEP_SUMMARY << EOF
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
           # 🏷️ Auto-tag Created
 
           | Property | Value |
@@ -232,7 +291,25 @@ jobs:
           EOF
 
           if [[ "$IS_CHART_ONLY" == "true" ]]; then
-            echo "- ⏭️ Image builds **skipped** (chart-only change)" >> $GITHUB_STEP_SUMMARY
+            echo "- ⏭️ Image builds **skipped** (chart-only change)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "- 🔄 Image builds triggered (changed images rebuilt, unchanged retagged)" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔄 Image builds triggered (changed images rebuilt, unchanged retagged)" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: 📊 Existing auto-tag summary
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' && steps.existing-release-tag.outputs.skip != 'true' && steps.push-tag.outputs.skip_reason == 'tag_exists' }}
+        env:
+          TAG: ${{ steps.update.outputs.final_version }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          # 🏷️ Auto-tag Skipped
+
+          | Property | Value |
+          |----------|-------|
+          | **Reason** | Tag already exists |
+          | **Tag** | \`${TAG}\` |
+          | **Branch** | \`${GITHUB_REF#refs/heads/}\` |
+          | **Commit** | \`${GITHUB_SHA}\` |
+
+          This run was treated as successful because auto-tagging is idempotent.
+          EOF

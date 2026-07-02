@@ -1,17 +1,18 @@
 import { NextRequest } from "next/server";
 
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import {
-  getAgentSkillVisibleToUser,
-  userCanModifyAgentSkill,
+getAgentSkillVisibleToUser,
+userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
-import { getRevision, recordRevision } from "@/lib/skill-revisions";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
+import { getRevision,recordRevision } from "@/lib/skill-revisions";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import type { AgentSkill } from "@/types/agent-skill";
@@ -44,11 +45,12 @@ export const POST = withErrorHandler(
     if (!id || !revisionId) {
       throw new ApiError("Skill id and revision id are required", 400);
     }
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) {
         throw new ApiError("Skill not found", 404);
       }
+      await requireSkillPermission(session, id, "write");
       if (!userCanModifyAgentSkill(skill, user)) {
         throw new ApiError(
           "You don't have permission to edit this skill",
@@ -75,7 +77,7 @@ export const POST = withErrorHandler(
       const now = new Date();
       // Build the update payload by picking the content fields off
       // the revision and overlaying scan output. Administrative
-      // fields (owner_id, is_system, visibility, shared_with_teams)
+      // fields (owner_id, is_system, visibility; team shares are OpenFGA-only)
       // are NOT touched — restore changes content, not who owns or
       // can see the skill.
       const updatePayload: Partial<AgentSkill> = {

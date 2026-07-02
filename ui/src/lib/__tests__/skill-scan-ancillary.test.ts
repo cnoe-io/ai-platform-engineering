@@ -105,6 +105,15 @@ function stubScannerOk(): { captured: CapturedZip } {
 }
 
 describe("scanSkillContent ancillary packaging", () => {
+  it("interprets a safe scanner response as passed", async () => {
+    stubScannerOk();
+    const { scanSkillContent } = await import("../skill-scan");
+
+    const result = await scanSkillContent("my-skill", "# Skill body", "id-safe");
+
+    expect(result).toEqual({ scan_status: "passed", scan_summary: "0 findings" });
+  });
+
   it("packages ancillary files alongside SKILL.md", async () => {
     const { captured } = stubScannerOk();
     const { scanSkillContent } = await import("../skill-scan");

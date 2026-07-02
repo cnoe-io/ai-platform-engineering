@@ -8,7 +8,31 @@
 
 export type TransportType = 'stdio' | 'sse' | 'http';
 
-export type VisibilityType = 'private' | 'team' | 'global';
+/**
+ * Visibility of a dynamic agent.
+ *
+ *   - `team`:   the owner team's members get `can_use`; the owner team's
+ *               admins get `can_manage`. Additional teams in
+ *               `shared_with_teams` get `can_use`.
+ *   - `global`: everyone gets `can_use` (via `user:* user agent:<id>`).
+ *               The owner team's admins still manage the agent.
+ *
+ * NOTE: `'private'` was retired on 2026-05-22. Every dynamic agent is now
+ * team-owned. Users who want a truly personal agent should create a
+ * single-member team and own the agent through that team. Legacy
+ * `visibility: 'private'` documents are coerced to `'team'` at read time
+ * and converted in place by the admin "Reconcile dynamic agent OpenFGA"
+ * migration. See `docs/docs/changes/2026-05-22-remove-private-agents.md`.
+ */
+export type VisibilityType = 'team' | 'global';
+
+/**
+ * Wire-level type accepted on the way IN to the BFF. We still accept the
+ * historical `'private'` string so old clients (and Mongo docs being
+ * re-saved) don't fail outright — the BFF normalizes it to `'team'` and
+ * surfaces a deprecation warning in the response.
+ */
+export type LegacyVisibilityType = VisibilityType | 'private';
 
 // =============================================================================
 // MCP Server Types
@@ -23,10 +47,54 @@ export interface MCPServerConfig {
   command?: string;   // For stdio transport
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
+  credential_sources?: MCPCredentialSource[];
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  source?: 'manual' | 'config' | 'agentgateway';
+  agentgateway_discovered?: boolean;
+  agentgateway_endpoint?: string;
+  agentgateway_target_endpoint?: string;
+  owner_id?: string;
+  owner_subject?: string;
+  owner_team_slug?: string;
   created_at: string;
   updated_at: string;
+}
+
+/** Per-row OpenFGA decisions returned by GET /api/mcp-servers (batch-checked). */
+export interface MCPServerRowPermissions {
+  can_manage: boolean;
+  can_invoke: boolean;
+  can_discover: boolean;
+}
+
+/** List-level capabilities returned once per GET /api/mcp-servers response. */
+export interface MCPServerListCapabilities {
+  repair_agentgateway: boolean;
+}
+
+export interface MCPServerConfigWithPermissions extends MCPServerConfig {
+  permissions: MCPServerRowPermissions;
+}
+
+export interface MCPCredentialSource {
+  kind: 'secret_ref' | 'provider_connection' | 'caller_token';
+  target: 'env' | 'header';
+  name: string;
+  secret_ref?: string;
+  provider_connection_id?: string;
+  provider?: string;
+  /**
+   * Provider connections are always caller-scoped (each caller resolves their
+   * OWN connection per JWT sub). The legacy `'pinned'` scope — one connection
+   * reused for all callers — was removed for security; the value is still
+   * accepted on the wire so old documents parse, but it is ignored.
+   */
+  connection_scope?: 'caller' | 'pinned';
+  /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
+  fallback_env?: string;
+  /** caller_token: mint a service client-credentials token when no user JWT. */
+  fallback_client_credentials?: boolean;
 }
 
 export interface MCPServerConfigCreate {
@@ -35,10 +103,14 @@ export interface MCPServerConfigCreate {
   description?: string;
   transport: TransportType;
   endpoint?: string;
+  /** Upstream MCP URL when the form endpoint is an AgentGateway route from the picker. */
+  agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
+  owner_team_slug?: string;
 }
 
 export interface MCPServerConfigUpdate {
@@ -46,9 +118,11 @@ export interface MCPServerConfigUpdate {
   description?: string;
   transport?: TransportType;
   endpoint?: string;
+  agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
 }
 
@@ -56,6 +130,8 @@ export interface MCPToolInfo {
   name: string;
   namespaced_name: string;
   description: string;
+  inputSchema?: unknown;
+  input_schema?: unknown;
 }
 
 export interface MCPServerProbeResult {
@@ -139,6 +215,7 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }
@@ -286,6 +363,13 @@ export interface ToolApprovalInterrupt {
   tool_args: Record<string, unknown>;
   allowed_decisions: DecisionType[];
   agent: string;
+  /** Multiple tool calls needing approval (when LLM batches gated tools) */
+  tool_approvals?: Array<{
+    tool_name: string;
+    tool_args: Record<string, unknown>;
+    tool_call_id: string;
+    allowed_decisions: string[];
+  }>;
 }
 
 export type InterruptPayload = FormInputInterrupt | ToolApprovalInterrupt;
@@ -298,14 +382,15 @@ export type ResumeData =
   | { type: "form_input"; dismissed: true }
   | { type: "tool_approval"; decision: "approve" }
   | { type: "tool_approval"; decision: "reject" }
-  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> };
+  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> }
+  | { type: "tool_approval"; decisions: Array<{ decision: string; tool_name?: string; edited_args?: Record<string, unknown> }> };
 
 export interface DynamicAgentConfig {
   _id: string;
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
+  allowed_tools: Record<string, string[] | boolean>;  // server_id -> tool names, true=all, false=disabled
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
   model: ModelConfig;  // Required: LLM model configuration
   visibility: VisibilityType;
@@ -317,6 +402,17 @@ export interface DynamicAgentConfig {
   interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
+  owner_subject?: string;
+  /**
+   * Every dynamic agent is owned by a team (visibility was either `team`
+   * or `global`). `owner_team_slug` is the source of truth; `owner_team_id`
+   * is the matching Mongo ObjectId string for legacy lookups. Both are
+   * effectively required from 2026-05-22 onward — the BFF rejects writes
+   * that omit them. They remain optional on the type only so the legacy
+   * coercion path (`normalizeLegacyVisibility`) can flag drift.
+   */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
   /** Compact AI Review verdict from the last save. Drives the Grade column
@@ -327,16 +423,31 @@ export interface DynamicAgentConfig {
   updated_at: string;
 }
 
+/** Per-row OpenFGA decisions returned by GET /api/dynamic-agents (batch-checked). */
+export interface AgentRowPermissions {
+  can_manage: boolean;
+  can_write: boolean;
+  can_discover: boolean;
+}
+
+export interface DynamicAgentConfigWithPermissions extends DynamicAgentConfig {
+  permissions: AgentRowPermissions;
+}
+
 export interface DynamicAgentConfigCreate {
   id: string;  // Required: User-friendly slug ID derived from name
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model: ModelConfig;  // Required: LLM model configuration
-  visibility?: VisibilityType;
+  /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
+  visibility?: LegacyVisibilityType;
   shared_with_teams?: string[];
+  /** Required for the new contract. */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
   ui?: AgentUIConfig;
@@ -350,10 +461,14 @@ export interface DynamicAgentConfigUpdate {
   name?: string;
   description?: string;
   system_prompt?: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
-  visibility?: VisibilityType;
+  /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
+  visibility?: LegacyVisibilityType;
+  /** Updates may move the agent to a different owner team. */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   skills?: string[];
@@ -387,6 +502,8 @@ export interface LLMModelConfig {
   provider: string;
   description?: string;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  owner_subject?: string;
+  owner_id?: string;
   updated_at: string;
 }
 

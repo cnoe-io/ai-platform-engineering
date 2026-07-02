@@ -81,12 +81,20 @@ describe("userCanModifyAgentSkill — built-in lock integration", () => {
     ).toBe(true);
   });
 
-  it("blocks non-owners on user-owned rows", async () => {
+  // After 098-enterprise-rbac (commit 6cc3e7324) per-user ownership of
+  // non-system rows is enforced by OpenFGA at the route layer
+  // (`requireResourcePermission(... type: 'skill', action: 'write')`),
+  // not by this helper. `userCanModifyAgentSkill` now only guards the
+  // built-in `is_system: true` rows — any other user-owned skill returns
+  // `true` here and the gate decides ownership upstream. This test pins
+  // that new contract so a future drift back to in-helper ownership
+  // doesn't go unnoticed.
+  it("delegates non-system ownership checks to the upstream OpenFGA gate", async () => {
     delete process.env.ALLOW_BUILTIN_SKILL_MUTATION;
     const { userCanModifyAgentSkill } = await reload();
     const skill = baseSkill({ is_system: false, owner_id: "alice@example.com" });
     expect(
       userCanModifyAgentSkill(skill, { email: "bob@example.com" }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

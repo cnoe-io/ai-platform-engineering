@@ -1,4 +1,5 @@
 # ---------- Stage 1: Build dependencies ----------
+# assisted-by Codex Codex-sonnet-4-6
 FROM python:3.13-slim AS builder
 
 ARG AGENT_NAME
@@ -17,13 +18,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the entire MCP directory structure first since uv sync needs it to build
-COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp ./
+# Mirror the source-tree layout under /app so that relative path sources in
+# `[tool.uv.sources]` (e.g. `mcp-agent-auth = { path = "../common/mcp-auth" }`)
+# resolve inside the project base directory. uv refuses to follow `..` paths
+# that escape the project root, so we keep the `mcp/<name>` + sibling
+# `mcp/common` layout intact rather than flattening into the image.
+COPY --chown=root:root ./ai_platform_engineering/mcp/${AGENT_NAME} \
+     /app/ai_platform_engineering/mcp/${AGENT_NAME}/
+COPY --chown=root:root ./ai_platform_engineering/mcp/common \
+     /app/ai_platform_engineering/mcp/common/
+
+WORKDIR /app/ai_platform_engineering/mcp/${AGENT_NAME}
+
+# Keep the dependency environment outside the source tree. Dev compose bind
+# mounts each MCP source directory and would otherwise hide the image-built venv.
+ENV UV_PROJECT_ENVIRONMENT=/opt/caipe-mcp-venvs/${AGENT_NAME}
 
 # Install dependencies into venv (no dev deps)
-# Increase timeout for large packages (e.g., pyarrow 39MB)
+# Increase timeout for large packages (e.g., pyarrow 39MB) and to absorb
+# stalled TCP streams when docker compose builds 20+ images in parallel.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+    UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 # Wolfi (Chainguard) base: 0 CVEs, continuously patched packages, replaces
@@ -57,6 +72,9 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
     if [ "$INSTALL_AWS_CLI" = "true" ]; then \
         for i in 1 2 3; do apk add --no-cache curl unzip bash && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
     fi && \
+    if [ "$INSTALL_KUBECTL" = "true" ]; then \
+        for i in 1 2 3; do apk add --no-cache kubectl-1.36-default && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
+    fi && \
     apk upgrade --no-cache
 
 # Install AWS CLI v2 (opt-in: --build-arg INSTALL_AWS_CLI=true)
@@ -78,21 +96,6 @@ RUN if [ "$INSTALL_AWS_CLI" = "true" ]; then \
         rm -rf awscliv2.zip aws; \
     fi
 
-# Install kubectl (opt-in: --build-arg INSTALL_KUBECTL=true)
-RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
-        ARCH=$(uname -m) && \
-        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-            KUBECTL_ARCH="arm64"; \
-        else \
-            KUBECTL_ARCH="amd64"; \
-        fi && \
-        KUBECTL_VERSION=$(curl -sfL --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 https://dl.k8s.io/release/stable.txt) && \
-        if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
-        curl -sfLO --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
-        chmod +x kubectl && \
-        mv kubectl /usr/local/bin/kubectl; \
-    fi
-
 # The builder stage uses python:3.13-slim which places Python at
 # /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
 # These symlinks keep the venv's internal python symlinks from breaking.
@@ -104,21 +107,26 @@ RUN mkdir -p /usr/local/bin \
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-WORKDIR /app
-
-# Set env vars for uv & PATH
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
-    PATH="/app/.venv/bin:${PATH}" \
+# Mirror the source layout used in the builder stage so relative source
+# dependencies such as `../common/mcp-auth` still resolve at runtime. Keep the
+# venv outside /app so dev source mounts cannot hide installed dependencies.
+ENV UV_PROJECT_ENVIRONMENT=/opt/caipe-mcp-venvs/${AGENT_NAME} \
+    PATH="/opt/caipe-mcp-venvs/${AGENT_NAME}/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     AGENT_NAME=${AGENT_NAME}
 
-# Copy venv & code from builder
+WORKDIR /app/ai_platform_engineering/mcp/${AGENT_NAME}
+
+# Copy venv & code from builder (whole /app to preserve the mcp/common/
+# sibling directory referenced by the editable mcp-agent-auth package).
+COPY --from=builder --chown=appuser:appuser /opt/caipe-mcp-venvs /opt/caipe-mcp-venvs
 COPY --from=builder --chown=appuser:appuser /app /app
 
 USER appuser
 
 EXPOSE 8000
 
-# Run the HTTP/SSE MCP server
-CMD ["sh", "-c", "exec python -m mcp_${AGENT_NAME}"]
+# Run the HTTP/SSE MCP server. The flat module layout (server.py at the
+# project root, package = false) is launched directly rather than as a module.
+CMD ["sh", "-c", "exec python server.py"]

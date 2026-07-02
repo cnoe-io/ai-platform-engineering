@@ -10,8 +10,8 @@
  * - 404 fallback to empty conversation
  * - Non-404 API errors (network failures)
  * - Invalid UUID shows error state
- * - loadTurnsFromServer failure (metadata-only stub path, Platform Engineer)
- * - loadTurnsFromServer failure (not-in-store path, Platform Engineer)
+ * - loadMessagesFromServer failure (metadata-only stub path)
+ * - loadMessagesFromServer failure (not-in-store path)
  * - Unexpected outer error fallback
  * - setActiveConversation always called across all paths
  * - Background sync fires for conversations already loaded with messages
@@ -46,7 +46,7 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("@/lib/config", () => ({
   getConfig: jest.fn((key: string) => {
-    if (key === "caipeUrl") return "http://localhost:8000";
+    if (key === "dynamicAgentsUrl") return "http://localhost:8100";
     if (key === "logoUrl") return "/logo.svg";
     if (key === "appName") return "Test App";
     if (key === "logoStyle") return "default";
@@ -80,12 +80,12 @@ jest.mock("@/lib/api-client", () => ({
 const mockSetActiveConversation = jest.fn();
 let resolveLoadMessages: () => void;
 let rejectLoadMessages: (err: any) => void;
-// Platform Engineer conversations (no agent_id) use loadTurnsFromServer
-const mockLoadTurnsFromServer = jest.fn(
+// Every conversation targets a dynamic agent and loads via loadMessagesFromServer.
+const mockLoadMessagesFromServer = jest.fn(
   () =>
     new Promise<void>((resolve, reject) => {
       resolveLoadMessages = () => {
-        // Simulate what the real loadTurnsFromServer does: populate
+        // Simulate what the real loadMessagesFromServer does: populate
         // the conversation's messages array so storeHasMessages flips true.
         const conv = mockConversations.find((c: any) => c.id === mockUuid);
         if (conv && conv.messages.length === 0) {
@@ -96,8 +96,6 @@ const mockLoadTurnsFromServer = jest.fn(
       rejectLoadMessages = reject;
     })
 );
-// Dynamic Agent conversations (with agent_id) use loadMessagesFromServer
-const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined);
 const mockCreateConversation = jest.fn(() => "new-id");
 
 let mockConversations: any[] = [];
@@ -113,7 +111,6 @@ jest.mock("@/store/chat-store", () => {
     const state = {
       setActiveConversation: mockSetActiveConversation,
       loadMessagesFromServer: mockLoadMessagesFromServer,
-      loadTurnsFromServer: mockLoadTurnsFromServer,
       createConversation: mockCreateConversation,
       conversations: mockConversations,
       activeConversationId: mockActiveConversationId,
@@ -141,23 +138,8 @@ jest.mock("@/components/layout/Sidebar", () => ({
   Sidebar: () => <div data-testid="sidebar">Sidebar</div>,
 }));
 
-jest.mock("@/components/chat/ChatPanel", () => ({
-  ChatPanel: ({ conversationId }: { conversationId: string }) => (
-    <div data-testid="chat-panel">Chat: {conversationId}</div>
-  ),
-}));
-
-// Mock the new view components that replaced direct Sidebar/ChatPanel/ContextPanel usage
-// Note: Sidebar is now rendered by the layout, not these view components
-jest.mock("@/components/chat/PlatformEngineerChatView", () => ({
-  SupervisorChatView: ({ conversationId }: { conversationId: string }) => (
-    <div>
-      <div data-testid="chat-panel">Chat: {conversationId}</div>
-      <div data-testid="context-panel">Context</div>
-    </div>
-  ),
-}));
-
+// ChatContainer renders the DynamicAgentChatView (`ChatView`). Sidebar is
+// rendered by the layout, not by these view components.
 jest.mock("@/components/chat/DynamicAgentChatView", () => ({
   ChatView: ({ conversationId }: { conversationId: string }) => (
     <div>
@@ -195,6 +177,12 @@ describe("ChatContainer", () => {
     mockActiveConversationId = null;
     mockStorageMode = "mongodb";
     mockUuid = "b76e290b-d90d-4dd6-8db7-fbda49f3fa6d";
+    // ChatContainer fetches agent info for the selected agent participant.
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { id: "agent-1", name: "Agent One" } }),
+    }) as unknown as typeof fetch;
   });
 
   it("renders CAIPESpinner with branded loading message while fetching from MongoDB", () => {
@@ -228,11 +216,12 @@ describe("ChatContainer", () => {
       title: "Test Conversation",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      participants: [{ type: "agent", id: "agent-1" }],
     });
 
-    // Wait for loadTurnsFromServer to be called and chat panel to render
+    // Wait for loadMessagesFromServer to be called and chat panel to render
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
     // Chat panel shows while messages are loading (new behavior)
@@ -262,6 +251,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hello" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -282,6 +272,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -291,9 +282,9 @@ describe("ChatContainer", () => {
     // The chat panel will receive isLoadingMessages=true internally
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
-    // loadTurnsFromServer should be called (no force option — turns endpoint is idempotent)
+    // Conversation is in store with no messages → force-reload from MongoDB
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid, { force: true });
     });
 
     // Resolve messages
@@ -310,29 +301,34 @@ describe("ChatContainer", () => {
 
     render(<ChatContainer />);
 
+    // No spinner in localStorage mode. With no conversation in store, the
+    // agentless empty state renders (no MongoDB metadata to resolve an agent).
     expect(
       screen.queryByText("Loading conversation...")
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+    expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
   });
 
-  it("falls back to empty conversation when MongoDB returns 404", async () => {
+  it("falls back to an agentless empty conversation when MongoDB returns 404", async () => {
     render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
     rejectGetConversation(new Error("Conversation not found (404)"));
 
+    // The fallback conversation has no agent participant, so the agent-picker
+    // empty state is shown instead of the chat panel (and the spinner clears).
     await waitFor(() => {
-      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+      expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
     });
+    expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
   });
 
   // ========================================================================
   // Edge cases: API and network errors
   // ========================================================================
 
-  it("falls back to empty conversation on non-404 API error (e.g. network failure)", async () => {
+  it("falls back to an agentless empty conversation on non-404 API error (e.g. network failure)", async () => {
     render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
@@ -340,14 +336,14 @@ describe("ChatContainer", () => {
     rejectGetConversation(new Error("Network error: ECONNREFUSED"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+      expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
     });
 
     // Should still set the active conversation
     expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
   });
 
-  it("shows chat panel immediately even when loadTurnsFromServer fails on metadata-only stub", async () => {
+  it("shows chat panel immediately even when loadMessagesFromServer fails on metadata-only stub", async () => {
     mockConversations = [
       {
         id: mockUuid,
@@ -356,6 +352,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -365,11 +362,11 @@ describe("ChatContainer", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid, { force: true });
     });
 
     // Reject the message load — chat panel should still be visible
-    rejectLoadMessages(new Error("Failed to fetch turns"));
+    rejectLoadMessages(new Error("Failed to fetch messages"));
 
     // Chat panel remains visible after failed load
     await waitFor(() => {
@@ -377,7 +374,7 @@ describe("ChatContainer", () => {
     });
   });
 
-  it("dismisses spinner when loadTurnsFromServer fails on not-in-store path", async () => {
+  it("dismisses spinner when loadMessagesFromServer fails on not-in-store path", async () => {
     render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
@@ -388,17 +385,17 @@ describe("ChatContainer", () => {
       title: "Conv With Message Failure",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      participants: [{ type: "agent", id: "agent-1" }],
     });
 
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
-    // Reject turns load
-    rejectLoadMessages(new Error("Turns endpoint down"));
+    // Reject the message load
+    rejectLoadMessages(new Error("Messages endpoint down"));
 
-    // fetchDone=true but storeHasMessages=false and title != "New Conversation"
-    // → spinner persists (defensive: don't show blank Welcome screen)
+    // setActiveConversation is still called even when the message load fails.
     await waitFor(() => {
       expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
     });
@@ -417,6 +414,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hi" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -434,13 +432,14 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
     render(<ChatContainer />);
 
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalled();
+      expect(mockLoadMessagesFromServer).toHaveBeenCalled();
     });
 
     rejectLoadMessages(new Error("fail"));
@@ -477,6 +476,7 @@ describe("ChatContainer", () => {
           { id: "m2", role: "assistant", content: "hi there" },
         ],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -486,9 +486,9 @@ describe("ChatContainer", () => {
     expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
-    // But background sync should still fire (Platform Engineer uses loadTurnsFromServer)
+    // But background sync should still fire (loadMessagesFromServer)
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
     });
   });
 
@@ -502,13 +502,14 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
     render(<ChatContainer />);
 
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
-    expect(mockLoadTurnsFromServer).not.toHaveBeenCalled();
+    expect(mockLoadMessagesFromServer).not.toHaveBeenCalled();
   });
 
   // ========================================================================
@@ -525,18 +526,9 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
-
-    render(<ChatContainer />);
-
-    expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
-    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
-  });
-
-  it("does not show spinner in localStorage mode with no conversation in store", () => {
-    mockStorageMode = "localStorage";
-    mockConversations = [];
 
     render(<ChatContainer />);
 
@@ -549,12 +541,12 @@ describe("ChatContainer", () => {
   // ========================================================================
 
   it("shows chat panel immediately even during Sidebar race (storeHasMessages false)", async () => {
-    // Simulate: loadTurnsFromServer resolved but Sidebar's
+    // Simulate: loadMessagesFromServer resolved but Sidebar's
     // loadConversationsFromServer concurrently wiped messages.
-    // The mock loadTurnsFromServer normally populates messages,
+    // The mock loadMessagesFromServer normally populates messages,
     // but here we override to simulate the wipe.
-    const originalMock = mockLoadTurnsFromServer.getMockImplementation();
-    mockLoadTurnsFromServer.mockImplementation(
+    const originalMock = mockLoadMessagesFromServer.getMockImplementation();
+    mockLoadMessagesFromServer.mockImplementation(
       () =>
         new Promise<void>((resolve, reject) => {
           resolveLoadMessages = () => {
@@ -573,6 +565,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -583,7 +576,7 @@ describe("ChatContainer", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(mockLoadTurnsFromServer).toHaveBeenCalled();
+      expect(mockLoadMessagesFromServer).toHaveBeenCalled();
     });
 
     // Resolve without populating messages (simulates race)
@@ -595,7 +588,7 @@ describe("ChatContainer", () => {
     });
 
     // Restore original mock
-    if (originalMock) mockLoadTurnsFromServer.mockImplementation(originalMock);
+    if (originalMock) mockLoadMessagesFromServer.mockImplementation(originalMock);
   });
 
   // ========================================================================
@@ -615,6 +608,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "appeared" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -632,6 +626,7 @@ describe("ChatContainer", () => {
 
   it("handles unexpected error in outer try/catch with fallback conversation", async () => {
     // Override getConversation to throw a non-standard error
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { apiClient } = require("@/lib/api-client");
     apiClient.getConversation.mockImplementationOnce(() => {
       throw new TypeError("Cannot read properties of undefined");
@@ -643,9 +638,10 @@ describe("ChatContainer", () => {
       expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
     });
 
-    // Should eventually show chat panel (fallback empty conversation with "New Conversation" title)
+    // The fallback "New Conversation" has no agent participant, so the
+    // agent-picker empty state is shown (component recovers without crashing).
     await waitFor(() => {
-      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+      expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
     });
   });
 
@@ -662,6 +658,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -681,7 +678,7 @@ describe("ChatContainer", () => {
     expect(screen.queryByTestId("context-panel")).not.toBeInTheDocument();
   });
 
-  it("passes correct conversationId to ChatPanel", () => {
+  it("passes correct conversationId to the chat view", () => {
     mockConversations = [
       {
         id: mockUuid,
@@ -690,6 +687,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "x" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -712,6 +710,7 @@ describe("ChatContainer", () => {
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "other" }],
         streamEvents: [],
+        participants: [{ type: "agent", id: "agent-1" }],
       },
     ];
 
@@ -726,6 +725,7 @@ describe("ChatContainer", () => {
   // ========================================================================
 
   it("adds conversation to store via setState when loaded from MongoDB", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { useChatStore } = require("@/store/chat-store");
 
     render(<ChatContainer />);
@@ -735,6 +735,7 @@ describe("ChatContainer", () => {
       title: "From MongoDB",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      participants: [{ type: "agent", id: "agent-1" }],
     });
 
     await waitFor(() => {
@@ -747,7 +748,50 @@ describe("ChatContainer", () => {
     expect(addedConv.title).toBe("From MongoDB");
   });
 
+  it("preserves sharing metadata when a shared conversation is opened directly", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    // Direct URL loads bypass the list route, so this metadata must survive the detail fetch.
+    const sharing = {
+      is_public: false,
+      shared_with: [],
+      shared_with_teams: [],
+      share_link_enabled: true,
+    };
+    const findAddedConversation = () =>
+      mockConversations.find((conversation) => conversation.id === mockUuid) as
+        | { owner_id?: string; sharing?: typeof sharing; accessLevel?: string }
+        | undefined;
+
+    render(<ChatContainer />);
+
+    resolveGetConversation({
+      _id: mockUuid,
+      title: "Direct Shared Conversation",
+      owner_id: "owner@example.com",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      participants: [{ type: "agent", id: "agent-1" }],
+      sharing,
+      access_level: "shared_readonly",
+    });
+
+    await waitFor(() => {
+      expect(findAddedConversation()).toBeDefined();
+    });
+
+    await waitFor(() => {
+      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+    });
+    resolveLoadMessages();
+
+    const addedConv = findAddedConversation();
+    expect(addedConv?.owner_id).toBe("owner@example.com");
+    expect(addedConv?.accessLevel).toBe("shared_readonly");
+    expect(addedConv?.sharing).toEqual(sharing);
+  });
+
   it("adds fallback conversation to store when MongoDB returns 404", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { useChatStore } = require("@/store/chat-store");
 
     render(<ChatContainer />);
@@ -783,6 +827,7 @@ describe("ChatContainer", () => {
           updatedAt: new Date(),
           messages,
           streamEvents: [],
+          participants: [{ type: "agent", id: "agent-1" }],
         },
       ];
 
@@ -806,6 +851,7 @@ describe("ChatContainer", () => {
           updatedAt: new Date(),
           messages,
           streamEvents: [],
+          participants: [{ type: "agent", id: "agent-1" }],
         },
       ];
 
@@ -826,10 +872,11 @@ describe("ChatContainer", () => {
         title: "MongoDB Large Conv",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        participants: [{ type: "agent", id: "agent-1" }],
       });
 
       await waitFor(() => {
-        expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+        expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
       });
 
       // After conversation metadata is loaded, chat panel should render
@@ -853,6 +900,7 @@ describe("ChatContainer", () => {
           updatedAt: new Date(),
           messages: [],
           streamEvents: [],
+          participants: [{ type: "agent", id: "agent-1" }],
         },
       ];
 
@@ -864,7 +912,7 @@ describe("ChatContainer", () => {
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
 
       await waitFor(() => {
-        expect(mockLoadTurnsFromServer).toHaveBeenCalled();
+        expect(mockLoadMessagesFromServer).toHaveBeenCalled();
       });
 
       resolveLoadMessages();
@@ -888,6 +936,7 @@ describe("ChatContainer", () => {
           updatedAt: new Date(),
           messages,
           streamEvents: [],
+          participants: [{ type: "agent", id: "agent-1" }],
         },
       ];
 
@@ -903,8 +952,8 @@ describe("ChatContainer", () => {
     it("renders chat panel for conversation in store even if messages are empty (sidebar race)", async () => {
       // New behavior: ChatContainer renders chat panel immediately for conversations in store
       // The panel handles empty messages internally (shows skeleton via isLoadingMessages)
-      const originalMock = mockLoadTurnsFromServer.getMockImplementation();
-      mockLoadTurnsFromServer.mockImplementation(
+      const originalMock = mockLoadMessagesFromServer.getMockImplementation();
+      mockLoadMessagesFromServer.mockImplementation(
         () =>
           new Promise<void>((resolve, reject) => {
             resolveLoadMessages = () => {
@@ -923,6 +972,7 @@ describe("ChatContainer", () => {
           updatedAt: new Date(),
           messages: [],
           streamEvents: [],
+          participants: [{ type: "agent", id: "agent-1" }],
         },
       ];
 
@@ -934,7 +984,7 @@ describe("ChatContainer", () => {
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
 
       await waitFor(() => {
-        expect(mockLoadTurnsFromServer).toHaveBeenCalled();
+        expect(mockLoadMessagesFromServer).toHaveBeenCalled();
       });
 
       resolveLoadMessages();
@@ -944,7 +994,7 @@ describe("ChatContainer", () => {
         expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
       });
 
-      if (originalMock) mockLoadTurnsFromServer.mockImplementation(originalMock);
+      if (originalMock) mockLoadMessagesFromServer.mockImplementation(originalMock);
     });
 
     it("triggers background sync for large conversation already loaded", async () => {
@@ -961,6 +1011,7 @@ describe("ChatContainer", () => {
           updatedAt: new Date(),
           messages,
           streamEvents: [],
+          participants: [{ type: "agent", id: "agent-1" }],
         },
       ];
 
@@ -969,9 +1020,9 @@ describe("ChatContainer", () => {
       // Chat panel renders immediately
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
-      // Background sync should still be triggered (Platform Engineer uses loadTurnsFromServer)
+      // Background sync should still be triggered (loadMessagesFromServer)
       await waitFor(() => {
-        expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
+        expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
       });
     });
   });

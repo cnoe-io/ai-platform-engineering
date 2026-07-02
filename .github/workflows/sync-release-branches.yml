@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   discover-release-branches:
@@ -18,13 +17,14 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -55,6 +55,9 @@ jobs:
   sync-to-release:
     name: "Sync main → ${{ matrix.branch }}"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     needs: discover-release-branches
     if: needs.discover-release-branches.outputs.branches != '[]' && needs.discover-release-branches.outputs.branches != 'null'
     strategy:
@@ -64,13 +67,14 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -83,6 +87,7 @@ jobs:
       - name: 🔄 Create or update sync PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           RELEASE_BRANCH="${{ matrix.branch }}"
           SAFE_NAME="${RELEASE_BRANCH//\//-}"
@@ -141,7 +146,7 @@ jobs:
               echo ""
               echo "| Field | Value |"
               echo "|---|---|"
-              echo "| **Triggered by** | @${{ github.actor }} |"
+              echo "| **Triggered by** | @${GITHUB_ACTOR} |"
               echo "| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |"
               echo "| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
               echo ""

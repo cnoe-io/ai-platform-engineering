@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { cn } from "@/lib/utils";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { Bot,ChevronDown,Loader2,Plus,Search } from "lucide-react";
+import React,{ useEffect,useRef,useState } from "react";
 
 interface NewChatButtonProps {
   collapsed: boolean;
@@ -21,12 +21,60 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [defaultAgentId, setDefaultAgentId] = useState<string | null>(null);
+  const [defaultAgentName, setDefaultAgentName] = useState<string>("New Chat");
+  const [defaultAgentResolved, setDefaultAgentResolved] = useState(false);
 
-  const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
+  // Fetch configured default agent on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchDefaultAgent() {
+      try {
+        const configResponse = await fetch('/api/admin/platform-config');
+        const configData = await configResponse.json().catch(() => ({ success: false }));
+        const agentId = configData.success && configData.data.default_agent_id
+          ? String(configData.data.default_agent_id)
+          : null;
+
+        if (cancelled) return;
+
+        setDefaultAgentId(agentId);
+
+        if (agentId) {
+          try {
+            const agentResponse = await fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`);
+            if (agentResponse.ok) {
+              const agentData = await agentResponse.json();
+              if (!cancelled && agentData.success && agentData.data?.name) {
+                setDefaultAgentName(agentData.data.name);
+              }
+            }
+          } catch {
+            // Keep the generic label; the agent id still routes the chat correctly.
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setDefaultAgentId(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setDefaultAgentResolved(true);
+        }
+      }
+    }
+
+    fetchDefaultAgent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Fetch available dynamic agents when dropdown opens
   useEffect(() => {
-    if (!dropdownOpen || !dynamicAgentsEnabled) return;
+    if (!dropdownOpen) return;
 
     const fetchAgents = async () => {
       setLoading(true);
@@ -37,7 +85,13 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           throw new Error("Failed to fetch agents");
         }
         const data = await response.json();
-        setAgents(data.data || []);
+        const fetched: DynamicAgentConfig[] = data.data || [];
+        setAgents(fetched);
+        // Update default agent display name now that we have the full list
+        if (defaultAgentId) {
+          const found = fetched.find((a) => a._id === defaultAgentId);
+          if (found) setDefaultAgentName(found.name);
+        }
       } catch (err) {
         console.error("Error fetching dynamic agents:", err);
         setError("Failed to load agents");
@@ -47,7 +101,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     };
 
     fetchAgents();
-  }, [dropdownOpen, dynamicAgentsEnabled]);
+  }, [dropdownOpen, defaultAgentId]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -79,8 +133,8 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   }, [dropdownOpen]);
 
   const handleMainClick = () => {
-    // Main button always creates Platform Engineer chat
-    onNewChat(undefined);
+    // Route to the configured default agent (undefined → resolved downstream).
+    onNewChat(defaultAgentId ?? undefined);
   };
 
   const handleDropdownToggle = (e: React.MouseEvent) => {
@@ -103,7 +157,6 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   }, [dropdownOpen]);
 
   const query = searchQuery.toLowerCase();
-  const showPlatformEngineer = "platform engineer".includes(query) || "default ai assistant".includes(query);
   const filteredAgents = agents.filter(
     (a) =>
       a.name.toLowerCase().includes(query) ||
@@ -115,26 +168,12 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     return (
       <Button
         onClick={handleMainClick}
+        disabled={!defaultAgentResolved}
         className="w-full px-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow"
         variant="ghost"
         size="icon"
       >
         <Plus className="h-4 w-4 shrink-0" />
-      </Button>
-    );
-  }
-
-  // If dynamic agents not enabled, show simple button
-  if (!dynamicAgentsEnabled) {
-    return (
-      <Button
-        onClick={handleMainClick}
-        className="w-full gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow"
-        variant="ghost"
-        size="default"
-      >
-        <Plus className="h-4 w-4 shrink-0" />
-        <span className="whitespace-nowrap">New Chat</span>
       </Button>
     );
   }
@@ -146,6 +185,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
         {/* Main button area */}
         <Button
           onClick={handleMainClick}
+          disabled={!defaultAgentResolved}
           className={cn(
             "flex-1 gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow",
             "rounded-r-none border-r-0"
@@ -154,7 +194,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           size="default"
         >
           <Plus className="h-4 w-4 shrink-0" />
-          <span className="whitespace-nowrap">New Chat</span>
+          <span className="whitespace-nowrap">{defaultAgentName}</span>
         </Button>
 
         {/* Dropdown trigger */}
@@ -198,29 +238,6 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
           {/* Scrollable agent list */}
           <div className="overflow-y-auto max-h-96 py-1">
-            {/* Platform Engineer option */}
-            {showPlatformEngineer && (
-              <button
-                onClick={() => handleSelectAgent(undefined)}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
-                  <Bot className="h-4 w-4 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">Platform Engineer</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    Default AI assistant
-                  </div>
-                </div>
-              </button>
-            )}
-
-            {/* Divider if there are dynamic agents */}
-            {showPlatformEngineer && (loading || filteredAgents.length > 0 || error) && (
-              <div className="h-px bg-border my-1" />
-            )}
-
             {/* Loading state */}
             {loading && (
               <div className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-muted-foreground">
@@ -238,22 +255,18 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
             {/* Dynamic agents list */}
             {!loading && !error && filteredAgents.map((agent) => {
-              const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme, agent.ui.custom_theme_config) : null;
               return (
                 <button
                   key={agent._id}
                   onClick={() => handleSelectAgent(agent._id)}
                   className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
                 >
-                  <div
-                    className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                      !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
-                    )}
-                    style={gradientStyle || undefined}
-                  >
-                    <Bot className="h-4 w-4" style={{ color: getAccentColor(agent.ui?.gradient_theme, agent.ui?.custom_theme_config) || "white" }} />
-                  </div>
+                  <AgentAvatar
+                    agent={agent}
+                    rounded="rounded-full"
+                    size="w-8 h-8"
+                    iconSize="h-4 w-4"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{agent.name}</div>
                     {agent.description && (
@@ -267,7 +280,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
             })}
 
             {/* No results */}
-            {!loading && !error && !showPlatformEngineer && filteredAgents.length === 0 && (
+            {!loading && !error && filteredAgents.length === 0 && (
               <div className="px-3 py-2 text-sm text-muted-foreground">
                 No agents match &quot;{searchQuery}&quot;
               </div>

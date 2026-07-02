@@ -237,8 +237,7 @@ helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineerin
   --namespace caipe \
   --version 0.2.31 \
   --set tags.caipe-ui=true \
-  --set tags.agent-weather=true \
-  --set tags.agent-netutils=true \
+  --set tags.mcp-netutils=true \
   --set caipe-ui.config.SSO_ENABLED=false \
   --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000 \
   --set supervisor-agent.env.ENABLE_TRACING=true \
@@ -289,11 +288,7 @@ kubectl logs deployment/caipe-supervisor-agent -n caipe
 - Uvicorn running
 - No errors related to Langfuse connectivity
 
-Check the sub-agents as well:
-
-```bash
-kubectl logs deployment/caipe-agent-weather -n caipe
-```
+Check the NetUtils agent as well:
 
 ```bash
 kubectl logs deployment/caipe-agent-netutils -n caipe
@@ -331,19 +326,14 @@ caipe
 
 Try these queries to generate traces across multiple agents (same prompts as in [Multi-Agent Systems](/docs/workshop/mas) and the [Conclusion](/docs/workshop/conclusion)):
 
-**Weather query:**
-```text
-What's the current weather in San Francisco?
-```
-
 **Network diagnostic:**
 ```text
 Check if google.com is reachable.
 ```
 
-**Cross-agent query:**
+**Multi-step query:**
 ```text
-Get me today's weather for New York, and also test if api.github.com is reachable. Summarize both results.
+Check if api.github.com is reachable, then resolve its DNS and summarize both results.
 ```
 
 ---
@@ -367,7 +357,7 @@ Make sure the Langfuse port-forward is still active (from Task 3), then open [ht
 - **Token usage**: LLM token counts and estimated cost per generation
 
 > [!TIP]
-> For the cross-agent query, you should see the supervisor calling both the weather and NetUtils agents in the trace, followed by a synthesis step where the LLM combines the results.
+> For the multi-step query, you should see the supervisor calling the NetUtils agent multiple times in the trace, followed by a synthesis step where the LLM combines the results.
 
 ---
 

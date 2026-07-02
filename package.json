@@ -1,5 +1,11 @@
 {
   "dependencies": {
-    "pnpm": "10.28.2"
+    "mongodb": "7.2.0",
+    "pnpm": "11.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.7.0",
+    "ts-node": "10.9.2",
+    "typescript": "6.0.3"
   }
 }

@@ -1,40 +1,40 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import {
+CategoryBreakdown,
+RunStatsTable,
+VisibilityBreakdown,
+} from "@/components/admin/insights/SkillMetricsCards";
+import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
+import { AuthGuard } from "@/components/auth-guard";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { getStorageMode } from "@/lib/storage-config";
+import { cn } from "@/lib/utils";
+import type { SkillMetricsPersonal } from "@/types/agent-skill";
 import { motion } from "framer-motion";
 import {
-  MessageSquare,
-  Hash,
-  TrendingUp,
-  Clock,
-  Calendar,
-  Bot,
-  ThumbsUp,
-  ThumbsDown,
-  Lightbulb,
-  BarChart3,
-  FileText,
-  Zap,
-  Database,
-  Layers,
-  CheckCircle,
-  XCircle,
+BarChart3,
+Bot,
+Calendar,
+CheckCircle,
+Clock,
+Database,
+FileText,
+Hash,
+Layers,
+Lightbulb,
+MessageSquare,
+ThumbsDown,
+ThumbsUp,
+TrendingUp,
+XCircle,
+Zap,
 } from "lucide-react";
-import { AuthGuard } from "@/components/auth-guard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
-import {
-  VisibilityBreakdown,
-  CategoryBreakdown,
-  RunStatsTable,
-} from "@/components/admin/SkillMetricsCards";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getStorageMode } from "@/lib/storage-config";
-import type { SkillMetricsPersonal } from "@/types/agent-skill";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import React,{ useEffect,useState } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────
 interface SkillUsageEntry {
@@ -49,7 +49,6 @@ interface InsightsData {
   overview: {
     total_conversations: number;
     total_messages: number;
-    total_tokens_used: number;
     conversations_this_week: number;
     messages_this_week: number;
     avg_messages_per_conversation: number;
@@ -259,14 +258,6 @@ function InsightsPage() {
             value={data.prompt_patterns.total_prompts}
             icon={FileText}
             color="text-blue-500"
-          />
-          <StatCard
-            title="Tokens Used"
-            value={data.overview.total_tokens_used > 1000
-              ? `${(data.overview.total_tokens_used / 1000).toFixed(1)}k`
-              : data.overview.total_tokens_used}
-            icon={Zap}
-            color="text-orange-500"
           />
           <StatCard
             title="Avg Msgs/Chat"

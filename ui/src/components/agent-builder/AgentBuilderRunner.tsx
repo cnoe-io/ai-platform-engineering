@@ -1,49 +1,50 @@
 "use client";
 
-import React, { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { apiClient } from "@/lib/api-client";
+import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
+import { getConfig } from "@/lib/config";
+import { getMarkdownComponents } from "@/lib/markdown-components";
+import { createStreamAdapter,type StreamAdapter,type StreamCallbacks } from "@/lib/streaming";
+import type { InputFieldDefinition } from "@/lib/streaming/types";
+import { cn } from "@/lib/utils";
+import { useWorkflowRunStore } from "@/store/workflow-run-store";
+import type { AgentSkill } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+ArrowLeft,
+Brain,
+Check,
+CheckCircle,
+ChevronDown,
+ChevronLeft,
+ChevronRight,
+ChevronUp,
+Clock,
+Copy,
+LayoutGrid,
+Loader2,
+Maximize2,
+MessageSquare,
+Minimize2,
+Play,
+RotateCcw,
+Send,
+Square,
+Wrench,
+XCircle
+} from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Play,
-  RotateCcw,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Loader2,
-  ChevronRight,
-  ChevronLeft,
-  ArrowLeft,
-  Square,
-  Wrench,
-  Brain,
-  MessageSquare,
-  ChevronDown,
-  ChevronUp,
-  Send,
-  AlertCircle,
-  History,
-  X,
-  LayoutGrid,
-  Maximize2,
-  Minimize2,
-  Copy,
-  Check,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
-import type { AgentSkill } from "@/types/agent-skill";
-import { SSEClient, type SSEEvent } from "@/lib/sse-streaming-client";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useWorkflowRunStore } from "@/store/workflow-run-store";
 import { WorkflowHistoryView } from "./WorkflowHistoryView";
-import { getMarkdownComponents } from "@/lib/markdown-components";
 
 interface AgentBuilderRunnerProps {
   config: AgentSkill;
@@ -59,6 +60,26 @@ interface ExecutionStep {
   description: string;
   status: "pending" | "in_progress" | "completed" | "failed";
   order: number;
+}
+
+interface WorkflowRunnerEvent {
+  type: "content" | "tool_start" | "tool_end" | "plan_update" | "input_required" | "done" | "error";
+  text?: string;
+  tool?: string;
+  description?: string;
+  steps?: Array<{
+    id?: string;
+    agent?: string;
+    description: string;
+    status: string;
+  }>;
+  fields?: Array<{
+    name: string;
+    label: string;
+    type: string;
+    required?: boolean;
+  }>;
+  message?: string;
 }
 
 // Tool call being executed
@@ -613,6 +634,13 @@ function ResultOrInputForm({
   isFullscreen: boolean;
   onExitFullscreen: () => void;
 }) {
+  // Fallback: Try to detect input fields from the content using regex
+  // (must be before any early returns to satisfy Rules of Hooks)
+  const detectedFields = useMemo(
+    () => (structuredFields && structuredFields.length > 0 ? null : parseInputFieldsFromText(content)),
+    [structuredFields, content],
+  );
+
   // Prioritize structured fields from backend (request_user_input tool)
   if (structuredFields && structuredFields.length > 0) {
     return (
@@ -631,9 +659,6 @@ function ResultOrInputForm({
       </motion.div>
     );
   }
-  
-  // Fallback: Try to detect input fields from the content using regex
-  const detectedFields = useMemo(() => parseInputFieldsFromText(content), [content]);
   
   if (detectedFields && detectedFields.length > 0) {
     return (
@@ -697,7 +722,7 @@ function ResultOrInputForm({
 }
 
 /**
- * AgentBuilderRunner - Main execution component with real A2A streaming
+ * AgentBuilderRunner - Main execution component with dynamic-agent streaming
  */
 export function AgentBuilderRunner({
   config,
@@ -739,10 +764,12 @@ export function AgentBuilderRunner({
   // Router for navigation
   const router = useRouter();
 
-  // SSE client ref
-  const clientRef = useRef<SSEClient | null>(null);
+  // Stream adapter ref
+  const clientRef = useRef<StreamAdapter | null>(null);
   const abortedRef = useRef(false);
   const hasAutoStarted = useRef(false);
+  const streamContextRef = useRef<{ conversationId: string; agentId: string } | null>(null);
+  const toolNameByIdRef = useRef<Record<string, string>>({});
   
   // Workflow run tracking refs
   const runIdRef = useRef<string | null>(null);
@@ -835,10 +862,10 @@ export function AgentBuilderRunner({
   );
 
   /**
-   * Handle SSE streaming events
+   * Handle workflow streaming events
    */
   const handleEvent = useCallback(
-    async (event: SSEEvent) => {
+    async (event: WorkflowRunnerEvent) => {
       const content = event.text || event.description || event.message || "";
 
       // Handle plan updates
@@ -995,6 +1022,66 @@ export function AgentBuilderRunner({
     [parseExecutionPlan, onComplete, steps, toolCalls, streamingContent, updateRun]
   );
 
+  const createStreamCallbacks = useCallback((): StreamCallbacks => ({
+    onContent: (text) => {
+      if (!abortedRef.current) {
+        void handleEvent({ type: "content", text });
+      }
+    },
+    onToolStart: (toolCallId, toolName) => {
+      toolNameByIdRef.current[toolCallId] = toolName;
+      if (!abortedRef.current) {
+        void handleEvent({
+          type: "tool_start",
+          tool: toolName,
+          description: `Calling ${toolName}`,
+        });
+      }
+    },
+    onToolEnd: (toolCallId, toolName, error) => {
+      const resolvedToolName = toolName || toolNameByIdRef.current[toolCallId] || "tool";
+      delete toolNameByIdRef.current[toolCallId];
+      if (!abortedRef.current) {
+        void handleEvent({
+          type: "tool_end",
+          tool: resolvedToolName,
+          message: error,
+        });
+      }
+    },
+    onInputRequired: (_interruptId, prompt, fields) => {
+      if (!abortedRef.current) {
+        void handleEvent({
+          type: "input_required",
+          message: prompt,
+          fields: fields.map((field: InputFieldDefinition) => ({
+            name: field.field_name,
+            label: field.field_label || field.field_name,
+            type: field.field_type,
+            required: field.required,
+          })),
+        });
+      }
+    },
+    onWarning: (message) => {
+      if (!abortedRef.current) {
+        void handleEvent({ type: "content", text: `\n\nWarning: ${message}\n\n` });
+      }
+    },
+    onDone: () => {
+      if (!abortedRef.current) {
+        void handleEvent({ type: "done" });
+      }
+    },
+    onError: (message) => {
+      if (!abortedRef.current) {
+        setError(message);
+        setStatus("failed");
+        setIsThinking(false);
+      }
+    },
+  }), [handleEvent]);
+
   /**
    * Start workflow execution
    */
@@ -1016,7 +1103,6 @@ export function AgentBuilderRunner({
       runId = await createRun({
         workflow_id: config.id,
         workflow_name: config.name,
-        workflow_category: config.category,
         input_prompt: config.is_quick_start && config.tasks.length > 0 
           ? config.tasks[0].llm_prompt 
           : config.description || config.name,
@@ -1035,8 +1121,6 @@ export function AgentBuilderRunner({
       startTimeRef.current = null;
     }
 
-    // Create A2A client
-    // Include user email so agents know who is making the request
     // Build the prompt:
     // - For quick-start workflows, use the actual task prompt
     // - For multi-step workflows, use the workflow title/description
@@ -1051,31 +1135,38 @@ export function AgentBuilderRunner({
 
     console.log(`[AgentBuilderRunner] Starting workflow: "${prompt.substring(0, 100)}..."`);
 
-    // Create SSE client
-    const client = new SSEClient({
-      endpoint: "/api/chat/stream",
-      accessToken,
-      onEvent: (event) => {
-        if (!abortedRef.current) {
-          handleEvent(event);
-        }
-      },
-      onError: (err) => {
-        if (!abortedRef.current) {
-          setError(err.message || "Workflow execution failed");
-          setStatus("failed");
-          setIsThinking(false);
-        }
-      },
-    });
-    clientRef.current = client;
-
     try {
-      await client.sendMessage({
-        message: prompt,
-        user_email: session?.user?.email ?? undefined,
-        source: "web",
+      const agent = await resolveUsableChatAgent();
+      const conversation = await apiClient.createConversation({
+        title: `Workflow: ${config.name}`,
+        client_type: "webui",
+        agent_id: agent.id,
+        metadata: {
+          source: "agent-builder-runner",
+          workflow_id: config.id,
+        },
       });
+      streamContextRef.current = {
+        conversationId: conversation.conversation._id,
+        agentId: agent.id,
+      };
+
+      const client = createStreamAdapter({
+        protocol: "custom",
+        accessToken,
+      });
+      clientRef.current = client;
+
+      await client.streamMessage({
+        message: prompt,
+        source: "web",
+        conversationId: conversation.conversation._id,
+        agentId: agent.id,
+        clientContext: {
+          userEmail: session?.user?.email ?? undefined,
+          workflowId: config.id,
+        },
+      }, createStreamCallbacks());
 
       // Finalize
       if (!abortedRef.current) {
@@ -1215,7 +1306,7 @@ export function AgentBuilderRunner({
     } finally {
       clientRef.current = null;
     }
-  }, [config, accessToken, handleEvent, finalResult, status, steps, toolCalls, streamingContent, createRun, updateRun]);
+  }, [config, accessToken, session?.user?.email, createStreamCallbacks, finalResult, status, steps, toolCalls, streamingContent, createRun, updateRun]);
 
   /**
    * Stop workflow execution
@@ -1273,6 +1364,8 @@ export function AgentBuilderRunner({
     // Clear workflow run refs
     runIdRef.current = null;
     startTimeRef.current = null;
+    streamContextRef.current = null;
+    toolNameByIdRef.current = {};
     setIsThinking(false);
     setIsSubmittingInput(false);
     setStructuredInputFields(null);
@@ -1378,8 +1471,8 @@ export function AgentBuilderRunner({
   }, []); // Empty deps - only set up once, uses refs for current values
 
   /**
-   * Handle user input form submission
-   * Sends the collected data back to the supervisor to continue the workflow
+   * Handle user input form submission.
+   * Resumes the paused dynamic-agent stream for this workflow run.
    */
   const handleUserInputSubmit = useCallback(async (data: Record<string, string>) => {
     setIsSubmittingInput(true);
@@ -1398,31 +1491,28 @@ export function AgentBuilderRunner({
     setIsThinking(true);
     abortedRef.current = false;
     
-    // Create SSE client for user input submission
-    const client = new SSEClient({
-      endpoint: "/api/chat/stream",
-      accessToken,
-      onEvent: (event) => {
-        if (!abortedRef.current) {
-          handleEvent(event);
-        }
-      },
-      onError: (err) => {
-        if (!abortedRef.current) {
-          setError(err.message || "Failed to submit input");
-          setStatus("failed");
-          setIsThinking(false);
-        }
-      },
-    });
-    clientRef.current = client;
-
     try {
-      await client.sendMessage({
-        message: formattedResponse,
-        user_email: session?.user?.email ?? undefined,
-        source: "web",
+      const streamContext = streamContextRef.current;
+      if (!streamContext) {
+        throw new Error("Workflow stream context is missing; start the workflow again.");
+      }
+
+      const client = createStreamAdapter({
+        protocol: "custom",
+        accessToken,
       });
+      clientRef.current = client;
+
+      await client.resumeStream({
+        conversationId: streamContext.conversationId,
+        agentId: streamContext.agentId,
+        resumeData: JSON.stringify({ type: "form_input", values: data }),
+        source: "web",
+        clientContext: {
+          userEmail: session?.user?.email ?? undefined,
+          workflowId: config.id,
+        },
+      }, createStreamCallbacks());
 
       // Finalize
       if (!abortedRef.current && status !== "completed") {
@@ -1440,7 +1530,7 @@ export function AgentBuilderRunner({
       clientRef.current = null;
       setIsSubmittingInput(false);
     }
-  }, [accessToken, handleEvent, status]);
+  }, [accessToken, session?.user?.email, config.id, createStreamCallbacks, status]);
 
   // Get current active step
   const activeStepIndex = steps.findIndex((s) => s.status === "in_progress");
@@ -1580,7 +1670,7 @@ export function AgentBuilderRunner({
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Play className="h-10 w-10 text-muted-foreground/30 mb-3" />
                   <p className="text-sm text-muted-foreground">
-                    Click "Start Workflow" to begin
+                    Click &quot;Start Workflow&quot; to begin
                   </p>
                 </div>
               )}

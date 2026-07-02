@@ -5,7 +5,7 @@
 #   ai_platform_engineering/utils/tracing/skill_scrubber.py
 # Kept in-tree because ``dynamic_agents`` ships as its own deploy
 # unit (separate Dockerfile + Helm chart) and does not depend on
-# the supervisor's package. Keep this file byte-for-byte in sync
+# the shared ``ai_platform_engineering`` package. Keep this file byte-for-byte in sync
 # with the source-of-truth except for this header. Unit tests for
 # the scrubber live alongside the source-of-truth copy and cover
 # both since the modules are identical.
@@ -15,7 +15,7 @@
 
 Problem
 -------
-The supervisor + dynamic-agents emit OTel spans through the Traceloop
+The dynamic-agents service emits OTel spans through the Traceloop
 (``opentelemetry-instrumentation-{langchain,bedrock,anthropic,...}``)
 instrumentors. By default, those instrumentors stamp full prompt /
 completion / tool-I/O bodies onto every span. Two classes of
@@ -35,9 +35,9 @@ that we want to keep out of Langfuse:
      LangChain instrumentor stamps as ``traceloop.entity.input`` /
      ``...output`` on each node.
 
-* **task_config workflow prompts** — multi-paragraph operator
-  instructions defined under ``task_configs`` in MongoDB / the
-  fallback ``task_config.yaml``. Surface points:
+* **Self-service workflow prompts** — multi-paragraph operator
+  instructions defined under ``workflow_configs`` in MongoDB.
+  Surface points:
 
   4. The ``tasks`` / ``todos`` graph-state channels (each entry
      carries the rendered ``llm_prompt``) — stamped on every node
@@ -104,7 +104,7 @@ DEFAULT_PLACEHOLDER = "[redacted: skill payload]"
 
 # Hard cap on the byte-length of any single string attribute we
 # emit. Langfuse's ingest is fronted by nginx with a default
-# ``client_max_body_size 1m``; a single supervisor span can blow
+# ``client_max_body_size 1m``; a single agent span can blow
 # past that with full multi-turn prompt history + tool definitions
 # even when skill content has been scrubbed. Truncating per
 # attribute is far less destructive than dropping the whole batch
@@ -119,7 +119,7 @@ _SKILL_PATH_RE = re.compile(r"(?:^|[^a-zA-Z0-9_])/skills/[^\s\"',)]+", re.IGNORE
 
 # Boundary markers for the two operator-authored content blocks we
 # strip from prompts: deepagents' SkillsMiddleware section and the
-# platform-engineer's task_config workflow listing.
+# self-service workflow listing.
 _SKILLS_SECTION_HEADER = "## Skills System"
 _WORKFLOW_SECTION_HEADER = "## Self-Service Workflows"
 # Header rendered by ``get_workflow_definition`` tool output for
@@ -127,9 +127,8 @@ _WORKFLOW_SECTION_HEADER = "## Self-Service Workflows"
 _WORKFLOW_DEFN_HEADER = "## Workflow:"
 
 # Tool / entity names whose I/O we redact wholesale because they
-# echo task_config llm_prompts directly. These are stable surface
-# names from
-# ``ai_platform_engineering/multi_agents/platform_engineer/deep_agent.py``.
+# echo workflow llm_prompts directly. Defensive redaction allowlist
+# for self-service workflow tooling.
 _WORKFLOW_TOOL_NAMES = frozenset(
     {
         "get_workflow_definition",
@@ -158,13 +157,13 @@ _LANGCHAIN_IO_ATTR_KEYS = (
 )
 
 # State channels we want to drop entirely when serialized into a
-# JSON blob on an attribute. Both skill catalogs and task_config
+# JSON blob on an attribute. Both skill catalogs and self-service
 # workflows live in the agent's graph state and therefore get
 # stamped onto every node span by the LangChain instrumentor.
 _SENSITIVE_STATE_CHANNELS = (
     "skills_metadata",
     "skills",  # alternate name some middlewares use
-    "tasks",  # task_config: list of dicts with full llm_prompt
+    "tasks",  # workflow plan: list of dicts with full llm_prompt
     "todos",  # mirrors `tasks` (display_text + status)
 )
 
@@ -352,7 +351,7 @@ class SkillContentScrubbingProcessor:
             # Tool-name short-circuit. The LangChain instrumentor
             # tags every tool span with ``traceloop.entity.name`` (and
             # mirrors it on the OTel ``span.name``). When the tool is
-            # one of our task_config workflow tools we redact its
+            # one of our self-service workflow tools we redact its
             # I/O wholesale — those payloads always carry llm_prompt
             # bodies regardless of any markdown markers.
             entity_name = attrs.get("traceloop.entity.name") or getattr(span, "name", None)

@@ -165,9 +165,10 @@ describe('Login Page', () => {
     })
   })
 
-  it('should NOT redirect authenticated user when session_expired param is present', async () => {
+  it('should redirect authenticated user out of stale session_expired login URL', async () => {
     mockSearchParamsGet.mockImplementation((key: string) => {
       if (key === 'session_expired') return 'true'
+      if (key === 'callbackUrl') return '/admin'
       return null
     })
 
@@ -178,13 +179,9 @@ describe('Login Page', () => {
 
     render(<LoginPage />)
 
-    // Wait a tick to ensure effects run
     await waitFor(() => {
-      expect(screen.getByText(/sign in with sso/i)).toBeInTheDocument()
+      expect(mockPush).toHaveBeenCalledWith('/admin')
     })
-
-    // Should NOT redirect
-    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('should NOT redirect authenticated user when session_reset param is present', async () => {
@@ -226,7 +223,7 @@ describe('Login Page', () => {
 
     // Should show loop-broken message (3rd visit = threshold hit)
     await waitFor(() => {
-      expect(screen.getByText(/a login loop was detected/i)).toBeInTheDocument()
+      expect(screen.getByText(/a sign-in loop/i)).toBeInTheDocument()
     })
 
     // Should NOT redirect (loop is broken)
@@ -244,7 +241,7 @@ describe('Login Page', () => {
 
     // Should NOT show loop message (counter was reset due to old timestamp)
     await waitFor(() => {
-      expect(screen.queryByText(/a login loop was detected/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/a sign-in loop/i)).not.toBeInTheDocument()
     })
 
     // Counter should have been reset to 1
@@ -264,7 +261,7 @@ describe('Login Page', () => {
     render(<LoginPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/a login loop was detected/i)).toBeInTheDocument()
+      expect(screen.getByText(/a sign-in loop/i)).toBeInTheDocument()
     })
 
     // Should have cleared the loop counter keys
@@ -289,7 +286,7 @@ describe('Login Page', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/session expired/i)).toBeInTheDocument()
-      expect(screen.getByText(/your authentication session has expired/i)).toBeInTheDocument()
+      expect(screen.getByText(/Please sign in again to continue/i)).toBeInTheDocument()
     })
   })
 
@@ -304,7 +301,7 @@ describe('Login Page', () => {
     render(<LoginPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/authentication failed/i)).toBeInTheDocument()
+      expect(screen.getByText(/Sign-in failed/i)).toBeInTheDocument()
     })
   })
 
@@ -327,9 +324,9 @@ describe('Login Page', () => {
 
     await waitFor(() => {
       // Loop message should show
-      expect(screen.getByText(/a login loop was detected/i)).toBeInTheDocument()
+      expect(screen.getByText(/a sign-in loop/i)).toBeInTheDocument()
       // Session expired message should NOT show (loop message takes priority)
-      expect(screen.queryByText(/your authentication session has expired/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^Session expired$/i)).not.toBeInTheDocument()
     })
   })
 
@@ -400,6 +397,23 @@ describe('Login Page', () => {
       })
     })
 
+    it('should not pass nested login callbackUrl back into signIn', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/login?session_expired=true&callbackUrl=%2Fadmin'
+        return null
+      })
+
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+
+      render(<LoginPage />)
+
+      fireEvent.click(screen.getByText(/sign in with sso/i))
+
+      await waitFor(() => {
+        expect(mockSignIn).toHaveBeenCalledWith('oidc', { callbackUrl: '/' })
+      })
+    })
+
     it('should use "/" as default callbackUrl when none provided', async () => {
       mockSearchParamsGet.mockReturnValue(null)
 
@@ -451,7 +465,7 @@ describe('Login Page', () => {
       })
     })
 
-    it('should NOT redirect to callbackUrl when session_expired is present', async () => {
+    it('should redirect authenticated users to callbackUrl when session_expired is stale', async () => {
       mockSearchParamsGet.mockImplementation((key: string) => {
         if (key === 'callbackUrl') return '/chat/some-uuid'
         if (key === 'session_expired') return 'true'
@@ -466,10 +480,8 @@ describe('Login Page', () => {
       render(<LoginPage />)
 
       await waitFor(() => {
-        expect(screen.getByText(/sign in with sso/i)).toBeInTheDocument()
+        expect(mockPush).toHaveBeenCalledWith('/chat/some-uuid')
       })
-
-      expect(mockPush).not.toHaveBeenCalled()
     })
 
     it('should pass callbackUrl to signIn even when session_expired was present', async () => {
@@ -505,7 +517,7 @@ describe('Login Page', () => {
 
       // Session expired message should be visible
       expect(screen.getByText(/session expired/i)).toBeInTheDocument()
-      expect(screen.getByText(/your authentication session has expired/i)).toBeInTheDocument()
+      expect(screen.getByText(/Please sign in again to continue/i)).toBeInTheDocument()
 
       // Sign in button should be present
       fireEvent.click(screen.getByText(/sign in with sso/i))

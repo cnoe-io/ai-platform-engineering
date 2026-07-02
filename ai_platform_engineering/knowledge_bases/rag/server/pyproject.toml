@@ -11,22 +11,21 @@ readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
     # LangChain ecosystem (versions must align with common's langchain-openai)
-    "langchain==1.0.8",
-    "langchain-core==1.4.0",
+    "langchain==1.3.9",
+    "langchain-core==1.4.8",
     "langchain-community==0.4.1",
     "langchain-milvus==0.3.0",
     # Vector DB
     "pymilvus==2.6.2",
     # Agent frameworks
     "a2a==0.44",
-    "a2a-sdk==0.2.16",
     "cnoe-agent-utils==0.4.0",
     # Web framework
-    "fastapi[standard]==0.122.0",
+    "fastapi[standard]==0.135.3",
     "uvicorn==0.37.0",
     "fastmcp==3.2.4",
     # HTTP clients
-    "aiohttp==3.13.4",
+    "aiohttp==3.14.1",
     "aiohttp-retry==2.9.1",
     "httpx==0.28.1",
     # Data processing
@@ -36,10 +35,13 @@ dependencies = [
     # Auth & utils
     "openai==2.32.0",
     "python-dotenv==1.2.2",
-    "PyJWT[crypto]==2.12.1",
+    "PyJWT[crypto]==2.13.0",
     "click==8.3.0",
     "aiofile==3.9.0",
+    # 098 RBAC additions
+    "python-jose[cryptography]==3.5.0",
     "common",
+    "pypdf==6.13.3",
 ]
 
 [project.scripts]
@@ -67,7 +69,7 @@ build-backend = "uv_build"
 
 
 [tool.uv]
-constraint-dependencies = ["starlette>=0.50.0", "transformers>=5.0.0"]
+constraint-dependencies = ["starlette>=1.3.1", "transformers>=5.0.0"]
 dev-dependencies = [
     "pytest==9.0.3",
     "pytest-asyncio==1.3.0",

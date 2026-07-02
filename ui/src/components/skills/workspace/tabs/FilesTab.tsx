@@ -22,31 +22,31 @@
  * model to base64 to support them — out of scope for this stage).
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Upload as UploadIcon,
-  Variable as VariableIcon,
-  Archive as ArchiveIcon,
+Archive as ArchiveIcon,
+Upload as UploadIcon,
+Variable as VariableIcon,
 } from "lucide-react";
+import React,{ useCallback,useMemo,useRef,useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
+import { AiAssistButton } from "@/components/ai-assist";
+import type { UseAiReviewResult } from "@/components/ai-review";
+import { AiReviewButton,AiReviewPanel } from "@/components/ai-review";
+import {
+ImportSkillZipDialog,
+type ZipSingleSkillPayload,
+} from "@/components/skills/ImportSkillZipDialog";
+import { GithubImportPanel } from "@/components/skills/workspace/GithubImportPanel";
+import { ImportSkillMdDialog } from "@/components/skills/workspace/ImportSkillMdDialog";
 import { RichCodeEditor } from "@/components/skills/workspace/RichCodeEditor";
+import { SkillFileTree } from "@/components/skills/workspace/SkillFileTree";
 import { SkillMdEditor } from "@/components/skills/workspace/SkillMdEditor";
 import { SkillTemplatesMenu } from "@/components/skills/workspace/SkillTemplatesMenu";
-import { ImportSkillMdDialog } from "@/components/skills/workspace/ImportSkillMdDialog";
-import { GithubImportPanel } from "@/components/skills/workspace/GithubImportPanel";
-import {
-  ImportSkillZipDialog,
-  type ZipSingleSkillPayload,
-} from "@/components/skills/ImportSkillZipDialog";
-import { SkillFileTree } from "@/components/skills/workspace/SkillFileTree";
-import { AiAssistButton } from "@/components/ai-assist";
-import { AiReviewButton, AiReviewPanel } from "@/components/ai-review";
-import type { UseAiReviewResult } from "@/components/ai-review";
 import { parseSkillMd } from "@/lib/skill-md-parser";
 // Variables editor is now hosted inside FilesTab as a collapsible
 // side-panel (toggled from the toolbar) so authors can declare
@@ -417,7 +417,7 @@ export function FilesTab({ form, readOnly = false, review }: FilesTabProps) {
         onChange={(next) =>
           form.setAncillaryFiles((prev) => ({ ...prev, [selected]: next }))
         }
-        height="100%"
+        fillContainer
       />
     );
   }, [selected, form, readOnly]);
@@ -603,7 +603,7 @@ export function FilesTab({ form, readOnly = false, review }: FilesTabProps) {
             readOnly={readOnly}
             className="border-r border-border/50 bg-muted/20"
           />
-          <div className="min-h-0 overflow-auto p-2 relative">
+          <div className="relative flex h-full min-h-0 flex-col overflow-hidden p-2">
             {dragOver && (
               <div className="absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary pointer-events-none">
                 Drop files to add to this skill

@@ -1,6 +1,6 @@
 # Dynamic Agents
 
-Dynamic Agents (also known as Custom Agents) is a standalone FastAPI service that enables users to create, configure, and run ephemeral AI agents dynamically. Unlike the Platform Engineer (A2A-based supervisor agent), Dynamic Agents are fully configurable through the UI and can be equipped with specific MCP tools, custom system prompts, and even delegate to other Dynamic Agents as subagents.
+Dynamic Agents (also known as Custom Agents) is the FastAPI runtime service that enables users to create, configure, and run AI agents dynamically. Agents are configurable through the UI and can be equipped with specific MCP tools, custom system prompts, and other Dynamic Agents as subagents.
 
 ## Overview
 

@@ -1,24 +1,26 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
-import {
-  ArrowLeft,
-  RefreshCw,
-  Search,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  Zap,
-} from "lucide-react";
+// assisted-by Codex Codex-sonnet-4-6
+
 import { AuthGuard } from "@/components/auth-guard";
+import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ScanStatus } from "@/types/agent-skill";
-import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
+import {
+ArrowLeft,
+RefreshCw,
+Search,
+Shield,
+ShieldAlert,
+ShieldCheck,
+Zap,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
 type Trigger =
   | "manual_user_skill"
@@ -144,9 +146,9 @@ export default function ScanHistoryPage() {
                 <span>/</span>
                 <span>Scan history</span>
               </div>
-              <h1 className="text-xl font-semibold">Skill scanner audit log</h1>
+              <h1 className="text-xl font-semibold">Skill Scan History</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Every scan triggered against a skill — manual, on save, or from a hub.
+                Review recent skill checks and see what needs attention.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -158,7 +160,7 @@ export default function ScanHistoryPage() {
                   className="gap-2"
                   data-testid="scan-all-open"
                 >
-                  <Zap className="h-3.5 w-3.5" /> Scan all skills
+                  <Zap className="h-3.5 w-3.5" /> Scan Skills
                 </Button>
               )}
               <Button

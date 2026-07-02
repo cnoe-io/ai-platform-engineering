@@ -9,19 +9,79 @@
  * or expandable accordions — every field is always visible.
  */
 
+import { Globe,Lock,Users as TeamsIcon } from "lucide-react";
 import React from "react";
-import { Globe, Lock, Users as TeamsIcon } from "lucide-react";
 
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { AiAssistButton } from "@/components/ai-assist";
 import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { TeamMultiPicker,type TeamPickerOption } from "@/components/ui/team-picker";
+import { cn } from "@/lib/utils";
 import type { SkillVisibility } from "@/types/agent-skill";
 
 export interface OverviewTabProps {
   form: UseSkillFormResult;
+}
+
+interface ShareableTeamRow {
+  slug?: string;
+  name?: string;
+  _id?: string;
+}
+
+/**
+ * Teams a member may share a skill with come from the same app-wide
+ * "teams available for sharing" endpoint the RAG KB / MCP / Dynamic-Agent
+ * editors use (`GET /api/dynamic-agents/teams`). It returns the caller's
+ * own teams (org admins get every team) and is member-accessible, so a
+ * generic user can finally pick teams in the Skill Builder instead of the
+ * old dead-end "use the gallery" hint.
+ */
+function useShareableTeams(enabled: boolean): {
+  options: TeamPickerOption[];
+  loading: boolean;
+} {
+  const [options, setOptions] = React.useState<TeamPickerOption[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!enabled || loaded) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/dynamic-agents/teams");
+        const data = (await res.json()) as {
+          success?: boolean;
+          data?: ShareableTeamRow[];
+        };
+        if (cancelled) return;
+        const rows = data?.success && Array.isArray(data.data) ? data.data : [];
+        setOptions(
+          rows
+            .filter((t): t is ShareableTeamRow & { slug: string } =>
+              Boolean(t.slug),
+            )
+            .map((t) => ({ slug: t.slug, name: t.name ?? t.slug, _id: t._id })),
+        );
+      } catch {
+        // Non-fatal: picker simply shows nothing to choose from.
+        if (!cancelled) setOptions([]);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, loaded]);
+
+  return { options, loading };
 }
 
 const VISIBILITY_OPTIONS: {
@@ -64,6 +124,9 @@ export function OverviewTab({ form }: OverviewTabProps) {
   } = form;
 
   const [tagInput, setTagInput] = React.useState("");
+  const { options: teamOptions, loading: teamsLoading } = useShareableTeams(
+    visibility === "team",
+  );
 
   const addTag = () => {
     const v = tagInput.trim();
@@ -151,7 +214,7 @@ export function OverviewTab({ form }: OverviewTabProps) {
         {/* Category is the only classification we still surface in the
             Overview form. The "Difficulty" radio (beginner / intermediate
             / advanced) was removed because nothing in the gallery, the
-            scanner, the supervisor, or the agent runtime actually
+            scanner or the agent runtime actually
             consumed it — it was a label without a job. The underlying
             `difficulty` field on AgentSkill is kept for back-compat
             with any persisted skills that already set it; new skills
@@ -264,23 +327,34 @@ export function OverviewTab({ form }: OverviewTabProps) {
             );
           })}
         </div>
-        {visibility === "team" && errors.teams && (
-          <p className="text-xs text-destructive">{errors.teams}</p>
-        )}
         {visibility === "team" && (
-          <div className="text-xs text-muted-foreground">
-            {selectedTeamIds.length === 0
-              ? "No teams selected. Use the Sharing dialog from the gallery to pick teams, or "
-              : `Sharing with ${selectedTeamIds.length} team${selectedTeamIds.length === 1 ? "" : "s"}.`}
-            {selectedTeamIds.length === 0 && (
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-xs ml-1"
-                onClick={() => setSelectedTeamIds([])}
-              >
-                clear selection
-              </Button>
+          <div className="space-y-1.5">
+            <TeamMultiPicker
+              options={teamOptions}
+              selected={selectedTeamIds}
+              onChange={setSelectedTeamIds}
+              ariaLabel="Share skill with teams"
+              placeholder={
+                teamsLoading ? "Loading teams…" : "Share with teams…"
+              }
+              emptyLabel={
+                teamsLoading
+                  ? "Loading teams…"
+                  : "You're not a member of any team yet"
+              }
+              triggerClassName={cn(
+                errors.teams &&
+                  "border-destructive focus-visible:ring-destructive",
+              )}
+            />
+            {errors.teams ? (
+              <p className="text-xs text-destructive">{errors.teams}</p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                {selectedTeamIds.length === 0
+                  ? "Pick one or more of your teams to share this skill with."
+                  : `Sharing with ${selectedTeamIds.length} team${selectedTeamIds.length === 1 ? "" : "s"}.`}
+              </p>
             )}
           </div>
         )}

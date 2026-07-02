@@ -1,14 +1,23 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const versionsConfig = require('./versions-config.json') as {
+// Versioned docs are generated at build time (see scripts/generate-versioned-docs.js)
+// and `versions-config.json` is git-ignored. When it is absent (e.g. local authoring
+// without generating versions), fall back to a current-docs-only build.
+type VersionsConfig = {
   lastVersion: string;
   versions: Record<string, { label: string; path: string; badge: boolean }>;
 };
+
+const versionsConfigPath = path.join(__dirname, 'versions-config.json');
+const versionsConfig: VersionsConfig | null = fs.existsSync(versionsConfigPath)
+  ? (JSON.parse(fs.readFileSync(versionsConfigPath, 'utf8')) as VersionsConfig)
+  : null;
 
 const config: Config = {
   title: 'CAIPE',
@@ -30,6 +39,8 @@ const config: Config = {
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'cnoe.io', // Usually your GitHub org/user name.
   projectName: 'ai-platform-engineering', // Usually your repo name.
+
+  clientModules: ['./src/clientModules/mermaidFullscreen.js'],
 
   onBrokenLinks: 'throw',
 
@@ -54,6 +65,8 @@ const config: Config = {
       '@docusaurus/plugin-client-redirects',
       {
         redirects: [
+          // /docs/index has no real page; redirect to Quick Start
+          {from: '/docs/index', to: '/docs/getting-started/quick-start'},
           // Old docs-based release notes → new blog posts
           {from: '/releases/release-0.4.9', to: '/blog/releases/release-0.4.9'},
           {from: '/releases/release-0.4.8', to: '/blog/releases/release-0.4.8'},
@@ -107,8 +120,12 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
-          lastVersion: versionsConfig.lastVersion,
-          versions: versionsConfig.versions,
+          ...(versionsConfig
+            ? {
+                lastVersion: versionsConfig.lastVersion,
+                versions: versionsConfig.versions,
+              }
+            : {}),
         },
         blog: {
           showReadingTime: true,
@@ -152,15 +169,16 @@ const config: Config = {
           position: 'left',
           label: 'Docs',
         },
-        {to: '/blog/releases', label: 'Releases', position: 'left'},
+        ...(versionsConfig ? [{
+          type: 'docsVersionDropdown' as const,
+          position: 'left' as const,
+          dropdownActiveClassDisabled: true,
+        }] : []),
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
+        {to: '/blog/releases', label: 'Releases', position: 'left'},
         {to: '/blog', label: 'Blog', position: 'left'},
-        {
-          type: 'docsVersionDropdown',
-          position: 'left',
-        },
         {
           href: 'https://github.com/cnoe-io/ai-platform-engineering',
           label: '⭐ Star Repo',
@@ -266,7 +284,7 @@ const config: Config = {
       ],
     },
     mermaid: {
-      theme: {dark: 'forest'},
+      theme: {light: 'neutral', dark: 'dark'},
     },
   } satisfies Preset.ThemeConfig,
 

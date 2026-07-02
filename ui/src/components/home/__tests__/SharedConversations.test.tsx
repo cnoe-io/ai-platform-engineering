@@ -3,7 +3,7 @@
  *
  * Tests:
  * - Renders section heading
- * - Renders all three tabs (Shared with me, Team, Everyone)
+ * - Renders shared-with-me and team tabs
  * - Default active tab is "Shared with me"
  * - Switching tabs shows the correct content
  * - Shows empty state for each tab when empty
@@ -21,6 +21,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 // ============================================================================
 
 jest.mock('next/link', () => {
+  // eslint-disable-next-line react/display-name
   return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
     <a ref={ref} href={href} className={className} data-testid={props['data-testid'] || `link-${href}`} {...props}>
       {children}
@@ -30,7 +31,6 @@ jest.mock('next/link', () => {
 
 jest.mock('lucide-react', () => ({
   Users2: (props: any) => <svg data-testid="icon-users2" {...props} />,
-  Globe: (props: any) => <svg data-testid="icon-globe" {...props} />,
   Users: (props: any) => <svg data-testid="icon-users" {...props} />,
   MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
   Clock: (props: any) => <svg data-testid="icon-clock" {...props} />,
@@ -63,7 +63,6 @@ function makeItems(prefix: string, count: number) {
 const defaultProps = {
   sharedWithMe: [],
   sharedWithTeam: [],
-  sharedWithEveryone: [],
   loading: false,
 }
 
@@ -82,18 +81,18 @@ describe('SharedConversations', () => {
     expect(screen.getByTestId('shared-conversations')).toBeInTheDocument()
   })
 
-  it('renders all three tabs', () => {
+  it('renders share tabs', () => {
     render(<SharedConversations {...defaultProps} />)
     expect(screen.getByTestId('shared-tab-shared-with-me')).toBeInTheDocument()
     expect(screen.getByTestId('shared-tab-team')).toBeInTheDocument()
-    expect(screen.getByTestId('shared-tab-everyone')).toBeInTheDocument()
+    expect(screen.queryByTestId('shared-tab-everyone')).not.toBeInTheDocument()
   })
 
   it('renders tab labels', () => {
     render(<SharedConversations {...defaultProps} />)
     expect(screen.getByText('Shared with me')).toBeInTheDocument()
     expect(screen.getByText('Team')).toBeInTheDocument()
-    expect(screen.getByText('Everyone')).toBeInTheDocument()
+    expect(screen.queryByText('Everyone')).not.toBeInTheDocument()
   })
 
   describe('loading state', () => {
@@ -117,11 +116,6 @@ describe('SharedConversations', () => {
       expect(screen.getByText('No team-shared conversations yet.')).toBeInTheDocument()
     })
 
-    it('shows "Everyone" empty message when Everyone tab is active', () => {
-      render(<SharedConversations {...defaultProps} />)
-      fireEvent.click(screen.getByTestId('shared-tab-everyone'))
-      expect(screen.getByText('No publicly shared conversations yet.')).toBeInTheDocument()
-    })
   })
 
   describe('with data', () => {
@@ -150,26 +144,12 @@ describe('SharedConversations', () => {
       expect(screen.queryByText('me Chat 1')).not.toBeInTheDocument()
     })
 
-    it('renders public conversations when Everyone tab is clicked', () => {
-      render(
-        <SharedConversations
-          {...defaultProps}
-          sharedWithEveryone={makeItems('public', 3)}
-        />
-      )
-      fireEvent.click(screen.getByTestId('shared-tab-everyone'))
-      expect(screen.getByText('public Chat 1')).toBeInTheDocument()
-      expect(screen.getByText('public Chat 2')).toBeInTheDocument()
-      expect(screen.getByText('public Chat 3')).toBeInTheDocument()
-    })
-
     it('switching tabs updates visible conversations', () => {
       render(
         <SharedConversations
           {...defaultProps}
           sharedWithMe={makeItems('me', 1)}
           sharedWithTeam={makeItems('team', 1)}
-          sharedWithEveryone={makeItems('public', 1)}
         />
       )
 
@@ -180,11 +160,6 @@ describe('SharedConversations', () => {
       fireEvent.click(screen.getByTestId('shared-tab-team'))
       expect(screen.queryByText('me Chat 1')).not.toBeInTheDocument()
       expect(screen.getByText('team Chat 1')).toBeInTheDocument()
-
-      // Switch to everyone
-      fireEvent.click(screen.getByTestId('shared-tab-everyone'))
-      expect(screen.queryByText('team Chat 1')).not.toBeInTheDocument()
-      expect(screen.getByText('public Chat 1')).toBeInTheDocument()
 
       // Switch back to shared with me
       fireEvent.click(screen.getByTestId('shared-tab-shared-with-me'))

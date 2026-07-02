@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
 import MCPToolsView from "@/components/rag/MCPToolsView";
+import { motion } from "framer-motion";
 
 function MCPToolsPage() {
   return (

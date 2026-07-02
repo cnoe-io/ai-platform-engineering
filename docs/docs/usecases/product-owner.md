@@ -4,16 +4,16 @@ sidebar_position: 3
 
 # Use-case: Product Owner
 
-## Tools and Agents
+## Tools and Integrations
 
-### Jira Agent
-The Jira agent assists Product Owners in creating and managing:
+### Jira
+The Jira integration assists Product Owners in creating and managing:
 - **Stories**: Break down features into smaller, actionable items.
 - **Epics**: Group related stories under a larger initiative.
 - **Tasks**: Define specific work items required to complete stories or epics.
 
-### Confluence Agent
-The Confluence agent helps Product Owners draft and maintain:
+### Confluence
+The Confluence integration helps Product Owners draft and maintain:
 - **Product Requirement Documents (PRD)**: Outline the objectives, features, and specifications for the product.
 - **Documentation**: Collaborate on detailed plans, roadmaps, and other supporting materials.
 
@@ -21,40 +21,27 @@ These tools streamline the workflow for Product Owners, ensuring efficient plann
 
 ## Getting Started
 
-Run the Product Owner persona with both Jira and Confluence agents:
+Run CAIPE with the Jira and Confluence MCP integrations enabled:
 
 ```bash
-# Using the generated docker-compose file
-cd docker-compose
-docker compose -f docker-compose.product-owner.yaml --profile a2a-p2p up
-
-# Or with SLIM transport
-docker compose -f docker-compose.product-owner.yaml --profile a2a-over-slim up
-
-# Generate fresh compose file
-make generate-docker-compose PERSONAS="product-owner"
-
-# Or in dev mode with local code
-make generate-docker-compose PERSONAS="product-owner" DEV=true
+docker compose --profile jira --profile confluence up
 ```
 
 ### What's Included
 
 The Product Owner persona includes:
-- **Jira Agent**: Create and manage stories, epics, and tasks
-- **Confluence Agent**: Draft PRDs and maintain documentation
-- **CAIPE Orchestrator**: Coordinates between agents for seamless workflows
+- **Jira MCP server**: Create and manage stories, epics, and tasks
+- **Confluence MCP server**: Draft PRDs and maintain documentation
+- **Dynamic Agents runtime**: Uses the enabled tools in chat and workflows
 
-### Individual Agents
+### Helm
 
-You can also run individual agents separately:
+For Kubernetes, enable the matching MCP chart tags:
 
 ```bash
-# Run only Jira agent
-docker compose -f docker-compose.jira.yaml --profile a2a-p2p up
-
-# Run only Confluence agent
-docker compose -f docker-compose.confluence.yaml --profile a2a-p2p up
+helm install caipe charts/ai-platform-engineering \
+  --set tags.caipe-ui=true \
+  --set tags.dynamic-agents=true \
+  --set tags.mcp-jira=true \
+  --set tags.mcp-confluence=true
 ```
-
-See the [docker-compose.yaml](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docker-compose.yaml) for all available personas and agents.

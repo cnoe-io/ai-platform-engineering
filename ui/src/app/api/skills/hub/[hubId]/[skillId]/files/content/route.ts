@@ -1,16 +1,17 @@
-import { NextRequest } from "next/server";
-import { isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+resolveHubAndSkillDir,
+sanitizeRelPath,
+} from "@/app/api/skills/hub/[hubId]/[skillId]/files/route";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { resolveHubToken } from "@/lib/hub-crawl";
-import {
-  resolveHubAndSkillDir,
-  sanitizeRelPath,
-} from "@/app/api/skills/hub/[hubId]/[skillId]/files/route";
+import { isMongoDBConfigured } from "@/lib/mongodb";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 const MAX_BYTES = 1_000_000; // 1 MB cap to keep responses small.
@@ -60,7 +61,12 @@ export const GET = withErrorHandler(
       throw new ApiError("path query param is required", 400);
     }
 
-    return await withAuth(request, async () => {
+    return await withAuth(request, async (_req, _user, session) => {
+      await requireResourcePermission(session, {
+        type: "skill",
+        id: `hub-${hubId}-${skillId}`,
+        action: "use",
+      });
       const { hub, skillDir } = await resolveHubAndSkillDir(hubId, skillId);
       const fullPath = `${skillDir}/${relPath}`;
       const ext = relPath.split(".").pop()?.toLowerCase() || "";

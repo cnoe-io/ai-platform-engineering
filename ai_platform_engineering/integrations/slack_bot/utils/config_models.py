@@ -7,14 +7,12 @@ Pydantic models for CAIPE Slack Bot configuration.
 import os
 
 from loguru import logger
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class GlobalDefaults(BaseModel):
-  time_frame: int = 19800
-  max_messages: int = 3
   default_agent_id: str | None = None
   dm_agent_id: str | None = None
   victorops_agent_id: str | None = None
@@ -69,16 +67,69 @@ class UsersConfig(BaseModel):
     return self
 
 
+SlackRouteRunAsMode = Literal["obo_user", "service_account"]
+
+# Backward-compat alias — existing tests and callers that referenced the old
+# name still work; prefer SlackRouteRunAsMode in new code.
+SlackRouteExecutionMode = SlackRouteRunAsMode
+
+
+class ExecutionIdentity(BaseModel):
+    """Per-route "Run as" identity (C1 — anonymous-and-obo-routing).
+
+    Controls whose token is used when dispatching a Slack event to an agent:
+
+    - ``obo_user`` (default): run as the linked Slack user ("User").  Falls
+      back to the platform anonymous SA when the user is not linked.
+    - ``service_account``: always run as the named SA ("Service Account").
+      Works for both human and bot messages. ``service_account_sub`` is
+      required.
+
+    Wire values (persisted in MongoDB ``execution_identity.mode``) are
+    ``"obo_user"`` and ``"service_account"`` — MUST NOT change for backward
+    compatibility with stored documents and the BFF PUT route.
+    """
+
+    mode: SlackRouteRunAsMode = "obo_user"
+    service_account_sub: Optional[str] = None
+    service_account_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _require_sub_for_service_account(self) -> "ExecutionIdentity":
+        """C1 contract: service_account_sub is REQUIRED when mode=service_account.
+
+        NIT-1: also strip() whitespace from the sub so callers never receive
+        a sub with leading/trailing spaces (e.g. from YAML or JSON payloads).
+        """
+        if self.mode == "service_account":
+            sub = self.service_account_sub
+            if not sub or not sub.strip():
+                raise ValueError(
+                    "service_account_sub is required and must be non-empty "
+                    "when mode='service_account'"
+                )
+            # NIT-1: strip whitespace from the stored value.
+            if sub != sub.strip():
+                self.service_account_sub = sub.strip()
+        return self
+
+
 class AgentBinding(BaseModel):
   agent_id: str
   bots: BotsConfig | None = None
   users: UsersConfig | None = None
   escalation: EscalationConfig | None = None
+  execution_identity: ExecutionIdentity = Field(default_factory=ExecutionIdentity)
 
 
 class ChannelConfig(BaseModel):
   name: str
   agents: list[AgentBinding] = Field(default_factory=list)
+  # Optional owning team slug. The YAML config has historically had no team
+  # concept; when set, the admin "import from config" flow can assign the
+  # channel to this team (writing the channel→team ReBAC binding) instead of
+  # leaving the imported channel team-less and unusable until a manual onboard.
+  team: str | None = None
 
 
 def get_escalation_config(agent_match: AgentBinding) -> EscalationConfig | None:
@@ -92,7 +143,6 @@ def get_escalation_config(agent_match: AgentBinding) -> EscalationConfig | None:
 class Config(BaseModel):
   defaults: GlobalDefaults = Field(default_factory=GlobalDefaults)
   channels: dict[str, ChannelConfig]
-  silence_env: bool = False
 
   @classmethod
   def from_env(cls) -> "Config":
@@ -134,12 +184,10 @@ class Config(BaseModel):
     for channel_id, channel_data in raw_config.items():
       channels[channel_id] = ChannelConfig(**channel_data)
 
-    silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"
-
     defaults = GlobalDefaults(
       default_agent_id=os.environ.get("SLACK_INTEGRATION_DEFAULT_AGENT_ID"),
       dm_agent_id=os.environ.get("SLACK_INTEGRATION_DM_AGENT_ID"),
       victorops_agent_id=os.environ.get("SLACK_INTEGRATION_VICTOROPS_AGENT_ID"),
     )
 
-    return cls(channels=channels, defaults=defaults, silence_env=silence_env)
+    return cls(channels=channels, defaults=defaults)

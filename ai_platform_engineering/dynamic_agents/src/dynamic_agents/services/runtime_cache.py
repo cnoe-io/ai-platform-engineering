@@ -342,7 +342,7 @@ class AgentRuntimeCache:
         runtime = self._cache.pop(key, None)
         if runtime:
             await runtime.cleanup()
-            logger.info(f"Runtime cache invalidated for agent={agent_id}, conv={session_id}")
+            logger.info(f"Runtime cache invalidated for agent={agent_id}")
             return True
         return False
 

@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
+import { MessageSquare,Plus } from "lucide-react";
 import Link from "next/link";
-import { MessageSquare, Plus } from "lucide-react";
 import { ConversationCard } from "./ConversationCard";
 
 interface RecentChatsProps {
@@ -11,6 +10,7 @@ interface RecentChatsProps {
     title: string;
     updatedAt: Date | string;
     totalMessages?: number;
+    agentName?: string;
     isShared?: boolean;
   }>;
   loading: boolean;
@@ -77,6 +77,7 @@ export function RecentChats({
               title={conv.title}
               updatedAt={conv.updatedAt}
               totalMessages={conv.totalMessages}
+              agentName={conv.agentName}
               isShared={conv.isShared}
             />
           ))}

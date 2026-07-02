@@ -1,11 +1,11 @@
 "use client";
 
-import { useSession, signOut } from "next-auth/react";
-import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getConfig } from "@/lib/config";
 import { LoadingScreen } from "@/components/loading-screen";
 import { isTokenExpired } from "@/lib/auth-utils";
+import { getConfig } from "@/lib/config";
+import { signOut,useSession } from "next-auth/react";
+import { usePathname,useRouter } from "next/navigation";
+import { useEffect,useState } from "react";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -16,7 +16,7 @@ interface AuthGuardProps {
  *
  * Protects routes when SSO is enabled.
  * If SSO is disabled, it renders children directly without authentication check.
- * Also checks for group-based authorization (backstage-access group).
+ * Also checks for the deployment-configured group-based admission gate.
  */
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();

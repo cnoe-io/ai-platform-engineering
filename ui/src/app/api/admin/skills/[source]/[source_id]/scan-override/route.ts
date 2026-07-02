@@ -25,7 +25,7 @@
  *          — clear an override. Optional ``reason`` for the audit row.
  *
  * Both gates:
- *   - ``requireAdmin(session)`` (write action; 403 for non-admin)
+ *   - ``admin_ui#admin`` RBAC permission (write action; 403 for non-admin)
  *   - ``ADMIN_SCAN_OVERRIDE_ENABLED !== "false"`` (env-flag escape
  *     hatch; 503 with a message pointing operators to the env var)
  *   - Mongo configured (503 if not — overrides only make sense for
@@ -48,19 +48,18 @@
  * assisted-by Cursor Composer-Sonnet-4.7
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  requireAdmin,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
-import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
-
-const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
+import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Whether the admin override feature is on. Reads the same env var
@@ -105,32 +104,6 @@ function assertSupportedSource(
 }
 
 /**
- * Background-fire a supervisor catalog refresh. The override changes
- * what the runtime is willing to serve, so the supervisor catalog
- * needs to re-pull. Same pattern as ``configs/[id]/scan/route.ts``;
- * see that file for the full rationale on auth forwarding.
- */
-function triggerSupervisorRefresh(auth?: {
-  accessToken?: string;
-  catalogKey?: string;
-}): void {
-  if (!SUPERVISOR_URL) return;
-  const headers: Record<string, string> = {};
-  if (auth?.accessToken) headers["Authorization"] = `Bearer ${auth.accessToken}`;
-  if (auth?.catalogKey) headers["X-Caipe-Catalog-Key"] = auth.catalogKey;
-  fetch(`${SUPERVISOR_URL}/skills/refresh?include_hubs=false`, {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(30_000),
-  }).catch((err) => {
-    console.warn(
-      "[ScanOverride] Background supervisor refresh failed:",
-      err,
-    );
-  });
-}
-
-/**
  * POST — create or update an admin scan override.
  *
  * Body: ``{ reason: string }``. Reason is required and persisted
@@ -138,7 +111,7 @@ function triggerSupervisorRefresh(auth?: {
  * pasting an entire scanner report into the doc).
  *
  * Preconditions:
- *   - Admin role (``requireAdmin``).
+ *   - ``admin_ui#admin`` RBAC permission.
  *   - ``ADMIN_SCAN_OVERRIDE_ENABLED !== false``.
  *   - Mongo configured.
  *   - Skill exists in ``agent_skills``.
@@ -164,7 +137,7 @@ export const POST = withErrorHandler(
     if (!isAdminOverrideEnabled()) {
       throw new ApiError(
         "Scan overrides are disabled by ADMIN_SCAN_OVERRIDE_ENABLED=false. " +
-          "Flip the env var to true on both the UI and supervisor tiers " +
+          "Flip the env var to true on both the UI and runtime tiers " +
           "to re-enable the admin escape hatch.",
         503,
       );
@@ -176,8 +149,13 @@ export const POST = withErrorHandler(
       throw new ApiError("Skill source_id is required in the URL.", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
+    await requireResourcePermission(session, {
+      type: "skill",
+      id: source_id,
+      action: "admin",
+    });
 
       // Body validation. We accept reason up to 4096 chars — long
       // enough for a paragraph, short enough that an accidental
@@ -185,7 +163,7 @@ export const POST = withErrorHandler(
       // audit row.
       let body: unknown;
       try {
-        body = await req.json();
+        body = await request.json();
       } catch {
         throw new ApiError("Request body must be valid JSON.", 400);
       }
@@ -279,10 +257,8 @@ export const POST = withErrorHandler(
         },
       );
 
-      // Audit row first (before catalog refresh) so a refresh
-      // failure can't lose the audit trail. Audit write is
-      // best-effort by design (see recordScanOverrideEvent
-      // docstring) — never blocks.
+      // Audit write is best-effort by design (see
+      // recordScanOverrideEvent docstring) — never blocks.
       await recordScanOverrideEvent({
         action: "set",
         skill_id: source_id,
@@ -294,13 +270,6 @@ export const POST = withErrorHandler(
         prior_scan_summary: existing.scan_summary,
       });
 
-      const supervisorAuth = {
-        accessToken: (session as { accessToken?: string } | null | undefined)
-          ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
-      };
-      triggerSupervisorRefresh(supervisorAuth);
-
       return successResponse({
         id: source_id,
         // ``scan_status`` is unchanged ("flagged"); the override
@@ -310,7 +279,6 @@ export const POST = withErrorHandler(
         scan_override: override,
         scan_updated_at: now.toISOString(),
       });
-    });
   },
 );
 
@@ -355,16 +323,21 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Skill source_id is required in the URL.", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
+    await requireResourcePermission(session, {
+      type: "skill",
+      id: source_id,
+      action: "admin",
+    });
 
       // Optional reason on clear. Tolerate "no body" and "body but
       // no reason field" cleanly.
       let reason: string | undefined;
       try {
-        const ct = req.headers.get("content-type") ?? "";
+        const ct = request.headers.get("content-type") ?? "";
         if (ct.includes("application/json")) {
-          const body = (await req.json()) as { reason?: unknown };
+          const body = (await request.json()) as { reason?: unknown };
           if (typeof body?.reason === "string") {
             const trimmed = body.reason.trim();
             if (trimmed.length > 0 && trimmed.length <= 4096) {
@@ -440,20 +413,12 @@ export const DELETE = withErrorHandler(
         prior_scan_summary: priorScanSummary,
       });
 
-      const supervisorAuth = {
-        accessToken: (session as { accessToken?: string } | null | undefined)
-          ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
-      };
-      triggerSupervisorRefresh(supervisorAuth);
-
       return successResponse({
         id: source_id,
         cleared: true,
         scan_status: existing.scan_status ?? "flagged",
         scan_updated_at: now.toISOString(),
       });
-    });
   },
 );
 

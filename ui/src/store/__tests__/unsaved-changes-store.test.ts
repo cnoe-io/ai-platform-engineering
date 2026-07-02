@@ -21,6 +21,7 @@ function resetStore() {
   useUnsavedChangesStore.setState({
     hasUnsavedChanges: false,
     pendingNavigationHref: null,
+    pendingDeferredAction: null,
   });
 }
 
@@ -110,6 +111,56 @@ describe("unsaved-changes-store", () => {
         href = useUnsavedChangesStore.getState().confirmNavigation();
       });
       expect(href).toBeNull();
+    });
+  });
+
+  describe("requestDeferredAction", () => {
+    it("runs immediately when there are no unsaved changes", () => {
+      const action = jest.fn();
+      act(() => {
+        useUnsavedChangesStore.getState().requestDeferredAction(action);
+      });
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(useUnsavedChangesStore.getState().pendingDeferredAction).toBeNull();
+    });
+
+    it("queues the action when there are unsaved changes", () => {
+      const action = jest.fn();
+      act(() => {
+        useUnsavedChangesStore.getState().setUnsaved(true);
+        useUnsavedChangesStore.getState().requestDeferredAction(action);
+      });
+      expect(action).not.toHaveBeenCalled();
+      expect(useUnsavedChangesStore.getState().pendingDeferredAction).toBe(action);
+    });
+  });
+
+  describe("confirmDeferredAction", () => {
+    it("runs the queued action and clears dirty state", () => {
+      const action = jest.fn();
+      act(() => {
+        useUnsavedChangesStore.getState().setUnsaved(true);
+        useUnsavedChangesStore.getState().requestDeferredAction(action);
+      });
+      act(() => {
+        useUnsavedChangesStore.getState().confirmDeferredAction();
+      });
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(false);
+      expect(useUnsavedChangesStore.getState().pendingDeferredAction).toBeNull();
+    });
+  });
+
+  describe("cancelNavigation", () => {
+    it("clears pendingDeferredAction", () => {
+      const action = jest.fn();
+      act(() => {
+        useUnsavedChangesStore.getState().setUnsaved(true);
+        useUnsavedChangesStore.getState().requestDeferredAction(action);
+        useUnsavedChangesStore.getState().cancelNavigation();
+      });
+      expect(useUnsavedChangesStore.getState().pendingDeferredAction).toBeNull();
+      expect(action).not.toHaveBeenCalled();
     });
   });
 });

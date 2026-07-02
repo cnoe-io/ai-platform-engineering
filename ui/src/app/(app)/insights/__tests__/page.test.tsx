@@ -44,6 +44,7 @@ jest.mock('next-auth/react', () => ({
 // Mock framer-motion to simplify testing
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, className, onClick, ...props }: any, ref: any) => (
       <div ref={ref} className={className} onClick={onClick} {...props}>{children}</div>
     )),
@@ -69,7 +70,7 @@ jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children, ...props }: any) => <div data-testid="scroll-area" {...props}>{children}</div>,
 }))
 
-jest.mock('@/components/admin/SimpleLineChart', () => ({
+jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: ({ data, height, color }: any) => (
     <div data-testid="line-chart" data-height={height} data-color={color}>
       {data?.length} data points
@@ -77,7 +78,7 @@ jest.mock('@/components/admin/SimpleLineChart', () => ({
   ),
 }))
 
-jest.mock('@/components/admin/SkillMetricsCards', () => ({
+jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div data-testid="visibility-breakdown" />,
   CategoryBreakdown: () => <div data-testid="category-breakdown" />,
   RunStatsTable: () => <div data-testid="run-stats-table" />,
@@ -111,7 +112,6 @@ function makeInsightsData(overrides: Record<string, any> = {}) {
     overview: {
       total_conversations: 42,
       total_messages: 256,
-      total_tokens_used: 15000,
       conversations_this_week: 5,
       messages_this_week: 30,
       avg_messages_per_conversation: 6.1,
@@ -341,30 +341,6 @@ describe('Insights Page', () => {
         expect(screen.getByText('6.1')).toBeInTheDocument()
         expect(screen.getByText('Feedback Given')).toBeInTheDocument()
         expect(screen.getByText('18')).toBeInTheDocument()
-      })
-    })
-
-    it('formats large token counts with "k" suffix', async () => {
-      mockFetchSuccess(makeInsightsData({
-        overview: { total_tokens_used: 150000 },
-      }))
-
-      render(<Insights />)
-
-      await waitFor(() => {
-        expect(screen.getByText('150.0k')).toBeInTheDocument()
-      })
-    })
-
-    it('displays raw token count when under 1000', async () => {
-      mockFetchSuccess(makeInsightsData({
-        overview: { total_tokens_used: 500 },
-      }))
-
-      render(<Insights />)
-
-      await waitFor(() => {
-        expect(screen.getByText('500')).toBeInTheDocument()
       })
     })
 

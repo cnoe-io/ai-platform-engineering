@@ -1,16 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Type, Palette, Monitor, Check, Cloud, CloudOff, ChevronDown } from "lucide-react";
-import { useTheme } from "next-themes";
+import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
+import { gradientThemes,type GradientThemeId } from "@/lib/gradient-themes";
+import { cn } from "@/lib/utils";
 import { isFeatureEnabled } from "@/store/feature-flag-store";
-import { gradientThemes, type GradientThemeId } from "@/lib/gradient-themes";
+import { AnimatePresence,motion } from "framer-motion";
+import { Check,ChevronDown,Cloud,CloudOff,Monitor,Palette,Type,X } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useCallback,useEffect,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 
 // Font size options
 const fontSizes = [
@@ -123,6 +124,8 @@ export function SettingsPanel() {
 
   // Load settings on mount: try MongoDB first, fall back to localStorage
   useEffect(() => {
+    // Existing hydration guard: the panel depends on browser-only theme and portal APIs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
 
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
@@ -427,6 +430,11 @@ export function SettingsPanel() {
                 </section>
 
                 {/* Preview Section */}
+                {/* DM default-agent preference (spec FR-019..FR-022). Lives
+                    inside the existing settings panel so it's discoverable
+                    next to other personalization controls. */}
+                <DmAgentPreferencePanel />
+
                 <section>
                   <div className="flex items-center gap-2 mb-3">
                     <Monitor className="h-4 w-4 text-muted-foreground" />
@@ -452,7 +460,7 @@ export function SettingsPanel() {
                       ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789
                     </p>
                     <code className="font-mono bg-muted px-2 py-1 rounded" style={{ fontSize: "0.85em" }}>
-                      const agent = new A2AAgent();
+                      const agent = new DynamicAgent();
                     </code>
                   </div>
                 </section>
@@ -467,17 +475,16 @@ export function SettingsPanel() {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="gap-1.5 text-xs h-8"
+      <button
         onClick={() => setOpen(true)}
         title="UI Personalization"
+        aria-label="UI Personalization"
+        className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
-        <Palette className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">{currentTheme.label}</span>
-        <ChevronDown className="h-3 w-3" />
-      </Button>
+        <Palette className="h-3.5 w-3.5 shrink-0" />
+        <span className="overflow-hidden whitespace-nowrap hidden sm:block">{currentTheme.label}</span>
+        <ChevronDown className="h-3 w-3 shrink-0 hidden sm:block" />
+      </button>
 
       {typeof document !== "undefined" && createPortal(modalContent, document.body)}
     </>

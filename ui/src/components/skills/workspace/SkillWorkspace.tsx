@@ -24,55 +24,55 @@
  * small and trivially testable in isolation.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
-  ArrowRight,
-  Copy,
-  Download,
-  Eye,
-  FileCode,
-  History as HistoryIcon,
-  Loader2,
-  Save,
-  Settings as SettingsIcon,
-  ShieldCheck,
-  Wrench,
+ArrowLeft,
+ArrowRight,
+Copy,
+Download,
+Eye,
+FileCode,
+History as HistoryIcon,
+Loader2,
+Save,
+Settings as SettingsIcon,
+ShieldCheck,
+Wrench,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
+import {
+Tabs,
+TabsContent,
+TabsList,
+TabsTrigger,
+} from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import {
-  useSkillForm,
-} from "@/components/skills/workspace/use-skill-form";
+import { buildBlockingMessage,buildLastReview,useAiReview } from "@/components/ai-review";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import {
+useSkillForm,
+} from "@/components/skills/workspace/use-skill-form";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { useAiReview, buildLastReview } from "@/components/ai-review";
 import type { AgentSkill } from "@/types/agent-skill";
 
-import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
 import { FilesTab } from "@/components/skills/workspace/tabs/FilesTab";
-import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { ScanTab } from "@/components/skills/workspace/tabs/HistoryTab";
+import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
+import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { VersionsTab } from "@/components/skills/workspace/tabs/VersionsTab";
 
 // ---------------------------------------------------------------------------
@@ -449,7 +449,11 @@ export function SkillWorkspace({
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Clone failed (${res.status})`);
       }
-      const data = await res.json();
+      const json = await res.json();
+      // Clone returns the success-envelope shape ({ success, data: { id, name } })
+      // via successResponse(); unwrap it (falling back to the flat shape) so we
+      // never navigate to /skills/workspace/undefined.
+      const data = json?.data ?? json;
       toast(`Cloned to "${data.name}"`, "success");
       router.push(`/skills/workspace/${encodeURIComponent(data.id)}`);
     } catch (err) {
@@ -517,11 +521,21 @@ export function SkillWorkspace({
   // an LLM call.
   // ---------------------------------------------------------------------
   const handleSave = useCallback(async () => {
+    // Capture the freshly-run review result — `review.result` state lags by a
+    // render after an inline `ensurePassedOrRun`, so the grade we stamp below
+    // must come from the run we just awaited, not the stale closure value.
+    let reviewResult = review.result;
     if (review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
+      const { passed, result } = await review.ensurePassedOrRun();
+      reviewResult = result;
+      if (!passed) {
         toast(
-          "AI Review failed — address the comments in the Skill content step before saving.",
+          buildBlockingMessage(
+            review.config,
+            result,
+            "the Skill content step",
+            "saving",
+          ),
           "error",
         );
         return;
@@ -529,7 +543,7 @@ export function SkillWorkspace({
     }
     // Stamp the latest in-memory review verdict onto the saved row so the
     // skills gallery can show a grade badge without re-running the LLM.
-    const lastReview = buildLastReview(review.result, "skill-md");
+    const lastReview = buildLastReview(reviewResult, "skill-md");
     await form.handleSubmit(
       lastReview ? { last_review: lastReview } : undefined,
     );
@@ -541,10 +555,15 @@ export function SkillWorkspace({
     // (see `handleSave`) so the user can't sidestep the review by
     // jumping back and clicking Save.
     if (tab === "files" && review.isBlocking) {
-      const ok = await review.ensurePassedOrRun();
-      if (!ok) {
+      const { passed, result } = await review.ensurePassedOrRun();
+      if (!passed) {
         toast(
-          "AI Review failed — address the comments before continuing.",
+          buildBlockingMessage(
+            review.config,
+            result,
+            "the comments",
+            "continuing",
+          ),
           "error",
         );
         return;

@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
-import { CheckCircle, Loader2, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CheckCircle,Circle,Loader2 } from "lucide-react";
 
 export interface TaskItem {
   content: string;
@@ -18,7 +17,6 @@ interface TaskListProps {
 
 /**
  * Displays a list of tasks/todos with status indicators and progress bar.
- * Similar to A2A plan steps but for DA todo items.
  */
 export function TaskList({ tasks, readonly = false, className }: TaskListProps) {
   if (tasks.length === 0) return null;

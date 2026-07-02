@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This is the second part of the AI agents lab series. In this part, you'll learn about Multi-Agent Systems (MAS) and build a cloud-native, production-ready MAS using CAIPE (Community AI Platform Engineering)—this time deploying to Kubernetes with Helm and Kind, featuring the weather agent and NetUtils agent.
+This is the second part of the AI agents lab series. In this part, you'll learn about Multi-Agent Systems (MAS) and build a cloud-native, production-ready MAS using CAIPE (Community AI Platform Engineering)—this time deploying to Kubernetes with Helm and Kind, featuring the NetUtils agent.
 
 **What you'll learn in this part:**
 
@@ -167,14 +167,14 @@ Each agent exposes a **manifest** (typically at `.well-known/agent.json`) that o
 **Example structure:**
 ```json
 {
-  "name": "Weather Agent",
-  "description": "Provides weather forecasts and current conditions",
+  "name": "NetUtils Agent",
+  "description": "Provides network diagnostics and connectivity checks",
   "capabilities": [
     {
-      "name": "get_current_weather",
-      "description": "Get current weather for a location",
-      "input_schema": { "location": "string" },
-      "output_schema": { "temperature": "number", "conditions": "string" }
+      "name": "check_connectivity",
+      "description": "Check if a host is reachable",
+      "input_schema": { "host": "string" },
+      "output_schema": { "reachable": "boolean", "latency_ms": "number" }
     }
   ]
 }
@@ -219,7 +219,6 @@ This makes it easy to build systems where a planner agent delegates tasks to spe
 
 In this lab, you'll deploy a multi-agent system that coordinates information across multiple domains. The system includes:
 
-- **🌤️ Weather Agent**: Provides weather forecasts and current conditions
 - **🔌 NetUtils Agent**: Offers network diagnostics and connectivity checks
 - **🧠 Supervisor Agent**: Central coordinator that orchestrates complex operations requiring data from multiple specialized systems
 
@@ -230,24 +229,21 @@ graph TD
   end
 
   subgraph agentBlock ["Specialized Agents"]
-    W["Weather Agent"]
     NU["NetUtils Agent"]
   end
 
   U["User / Chat Client"]
 
   U -- "Query / Command" --> S
-  S -- "A2A Protocol" --> W
   S -- "A2A Protocol" --> NU
-  W -- "Weather Data" --> S
   NU -- "Network Status / Diagnostics" --> S
   S -- "Combined Result" --> U
 ```
-<center>(Architecture diagram: Supervisor coordinating Weather and NetUtils Agents via A2A protocol.)</center>
+<center>(Architecture diagram: Supervisor coordinating NetUtils Agent via A2A protocol.)</center>
 
 **How it works:**
 
-1. The weather and NetUtils agents connect to their respective MCP backends
+1. The NetUtils agent connects to its MCP backend
 
 2. The supervisor agent communicates with sub-agents using the A2A protocol
 
@@ -362,7 +358,7 @@ For this lab, we install the CAIPE Helm chart directly from the OCI registry and
 - It's quicker for labs and experiments---no files to edit or keep track of.
 - You can see exactly which features are turned on/off in your command.
 
-For the lab, we enable: the UI, supervisor, weather, and NetUtils agents.
+For the lab, we enable: the UI, supervisor, and NetUtils agents.
 
 Deploy the chart:
 
@@ -371,15 +367,14 @@ helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineerin
   --namespace caipe \
   --version 0.2.31 \
   --set tags.caipe-ui=true \
-  --set tags.agent-weather=true \
-  --set tags.agent-netutils=true \
+  --set tags.mcp-netutils=true \
   --set caipe-ui.config.SSO_ENABLED=false \
   --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000 \
   --wait
 ```
 
 > [!TIP]
-> **Corporate VPN / TLS Inspection (macOS):** If you are behind a corporate VPN or proxy that performs TLS inspection (e.g., Cisco AnyConnect), the agent pods will fail to connect to external endpoints like `api.openai.com` with SSL errors such as `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`. This affects the **supervisor, weather, and NetUtils agents** since they all make outbound HTTPS calls to the LLM provider.
+> **Corporate VPN / TLS Inspection (macOS):** If you are behind a corporate VPN or proxy that performs TLS inspection (e.g., Cisco AnyConnect), the agent pods will fail to connect to external endpoints like `api.openai.com` with SSL errors such as `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`. This affects the **supervisor and NetUtils agents** since they make outbound HTTPS calls to the LLM provider.
 >
 > First, export the **full** macOS certificate trust store (both the system root CAs and any corporate/local certificates) and create a ConfigMap. You must include `SystemRootCertificates.keychain` to retain the standard root CAs (DigiCert, GlobalSign, etc.) needed to verify public endpoints:
 >
@@ -391,15 +386,14 @@ helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineerin
 >   --from-file=ca-certificates.crt=/tmp/corp-ca-certs.pem
 > ```
 >
-> Then re-run the Helm install with CA cert flags for **all three agents** (supervisor, weather, and NetUtils):
+> Then re-run the Helm install with CA cert flags for **both agents** (supervisor and NetUtils):
 >
 > ```bash
 > helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
 >   --namespace caipe \
 >   --version 0.2.31 \
 >   --set tags.caipe-ui=true \
->   --set tags.agent-weather=true \
->   --set tags.agent-netutils=true \
+>   --set tags.mcp-netutils=true \
 >   --set caipe-ui.config.SSO_ENABLED=false \
 >   --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000 \
 >   --set supervisor-agent.volumes[0].name=corp-ca-certs \
@@ -409,20 +403,13 @@ helm upgrade --install caipe oci://ghcr.io/cnoe-io/charts/ai-platform-engineerin
 >   --set supervisor-agent.volumeMounts[0].subPath=ca-certificates.crt \
 >   --set supervisor-agent.volumeMounts[0].readOnly=true \
 >   --set supervisor-agent.env.SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
->   --set agent-weather.volumes[0].name=corp-ca-certs \
->   --set agent-weather.volumes[0].configMap.name=corp-ca-certs \
->   --set agent-weather.volumeMounts[0].name=corp-ca-certs \
->   --set agent-weather.volumeMounts[0].mountPath=/etc/ssl/certs/ca-certificates.crt \
->   --set agent-weather.volumeMounts[0].subPath=ca-certificates.crt \
->   --set agent-weather.volumeMounts[0].readOnly=true \
->   --set agent-weather.env.SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
->   --set agent-netutils.volumes[0].name=corp-ca-certs \
->   --set agent-netutils.volumes[0].configMap.name=corp-ca-certs \
->   --set agent-netutils.volumeMounts[0].name=corp-ca-certs \
->   --set agent-netutils.volumeMounts[0].mountPath=/etc/ssl/certs/ca-certificates.crt \
->   --set agent-netutils.volumeMounts[0].subPath=ca-certificates.crt \
->   --set agent-netutils.volumeMounts[0].readOnly=true \
->   --set agent-netutils.env.SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+>   --set mcp-netutils.volumes[0].name=corp-ca-certs \
+>   --set mcp-netutils.volumes[0].configMap.name=corp-ca-certs \
+>   --set mcp-netutils.volumeMounts[0].name=corp-ca-certs \
+>   --set mcp-netutils.volumeMounts[0].mountPath=/etc/ssl/certs/ca-certificates.crt \
+>   --set mcp-netutils.volumeMounts[0].subPath=ca-certificates.crt \
+>   --set mcp-netutils.volumeMounts[0].readOnly=true \
+>   --set mcp-netutils.env.SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 >   --wait
 > ```
 >
@@ -435,7 +422,7 @@ This single command pulls the chart from the OCI registry and deploys the full M
 **What this does:**
 
 - Installs the CAIPE Helm chart version 0.2.31 from the GitHub Container Registry
-- Enables the supervisor agent (always included), weather, and NetUtils sub-agents via tags
+- Enables the supervisor agent (always included) and NetUtils MCP server via tags
 - Enables the CAIPE web UI
 - Schedules each agent as a Kubernetes Deployment and Service
 - Sets up service discovery and A2A connectivity between agents
@@ -460,33 +447,6 @@ kubectl logs deployment/caipe-supervisor-agent -n caipe
 ### Task 6: Monitor Agent Logs
 
 Let's verify each agent started successfully by checking their logs via `kubectl`:
-
-#### Weather Agent
-
-```bash
-kubectl logs deployment/caipe-agent-weather -n caipe
-```
-
-**Expected output:**
-```
-===================================
-       WEATHER AGENT CONFIG
-===================================
-AGENT_URL: http://0.0.0.0:8000
-===================================
-Running A2A server in p2p mode.
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
-
-**What to look for:**
-
-- ✅ Agent configuration displayed
-- ✅ A2A server running
-- ✅ Successful startup and agent card requests
-
----
 
 #### NetUtils Agent
 
@@ -541,25 +501,9 @@ The supervisor performs dynamic monitoring and removes unavailable agents from t
 Fetch each agent's capabilities via a port-forwarded service. First, port-forward a service:
 
 ```bash
-kubectl port-forward service/caipe-agent-weather 8002:8000 -n caipe
 kubectl port-forward service/caipe-agent-netutils 8014:8000 -n caipe
 kubectl port-forward service/caipe-supervisor-agent 8000:8000 -n caipe
 ```
-
-#### Weather Agent Card
-
-```bash
-curl http://localhost:8002/.well-known/agent.json | jq
-```
-
-**What you'll see:**
-
-- Agent name and description
-- Available weather-related capabilities
-- Input/output schemas for each capability
-- Endpoint information
-
----
 
 #### NetUtils Agent Card
 
@@ -586,7 +530,7 @@ curl http://localhost:8000/.well-known/agent.json | jq
 
 - Combined capabilities from all sub-agents
 - Routing and orchestration capabilities
-- Aggregated schemas from weather and NetUtils agents
+- Aggregated schemas from all connected MCP servers
 
 > [!NOTE]
 > The supervisor's agent card dynamically reflects the capabilities of all connected sub-agents. This is the power of A2A—automatic capability discovery and aggregation!
@@ -632,41 +576,11 @@ What can you help me with?
 
 **Expected behavior:**
 
-The supervisor will report capabilities from both the weather and NetUtils agents, demonstrating dynamic capability aggregation.
+The supervisor will report capabilities from all connected agents, demonstrating dynamic capability aggregation.
 
 ---
 
-### Task 10: Test Weather Agent
-
-Try weather-specific queries:
-
-**Current conditions:**
-```text
-What's the current weather in San Francisco?
-```
-
-**Forecast:**
-```text
-Give me a 5-day forecast for London
-```
-
-**What's happening behind the scenes:**
-
-1. Your query goes to the supervisor agent
-2. The supervisor identifies this as a weather-related request
-3. The supervisor routes the request to the weather agent via A2A
-4. The weather agent calls its MCP server to get real data
-5. The response flows back through the supervisor to you
-
-You can check logs in another terminal tab:
-
-```bash
-kubectl logs -f deployment/caipe-supervisor-agent -n caipe
-```
-
----
-
-### Task 11: Test NetUtils Agent
+### Task 10: Test NetUtils Agent
 
 Try network diagnostic queries:
 
@@ -689,26 +603,20 @@ Can you resolve the DNS for api.github.com?
 
 ---
 
-### Task 12: Test Cross-Agent Scenarios
+### Task 11: Test Multi-Step Queries
 
-Try queries that require both agents to work together:
+Try queries that require the supervisor to chain multiple tools:
 
-**Multi-domain query:**
+**Multi-step query:**
 ```text
-Get me today's weather for New York, and also test if api.github.com is reachable. Summarize both results.
-```
-
-**Complex reasoning:**
-```text
-Based on current weather in Berlin, do a network check to the local weather data API endpoint and summarize both the weather and the network results.
+Check if api.github.com is reachable, then resolve its DNS and summarize both results.
 ```
 
 **What's happening:**
 
-1. The supervisor analyzes the query and identifies which agents are needed
-2. It calls the weather agent to get weather data
-3. It calls the NetUtils agent to do the requested checks
-4. It uses the LLM to reason about and synthesize an answer
+1. The supervisor analyzes the query and identifies the steps needed
+2. It calls the NetUtils agent for connectivity and DNS checks
+3. It uses the LLM to reason about and synthesize an answer
 
 Observe how the UI displays agent tool calls, information flow, and the synthesized response.
 
@@ -716,7 +624,7 @@ Observe how the UI displays agent tool calls, information flow, and the synthesi
 
 ## 9. Alternative: CLI Chat Client
 
-### Task 13: Connect via CLI
+### Task 12: Connect via CLI
 
 You can also interact with the multi-agent system using a text-based CLI client.
 
@@ -739,7 +647,7 @@ caipe
 
 **Try a test query:**
 ```text
-What's the current weather in San Francisco?
+Check if api.github.com is reachable.
 ```
 
 **When finished, exit the chat CLI with Ctrl+C.**
@@ -748,7 +656,7 @@ What's the current weather in San Francisco?
 
 ## 10. Clean Up
 
-### Task 14: Stop the System
+### Task 13: Stop the System
 
 When you're done exploring, delete the CAIPE deployment and Kind cluster:
 
@@ -772,7 +680,7 @@ Congratulations! You've completed Part 2 of the AI Agents lab series. Here's wha
 ✅ Learned about the Agent-to-Agent (A2A) protocol
 ✅ Deployed a cloud-native, production MAS with CAIPE using Helm and Kind
 ✅ Explored agent cards and capability discovery
-✅ Tested single-agent and cross-agent interactions using weather and network tools
+✅ Tested single-agent and multi-step interactions using network tools
 ✅ Used both CLI and web UI to interact with agents
 
 ### Key Takeaways from Part 2
@@ -811,4 +719,4 @@ For deeper exploration:
 
 ---
 
-**Part 2 Complete!** You now understand how to build and deploy Kubernetes-native multi-agent systems that coordinate specialized agents, such as weather and network utilities, to solve complex, cross-domain problems.
+**Part 2 Complete!** You now understand how to build and deploy Kubernetes-native multi-agent systems that coordinate specialized MCP servers to solve complex problems.

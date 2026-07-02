@@ -62,7 +62,7 @@ jest.mock("@/components/ui/button", () => ({
 // ---------------------------------------------------------------------------
 
 const mockConfig = {
-  oidcRequiredGroup: "backstage-access",
+  oidcRequiredGroup: "caipe-users",
   supportEmail: "support@example.com",
   appName: "CAIPE",
   tagline: "AI Platform Engineering",
@@ -90,7 +90,7 @@ import UnauthorizedPage from "../page";
 describe("UnauthorizedPage", () => {
   beforeEach(() => {
     // Reset to safe defaults before each test
-    mockConfig.oidcRequiredGroup = "backstage-access";
+    mockConfig.oidcRequiredGroup = "caipe-users";
     mockConfig.supportEmail = "support@example.com";
     mockConfig.appName = "CAIPE";
     mockConfig.tagline = "AI Platform Engineering";
@@ -100,15 +100,15 @@ describe("UnauthorizedPage", () => {
   // ── Group name rendering ──────────────────────────────────────────────────
 
   describe("required group display", () => {
-    it("renders the default group name in the code block", () => {
+    it("renders the configured group name in the code block", () => {
       render(<UnauthorizedPage />);
-      expect(screen.getByRole("code")).toHaveTextContent("backstage-access");
+      expect(screen.getByRole("code")).toHaveTextContent("caipe-users");
     });
 
     it("renders a custom group name from config.oidcRequiredGroup in the code block", () => {
-      mockConfig.oidcRequiredGroup = "my-org-platform-users";
+      mockConfig.oidcRequiredGroup = "my-org-caipe-users";
       render(<UnauthorizedPage />);
-      expect(screen.getByRole("code")).toHaveTextContent("my-org-platform-users");
+      expect(screen.getByRole("code")).toHaveTextContent("my-org-caipe-users");
     });
 
     it("renders the group name in the <strong> contact-admin bullet", () => {
@@ -144,22 +144,22 @@ describe("UnauthorizedPage", () => {
     render(<UnauthorizedPage />);
     expect(screen.getByRole("code")).toHaveTextContent("sentinel-value-12345");
     expect(screen.getByRole("code")).not.toHaveTextContent("undefined");
-    expect(screen.getByRole("code")).not.toHaveTextContent("backstage-access");
+    expect(screen.getByRole("code")).not.toHaveTextContent("caipe-users");
   });
 
   // ── Static content ────────────────────────────────────────────────────────
 
-  it("renders Access Denied heading", () => {
+  it("renders Access Needed heading", () => {
     render(<UnauthorizedPage />);
     expect(
-      screen.getByRole("heading", { name: /access denied/i }),
+      screen.getByRole("heading", { name: /access needed/i }),
     ).toBeInTheDocument();
   });
 
   it("renders the sign-out button", () => {
     render(<UnauthorizedPage />);
     expect(
-      screen.getByRole("button", { name: /sign out/i }),
+      screen.getByRole("button", { name: /try another account/i }),
     ).toBeInTheDocument();
   });
 
@@ -187,7 +187,7 @@ describe("UnauthorizedPage", () => {
   it("calls signOut with callbackUrl '/login' when sign-out button is clicked", async () => {
     const user = userEvent.setup();
     render(<UnauthorizedPage />);
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /try another account/i }));
     expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: "/login" });
   });
 });

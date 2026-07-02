@@ -1,0 +1,2747 @@
+# tests/rbac/rbac-matrix.yaml
+#
+# Single source of truth for "who can do what" across CAIPE.
+#
+# Schema: docs/docs/specs/102-comprehensive-rbac-tests-and-completion/contracts/rbac-matrix.schema.json
+# Validator: scripts/validate-rbac-matrix.py (T009)
+# Linter rule: every requireRbacPermission / require_rbac_permission call site
+#              MUST be represented here (FR-010, SC-006).
+#
+# Personas are defined in spec.md §Personas and seeded by deploy/keycloak/init-idp.sh (T019).
+#
+# This file STARTS empty. Each user-story phase (T040, T060, T076, T085, T093,
+# T103, T119) adds its routes. The matrix linter (T009) hard-fails the build
+# if a route is missing here, so phase-by-phase additions are mandatory.
+---
+version: 1
+routes:
+  # T038 smoke entry — proves the matrix-driver loads, parses, dispatches, and
+  # asserts. Phases 3–9 will add the rest. Do NOT delete this entry without
+  # first updating the matrix-driver's empty-matrix branch.
+  - id: ui-bff-admin-teams-list
+    surface: ui_bff
+    method: GET
+    path: /api/admin/teams
+    resource: admin_ui
+    scope: view
+    notes: >-
+      Smoke route added in T038. Already migrated to requireRbacPermission
+      (see ui/src/app/api/admin/teams/route.ts). admin_ui#view is granted to
+      the `admin` realm role via admin-ui-full-access policy, denied otherwise.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+
+  - id: ui-bff-post-api-chat-conversations-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/chat/conversations
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate when creating a conversation with a selected agent.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  # Spec 2026-05-16 Dynamic Agent PDP Gate: per-agent data-plane checks use
+  # OpenFGA ReBAC, not Keycloak realm resources. Expectations assume the test
+  # fixture grants alice_admin and eve_dynamic_agent_user can_use on the selected
+  # agent while the remaining personas lack that tuple.
+  - id: ui-bff-post-api-v1-chat-stream-start-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/stream/start
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents streaming start proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-v1-chat-invoke-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/invoke
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents non-streaming invoke proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-v1-chat-stream-resume-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/stream/resume
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents stream resume proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
+  # added as pending until the corresponding user-story endpoints land.
+  - id: ui-bff-get-api-admin-identity-group-sync-directory-sync-status
+    surface: ui_bff
+    method: GET
+    path: /api/admin/identity-group-sync/directory-sync/status
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for IdP connector status/health/run history.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-identity-group-sync-directory-sync-settings
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/identity-group-sync/directory-sync/settings
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for IdP connector sync settings (schedule/filter).
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-identity-group-sync-directory-sync-trigger
+    surface: ui_bff
+    method: POST
+    path: /api/admin/identity-group-sync/directory-sync/trigger
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate to trigger a manual IdP directory sync.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rebac-catalog
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rebac/catalog
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Universal ReBAC resource catalog endpoint for policy authoring.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rebac-enforcement-status
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rebac/enforcement-status
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Universal ReBAC enforcement-status endpoint for transition visibility.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rebac-migrations
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rebac/migrations
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Lists the 0.5.1 schema-versioned migration manifest and stored migration status, including Slack/Webex messaging ReBAC additions.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-rebac-migrations-plan
+    surface: ui_bff
+    method: POST
+    path: /api/admin/rebac/migrations/conversation_owner_identity_v1/plan
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Dry-runs a schema migration after the organization-level admin_ui#admin gate; applies to conversation, universal, Dynamic Agent, Slack/Webex messaging, and index migration IDs.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-rebac-migrations-apply
+    surface: ui_bff
+    method: POST
+    path: /api/admin/rebac/migrations/conversation_owner_identity_v1/apply
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Applies a schema migration only after exact typed confirmation, including new Slack/Webex messaging ReBAC and reconciliation migration IDs.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-slack-channels
+    surface: ui_bff
+    method: GET
+    path: /api/admin/slack/channels
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel ReBAC listing.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-slack-channels-resources
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/slack/channels/[workspaceId]/[channelId]/resources
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel multi-resource grants.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-rbac-enforcement-comparison
+    surface: ui_bff
+    method: POST
+    path: /api/rbac/enforcement-comparison
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Compares transitional Keycloak realm role decisions against ReBAC decisions.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+# >>> generated by scripts/generate-rbac-matrix-us1.py — DO NOT EDIT
+  - id: ui-bff-get-api-admin-users-stats
+    surface: ui_bff
+    method: GET
+    path: /api/admin/users/stats
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-stats
+    surface: ui_bff
+    method: GET
+    path: /api/admin/stats
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Already migrated
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-stats-skills
+    surface: ui_bff
+    method: GET
+    path: /api/admin/stats/skills
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-stats-checkpoints
+    surface: ui_bff
+    method: GET
+    path: /api/admin/stats/checkpoints
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-users
+    surface: ui_bff
+    method: GET
+    path: /api/admin/users
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-users-id
+    surface: ui_bff
+    method: GET
+    path: /api/admin/users/[id]
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-users-id
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/users/[id]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-users-id-teams
+    surface: ui_bff
+    method: POST
+    path: /api/admin/users/[id]/teams
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-users-id-teams
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/users/[id]/teams
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-users-id-roles
+    surface: ui_bff
+    method: POST
+    path: /api/admin/users/[id]/roles
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-users-id-roles
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/users/[id]/roles
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-patch-api-admin-users-id-role
+    surface: ui_bff
+    method: PATCH
+    path: /api/admin/users/[id]/role
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Legacy Mongo role; dual-auth admin_ui#admin PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-teams
+    surface: ui_bff
+    method: POST
+    path: /api/admin/teams
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: Already partial; migrate to team#manage
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-teams-id
+    surface: ui_bff
+    method: GET
+    path: /api/admin/teams/[id]
+    resource: team
+    scope: view
+    migration_status: migrated
+    notes: dual-auth team#view PDP gate for team detail
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-patch-api-admin-teams-id
+    surface: ui_bff
+    method: PATCH
+    path: /api/admin/teams/[id]
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-teams-id
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/teams/[id]
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-teams-id-roles
+    surface: ui_bff
+    method: GET
+    path: /api/admin/teams/[id]/roles
+    resource: team
+    scope: view
+    migration_status: migrated
+    notes: dual-auth team#view PDP gate for team role listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-teams-id-roles
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/teams/[id]/roles
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team role assignment
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-teams-id-members
+    surface: ui_bff
+    method: POST
+    path: /api/admin/teams/[id]/members
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team member addition
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-teams-id-members
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/teams/[id]/members
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team member removal
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-teams-id-kb-assignments
+    surface: ui_bff
+    method: GET
+    path: /api/admin/teams/[id]/kb-assignments
+    resource: team
+    scope: view
+    migration_status: migrated
+    notes: dual-auth team#view PDP gate for KB assignment reads
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-teams-id-kb-assignments
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/teams/[id]/kb-assignments
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for KB assignment updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-teams-id-kb-assignments
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/teams/[id]/kb-assignments
+    resource: team
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for KB assignment deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-slack-users
+    surface: ui_bff
+    method: GET
+    path: /api/admin/slack/users
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit log listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-slack-users-id
+    surface: ui_bff
+    method: POST
+    path: /api/admin/slack/users/[id]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit owner search
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-slack-users-id
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/slack/users/[id]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit CSV export
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-roles
+    surface: ui_bff
+    method: GET
+    path: /api/admin/roles
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack user unlink
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-roles
+    surface: ui_bff
+    method: POST
+    path: /api/admin/roles
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for Slack channel mapping listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-roles-name
+    surface: ui_bff
+    method: GET
+    path: /api/admin/roles/[name]
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel mapping creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-roles-name
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/roles/[name]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel mapping deactivation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-role-mappings
+    surface: ui_bff
+    method: GET
+    path: /api/admin/role-mappings
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for Keycloak realm role listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-role-mappings
+    surface: ui_bff
+    method: POST
+    path: /api/admin/role-mappings
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Keycloak realm role creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-admin-role-mappings-id
+    surface: ui_bff
+    method: DELETE
+    path: /api/admin/role-mappings/[id]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for Keycloak realm role detail
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rbac-audit
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rbac-audit
+    resource: admin_ui
+    scope: audit.view
+    migration_status: migrated
+    notes: Already migrated
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-audit-events
+    surface: ui_bff
+    method: GET
+    path: /api/admin/audit-events
+    resource: admin_ui
+    scope: audit.view
+    migration_status: migrated
+    notes: Already migrated
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-audit-logs
+    surface: ui_bff
+    method: GET
+    path: /api/admin/audit-logs
+    resource: admin_ui
+    scope: audit.view
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Keycloak realm role deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-audit-logs-owners
+    surface: ui_bff
+    method: GET
+    path: /api/admin/audit-logs/owners
+    resource: admin_ui
+    scope: audit.view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for IdP role mapping listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-audit-logs-export
+    surface: ui_bff
+    method: GET
+    path: /api/admin/audit-logs/export
+    resource: admin_ui
+    scope: audit.view
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for IdP role mapping creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-audit-logs-id-messages
+    surface: ui_bff
+    method: GET
+    path: /api/admin/audit-logs/[id]/messages
+    resource: admin_ui
+    scope: audit.view
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for IdP role mapping deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-feedback
+    surface: ui_bff
+    method: GET
+    path: /api/admin/feedback
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Migrated in T052; was withAuth-only, now requires admin_ui#view via Keycloak PDP.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-metrics
+    surface: ui_bff
+    method: GET
+    path: /api/admin/metrics
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-metrics
+    surface: ui_bff
+    method: POST
+    path: /api/admin/metrics
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for batch PromQL
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-migrate-conversations
+    surface: ui_bff
+    method: POST
+    path: /api/admin/migrate-conversations
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for localStorage conversation migration
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents
+    resource: dynamic_agent
+    scope: view
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for dynamic agent listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-dynamic-agents
+    surface: ui_bff
+    method: POST
+    path: /api/dynamic-agents
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-dynamic-agents
+    surface: ui_bff
+    method: PUT
+    path: /api/dynamic-agents
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-dynamic-agents
+    surface: ui_bff
+    method: DELETE
+    path: /api/dynamic-agents
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-conversations
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/conversations
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent conversation admin listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-conversations-id-interrupt-state
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/conversations/[id]/interrupt-state
+    resource: dynamic_agent
+    scope: invoke
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for interrupt-state proxy
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-conversations-id-files-list
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/conversations/[id]/files/list
+    resource: dynamic_agent
+    scope: invoke
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for conversation file listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-conversations-id-files-content
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/conversations/[id]/files/content
+    resource: dynamic_agent
+    scope: invoke
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for conversation file content reads
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-dynamic-agents-conversations-id-files-content
+    surface: ui_bff
+    method: DELETE
+    path: /api/dynamic-agents/conversations/[id]/files/content
+    resource: dynamic_agent
+    scope: invoke
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for conversation file deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-dynamic-agents-conversations-id-clear
+    surface: ui_bff
+    method: POST
+    path: /api/dynamic-agents/conversations/[id]/clear
+    resource: dynamic_agent
+    scope: invoke
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for checkpoint clear proxy
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-dynamic-agents-assistant-suggest
+    surface: ui_bff
+    method: POST
+    path: /api/dynamic-agents/assistant/suggest
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for assistant suggestions
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-models
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/models
+    resource: dynamic_agent
+    scope: view
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for model listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-dynamic-agents-chat-restart-runtime
+    surface: ui_bff
+    method: POST
+    path: /api/dynamic-agents/chat/restart-runtime
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for runtime restart
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-available
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/available
+    resource: dynamic_agent
+    scope: view
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for available agent listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-teams
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/teams
+    resource: dynamic_agent
+    scope: view
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for team selector listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-available-subagents
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/available-subagents
+    resource: dynamic_agent
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for available subagent listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-dynamic-agents-agents-id
+    surface: ui_bff
+    method: GET
+    path: /api/dynamic-agents/agents/[id]
+    resource: dynamic_agent
+    scope: view
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for dynamic agent detail
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-mcp-servers
+    surface: ui_bff
+    method: GET
+    path: /api/mcp-servers
+    resource: mcp_server
+    scope: read
+    migration_status: migrated
+    notes: dual-auth mcp_server#read PDP gate for MCP server listing
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 200
+      carol_kb_ingestor:
+        status: 200
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-mcp-servers
+    surface: ui_bff
+    method: POST
+    path: /api/mcp-servers
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-mcp-servers
+    surface: ui_bff
+    method: PUT
+    path: /api/mcp-servers
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-mcp-servers
+    surface: ui_bff
+    method: DELETE
+    path: /api/mcp-servers
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-mcp-servers-probe
+    surface: ui_bff
+    method: POST
+    path: /api/mcp-servers/probe
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server probe
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-mcp-servers-agentgateway-discover
+    surface: ui_bff
+    method: GET
+    path: /api/mcp-servers/agentgateway/discover
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for AgentGateway MCP target discovery
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-mcp-servers-agentgateway-sync
+    surface: ui_bff
+    method: POST
+    path: /api/mcp-servers/agentgateway/sync
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for selected AgentGateway MCP server onboarding
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+# <<< end generated
+  # >>> BEGIN auto-generated by scripts/append-pending-rbac-entries.py
+  - id: ui-bff-post-api-agent-skills-import-github
+    surface: ui_bff
+    method: POST
+    path: /api/agent-skills/import-github
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for legacy GitHub skill import
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-llm-models
+    surface: ui_bff
+    method: POST
+    path: /api/llm-models
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for LLM provider creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-llm-models
+    surface: ui_bff
+    method: PUT
+    path: /api/llm-models
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for LLM provider updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-llm-models
+    surface: ui_bff
+    method: DELETE
+    path: /api/llm-models
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for LLM provider deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-policies
+    surface: ui_bff
+    method: POST
+    path: /api/policies
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for policy reset
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-policies
+    surface: ui_bff
+    method: PUT
+    path: /api/policies
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for policy updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-policies
+    surface: ui_bff
+    method: DELETE
+    path: /api/policies
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for policy delete/reset operation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-skill-hubs
+    surface: ui_bff
+    method: POST
+    path: /api/skill-hubs
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub creation
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-patch-api-skill-hubs-id
+    surface: ui_bff
+    method: PATCH
+    path: /api/skill-hubs/[id]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub updates
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-delete-api-skill-hubs-id
+    surface: ui_bff
+    method: DELETE
+    path: /api/skill-hubs/[id]
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub deletion
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-skill-hubs-crawl
+    surface: ui_bff
+    method: POST
+    path: /api/skill-hubs/crawl
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub crawl preview
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-v1-chat-stream-cancel-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/stream/cancel
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents cancel proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-get-api-admin-platform-config-openfga-system-config-read
+    surface: ui_bff
+    method: GET
+    path: /api/admin/platform-config
+    resource: system_config
+    scope: read
+    migration_status: migrated
+    notes: Object-level system_config:platform_settings read gate for platform settings.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-patch-api-admin-platform-config-openfga-system-config-manage
+    surface: ui_bff
+    method: PATCH
+    path: /api/admin/platform-config
+    resource: system_config
+    scope: admin
+    migration_status: migrated
+    notes: Object-level system_config:platform_settings manage gate for platform settings updates.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-get-api-mcp-servers-agentgateway-discover-openfga
+    surface: ui_bff
+    method: GET
+    path: /api/mcp-servers/agentgateway/discover
+    resource: mcp_server
+    scope: view
+    migration_status: migrated
+    notes: AgentGateway discovery is a read/discover operation on mcp_server:agentgateway.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-mcp-servers-agentgateway-sync-openfga
+    surface: ui_bff
+    method: POST
+    path: /api/mcp-servers/agentgateway/sync
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: AgentGateway sync/onboarding requires manage on mcp_server:agentgateway.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  # Spec 2026-05-18 Webex bot RBAC parity: admin Webex space management uses
+  # the same admin_ui gates as Slack, while bot dispatch uses OpenFGA space and
+  # user/team resource relationships.
+  - id: ui-bff-get-api-admin-webex-spaces
+    surface: ui_bff
+    method: GET
+    path: /api/admin/webex/spaces
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Webex Spaces admin list requires admin_ui#view before exposing space/team mappings.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-webex-space-resources
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/webex/spaces/[workspaceId]/[spaceId]/resources
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex space grant replacement requires admin_ui#admin and writes webex_space OpenFGA tuples.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-webex-space-onboard
+    surface: ui_bff
+    method: POST
+    path: /api/admin/webex/spaces/onboard
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex one-shot onboarding requires admin_ui#admin before converging team mapping, Keycloak team scope, OpenFGA grants, route metadata, and bot route-cache reload.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-webex-space-routes
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/webex/spaces/[workspaceId]/[spaceId]/routes
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex route metadata updates require admin_ui#admin and reconcile route-owned OpenFGA agent grants.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-webex-runtime-reload
+    surface: ui_bff
+    method: POST
+    path: /api/admin/webex/runtime/reload
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex bot runtime reload proxies through the BFF after admin_ui#admin and bot-admin audience token exchange.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: webex-bot-message-openfga-space-agent-use
+    surface: webex_bot
+    method: rpc
+    path: webex.message.dispatch
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Webex bot dispatch requires linked webex_user_id, active space-team mapping, webex_space route tuple, and user/team can_use on the selected agent.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  # <<< END auto-generated by scripts/append-pending-rbac-entries.py

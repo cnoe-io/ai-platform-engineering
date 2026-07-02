@@ -47,6 +47,7 @@ afterEach(() => {
   delete process.env.OIDC_CLIENT_ID;
   delete process.env.OIDC_ACCEPTED_AUDIENCES;
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('../jwt-validation');
   mod._resetJWKSCache();
 });
@@ -56,6 +57,7 @@ describe('validateBearerJWT audience handling', () => {
     process.env.OIDC_ISSUER = 'https://idp.example.com';
     process.env.OIDC_CLIENT_ID = 'my-client-id';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 
@@ -67,6 +69,7 @@ describe('validateBearerJWT audience handling', () => {
     process.env.OIDC_CLIENT_ID = 'my-client-id';
     process.env.OIDC_ACCEPTED_AUDIENCES = 'https://my-api.example.com';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 
@@ -78,6 +81,7 @@ describe('validateBearerJWT audience handling', () => {
     process.env.OIDC_CLIENT_ID = 'my-client-id';
     process.env.OIDC_ACCEPTED_AUDIENCES = 'https://api-a.example.com, https://api-b.example.com';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 
@@ -93,6 +97,7 @@ describe('validateBearerJWT audience handling', () => {
     process.env.OIDC_CLIENT_ID = 'my-client-id';
     process.env.OIDC_ACCEPTED_AUDIENCES = 'my-client-id, https://my-api.example.com';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 
@@ -102,6 +107,7 @@ describe('validateBearerJWT audience handling', () => {
   it('passes undefined audience when neither OIDC_CLIENT_ID nor OIDC_ACCEPTED_AUDIENCES is set', async () => {
     process.env.OIDC_ISSUER = 'https://idp.example.com';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 
@@ -112,6 +118,7 @@ describe('validateBearerJWT audience handling', () => {
     process.env.OIDC_ISSUER = 'https://idp.example.com';
     process.env.OIDC_ACCEPTED_AUDIENCES = ' https://api.example.com , , ';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 
@@ -122,6 +129,7 @@ describe('validateBearerJWT audience handling', () => {
     process.env.OIDC_ISSUER = 'https://idp.example.com';
     process.env.OIDC_CLIENT_ID = 'my-client-id';
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { validateBearerJWT } = require('../jwt-validation');
     await validateBearerJWT('fake-token');
 

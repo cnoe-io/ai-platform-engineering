@@ -1,0 +1,141 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cnoe-io/caipe-webex-bot
+  tag: ""
+  pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+# -- Flat key-value map of environment variables (non-sensitive).
+# Injected via ConfigMap envFrom. Sensitive values belong in existingSecret
+# or externalSecrets (WEBEX_INTEGRATION_BOT_ACCESS_TOKEN, KEYCLOAK_* secrets, WEBEX_LINK_HMAC_SECRET, …).
+config:
+  APP_NAME: "CAIPE"
+  CAIPE_API_URL: ""
+  MONGODB_DATABASE: "caipe"
+  WEBEX_WORKSPACE_ALIAS: "CAIPE-WEBEX"
+  WEBEX_AGENT_ROUTES_MODE: "db_prefer"
+  WEBEX_THREAD_CONTEXT_ENABLED: "true"
+  WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
+  WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
+  WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
+  WEBEX_DEFAULT_TEAM_SLUG: ""
+  WEBEX_DEFAULT_AGENT_ID: ""
+  WEBEX_ADMIN_API_ENABLED: "false"
+  WEBEX_ADMIN_API_HOST: "0.0.0.0"
+  WEBEX_ADMIN_API_PORT: "3002"
+  WEBEX_ADMIN_JWT_ISSUER: ""
+  WEBEX_ADMIN_JWKS_URL: ""
+  WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
+  WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
+  CAIPE_PLATFORM_AUDIENCE: "caipe-platform"
+  KEYCLOAK_URL: ""
+  KEYCLOAK_REALM: "caipe"
+  OPENFGA_HTTP: ""
+  OPENFGA_STORE_NAME: "caipe-openfga"
+
+# -- OBO client secret for caipe-webex-bot (Keycloak-managed; prefer keycloakBot below).
+# Deprecated alias: use keycloakBot.clientSecretFromSecret (same Secret/key as Keycloak chart).
+oauth2:
+  clientSecretFromSecret:
+    name: ""
+    key: "KC_WEBEX_BOT_CLIENT_SECRET"
+
+# -- Single source of truth: Keycloak chart Secret {{release}}-keycloak-webex-bot (KC_WEBEX_BOT_CLIENT_SECRET).
+keycloakBot:
+  clientSecretFromSecret:
+    name: ""
+    key: "KC_WEBEX_BOT_CLIENT_SECRET"
+
+# -- Keycloak Admin API credentials for webex_user_id lookups (typically caipe-platform).
+keycloakAdmin:
+  clientId: ""
+  clientSecretFromSecret:
+    name: ""
+    key: "KC_PLATFORM_CLIENT_SECRET"
+
+existingSecret: "webex-bot-secrets"
+
+externalSecrets:
+  enabled: false
+  apiVersion: "v1beta1"
+  secretStoreRef:
+    name: "vault"
+    kind: "ClusterSecretStore"
+  data: []
+    # Example placeholders — store values in your secret backend only.
+    # - secretKey: WEBEX_INTEGRATION_BOT_ACCESS_TOKEN
+    #   remoteRef:
+    #     key: prod/webex-bot
+    #     property: bot_token
+    # - secretKey: WEBEX_WEBHOOK_SECRET
+    #   remoteRef:
+    #     key: prod/webex-bot
+    #     property: webhook_secret
+    # - secretKey: WEBEX_LINK_HMAC_SECRET
+    #   remoteRef:
+    #     key: prod/webex-bot
+    #     property: link_hmac_secret
+    # - secretKey: KEYCLOAK_WEBEX_BOT_CLIENT_SECRET
+    #   remoteRef:
+    #     key: prod/webex-bot
+    #     property: keycloak_webex_bot_client_secret
+    # - secretKey: KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET
+    #   remoteRef:
+    #     key: prod/webex-bot
+    #     property: keycloak_webex_bot_admin_client_secret
+
+botConfig: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+volumes: []
+volumeMounts: []
+
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}

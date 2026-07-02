@@ -23,12 +23,16 @@ import { ObjectId } from 'mongodb';
 // ============================================================================
 
 const mockGetServerSession = jest.fn();
+const mockRequireConversationResourcePermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 const mockCollections: Record<string, any> = {};
@@ -42,6 +46,19 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
+}));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
+jest.mock('@/lib/rbac/conversation-implicit-authz', () => ({
+  requireConversationResourcePermission: (...args: unknown[]) =>
+    mockRequireConversationResourcePermission(...args),
 }));
 
 // ============================================================================
@@ -67,6 +84,7 @@ function createMockCollection() {
       modifiedCount: 0,
       acknowledged: true,
     }),
+    insertOne: jest.fn().mockResolvedValue({ acknowledged: true, insertedId: new ObjectId() }),
     countDocuments: jest.fn().mockResolvedValue(0),
     deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
   };
@@ -80,6 +98,8 @@ function authenticatedSession(email = 'user@example.com') {
   return {
     user: { email, name: 'Test User' },
     role: 'user',
+    accessToken: 'test-access-token',
+    sub: 'test-sub',
   };
 }
 
@@ -87,6 +107,10 @@ const testConversationId = '12345678-1234-1234-1234-123456789012';
 
 function resetMocks() {
   mockGetServerSession.mockReset();
+  mockRequireConversationResourcePermission.mockReset();
+  mockRequireConversationResourcePermission.mockResolvedValue(undefined);
+  mockCheckOpenFgaTuple.mockReset();
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockGetCollection.mockClear();
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
@@ -153,10 +177,64 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
 
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
+    expect(mockRequireConversationResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 'test-sub',
+        user: expect.objectContaining({ email: 'user@example.com' }),
+      }),
+      'user@example.com',
+      expect.objectContaining({ _id: testConversationId, owner_id: 'user@example.com' }),
+      'write'
+    );
 
     // Verify $setOnInsert includes owner_id (upsert-based API)
     const updateDoc = msgCol.updateOne.mock.calls[0][1];
     expect(updateDoc.$setOnInsert.owner_id).toBe('user@example.com');
+  });
+
+  it('does not write message rows when conversation write access is denied', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+    mockRequireConversationResourcePermission.mockRejectedValue(
+      Object.assign(new Error('conversation denied'), {
+        statusCode: 403,
+        code: 'conversation#write',
+      })
+    );
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+      owner_subject: 'test-sub',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'msg-denied',
+        role: 'user',
+        content: 'Test message',
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body).toMatchObject({
+      success: false,
+      error: 'conversation denied',
+      code: 'conversation#write',
+    });
+    expect(msgCol.updateOne).not.toHaveBeenCalled();
   });
 
   it('denormalizes conversation owner even when different from requester', async () => {
@@ -386,7 +464,7 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
           latency_ms: 800,
           agent_name: 'aws',
         },
-        a2a_events: [
+        stream_events: [
           { id: 'e1', type: 'tool_start', toolName: 'cost_explorer' },
         ],
       }),
@@ -397,11 +475,9 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
 
     const updateDoc = msgCol.updateOne.mock.calls[0][1];
     expect(updateDoc.$setOnInsert.owner_id).toBe('user@example.com');
-    expect(updateDoc.$set.metadata.model).toBe('gpt-4o');
-    expect(updateDoc.$set.metadata.tokens_used).toBe(350);
     expect(updateDoc.$set.metadata.latency_ms).toBe(800);
     expect(updateDoc.$set.metadata.agent_name).toBe('aws');
     expect(updateDoc.$set.metadata.is_final).toBe(true);
-    expect(updateDoc.$set.a2a_events).toHaveLength(1);
+    expect(updateDoc.$set.stream_events).toHaveLength(1);
   });
 });

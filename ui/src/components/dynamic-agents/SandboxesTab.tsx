@@ -1,22 +1,22 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
-  Box,
-  Plus,
-  Trash2,
-  Loader2,
-  Globe,
-  Users,
-  Lock,
-  RefreshCw,
-  Play,
-  Pause,
-  Terminal,
+Box,
+Globe,
+Loader2,
+Lock,
+Pause,
+Play,
+Plus,
+RefreshCw,
+Terminal,
+Trash2,
+Users,
 } from "lucide-react";
+import React from "react";
 
 interface Sandbox {
   _id: string;

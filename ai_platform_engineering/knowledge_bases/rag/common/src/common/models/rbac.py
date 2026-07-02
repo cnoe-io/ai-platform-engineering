@@ -1,9 +1,7 @@
-"""
-Shared RBAC models for the RAG system.
-"""
-
-from typing import List
-from pydantic import BaseModel
+"""Shared RBAC models for the RAG system."""
+from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 
 class Role:
@@ -11,23 +9,26 @@ class Role:
   Role definitions with hierarchical permissions.
 
   Hierarchy (higher level inherits lower level permissions):
-  0. ANONYMOUS - No access (unauthenticated users)
   1. READONLY - Read-only access (GET, query, explore)
   2. INGESTONLY - Read + ingest data (POST ingest, manage jobs)
   3. ADMIN - Full access including deletions and bulk operations
   """
 
-  ANONYMOUS = "anonymous"
   READONLY = "readonly"
   INGESTONLY = "ingestonly"
   ADMIN = "admin"
 
 
 class UserContext(BaseModel):
-  """User authentication and authorization context"""
+  """Authenticated identity context.
 
+  Human resource authorization is resolved through OpenFGA using ``subject``.
+  Static IdP groups, AD groups, and Keycloak realm roles are intentionally not
+  carried in this model.
+  """
+
+  subject: Optional[str] = None
   email: str
-  groups: List[str]
   role: str
   is_authenticated: bool
 
@@ -41,6 +42,24 @@ class UserInfoResponse(BaseModel):
   email: str
   role: str
   is_authenticated: bool
-  groups: List[str]
   permissions: List[str]  # List of permissions: ["read", "ingest", "delete"]
-  in_trusted_network: bool
+
+
+class TeamRagToolConfig(BaseModel):
+    """
+    Team-scoped RAG tool configuration stored in MongoDB.
+
+    Validation rules:
+    - ``datasource_ids`` must be a subset of the owning team's
+      ``allowed_datasource_ids`` (enforced on create/update).
+    - ``team_id`` is immutable after creation.
+    """
+    tool_id: str
+    tenant_id: str
+    team_id: str
+    name: str
+    datasource_ids: List[str] = Field(default_factory=list)
+    created_by: str
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    description: Optional[str] = None
+    status: str = "active"

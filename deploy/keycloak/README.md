@@ -1,131 +1,65 @@
 # Keycloak OAuth Server Setup
 
-This guide explains how to set up and configure Keycloak as an OAuth2 server for CAIPE A2A authentication.
+This directory starts a local Keycloak server for CAIPE development. The
+canonical realm export and init scripts live under the Helm chart; this
+directory keeps Docker Compose-friendly symlinks to those files.
+
+## Init Scripts
+
+`init-idp.sh` and `init-token-exchange.sh` are symlinks into:
+
+```text
+charts/ai-platform-engineering/charts/keycloak/scripts/
+```
+
+- Edit the canonical chart files only.
+- Keep scripts busybox-`sh`/`sed` portable.
+- Docker Compose resolves the host symlink before mounting.
+- Helm reads the chart-local files through `.Files.Get`.
+
+## Realm Import
+
+Docker Compose mounts:
+
+```text
+charts/ai-platform-engineering/charts/keycloak/realm-config.json
+```
+
+Do not create `deploy/keycloak/realm-config.json`; a missing bind-mount target
+can become a directory, which causes Keycloak to start with only the `master`
+realm.
 
 ## Quick Start
 
-1. **Start Keycloak Server**
-   ```bash
-   cd deploy/keycloak
-   docker compose up
-   ```
+```bash
+cd deploy/keycloak
+docker compose up
+```
 
-2. **Access Admin Console**
-   - URL: http://localhost:7080
-   - Username: `admin`
-   - Password: `admin`
+Admin console:
 
-3. **Configure Realm**
-   - The `caipe` realm is automatically imported from `caipe-realm.json`
-   - Switch to the `caipe` realm in the admin console
+- URL: http://localhost:7080
+- Username: `admin`
+- Password: `admin`
 
-## Client Configuration
+Switch to the `caipe` realm after login.
 
-### Create OAuth2 Client
+## Local Client
 
-1. In the Keycloak admin console, navigate to the `caipe` realm
-2. Go to **Clients** → **Create**
-3. Configure the client:
-   - **Client ID**: `caipe-cli`
-   - **Client Protocol**: `openid-connect`
-   - **Access Type**: `confidential`
-   - **Standard Flow Enabled**: `ON`
-   - **Direct Access Grants Enabled**: `ON`
-   - **Service Accounts Enabled**: `ON`
+Create a local confidential client when you need CLI or service-token testing:
 
-4. Save the client and go to the **Credentials** tab
-5. Copy the **Secret** value for use in your environment
+1. Open **Clients** -> **Create** in the `caipe` realm.
+2. Set **Client ID** to `caipe-cli`.
+3. Enable the standard flow, direct access grants, and service accounts.
+4. Save and copy the client secret from the **Credentials** tab.
 
-### Client Scopes
-
-The following scopes are available in the `caipe` realm:
-- `profile` - User profile information
-- `email` - User email address
-- `caipe` - CAIPE-specific audience claim
-
-## Environment Configuration
-
-Configure your application with these environment variables:
+Useful local values:
 
 ```bash
-# Enable OAuth2 authentication
-A2A_AUTH_OAUTH2=true
-
-# Keycloak OAuth2 endpoints
 JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs
-AUDIENCE=caipe
+AUDIENCE=caipe-platform
 ISSUER=http://localhost:7080/realms/caipe
 OAUTH2_CLIENT_ID=caipe-cli
-OAUTH2_CLIENT_SECRET=<YOUR_CLIENT_SECRET>
-
-# Token generation
+OAUTH2_CLIENT_SECRET=<client-secret>
 TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
 ```
-
-## Generate JWT Tokens
-
-Use the provided utility to generate JWT tokens:
-
-```bash
-export OAUTH2_CLIENT_ID=caipe-cli
-export OAUTH2_CLIENT_SECRET=<YOUR_CLIENT_SECRET>
-export TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
-
-python ai_platform_engineering/utils/oauth/get_oauth_jwt_token.py
-```
-
-## Token Validation
-
-The A2A middleware validates JWT tokens using:
-- **Signature verification** via JWKS endpoint
-- **Audience validation** (must match `caipe`)
-- **Issuer validation** (must match Keycloak realm)
-- **Expiration validation** (exp and nbf claims)
-- **Client ID validation** (optional cid claim)
-
-## Realm Configuration
-
-The `caipe-realm.json` file includes:
-- Pre-configured realm with `caipe` as the realm name
-- Default user `caipe` with password `caipe`
-- Client scopes for profile, email, and CAIPE audience
-- Security policies and authentication flows
-
-## Production Considerations
-
-For production deployments:
-1. Change default passwords
-2. Use HTTPS endpoints
-3. Configure proper CORS settings
-4. Set up proper SSL certificates
-5. Configure database persistence
-6. Set up proper logging and monitoring
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Token validation fails**
-   - Check JWKS_URI is accessible
-   - Verify AUDIENCE matches realm configuration
-   - Ensure ISSUER matches Keycloak realm URL
-
-2. **Client authentication fails**
-   - Verify OAUTH2_CLIENT_ID exists in Keycloak
-   - Check OAUTH2_CLIENT_SECRET is correct
-   - Ensure client has proper permissions
-
-3. **Token generation fails**
-   - Verify TOKEN_ENDPOINT is correct
-   - Check client credentials are valid
-   - Ensure client has service account enabled
-
-### Debug Mode
-
-Enable debug logging to troubleshoot issues:
-
-```bash
-export DEBUG_UNMASK_AUTH_HEADER=true
-```
-
-This will show unmasked authorization headers in the logs (use only for debugging).

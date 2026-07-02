@@ -1,40 +1,39 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Clock,
-  CheckCircle,
-  XCircle,
-  Ban,
-  Loader2,
-  Play,
-  Trash2,
-  Calendar,
-  Timer,
-  AlertCircle,
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  RefreshCw,
-  X,
-  Check,
-  Maximize2,
-  Copy,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
+import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
 import { useWorkflowRunStore } from "@/store/workflow-run-store";
-import { useToast } from "@/components/ui/toast";
 import type { WorkflowRun } from "@/types/workflow-run";
 import { formatDistanceToNow } from "date-fns";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+Ban,
+Calendar,
+Check,
+CheckCircle,
+ChevronDown,
+Clock,
+Copy,
+Eye,
+Loader2,
+Maximize2,
+Play,
+RefreshCw,
+Timer,
+Trash2,
+X,
+XCircle
+} from "lucide-react";
+import { useEffect,useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { getMarkdownComponents } from "@/lib/markdown-components";
 
 interface WorkflowHistoryViewProps {
   onReRun?: (run: WorkflowRun) => void;
@@ -262,9 +261,6 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
                 {/* Workflow Name */}
                 <div className="pr-24 mb-2">
                   <h3 className="font-semibold text-base">{run.workflow_name}</h3>
-                  {run.workflow_category && (
-                    <p className="text-xs text-muted-foreground">{run.workflow_category}</p>
-                  )}
                 </div>
 
                 {/* Timestamps */}

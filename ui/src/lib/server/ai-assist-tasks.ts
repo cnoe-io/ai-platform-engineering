@@ -58,6 +58,12 @@ export interface AiAssistTaskDef {
   label: string;
   /** Locked system prompt for the task. */
   systemPrompt: string;
+  /**
+   * AI Review target whose rubric grades this task's output. When set, the
+   * route appends the live rubric criteria to `systemPrompt` so generated
+   * content satisfies the grader on the first attempt.
+   */
+  reviewTarget?: string;
   /** Build the user message sent to the model. */
   buildUserMessage: (ctx: AiAssistContext) => string;
   /**
@@ -80,7 +86,7 @@ export interface AiAssistTaskDef {
  *     (`aws-bedrock`, `openai`, `azure-openai`, `anthropic-claude`,
  *     `google-gemini`, `gcp-vertexai`, `groq`).
  *   - For Bedrock, `id` is the **raw Bedrock modelId** (e.g.
- *     `global.anthropic.claude-sonnet-4-6`) — NOT a LiteLLM-style
+ *     `global.anthropic.claude-haiku-4-5-20251001-v1:0`) — NOT a LiteLLM-style
  *     `bedrock/...` prefix. cnoe-agent-utils passes it straight through
  *     to `client.converse(modelId=...)`, and Bedrock rejects the prefix
  *     with `ValidationException: The provided model identifier is invalid`.
@@ -91,7 +97,7 @@ export interface AiAssistTaskDef {
  * vars (or seed `llm_models` in MongoDB) when a different provider is
  * available — the route prefers Mongo first, then env, then this fallback.
  */
-const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-4-6";
+const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 const GLOBAL_DEFAULT_PROVIDER = "aws-bedrock";
 
 /**
@@ -195,6 +201,7 @@ Required structure:
 - May use {{variable_name}} placeholders for user-provided values
 
 Do not wrap the entire response in markdown code fences.`,
+  reviewTarget: "skill-md",
   buildUserMessage: (ctx) => {
     const lines: string[] = [];
     if (ctx.name?.trim()) lines.push(`Skill name: ${ctx.name.trim()}`);
@@ -261,6 +268,7 @@ You write system prompts for autonomous LLM agents. A good system prompt:
 - Calls out tool/action constraints when known
 - Avoids second-person preamble like "You are an AI..." — go straight to role
 ${PLAIN_TEXT_INSTRUCTION}`,
+  reviewTarget: "agent-system-prompt",
   buildUserMessage: (ctx) => {
     const lines: string[] = [];
     if (ctx.name?.trim()) lines.push(`Agent name: ${ctx.name.trim()}`);

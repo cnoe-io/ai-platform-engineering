@@ -16,9 +16,9 @@
  */
 
 import type {
-  CriterionVerdict,
-  GradeThresholds,
-  ReviewGrade,
+CriterionVerdict,
+GradeThresholds,
+ReviewGrade,
 } from "@/types/ai-review";
 
 export interface ScoreAndGrade {
@@ -26,6 +26,25 @@ export interface ScoreAndGrade {
   grade: ReviewGrade;
   passed_count: number;
   total: number;
+}
+
+/**
+ * Bucket a score in [0, 1] into its letter grade. Shared so display, grading,
+ * and the blocking-gate message all map scores the same way.
+ */
+export function scoreToGrade(
+  score: number,
+  thresholds: GradeThresholds,
+): ReviewGrade {
+  return score >= thresholds.A
+    ? "A"
+    : score >= thresholds.B
+      ? "B"
+      : score >= thresholds.C
+        ? "C"
+        : score >= thresholds.D
+          ? "D"
+          : "F";
 }
 
 export function computeScoreAndGrade(
@@ -50,16 +69,7 @@ export function computeScoreAndGrade(
   // and produces a misleading F grade in the UI.
   const score = weightSum === 0 ? 1 : passWeight / weightSum;
 
-  const grade: ReviewGrade =
-    score >= thresholds.A
-      ? "A"
-      : score >= thresholds.B
-        ? "B"
-        : score >= thresholds.C
-          ? "C"
-          : score >= thresholds.D
-            ? "D"
-            : "F";
+  const grade = scoreToGrade(score, thresholds);
 
   return {
     score,

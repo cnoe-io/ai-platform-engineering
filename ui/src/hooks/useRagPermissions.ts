@@ -1,73 +1,38 @@
-/**
- * useRagPermissions Hook
- * 
- * Provides user's RAG permissions and loading state.
- * Automatically fetches on mount and caches the result.
- * 
- * @example
- * const { userInfo, permissions, hasPermission } = useRagPermissions();
- * <button disabled={!hasPermission(Permission.DELETE)}>Delete</button>
- */
+import type { PermissionType,UserInfo } from '@/lib/rag-api';
+import { Permission } from '@/lib/rag-api';
+import { useKbTabGates } from './use-kb-tab-gates';
 
-import { useEffect, useState } from 'react';
-import { getUserInfo, hasPermission as checkPermission, Permission, type UserInfo, type PermissionType } from '@/lib/rag-api';
-
-export { Permission } from '@/lib/rag-api';
+export { Permission };
 
 export function useRagPermissions() {
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const { gates, loading, error, orgAdminBypass } = useKbTabGates();
+  // Org admins keep the full grant. For everyone else, derive permissions from
+  // the per-relation KB gates so team-scoped ingestors get INGEST without being
+  // org admins: READ when they can read any KB, INGEST when they hold an
+  // `ingestor`/`can_manage` grant on any KB (directly or via team membership).
+  // DELETE remains org-admin-only (no team-scoped delete relation today).
+  const permissions: PermissionType[] = orgAdminBypass
+    ? [Permission.READ, Permission.INGEST, Permission.DELETE]
+    : [
+        ...(gates.has_any_kb ? [Permission.READ] : []),
+        ...(gates.can_ingest ? [Permission.INGEST] : []),
+      ];
+  const userInfo: UserInfo | null = loading
+    ? null
+    : {
+        email: 'authenticated-user',
+        role: orgAdminBypass ? 'ADMIN' : 'OPENFGA',
+        is_authenticated: true,
+        permissions,
+      };
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function fetchUserInfo() {
-      console.log('[useRagPermissions] Fetching RAG user info...');
-      try {
-        const info = await getUserInfo();
-        console.log('[useRagPermissions] RAG user info received:', {
-          email: info.email,
-          role: info.role,
-          is_authenticated: info.is_authenticated,
-          permissions: info.permissions,
-          groups: info.groups?.length ?? 0,
-          in_trusted_network: info.in_trusted_network
-        });
-        if (mounted) {
-          setUserInfo(info);
-          setError(null);
-        }
-      } catch (err) {
-        console.error('[useRagPermissions] Failed to fetch RAG user info:', err);
-        if (mounted) {
-          setError(err as Error);
-          setUserInfo(null);
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    fetchUserInfo();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // Helper function bound to current userInfo
-  const hasPermission = (permission: PermissionType) => {
-    return checkPermission(userInfo, permission);
-  };
+  const hasPermission = (permission: PermissionType) => permissions.includes(permission);
 
   return {
     userInfo,
-    permissions: userInfo?.permissions ?? [],
+    permissions,
     hasPermission,
-    isLoading,
-    error,
+    isLoading: loading,
+    error: error ? new Error(error) : null,
   };
 }

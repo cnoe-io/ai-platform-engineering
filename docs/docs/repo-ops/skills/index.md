@@ -40,12 +40,11 @@ Audit and sync all documentation surfaces after a release or feature addition.
 |---|---|---|
 | 1 | Release blog posts | A git tag has no matching `docs/releases/` file |
 | 2 | Homepage version string | Helm `--version` in `index.tsx` is behind latest tag |
-| 3 | `lastVersion` config | `docusaurus.config.ts` points at wrong version |
-| 4 | Version snapshot | No `versioned_docs/version-X.Y.Z/` for a tag |
-| 5 | Features page tiles | New feature docs without a tile in `features.tsx` |
-| 6 | Agent docs | Agent directory with no `docs/docs/agents/<name>.md` |
-| 7 | Sidebar | Doc directory not in `sidebars.ts` |
-| 8 | Navbar label | Version label behind latest tag |
+| 3 | Published versions | A released tag is missing from `docs/published-versions.json` |
+| 4 | Features page tiles | New feature docs without a tile in `features.tsx` |
+| 5 | MCP docs | Packaged MCP integration without current docs |
+| 6 | Sidebar | Doc directory not in `sidebars.ts` |
+| 7 | Navbar label | Version label behind latest tag |
 
 → [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/update-docs/SKILL.md)
 
@@ -58,26 +57,6 @@ Run the full end-to-end integration test suite against a running Docker Compose 
 **Use when:** validating a feature branch before raising a PR, or after a major refactor.
 
 → [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/integration-testing/SKILL.md)
-
----
-
-### 📡 `/streaming-testing`
-
-Compare A2A streaming behaviour across two supervisor versions side-by-side.
-
-**Use when:** validating streaming correctness after changes to the supervisor or event pipeline.
-
-→ [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/streaming-testing/SKILL.md)
-
----
-
-### 💾 `/persistence`
-
-Test and manage LangGraph persistence backends (Redis, Postgres, MongoDB).
-
-**Use when:** switching persistence backends, validating checkpoint isolation, or debugging cross-agent memory issues.
-
-→ [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/persistence/)
 
 ---
 

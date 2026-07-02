@@ -17,6 +17,7 @@ import {
   getJobStatus,
   getIngestors,
   ingestUrl,
+  RagApiError,
   type UserInfo,
 } from '../rag-api';
 
@@ -41,8 +42,6 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [],
-      in_trusted_network: false,
     };
     expect(hasPermission(userInfo, Permission.READ)).toBe(false);
   });
@@ -52,9 +51,7 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [] as string[],
       permissions: { read: true } as unknown as typeof Permission.READ[],
-      in_trusted_network: false,
     } as UserInfo;
     expect(hasPermission(userInfo, Permission.READ)).toBe(false);
   });
@@ -64,9 +61,7 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'admin',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ, Permission.INGEST, Permission.DELETE],
-      in_trusted_network: true,
     };
     expect(hasPermission(userInfo, Permission.READ)).toBe(true);
     expect(hasPermission(userInfo, Permission.INGEST)).toBe(true);
@@ -78,9 +73,7 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ],
-      in_trusted_network: false,
     };
     expect(hasPermission(userInfo, Permission.READ)).toBe(true);
     expect(hasPermission(userInfo, Permission.INGEST)).toBe(false);
@@ -92,9 +85,7 @@ describe('hasPermission', () => {
       email: 'reader@example.com',
       role: 'viewer',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ],
-      in_trusted_network: false,
     };
     expect(hasPermission(readOnlyUser, Permission.READ)).toBe(true);
     expect(hasPermission(readOnlyUser, Permission.INGEST)).toBe(false);
@@ -125,9 +116,7 @@ describe('getUserInfo', () => {
       email: 'user@example.com',
       role: 'admin',
       is_authenticated: true,
-      groups: ['admins'],
       permissions: [Permission.READ, Permission.INGEST],
-      in_trusted_network: true,
     };
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
@@ -147,9 +136,7 @@ describe('getUserInfo', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ],
-      in_trusted_network: false,
     };
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
@@ -182,9 +169,7 @@ describe('getUserInfo', () => {
           email: 'user@example.com',
           role: 'admin',
           is_authenticated: true,
-          groups: [],
           permissions: { can_read: true, can_ingest: true, can_delete: false },
-          in_trusted_network: true,
         }),
     });
 
@@ -446,5 +431,60 @@ describe('ingestUrl', () => {
         }),
       })
     );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// RagApiError — structured error extraction
+// ────────────────────────────────────────────────────────────────
+
+describe('RagApiError', () => {
+  it('extracts code and serverMessage from a JSON error body', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: () =>
+        Promise.resolve({
+          code: 'TRANSFER_NOT_MEMBER_UNCONFIRMED',
+          error: 'You are not a member of the destination team.',
+        }),
+    });
+
+    expect.assertions(5);
+    try {
+      await getDataSources();
+    } catch (err) {
+      expect(err).toBeInstanceOf(RagApiError);
+      const ragErr = err as RagApiError;
+      // Legacy message shape preserved for backward compatibility.
+      expect(ragErr.message).toBe('API Error: 409 Conflict');
+      expect(ragErr.status).toBe(409);
+      expect(ragErr.code).toBe('TRANSFER_NOT_MEMBER_UNCONFIRMED');
+      expect(ragErr.serverMessage).toBe(
+        'You are not a member of the destination team.',
+      );
+    }
+  });
+
+  it('falls back to status text when the error body is not JSON', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      // No json() that resolves to an object — simulate empty/non-JSON body.
+      json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+    });
+
+    expect.assertions(4);
+    try {
+      await getDataSources();
+    } catch (err) {
+      expect(err).toBeInstanceOf(RagApiError);
+      const ragErr = err as RagApiError;
+      expect(ragErr.message).toBe('API Error: 500 Internal Server Error');
+      expect(ragErr.code).toBeUndefined();
+      expect(ragErr.serverMessage).toBeUndefined();
+    }
   });
 });

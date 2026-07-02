@@ -1,14 +1,12 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
 import {
-  MessageSquare,
-  TrendingUp,
-  Bot,
-  ArrowRight,
+ArrowRight,
+Bot,
+MessageSquare,
+TrendingUp,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 interface InsightsWidgetProps {
   stats: {

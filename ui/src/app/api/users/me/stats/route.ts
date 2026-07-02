@@ -1,13 +1,13 @@
 // GET /api/users/me/stats - Get user usage statistics
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, Message, UserStats } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import type { Conversation,Message,UserStats } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/users/me/stats
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -31,21 +31,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const totalMessages = await messages.countDocuments({
       conversation_id: { $in: conversationIds },
     });
-
-    // Calculate total tokens
-    const messageStats = await messages
-      .aggregate([
-        { $match: { conversation_id: { $in: conversationIds } } },
-        {
-          $group: {
-            _id: null,
-            total_tokens: { $sum: '$metadata.tokens_used' },
-          },
-        },
-      ])
-      .toArray();
-
-    const totalTokens = messageStats[0]?.total_tokens || 0;
 
     // This week stats
     const oneWeekAgo = new Date();
@@ -90,7 +75,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const stats: UserStats = {
       total_conversations: totalConversations,
       total_messages: totalMessages,
-      total_tokens_used: totalTokens,
       conversations_this_week: conversationsThisWeek,
       messages_this_week: messagesThisWeek,
       favorite_agents: favoriteAgents,

@@ -1,0 +1,61 @@
+{{- if .Values.init.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openfga.fullname" . }}-init
+  labels:
+    {{- include "openfga.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.init.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "openfga.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: openfga-init
+          image: "{{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}"
+          imagePullPolicy: {{ .Values.init.image.pullPolicy }}
+          command: ["python", "/model/seed.py"]
+          env:
+            - name: OPENFGA_HTTP
+              value: "http://{{ include "openfga.fullname" . }}:{{ .Values.service.httpPort }}"
+            - name: OPENFGA_STORE_NAME
+              value: {{ .Values.init.storeName | quote }}
+            {{- if .Values.init.seedSub }}
+            - name: OPENFGA_SEED_SUB
+              value: {{ .Values.init.seedSub | quote }}
+            {{- end }}
+            {{- if .Values.init.seedTuples }}
+            - name: OPENFGA_SEED_TUPLES
+              value: {{ .Values.init.seedTuples | toJson | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: openfga-model
+              mountPath: /model
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: openfga-model
+          configMap:
+            name: {{ include "openfga.fullname" . }}-model
+{{- end }}

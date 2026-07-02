@@ -70,11 +70,6 @@ _STATUS_OVERTHINK_WRITE_TODOS = "Checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 OVERTHINK_BOILERPLATE = (
-    "{% if not client_context.is_overthink_message %}"
-    "You have been directly @mentioned in a thread where the user explicitly wants your"
-    " help. Respond directly with your best answer. Do not emit `[DEFER]` or"
-    " `[LOW_CONFIDENCE]`."
-    "{% else %}"
     "You are deciding whether to respond to a Slack message. Follow these steps in order"
     " — they take priority over any other instructions in this prompt. Use the control"
     " tokens below to opt out of replying — they are intercepted and never posted to"
@@ -110,7 +105,6 @@ OVERTHINK_BOILERPLATE = (
     " signals — emit them alone, never alongside prose.\n"
     "\n"
     "---\n"
-    "{% endif %}\n"
 )
 
 
@@ -247,7 +241,7 @@ def _build_footer_text(triggered_by_user_id=None, additional_footer=None, agent_
     parts.append(f"_Agent: {agent_id}_")
   if triggered_by_user_id:
     parts.append(f"_Requested by <@{triggered_by_user_id}>_")
-  parts.append(f"_Mention @{APP_NAME} to continue_")
+  parts.append(f"*_Mention @{APP_NAME} to continue_*")
   return " • ".join(parts)
 
 
@@ -880,9 +874,7 @@ def stream_response(
     else:
       final_text = "".join(accumulated_text).strip()
 
-    # Overthink skip-check only applies to top-level (overthink) messages, not thread @mentions
-    is_overthink_message = bool(client_context and client_context.get("is_overthink_message"))
-    if overthink_mode and final_text and is_overthink_message:
+    if overthink_mode and final_text:
       skip_markers = overthink_config.skip_markers if overthink_config else None
       skip_result = _check_overthink_skip(final_text, thread_ts, skip_markers=skip_markers)
       if skip_result:
@@ -1188,6 +1180,9 @@ def _post_final_response(
 ):
   """Post final response as a regular message (fallback for bot messages)."""
   final_text = _strip_confidence_markers(final_text)
+  if not final_text:
+    logger.warning(f"[{thread_ts}] _post_final_response: empty text after stripping — suppressing post")
+    return []
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
   content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]

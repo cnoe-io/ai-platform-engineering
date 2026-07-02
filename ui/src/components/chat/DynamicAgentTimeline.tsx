@@ -1,39 +1,39 @@
 "use client";
 
-import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
-import {
-  ChevronDown,
-  Loader2,
-  Wrench,
-  AlertTriangle,
-  XCircle,
-  Bot,
-  CheckCircle,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  MarkdownRenderer,
-  CollapsibleSection,
-  TaskList,
-} from "@/components/shared/timeline";
-import type { TaskItem } from "@/components/shared/timeline";
-import type {
-  TimelineData,
-  TimelineSegment,
-  ToolSegment,
-  ToolGroupSegment,
-  SubagentSegment,
-  ContentSegment,
-  WarningSegment,
-  ErrorSegment,
-  DoneSegment,
-  StatusSegment,
-  ToolInfo,
-} from "@/types/dynamic-agent-timeline";
-import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { isFileToolName, isTodoToolName } from "@/components/dynamic-agents/sse-types";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import type { TaskItem } from "@/components/shared/timeline";
+import {
+CollapsibleSection,
+MarkdownRenderer,
+TaskList,
+} from "@/components/shared/timeline";
+import { isFileToolName,isTodoToolName,isWorkflowToolName } from "@/lib/streaming/types";
+import { cn } from "@/lib/utils";
+import type {
+ContentSegment,
+DoneSegment,
+ErrorSegment,
+StatusSegment,
+SubagentSegment,
+TimelineData,
+TimelineSegment,
+ToolGroupSegment,
+ToolInfo,
+ToolSegment,
+WarningSegment,
+} from "@/types/dynamic-agent-timeline";
+import { extractToolThought,groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
+import {
+AlertTriangle,
+CheckCircle,
+ChevronDown,
+Loader2,
+Wrench,
+XCircle,
+} from "lucide-react";
+import { createContext,useContext,useEffect,useRef,useState } from "react";
+import { WorkflowRunCard } from "./WorkflowRunCard";
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Detect file-related tools in segments
@@ -79,6 +79,54 @@ function hasTodoToolsInSegments(segments: TimelineSegment[]): boolean {
   return false;
 }
 
+/**
+ * Extract workflow run IDs from tool segments that called workflow tools.
+ * Looks at tool result (for start_workflow_run → {run_id}) and args (for get_workflow_run_status → {run_id}).
+ */
+function extractWorkflowRunIds(segments: TimelineSegment[]): { runId: string; workflowConfigId?: string }[] {
+  const seen = new Set<string>();
+  const runs: { runId: string; workflowConfigId?: string }[] = [];
+
+  function extract(tools: ToolInfo[]) {
+    for (const tool of tools) {
+      if (!isWorkflowToolName(tool.name)) continue;
+      let runId: string | undefined;
+      let configId: string | undefined;
+
+      // Try to get run_id from result (start_workflow_run returns it)
+      if (tool.result) {
+        try {
+          const parsed = JSON.parse(tool.result);
+          if (parsed.run_id) runId = parsed.run_id;
+          if (parsed.workflow_config_id) configId = parsed.workflow_config_id;
+        } catch { /* not JSON */ }
+      }
+      // Also check args (get_workflow_run_status passes run_id as arg)
+      if (!runId && tool.args) {
+        if (typeof tool.args.run_id === "string") runId = tool.args.run_id;
+        if (typeof tool.args.workflow_config_id === "string") configId = tool.args.workflow_config_id;
+      }
+
+      if (runId && !seen.has(runId)) {
+        seen.add(runId);
+        runs.push({ runId, workflowConfigId: configId });
+      }
+    }
+  }
+
+  for (const segment of segments) {
+    if (segment.type === "tool") extract([segment.data]);
+    if (segment.type === "tool-group") extract(segment.tools);
+    if (segment.type === "subagent") {
+      const nested = extractWorkflowRunIds(segment.segments);
+      for (const r of nested) {
+        if (!seen.has(r.runId)) { seen.add(r.runId); runs.push(r); }
+      }
+    }
+  }
+  return runs;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Subagent Lookup Context
 // ═══════════════════════════════════════════════════════════════
@@ -117,8 +165,9 @@ interface AgentTimelineProps {
   /** Function to look up subagent info by name (for avatar gradient) */
   getSubagentInfo?: SubagentLookupFn;
 
-  // ─── File operations (only active when isLatestMessage=true) ─
+  // ─── File operations ─────────────────────────────────────────
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
   onFileDelete?: (path: string) => void;
   isDownloadingFile?: boolean;
   downloadingFilePath?: string;
@@ -141,6 +190,7 @@ export function AgentTimeline({
   isLatestMessage,
   getSubagentInfo,
   onFileDownload,
+  getFileContent,
   onFileDelete,
   isDownloadingFile,
   downloadingFilePath,
@@ -152,14 +202,18 @@ export function AgentTimeline({
 
   // Determine if turn has ended (not streaming and has final answer)
   const turnEnded = !isStreaming && finalAnswer !== null;
+  const hasWarningsOrErrors = segments.some(s => s.type === "warning" || s.type === "error");
 
-  // Machinery sections collapse after streaming ends (or start collapsed if already ended)
-  const [machineryExpanded, setMachineryExpanded] = useState(!turnEnded);
+  // assisted-by Codex Codex-sonnet-4-6
+  // Collapse completed machinery, but keep warning/error details visible until the user collapses them.
+  const [machineryExpanded, setMachineryExpanded] = useState(!turnEnded || hasWarningsOrErrors);
   const prevStreamingRef = useRef(isStreaming);
   const prevFinalAnswerRef = useRef(finalAnswer);
+  const prevHadWarningsOrErrorsRef = useRef(hasWarningsOrErrors);
   // Track whether this turn transitioned from streaming → final.
   // When true, skip the reveal animation since content was already visible.
-  const wasStreamingRef = useRef(false);
+  // State (not ref) so the JSX can read it without a react-hooks/refs violation.
+  const [wasStreaming, setWasStreaming] = useState(false);
   
   // For ref to timeline container (kept for potential future use)
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -169,27 +223,35 @@ export function AgentTimeline({
   useEffect(() => {
     // Don't collapse while waiting for HITL input
     if (pendingHitl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: expand machinery when HITL input is pending
       setMachineryExpanded(true);
       prevPendingHitlRef.current = pendingHitl;
       return;
     }
+    if (hasWarningsOrErrors && !prevHadWarningsOrErrorsRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: surface new warnings/errors instead of hiding them behind the summary row
+      setMachineryExpanded(true);
+    }
     // Collapse when HITL input is resolved (pendingHitl went true → false)
-    if (prevPendingHitlRef.current) {
+    if (prevPendingHitlRef.current && !hasWarningsOrErrors) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMachineryExpanded(false);
     }
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
-      setMachineryExpanded(false);
-      wasStreamingRef.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: collapse when streaming ends and mark streaming-complete for animation
+      setMachineryExpanded(hasWarningsOrErrors);
+      setWasStreaming(true);
     }
     // Also collapse when final answer first appears AND streaming has stopped
-    if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming) {
+    if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming && !hasWarningsOrErrors) {
       setMachineryExpanded(false);
     }
     prevStreamingRef.current = isStreaming;
     prevFinalAnswerRef.current = finalAnswer;
+    prevHadWarningsOrErrorsRef.current = hasWarningsOrErrors;
     prevPendingHitlRef.current = pendingHitl;
-  }, [isStreaming, finalAnswer, pendingHitl]);
+  }, [isStreaming, finalAnswer, pendingHitl, hasWarningsOrErrors]);
 
   // Group consecutive tools for compact rendering
   const groupedSegments = groupConsecutiveTools(segments);
@@ -200,11 +262,11 @@ export function AgentTimeline({
   const warningCount = segments.filter(s => s.type === "warning").length;
   const errorCount = segments.filter(s => s.type === "error").length;
 
-  const hasWarningsOrErrors = warningCount > 0 || errorCount > 0;
-
   // Determine if tasks/files sections will actually be shown
   const showTasksSection = tasks.length > 0 && hasTodoToolsInSegments(segments) && (isStreaming || tasks.some(t => t.status !== "completed"));
   const showFilesSection = files.length > 0 && hasFileToolsInSegments(segments);
+  const workflowRuns = extractWorkflowRunIds(segments);
+  const showWorkflowSection = workflowRuns.length > 0;
 
   // Check if we have meaningful timeline segments (tools, subagents, content, warnings, errors)
   // "done" and "status" segments don't count - they're just markers
@@ -222,7 +284,7 @@ export function AgentTimeline({
   const showFinalAnswerOutside = !isStreaming && finalAnswer;
 
   // If there's nothing to show at all, render nothing
-  const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection;
+  const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection || showWorkflowSection;
 
   // If streaming but nothing to show yet, show thinking indicator
   if (isStreaming && !hasAnythingToShow) {
@@ -319,6 +381,7 @@ export function AgentTimeline({
             turnEnded={turnEnded}
             isStreaming={isStreaming}
             onFileDownload={onFileDownload}
+            getFileContent={getFileContent}
             onFileDelete={onFileDelete}
             isDownloading={isDownloadingFile}
             downloadingPath={downloadingFilePath}
@@ -327,11 +390,16 @@ export function AgentTimeline({
           />
         )}
 
+        {/* Workflow runs section */}
+        {showWorkflowSection && (
+          <WorkflowRunCard runs={workflowRuns} />
+        )}
+
         {/* Final answer - only shown after streaming completes */}
         {showFinalAnswerOutside && (
           <div className={cn(
             "bg-muted/30 border border-border/30 rounded-lg px-4 py-3",
-            !wasStreamingRef.current && "animate-reveal-ltr"
+            !wasStreaming && "animate-reveal-ltr"
           )}>
             <MarkdownRenderer
               content={finalAnswer}
@@ -639,7 +707,7 @@ function ToolParamsView({ args, isNested = false }: { args: Record<string, unkno
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tool Group Segment (multiple consecutive tools) - A2A style
+// Tool Group Segment (multiple consecutive tools)
 // ═══════════════════════════════════════════════════════════════
 
 function ToolGroupSegmentView({ segment, isNested = false }: { segment: ToolGroupSegment; isNested?: boolean }) {
@@ -832,21 +900,14 @@ function SubagentSegmentView({
   // Look up subagent info for gradient
   const getSubagentInfo = useContext(SubagentLookupContext);
   const subagentLookup = getSubagentInfo?.(info.name);
-  const gradientStyle = subagentLookup?.gradientTheme 
-    ? getGradientStyle(subagentLookup.gradientTheme, subagentLookup.customThemeConfig) 
-    : null;
-
   // Custom icon with gradient avatar
   const subagentIcon = (
-    <div 
-      className={cn(
-        "w-5 h-5 rounded-full flex items-center justify-center shrink-0",
-        !gradientStyle && "bg-sky-500/20"
-      )}
-      style={gradientStyle || undefined}
-    >
-      <Bot className="h-3 w-3" style={{ color: getAccentColor(subagentLookup?.gradientTheme, subagentLookup?.customThemeConfig) || "white" }} />
-    </div>
+    <AgentAvatar
+      agent={subagentLookup ? { gradient_theme: subagentLookup.gradientTheme, custom_theme_config: subagentLookup.customThemeConfig } : undefined}
+      rounded="rounded-full"
+      size="w-5 h-5"
+      iconSize="h-3 w-3"
+    />
   );
   
   // Build a description string for collapsed mode
@@ -946,7 +1007,14 @@ function WarningSegmentView({ segment, isNested = false }: { segment: WarningSeg
       isNested ? "text-[10px] px-2 py-1" : "text-xs px-3 py-2"
     )}>
       <AlertTriangle className={cn("shrink-0 mt-0.5", isNested ? "h-2.5 w-2.5" : "h-3.5 w-3.5")} />
-      <span>{segment.message}</span>
+      <div
+        className={cn(
+          "min-w-0 [&_.streaming-markdown]:text-inherit [&_.md-link]:font-semibold",
+          "[&_.md-link]:text-cyan-300 [&_.md-link]:underline [&_.md-link:hover]:text-cyan-200",
+        )}
+      >
+        <MarkdownRenderer content={segment.message} variant="user" />
+      </div>
     </div>
   );
 }
@@ -1055,6 +1123,8 @@ function TimelineSummary({
 
   return (
     <button
+      type="button"
+      aria-expanded={expanded}
       onClick={onToggle}
       className={cn(
         "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs",
@@ -1160,6 +1230,7 @@ function FileSection({
   turnEnded = false,
   isStreaming = false,
   onFileDownload,
+  getFileContent,
   onFileDelete,
   isDownloading,
   downloadingPath,
@@ -1171,6 +1242,7 @@ function FileSection({
   turnEnded?: boolean;
   isStreaming?: boolean;
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
   onFileDelete?: (path: string) => void;
   isDownloading?: boolean;
   downloadingPath?: string;
@@ -1187,7 +1259,8 @@ function FileSection({
     >
       <FileTree
         files={files}
-        onFileClick={readonly ? undefined : onFileDownload}
+        getFileContent={getFileContent}
+        onFileClick={onFileDownload}
         onFileDelete={readonly ? undefined : onFileDelete}
         isDownloading={isDownloading}
         downloadingPath={downloadingPath}

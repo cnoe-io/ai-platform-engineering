@@ -45,7 +45,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "caipe-ui.appVersion" .) }}"
+          image: "{{ include "caipe-ui.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ .Values.image.tag | default (include "caipe-ui.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.image.command }}
           command:
@@ -72,6 +72,100 @@ spec:
             - name: APP_CONFIG_PATH
               value: "/etc/caipe-ui/app-config.yaml"
             {{- end }}
+            {{- /* R1 upstream fix (May 2026): inject the Keycloak Admin
+                   REST client_secret via valueFrom.secretKeyRef when the
+                   operator has wired keycloakAdminClient.secretName. The
+                   matching client ID is surfaced through the ConfigMap
+                   (see configmap.yaml) so the BFF's `fetchFreshAdminToken`
+                   sees both halves of the credential without falling
+                   back to the master-realm admin/admin password grant.
+                   Skip this block entirely when secretName is empty so
+                   standalone subchart installs without an in-cluster
+                   Keycloak keep rendering cleanly. */ -}}
+            {{- if .Values.keycloakAdminClient.secretName }}
+            - name: KEYCLOAK_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloakAdminClient.secretName | quote }}
+                  key: {{ .Values.keycloakAdminClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
+            {{- end }}
+            {{- /* Service URL defaults: env: takes precedence over envFrom (ConfigMap),
+                   so these entries provide release-name-derived defaults while still
+                   allowing operators to override via .Values.config. */}}
+            - name: KEYCLOAK_URL
+              value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: OIDC_DISCOVERY_URL
+              value: {{ index .Values.config "OIDC_DISCOVERY_URL" | default (printf "http://%s-keycloak:8080/realms/%s" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
+            - name: SLACK_BOT_ADMIN_TOKEN_URL
+              value: {{ index .Values.config "SLACK_BOT_ADMIN_TOKEN_URL" | default (printf "http://%s-keycloak:8080/realms/%s/protocol/openid-connect/token" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
+            - name: OPENFGA_HTTP
+              value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: SLACK_BOT_ADMIN_URL
+              value: {{ index .Values.config "SLACK_BOT_ADMIN_URL" | default (printf "http://%s-slack-bot:3001" .Release.Name) | quote }}
+            - name: WEBEX_BOT_ADMIN_URL
+              value: {{ index .Values.config "WEBEX_BOT_ADMIN_URL" | default (printf "http://%s-webex-bot:3002" .Release.Name) | quote }}
+            {{- with index .Values.config "WEBEX_WORKSPACE_ALIAS" }}
+            - name: WEBEX_WORKSPACE_ALIAS
+              value: {{ . | quote }}
+            {{- end }}
+            - name: A2A_BASE_URL
+              value: {{ index .Values.config "A2A_BASE_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
+            - name: DYNAMIC_AGENTS_URL
+              value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
+            - name: SKILL_SCANNER_URL
+              value: {{ index .Values.config "SKILL_SCANNER_URL" | default (printf "http://%s-skill-scanner:8000" .Release.Name) | quote }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ index .Values.config "AUDIT_SERVICE_URL" | default (printf "http://%s-audit-service:8010" .Release.Name) | quote }}
+            {{- if (.Values.global.agentgateway).enabled }}
+            {{- /*
+            AgentGateway MCP discovery/sync reads the standalone proxy admin
+            /config endpoint (AGENT_GATEWAY_ADMIN_URL) and registers discovered
+            MCP servers behind the proxy MCP listener (AGENT_GATEWAY_URL). The
+            admin endpoint always lives on the standalone "<release>-agentgateway"
+            Service. The MCP listener is mode-aware: static routing serves MCP on
+            the standalone proxy (port 4000); gateway-api routing serves it on the
+            controller-provisioned "<release>-agentgateway-proxy" Gateway (proxyPort).
+            */ -}}
+            {{- $agwStatic := eq (((.Values.global.agentgateway).routingMode) | default "static") "static" }}
+            {{- $agwMcpHost := ternary (printf "%s-agentgateway" .Release.Name) (printf "%s-agentgateway-proxy" .Release.Name) $agwStatic }}
+            {{- $agwMcpPort := ternary 4000 (int (((.Values.global.agentgateway).proxyPort) | default 8080)) $agwStatic }}
+            - name: AGENT_GATEWAY_ADMIN_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_ADMIN_URL" | default (printf "http://%s-agentgateway:15000" .Release.Name) | quote }}
+            - name: AGENT_GATEWAY_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_URL" | default (printf "http://%s:%v" $agwMcpHost $agwMcpPort) | quote }}
+            {{- end }}
+            {{- /* Platform health probe env vars — wire Kubernetes service names so the
+                   /api/platform/health route resolves hosts without docker-compose defaults. */}}
+            - name: AGENTGATEWAY_ADMIN_CONFIG_URL
+              value: {{ index .Values.config "AGENTGATEWAY_ADMIN_CONFIG_URL" | default (printf "http://%s-agentgateway:15000/config" .Release.Name) | quote }}
+            - name: AGENTGATEWAY_TARGETS_URL
+              value: {{ index .Values.config "AGENTGATEWAY_TARGETS_URL" | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+            {{- $cb := (($agwGlobal.static).configBridge) | default dict }}
+            {{- if and $agwGlobal.enabled $cb.enabled }}
+            {{- /*
+            Wire AGENTGATEWAY_TARGETS_TOKEN so /api/internal/agentgateway/mcp-targets
+            can authenticate config-bridge poll requests. Reads from the same
+            global.agentgateway.static.configBridge.ui.existingSecret as the
+            config-bridge sidecar so both sides share the token.
+            */ -}}
+            {{- $cbUiSecret := ($cb.ui).existingSecret | default dict }}
+            {{- $cbTokenSecretName := $cbUiSecret.name | default (printf "%s-agentgateway-config-bridge-token" .Release.Name) }}
+            {{- $cbTokenSecretKey := $cbUiSecret.key | default "AGENTGATEWAY_TARGETS_TOKEN" }}
+            - name: AGENTGATEWAY_TARGETS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cbTokenSecretName | quote }}
+                  key: {{ $cbTokenSecretKey | quote }}
+            {{- end }}
+            - name: OPENFGA_AUTHZ_BRIDGE_HOST
+              value: {{ index .Values.config "OPENFGA_AUTHZ_BRIDGE_HOST" | default (printf "%s-openfga-authz-bridge" .Release.Name) | quote }}
+            - name: ETCD_HOST
+              value: {{ index .Values.config "ETCD_HOST" | default (printf "%s-etcd" .Release.Name) | quote }}
+            - name: MILVUS_HEALTH_URL
+              value: {{ index .Values.config "MILVUS_HEALTH_URL" | default (printf "http://%s-milvus:9091/healthz" .Release.Name) | quote }}
+            - name: MILVUS_MINIO_HOST
+              value: {{ index .Values.config "MILVUS_MINIO_HOST" | default (printf "%s-minio" .Release.Name) | quote }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
             - configMapRef:
@@ -85,6 +179,14 @@ spec:
             - secretRef:
                 name: {{ include "caipe-ui.fullname" . }}-secret
             {{- end }}
+            # Parent chart integration flags generated from Helm tags.
+            - configMapRef:
+                name: {{ printf "%s-caipe-ui-integration-flags" .Release.Name | trunc 63 | trimSuffix "-" }}
+                optional: true
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -98,13 +200,6 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: policy-config
-              mountPath: /app/policy.lp
-              subPath: policy.lp
-              readOnly: true
-            - name: task-config
-              mountPath: /app/config/task-config
-              readOnly: true
             {{- if $hasAppConfig }}
             - name: app-config
               mountPath: /etc/caipe-ui
@@ -114,14 +209,6 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        - name: policy-config
-          configMap:
-            name: policy-config
-            optional: true
-        - name: task-config
-          configMap:
-            name: task-config
-            optional: true
         {{- if $hasAppConfig }}
         - name: app-config
           configMap:

@@ -13,7 +13,7 @@
  *  - Empty states
  *  - Modal interactions (backdrop, X button, Cancel)
  *  - Edit config and onSelectConfig callbacks
- *  - Per-skill supervisor sync badge remains hidden
+ *  - Per-skill backend sync badge remains hidden
  */
 
 import React from "react";
@@ -86,6 +86,7 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
       <div ref={ref} {...rest}>{children}</div>
     )),
@@ -191,6 +192,10 @@ function mockConfigs() {
   return _configs;
 }
 
+function requestUrl(input: string | URL | Request): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -226,12 +231,32 @@ beforeEach(() => {
 
   // Mock global.fetch for catalog endpoints
   global.fetch = jest.fn((url: string | URL | Request) => {
-    const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    const urlStr = requestUrl(url);
 
     if (urlStr.includes("/api/skills")) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ skills: [] }),
+      } as Response);
+    }
+
+    if (urlStr.includes("/api/admin/platform-config")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { default_agent_id: "default-agent" },
+        }),
+      } as Response);
+    }
+
+    if (urlStr.includes("/api/dynamic-agents/available")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: [{ _id: "default-agent", name: "Default Agent", enabled: true }],
+        }),
       } as Response);
     }
 
@@ -262,12 +287,11 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
     expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
   });
 
-  it("does not fetch supervisor status for per-skill sync badges", async () => {
+  it("does not fetch backend sync status for per-skill badges", async () => {
     await renderGallery();
 
-    expect(global.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/api/skills/supervisor-status"),
-    );
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => requestUrl(url));
+    expect(urls).toEqual(["/api/skills?include_content=true"]);
   });
 
   it("opens modal with Try Skill button when clicking a skill card", async () => {
@@ -461,6 +485,88 @@ describe("SkillsGallery — Skills Builder button", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — source filter (built-in vs custom)", () => {
+  it("labels user agent_skills from the catalog feed as Custom, not Built-in", async () => {
+    const mongoId = "skill-random-p2h9h87ty";
+    _configs = [];
+    (global.fetch as jest.Mock).mockImplementation((url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/skills?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              skills: [
+                {
+                  id: mongoId,
+                  name: "random",
+                  description: "random",
+                  source: "agent_skills",
+                  source_id: "test@example.com",
+                  visibility: "private",
+                  metadata: { is_system: false, category: "Custom" },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    await renderGallery();
+
+    const heading = screen.getByRole("heading", { name: "random" });
+    expect(heading).toBeInTheDocument();
+    const card = heading.closest("div[class*='group']") ?? heading.parentElement!;
+    expect(within(card as HTMLElement).getByText("Custom")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText("Built-in")).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate a Mongo skill when catalog returns the same agent_skills id", async () => {
+    const mongoId = "skill-random-p2h9h87ty";
+    _configs = [
+      {
+        ...makeQuickStart(mongoId),
+        id: mongoId,
+        name: "random",
+        description: "random",
+        is_system: false,
+        owner_id: "test@example.com",
+        visibility: "private",
+      } as AgentSkill,
+    ];
+    (global.fetch as jest.Mock).mockImplementation((url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/skills?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              skills: [
+                {
+                  id: mongoId,
+                  name: "random",
+                  description: "random",
+                  source: "agent_skills",
+                  source_id: "test@example.com",
+                  visibility: "private",
+                  metadata: { is_system: false, category: "Custom" },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    await renderGallery();
+
+    expect(screen.getAllByRole("heading", { name: "random" })).toHaveLength(1);
+    const heading = screen.getByRole("heading", { name: "random" });
+    const card = heading.closest("div[class*='group']") ?? heading.parentElement!;
+    expect(within(card as HTMLElement).getByText("Custom")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText("Built-in")).not.toBeInTheDocument();
+  });
+
   it("shows only user Mongo skills under Custom and only is_system under Built-in", async () => {
     const userSkill = {
       ...makeQuickStart("user-owned-1"),
@@ -563,6 +669,7 @@ describe("SkillsGallery — Try Skill", () => {
     const tryBtn = screen.getByRole("button", { name: /try skill/i });
     await act(async () => { fireEvent.click(tryBtn); });
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+    expect(mockCreateConversation).toHaveBeenCalledWith("default-agent");
     expect(mockSetPendingMessage).toHaveBeenCalledWith(
       "Execute skill: qs-chat\n\nRead and follow the instructions in the SKILL.md file for the \"qs-chat\" skill."
     );
@@ -577,7 +684,7 @@ describe("SkillsGallery — Try Skill", () => {
     expect(screen.queryByRole("button", { name: /try skill/i })).not.toBeInTheDocument();
   });
 
-  it("Try Skill stays enabled without supervisor sync gating", async () => {
+  it("Try Skill stays enabled without backend sync gating", async () => {
     await renderGallery();
     await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
     const tryBtn = screen.getByRole("button", { name: /try skill/i });
@@ -938,9 +1045,8 @@ describe("SkillsGallery — multi-task skill card opens modal", () => {
 //
 //   1. `onScanComplete` only re-ran the Zustand `loadSkills()`, which
 //      hits `/api/skills/configs` (the agent_skills branch). Hub-
-//      projected rows live in a separate `/api/skills` fetch that
-//      previously sat in a mount-only `useEffect`, so it never
-//      re-ran after admin actions.
+//      projected rows live in a separate `/api/skills` fetch and need
+//      an explicit refresh after admin actions.
 //   2. The catalog mapping dropped `scan_override` on its way through
 //      an inline type cast, so even a manual refetch would lose the
 //      gate signal that `isFlaggedSkill` uses to compute the

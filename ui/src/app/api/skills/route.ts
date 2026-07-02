@@ -1,18 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
+import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
+ *   Aggregates locally (Mongo + hubs + templates).
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -107,8 +107,8 @@ export interface CatalogSkill {
    * disabled card with a "Disabled — flagged" badge so admins can
    * still see and re-scan it. Defaults to `true` when omitted.
    *
-   * The supervisor + dynamic agents enforce the same rule
-   * independently (Python ``scan_gate`` module) so a stale UI badge
+   * The dynamic-agent runtime enforces the same rule independently
+   * (``scan_gate`` module) so a stale UI badge
    * cannot make a flagged skill executable. A flagged skill with an
    * active ``scan_override`` is runnable on both sides (UI here,
    * Python there) when the admin-override feature is enabled.
@@ -265,49 +265,64 @@ function paginate(
   };
 }
 
-/**
- * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
- * Returns null if not configured or unreachable.
- * Forwards query params so the backend can also filter server-side.
- */
-async function fetchFromBackend(
-  params: QueryParams,
-  authHeader?: string | null,
-): Promise<CatalogResponse | null> {
-  const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
-  if (!backendUrl) return null;
+type SkillOpenFgaMode = "read" | "use";
 
-  try {
-    const url = new URL("/skills", backendUrl);
-    const incoming = new URLSearchParams();
-    if (params.includeContent) incoming.set("include_content", "true");
-    if (params.q) incoming.set("q", params.q);
-    if (params.source) incoming.set("source", params.source);
-    if (params.repo) incoming.set("repo", params.repo);
-    if (params.visibility) incoming.set("visibility", params.visibility);
-    if (params.tags.length > 0) incoming.set("tags", params.tags.join(","));
-    if (params.page !== null) {
-      incoming.set("page", String(params.page));
-      incoming.set("page_size", String(params.pageSize));
+interface FilterSkillsByOpenFgaOptions {
+  subject?: string | null;
+  mode: SkillOpenFgaMode;
+  isAdmin?: boolean;
+  check?: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>;
+}
+
+export async function filterSkillsByOpenFga(
+  skills: CatalogSkill[],
+  options: FilterSkillsByOpenFgaOptions,
+): Promise<CatalogSkill[]> {
+  if (options.isAdmin) return skills;
+  if (!options.subject) return [];
+
+  const relation = options.mode === "use" ? "can_use" : "can_read";
+  const check = options.check ?? checkOpenFgaTuple;
+  let baselineUseAllowed: boolean | null = null;
+  async function hasBaselineUseAccess(): Promise<boolean> {
+    if (baselineUseAllowed !== null) return baselineUseAllowed;
+    try {
+      const result = await check({
+        user: options.subject as string,
+        relation: "can_use",
+        object: organizationObjectId(),
+      });
+      baselineUseAllowed = result.allowed;
+    } catch {
+      baselineUseAllowed = false;
     }
-    applySkillsCatalogQueryToBackendUrl(url, incoming);
-
-    const headers: Record<string, string> = {};
-    if (authHeader) headers["Authorization"] = authHeader;
-
-    const res = await fetch(url.toString(), {
-      headers,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as CatalogResponse;
-  } catch {
-    return null;
+    return baselineUseAllowed;
   }
+
+  const decisions = await Promise.all(
+    skills.map(async (skill) => {
+      if (options.mode === "read" && skill.source === "default") return skill;
+      if (options.mode === "use" && skill.source === "default" && await hasBaselineUseAccess()) {
+        return skill;
+      }
+      try {
+        const result = await check({
+          user: options.subject as string,
+          relation,
+          object: `skill:${skill.id}`,
+        });
+        return result.allowed ? skill : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return decisions.filter((skill): skill is CatalogSkill => skill !== null);
 }
 
 /**
- * Local aggregation fallback: merge skill-templates (filesystem) and
+ * Local aggregation: merge skill-templates (filesystem) and
  * persisted agent skills from MongoDB (`agent_skills`) into a single catalog.
  */
 async function aggregateLocally(
@@ -628,8 +643,8 @@ export function isAdminOverrideEnabled(): boolean {
  * This is the single UI-facing enforcement point so the gallery,
  * runner, and downstream consumers (Skills API gateway, install.sh)
  * all agree without each having to re-derive the rule. The Python
- * supervisor and dynamic agents enforce the same policy via
- * ``scan_gate.py``; this stamp is for UI affordances + defense in
+ * dynamic agents enforce the same policy via ``scan_gate.py``; this stamp
+ * is for UI affordances + defense in
  * depth against a backend that hasn't yet been updated.
  */
 export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {
@@ -661,22 +676,21 @@ function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
 
 export const GET = withErrorHandler(async (req: NextRequest) => {
   // Dual-auth: Bearer JWT or session cookie
-  await getAuthFromBearerOrSession(req);
+  const { user, session } = await getAuthFromBearerOrSession(req);
 
   const params = parseQueryParams(req);
-  const authHeader = req.headers.get("Authorization");
+  const skillAuth = {
+    subject: typeof session?.sub === "string" ? `user:${session.sub}` : null,
+    mode: params.includeContent ? ("use" as const) : ("read" as const),
+    isAdmin: user.role === "admin" || session?.role === "admin",
+  };
 
-  // Try backend proxy first (forwards all query params)
-  const backendResult = await fetchFromBackend(params, authHeader);
-  if (backendResult) {
-    return NextResponse.json(sanitizeCatalogResponse(backendResult));
-  }
-
-  // Local aggregation fallback
+  // Local aggregation (Mongo + hubs + templates).
   try {
     const catalog = await aggregateLocally(params.includeContent);
     const filtered = filterSkills(catalog.skills, params);
-    const response = paginate(filtered, params, {
+    const authorized = await filterSkillsByOpenFga(filtered, skillAuth);
+    const response = paginate(authorized, params, {
       sources_loaded: catalog.meta.sources_loaded,
       unavailable_sources: catalog.meta.unavailable_sources,
     });

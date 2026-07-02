@@ -7,7 +7,7 @@
  * All requests go through /api/rag/* which proxies to the RAG server.
  */
 
-import { DataSourceInfo, IngestorInfo, IngestionJob, QueryResult } from '../Models';
+import { DataSourceInfo,IngestionJob,IngestorInfo } from '../Models';
 
 // API configuration - uses Next.js API proxy
 const API_BASE = '/api/rag';
@@ -55,6 +55,34 @@ async function apiPost<T>(endpoint: string, data?: unknown, params?: Record<stri
     return response.json();
 }
 
+async function apiPostForm<T>(endpoint: string, data: FormData): Promise<T> {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        body: data,
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || error.detail || `HTTP ${response.status}`);
+    }
+    if (response.status === 204) return {} as T;
+    return response.json();
+}
+
+async function apiPatch<T>(endpoint: string, data?: unknown): Promise<T> {
+    const url = `${API_BASE}${endpoint}`;
+    const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: data ? JSON.stringify(data) : undefined,
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || error.detail || `HTTP ${response.status}`);
+    }
+    if (response.status === 204) return {} as T;
+    return response.json();
+}
+
 async function apiDelete<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
     let url = `${API_BASE}${endpoint}`;
     if (params) {
@@ -88,6 +116,13 @@ export const getDataSources = async (): Promise<{ success: boolean; datasources:
 
 export const deleteDataSource = async (datasourceId: string): Promise<void> => {
     return apiDelete('/v1/datasource', { datasource_id: datasourceId });
+};
+
+export const renameDataSource = async (
+    datasourceId: string,
+    name: string,
+): Promise<{ datasource_id: string; name: string; changed: boolean }> => {
+    return apiPatch(`/v1/datasource/${encodeURIComponent(datasourceId)}`, { name });
 };
 
 // Cleanup response type
@@ -127,13 +162,19 @@ export const ingestUrl = async (params: {
     get_child_pages?: boolean;
     settings?: ScrapySettings;
     reload_interval?: number;
+    // Owning team for the new data source (spec 2026-06-03). The server
+    // authorizes creation against the org `can_ingest` capability + membership
+    // of this team, and writes ownership tuples so the team's members get
+    // read/ingest on the new source. Required for non-org-admin authors.
+    owner_team_slug?: string;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     // Route to appropriate endpoint based on ingest_type
     if (params.ingest_type === 'confluence') {
         return apiPost('/v1/ingest/confluence/page', {
             url: params.url,
             description: params.description || '',
-            get_child_pages: params.get_child_pages || false
+            get_child_pages: params.get_child_pages || false,
+            owner_team_slug: params.owner_team_slug || null
         });
     } else {
         // Web ingestion with ScrapySettings and optional reload_interval
@@ -141,9 +182,26 @@ export const ingestUrl = async (params: {
             url: params.url,
             description: params.description || '',
             settings: params.settings || { crawl_mode: 'single' },
-            reload_interval: params.reload_interval
+            reload_interval: params.reload_interval,
+            owner_team_slug: params.owner_team_slug || null
         });
     }
+};
+
+export const ingestLocalFile = async (params: {
+    files: File[];
+    description?: string;
+    owner_team_slug?: string;
+    chunk_size?: number;
+    chunk_overlap?: number;
+}): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
+    const form = new FormData();
+    params.files.forEach((file) => form.append('file', file));
+    if (params.description) form.append('description', params.description);
+    if (params.owner_team_slug) form.append('owner_team_slug', params.owner_team_slug);
+    if (params.chunk_size !== undefined) form.append('chunk_size', String(params.chunk_size));
+    if (params.chunk_overlap !== undefined) form.append('chunk_overlap', String(params.chunk_overlap));
+    return apiPostForm('/v1/ingest/local-file', form);
 };
 
 export const reloadDataSource = async (datasourceId: string): Promise<{ datasource_id: string; message: string }> => {

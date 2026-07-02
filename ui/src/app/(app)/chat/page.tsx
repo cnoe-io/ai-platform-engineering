@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useChatStore } from "@/store/chat-store";
-import { getStorageMode } from "@/lib/storage-config";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { getStorageMode } from "@/lib/storage-config";
+import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect,useRef,useState } from "react";
 
 /**
  * /chat landing page — resumes the last active conversation, falls back to
@@ -19,20 +20,22 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
  *  3. Create a brand-new conversation (empty history).
  *
  * Only conversations owned by the current user are considered for auto-redirect.
- * Shared/public conversations are excluded to prevent cross-user context_id
- * collisions — the conversations API returns owned + shared + public in a
- * single list, and auto-selecting a public conversation would cause multiple
- * users to unknowingly share the same A2A context_id.
+ * Shared conversations are excluded to prevent cross-user runtime context
+ * collisions — the conversations API returns owned + shared entries in a
+ * single list, and auto-selecting a shared conversation would cause multiple
+ * users to unknowingly share the same backend context.
  */
 function ChatRedirectPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const redirected = useRef(false);
+  const [error, setError] = useState<string | null>(null);
 
   const createConversation = useChatStore((s) => s.createConversation);
   const loadConversationsFromServer = useChatStore((s) => s.loadConversationsFromServer);
 
   useEffect(() => {
+    if (status === "loading") return;
     if (redirected.current) return;
 
     const resolve = async () => {
@@ -46,23 +49,26 @@ function ChatRedirectPage() {
       // Re-read from the store after potential server load
       const state = useChatStore.getState();
       const { conversations: currentConversations, activeConversationId } = state;
+      const lastActiveConversationId = activeConversationId ?? getLastActiveConversationId();
       const userEmail = session?.user?.email;
 
       // Only consider conversations OWNED by the current user for auto-redirect.
-      // The API returns shared/public conversations in the same list; picking one
+      // The API returns shared conversations in the same list; picking one
       // of those would silently drop the user into someone else's conversation,
-      // causing all their messages to share the same A2A context_id.
+      // causing all their messages to share the same backend context.
       // In localStorage mode, owner_id is unset — include those conversations.
       const ownedConversations = userEmail
         ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
         : currentConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned
-      if (activeConversationId) {
-        const stillOwned = ownedConversations.some((c) => c.id === activeConversationId);
-        if (stillOwned) {
+      // 1. Resume the last active conversation when it still exists in the loaded list.
+      // Prefer owned entries for auto-pick below, but an explicit last-active id from
+      // this browser should win to avoid spawning duplicate empty chats on /chat.
+      if (lastActiveConversationId) {
+        const stillExists = currentConversations.some((c) => c.id === lastActiveConversationId);
+        if (stillExists) {
           redirected.current = true;
-          router.replace(`/chat/${activeConversationId}`);
+          router.replace(`/chat/${lastActiveConversationId}`);
           return;
         }
       }
@@ -74,23 +80,29 @@ function ChatRedirectPage() {
         router.replace(`/chat/${latestId}`);
       } else {
         // 3. No owned conversations — create a new one
-        const newId = await createConversation();
+        const newId = await createConversation(await resolveUsableChatAgentId());
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
     };
 
-    resolve().catch(async (error) => {
+    resolve().catch((error) => {
       console.error("[ChatRedirect] Failed to resolve conversation:", error);
-      // Fallback: create a new conversation
-      if (!redirected.current) {
-        const newId = await createConversation();
-        redirected.current = true;
-        router.replace(`/chat/${newId}`);
-      }
+      redirected.current = true;
+      setError(error instanceof Error ? error.message : "Failed to resolve a chat agent");
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center h-full bg-background p-6">
+        <div className="max-w-md rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          {error}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex items-center justify-center h-full bg-background">

@@ -16,6 +16,11 @@
 
 export interface DataSourceInfo {
   datasource_id: string;
+  /**
+   * Human-friendly display label. Auto-derived on creation, editable by admins.
+   * Falls back to `datasource_id` for legacy rows. NEVER an authorization key.
+   */
+  name?: string | null;
   ingestor_id: string;
   source_type: string;
   description: string;
@@ -64,9 +69,7 @@ export interface UserInfo {
   email: string;
   role: string;
   is_authenticated: boolean;
-  groups: string[];
   permissions?: PermissionType[];
-  in_trusted_network: boolean;
 }
 
 /**
@@ -99,6 +102,48 @@ export function hasPermission(userInfo: UserInfo | null, permission: PermissionT
 const API_BASE = '/api/rag';
 
 /**
+ * Error thrown by the RAG API client on a non-OK response. Carries the HTTP
+ * `status` and the BFF's structured `code` (e.g. TRANSFER_NOT_MEMBER_UNCONFIRMED)
+ * so callers can branch on the failure mode. The `message` keeps the legacy
+ * `API Error: <status> <statusText>` shape for backward compatibility.
+ */
+export class RagApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(status: number, statusText: string, code?: string, serverMessage?: string) {
+    super(`API Error: ${status} ${statusText}`);
+    this.name = 'RagApiError';
+    this.status = status;
+    this.code = code;
+    if (serverMessage) this.serverMessage = serverMessage;
+  }
+
+  /** Human-readable message from the BFF body, when present. */
+  serverMessage?: string;
+}
+
+/**
+ * Build a {@link RagApiError} from a failed response, reading the JSON body for
+ * `code`/`error` when available. Defensive: error responses in tests (and some
+ * proxy paths) have no JSON body, so a missing/unparseable body is fine.
+ */
+async function toRagApiError(response: Response): Promise<RagApiError> {
+  let code: string | undefined;
+  let serverMessage: string | undefined;
+  try {
+    const body = await response.json();
+    if (body && typeof body === 'object') {
+      code = typeof body.code === 'string' ? body.code : undefined;
+      serverMessage = typeof body.error === 'string' ? body.error : undefined;
+    }
+  } catch {
+    // No/!JSON body — fall back to status text only.
+  }
+  return new RagApiError(response.status, response.statusText, code, serverMessage);
+}
+
+/**
  * Make a GET request to the RAG API
  */
 async function get<T>(path: string, params?: Record<string, string>): Promise<T> {
@@ -115,7 +160,7 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    throw await toRagApiError(response);
   }
 
   return response.json();
@@ -137,7 +182,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    throw await toRagApiError(response);
   }
 
   // Handle 204 No Content
@@ -164,7 +209,7 @@ async function put<T>(path: string, body?: unknown): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    throw await toRagApiError(response);
   }
 
   if (response.status === 204) {
@@ -191,7 +236,7 @@ async function del<T>(path: string, params?: Record<string, string>): Promise<T>
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    throw await toRagApiError(response);
   }
 
   // Handle 204 No Content
@@ -367,8 +412,8 @@ export async function getUserInfo(): Promise<UserInfo> {
     // Convert object like {can_read: true, can_ingest: true, can_delete: true} to array
     // Extract keys where value is true, and remove "can_" prefix
     data.permissions = Object.entries(data.permissions)
-      .filter(([_, value]) => value === true)
-      .map(([key, _]) => key.replace(/^can_/, ''));
+      .filter(([, value]) => value === true)
+      .map(([key]) => key.replace(/^can_/, ''));
     
     console.log('[getUserInfo] ✅ Converted permissions to:', data.permissions);
   }
@@ -395,6 +440,26 @@ export interface MCPToolConfig {
   enabled: boolean;
   created_at: number;
   updated_at: number;
+  // Group-based access control (spec 2026-06-03, US6). Mirrors the Python
+  // OwnedResourceMixin on the server's MCPToolConfig; config is the source of
+  // truth, OpenFGA is the derived projection.
+  owner_team_slug?: string | null;
+  shared_with_teams?: string[];
+  /**
+   * When true, every organization member may call/use this tool. The OpenFGA
+   * projection grants `organization#member` reader/user/caller (in addition to
+   * the owner and shared teams).
+   */
+  shared_with_org?: boolean;
+  creator_subject?: string | null;
+  owner_subject?: string | null;
+  /**
+   * Transfer-only signal (not persisted): set when the editor reassigns
+   * owner_team_slug to a team the caller is not a member of and the user
+   * confirmed the not-a-member prompt. The BFF reads it to authorize the
+   * transfer; it is never stored on the config.
+   */
+  confirm_not_member?: boolean;
 }
 
 export interface MCPBuiltinToolsConfig {

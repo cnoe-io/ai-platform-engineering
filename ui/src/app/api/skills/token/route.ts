@@ -12,9 +12,9 @@
  *   { "token": "ey...", "token_type": "Bearer", "expires_in": 7776000, "scope": "skills:read" }
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, handleApiError } from '@/lib/api-middleware';
+import { handleApiError,withAuth } from '@/lib/api-middleware';
 import { signLocalSkillsToken } from '@/lib/jwt-validation';
+import { NextRequest,NextResponse } from 'next/server';
 
 const MAX_DAYS = 90;
 const ALLOWED_DAYS = [30, 60, 90];

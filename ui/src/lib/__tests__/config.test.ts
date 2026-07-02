@@ -19,7 +19,6 @@ import {
   getConfig,
   getLogoFilterClass,
   getClientConfigScript,
-  getInternalA2AUrl,
   config,
 } from '../config';
 import type { Config } from '../config';
@@ -66,12 +65,14 @@ describe('getServerConfig', () => {
     beforeEach(() => {
       // Clear ALL env vars that the config reads
       clearEnv(
-        'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
+        'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
         'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'ACTION_AUDIT_ENABLED',
+        'CAIPE_UNSAFE_RBAC_BYPASS',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -83,15 +84,14 @@ describe('getServerConfig', () => {
     it('should return all expected default values', () => {
       const cfg = getServerConfig();
 
-      expect(cfg.caipeUrl).toBe('http://localhost:8000');
       expect(cfg.ragUrl).toBe('http://localhost:9446');
       expect(cfg.isDev).toBe(false);
       expect(cfg.isProd).toBe(false);
       expect(cfg.ssoEnabled).toBe(false);
       expect(cfg.ragEnabled).toBe(true); // default true
       expect(cfg.feedbackEnabled).toBe(true); // default true
-      expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
+      expect(cfg.credentialsEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
         'Where Humans and AI agents collaborate to deliver high quality outcomes.',
@@ -106,7 +106,9 @@ describe('getServerConfig', () => {
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
+      expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -135,22 +137,26 @@ describe('getServerConfig', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
-        'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled',
+        'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
+        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
-        'npsEnabled', 'auditLogsEnabled',
+        'auditLogsEnabled',
+        'actionAuditEnabled',
+        'auditLogBackend',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-        'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+        'dynamicAgentsUrl',
         'reportProblemEnabled',
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
+        'userInfoToolEnabled',
         'oidcRequiredGroup',
+        'oktaSyncEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -164,6 +170,11 @@ describe('getServerConfig', () => {
       expect(getServerConfig().ssoEnabled).toBe(true);
     });
 
+    it('should read CAIPE_CREDENTIALS_ENABLED=true', () => {
+      process.env.CAIPE_CREDENTIALS_ENABLED = 'true';
+      expect(getServerConfig().credentialsEnabled).toBe(true);
+    });
+
     it('should treat SSO_ENABLED=false as false', () => {
       process.env.SSO_ENABLED = 'false';
       expect(getServerConfig().ssoEnabled).toBe(false);
@@ -172,11 +183,6 @@ describe('getServerConfig', () => {
     it('should treat SSO_ENABLED=1 as false (strict true check)', () => {
       process.env.SSO_ENABLED = '1';
       expect(getServerConfig().ssoEnabled).toBe(false);
-    });
-
-    it('should read NEXT_PUBLIC_A2A_BASE_URL', () => {
-      process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://my-supervisor:8000';
-      expect(getServerConfig().caipeUrl).toBe('https://my-supervisor:8000');
     });
 
     it('should read RAG_URL', () => {
@@ -253,6 +259,16 @@ describe('getServerConfig', () => {
     it('should read ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true', () => {
       process.env.ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED = 'true';
       expect(getServerConfig().allowDevAdminWhenSsoDisabled).toBe(true);
+    });
+
+    it('should read CAIPE_UNSAFE_RBAC_BYPASS=true', () => {
+      process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
+      expect(getServerConfig().unsafeRbacBypassEnabled).toBe(true);
+    });
+
+    it('should accept numeric CAIPE_UNSAFE_RBAC_BYPASS=1', () => {
+      process.env.CAIPE_UNSAFE_RBAC_BYPASS = '1';
+      expect(getServerConfig().unsafeRbacBypassEnabled).toBe(true);
     });
 
     it('should read SUPPORT_EMAIL', () => {
@@ -672,13 +688,7 @@ describe('getServerConfig', () => {
 
   // ---------- Production defaults ----------
 
-  describe('production defaults (when no A2A/RAG URL set)', () => {
-    it('should use default caipeUrl when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
-      process.env.NODE_ENV = 'production';
-      clearEnv('A2A_BASE_URL');
-      expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
-    });
-
+  describe('production defaults (when no RAG URL set)', () => {
     it('should use k8s service URLs for ragUrl in production', () => {
       process.env.NODE_ENV = 'production';
       clearEnv('RAG_URL');
@@ -734,85 +744,24 @@ describe('getServerConfig', () => {
       delete process.env.OIDC_REQUIRED_GROUP;
     });
 
-    it('defaults to "backstage-access" when OIDC_REQUIRED_GROUP is not set', () => {
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    it('defaults to no required group when OIDC_REQUIRED_GROUP is not set', () => {
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
 
     it('reads a custom value from OIDC_REQUIRED_GROUP', () => {
-      process.env.OIDC_REQUIRED_GROUP = 'my-org-platform-users';
-      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-platform-users');
+      process.env.OIDC_REQUIRED_GROUP = 'my-org-caipe-users';
+      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-caipe-users');
     });
 
-    it('falls back to the default when OIDC_REQUIRED_GROUP is an empty string', () => {
-      // config.ts uses || so an empty string is treated as absent
+    it('preserves whitespace exactly so invalid deployment config is visible', () => {
+      process.env.OIDC_REQUIRED_GROUP = '  caipe-users  ';
+      expect(getServerConfig().oidcRequiredGroup).toBe('  caipe-users  ');
+    });
+
+    it('keeps OIDC_REQUIRED_GROUP disabled when the env var is an empty string', () => {
       process.env.OIDC_REQUIRED_GROUP = '';
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
-  });
-});
-
-// ==========================================================================
-// getInternalA2AUrl — server-side internal supervisor URL
-// ==========================================================================
-
-describe('getInternalA2AUrl', () => {
-  const originalEnv = process.env;
-
-  beforeEach(() => {
-    jest.resetModules();
-    process.env = { ...originalEnv };
-    clearEnv('A2A_BASE_URL');
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
-  });
-
-  it('returns the default internal URL when A2A_BASE_URL is not set', () => {
-    expect(getInternalA2AUrl()).toBe('http://caipe-supervisor:8000');
-  });
-
-  it('returns the A2A_BASE_URL value when set', () => {
-    process.env.A2A_BASE_URL = 'http://docker-internal:9090';
-    expect(getInternalA2AUrl()).toBe('http://docker-internal:9090');
-  });
-
-  it('strips a trailing slash from the URL', () => {
-    process.env.A2A_BASE_URL = 'http://svc:8000/';
-    expect(getInternalA2AUrl()).toBe('http://svc:8000');
-  });
-
-  it('accepts NEXT_PUBLIC_A2A_BASE_URL as a fallback when A2A_BASE_URL is absent', () => {
-    process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://public-fallback:8000';
-    expect(getInternalA2AUrl()).toBe('https://public-fallback:8000');
-  });
-
-  it('A2A_BASE_URL takes precedence over NEXT_PUBLIC_A2A_BASE_URL', () => {
-    process.env.A2A_BASE_URL = 'http://internal:8000';
-    process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://external:8000';
-    expect(getInternalA2AUrl()).toBe('http://internal:8000');
-  });
-
-  // ── Critical separation test ──────────────────────────────────────────────
-  // When A2A_BASE_URL (internal) and NEXT_PUBLIC_A2A_BASE_URL (external) are
-  // both set, they must remain independent — the route.ts uses getInternalA2AUrl()
-  // while the browser receives NEXT_PUBLIC_A2A_BASE_URL via window.__APP_CONFIG__.
-
-  it('getInternalA2AUrl and getServerConfig().caipeUrl are independent when both env vars are set', () => {
-    process.env.A2A_BASE_URL = 'http://caipe-supervisor.caipe.svc.cluster.local:8000';
-    process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://caipe-devnet.cisco.com';
-
-    expect(getInternalA2AUrl()).toBe(
-      'http://caipe-supervisor.caipe.svc.cluster.local:8000',
-    );
-    expect(getServerConfig().caipeUrl).toBe('https://caipe-devnet.cisco.com');
-  });
-
-  it('getServerConfig().caipeUrl does NOT use A2A_BASE_URL', () => {
-    process.env.A2A_BASE_URL = 'http://docker-internal:8000';
-    delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
-    // caipeUrl should fall back to its own default, not pick up A2A_BASE_URL
-    expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
   });
 });
 
@@ -909,22 +858,26 @@ describe('getClientConfigScript (XSS safety)', () => {
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
-      'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled',
+      'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
+      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
-      'npsEnabled', 'auditLogsEnabled',
+      'auditLogsEnabled',
+      'actionAuditEnabled',
+      'auditLogBackend',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-      'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+      'dynamicAgentsUrl',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
+      'userInfoToolEnabled',
       'oidcRequiredGroup',
+      'oktaSyncEnabled',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });
@@ -960,7 +913,6 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
 
     it('should return injected values when window.__APP_CONFIG__ is set', () => {
       setWindowConfig({
-        caipeUrl: 'https://prod.example.com',
         ragUrl: 'https://rag.example.com',
         isDev: false,
         isProd: true,
@@ -979,6 +931,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         showPoweredBy: false,
         supportEmail: 'prod@example.com',
         allowDevAdminWhenSsoDisabled: false,
+        unsafeRbacBypassEnabled: false,
         storageMode: 'mongodb',
         defaultFontSize: 'large',
         defaultFontFamily: 'ibm-plex',
@@ -1002,7 +955,6 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
     it('should reflect changes when window.__APP_CONFIG__ is updated', () => {
       // Simulate initial load
       setWindowConfig({
-        caipeUrl: 'http://localhost:8000',
         ragUrl: 'http://localhost:9446',
         isDev: true, isProd: false,
         ssoEnabled: false, ragEnabled: true,
@@ -1012,7 +964,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         gradientFrom: '#000', gradientTo: '#fff',
         logoStyle: 'default', spinnerColor: null,
         showPoweredBy: true, supportEmail: 'dev@test.com',
-        allowDevAdminWhenSsoDisabled: true, storageMode: 'localStorage',
+        allowDevAdminWhenSsoDisabled: true, unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
         defaultFontSize: 'medium', defaultFontFamily: 'inter',
         defaultTheme: 'dark', defaultGradientTheme: 'default',
       });
@@ -1034,7 +986,6 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
   describe('config proxy on the client', () => {
     it('should read from window.__APP_CONFIG__ via proxy', () => {
       setWindowConfig({
-        caipeUrl: 'https://proxy-test.com',
         ragUrl: 'https://rag.test.com',
         isDev: false, isProd: true,
         ssoEnabled: true, ragEnabled: false,
@@ -1044,7 +995,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         envBadge: 'Preview', gradientFrom: '#aaa', gradientTo: '#bbb',
         logoStyle: 'white', spinnerColor: '#ccc',
         showPoweredBy: false, supportEmail: 'proxy@test.com',
-        allowDevAdminWhenSsoDisabled: false, storageMode: 'mongodb',
+        allowDevAdminWhenSsoDisabled: false, unsafeRbacBypassEnabled: false, storageMode: 'mongodb',
         defaultFontSize: 'small', defaultFontFamily: 'system',
         defaultTheme: 'midnight', defaultGradientTheme: 'sunset',
       });
@@ -1093,13 +1044,13 @@ describe('getLogoFilterClass', () => {
 
   it('should use window.__APP_CONFIG__ logoStyle when available', () => {
     setWindowConfig({
-      caipeUrl: '', ragUrl: '', isDev: false, isProd: false,
+      ragUrl: '', isDev: false, isProd: false,
       ssoEnabled: false, ragEnabled: true, mongodbEnabled: false,
       tagline: '', description: '',
       appName: '', logoUrl: '', envBadge: '',
       gradientFrom: '', gradientTo: '', logoStyle: 'white',
       spinnerColor: null, showPoweredBy: true, supportEmail: '',
-      allowDevAdminWhenSsoDisabled: false, storageMode: 'localStorage',
+      allowDevAdminWhenSsoDisabled: false, unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
       defaultFontSize: 'medium', defaultFontFamily: 'inter',
       defaultTheme: 'dark', defaultGradientTheme: 'default',
     });
@@ -1192,7 +1143,7 @@ describe('edge cases', () => {
       const name: string = getConfig('appName');
       expect(typeof name).toBe('string');
 
-      const url: string = getConfig('caipeUrl');
+      const url: string = getConfig('ragUrl');
       expect(typeof url).toBe('string');
     });
 
@@ -1213,12 +1164,12 @@ describe('edge cases', () => {
   describe('getClientConfigScript serialization roundtrip', () => {
     it('should roundtrip all default config values', () => {
       clearEnv(
-        'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
+        'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
         'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL',
+        'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -1306,12 +1257,12 @@ describe('end-to-end: layout injection → client read', () => {
   it('should handle the "clean deploy" scenario (no env vars)', () => {
     // Simulate a fresh deployment with no env vars at all
     clearEnv(
-      'A2A_BASE_URL', 'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
+      'RAG_URL', 'SSO_ENABLED', 'RAG_ENABLED',
       'MONGODB_ENABLED', 'PREVIEW_MODE', 'ENV_BADGE',
       'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
       'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-      'SUPPORT_EMAIL',
+      'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
     );
     delete process.env.MONGODB_URI;
     delete process.env.MONGODB_DATABASE;
@@ -1360,7 +1311,6 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('caipeUrl')).toBe('http://localhost:8000');
 
     // Secrets must NOT be in the script
     expect(script).not.toContain('admin:secret');

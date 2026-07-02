@@ -20,7 +20,7 @@ jobs:
     name: Cleanup Prebuild Charts
     runs-on: ubuntu-latest
     if: |
-      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
       (
         (
           github.event.action == 'closed' &&
@@ -36,16 +36,26 @@ jobs:
       )
 
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          permission-packages: write
+
       - name: 🗑️ Delete Prebuild Chart Versions
+        env:
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          OWNER_TYPE: ${{ github.event.repository.owner.type }}
         run: |
           # Get branch name and remove 'prebuild/' prefix if present
-          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           echo "🧹 Cleaning up prebuild versions for branch: $CLEAN_BRANCH"
 
-          OWNER="${{ github.repository_owner }}"
-          OWNER_TYPE="${{ github.event.repository.owner.type }}"
           if [ "$OWNER_TYPE" = "User" ]; then
             PACKAGE_OWNER_PATH="users/${OWNER}"
           else
@@ -118,5 +128,3 @@ jobs:
           cleanup_chart "ai-platform-engineering"
 
           echo "✅ All prebuild chart cleanup completed"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

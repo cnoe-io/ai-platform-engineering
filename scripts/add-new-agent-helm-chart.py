@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Script to automatically update Helm configuration when a new agent is added.
+Script to automatically update Helm configuration when a new MCP server is added.
 This script will:
 1. Add new dependency in Chart.yaml
 2. Bump the chart version
-3. Add new agent sections to values files with empty configurations
+3. Add new mcp-* sections to values files with empty configurations
 """
 
 import sys
@@ -25,53 +25,53 @@ def get_project_root():
     """Get the project root directory."""
     return get_script_dir().parent
 
-def get_agents_dir():
-    """Get the agents directory path."""
-    return get_project_root() / "ai_platform_engineering" / "agents"
+def get_mcp_servers_dir():
+    """Get the MCP servers directory path."""
+    return get_project_root() / "ai_platform_engineering" / "mcp"
 
-def get_helm_dir():
-    """Get the helm directory path."""
-    return get_project_root() / "helm"
+def get_chart_dir():
+    """Get the ai-platform-engineering chart directory path."""
+    return get_project_root() / "charts" / "ai-platform-engineering"
 
-def get_existing_agents():
-    """Get list of existing agents from the agents directory."""
-    agents_dir = get_agents_dir()
-    if not agents_dir.exists():
-        print(f"Error: Agents directory not found at {agents_dir}")
+def get_existing_mcp_servers():
+    """Get list of existing MCP servers from the MCP directory."""
+    mcp_dir = get_mcp_servers_dir()
+    if not mcp_dir.exists():
+        print(f"Error: MCP directory not found at {mcp_dir}")
         return []
-    
-    agents = []
-    for item in agents_dir.iterdir():
+
+    servers = []
+    for item in mcp_dir.iterdir():
         if item.is_dir() and not item.name.startswith('.') and not item.name.startswith('__'):
-            agents.append(item.name)
+            servers.append(item.name)
     
-    return sorted(agents)
+    return sorted(servers)
 
 def get_chart_dependencies():
-    """Get current dependencies from Chart.yaml (deprecated - use get_configured_agents instead)."""
-    return get_configured_agents()
+    """Get current dependencies from Chart.yaml."""
+    return get_configured_mcp_servers()
 
-def get_agent_chart_version():
-    """Get the current version from the agent chart."""
-    agent_chart_file = get_helm_dir() / "charts" / "agent" / "Chart.yaml"
+def get_mcp_chart_version():
+    """Get the current version from the mcp-server chart."""
+    mcp_chart_file = get_chart_dir() / "charts" / "mcp-server" / "Chart.yaml"
     
-    if not agent_chart_file.exists():
-        print(f"Warning: Agent Chart.yaml not found at {agent_chart_file}, using default version 0.1.0")
+    if not mcp_chart_file.exists():
+        print(f"Warning: mcp-server Chart.yaml not found at {mcp_chart_file}, using default version 0.1.0")
         return "0.1.0"
     
     try:
-        with open(agent_chart_file, 'r') as f:
+        with open(mcp_chart_file, 'r') as f:
             chart_data = yaml.load(f)
         
         version = chart_data.get('version', '0.1.0')
-        print(f"📦 Using agent chart version: {version}")
+        print(f"📦 Using mcp-server chart version: {version}")
         return version
     except Exception as e:
-        print(f"Warning: Could not read agent chart version: {e}, using default 0.1.0")
+        print(f"Warning: Could not read mcp-server chart version: {e}, using default 0.1.0")
         return "0.1.0"
 
 def bump_chart_version(chart_file):
-    """Bump the main chart version (patch bump for new agents)."""
+    """Bump the main chart version (patch bump for new MCP servers)."""
     with open(chart_file, 'r') as f:
         content = f.read()
     
@@ -112,46 +112,48 @@ def bump_chart_version(chart_file):
         print("Warning: Could not find main version in Chart.yaml")
         return None
 
-def add_chart_dependency(agent_name):
+def add_chart_dependency(server_name):
     """Add new dependency to Chart.yaml with proper formatting."""
-    chart_file = get_helm_dir() / "Chart.yaml"
+    chart_file = get_chart_dir() / "Chart.yaml"
     
     with open(chart_file, 'r') as f:
         content = f.read()
     
     # Check if dependency already exists
-    if f"alias: agent-{agent_name}" in content:
-        print(f"✓ Dependency agent-{agent_name} already exists in Chart.yaml")
+    if f"alias: mcp-{server_name}" in content:
+        print(f"✓ Dependency mcp-{server_name} already exists in Chart.yaml")
         return
     
-    # Get current agent chart version
-    agent_version = get_agent_chart_version()
+    mcp_version = get_mcp_chart_version()
     
-    # Find the external-secrets comment line to insert before it
-    external_secrets_pattern = r'(\s+# Separate chart for external secrets)'
+    # Insert MCP servers before the RAG stack dependency.
+    rag_stack_pattern = r'(\n  - name: rag-stack)'
     
     new_dependency = \
 f"""
-  - name: agent
-    version: {agent_version}
-    alias: agent-{agent_name}
-    condition: agent-{agent_name}.enabled"""
-    
-    match = re.search(external_secrets_pattern, content)
+  - name: mcp-server
+    version: {mcp_version}
+    alias: mcp-{server_name}
+    tags:
+      - mcp-{server_name}
+    import-values:
+      - child: global
+        parent: global.enabledSubAgents.{server_name}"""
+
+    match = re.search(rag_stack_pattern, content)
     if match:
-        # Insert before the comment line
         insert_pos = match.start()
         new_content = content[:insert_pos] + new_dependency + content[insert_pos:]
         
         with open(chart_file, 'w') as f:
             f.write(new_content)
         
-        print(f"✓ Added dependency agent-{agent_name} to Chart.yaml")
+        print(f"✓ Added dependency mcp-{server_name} to Chart.yaml")
     else:
-        print("Warning: Could not find external-secrets comment in Chart.yaml")
+        print("Warning: Could not find rag-stack dependency in Chart.yaml")
 
-def add_to_values_file(values_file, agent_name):
-    """Add new agent section to values.yaml."""
+def add_to_values_file(values_file, server_name):
+    """Add new mcp section to values.yaml."""
     if not values_file.exists():
         print(f"Warning: {values_file} not found, skipping")
         return
@@ -159,27 +161,32 @@ def add_to_values_file(values_file, agent_name):
     with open(values_file, 'r') as f:
         content = f.read()
     
-    # Check if agent already exists in the file
-    if f"agent-{agent_name}:" in content:
-        print(f"✓ agent-{agent_name} already exists in {values_file.name}")
+    if f"mcp-{server_name}:" in content:
+        print(f"✓ mcp-{server_name} already exists in {values_file.name}")
         return
 
-    # Add new agent section at the end
-    agent_section = f'''
-agent-{agent_name}:
+    server_section = f'''
+mcp-{server_name}:
   enabled: false
-  nameOverride: "agent-{agent_name}"
+  nameOverride: "mcp-{server_name}"
   image:
-    repository: "ghcr.io/cnoe-io/agent-{agent_name}"
+    repository: "ghcr.io/cnoe-io/mcp-{server_name}"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-{server_name}"
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    mode: "http"
+    port: 8000
 '''
     
     with open(values_file, 'a') as f:
-        f.write(agent_section)
+        f.write(server_section)
     
-    print(f"✓ Added agent-{agent_name} section to {values_file.name}")
+    print(f"✓ Added mcp-{server_name} section to {values_file.name}")
 
-def add_to_existing_secrets_file(values_file, agent_name):
-    """Add new agent section to values-existing-secrets.yaml."""
+def add_to_existing_secrets_file(values_file, server_name):
+    """Add new mcp section to values-existing-secrets.yaml."""
     if not values_file.exists():
         print(f"Warning: {values_file} not found, skipping")
         return
@@ -187,25 +194,23 @@ def add_to_existing_secrets_file(values_file, agent_name):
     with open(values_file, 'r') as f:
         content = f.read()
     
-    # Check if agent already exists in the file
-    if f"agent-{agent_name}:" in content:
-        print(f"✓ agent-{agent_name} already exists in {values_file.name}")
+    if f"mcp-{server_name}:" in content:
+        print(f"✓ mcp-{server_name} already exists in {values_file.name}")
         return
 
-    # Add new agent section at the end
-    agent_section = f'''
-agent-{agent_name}:
-  secrets:
+    server_section = f'''
+mcp-{server_name}:
+  agentSecrets:
     secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 '''
     
     with open(values_file, 'a') as f:
-        f.write(agent_section)
+        f.write(server_section)
     
-    print(f"✓ Added agent-{agent_name} section to {values_file.name}")
+    print(f"✓ Added mcp-{server_name} section to {values_file.name}")
 
-def add_to_ingress_file(values_file, agent_name):
-    """Add new agent section to values-ingress.yaml.example."""
+def add_to_ingress_file(values_file, server_name):
+    """Add new mcp section to values-ingress.yaml.example."""
     if not values_file.exists():
         print(f"Warning: {values_file} not found, skipping")
         return
@@ -213,30 +218,28 @@ def add_to_ingress_file(values_file, agent_name):
     with open(values_file, 'r') as f:
         content = f.read()
     
-    # Check if agent already exists in the file
-    if f"agent-{agent_name}:" in content:
-        print(f"✓ agent-{agent_name} already exists in {values_file.name}")
+    if f"mcp-{server_name}:" in content:
+        print(f"✓ mcp-{server_name} already exists in {values_file.name}")
         return
 
-    # Add new agent section at the end
-    agent_section = f'''
-agent-{agent_name}:
+    server_section = f'''
+mcp-{server_name}:
   ingress:
     hosts: []
-      #  - agent-{agent_name}.local
+      #  - mcp-{server_name}.local
     tls: []
-      # - secretName: agent-{agent_name}-tls
+      # - secretName: mcp-{server_name}-tls
       #   hosts:
-      #     - agent-{agent_name}.local
+      #     - mcp-{server_name}.local
 '''
     
     with open(values_file, 'a') as f:
-        f.write(agent_section)
+        f.write(server_section)
     
-    print(f"✓ Added agent-{agent_name} section to {values_file.name}")
+    print(f"✓ Added mcp-{server_name} section to {values_file.name}")
 
-def add_to_external_secrets_file(values_file, agent_name):
-    """Add new agent secret section to external secrets values file."""
+def add_to_external_secrets_file(values_file, server_name):
+    """Add new mcp secret section to external secrets values file."""
     if not values_file.exists():
         print(f"Warning: {values_file} not found, skipping")
         return
@@ -244,49 +247,33 @@ def add_to_external_secrets_file(values_file, agent_name):
     with open(values_file, 'r') as f:
         content = f.read()
     
-    # Check if agent secret already exists
-    if f"- name: {agent_name}-secret" in content:
-        print(f"✓ {agent_name}-secret already exists in {values_file.name}")
+    if f"mcp-{server_name}:" in content:
+        print(f"✓ mcp-{server_name} already exists in {values_file.name}")
         return
-    
-    # Find the end of the externalSecrets list
-    external_secrets_pattern = r'(\s+# Slack configuration[\s\S]*?property: SLACK_TEAM_ID)'
-    
-    match = re.search(external_secrets_pattern, content)
-    if match:
-        # Add new ExternalSecret reference configuration after Slack.
-        external_ref_section = \
-f'''
-    # {agent_name.title()} configuration
-    - name: {agent_name}-secret
-      secretStoreRef:
-        name: "" # Use your secret store
-        kind: ClusterSecretStore # Use your secret store kind
-      target:
-        name: {agent_name}-secret
-      data:
-        # TODO: Add {agent_name} specific secrets here
-        # Example:
-        # - secretKey: {agent_name.upper()}_API_KEY
-        #   remoteRef:
-        #     conversionStrategy: Default
-        #     decodingStrategy: None
-        #     key: dev/{agent_name} # Use your key path
-        #     property: {agent_name.upper()}_API_KEY
-'''
-        
-        new_content = content + external_ref_section
-        
-        with open(values_file, 'w') as f:
-            f.write(new_content)
-        
-        print(f"✓ Added {agent_name}-secret section to {values_file.name}")
-    else:
-        print(f"Warning: Could not find insertion point in {values_file.name}")
 
-def get_configured_agents():
-    """Get list of agents already configured in Chart.yaml."""
-    chart_file = get_helm_dir() / "Chart.yaml"
+    external_ref_section = f'''
+mcp-{server_name}:
+  agentSecrets:
+    secretName: "external-{server_name}-secret"
+    externalSecrets:
+      data:
+      # TODO: Add {server_name} specific secrets here.
+      # - secretKey: {server_name.upper()}_API_KEY
+      #   remoteRef:
+      #     conversionStrategy: Default
+      #     decodingStrategy: None
+      #     key: dev/{server_name}
+      #     property: {server_name.upper()}_API_KEY
+'''
+
+    with open(values_file, 'a') as f:
+        f.write(external_ref_section)
+
+    print(f"✓ Added mcp-{server_name} external secret section to {values_file.name}")
+
+def get_configured_mcp_servers():
+    """Get list of MCP servers already configured in Chart.yaml."""
+    chart_file = get_chart_dir() / "Chart.yaml"
     if not chart_file.exists():
         print(f"Error: Chart.yaml not found at {chart_file}")
         return []
@@ -296,80 +283,75 @@ def get_configured_agents():
             chart_data = yaml.load(f)
         
         dependencies = chart_data.get('dependencies', [])
-        configured_agents = []
+        configured_servers = []
         
         for dep in dependencies:
             alias = dep.get('alias', '')
-            if alias.startswith('agent-'):
-                # Extract agent name from alias (e.g., 'agent-slack' -> 'slack')
-                agent_name = alias[6:]  # Remove 'agent-' prefix
-                configured_agents.append(agent_name)
+            if alias.startswith('mcp-'):
+                configured_servers.append(alias[4:])
         
-        return sorted(configured_agents)
+        return sorted(configured_servers)
     except Exception as e:
         print(f"Error reading Chart.yaml: {e}")
         return []
 
 def main():
-    """Main function to automatically detect and process new agents."""
-    print("🔍 Scanning for new agents...")
+    """Main function to automatically detect and process new MCP servers."""
+    print("🔍 Scanning for new MCP servers...")
     print("=" * 50)
     
-    helm_dir = get_helm_dir()
-    if not helm_dir.exists():
-        print(f"Error: Helm directory not found at {helm_dir}")
+    chart_dir = get_chart_dir()
+    if not chart_dir.exists():
+        print(f"Error: chart directory not found at {chart_dir}")
         sys.exit(1)
     
-    # Get agents from filesystem and from Chart.yaml
-    filesystem_agents = get_existing_agents()
-    configured_agents = get_configured_agents()
+    filesystem_servers = get_existing_mcp_servers()
+    configured_servers = get_configured_mcp_servers()
     
-    print(f"📁 Agents in filesystem: {filesystem_agents}")
-    print(f"📋 Agents in Chart.yaml: {configured_agents}")
+    print(f"📁 MCP servers in filesystem: {filesystem_servers}")
+    print(f"📋 MCP servers in Chart.yaml: {configured_servers}")
     
-    # Find new agents that aren't configured yet
-    new_agents = [agent for agent in filesystem_agents if agent not in configured_agents]
+    new_servers = [server for server in filesystem_servers if server not in configured_servers]
     
-    if not new_agents:
-        print("\n✅ No new agents found. All agents are already configured.")
+    if not new_servers:
+        print("\n✅ No new MCP servers found. All MCP servers are already configured.")
         return
     
-    print(f"\n🆕 Found new agents: {new_agents}")
+    print(f"\n🆕 Found new MCP servers: {new_servers}")
     print("=" * 50)
     
-    # Process each new agent
-    for agent_name in new_agents:
-        print(f"\n🔧 Processing agent: {agent_name}")
+    for server_name in new_servers:
+        print(f"\n🔧 Processing MCP server: {server_name}")
         
         # 1. Add dependency to Chart.yaml
-        add_chart_dependency(agent_name)
+        add_chart_dependency(server_name)
         
         # 2. Update values files
-        add_to_values_file(helm_dir / "values.yaml", agent_name)
-        add_to_existing_secrets_file(helm_dir / "values-existing-secrets.yaml", agent_name)
-        add_to_ingress_file(helm_dir / "values-ingress.yaml.example", agent_name)
+        add_to_values_file(chart_dir / "values.yaml", server_name)
+        add_to_existing_secrets_file(chart_dir / "values-existing-secrets.yaml", server_name)
+        add_to_ingress_file(chart_dir / "values-ingress.yaml.example", server_name)
         
         # 3. Update external secrets file
-        add_to_external_secrets_file(helm_dir / "values-external-secrets.yaml.example", agent_name)
+        add_to_external_secrets_file(chart_dir / "values-external-secrets.yaml", server_name)
         
-        print(f"✅ Agent {agent_name} configured successfully!")
+        print(f"✅ MCP server {server_name} configured successfully!")
     
-    # 4. Bump version once after all agents are processed
-    if new_agents:
-        bump_chart_version(helm_dir / "Chart.yaml")
+    # 4. Bump version once after all servers are processed
+    if new_servers:
+        bump_chart_version(chart_dir / "Chart.yaml")
     
     print("\n" + "=" * 50)
-    print("🎉 All new agents have been configured!")
+    print("🎉 All new MCP servers have been configured!")
     print("\n📝 Manual steps required:")
-    for agent_name in new_agents:
-        print(f"\nFor agent-{agent_name}:")
+    for server_name in new_servers:
+        print(f"\nFor mcp-{server_name}:")
         print("  1. Review and update configuration in:")
-        print("     - helm/values.yaml")
-        print("     - helm/values-existing-secrets.yaml") 
-        print("     - helm/values-external-secrets.yaml.example")
+        print("     - charts/ai-platform-engineering/values.yaml")
+        print("     - charts/ai-platform-engineering/values-existing-secrets.yaml")
+        print("     - charts/ai-platform-engineering/values-external-secrets.yaml")
         print("  2. Add specific secrets and environment variables")
-    print("\n3. Test the configuration with: helm template ./helm")
-    print("4. Run: helm dependency update ./helm")
+    print("\n3. Test the configuration with: helm template ./charts/ai-platform-engineering")
+    print("4. Run: helm dependency update ./charts/ai-platform-engineering")
 
 if __name__ == "__main__":
     main()

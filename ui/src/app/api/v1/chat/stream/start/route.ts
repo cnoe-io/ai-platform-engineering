@@ -5,11 +5,14 @@
  * Response: SSE stream (text/event-stream)
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
+import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { NextRequest,NextResponse } from "next/server";
+import { requireConversationWriteAccess } from "../../_conversation-authz";
 import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxySSEStream,
+authenticateRequest,
+getDynamicAgentsConfig,
+proxySSEStream,
 } from "../../_helpers";
 
 export const runtime = "nodejs";
@@ -41,6 +44,25 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 400 },
     );
   }
+
+  const traceContext = createAuthzTraceContext(request.headers.get("traceparent"));
+  authResult.traceparent = traceContext.traceparent;
+
+  const authzResponse = await requireAgentUsePermission({
+    subject: authResult.subject,
+    agentId: body.agent_id,
+    email: authResult.email,
+    tenantId: authResult.tenantId,
+    traceparent: traceContext.traceparent,
+    isServiceAccount: authResult.isServiceAccount,
+  });
+  if (authzResponse) return authzResponse;
+
+  const conversationAuthzResponse = await requireConversationWriteAccess(
+    authResult,
+    String(body.conversation_id),
+  );
+  if (conversationAuthzResponse) return conversationAuthzResponse;
 
   // Forward body as-is to DA backend (same path, same body format)
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/start`;

@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { MessageSquare, Zap, Database, Workflow, ArrowRight } from "lucide-react";
+// assisted-by Codex Codex-sonnet-4-6
+
 import { cn } from "@/lib/utils";
+import { ArrowRight,Bot,Database,MessageSquare,Server,Workflow,Zap } from "lucide-react";
+import Link from "next/link";
 
 interface CapabilityCardsProps {
   ragEnabled: boolean;
@@ -22,6 +23,28 @@ const capabilities = [
     borderColor: "hover:border-blue-500/30",
   },
   {
+    id: "agents",
+    title: "Agents",
+    description:
+      "Create and manage custom AI agents with models, prompts, skills, and tool access for your team.",
+    icon: Bot,
+    href: "/dynamic-agents",
+    color: "text-cyan-400",
+    bgColor: "bg-cyan-500/10",
+    borderColor: "hover:border-cyan-500/30",
+  },
+  {
+    id: "mcp-servers",
+    title: "Tools",
+    description:
+      "Connect agents to APIs, infrastructure systems, and internal services.",
+    icon: Server,
+    href: "/dynamic-agents?tab=mcp-servers",
+    color: "text-teal-400",
+    bgColor: "bg-teal-500/10",
+    borderColor: "hover:border-teal-500/30",
+  },
+  {
     id: "skills",
     title: "Skills",
     description:
@@ -33,12 +56,12 @@ const capabilities = [
     borderColor: "hover:border-amber-500/30",
   },
   {
-    id: "task-builder",
-    title: "Task Builder",
+    id: "workflows",
+    title: "Workflows",
     description:
       "Create and manage self-service workflows that chain agent actions into repeatable multi-step tasks.",
     icon: Workflow,
-    href: "/task-builder",
+    href: "/workflows",
     color: "text-violet-400",
     bgColor: "bg-violet-500/10",
     borderColor: "hover:border-violet-500/30",
@@ -65,7 +88,7 @@ export function CapabilityCards({ ragEnabled }: CapabilityCardsProps) {
   return (
     <div data-testid="capability-cards">
       <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-        Platform Capabilities
+        Start Here
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleCapabilities.map((cap) => (

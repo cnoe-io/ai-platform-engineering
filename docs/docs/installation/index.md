@@ -25,14 +25,14 @@ Pick the path that matches your environment:
 
 A full CAIPE stack includes:
 
-- **supervisor-agent** — orchestrates all sub-agent calls
 - **caipe-ui** — web interface (React / Next.js)
 - **MongoDB** — chat and agent-config persistence  
 - **dynamic-agents** — runtime for user-built custom agents
+- **MCP servers** — tool servers for ArgoCD, GitHub, Backstage, and other integrations
 - **RAG stack** *(optional)* — ingestors, vector store, graph RAG server
 - **Slack / Webex bots** *(optional)*
 
-The minimal install (supervisor + UI + MongoDB) is enough to run the pre-built agent fleet.
+The minimal install (UI + Dynamic Agents + MongoDB) is enough to run chat with configured MCP tools.
 
 ## Quickest path
 
@@ -53,8 +53,8 @@ See [Getting Started → Quick Start](/docs/getting-started/quick-start) for a f
 
 ## Persistence
 
-To enable durable conversation checkpoints and cross-session memory, see the
-[Persistence guide](./persistence.md) — it covers Redis, PostgreSQL, and MongoDB options.
+Durable chat state uses MongoDB. See the [Persistence guide](./persistence.md)
+for Docker Compose, Helm, and external MongoDB configuration.
 
 ## Helm Chart Reference
 

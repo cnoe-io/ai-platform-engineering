@@ -20,20 +20,17 @@ on:
           - docker
           - helm
           - mcp-agent
-          - a2a-sub-agent
-          - supervisor-agent
           - caipe-ui
+          - audit-service
           - skill-scanner
           - dynamic-agents
           - slack-bot
-          - a2a-rag
+          - rag
 
 permissions:
   actions: read
-  contents: write
-  issues: write
-  packages: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
   resolve-pr:
@@ -47,13 +44,12 @@ jobs:
       base_ref: ${{ steps.pr.outputs.base_ref }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
       mcp_agent_changed: ${{ steps.pr.outputs.mcp_agent_changed }}
-      a2a_sub_agent_changed: ${{ steps.pr.outputs.a2a_sub_agent_changed }}
-      supervisor_agent_changed: ${{ steps.pr.outputs.supervisor_agent_changed }}
       caipe_ui_changed: ${{ steps.pr.outputs.caipe_ui_changed }}
+      audit_service_changed: ${{ steps.pr.outputs.audit_service_changed }}
       skill_scanner_changed: ${{ steps.pr.outputs.skill_scanner_changed }}
       dynamic_agents_changed: ${{ steps.pr.outputs.dynamic_agents_changed }}
       slack_bot_changed: ${{ steps.pr.outputs.slack_bot_changed }}
-      a2a_rag_changed: ${{ steps.pr.outputs.a2a_rag_changed }}
+      rag_changed: ${{ steps.pr.outputs.rag_changed }}
       helm_changed: ${{ steps.pr.outputs.helm_changed }}
     steps:
       - name: Resolve PR metadata
@@ -132,26 +128,17 @@ jobs:
 
             const pathSets = {
               mcp_agent: [
-                'ai_platform_engineering/agents/**',
+                'ai_platform_engineering/mcp/**',
                 '.github/**',
                 'build/agents/Dockerfile.mcp',
-              ],
-              a2a_sub_agent: [
-                'ai_platform_engineering/utils/**',
-                'ai_platform_engineering/agents/**',
-                '.github/**',
-                'build/agents/Dockerfile.a2a',
-              ],
-              supervisor_agent: [
-                'build/Dockerfile',
-                'ai_platform_engineering/multi_agents/**',
-                'ai_platform_engineering/agents/**',
-                'ai_platform_engineering/utils/**',
-                'ai_platform_engineering/__init__.py',
               ],
               caipe_ui: [
                 'ui/**',
                 'build/Dockerfile.caipe-ui',
+              ],
+              audit_service: [
+                'ai_platform_engineering/audit_service/**',
+                'build/Dockerfile.audit-service',
               ],
               skill_scanner: [
                 'build/Dockerfile.skill-scanner',
@@ -163,7 +150,7 @@ jobs:
               slack_bot: [
                 'ai_platform_engineering/integrations/slack_bot/**',
               ],
-              a2a_rag: [
+              rag: [
                 'ai_platform_engineering/knowledge_bases/rag/**',
               ],
               helm: [
@@ -186,33 +173,11 @@ jobs:
     name: MCP Agent Images
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'mcp-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.mcp_agent_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-mcp-agent.yml
-    with:
-      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
-      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
-      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
-      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
-      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
-    secrets: inherit
-
-  prebuild-a2a-sub-agent:
-    name: A2A Sub-Agent Images
-    needs: resolve-pr
-    if: ${{ needs.resolve-pr.outputs.target == 'a2a-sub-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_sub_agent_changed == 'true') }}
-    uses: ./.github/workflows/prebuild-a2a-sub-agent.yml
-    with:
-      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
-      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
-      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
-      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
-      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
-    secrets: inherit
-
-  prebuild-supervisor-agent:
-    name: Supervisor Agent Image
-    needs: resolve-pr
-    if: ${{ needs.resolve-pr.outputs.target == 'supervisor-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.supervisor_agent_changed == 'true') }}
-    uses: ./.github/workflows/prebuild-supervisor-agent.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
       head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
@@ -225,6 +190,10 @@ jobs:
     name: CAIPE UI Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'caipe-ui' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.caipe_ui_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-caipe-ui.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -238,7 +207,28 @@ jobs:
     name: Skill Scanner Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'skill-scanner' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.skill_scanner_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-skill-scanner.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-audit-service:
+    name: Audit Service Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'audit-service' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.audit_service_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    uses: ./.github/workflows/prebuild-audit-service.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
       head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
@@ -251,6 +241,10 @@ jobs:
     name: Dynamic Agents Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'dynamic-agents' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.dynamic_agents_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-dynamic-agents.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -264,6 +258,10 @@ jobs:
     name: Slack Bot Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'slack-bot' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.slack_bot_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-slack-bot.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -273,11 +271,15 @@ jobs:
       base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
     secrets: inherit
 
-  prebuild-a2a-rag:
-    name: A2A RAG Images
+  prebuild-rag:
+    name: RAG Images
     needs: resolve-pr
-    if: ${{ needs.resolve-pr.outputs.target == 'a2a-rag' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_rag_changed == 'true') }}
-    uses: ./.github/workflows/prebuild-a2a-rag.yml
+    if: ${{ needs.resolve-pr.outputs.target == 'rag' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.rag_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    uses: ./.github/workflows/prebuild-rag.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
       head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
@@ -290,6 +292,10 @@ jobs:
     name: Helm Charts
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'helm' || (needs.resolve-pr.outputs.target == 'all' && needs.resolve-pr.outputs.helm_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-helm.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}

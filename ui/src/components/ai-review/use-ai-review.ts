@@ -19,17 +19,17 @@
  *     lets users batch multiple fixes before a single re-review.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  LastReview,
-  ReviewConfig,
-  ReviewContext,
-  ReviewEnforcement,
-  ReviewRequest,
-  ReviewResult,
+LastReview,
+ReviewConfig,
+ReviewContext,
+ReviewEnforcement,
+ReviewRequest,
+ReviewResult,
 } from "@/types/ai-review";
-import { sha256Hex } from "./hash";
+import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 import { applyFix as applyFixToContent } from "./apply-fix";
+import { sha256Hex } from "./hash";
 
 export type AiReviewStatus = "idle" | "running" | "ready" | "error";
 
@@ -87,7 +87,13 @@ export interface UseAiReviewResult {
   /** Clear the current notice (panels call this after acknowledging the flag). */
   clearNotice: () => void;
   run: () => Promise<void>;
-  ensurePassedOrRun: () => Promise<boolean>;
+  /**
+   * Gate a save/next transition behind a passing review. Returns both the
+   * pass status AND the `ReviewResult` it settled on, so callers can persist
+   * the grade from the just-run result rather than reading the hook's
+   * `result` state — which lags by a render after an inline run.
+   */
+  ensurePassedOrRun: () => Promise<{ passed: boolean; result: ReviewResult | null }>;
   applyFix: (criterionId: string) => void;
   applyAllFixes: () => void;
   dismiss: (criterionId: string) => void;
@@ -150,6 +156,7 @@ export function useAiReview({
   // Drop a stale "cached" notice the moment content changes — otherwise the
   // panel would keep showing "no changes" against fresh, unreviewed content.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset notice state whenever content changes
     setNotice(null);
   }, [content]);
 
@@ -279,11 +286,15 @@ export function useAiReview({
     await runInternal();
   }, [runInternal]);
 
-  const ensurePassedOrRun = useCallback(async (): Promise<boolean> => {
-    if (!enabled || enforcement === "informational") return true;
-    if (isPassed) return true;
+  const ensurePassedOrRun = useCallback(async (): Promise<{
+    passed: boolean;
+    result: ReviewResult | null;
+  }> => {
+    if (!enabled || enforcement === "informational")
+      return { passed: true, result: resultRef.current };
+    if (isPassed) return { passed: true, result: resultRef.current };
     const fresh = await runInternal();
-    return fresh?.passed ?? false;
+    return { passed: fresh?.passed ?? false, result: fresh };
   }, [enabled, enforcement, isPassed, runInternal]);
 
   const applyFix = useCallback(

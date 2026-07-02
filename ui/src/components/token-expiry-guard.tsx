@@ -2,15 +2,20 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
-import { useSession, signOut } from "next-auth/react";
-import { useEffect, useState, useCallback, useRef } from "react";
-import { isTokenExpired, getTimeUntilExpiry, formatTimeUntilExpiry, getWarningTimestamp } from "@/lib/auth-utils";
-import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, LogOut } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { formatTimeUntilExpiry,getTimeUntilExpiry,getWarningTimestamp,isTokenExpired } from "@/lib/auth-utils";
+import { getConfig } from "@/lib/config";
+import { AnimatePresence,motion } from "framer-motion";
+import { AlertCircle,LogOut } from "lucide-react";
+import { signOut,useSession } from "next-auth/react";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 const LOGIN_REDIRECT_COUNTDOWN_SECONDS = 5;
+const SESSION_CREDENTIAL_ERRORS = new Set([
+  "RefreshTokenExpired",
+  "RefreshTokenError",
+  "AccessTokenMissing",
+]);
 
 /**
  * TokenExpiryGuard Component
@@ -37,6 +42,8 @@ export function TokenExpiryGuard() {
   const dismissedForExpiryRef = useRef<number | null>(null);
   /** Tracks whether a silent refresh is in flight to prevent concurrent attempts. */
   const isRefreshingRef = useRef(false);
+  /** Cooldown: timestamp of the last successful refresh to prevent rapid re-refresh loops. */
+  const lastRefreshAtRef = useRef<number>(0);
 
   const clearRedirectTimers = useCallback(() => {
     if (countdownIntervalRef.current) {
@@ -111,12 +118,17 @@ export function TokenExpiryGuard() {
       return false;
     }
 
+    const now = Date.now();
+    const COOLDOWN_MS = 60_000;
+    if (now - lastRefreshAtRef.current < COOLDOWN_MS) {
+      return false;
+    }
+
     isRefreshingRef.current = true;
     try {
       console.log("[TokenExpiryGuard] Attempting silent token refresh...");
-      // updateSession() triggers NextAuth to re-run the JWT callback server-side.
-      // If the token is near expiry, the JWT callback calls refreshAccessToken().
       await updateSession();
+      lastRefreshAtRef.current = Date.now();
       console.log("[TokenExpiryGuard] Silent refresh triggered successfully");
       return true;
     } catch (error) {
@@ -138,9 +150,9 @@ export function TokenExpiryGuard() {
       return; // Not authenticated
     }
 
-    // Check if token refresh failed
-    if (session.error === "RefreshTokenExpired" || session.error === "RefreshTokenError") {
-      console.error(`[TokenExpiryGuard] Token refresh failed: ${session.error}`);
+    // Check if token refresh failed or the server-side token cache was lost.
+    if (SESSION_CREDENTIAL_ERRORS.has(session.error ?? "")) {
+      console.error(`[TokenExpiryGuard] Session credentials unavailable: ${session.error}`);
       beginLoginCountdown("refresh_failed");
       return;
     }
@@ -320,12 +332,12 @@ export function TokenExpiryGuard() {
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold text-foreground mb-2">
-                    {refreshFailed ? "Session Refresh Failed" : "Session Expired"}
+                    {refreshFailed ? "Sign-in Needed" : "Session Expired"}
                   </h2>
                   <p className="text-sm text-muted-foreground mb-4">
                     {refreshFailed
                       ? "We could not refresh your session. Please sign in again to continue."
-                      : "Your session has expired for security reasons. Please log in again to continue using the application."}
+                      : "Please sign in again to continue."}
                   </p>
                   <p className="text-xs text-muted-foreground mb-4">
                     Redirecting to login in {redirectCountdown} seconds...
@@ -337,7 +349,7 @@ export function TokenExpiryGuard() {
                       variant="default"
                     >
                       <LogOut className="h-4 w-4" />
-                      Log In Again
+                      Sign In Again
                     </Button>
                   </div>
                 </div>

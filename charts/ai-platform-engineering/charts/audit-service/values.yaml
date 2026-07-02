@@ -1,0 +1,155 @@
+# audit-service — lightweight audit log read/write API.
+# The umbrella chart installs this service unconditionally so UI and platform
+# components can offload audit writes without coupling request latency to
+# storage backend behavior.
+# assisted-by Codex Codex-sonnet-4-6
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+image:
+  repository: ghcr.io/cnoe-io/caipe-audit-service
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8010
+
+storage:
+  # Backend can be "auto", "local", or "s3".
+  # auto uses S3 only when storage.s3.bucket and an AWS credential path are set;
+  # otherwise it uses local disk.
+  backend: auto
+
+  local:
+    path: /var/lib/caipe-audit-service
+    gzip: true
+    retentionDays: 1
+
+  s3:
+    bucket: ""
+    prefix: audit
+    region: us-east-1
+    endpointUrl: ""
+    # retentionDays: Days before S3 objects expire via a lifecycle rule.
+    # 0 means no lifecycle rule is applied (operator manages expiry externally).
+    # Admins can also update this at runtime via the admin panel without a restart.
+    retentionDays: 0
+    # Set true only when the pod should rely on ambient AWS credentials that
+    # are not visible in chart values, such as a node role or pod identity
+    # setup that does not require a service account annotation.
+    useAmbientCredentials: false
+    # Optional static AWS credentials. Leave empty for IRSA/workload identity
+    # when serviceAccount.annotations supplies the role binding. For node-role
+    # or other invisible ambient credentials, set useAmbientCredentials=true.
+    existingSecret:
+      name: ""
+      accessKeyIdKey: AWS_ACCESS_KEY_ID
+      secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
+      sessionTokenKey: AWS_SESSION_TOKEN
+
+# verbosity controls which event types are ingested.
+# Presets: minimal (default), standard, verbose, il2, il5, soc2
+# minimal: cas_grant + cas_reconcile only (lowest volume)
+# standard: adds auth, cas_decision, credential_action
+# verbose: all event types (equivalent to previous default)
+# il2/soc2/il5: compliance-aligned subsets — see audit-service docs
+verbosity: minimal
+
+persistence:
+  # Used only when storage.backend=local. Disable to use ephemeral emptyDir.
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+
+queue:
+  maxSize: 10000
+  flushBatchSize: 500
+  flushIntervalSeconds: 1.0
+
+read:
+  defaultLimit: 1000
+  maxLimit: 10000
+  maxDays: 31
+
+existingSecret: ""
+extraEnv: []
+extraEnvFrom: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+startupProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 18
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 0
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+serviceAccount:
+  create: true
+  # Keep this true by default so IRSA and other projected-token identity flows
+  # work without extra values.
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+volumes: []
+volumeMounts: []

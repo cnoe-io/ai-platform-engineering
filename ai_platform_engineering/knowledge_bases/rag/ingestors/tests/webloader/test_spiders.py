@@ -332,6 +332,23 @@ class TestWorkerSpiderRedirectHandling:
     spider = self._make_worker_spider()
     assert spider.effective_domain is None
 
+  def test_sets_scrapy_start_urls_for_current_scrapy(self):
+    """WorkerSpider should satisfy Scrapy's default start() validation."""
+    spider = self._make_worker_spider(start_url="https://docs.example.com")
+
+    assert spider.start_urls == ["https://docs.example.com"]
+
+  @pytest.mark.asyncio
+  async def test_async_start_uses_mode_specific_start_requests(self):
+    """WorkerSpider should not let Scrapy default to parse() for start URLs."""
+    spider = self._make_worker_spider(start_url="https://cnoe-io.github.io/ai-platform-engineering/", crawl_mode="sitemap")
+
+    requests = [request async for request in spider.start()]
+
+    assert len(requests) == 1
+    assert requests[0].url == "https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml"
+    assert requests[0].callback == spider.parse_sitemap
+
   def test_should_follow_uses_start_domain_when_no_redirect(self):
     """Without redirect, _should_follow should use start_url domain."""
     spider = self._make_worker_spider(start_url="https://docs.example.com")

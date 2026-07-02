@@ -9,7 +9,11 @@ const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
@@ -23,6 +27,19 @@ jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
+
+// 098-enterprise-rbac introduced an OpenFGA PDP gate on the chat read
+// route via `requireConversationResourcePermission`. Mock it so admin
+// auditors can access non-owned conversations without a live OpenFGA.
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  requireResourcePermission: jest.fn().mockResolvedValue(undefined),
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+}));
+
 jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -113,6 +130,58 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
+  it('returns access_level owner for case-insensitive owner email matches', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'Owner@Example.com',
+      title: 'Test',
+      sharing: { shared_with: ['owner@example.com'], shared_with_teams: [] },
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue({ permission: 'view' });
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'owner@example.com',
+      mockGetCollection
+    );
+
+    expect(result.access_level).toBe('owner');
+    expect(sharingAccessCol.findOne).not.toHaveBeenCalled();
+  });
+
+  it('returns access_level owner when owner_subject matches the session subject', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'legacy-owner@example.com',
+      owner_subject: 'owner-subject',
+      title: 'Test',
+      sharing: { shared_with: ['viewer@example.com'], shared_with_teams: [] },
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue({ permission: 'view' });
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'viewer@example.com',
+      mockGetCollection,
+      { sub: 'owner-subject' }
+    );
+
+    expect(result.access_level).toBe('owner');
+    expect(sharingAccessCol.findOne).not.toHaveBeenCalled();
+  });
+
   it('returns access_level shared when user is in shared_with', async () => {
     const conv = {
       _id: CONV_ID,
@@ -164,32 +233,6 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
-  it('returns access_level admin_audit when canViewAdmin=true session is provided', async () => {
-    const conv = {
-      _id: CONV_ID,
-      owner_id: 'owner@example.com',
-      title: 'Test',
-      sharing: { shared_with: [], shared_with_teams: [] },
-    };
-    const convsCol = createMockCollection();
-    convsCol.findOne.mockResolvedValue(conv);
-    mockCollections['conversations'] = convsCol;
-
-    const sharingAccessCol = createMockCollection();
-    sharingAccessCol.findOne.mockResolvedValue(null);
-    mockCollections['sharing_access'] = sharingAccessCol;
-
-    const result = await requireConversationAccess(
-      CONV_ID,
-      'auditor@example.com',
-      mockGetCollection,
-      { role: 'user', canViewAdmin: true }
-    );
-
-    expect(result.access_level).toBe('admin_audit');
-    expect(result.conversation).toEqual(conv);
-  });
-
   it('throws 403 when non-admin non-shared non-owner user without session', async () => {
     const conv = {
       _id: CONV_ID,
@@ -210,7 +253,7 @@ describe('requireConversationAccess — admin audit', () => {
     await expect(err).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it('throws 403 when non-admin user even with session (role=user, canViewAdmin=false)', async () => {
+  it('throws 403 when non-admin user with session (role=user)', async () => {
     const conv = {
       _id: CONV_ID,
       owner_id: 'owner@example.com',
@@ -227,7 +270,6 @@ describe('requireConversationAccess — admin audit', () => {
 
     const err = requireConversationAccess(CONV_ID, 'other@example.com', mockGetCollection, {
       role: 'user',
-      canViewAdmin: false,
     });
     await expect(err).rejects.toThrow(ApiError);
     await expect(err).rejects.toMatchObject({ statusCode: 403 });
@@ -333,7 +375,8 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     mockGetServerSession.mockResolvedValue({
       user: { email: 'admin@example.com', name: 'Admin' },
       role: 'admin',
-      canViewAdmin: true,
+      // 098-enterprise-rbac: OpenFGA gates require a stable subject id.
+      sub: 'admin-sub',
     });
 
     const convsCol = createMockCollection();
@@ -392,6 +435,6 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error).toContain('Forbidden');
+    expect(body.error).toContain('You do not have access to this conversation.');
   });
 });

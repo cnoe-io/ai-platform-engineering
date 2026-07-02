@@ -1,13 +1,13 @@
 "use client";
 
-import React from "react";
-import { Bot, ChevronDown, Check, Loader2, Lock } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { Bot,Check,ChevronDown,Loader2,Lock } from "lucide-react";
+import React from "react";
 
 interface AgentSelectorProps {
-  selectedAgentId?: string; // undefined = default supervisor
-  onSelectAgent: (agentId: string | undefined) => void;
+  selectedAgentId?: string;
+  onSelectAgent: (agentId: string) => void;
   disabled?: boolean;
 }
 
@@ -15,7 +15,6 @@ interface AgentOption {
   id: string;
   name: string;
   description?: string;
-  isDefault?: boolean;
 }
 
 export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: AgentSelectorProps) {
@@ -73,37 +72,18 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
 
   // Build options list
   const options: AgentOption[] = React.useMemo(() => {
-    const opts: AgentOption[] = [
-      {
-        id: "default",
-        name: "Platform Engineer",
-        description: "Default multi-agent supervisor",
-        isDefault: true,
-      },
-    ];
-
-    agents.forEach((agent) => {
-      opts.push({
-        id: agent._id,
-        name: agent.name,
-        description: agent.description,
-      });
-    });
-
-    return opts;
+    return agents.map((agent) => ({
+      id: agent._id,
+      name: agent.name,
+      description: agent.description,
+    }));
   }, [agents]);
 
   // Find currently selected option
-  const selectedOption = options.find(
-    (opt) => (selectedAgentId ? opt.id === selectedAgentId : opt.isDefault)
-  ) || options[0];
+  const selectedOption = options.find((opt) => opt.id === selectedAgentId) || options[0];
 
   const handleSelect = (optionId: string) => {
-    if (optionId === "default") {
-      onSelectAgent(undefined);
-    } else {
-      onSelectAgent(optionId);
-    }
+    onSelectAgent(optionId);
     setOpen(false);
   };
 
@@ -164,9 +144,7 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
               <p className="px-2 py-2 text-sm text-destructive">{error}</p>
             ) : (
               options.map((option) => {
-                const isSelected = selectedAgentId
-                  ? option.id === selectedAgentId
-                  : option.isDefault;
+                const isSelected = option.id === selectedOption?.id;
 
                 return (
                   <button
@@ -192,11 +170,6 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
                       {option.description && (
                         <div className="text-xs text-muted-foreground line-clamp-2">
                           {option.description}
-                        </div>
-                      )}
-                      {option.isDefault && (
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          Multi-agent with ArgoCD, GitHub, AWS, RAG...
                         </div>
                       )}
                     </div>

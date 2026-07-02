@@ -2,8 +2,8 @@
  * Timeline Manager
  *
  * Manages the transformation of SSE events into an interleaved timeline.
- * Events are rendered in temporal order (like A2A), with subagents
- * having their own nested timelines.
+ * Events are rendered in temporal order, with subagents having their own
+ * nested timelines.
  *
  * Key features:
  * - Interleaved content/tools in stream order
@@ -11,20 +11,20 @@
  * - Final answer detection (content after last tool_end)
  */
 
+import type { ToolStartEventData } from "@/lib/streaming/types";
+import { SUBAGENT_TOOL_NAME } from "@/lib/streaming/types";
 import type {
-  TimelineData,
-  TimelineStats,
-  ToolInfo,
-  SubagentInfo,
-  TimelineSegment,
-  ContentSegment,
-  ToolSegment,
-  SubagentSegment,
-  StatusSegment,
-  StatusType,
+ContentSegment,
+StatusSegment,
+StatusType,
+SubagentInfo,
+SubagentSegment,
+TimelineData,
+TimelineSegment,
+TimelineStats,
+ToolInfo,
+ToolSegment,
 } from "@/types/dynamic-agent-timeline";
-import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
-import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 
 // ═══════════════════════════════════════════════════════════════
 // Internal Types

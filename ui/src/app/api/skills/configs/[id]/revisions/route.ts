@@ -1,13 +1,14 @@
 import { NextRequest } from "next/server";
 
+import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { isMongoDBConfigured } from "@/lib/mongodb";
-import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import { listRevisions } from "@/lib/skill-revisions";
 
 /**
@@ -36,12 +37,13 @@ export const GET = withErrorHandler(
     if (!id) {
       throw new ApiError("Skill id is required", 400);
     }
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) {
         // 404 (not 403) so we don't leak existence to non-viewers.
         throw new ApiError("Skill not found", 404);
       }
+      await requireSkillPermission(session, id, "read");
       const revisions = await listRevisions(id);
       return successResponse({
         skill_id: id,

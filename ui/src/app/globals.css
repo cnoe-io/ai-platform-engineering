@@ -84,6 +84,7 @@
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-pulse-slow: pulse-gentle 4s ease-in-out infinite;
   --animate-slide-in: slideIn 0.3s ease-out;
   --animate-reveal-ltr: revealLtr 0.25s ease-out forwards;
 }
@@ -103,7 +104,7 @@
   --font-size-base: 1rem;
   --font-size-scale: 1;
 
-  /* A2A Protocol Event Colors - consistent across themes */
+  /* Stream event colors - consistent across themes */
   --a2a-task: 199 89% 48%;
   --a2a-artifact: 270 75% 60%;
   --a2a-status: 142 71% 45%;
@@ -460,7 +461,7 @@
     box-shadow: 0 0 15px hsl(var(--primary) / 0.2);
   }
 
-  /* A2A Event badges with subtle glow */
+  /* Stream event badges with subtle glow */
   .a2a-badge-task {
     @apply bg-sky-500/15 text-sky-400 border border-sky-500/30;
     box-shadow: 0 0 10px hsl(199 89% 48% / 0.15);
@@ -586,6 +587,15 @@
   }
 }
 
+@keyframes pulse-gentle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-gentle {
+  animation: pulse-gentle 4s ease-in-out infinite;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -623,7 +633,7 @@
   animation: shimmer 1.5s infinite;
 }
 
-/* A2A Stream item animation */
+/* Stream item animation */
 .a2a-stream-item {
   animation: slideInFromBottom 0.2s ease-out;
 }
@@ -761,6 +771,16 @@ pre code.hljs {
 /* Utility classes for gradient theme support */
 .gradient-primary {
   background: linear-gradient(to right, var(--gradient-from), var(--gradient-to));
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+
+.gradient-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--gradient-from) 30%, transparent);
+}
+
+.gradient-primary:active:not(:disabled) {
+  filter: brightness(0.95);
 }
 
 .gradient-primary-br {
@@ -793,4 +813,13 @@ pre code.hljs {
 [data-radix-scroll-area-viewport] > div {
   display: block !important;
   min-width: 0 !important;
+}
+
+/* ========================================
+   RESIZABLE PANEL ANIMATION
+   Smooth expand/collapse for programmatic
+   panel toggle (not during manual drag)
+   ======================================== */
+[data-animating] > [data-panel] {
+  transition: flex-grow 300ms ease-in-out;
 }

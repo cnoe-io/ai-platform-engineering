@@ -1,48 +1,49 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Search,
-  Plus,
-  Workflow,
-  GitBranch,
-  Cloud,
-  Rocket,
-  Key,
-  Users,
-  Settings,
-  Loader2,
-  AlertCircle,
-  Edit,
-  Trash2,
-  Upload,
-  Sparkles,
-  Zap,
-  Server,
-  Bug,
-  BarChart,
-  Shield,
-  Database,
-  Clock,
-  AlertTriangle,
-  CheckCircle,
-  GitPullRequest,
-  ArrowRight,
-  X,
-  MessageSquare,
-  Star,
-  History,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Input } from "@/components/ui/input";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
-import type { AgentSkill, WorkflowDifficulty } from "@/types/agent-skill";
+import type { AgentSkill,WorkflowDifficulty } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+AlertTriangle,
+ArrowRight,
+BarChart,
+Bug,
+CheckCircle,
+Clock,
+Cloud,
+Database,
+Edit,
+GitBranch,
+GitPullRequest,
+History,
+Key,
+Loader2,
+MessageSquare,
+Plus,
+Rocket,
+Search,
+Server,
+Settings,
+Shield,
+Sparkles,
+Star,
+Trash2,
+Upload,
+Users,
+Workflow,
+X,
+Zap,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import React,{ useEffect,useMemo,useState } from "react";
 
 interface AgentBuilderGalleryProps {
   onEditConfig?: (config: AgentSkill) => void;
@@ -141,20 +142,6 @@ export function AgentBuilderGallery({
   // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
 
-  // Supervisor sync state
-  const [supervisorSynced, setSupervisorSynced] = useState(false);
-  const [supervisorLoading, setSupervisorLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/skills/supervisor-status")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
-      })
-      .catch(() => setSupervisorSynced(false))
-      .finally(() => setSupervisorLoading(false));
-  }, []);
-
   const canModifyConfig = (_config: AgentSkill) => true;
 
   // Load configs on mount
@@ -234,11 +221,17 @@ export function AgentBuilderGallery({
 
   const handleTrySkill = async () => {
     if (!activeFormConfig) return;
-    const conversationId = await createConversation();
-    const skillId = activeFormConfig.id || activeFormConfig.name;
-    setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
-    setActiveFormConfig(null);
-    router.push(`/chat/${conversationId}`);
+    try {
+      const conversationId = await createConversation(await resolveUsableChatAgentId());
+      const skillId = activeFormConfig.id || activeFormConfig.name;
+      setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
+      setActiveFormConfig(null);
+      router.push(`/chat/${conversationId}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create a chat conversation";
+      alert(message);
+    }
   };
 
   if (error) {
@@ -743,20 +736,11 @@ export function AgentBuilderGallery({
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                  {!supervisorSynced && !supervisorLoading && (
-                    <span title="Skills must be synced with the supervisor first"><AlertTriangle className="h-4 w-4 text-amber-500" /></span>
-                  )}
                   <Button
                     onClick={handleTrySkill}
-                    className={supervisorSynced ? "gradient-primary text-white gap-2" : "gap-2"}
-                    variant={supervisorSynced ? "default" : "secondary"}
-                    disabled={!supervisorSynced || supervisorLoading}
+                    className="gradient-primary text-white gap-2"
                   >
-                    {supervisorLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MessageSquare className="h-4 w-4" />
-                    )}
+                    <MessageSquare className="h-4 w-4" />
                     Try Skill
                   </Button>
                 </div>

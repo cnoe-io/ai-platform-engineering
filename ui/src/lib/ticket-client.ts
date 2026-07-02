@@ -1,7 +1,10 @@
 "use client";
 
-import { SSEClient, type SSEEvent } from "@/lib/sse-streaming-client";
+import { apiClient } from "@/lib/api-client";
+import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
+import { createStreamAdapter,type StreamCallbacks } from "@/lib/streaming";
+import type { InputFieldDefinition } from "@/lib/streaming/types";
 
 export interface FeedbackContext {
   reason: string;
@@ -14,12 +17,27 @@ export interface TicketRequest {
   userEmail: string;
   contextUrl: string;
   feedbackContext?: FeedbackContext;
+  screenshotDataUrl?: string;
 }
 
 export interface TicketResult {
   id: string;
   url: string;
   provider: "jira" | "github";
+}
+
+export interface TicketStreamEvent {
+  type: "content" | "tool_start" | "tool_end" | "input_required" | "warning" | "done" | "error";
+  text?: string;
+  tool?: string;
+  description?: string;
+  message?: string;
+  fields?: Array<{
+    name: string;
+    label: string;
+    type: string;
+    required?: boolean;
+  }>;
 }
 
 function buildPrompt(request: TicketRequest): string {
@@ -56,12 +74,20 @@ function buildPrompt(request: TicketRequest): string {
     }
   }
 
+  if (request.screenshotDataUrl) {
+    descriptionLines.push(`Screenshot: [attached as base64 PNG — ${Math.round(request.screenshotDataUrl.length / 1024)}KB]`);
+  }
+
   const label =
     provider === "jira"
       ? getConfig("jiraTicketLabel")
       : getConfig("githubTicketLabel");
 
-  return `Create ${target} with the following details:\n${descriptionLines.join("\n")}\n\nSet the issue type to Bug. Add the label "${label}" to the ticket. Include the Context URL in the description so the team can navigate directly to the conversation.`;
+  const screenshotNote = request.screenshotDataUrl
+    ? "\n\nA screenshot was captured by the reporter and is available as a base64 PNG attachment. Include a note in the ticket description that a screenshot was provided."
+    : "";
+
+  return `Create ${target} with the following details:\n${descriptionLines.join("\n")}\n\nSet the issue type to Bug. Add the label "${label}" to the ticket. Include the Context URL in the description so the team can navigate directly to the conversation.${screenshotNote}`;
 }
 
 /**
@@ -100,59 +126,117 @@ function extractTicketResult(text: string): TicketResult | null {
 export interface CreateTicketOptions {
   request: TicketRequest;
   accessToken?: string;
-  onEvent?: (event: SSEEvent, logLine: string) => void;
+  onEvent?: (event: TicketStreamEvent, logLine: string) => void;
   onResult?: (result: TicketResult) => void;
   signal?: AbortSignal;
 }
 
 /**
- * Create a ticket via the SSE supervisor agent (Jira or GitHub).
+ * Create a ticket via the configured dynamic agent (Jira or GitHub).
  * Streams events back to the caller for progress display.
  */
 export async function createTicketViaAgent(
   options: CreateTicketOptions
 ): Promise<TicketResult | null> {
   const { request, accessToken, onEvent, onResult, signal } = options;
-  const endpoint = "/api/chat/stream";
-
   const prompt = buildPrompt(request);
 
   let finalContent = "";
+  let streamError: string | null = null;
 
-  const client = new SSEClient({
-    endpoint,
-    accessToken,
-    onEvent: (event: SSEEvent) => {
-      if (signal?.aborted) {
-        client.abort();
-        return;
-      }
+  const emitEvent = (event: TicketStreamEvent) => {
+    const label = event.type || "event";
+    const preview = (event.text || event.message || event.description || "")
+      .slice(0, 120)
+      .replace(/\n/g, "\\n") || "(no content)";
+    onEvent?.(event, `<- ${label}: ${preview}`);
+  };
 
-      const label = event.type || "event";
-      const preview = (event.text || event.message || "")
-        .slice(0, 120)
-        .replace(/\n/g, "\\n") || "(no content)";
-      const logLine = `← ${label}: ${preview}`;
-
-      onEvent?.(event, logLine);
-
-      if (event.type === "done" && event.turn_id) {
-        // Stream complete — finalContent already accumulated
-      } else if (event.type === "content" && event.text) {
-        finalContent += event.text;
-      }
+  const agent = await resolveUsableChatAgent();
+  const conversation = await apiClient.createConversation({
+    title: "Support Ticket Request",
+    client_type: "webui",
+    agent_id: agent.id,
+    metadata: {
+      source: "ticket-client",
+      context_url: request.contextUrl,
     },
   });
 
-  if (signal) {
-    signal.addEventListener("abort", () => client.abort());
+  const adapter = createStreamAdapter({
+    protocol: "custom",
+    accessToken,
+  });
+
+  if (signal?.aborted) {
+    adapter.abort();
+    return null;
   }
 
-  await client.sendMessage({
-    message: prompt,
-    user_email: request.userEmail,
-    source: "web",
-  });
+  if (signal) {
+    signal.addEventListener("abort", () => adapter.abort(), { once: true });
+  }
+
+  const callbacks: StreamCallbacks = {
+    onContent: (text) => {
+      finalContent += text;
+      emitEvent({ type: "content", text });
+    },
+    onToolStart: (_toolCallId, toolName) => {
+      emitEvent({
+        type: "tool_start",
+        tool: toolName,
+        description: `Calling ${toolName}`,
+      });
+    },
+    onToolEnd: (_toolCallId, toolName, error) => {
+      emitEvent({
+        type: "tool_end",
+        tool: toolName || "tool",
+        message: error,
+      });
+    },
+    onInputRequired: (_interruptId, prompt, fields) => {
+      emitEvent({
+        type: "input_required",
+        message: prompt,
+        fields: fields.map((field: InputFieldDefinition) => ({
+          name: field.field_name,
+          label: field.field_label || field.field_name,
+          type: field.field_type,
+          required: field.required,
+        })),
+      });
+    },
+    onWarning: (message) => {
+      emitEvent({ type: "warning", message });
+    },
+    onDone: () => {
+      emitEvent({ type: "done" });
+    },
+    onError: (message) => {
+      streamError = message;
+      emitEvent({ type: "error", message });
+    },
+  };
+
+  await adapter.streamMessage(
+    {
+      message: prompt,
+      conversationId: conversation.conversation._id,
+      agentId: agent.id,
+      source: "web",
+      clientContext: {
+        userEmail: request.userEmail,
+        ticketProvider: getConfig("ticketProvider"),
+      },
+    },
+    callbacks,
+  );
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
 
   if (!finalContent) return null;
 

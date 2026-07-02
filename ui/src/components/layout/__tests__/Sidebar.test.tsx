@@ -35,6 +35,7 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, ...props }: any, ref: any) => (
       <div ref={ref} {...props}>{children}</div>
     )),
@@ -49,7 +50,6 @@ const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
-const mockLoadTurnsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn((_id: string) => false)
 const mockHasUnviewedMessages = jest.fn((_id: string) => false)
 const mockIsConversationInputRequired = jest.fn((_id: string) => false)
@@ -69,7 +69,6 @@ jest.mock('@/store/chat-store', () => {
       deleteConversation: mockDeleteConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,
       loadMessagesFromServer: mockLoadMessagesFromServer,
-      loadTurnsFromServer: mockLoadTurnsFromServer,
       isConversationStreaming: mockIsConversationStreaming,
       hasUnviewedMessages: mockHasUnviewedMessages,
       isConversationInputRequired: mockIsConversationInputRequired,
@@ -97,6 +96,7 @@ jest.mock('lucide-react', () => ({
   Sparkles: (props: any) => <span data-testid="icon-sparkles" {...props} />,
   Zap: (props: any) => <span data-testid="icon-zap" {...props} />,
   Database: (props: any) => <span data-testid="icon-database" {...props} />,
+  Globe: (props: React.ComponentProps<'span'>) => <span data-testid="icon-globe" {...props} />,
   HardDrive: (props: any) => <span data-testid="icon-hard-drive" {...props} />,
   Users2: (props: any) => <span data-testid="icon-users2" {...props} />,
   Shield: (props: any) => <span data-testid="icon-shield" {...props} />,
@@ -144,7 +144,39 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 }))
 
 jest.mock('@/components/chat/ShareButton', () => ({
-  ShareButton: () => null,
+  ShareButton: ({ isOwner, isSharedWithViewer, sharedBy, sharing }: any) => {
+    const hasSharingConfig = Boolean(
+      (sharing?.shared_with?.length ?? 0) > 0 ||
+      (sharing?.shared_with_teams?.length ?? 0) > 0 ||
+      sharing?.share_link_enabled
+    )
+    // assisted-by Codex Codex-sonnet-4-6
+    const isShared = Boolean(isSharedWithViewer || hasSharingConfig)
+
+    return isOwner || isSharedWithViewer ? (
+      <button
+        data-testid="share-button"
+        data-owner={String(Boolean(isOwner))}
+        data-shared-viewer={String(Boolean(isSharedWithViewer))}
+        data-shared={String(isShared)}
+        data-shared-by={sharedBy || ''}
+      >
+        {isShared ? (
+          <span data-testid="icon-users2" />
+        ) : (
+          <span data-testid="icon-share2" />
+        )}
+        Share
+        {isSharedWithViewer && sharedBy ? <span>Shared by {sharedBy}</span> : null}
+      </button>
+    ) : null
+  },
+}))
+
+// NewChatButton is exercised by its own test suite; stub it here so the
+// Sidebar tests don't depend on its agent-avatar / dynamic-agent fetch tree.
+jest.mock('@/components/chat/NewChatButton', () => ({
+  NewChatButton: () => <button data-testid="new-chat-button">New Chat</button>,
 }))
 
 jest.mock('@/lib/api-client', () => ({
@@ -382,6 +414,129 @@ describe('Sidebar — Live Status Indicator', () => {
 
       expect(screen.queryByText('Live')).not.toBeInTheDocument()
       expect(screen.queryByText('New response')).not.toBeInTheDocument()
+    })
+
+    it('uses the share icon for owner conversations without sharing config', () => {
+      mockConversations = [
+        makeConv('conv-owner-private', 'Private Owner Chat', {
+          owner_id: 'test@test.com',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Private Owner Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-share2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'true')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared', 'false')
+    })
+
+    it('shows a shared badge for link-shared conversations', () => {
+      mockConversations = [
+        makeConv('conv-shared-link', 'Shared Link Chat', {
+          owner_id: 'owner@test.com',
+          // assisted-by Codex Codex-sonnet-4-6
+          // Link-shared direct URLs should still render the non-public shared badge.
+          sharing: {
+            is_public: false,
+            shared_with: [],
+            shared_with_teams: [],
+            share_link_enabled: true,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Shared Link Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+    })
+
+    it('shows a shared badge for recipient access even without sharing arrays', () => {
+      mockConversations = [
+        makeConv('conv-recipient', 'Recipient Chat', {
+          owner_id: 'owner@test.com',
+          accessLevel: 'shared_readonly',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Recipient Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.getByText('Shared by owner@test.com')).toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'false')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'true')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-by', 'owner@test.com')
+    })
+
+    it('shows a shared badge from the server viewer flag without owner metadata', () => {
+      mockConversations = [
+        makeConv('conv-flagged-recipient', 'Flagged Recipient Chat', {
+          isSharedWithViewer: true,
+          sharing: {
+            is_public: false,
+            shared_with: [],
+            shared_with_teams: [],
+            share_link_enabled: false,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Flagged Recipient Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'false')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'true')
+    })
+
+    it('shows the shared action icon to the owner without marking them as a recipient', () => {
+      mockConversations = [
+        makeConv('conv-owner-shared', 'Owner Shared Chat', {
+          owner_id: 'test@test.com',
+          sharing: {
+            is_public: false,
+            shared_with: ['teammate@test.com'],
+            shared_with_teams: [],
+            share_link_enabled: false,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Owner Shared Chat')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-users2')).toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-owner', 'true')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared-viewer', 'false')
+      expect(screen.getByTestId('share-button')).toHaveAttribute('data-shared', 'true')
+    })
+
+    it('does not treat legacy public conversations as shared', () => {
+      mockConversations = [
+        makeConv('conv-public', 'Public Chat', {
+          owner_id: 'owner@test.com',
+          sharing: {
+            is_public: true,
+            shared_with: [],
+            shared_with_teams: [],
+            share_link_enabled: false,
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Public Chat')).toBeInTheDocument()
+      expect(screen.queryByTestId('share-button')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-share2')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-users2')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('icon-globe')).not.toBeInTheDocument()
     })
   })
 

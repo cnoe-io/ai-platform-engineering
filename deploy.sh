@@ -24,13 +24,12 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
+# Each ENABLE_<AGENT> selects that agent's MCP server profile. The CAIPE UI
+# (BFF) + dynamic agents are the runtime; MCP servers are reached via
+# agentgateway / direct connections.
 PROFILES=""
-USE_SLIM=false
-[ "${A2A_TRANSPORT:-p2p}" = "slim" ] && PROFILES="slim" && USE_SLIM=true
 [ "$ENABLE_AWS" = "true" ] && PROFILES="$PROFILES,aws"
-[ "$ENABLE_PETSTORE" = "true" ] && PROFILES="$PROFILES,petstore"
 [ "$ENABLE_GITHUB" = "true" ] && PROFILES="$PROFILES,github"
-[ "$ENABLE_WEATHER" = "true" ] && PROFILES="$PROFILES,weather"
 [ "$ENABLE_BACKSTAGE" = "true" ] && PROFILES="$PROFILES,backstage"
 [ "$ENABLE_ARGOCD" = "true" ] && PROFILES="$PROFILES,argocd"
 [ "$ENABLE_CONFLUENCE" = "true" ] && PROFILES="$PROFILES,confluence"
@@ -40,35 +39,16 @@ USE_SLIM=false
 [ "$ENABLE_SLACK" = "true" ] && PROFILES="$PROFILES,slack"
 [ "$ENABLE_SPLUNK" = "true" ] && PROFILES="$PROFILES,splunk"
 [ "$ENABLE_WEBEX" = "true" ] && PROFILES="$PROFILES,webex"
-[ "$ENABLE_AGENT_FORGE" = "true" ] && PROFILES="$PROFILES,agentforge"
-[ "$ENABLE_CAIPE_UI" = "true" ] && PROFILES="$PROFILES,caipe-ui"
+[ "$ENABLE_CAIPE_UI" = "true" ] && PROFILES="$PROFILES,caipe-ui,dynamic-agents"
 [ "$ENABLE_RAG" = "true" ] && PROFILES="$PROFILES,rag"
 [ "$ENABLE_GRAPH_RAG" = "true" ] && PROFILES="$PROFILES,rag"
 [ "$ENABLE_TRACING" = "true" ] && PROFILES="$PROFILES,tracing"
 
 PROFILES=$(echo "$PROFILES" | sed 's/^,//')
 
-# Deploy SLIM first if needed
-if [ "$USE_SLIM" = "true" ]; then
-    echo "Starting SLIM infrastructure..."
-    COMPOSE_PROFILES=slim docker compose up -d slim-dataplane slim-control-plane
-    echo "Waiting for SLIM to be ready..."
-    sleep 5
-fi
-
-# Deploy other services (exclude caipe-supervisor)
-OTHER_PROFILES=$(echo "$PROFILES" | sed 's/slim,\?//')
-if [ -n "$OTHER_PROFILES" ]; then
-    echo "Starting supporting services with profiles: $OTHER_PROFILES"
-    COMPOSE_PROFILES="$OTHER_PROFILES" docker compose up -d --scale caipe-supervisor=0
-    echo "Waiting for services to be ready..."
-    sleep 3
-fi
-
-# Deploy caipe-supervisor  last
-echo "Starting caipe-supervisor..."
+echo "Starting services with profiles: ${PROFILES:-<none>}"
 if [ "$1" = "--no-detach" ] || [ "$1" = "-f" ]; then
-    COMPOSE_PROFILES="$PROFILES" docker compose up caipe-supervisor
+    COMPOSE_PROFILES="$PROFILES" docker compose up
 else
-    COMPOSE_PROFILES="$PROFILES" docker compose up -d caipe-supervisor
+    COMPOSE_PROFILES="$PROFILES" docker compose up -d
 fi

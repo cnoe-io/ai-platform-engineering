@@ -35,6 +35,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -52,6 +54,23 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
+}));
+
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: false }),
+}));
+
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+  requireResourcePermission: jest.fn(async (_session, target: { action: string; type: string }) => {
+    const error = new Error('You do not have permission to access this resource.') as Error & {
+      statusCode: number;
+      code: string;
+    };
+    error.statusCode = 403;
+    error.code = `${target.type}#${target.action}`;
+    throw error;
+  }),
 }));
 
 jest.mock('uuid', () => ({
@@ -90,6 +109,7 @@ function authenticatedSession(email = 'user@example.com') {
   return {
     user: { email, name: 'Test User' },
     role: 'user',
+    sub: 'user-sub',
   };
 }
 
@@ -126,6 +146,7 @@ import { GET as GET_CONVERSATIONS } from '../chat/conversations/route';
 describe('Archive API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.OPENFGA_HTTP;
     // Reset mock collections
     Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
     // Default authenticated
@@ -182,9 +203,9 @@ describe('Archive API', () => {
       expect(body.data.deleted).toBe(true);
       expect(body.data.permanent).toBe(true);
 
-      // Should have called deleteOne (hard-delete) and deleteMany for messages
-      expect(convCollection.deleteOne).toHaveBeenCalledWith({ _id: '550e8400-e29b-41d4-a716-446655440000' });
-      expect(msgCollection.deleteMany).toHaveBeenCalledWith({ conversation_id: '550e8400-e29b-41d4-a716-446655440000' });
+      // Should have called deleteMany (via shared helper) for both conversations and messages
+      expect(convCollection.deleteMany).toHaveBeenCalledWith({ _id: { $in: ['550e8400-e29b-41d4-a716-446655440000'] } });
+      expect(msgCollection.deleteMany).toHaveBeenCalledWith({ conversation_id: { $in: ['550e8400-e29b-41d4-a716-446655440000'] } });
     });
 
     it('returns 404 for non-existent conversation', async () => {
@@ -201,6 +222,8 @@ describe('Archive API', () => {
     });
 
     it('returns 403 for non-owner', async () => {
+      process.env.OPENFGA_HTTP = 'http://openfga.test';
+      mockGetServerSession.mockResolvedValue({ ...authenticatedSession(), sub: 'user-sub' });
       const conv = makeConversation({ owner_id: 'other@example.com' });
       const convCollection = createMockCollection();
       convCollection.findOne.mockResolvedValue(conv);
@@ -602,9 +625,9 @@ describe('Archive API', () => {
 
       await DELETE(req, { params: Promise.resolve({ id: '550e8400-e29b-41d4-a716-446655440000' }) });
 
-      // Verify messages are deleted for the correct conversation ID
+      // Verify messages are deleted for the correct conversation ID (via shared helper, uses $in)
       expect(msgCollection.deleteMany).toHaveBeenCalledWith({
-        conversation_id: '550e8400-e29b-41d4-a716-446655440000',
+        conversation_id: { $in: ['550e8400-e29b-41d4-a716-446655440000'] },
       });
     });
 

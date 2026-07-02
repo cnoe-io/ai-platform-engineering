@@ -1,0 +1,322 @@
+# assisted-by Codex Codex-sonnet-4-6
+name: "[E2E] RBAC Playwright Live Stack"
+
+on:
+  workflow_dispatch:
+    inputs:
+      chart_version:
+        description: "Optional Helm chart version to deploy. Empty uses setup-caipe.sh default/latest."
+        required: false
+        type: string
+      target:
+        description: "Playwright target to run"
+        required: true
+        type: choice
+        default: live-full
+        options:
+          - live-full
+          - live-mcp
+          - live-openfga
+          - live-resources
+          - all-rbac
+  schedule:
+    # Nightly live-stack signal for main.
+    - cron: "30 7 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+  LOCAL_ADMIN_EMAIL: e2e-rbac-admin@caipe.local
+  LOCAL_ADMIN_PASSWORD: e2e-rbac-admin-password
+  LOCAL_USER_EMAIL: e2e-rbac-user@caipe.local
+  LOCAL_USER_PASSWORD: e2e-rbac-user-password
+  CAIPE_UI_BASE_URL: http://localhost:3000
+  KEYCLOAK_URL: http://localhost:7080
+  KEYCLOAK_REALM: caipe
+  CAIPE_SELECTED_AGENTS: netutils
+
+jobs:
+  rbac-playwright-live:
+    name: "setup-caipe + Playwright (${{ github.event.inputs.target || 'live-full' }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - name: Reclaim disk space
+        run: |
+          echo "::group::Disk before cleanup"
+          df -h
+          echo "::endgroup::"
+          sudo apt-get remove -y '^ghc-*' '^dotnet-*' '^llvm-*' 'php*' \
+            azure-cli google-cloud-cli hhvm google-chrome-stable firefox \
+            powershell mono-devel || true
+          sudo apt-get autoremove -y || true
+          sudo apt-get clean || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af --volumes || true
+          echo "::group::Disk after cleanup"
+          df -h
+          echo "::endgroup::"
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+
+      - name: Install helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - name: Install kind
+        run: |
+          set -euo pipefail
+          KIND_VERSION=v0.27.0
+          curl -fsSL -o /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+          kind version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        working-directory: ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Create setup-caipe env file
+        run: |
+          set -euo pipefail
+          cat > .env.ci << 'EOF'
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          OPENAI_ENDPOINT=${{ secrets.OPENAI_ENDPOINT }}
+          OPENAI_MODEL_NAME=${{ secrets.OPENAI_MODEL_NAME }}
+          AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+          ENABLE_TRACING=false
+          ENABLE_RAG=false
+          ENABLE_GRAPH_RAG=false
+          ENABLE_SLACK_BOT=false
+          ENABLE_WEBEX_BOT=false
+          CAIPE_SELECTED_AGENTS=netutils
+          EOF
+
+          while IFS='=' read -r key value; do
+            [ -z "${key:-}" ] && continue
+            [ "${key#\#}" != "$key" ] && continue
+            if [ -n "${value:-}" ]; then
+              echo "::add-mask::${value}"
+            fi
+          done < .env.ci
+
+      - name: Validate required setup-caipe credentials
+        run: |
+          set -euo pipefail
+          set -a && source .env.ci && set +a
+          if [ -z "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${AZURE_OPENAI_API_KEY:-}" ]; then
+            echo "At least one model-provider secret is required for setup-caipe.sh validation."
+            echo "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or AZURE_OPENAI_API_KEY in repository secrets."
+            exit 1
+          fi
+
+      - name: Pre-clean Kind cluster
+        run: |
+          kind delete cluster --name caipe 2>/dev/null || true
+          rm -f ~/.kube/config
+          mkdir -p ~/.kube
+
+      - name: Deploy CAIPE with setup-caipe.sh
+        env:
+          CHART_VERSION_INPUT: ${{ github.event.inputs.chart_version }}
+        run: |
+          set -euo pipefail
+          set -a && source .env.ci && set +a
+          chart_arg=()
+          if [ -n "${CHART_VERSION_INPUT:-}" ]; then
+            chart_arg=(CAIPE_CHART_VERSION="${CHART_VERSION_INPUT}")
+          fi
+
+          env "${chart_arg[@]}" ./setup-caipe.sh \
+            --non-interactive \
+            --create-cluster \
+            --no-ingress \
+            --rbac-runtime \
+            --agentgateway \
+            --no-slack-bot \
+            --no-webex-bot \
+            --local-admin="${LOCAL_ADMIN_EMAIL}" \
+            --local-admin-password="${LOCAL_ADMIN_PASSWORD}" \
+            --local-user="${LOCAL_USER_EMAIL}" \
+            --local-user-password="${LOCAL_USER_PASSWORD}" \
+            --env-file=.env.ci \
+            setup
+
+      - name: Start local port-forwards
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/port-forward-logs
+
+          kubectl port-forward svc/caipe-caipe-ui -n caipe 3000:3000 \
+            > test-results/port-forward-logs/ui.log 2>&1 &
+          echo $! > /tmp/pf-ui.pid
+
+          kubectl port-forward svc/caipe-keycloak -n caipe 7080:8080 \
+            > test-results/port-forward-logs/keycloak.log 2>&1 &
+          echo $! > /tmp/pf-keycloak.pid
+
+          kubectl port-forward svc/caipe-openfga -n caipe 18080:8080 \
+            > test-results/port-forward-logs/openfga.log 2>&1 &
+          echo $! > /tmp/pf-openfga.pid
+
+          kubectl port-forward svc/caipe-agentgateway -n caipe 8080:4000 \
+            > test-results/port-forward-logs/agentgateway.log 2>&1 &
+          echo $! > /tmp/pf-agentgateway.pid
+
+      - name: Wait for local endpoints
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            ui_ok=false
+            kc_ok=false
+            curl -sf --max-time 2 "${CAIPE_UI_BASE_URL}" >/dev/null && ui_ok=true || true
+            curl -sf --max-time 2 "${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" >/dev/null && kc_ok=true || true
+            if $ui_ok && $kc_ok; then
+              echo "CAIPE UI and Keycloak are reachable"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Timed out waiting for local endpoints"
+          cat test-results/port-forward-logs/*.log || true
+          exit 1
+
+      - name: Resolve RBAC Playwright fixture env
+        run: |
+          set -euo pipefail
+          kc_admin="$(kubectl get secret caipe-keycloak-admin -n caipe -o jsonpath='{.data.username}' | base64 -d)"
+          kc_password="$(kubectl get secret caipe-keycloak-admin -n caipe -o jsonpath='{.data.password}' | base64 -d)"
+          nextauth_secret="$(kubectl get secret caipe-ui-secret -n caipe -o jsonpath='{.data.NEXTAUTH_SECRET}' | base64 -d)"
+
+          token_json="$(curl -sf -X POST "${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token" \
+            -d grant_type=password \
+            -d client_id=admin-cli \
+            -d username="${kc_admin}" \
+            -d password="${kc_password}")"
+          admin_token="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' <<< "${token_json}")"
+          encoded_email="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["LOCAL_ADMIN_EMAIL"]))')"
+          users_json="$(curl -sf -H "Authorization: Bearer ${admin_token}" \
+            "${KEYCLOAK_URL}/admin/realms/${KEYCLOAK_REALM}/users?email=${encoded_email}&exact=true")"
+          admin_sub="$(python3 -c 'import json,os,sys; users=json.load(sys.stdin); email=os.environ["LOCAL_ADMIN_EMAIL"]; print(next(u["id"] for u in users if u.get("email") == email or u.get("username") == email))' <<< "${users_json}")"
+
+          {
+            echo "RUN_RBAC_E2E=1"
+            echo "CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL}"
+            echo "KEYCLOAK_URL=${KEYCLOAK_URL}"
+            echo "KEYCLOAK_REALM=${KEYCLOAK_REALM}"
+            echo "RBAC_USER_EMAIL=${LOCAL_ADMIN_EMAIL}"
+            echo "RBAC_USER_PASSWORD=${LOCAL_ADMIN_PASSWORD}"
+            echo "RBAC_USER_SUB=${admin_sub}"
+            echo "NEXTAUTH_SECRET=${nextauth_secret}"
+          } >> "$GITHUB_ENV"
+
+          echo "::add-mask::${LOCAL_ADMIN_PASSWORD}"
+          echo "::add-mask::${LOCAL_USER_PASSWORD}"
+          echo "::add-mask::${kc_password}"
+          echo "::add-mask::${nextauth_secret}"
+
+      - name: Run RBAC Playwright target
+        id: playwright
+        working-directory: ui
+        env:
+          CI: "true"
+          TARGET_INPUT: ${{ github.event.inputs.target || 'live-full' }}
+        run: |
+          set -euo pipefail
+          target="$TARGET_INPUT"
+          case "${target}" in
+            live-full)
+              npm run test:e2e:rbac-live-full
+              ;;
+            live-mcp)
+              npm run test:e2e:rbac-live-mcp
+              ;;
+            live-openfga)
+              npm run test:e2e:rbac-live-openfga
+              ;;
+            live-resources)
+              npm run test:e2e:rbac-live-resources
+              ;;
+            all-rbac)
+              npm run test:e2e:rbac
+              ;;
+            *)
+              echo "Unknown target: ${target}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Collect Kubernetes diagnostics
+        if: always()
+        run: |
+          mkdir -p test-results/kubernetes
+          {
+            echo "=== Pods ==="
+            kubectl get pods -A -o wide 2>/dev/null || true
+            echo
+            echo "=== Services ==="
+            kubectl get svc -A 2>/dev/null || true
+            echo
+            echo "=== Events ==="
+            kubectl get events -A --sort-by=.lastTimestamp 2>/dev/null || true
+          } > test-results/kubernetes/cluster.txt
+          kubectl logs -n caipe --all-containers --tail=500 -l app.kubernetes.io/instance=caipe \
+            > test-results/kubernetes/caipe-pods.log 2>&1 || true
+
+      - name: Upload Playwright and cluster artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rbac-playwright-live-${{ github.run_id }}
+          path: |
+            ui/test-results/
+            ui/playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop port-forwards
+        if: always()
+        run: |
+          for pid_file in /tmp/pf-*.pid; do
+            [ -f "$pid_file" ] || continue
+            kill "$(cat "$pid_file")" 2>/dev/null || true
+          done
+
+      - name: Cleanup Kind stack
+        if: always()
+        run: |
+          ./setup-caipe.sh nuke || true
+          kind delete cluster --name caipe 2>/dev/null || true

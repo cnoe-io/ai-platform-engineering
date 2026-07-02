@@ -15,25 +15,25 @@
  *   - Collapsible by default — when collapsed, the panel is a thin rail.
  */
 
-import * as React from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  RotateCw,
-  ShieldCheck,
-  Wand2,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type {
-  CriterionVerdict,
-  ReviewAnchor,
-  ReviewSeverity,
+CriterionVerdict,
+ReviewAnchor,
+ReviewSeverity,
 } from "@/types/ai-review";
+import {
+AlertTriangle,
+ChevronLeft,
+ChevronRight,
+Loader2,
+RotateCw,
+ShieldCheck,
+Wand2,
+} from "lucide-react";
+import * as React from "react";
 import { CommentCard } from "./CommentCard";
 import { Grade } from "./Grade";
 import type { UseAiReviewResult } from "./use-ai-review";
@@ -74,6 +74,17 @@ export function AiReviewPanel({
   style,
 }: AiReviewPanelProps) {
   const [collapsed, setCollapsed] = React.useState(false);
+  const { toast } = useToast();
+
+  // Surface the "no changes since last review" signal as an info toast rather
+  // than an inline banner, then clear it so it fires once per cached run.
+  const { notice, clearNotice } = review;
+  React.useEffect(() => {
+    if (notice === "cached") {
+      toast("Content is unchanged since the last review.", "info");
+      clearNotice();
+    }
+  }, [notice, clearNotice, toast]);
 
   // Hide entirely when the target isn't configured / is disabled.
   if (!review.enabled) return null;
@@ -103,6 +114,12 @@ export function AiReviewPanel({
   const sorted = review.result ? sortVerdicts(review.result.criteria) : [];
   const totalCriteria = review.result?.total ?? 0;
   const passedCount = review.result?.passed_count ?? 0;
+  // Sum of all criterion weights — the denominator each card uses to show what
+  // share of the grade a failing check is worth (e.g. "15% of grade").
+  const totalWeight = (review.result?.criteria ?? []).reduce(
+    (sum, v) => sum + (Number.isFinite(v.weight) && v.weight > 0 ? v.weight : 0),
+    0,
+  );
   const fixableUnapplied = sorted.filter(
     (v) => v.suggested_fix && !review.appliedFixIds.has(v.id) && !v.pass,
   ).length;
@@ -205,19 +222,11 @@ export function AiReviewPanel({
             </div>
           )}
 
-          {review.notice === "cached" && review.status !== "running" && (
-            <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span className="break-words">
-                Content is unchanged since the last review.
-              </span>
-            </div>
-          )}
-
           {sorted.map((verdict) => (
             <CommentCard
               key={verdict.id}
               verdict={verdict}
+              totalWeight={totalWeight}
               applied={review.appliedFixIds.has(verdict.id)}
               dismissed={review.dismissedIds.has(verdict.id)}
               onApplyFix={() => review.applyFix(verdict.id)}

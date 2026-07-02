@@ -1,11 +1,10 @@
 "use client";
 
-import React from "react";
-import { useRouter } from "next/navigation";
-import { Waypoints } from "lucide-react";
-import { TrySkillsGateway } from "@/components/skills";
 import { AuthGuard } from "@/components/auth-guard";
+import { TrySkillsGateway } from "@/components/skills";
 import { cn } from "@/lib/utils";
+import { Waypoints } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function SkillsGatewayPage() {
   const router = useRouter();

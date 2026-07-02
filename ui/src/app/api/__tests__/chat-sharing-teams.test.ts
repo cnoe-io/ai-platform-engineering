@@ -28,6 +28,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -178,7 +180,43 @@ describe('getUserTeamIds', () => {
     const result = await getUserTeamIds(MEMBER_EMAIL);
 
     expect(result).toEqual([TEAM_ID_1.toString(), TEAM_ID_2.toString()]);
-    expect(teamsCol.find).toHaveBeenCalledWith({ 'members.user_id': MEMBER_EMAIL });
+    expect(teamsCol.find).toHaveBeenCalledWith({
+      $or: [{ 'members.user_id': MEMBER_EMAIL }],
+    });
+  });
+
+  it('returns canonical team ids and slugs from team_membership_sources', async () => {
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { team_id: TEAM_ID_1.toString(), team_slug: 'platform' },
+          { team_id: TEAM_ID_2.toString(), team_slug: 'sre' },
+        ]),
+      }),
+    });
+    mockCollections['team_membership_sources'] = sourcesCol;
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const result = await getUserTeamIds(MEMBER_EMAIL);
+
+    expect(result).toEqual([
+      TEAM_ID_1.toString(),
+      'platform',
+      TEAM_ID_2.toString(),
+      'sre',
+    ]);
+    expect(sourcesCol.find).toHaveBeenCalledWith({
+      status: 'active',
+      user_email: MEMBER_EMAIL,
+    });
   });
 
   it('returns empty array when user has no teams', async () => {
@@ -274,6 +312,34 @@ describe('requireConversationAccess — team-based access', () => {
     expect(result.access_level).toBe('shared');
   });
 
+  it('grants access when user belongs to a canonically shared team slug', async () => {
+    const conv = makeConversation({
+      sharing: {
+        shared_with: [],
+        shared_with_teams: ['platform'],
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { team_id: TEAM_ID_1.toString(), team_slug: 'platform' },
+        ]),
+      }),
+    });
+    mockCollections['team_membership_sources'] = sourcesCol;
+
+    const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
+
+    expect(result).toBeDefined();
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared');
+  });
+
   it('denies access when user does not belong to any shared team', async () => {
     const conv = makeConversation({
       sharing: {
@@ -301,7 +367,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('Forbidden');
+    ).rejects.toThrow('You do not have access to this conversation.');
   });
 
   it('denies access when user belongs to a different team than shared', async () => {
@@ -330,7 +396,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('Forbidden');
+    ).rejects.toThrow('You do not have access to this conversation.');
   });
 
   it('grants access via sharing_access record when no team or direct share', async () => {
@@ -390,7 +456,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('Forbidden');
+    ).rejects.toThrow('You do not have access to this conversation.');
 
     // getUserTeamIds should NOT have been called — no teams collection access needed
     expect(mockGetCollection).not.toHaveBeenCalledWith('teams');
@@ -412,7 +478,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('Forbidden');
+    ).rejects.toThrow('You do not have access to this conversation.');
 
     expect(mockGetCollection).not.toHaveBeenCalledWith('teams');
   });
@@ -431,10 +497,9 @@ describe('GET /api/chat/conversations — team sharing', () => {
     GET = mod.GET;
   });
 
-  it('includes shared_with_teams condition when user belongs to teams', async () => {
+  it('prefilters owned and sharing-configured candidates before ReBAC', async () => {
     mockGetServerSession.mockResolvedValue(userSession(MEMBER_EMAIL));
 
-    // User belongs to TEAM_ID_1
     const teamsCol = createMockCollection();
     teamsCol.find.mockReturnValue({
       project: jest.fn().mockReturnValue({
@@ -451,19 +516,20 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    expect(orConditions).toContainEqual({ owner_id: MEMBER_EMAIL });
-    expect(orConditions).toContainEqual({ 'sharing.shared_with': MEMBER_EMAIL });
-    expect(orConditions).toContainEqual({
-      'sharing.shared_with_teams': { $in: [TEAM_ID_1.toString()] },
-    });
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      {
+        $or: [
+          { owner_id: MEMBER_EMAIL },
+          { 'sharing.shared_with': MEMBER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      },
+    ]));
   });
 
-  it('does NOT include shared_with_teams condition when user has no teams', async () => {
+  it('uses the same bounded candidate shape when user has no teams', async () => {
     mockGetServerSession.mockResolvedValue(userSession(NON_MEMBER_EMAIL));
 
-    // No teams
     const teamsCol = createMockCollection();
     teamsCol.find.mockReturnValue({
       project: jest.fn().mockReturnValue({
@@ -480,19 +546,18 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    expect(orConditions).toHaveLength(3);
-    expect(orConditions).toContainEqual({ owner_id: NON_MEMBER_EMAIL });
-    expect(orConditions).toContainEqual({ 'sharing.shared_with': NON_MEMBER_EMAIL });
-    expect(orConditions).toContainEqual({ 'sharing.is_public': true });
-    const teamCondition = orConditions.find(
-      (c: any) => c['sharing.shared_with_teams']
-    );
-    expect(teamCondition).toBeUndefined();
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: [
+          { owner_id: NON_MEMBER_EMAIL },
+          { 'sharing.shared_with': NON_MEMBER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      }),
+    ]));
   });
 
-  it('includes multiple team IDs when user belongs to multiple teams', async () => {
+  it('does not branch query shape on the number of teams (ReBAC does the filtering)', async () => {
     mockGetServerSession.mockResolvedValue(userSession(MEMBER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -514,16 +579,13 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-    const teamCondition = orConditions.find(
-      (c: any) => c['sharing.shared_with_teams']
-    );
-
-    expect(teamCondition).toBeDefined();
-    expect(teamCondition['sharing.shared_with_teams'].$in).toEqual([
-      TEAM_ID_1.toString(),
-      TEAM_ID_2.toString(),
-    ]);
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: expect.arrayContaining([
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ]),
+      }),
+    ]));
   });
 
   it('still excludes soft-deleted conversations', async () => {
@@ -578,17 +640,12 @@ describe('GET /api/chat/shared — team sharing', () => {
     GET = mod.GET;
   });
 
-  it('includes shared_with_teams condition when user belongs to teams', async () => {
+  // Issue #1979 fix: the query must pre-filter to conversations that carry a
+  // sharing configuration so that private conversations from other users never
+  // enter the OpenFGA pipeline or inflate the total count.
+  it('pre-filters to sharing-configured conversations and scopes to non-owner', async () => {
     mockGetServerSession.mockResolvedValue(userSession(MEMBER_EMAIL));
 
-    const teamsCol = createMockCollection();
-    teamsCol.find.mockReturnValue({
-      project: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([{ _id: TEAM_ID_1 }]),
-      }),
-    });
-    mockCollections['teams'] = teamsCol;
-
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
     mockCollections['conversations'] = convsCol;
@@ -598,27 +655,18 @@ describe('GET /api/chat/shared — team sharing', () => {
 
     const findCall = convsCol.find.mock.calls[0][0];
 
-    // Should exclude owner's own conversations
     expect(findCall.owner_id).toEqual({ $ne: MEMBER_EMAIL });
-
-    // Should have $or with direct and team sharing
+    // Must include a sharing pre-filter ($or over sharing fields)
     expect(findCall.$or).toBeDefined();
-    expect(findCall.$or).toContainEqual({ 'sharing.shared_with': MEMBER_EMAIL });
-    expect(findCall.$or).toContainEqual({
-      'sharing.shared_with_teams': { $in: [TEAM_ID_1.toString()] },
-    });
+    const orStr = JSON.stringify(findCall.$or);
+    expect(orStr).not.toContain('sharing.is_public');
+    expect(orStr).toContain('sharing.shared_with');
+    expect(orStr).toContain('sharing.share_link_enabled');
+    expect(orStr).toContain('sharing.shared_with_teams');
   });
 
-  it('only includes direct sharing when user has no teams', async () => {
+  it('uses the same query shape regardless of team membership', async () => {
     mockGetServerSession.mockResolvedValue(userSession(NON_MEMBER_EMAIL));
-
-    const teamsCol = createMockCollection();
-    teamsCol.find.mockReturnValue({
-      project: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['teams'] = teamsCol;
 
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
@@ -628,9 +676,8 @@ describe('GET /api/chat/shared — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(findCall.$or).toHaveLength(2);
-    expect(findCall.$or).toContainEqual({ 'sharing.shared_with': NON_MEMBER_EMAIL });
-    expect(findCall.$or).toContainEqual({ 'sharing.is_public': true });
+    expect(findCall.owner_id).toEqual({ $ne: NON_MEMBER_EMAIL });
+    expect(findCall.$or).toBeDefined();
   });
 
   it('returns 401 when not authenticated', async () => {

@@ -1,22 +1,162 @@
 // GET /api/chat/conversations - List user's conversations
 // POST /api/chat/conversations - Create new conversation (or return existing via upsert)
 
-import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  paginatedResponse,
-  validateRequired,
   getPaginationParams,
   getUserTeamIds,
+  paginatedResponse,
+  successResponse,
+  validateRequired,
+  withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
-import { VALID_CLIENT_TYPES } from '@/types/mongodb';
+import type { ConversationAccessLevel } from '@/lib/api-middleware';
+import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
+import {
+  annotateConversationsWithViewerSharing,
+  conversationVisibilityCandidateQuery,
+  filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
+} from '@/lib/rbac/conversation-implicit-authz';
+import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { buildParticipants } from '@/types/a2a';
+import type { ClientType, Conversation, CreateConversationRequest } from '@/types/mongodb';
+import { VALID_CLIENT_TYPES } from '@/types/mongodb';
+import { NextRequest, NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
 import packageJson from '../../../../../package.json';
+
+type ConversationWithAgentDisplay<T extends Conversation = Conversation> = T & {
+  agent_id?: string;
+  agent_name?: string;
+};
+
+function normalizeIdentity(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function permissionToAccessLevel(permission: unknown): ConversationAccessLevel {
+  return permission === 'view' ? 'shared_readonly' : 'shared';
+}
+
+function isListConversationOwner(
+  conversation: Pick<Conversation, 'owner_id' | 'owner_subject'>,
+  userEmail: string,
+  session?: { sub?: unknown },
+): boolean {
+  const subject = typeof session?.sub === 'string' ? session.sub.trim() : '';
+  if (subject && conversation.owner_subject === subject) return true;
+  return Boolean(
+    normalizeIdentity(userEmail) &&
+    normalizeIdentity(conversation.owner_id) === normalizeIdentity(userEmail),
+  );
+}
+
+async function getDirectSharePermission(
+  conversationId: string,
+  userEmail: string,
+): Promise<'view' | 'comment' | undefined> {
+  try {
+    const sharingAccess = await getCollection<{ permission?: 'view' | 'comment' }>('sharing_access');
+    const normalizedEmail = normalizeIdentity(userEmail);
+    const identities = Array.from(new Set([userEmail, normalizedEmail].filter(Boolean)));
+    const accessRecord = await sharingAccess.findOne({
+      conversation_id: conversationId,
+      granted_to: { $in: identities },
+      revoked_at: null,
+    });
+    return accessRecord?.permission;
+  } catch {
+    return undefined;
+  }
+}
+
+async function getTeamSharePermission(
+  conversation: Conversation,
+  userEmail: string,
+): Promise<'view' | 'comment' | undefined> {
+  const sharedTeams = conversation.sharing?.shared_with_teams;
+  if (!sharedTeams?.length) return undefined;
+
+  try {
+    const userTeamIds = await getUserTeamIds(userEmail);
+    const matchedTeamId = sharedTeams.find((teamId) => userTeamIds.includes(teamId));
+    if (!matchedTeamId) return undefined;
+    return conversation.sharing?.team_permissions?.[matchedTeamId] ?? 'comment';
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveListConversationAccessLevel(
+  conversation: Conversation,
+  userEmail: string,
+  session?: { role?: unknown; sub?: unknown },
+): Promise<ConversationAccessLevel> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // The list already passed ReBAC filtering; derive display-level access without refetching the row.
+  if (isListConversationOwner(conversation, userEmail, session)) return 'owner';
+
+  const normalizedEmail = normalizeIdentity(userEmail);
+  const directShareMatch = conversation.sharing?.shared_with?.some(
+    (email) => normalizeIdentity(email) === normalizedEmail,
+  );
+  if (directShareMatch) {
+    const permission = await getDirectSharePermission(conversation._id, userEmail);
+    return permissionToAccessLevel(permission ?? 'comment');
+  }
+
+  const directAccessPermission = await getDirectSharePermission(conversation._id, userEmail);
+  if (directAccessPermission) {
+    return permissionToAccessLevel(directAccessPermission);
+  }
+
+  const teamPermission = await getTeamSharePermission(conversation, userEmail);
+  if (teamPermission) {
+    return permissionToAccessLevel(teamPermission);
+  }
+
+  if (session?.role === 'admin') return 'admin_audit';
+
+  return 'shared';
+}
+
+function getConversationAgentId(conversation: Conversation): string | undefined {
+  return conversation.participants?.find((participant) => participant.type === 'agent')?.id;
+}
+
+async function enrichConversationAgentNames<T extends Conversation>(
+  items: T[],
+): Promise<ConversationWithAgentDisplay<T>[]> {
+  const agentIds = Array.from(
+    new Set(items.map(getConversationAgentId).filter((id): id is string => Boolean(id))),
+  );
+
+  if (agentIds.length === 0) {
+    return items;
+  }
+
+  const agents = await getCollection<{ _id: string; name?: string }>('dynamic_agents');
+  const agentDocs = await agents
+    .find({ _id: { $in: agentIds } })
+    .project({ _id: 1, name: 1 })
+    .toArray();
+  const agentNames = new Map(agentDocs.map((agent) => [agent._id, agent.name]));
+
+  return items.map((conversation) => {
+    const agentId = getConversationAgentId(conversation);
+    if (!agentId) {
+      return conversation;
+    }
+
+    return {
+      ...conversation,
+      agent_id: agentId,
+      agent_name: agentNames.get(agentId) ?? agentId,
+    };
+  });
+}
 
 // GET /api/chat/conversations
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -31,7 +171,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const { page, pageSize, skip } = getPaginationParams(request);
   const url = new URL(request.url);
   const archived = url.searchParams.get('archived') === 'true';
@@ -50,28 +190,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const conversations = await getCollection<Conversation>('conversations');
+  const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
-  // Resolve user's team memberships for team-shared conversations
-  const userTeamIds = await getUserTeamIds(user.email);
-
-  // Build query — include conversations owned, shared directly, via teams, or public
-  const ownershipConditions: any[] = [
-    { owner_id: user.email },
-    { 'sharing.shared_with': user.email },
-    { 'sharing.is_public': true },
-  ];
-
-  if (userTeamIds.length > 0) {
-    ownershipConditions.push({
-      'sharing.shared_with_teams': { $in: userTeamIds },
-    });
-  }
-
-  // Exclude soft-deleted conversations
+  // Fetch only owned or sharing-configured candidates; ReBAC remains the final
+  // visibility check for team shares and explicit conversation grants.
   const query: any = {
-    $or: ownershipConditions,
     $and: [
       { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
+      conversationVisibilityCandidateQuery(user.email, directShareConversationIds),
     ],
   };
 
@@ -110,7 +236,27 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .limit(pageSize)
     .toArray();
 
-  return paginatedResponse(items, total, page, pageSize);
+  const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+    session,
+    user.email,
+    items,
+    'discover',
+    directShareConversationIds,
+  );
+  const visibleItemsWithViewerFlags = annotateConversationsWithViewerSharing(session, user.email, visibleItems);
+  const visibleItemsWithAccessLevel = await Promise.all(
+    visibleItemsWithViewerFlags.map(async (conversation) => {
+      const access_level = await resolveListConversationAccessLevel(conversation, user.email, session);
+      return { ...conversation, access_level };
+    }),
+  );
+
+  return paginatedResponse(
+    await enrichConversationAgentNames(visibleItemsWithAccessLevel),
+    visibleItems.length < items.length ? visibleItems.length : total,
+    page,
+    pageSize
+  );
 });
 
 // POST /api/chat/conversations
@@ -126,7 +272,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  // Combine release/0.4.0's dual-auth (bearer token | session) with comprehensive
+  // RBAC enforcement. The bearer path is required by the Slack bot and other
+  // first-party service callers. Every conversation targets a dynamic agent, so
+  // authorization is enforced per-agent via `agent#can_use` (no agentless chat).
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const body: CreateConversationRequest = await request.json();
 
   validateRequired(body, ['title', 'client_type']);
@@ -142,6 +292,27 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
+  // A conversation must target a dynamic agent. Reject agentless creation.
+  if (!body.agent_id) {
+    return NextResponse.json(
+      { success: false, error: 'agent_id is required: select an agent to start a conversation.' },
+      { status: 400 }
+    );
+  }
+
+  // Dynamic agent conversation — gate on agent-level can_use.
+  // Service-account callers are graphed as `service_account:<sub>` (their grants
+  // live under that type); see requireAgentUsePermission (spec 2026-06-05).
+  const denial = await requireAgentUsePermission({
+    subject: session.sub,
+    agentId: body.agent_id,
+    email: user.email,
+    isServiceAccount: session.isServiceAccount,
+  });
+  if (denial) {
+    return denial;
+  }
+
   const conversations = await getCollection<Conversation>('conversations');
 
   // ⚠️ RISK: owner_id can be set by any authenticated caller. This trusts the caller
@@ -149,6 +320,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // implement a service account allowlist — only specific OAuth2 client IDs should be
   // permitted to set owner_id on behalf of users.
   const ownerId = body.owner_id || user.email;
+
+  // QUAL-8: extract once; reused in both idempotency and new-conversation paths.
+  const isSaCaller = session.isServiceAccount === true && typeof session.sub === 'string' && session.sub.trim() !== '';
+  const saSub = isSaCaller ? session.sub.trim() : undefined;
 
   // Idempotency: if an idempotency_key is provided, return the existing conversation
   // instead of creating a duplicate. This maintains a 1-1 mapping between integration-
@@ -159,6 +334,22 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       idempotency_key: body.idempotency_key,
     });
     if (existing) {
+      // If the returning caller is a service account, ensure the writer grant exists
+      // (write-if-missing). This heals conversations created before this fix was deployed.
+      if (saSub) {
+        try {
+          await writeOpenFgaTuples({
+            writes: [{
+              user: `service_account:${saSub}`,
+              relation: 'writer',
+              object: `conversation:${existing._id}`,
+            }],
+            deletes: [],
+          });
+        } catch (err) {
+          console.warn('[conversations/route] idempotency-hit SA writer grant failed (best-effort):', err);
+        }
+      }
       return successResponse({ conversation: existing, created: false }, 200);
     }
   }
@@ -179,7 +370,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     title: body.title,
     client_type: body.client_type,
     owner_id: ownerId,
+    ...(typeof session.sub === 'string' && session.sub.trim() && ownerId === user.email
+      ? { owner_subject: session.sub.trim(), owner_identity_version: 2 }
+      : {}),
     ...(body.idempotency_key && { idempotency_key: body.idempotency_key }),
+    // Provenance: stamp the SA sub so the audit/reconcile step can find SA-created
+    // conversations and verify/repair the writer grant. Only set for SA callers.
+    ...(saSub ? { created_by_service_account: saSub } : {}),
     participants: buildParticipants(body.agent_id, ownerId),
     created_at: now,
     updated_at: now,
@@ -196,6 +393,26 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   };
 
   await conversations.insertOne(newConversation);
+
+  // Auto-grant: when the creating caller is a service account, write an explicit
+  // OpenFGA writer tuple so the SA can act in this conversation (PATCH metadata,
+  // stream/start, etc.). The human's owner_id is kept unchanged for auditability.
+  // Best-effort: if the grant write fails we still return the conversation — the
+  // startup/audit reconciler is the backstop.
+  if (saSub) {
+    try {
+      await writeOpenFgaTuples({
+        writes: [{
+          user: `service_account:${saSub}`,
+          relation: 'writer',
+          object: `conversation:${newConversation._id}`,
+        }],
+        deletes: [],
+      });
+    } catch (err) {
+      console.warn('[conversations/route] SA writer grant failed (best-effort):', err);
+    }
+  }
 
   return successResponse({ conversation: newConversation, created: true }, 201);
 });

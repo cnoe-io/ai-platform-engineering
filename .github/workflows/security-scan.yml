@@ -2,6 +2,8 @@
 name: "Grype Scan"
 description: "Anchore Grype vulnerability scan — filesystem on all events, containers on tags. Blocking gate is GitHub Code Scanning PR diff mode, not fail-build."
 
+# assisted-by Codex Codex-sonnet-4-6
+
 # Trigger matrix:
 #   pull_request / push to main  → filesystem scan only; fail-build: false — GitHub Code Scanning
 #                                  PR diff mode is the gate (only NEW alerts block the PR)
@@ -49,14 +51,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          app-id: ${{ secrets.CI_SECURITY_APP_ID }}
+          private-key: ${{ secrets.CI_SECURITY_APP_PRIVATE_KEY }}
+          permission-security-events: write
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.tag || github.ref }}
 
       - name: Run Grype scan
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
@@ -68,11 +79,13 @@ jobs:
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
-        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        if: ${{ always() && steps.scan.outputs.sarif != '' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-          category: "grype-filesystem"
+          # Keep this stable as "grype": GitHub Code Scanning correlates SARIF
+          # by category, and renaming it leaves old alerts orphaned.
+          category: "grype"
           # On pull_request events the default checkout produces a merge commit
           # (refs/pull/N/merge), but GitHub Code Scanning PR checks require the
           # analysis to be associated with refs/pull/N/head + the head commit SHA.
@@ -80,6 +93,8 @@ jobs:
           # merge-ref analysis is not matched against the PR head check run.
           ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
           sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
   scan-containers:
     name: Container scan (${{ matrix.image }})
@@ -91,40 +106,23 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          # Supervisor / main agent
-          - ai-platform-engineering
           # UI
           - caipe-ui
           # Dynamic agents runtime
           - caipe-dynamic-agents
           # Bots
           - caipe-slack-bot
+          - caipe-webex-bot
           # RAG components
           - caipe-rag-agent-ontology
           - caipe-rag-server
           - caipe-rag-ingestors
-          # A2A sub-agents
-          - agent-argocd
-          - agent-aws
-          - agent-backstage
-          - agent-confluence
-          - agent-github
-          - agent-gitlab
-          - agent-jira
-          - agent-komodor
-          - agent-netutils
-          - agent-pagerduty
-          - agent-slack
-          - agent-splunk
-          - agent-template
-          - agent-victorops
-          - agent-webex
-          - agent-weather
-          # MCP sub-agents
+          # Per-tool MCP servers (canonical mcp_agents from .github/agents.json).
+          # github has no local image — uses external ghcr.io/github/github-mcp-server.
           - mcp-argocd
+          - mcp-aws
           - mcp-backstage
           - mcp-confluence
-          - mcp-github
           - mcp-jira
           - mcp-komodor
           - mcp-litellm
@@ -135,17 +133,27 @@ jobs:
           - mcp-webex
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_SECURITY_APP_ID }}
+          private-key: ${{ secrets.CI_SECURITY_APP_PRIVATE_KEY }}
+          permission-security-events: write
+
       - name: Determine image tag
         id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+            printf 'tag=%s\n' "$DISPATCH_TAG" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            printf 'tag=%s\n' "${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run Grype scan on container image
@@ -158,8 +166,10 @@ jobs:
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
-        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        if: ${{ always() && steps.scan.outputs.sarif != '' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: "grype-${{ matrix.image }}"
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

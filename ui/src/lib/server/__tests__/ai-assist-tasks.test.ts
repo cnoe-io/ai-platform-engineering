@@ -29,6 +29,20 @@ describe("ai-assist-tasks registry", () => {
   it("returns null for unknown task ids", () => {
     expect(getAiAssistTask("does-not-exist")).toBeNull();
   });
+
+  it("points graded tasks at their AI Review rubric target", () => {
+    expect(getAiAssistTask("agent-system-prompt")!.reviewTarget).toBe(
+      "agent-system-prompt",
+    );
+    expect(getAiAssistTask("skill-md")!.reviewTarget).toBe("skill-md");
+    // enhance-skill-md spreads skill-md, so it inherits the same target.
+    expect(getAiAssistTask("enhance-skill-md")!.reviewTarget).toBe("skill-md");
+  });
+
+  it("leaves non-graded tasks without a review target", () => {
+    expect(getAiAssistTask("code-snippet")!.reviewTarget).toBeUndefined();
+    expect(getAiAssistTask("agent-description")!.reviewTarget).toBeUndefined();
+  });
 });
 
 describe("describe-skill task", () => {
@@ -127,10 +141,10 @@ describe("model env overrides", () => {
   it("returns global default when no overrides set", () => {
     const env = {} as NodeJS.ProcessEnv;
     const m = getAiAssistTask(taskId)!.defaultModel(env);
-    // Default model is now Sonnet (raw Bedrock modelId, no `bedrock/`
+    // Default model is Haiku 4.5 (raw Bedrock modelId, no `bedrock/`
     // prefix). See `GLOBAL_DEFAULT_MODEL_ID` in ai-assist-tasks.ts for
     // the rationale.
-    expect(m.id).toMatch(/anthropic\.claude-sonnet/);
+    expect(m.id).toBe("global.anthropic.claude-haiku-4-5-20251001-v1:0");
     // aws-bedrock is the safer default: it ships pre-configured in most
     // deployments, while `openai` requires OPENAI_API_KEY which is often
     // missing in local/dev. Per-task or AI_ASSIST_MODEL_PROVIDER overrides

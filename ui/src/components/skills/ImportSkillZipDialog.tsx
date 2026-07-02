@@ -28,31 +28,31 @@
  * skill).
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Archive,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  FileText,
+AlertTriangle,
+Archive,
+CheckCircle2,
+FileText,
+Loader2,
+XCircle,
 } from "lucide-react";
+import React,{ useCallback,useMemo,useRef,useState } from "react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ImportConflictDialog } from "@/components/skills/ImportConflictDialog";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
-import { ImportConflictDialog } from "@/components/skills/ImportConflictDialog";
 import type { ImportConflictDecision } from "@/lib/skill-import-helpers";
+import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Wire types — must match the route's response shape
@@ -151,6 +151,7 @@ export function ImportSkillZipDialog({
 }: ImportSkillZipDialogProps) {
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [teamRefsText, setTeamRefsText] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // We re-fetch the SKILL.md content for the single-skill shortcut
@@ -210,8 +211,22 @@ export function ImportSkillZipDialog({
 
   const reset = useCallback(() => {
     setPhase({ kind: "idle" });
+    setTeamRefsText("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
+
+  const selectedTeamRefs = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          teamRefsText
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [teamRefsText],
+  );
 
   const handleFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -365,6 +380,9 @@ export function ImportSkillZipDialog({
       const form = new FormData();
       form.append("file", file);
       form.append("resolutions", JSON.stringify(finalResolutions));
+      if (selectedTeamRefs.length > 0) {
+        form.append("shared_with_teams", JSON.stringify(selectedTeamRefs));
+      }
       const resp = await fetch("/api/skills/configs/import-zip", {
         method: "POST",
         body: form,
@@ -390,7 +408,7 @@ export function ImportSkillZipDialog({
       // without re-selecting their zip and resolutions.
       setPhase(phase);
     }
-  }, [phase, onBulkImported, toast]);
+  }, [phase, onBulkImported, toast, selectedTeamRefs]);
 
   const handleClose = useCallback(() => {
     reset();
@@ -441,6 +459,22 @@ export function ImportSkillZipDialog({
                 Maximum 50 MB uncompressed, 1 MB per ancillary file. Zips
                 with more than 50 SKILL.md files are rejected.
               </p>
+              {!onSingleSkillApplied && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Team access (optional, comma-separated team slugs or IDs)
+                  </label>
+                  <Input
+                    value={teamRefsText}
+                    onChange={(event) => setTeamRefsText(event.target.value)}
+                    placeholder="e.g. platform, sre"
+                    data-testid="zip-import-team-access-input"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Imported skills are saved as team-visible and granted to these teams.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

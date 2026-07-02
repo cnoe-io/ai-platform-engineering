@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import { apiClient } from "@/lib/api-client";
+import { create } from "zustand";
 
 const STORAGE_KEY = "caipe-feature-flags";
 
@@ -198,7 +198,7 @@ export const useFeatureFlagStore = create<FeatureFlagState>((set, get) => ({
  *
  * Prefers the Zustand store when initialized, otherwise falls back to
  * localStorage so it works before React hydration (e.g. inside the
- * A2ASDKClient constructor).
+ * non-React streaming/client setup).
  */
 export function isFeatureEnabled(id: string): boolean {
   const store = useFeatureFlagStore.getState();

@@ -1,13 +1,13 @@
 // GET /api/users/me/insights - Get user prompt insights and usage analytics
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, Message } from '@/types/mongodb';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import type { Conversation,Message } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 // GET /api/users/me/insights
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -58,20 +58,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         }),
       ]);
 
-    // Total tokens
-    const tokenAgg = await messages
-      .aggregate([
-        { $match: { conversation_id: { $in: conversationIds } } },
-        {
-          $group: {
-            _id: null,
-            total_tokens: { $sum: { $ifNull: ['$metadata.tokens_used', 0] } },
-          },
-        },
-      ])
-      .toArray();
-    const totalTokens = tokenAgg[0]?.total_tokens || 0;
-
     // ═══════════════════════════════════════════════════════════════
     // SKILL USAGE (aggregate workflow_runs by category)
     // ═══════════════════════════════════════════════════════════════
@@ -83,7 +69,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           { $match: { owner_id: user.email } },
           {
             $group: {
-              _id: { $ifNull: ['$workflow_category', 'Custom'] },
+              _id: { $ifNull: ['$workflow_name', 'Custom'] },
               total_runs: { $sum: 1 },
               completed: {
                 $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
@@ -336,7 +322,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       overview: {
         total_conversations: totalConversations,
         total_messages: totalMessages,
-        total_tokens_used: totalTokens,
         conversations_this_week: conversationsThisWeek,
         messages_this_week: messagesThisWeek,
         avg_messages_per_conversation: avgMessagesPerConversation,

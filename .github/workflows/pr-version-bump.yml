@@ -9,10 +9,9 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  packages: write
+  contents: read
+  issues: read
+  pull-requests: read
   actions: read
 
 concurrency:
@@ -23,6 +22,9 @@ jobs:
   eligibility:
     name: Check PR eligibility
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
       reason: ${{ steps.check.outputs.reason }}
@@ -100,23 +102,36 @@ jobs:
     name: Bump version files on PR
     runs-on: ubuntu-latest
     needs: eligibility
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
     # Don't run on commits made by the bot (avoid infinite loop)
-    if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     outputs:
       new_commit: ${{ steps.chart-cleanup-commit.outputs.committed == 'true' || steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
       should_prebuild: ${{ steps.helm-labels.outputs.should_run }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          permission-contents: write
+
       - name: 📥 Checkout PR branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 🔍 Check if PR branch is up to date
         id: branch-status
@@ -264,7 +279,6 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          NEEDS_UPDATE: ${{ steps.branch-status.outputs.needs_update }}
           HAS_CONFLICTS: ${{ steps.mergeability.outputs.has_conflicts }}
         with:
           script: |
@@ -278,16 +292,7 @@ jobs:
             const marker = `<!-- pr-version-bump:update-branch sha=${headSha} -->`;
             const isFork = headRepo !== repo;
             const isPrebuild = headRef.startsWith('prebuild/');
-            const needsUpdate = process.env.NEEDS_UPDATE === 'true';
             const hasConflicts = process.env.HAS_CONFLICTS === 'true';
-
-            const reasons = [];
-            if (needsUpdate) {
-              reasons.push(`this branch does not contain the latest \`${baseRef}\``);
-            }
-            if (hasConflicts) {
-              reasons.push(`GitHub reports merge conflicts with \`${baseRef}\``);
-            }
 
             const commands = isFork
               ? [
@@ -304,10 +309,15 @@ jobs:
                 ];
 
             let body = `${marker}\n`;
-            body += `## ❗ Branch update needed\n\n`;
-            body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
-            body += `CI failed to bump chart and app versions because ${reasons.join(' and ')}. Please update the branch by following the steps below:\n\n`;
-            body += `Run:\n\n`;
+            if (hasConflicts) {
+              body += `## ❗ Merge conflicts with \`${baseRef}\`\n\n`;
+              body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
+              body += `This PR has merge conflicts with \`${baseRef}\` that must be resolved before it can merge. Resolve them by running:\n\n`;
+            } else {
+              body += `## ℹ️ Branch is behind \`${baseRef}\` (advisory, non-blocking)\n\n`;
+              body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
+              body += `This branch does not yet contain the latest \`${baseRef}\`. This does **not** fail the version-bump check — version files are bumped once the branch is updated, and GitHub branch protection still requires the branch to be up to date before merge. Use the **Update branch** button on this PR, or run:\n\n`;
+            }
             body += '```bash\n';
             body += commands.join('\n');
             body += '\n```\n\n';
@@ -354,12 +364,12 @@ jobs:
             }
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
       - name: 📦 Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       # ── Detect release/* → main PR ─────────────────────────────────────
       - name: 🔍 Check if release merge PR
@@ -432,7 +442,7 @@ jobs:
         id: version
         uses: ./.github/actions/determine-version
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 📝 Update version files
         if: ${{ steps.helm-labels.outputs.undo_charts != 'true' && steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
@@ -446,11 +456,16 @@ jobs:
       - name: ⚙️ Install yq for chart cleanup
         if: steps.helm-labels.outputs.undo_charts == 'true'
         shell: bash
+        env:
+          YQ_VERSION: v4.53.3
+          YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
         run: |
-          if ! command -v yq &>/dev/null; then
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq
-          fi
+          set -euo pipefail
+
+          curl -fsSL -o /tmp/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
 
       - name: ↩️ Restore chart bump fields
@@ -561,8 +576,19 @@ jobs:
           echo "committed=true" >> "$GITHUB_OUTPUT"
           echo "✅ Removed Helm chart bump changes"
 
-      - name: ❌ Require branch update before merge
-        if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
+      # Don't double-gate on staleness: GitHub branch protection's "Require
+      # branches to be up to date before merging" already enforces freshness at
+      # merge time. Failing here too just flips every open PR red whenever main
+      # advances. Being behind base is advisory; only real conflicts hard-fail.
+      - name: ℹ️ Branch behind base (non-blocking)
+        if: steps.branch-status.outputs.needs_update == 'true' && steps.mergeability.outputs.has_conflicts != 'true'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          echo "::notice::This PR branch is behind ${BASE_REF}. Not failing the version-bump check — branch protection enforces up-to-date at merge time, and version files are bumped once the branch is updated."
+
+      - name: ❌ Require conflict resolution before merge
+        if: steps.mergeability.outputs.has_conflicts == 'true'
         env:
           COMMENT_RESULT: ${{ steps.branch-update-comment.outputs.result }}
           COMMENT_URL: ${{ steps.branch-update-comment.outputs.comment_url }}
@@ -572,12 +598,10 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
         run: |
-          if [[ "$COMMENT_RESULT" == "created" ]]; then
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. A PR comment with the exact commands was created: $COMMENT_URL"
-          elif [[ "$COMMENT_RESULT" == "recreated" ]]; then
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. The previous PR comment was deleted and a new one was created: $COMMENT_URL"
+          if [[ "$COMMENT_RESULT" == "created" || "$COMMENT_RESULT" == "recreated" ]]; then
+            echo "::error::This PR has merge conflicts with $BASE_REF that must be resolved before it can merge. A PR comment with the exact commands is available: $COMMENT_URL"
           else
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge, but CI could not create a fresh PR comment: ${COMMENT_ERROR:-unknown error}"
+            echo "::error::This PR has merge conflicts with $BASE_REF that must be resolved before it can merge, but CI could not create a fresh PR comment: ${COMMENT_ERROR:-unknown error}"
             echo "Run:"
             if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
               echo "git fetch https://github.com/${BASE_REPO}.git ${BASE_REF}"
@@ -594,6 +618,10 @@ jobs:
   prebuild-helm:
     name: Publish Prebuild Helm Charts
     needs: version-bump
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: read
     if: |
       always() &&
       needs.version-bump.outputs.should_prebuild == 'true' &&

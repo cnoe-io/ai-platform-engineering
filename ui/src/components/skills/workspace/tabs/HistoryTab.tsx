@@ -21,16 +21,16 @@
  * irrelevant to scanning.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle,
-  CheckCircle2,
-  History as HistoryIcon,
-  Loader2,
-  RefreshCcw,
-  ShieldCheck,
-  ShieldQuestion,
+AlertTriangle,
+CheckCircle2,
+History as HistoryIcon,
+Loader2,
+RefreshCcw,
+ShieldCheck,
+ShieldQuestion,
 } from "lucide-react";
+import { useCallback,useEffect,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,7 @@ export interface ScanTabProps {
   /** Display name for toasts and dialog copy. */
   skillName?: string;
   /** Called after a successful manual scan so the parent can refresh
-   * the gallery / supervisor sync state. Optional. */
+   * gallery state. Optional. */
   onScanComplete?: () => void | Promise<void>;
 }
 
