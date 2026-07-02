@@ -8,7 +8,7 @@ usePrometheusQuery
 } from "@/hooks/use-prometheus";
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
-import React,{ useMemo } from "react";
+import React,{ useCallback, useMemo } from "react";
 import {
 Area,
 AreaChart,
@@ -168,8 +168,8 @@ export function TimeseriesChart({
     refreshInterval,
   });
 
-  const { chartData, series } = useMemo(() => {
-    if (!data || data.length === 0) return { chartData: [], series: [] as string[] };
+  const { chartData, series, legendSeries, hiddenCount } = useMemo(() => {
+    if (!data || data.length === 0) return { chartData: [], series: [] as string[], legendSeries: [] as string[], hiddenCount: 0 };
 
     const seriesNames = new Set<string>();
     const timeMap = new Map<number, Record<string, number>>();
@@ -199,10 +199,90 @@ export function TimeseriesChart({
         ...vals,
       }));
 
-    return { chartData: sorted, series: Array.from(seriesNames) };
+    const allSeries = Array.from(seriesNames);
+
+    // Rank series by max value so we show the most active ones in the legend
+    const maxBySeries = allSeries.map((name) => ({
+      name,
+      max: Math.max(...sorted.map((row) => (row as Record<string, number>)[name] ?? 0)),
+    }));
+    maxBySeries.sort((a, b) => b.max - a.max);
+
+    const TOP_N = 5;
+    const legendSeries = maxBySeries.slice(0, TOP_N).map((s) => s.name);
+    const hiddenCount = Math.max(0, allSeries.length - TOP_N);
+
+    return { chartData: sorted, series: allSeries, legendSeries, hiddenCount };
   }, [data, labelKey, formatTime]);
 
   const ChartComponent = type === "area" ? AreaChart : LineChart;
+
+  // Map each series name to its stable color index (by position in full series array)
+  const seriesColorIndex = useMemo(
+    () => Object.fromEntries(series.map((name, i) => [name, i])),
+    [series],
+  );
+
+  const renderLegend = useCallback(() => (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1 text-xs text-muted-foreground">
+      {legendSeries.map((name) => (
+        <span key={name} className="flex items-center gap-1.5 min-w-0">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+            style={{ backgroundColor: CHART_COLORS[seriesColorIndex[name] % CHART_COLORS.length] }}
+          />
+          <span className="truncate max-w-[160px]" title={name}>{name}</span>
+        </span>
+      ))}
+      {hiddenCount > 0 && (
+        <span className="italic opacity-60">+{hiddenCount} more (hover to explore)</span>
+      )}
+    </div>
+  ), [legendSeries, hiddenCount, seriesColorIndex]);
+
+  const renderTooltip = useCallback(
+    ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
+      if (!active || !payload || payload.length === 0) return null;
+      const sorted = [...payload].sort((a, b) => b.value - a.value);
+      const TOP_TOOLTIP = 3;
+      const visible = sorted.slice(0, TOP_TOOLTIP);
+      const tooltipHidden = Math.max(0, sorted.length - TOP_TOOLTIP);
+      return (
+        <div
+          style={{
+            backgroundColor: "hsl(var(--card))",
+            border: "1px solid hsl(var(--border))",
+            borderRadius: "8px",
+            fontSize: "12px",
+            padding: "8px 12px",
+            minWidth: "160px",
+          }}
+        >
+          <p className="font-medium mb-1.5 text-foreground">{label}</p>
+          {visible.map((entry) => (
+            <div key={entry.name} className="flex items-center justify-between gap-4 py-0.5">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="truncate max-w-[140px] text-muted-foreground" title={entry.name}>
+                  {entry.name}
+                </span>
+              </span>
+              <span className="font-medium tabular-nums text-foreground shrink-0">
+                {formatValue(entry.value)}
+              </span>
+            </div>
+          ))}
+          {tooltipHidden > 0 && (
+            <p className="mt-1 text-muted-foreground opacity-60 italic">+{tooltipHidden} more</p>
+          )}
+        </div>
+      );
+    },
+    [formatValue],
+  );
 
   return (
     <Card>
@@ -228,54 +308,48 @@ export function TimeseriesChart({
             No data available
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={height}>
-            <ChartComponent data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-              <XAxis
-                dataKey="timeLabel"
-                tick={{ fontSize: 11 }}
-                className="text-muted-foreground"
-                interval="preserveStartEnd"
-              />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                className="text-muted-foreground"
-                tickFormatter={formatValue}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "8px",
-                  fontSize: "12px",
-                }}
-                formatter={(val) => [formatValue(Number(val)), ""]}
-              />
-              <Legend />
-              {series.map((name, i) =>
-                type === "area" ? (
-                  <Area
-                    key={name}
-                    type="monotone"
-                    dataKey={name}
-                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                    fill={CHART_COLORS[i % CHART_COLORS.length]}
-                    fillOpacity={0.15}
-                    strokeWidth={2}
-                  />
-                ) : (
-                  <Line
-                    key={name}
-                    type="monotone"
-                    dataKey={name}
-                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                ),
-              )}
-            </ChartComponent>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={height}>
+              <ChartComponent data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
+                <XAxis
+                  dataKey="timeLabel"
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                  tickFormatter={formatValue}
+                />
+                <Tooltip content={renderTooltip as React.ComponentType} />
+                {series.map((name, i) =>
+                  type === "area" ? (
+                    <Area
+                      key={name}
+                      type="monotone"
+                      dataKey={name}
+                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                      fill={CHART_COLORS[i % CHART_COLORS.length]}
+                      fillOpacity={0.15}
+                      strokeWidth={2}
+                    />
+                  ) : (
+                    <Line
+                      key={name}
+                      type="monotone"
+                      dataKey={name}
+                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  ),
+                )}
+              </ChartComponent>
+            </ResponsiveContainer>
+            {renderLegend()}
+          </>
         )}
       </CardContent>
     </Card>
