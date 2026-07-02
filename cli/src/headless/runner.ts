@@ -1,17 +1,17 @@
 /**
- * Headless session orchestrator (T043).
+ * Headless session orchestrator.
  *
  * Resolves credentials → reads prompt → streams response → exits.
  * Supports single-shot and --interactive-stdin multi-turn modes.
  */
+// assisted-by claude code claude-sonnet-4-6
 
 import { readFileSync } from "node:fs";
 import { DEFAULT_AGENT } from "../agents/types.js";
 import { buildSystemContext } from "../chat/context.js";
 import { createSession } from "../chat/history.js";
 import { createAdapter } from "../chat/stream.js";
-import { authEndpoints, getA2aUrl, getAuthUrl, serverEndpoints } from "../platform/config.js";
-import { discoverAgentConfig } from "../platform/discovery.js";
+import { authEndpoints, getAuthUrl } from "../platform/config.js";
 import { resolveHeadlessCredentials } from "./auth.js";
 import { type OutputFormat, createOutputWriter } from "./output.js";
 
@@ -22,7 +22,6 @@ export interface HeadlessOpts {
   output: OutputFormat;
   interactiveStdin: boolean;
   agentName: string;
-  protocol: "a2a" | "agui";
   noContext?: boolean;
   urlOverride?: string;
 }
@@ -50,17 +49,8 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
   }
 
   const getToken = async () => credentials.accessToken;
-  const agentConfig = await discoverAgentConfig(authUrl);
-  const a2aUrl = getA2aUrl();
-  const authEp = authEndpoints(authUrl);
-  const taskEndpoint =
-    opts.protocol === "agui"
-      ? a2aUrl
-        ? serverEndpoints(a2aUrl).aguiStream
-        : authEp.aguiStream
-      : (agentConfig.a2a?.endpoint ??
-        (a2aUrl ? serverEndpoints(a2aUrl).a2aTask : authEp.aguiStream));
-  const adapter = createAdapter(opts.protocol, DEFAULT_AGENT, taskEndpoint, getToken);
+  const ep = authEndpoints(authUrl);
+  const adapter = createAdapter(DEFAULT_AGENT, ep.streamStart, getToken);
   const writer = createOutputWriter(opts.output);
 
   const cwd = process.cwd();
@@ -68,7 +58,6 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
   const session = createSession({
     agentName: opts.agentName,
     workingDir: cwd,
-    protocol: opts.protocol,
     headless: true,
     outputFormat: opts.output,
   });
@@ -79,12 +68,12 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
       if (line.trim() === "\\exit" || line.trim() === "/exit") break;
       await runSingleTurn(line, session, adapter, systemContext, writer, opts);
     }
-    writer.flush(opts.agentName, opts.protocol);
+    writer.flush(opts.agentName);
   } else {
     // Single-shot
     const prompt = await resolvePrompt(opts);
     await runSingleTurn(prompt, session, adapter, systemContext, writer, opts);
-    writer.flush(opts.agentName, opts.protocol);
+    writer.flush(opts.agentName);
   }
 }
 

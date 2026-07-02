@@ -1,13 +1,12 @@
 /**
  * Unit tests for platform/config.ts:
  *   - getAuthUrl() priority order (flag > CAIPE_AUTH_URL > settings.auth.url > settings.server.url > throws)
- *   - getA2aUrl() priority order (CAIPE_SERVER_URL > settings.server.url when auth.url also set)
  *   - getServerUrl() deprecated alias behaviour
  *   - ServerNotConfigured error
  *   - settings read/write round-trip
  *   - HTTPS validation
  *   - globalConfigDir, derived paths
- *   - authEndpoints / serverEndpoints helpers
+ *   - authEndpoints helper
  */
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
@@ -45,7 +44,6 @@ afterEach(() => {
 
 import {
   ServerNotConfigured,
-  getA2aUrl,
   getAuthUrl,
   getServerUrl,
   globalConfigDir,
@@ -137,33 +135,6 @@ describe("getAuthUrl", () => {
   });
 });
 
-// ── getA2aUrl priority ────────────────────────────────────────────────────────
-
-describe("getA2aUrl", () => {
-  it("returns undefined when nothing is set", () => {
-    expect(getA2aUrl()).toBeUndefined();
-  });
-
-  it("returns CAIPE_SERVER_URL env var", () => {
-    process.env.CAIPE_SERVER_URL = "https://a2a.example.com";
-    expect(getA2aUrl()).toBe("https://a2a.example.com");
-  });
-
-  it("returns settings.server.url when auth.url is also explicitly set", () => {
-    writeSettings({
-      auth: { url: "https://auth.example.com" },
-      server: { url: "https://a2a.example.com" },
-    });
-    expect(getA2aUrl()).toBe("https://a2a.example.com");
-  });
-
-  it("returns undefined for server.url when no explicit auth (legacy single-URL setup)", () => {
-    // Old installs: server.url holds the UI URL — don't treat it as A2A URL
-    writeSettings({ server: { url: "https://legacy.example.com" } });
-    expect(getA2aUrl()).toBeUndefined();
-  });
-});
-
 // ── getServerUrl deprecated alias ─────────────────────────────────────────────
 
 describe("getServerUrl (deprecated alias for getAuthUrl)", () => {
@@ -205,28 +176,6 @@ describe("authEndpoints", () => {
     expect(ep.token).toBe("https://caipe.example.com/oauth/token");
     expect(ep.agents).toBe("https://caipe.example.com/api/v1/agents");
     expect(ep.agentCard).toBe("https://caipe.example.com/.well-known/agent.json");
-    expect(ep.aguiStream).toBe("https://caipe.example.com/api/agui/stream");
-  });
-});
-
-describe("serverEndpoints", () => {
-  it("derives all A2A backend endpoints correctly", async () => {
-    const { serverEndpoints } = await import("../src/platform/config");
-    const ep = serverEndpoints("http://localhost:8000");
-    expect(ep.a2aTask).toBe("http://localhost:8000/tasks/send");
-    expect(ep.aguiStream).toBe("http://localhost:8000/api/agui/stream");
-    expect(ep.agents).toBe("http://localhost:8000/api/v1/agents");
-  });
-});
-
-describe("endpoints (deprecated)", () => {
-  it("merges auth and server endpoints for backward compat", async () => {
-    const { endpoints } = await import("../src/platform/config");
-    const ep = endpoints("https://caipe.example.com");
-    expect(ep.deviceCode).toBe("https://caipe.example.com/oauth/device/code");
-    expect(ep.token).toBe("https://caipe.example.com/oauth/token");
-    expect(ep.agents).toBe("https://caipe.example.com/api/v1/agents");
-    expect(ep.a2aTask).toBe("https://caipe.example.com/tasks/send");
-    expect(ep.aguiStream).toBe("https://caipe.example.com/api/agui/stream");
+    expect(ep.streamStart).toBe("https://caipe.example.com/api/v1/chat/stream/start");
   });
 });

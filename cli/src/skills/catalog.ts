@@ -10,10 +10,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
 import {
+  authEndpoints,
   catalogCachePath,
-  getA2aUrl,
+  getAuthUrl,
   globalConfigDir,
-  serverEndpoints,
   skillsCachePath,
 } from "../platform/config.js";
 
@@ -170,23 +170,26 @@ function writeSupervisorSkillsCache(data: SupervisorSkillsResponse): void {
  */
 export async function fetchSupervisorSkills(
   getToken: () => Promise<string>,
+  authUrl?: string,
 ): Promise<{ skills: SupervisorSkill[]; meta: SupervisorSkillsResponse["meta"] }> {
   const cached = readSupervisorSkillsCache();
   if (cached && Date.now() - Date.parse(cached.cachedAt) < SUPERVISOR_SKILLS_TTL_MS) {
     return { skills: cached.skills, meta: cached.meta };
   }
 
-  const a2aUrl = getA2aUrl();
-  if (!a2aUrl) {
+  let resolvedAuthUrl: string;
+  try {
+    resolvedAuthUrl = authUrl ?? getAuthUrl();
+  } catch {
     if (cached) return { skills: cached.skills, meta: cached.meta };
     throw new Error(
-      "No CAIPE server URL configured. Set CAIPE_SERVER_URL or run `caipe config set server.url <url>`.",
+      "No CAIPE server URL configured. Set CAIPE_AUTH_URL or run `caipe config set auth.url <url>`.",
     );
   }
 
   try {
     const token = await getToken();
-    const url = serverEndpoints(a2aUrl).skills;
+    const url = authEndpoints(resolvedAuthUrl).skills;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(10_000),

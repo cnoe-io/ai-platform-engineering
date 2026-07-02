@@ -45,7 +45,7 @@ export function AgentList({ agents }: AgentListProps): React.ReactElement {
         <Box key={agent.name}>
           <Text>{agent.name.padEnd(20)}</Text>
           <Text dimColor>{agent.domain.padEnd(14)}</Text>
-          <Text dimColor>{(agent.protocols ?? ["a2a"]).join(", ").padEnd(16)}</Text>
+          <Text dimColor>{(agent.protocols ?? ["agui"]).join(", ").padEnd(16)}</Text>
           <Text>{statusDot(agent.available)}</Text>
           <Text dimColor> {agent.displayName}</Text>
         </Box>
