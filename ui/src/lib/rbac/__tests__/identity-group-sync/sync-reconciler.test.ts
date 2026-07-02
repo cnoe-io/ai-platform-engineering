@@ -92,6 +92,7 @@ describe("identity group sync apply reconciler", () => {
       teamsCreated: 0,
       membershipSourcesAdded: 1,
       membershipSourcesRemoved: 0,
+      membershipSourcesRefreshed: 0,
       tupleWrites: 1,
       tupleDeletes: 0,
       openFgaEnabled: true,
