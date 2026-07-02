@@ -165,6 +165,10 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [initiatives, setInitiatives] = useState<string[]>([]);
   const [parentBhags, setParentBhags] = useState<{ slug: string; name: string }[]>([]);
   const isBhag = projectType === "bhag";
+  // For a BHAG: its own name (the initiative label children are tagged with) and
+  // the child projects that resolve from it — surfaced as down-links in the nav.
+  const [projectName, setProjectName] = useState("");
+  const [childProjects, setChildProjects] = useState<{ slug: string; title: string }[]>([]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
@@ -232,6 +236,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         const p = body?.data?.project;
         if (!p) return;
         if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
+        setProjectName(p.name ?? p.title ?? "");
         setProjectType(p.type === "bhag" ? "bhag" : "project");
         setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
       })
@@ -263,6 +268,30 @@ export function TomeWiki({ slug }: { slug: string }) {
       cancelled = true;
     };
   }, [slug, isBhag, initiatives]);
+
+  // For a BHAG, resolve the projects tagged to it (those whose initiatives
+  // include this BHAG's name) so the nav can list them as down-links. Mirrors
+  // the /api/projects?initiative= query BhagProjectsPanel uses.
+  useEffect(() => {
+    if (!isBhag || !projectName) {
+      setChildProjects([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?initiative=${encodeURIComponent(projectName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const kids = (body?.data?.projects ?? []) as { slug: string; title?: string; name?: string }[];
+        setChildProjects(
+          kids.map((k) => ({ slug: k.slug, title: k.title || k.name || k.slug })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isBhag, projectName]);
 
   // Show the first-run walkthrough once per browser. The Help button reopens it.
   useEffect(() => {
@@ -641,6 +670,36 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipDescription="Reconfigure this project: its title, description, and sources (GitHub repos, Confluence spaces, Webex rooms). Changes apply to future ingests."
                   />
                 </div>
+
+                {/* BHAG down-links: the projects tagged to this BHAG. Links out
+                    to each project's own wiki — the roll-up reads these same
+                    children; this makes the hierarchy navigable (#92). */}
+                {isBhag && (
+                  <div className="mt-4">
+                    <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Projects
+                    </div>
+                    {childProjects.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-muted-foreground/70">
+                        No projects tagged to this BHAG yet.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        {childProjects.map((child) => (
+                          <Link
+                            key={child.slug}
+                            href={`/projects/${child.slug}/tome`}
+                            className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                          >
+                            <Target className="h-4 w-4 shrink-0 text-violet-400" />
+                            <span className="truncate">{child.title}</span>
+                            <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-4 flex items-center justify-between gap-1 px-2 pb-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
