@@ -182,6 +182,67 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     );
   });
 
+  it("bypasses the conversation#write check for Slack conversations so any thread participant can invoke", async () => {
+    // Slack threads are multi-participant. A non-owner (bob) must be able to
+    // invoke the agent within the thread. agent#can_use is still enforced first;
+    // the conversation#write ReBAC check is skipped for client_type === 'slack'.
+    mockAuthenticateRequest.mockResolvedValue({
+      subject: "bob-sub",
+      email: "bob@example.com",
+      tenantId: "default",
+      bearerToken: "token",
+    });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn(async () => ({
+        _id: "conv-1",
+        owner_id: "alice@example.com",
+        owner_subject: "alice-sub",
+        client_type: "slack",
+      })),
+    });
+
+    const response = await startPost(
+      jsonRequest("/api/v1/chat/stream/start", {
+        message: "hi",
+        conversation_id: "conv-1",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequireAgentUsePermission).toHaveBeenCalledTimes(1);
+    // The write check is short-circuited for Slack conversations.
+    expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
+    expect(mockProxySSEStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("still enforces the conversation#write check for non-Slack conversations", async () => {
+    // Regression guard: the Slack bypass must not leak to webui conversations.
+    mockRequireConversationResourcePermission.mockRejectedValue(
+      Object.assign(new Error("denied"), { statusCode: 403, code: "conversation#write" }),
+    );
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn(async () => ({
+        _id: "conv-1",
+        owner_id: "alice@example.com",
+        owner_subject: "alice-sub",
+        client_type: "webui",
+      })),
+    });
+
+    const response = await startPost(
+      jsonRequest("/api/v1/chat/stream/start", {
+        message: "hi",
+        conversation_id: "conv-1",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(mockRequireConversationResourcePermission).toHaveBeenCalledTimes(1);
+    expect(mockProxySSEStream).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["start", startPost, "/api/v1/chat/stream/start", { message: "hi", conversation_id: "conv-1", agent_id: "agent-1" }],
     ["invoke", invokePost, "/api/v1/chat/invoke", { message: "hi", conversation_id: "conv-1", agent_id: "agent-1" }],

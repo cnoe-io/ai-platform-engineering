@@ -16,11 +16,6 @@ const sidebars: SidebarsConfig = {
   // By default, Docusaurus generates a sidebar from the docs folder structure
   docsSidebar: [
     {
-      type: 'doc',
-      id: 'index', // docs/index.md
-      label: 'Introduction',
-    },
-    {
       type: 'category',
       label: 'Getting Started',
       items: [
@@ -28,14 +23,6 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'getting-started/quick-start',
         },
-        {
-          type: 'doc',
-          id: 'getting-started/user-interfaces',
-        },
-        {
-          type: 'doc',
-          id: 'getting-started/next-steps',
-        }
       ],
     },
     {
@@ -82,6 +69,11 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Helm',
           items: [
+            {
+              type: 'doc',
+              id: 'getting-started/helm/cluster-setup',
+              label: 'Cluster Setup',
+            },
             {
               type: 'doc',
               id: 'getting-started/helm/setup',
@@ -161,43 +153,6 @@ const sidebars: SidebarsConfig = {
             },
           ],
         },
-        {
-          type: 'category',
-          label: 'IDP Builder',
-          items: [
-            {
-              type: 'doc',
-              id: 'getting-started/idpbuilder/setup',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/idpbuilder/ubuntu-prerequisites',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/idpbuilder/manual-vault-secret-setup',
-              label: 'Manual Vault Secret Setup',
-            },
-          ],
-        },
-        {
-          type: 'category',
-          label: 'EKS',
-          items: [
-            {
-              type: 'doc',
-              id: 'getting-started/eks/setup',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/eks/configure-agent-secrets',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/eks/configure-llms',
-            },
-          ],
-        },
       ],
     },
     {
@@ -274,11 +229,6 @@ const sidebars: SidebarsConfig = {
           id: 'architecture/slack-bot-authorization',
           label: 'Slack Bot Authorization',
         },
-        {
-          type: 'doc',
-          id: 'architecture/slack-io-guardrails',
-          label: 'Slack I/O Guardrails',
-        }
       ],
     },
     {

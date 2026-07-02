@@ -621,13 +621,11 @@ export function TeamDetailsDialog({
       if (!data.success) {
         throw new Error(data.error || "Failed to save agents and MCP access");
       }
-      const skipped: string[] = data.data?.members_skipped ?? [];
-      const updated: string[] = data.data?.members_updated ?? [];
-      setResourcesNotice(
-        skipped.length > 0
-          ? `Saved. ${updated.length} member(s) updated; ${skipped.length} skipped (no Keycloak account yet): ${skipped.join(", ")}`
-          : `Saved. ${updated.length} member(s) updated.`
-      );
+      // Resource grants are keyed on the team userset, so saving touches only
+      // the team's resource tuples — member access resolves transitively from
+      // their existing team membership (owned by the members tab), nothing to
+      // report per-member here.
+      setResourcesNotice("Saved.");
       onTeamUpdated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save agents and MCP access");
