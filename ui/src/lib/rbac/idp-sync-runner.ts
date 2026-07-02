@@ -161,7 +161,7 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // skips everyone as `missing_subject`. Cached per run so a user appearing in
     // many groups is resolved once.
     const subCache = new Map<string, string | null>();
-    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string }> }>) {
+    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string; display_name?: string }> }>) {
       for (const member of group.members ?? []) {
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
@@ -171,9 +171,15 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
             // `POST /api/admin/users/provision-shell` endpoint the bots call
             // (issue #1781) — in-process, so no self-network hop. The caller's
             // own RBAC gate (route) or trusted context (scheduler) authorizes.
+            // Split "First Last" on first space; handles "Mary Jo Smith" → firstName="Mary", lastName="Jo Smith"
+            const nameParts = member.display_name?.trim().split(/\s+(.+)/) ?? [];
+            const firstName = nameParts[0] || undefined;
+            const lastName = nameParts[1] || undefined;
             const { sub } = await provisionShellUser({
               email,
               source: `idp-sync:${provider}`,
+              firstName,
+              lastName,
             });
             subCache.set(email, sub);
           } catch (err) {

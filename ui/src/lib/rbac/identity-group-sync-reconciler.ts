@@ -32,6 +32,7 @@ export interface ApplyIdentityGroupSyncPlanResult {
   teamsCreated: number;
   membershipSourcesAdded: number;
   membershipSourcesRemoved: number;
+  membershipSourcesRefreshed: number;
   tupleWrites: number;
   tupleDeletes: number;
   openFgaEnabled: boolean;
@@ -106,6 +107,16 @@ export async function applyIdentityGroupSyncPlan(
       // left to keep in sync.
       upsertedSources.push(resolved);
     }
+    for (const source of input.plan.membership_sources_to_refresh ?? []) {
+      const resolved = {
+        ...source,
+        team_id: teamIdsBySlug.get(source.team_slug) ?? source.team_id,
+        last_applied_at: input.now,
+      };
+      await upsertTeamMembershipSource(resolved);
+      // Refresh operations are idempotent — do NOT add to upsertedSources
+      // so they are excluded from rollback tracking.
+    }
     for (const source of input.plan.membership_sources_to_remove) {
       await markTeamMembershipSourceRemoved(source, input.actor, input.now);
       // See above — no longer mirror the removal into teams.members[].
@@ -149,6 +160,7 @@ export async function applyIdentityGroupSyncPlan(
       teamsCreated: phase1.teamsCreated,
       membershipSourcesAdded: input.plan.membership_sources_to_add.length,
       membershipSourcesRemoved: input.plan.membership_sources_to_remove.length,
+      membershipSourcesRefreshed: (input.plan.membership_sources_to_refresh ?? []).length,
       tupleWrites: openFgaResult.writes,
       tupleDeletes: openFgaResult.deletes,
       openFgaEnabled: openFgaResult.enabled,
@@ -206,12 +218,15 @@ async function ensureIdentitySyncTeams(
 ): Promise<EnsureTeamsResult> {
   const teamIdsBySlug = new Map<string, string>();
   const createdTeamSlugsThisCall = new Set<string>();
-  if (input.plan.teams_to_create.length === 0) {
+  if (input.plan.teams_to_create.length === 0 && (!input.plan.teams_to_update || input.plan.teams_to_update.length === 0)) {
     return { teamsCreated: 0, teamIdsBySlug, createdTeamSlugsThisCall };
   }
 
   const teams = await getCollection<IdentitySyncTeam & Record<string, unknown>>("teams");
-  const slugs = Array.from(new Set(input.plan.teams_to_create.map((team) => team.slug)));
+  const slugs = Array.from(new Set([
+    ...input.plan.teams_to_create.map((team) => team.slug),
+    ...(input.plan.teams_to_update ?? []).map((team) => team.slug),
+  ]));
   const existing = await teams
     .find({ slug: { $in: slugs } })
     .project({ _id: 1, id: 1, slug: 1, name: 1 })
@@ -244,8 +259,18 @@ async function ensureIdentitySyncTeams(
       createdTeamSlugsThisCall.add(team.slug);
       teamsCreated += 1;
     }
+    // Update name for teams where Okta's name differs from stored name.
+    // This is inside the same try-catch so that if an updateOne throws,
+    // any teams inserted earlier in this call are rolled back before
+    // rethrowing (Phase 1 all-or-nothing guarantee).
+    for (const team of input.plan.teams_to_update ?? []) {
+      await teams.updateOne(
+        { slug: team.slug },
+        { $set: { name: team.name, updated_by: input.actor, updated_at: new Date(input.now) } }
+      );
+    }
   } catch (err) {
-    // Phase 1 self-rollback: a single insert failed mid-loop. Delete
+    // Phase 1 self-rollback: a single insert or update failed mid-loop. Delete
     // anything we already inserted in this call before rethrowing.
     await rollbackPhase1({ createdTeamSlugs: createdTeamSlugsThisCall }).catch(
       (rollbackErr) => {

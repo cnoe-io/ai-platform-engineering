@@ -719,16 +719,19 @@ function parseUserIdFromLocation(location: string | null): string | null {
  */
 export async function createFederatedShellUser(
   email: string,
-  attributes: Record<string, string[]> = {}
+  attributes: Record<string, string[]> = {},
+  name?: { firstName?: string; lastName?: string }
 ): Promise<string> {
   const emailLower = email.trim().toLowerCase();
-  const body = {
+  const body: Record<string, unknown> = {
     username: emailLower,
     email: emailLower,
     emailVerified: true,
     enabled: true,
     requiredActions: [],
     attributes,
+    ...(name?.firstName && { firstName: name.firstName }),
+    ...(name?.lastName && { lastName: name.lastName }),
   };
   const response = await adminFetch(`/users`, { method: "POST", body: JSON.stringify(body) });
 
@@ -748,17 +751,53 @@ export async function createFederatedShellUser(
   throw new Error(`createFederatedShellUser(${emailLower}): could not determine new user id`);
 }
 
+async function maybeUpdateUserName(
+  userId: string,
+  name: { firstName?: string; lastName?: string }
+): Promise<void> {
+  const existing = await getRealmUserByIdOrNull(userId);
+  if (!existing) return;
+  // Only patch if the user is missing a name entirely (shell user never had one set)
+  // OR if Okta has a different name
+  const needsUpdate =
+    (name.firstName && existing.firstName !== name.firstName) ||
+    (name.lastName && existing.lastName !== name.lastName);
+  if (!needsUpdate) return;
+  // Don't overwrite a manually-set name with nothing
+  if (!name.firstName && !name.lastName) return;
+  await updateUser(userId, {
+    ...(name.firstName && { firstName: name.firstName }),
+    ...(name.lastName && { lastName: name.lastName }),
+  });
+}
+
 /**
  * Resolve an email to a Keycloak `sub`, creating a federated shell user when no
  * account exists yet. Returns the sub plus whether it was newly created.
  */
 export async function resolveOrProvisionUserSub(
   email: string,
-  attributes: Record<string, string[]> = {}
+  attributes: Record<string, string[]> = {},
+  name?: { firstName?: string; lastName?: string }
 ): Promise<{ sub: string; created: boolean }> {
   const existing = await findUserIdByEmail(email);
-  if (existing) return { sub: existing, created: false };
-  const sub = await createFederatedShellUser(email, attributes);
+  if (existing) {
+    // If user exists but is missing a name, patch it. Non-fatal: a transient
+    // Keycloak error on the name update must not suppress the known sub or
+    // prevent RBAC assignments from being applied this sync run.
+    if (name?.firstName || name?.lastName) {
+      try {
+        await maybeUpdateUserName(existing, name);
+      } catch (err) {
+        console.warn(
+          `[KeycloakAdmin] maybeUpdateUserName(${existing}) failed (non-fatal):`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+    return { sub: existing, created: false };
+  }
+  const sub = await createFederatedShellUser(email, attributes, name);
   return { sub, created: true };
 }
 
@@ -778,6 +817,9 @@ export interface ProvisionShellUserInput {
    * `created_at` attributes. Ignored when the user already exists.
    */
   attributes?: Record<string, string[]>;
+  /** Display name from the IdP, split into firstName/lastName for Keycloak. */
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface ProvisionShellUserResult {
@@ -817,7 +859,11 @@ export async function provisionShellUser(
     created_by: [source],
     created_at: [new Date().toISOString().replace(/\.\d{3}Z$/, "Z")],
   };
-  return resolveOrProvisionUserSub(email, attributes);
+  const name =
+    input.firstName || input.lastName
+      ? { firstName: input.firstName, lastName: input.lastName }
+      : undefined;
+  return resolveOrProvisionUserSub(email, attributes, name);
 }
 
 function exactEmailUserId(email: string, users: Array<Record<string, unknown>>): string | null {
