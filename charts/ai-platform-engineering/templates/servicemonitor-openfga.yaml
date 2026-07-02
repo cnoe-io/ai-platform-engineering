@@ -2,7 +2,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ .Release.Name }}-metrics
+  name: {{ .Release.Name }}-openfga-metrics
   labels:
     app.kubernetes.io/name: ai-platform-engineering
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -14,34 +14,15 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  # Match services that expose /metrics on their http port. Services excluded
-  # by name have dedicated per-component ServiceMonitors targeting the correct
-  # port for their metrics endpoint:
-  #   - agentgateway: servicemonitor-agentgateway.yaml (admin port 15000)
-  #   - keycloak: servicemonitor-keycloak.yaml (management port 9000)
-  #   - openfga: servicemonitor-openfga.yaml (metrics port 2112)
-  # audit-service has no /metrics endpoint and is excluded entirely.
+  # OpenFGA exposes Prometheus metrics on the metrics port (2112) by default.
+  # A dedicated ServiceMonitor is used so this endpoint is only applied to
+  # openfga and does not generate failed scrape targets on other services.
   selector:
     matchLabels:
+      app.kubernetes.io/name: openfga
       app.kubernetes.io/instance: {{ .Release.Name }}
-    matchExpressions:
-      - key: app.kubernetes.io/component
-        operator: NotIn
-        values:
-          - mcp
-          - rag-server
-          - agent-ontology
-          - skill-scanner
-          - caipe-ui
-      - key: app.kubernetes.io/name
-        operator: NotIn
-        values:
-          - agentgateway
-          - keycloak
-          - openfga
-          - audit-service
   endpoints:
-    - port: http
+    - port: metrics
       path: {{ .Values.metrics.path | default "/metrics" }}
       interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
@@ -57,4 +38,3 @@ spec:
     matchNames:
       - {{ .Release.Namespace }}
 {{- end }}
-
