@@ -205,7 +205,7 @@ function RunLogPane({
           </span>
           {tokens && (
             <span className="truncate text-xs font-medium tabular-nums text-neutral-500">
-              · {tokens}
+              · tokens: {tokens}
             </span>
           )}
         </div>
