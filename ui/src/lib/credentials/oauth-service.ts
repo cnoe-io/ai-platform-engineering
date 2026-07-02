@@ -875,7 +875,11 @@ export class ProviderConnectionService {
       {
         $set: {
           status: "connected",
-          renewable: Boolean(token.refresh_token),
+          // Only update `renewable` when the provider returned a new refresh
+          // token. Providers that don't rotate their refresh token omit it from
+          // the response; overwriting with `false` here would incorrectly mark a
+          // still-renewable connection as non-auto-renew.
+          ...(token.refresh_token ? { renewable: true } : {}),
           expiresAt: token.expires_in ? new Date(this.now().getTime() + token.expires_in * 1000) : undefined,
           updatedAt: this.now(),
         },
