@@ -7,8 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
-import { autonomousApi } from "@/components/autonomous/api";
-import { TaskFormDialog } from "@/components/autonomous/TaskFormDialog";
 import type { DynamicAgentConfigWithPermissions } from "@/types/dynamic-agent";
 import {
 Bot,
@@ -20,6 +18,7 @@ Loader2,
 Lock,
 Plus,
 RefreshCw,
+SquarePen,
 ToggleLeft,
 ToggleRight,
 Trash2,
@@ -27,6 +26,7 @@ Users,
 } from "lucide-react";
 import React from "react";
 import { AgentAvatar } from "./AgentAvatar";
+import { AgentAutonomousDrawer } from "./AgentAutonomousDrawer";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 
 const DEFAULT_ROW_PERMISSIONS = {
@@ -58,7 +58,7 @@ export function DynamicAgentsTab() {
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
-  const [taskDialogAgent, setTaskDialogAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
+  const [drawerAgent, setDrawerAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
 
   const fetchAgents = React.useCallback(async () => {
     setLoading(true);
@@ -450,11 +450,11 @@ export function DynamicAgentsTab() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => setTaskDialogAgent(agent)}
-                      title="Add autonomous task"
-                      aria-label="Add autonomous task"
+                      onClick={() => setDrawerAgent(agent)}
+                      title="Manage autonomous tasks"
+                      aria-label="Manage autonomous tasks"
                     >
-                      <Plus className="h-4 w-4" />
+                      <SquarePen className="h-4 w-4" />
                     </Button>
                   )}
                   <Button
@@ -560,16 +560,12 @@ export function DynamicAgentsTab() {
           </div>
         )}
       </CardContent>
-      {taskDialogAgent && (
-        <TaskFormDialog
-          open={!!taskDialogAgent}
+      {drawerAgent && (
+        <AgentAutonomousDrawer
+          agent={drawerAgent}
+          open={!!drawerAgent}
           onOpenChange={(open) => {
-            if (!open) setTaskDialogAgent(null);
-          }}
-          initialAgentId={taskDialogAgent._id}
-          onSubmit={async (task) => {
-            await autonomousApi.createTask(task);
-            setTaskDialogAgent(null);
+            if (!open) setDrawerAgent(null);
           }}
         />
       )}
