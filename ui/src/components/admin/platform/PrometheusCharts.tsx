@@ -323,7 +323,8 @@ export function TimeseriesChart({
                   className="text-muted-foreground"
                   tickFormatter={formatValue}
                 />
-                <Tooltip content={renderTooltip as React.ComponentType} />
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                <Tooltip content={renderTooltip as any} />
                 {series.map((name, i) =>
                   type === "area" ? (
                     <Area
