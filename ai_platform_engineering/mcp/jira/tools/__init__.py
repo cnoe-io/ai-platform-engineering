@@ -8,6 +8,3 @@ from tools.jira.transitions import *
 from tools.jira.worklog import *
 from tools.jira.links import *
 from tools.jira.projects import *
-
-
-

@@ -34,7 +34,7 @@ Shared symmetric secret used when MCP calls go through **AgentGateway**:
 
 Without it, only the coarse user-level `mcp_gateway:list` gate runs — per-agent `allowed_tools` may 403.
 
-**G1 (Helm):** `dynamic-agents.agentContext.existingSecret` + bridge wiring via `caipe-ui-secret`; chart `NOTES.txt` warning.  
+**G1 (Helm):** `dynamic-agents.agentContext.existingSecret` + bridge wiring via `caipe-ui-secret`; chart `NOTES.txt` warning.
 **G2 (bootstrap):** `.env.example`, `setup-caipe.sh` patch/generate, dynamic-agents startup warning.
 
 Full doc: [Agent context HMAC](../../security/rbac/agent-context-hmac.md)
@@ -51,12 +51,12 @@ Full doc: [Agent context HMAC](../../security/rbac/agent-context-hmac.md)
 
 ## Linked issues
 
-Fixes #1930  
-Fixes #1929  
-Fixes #1942  
-Fixes #1920  
-Fixes #1928  
-Fixes #1911  
+Fixes #1930
+Fixes #1929
+Fixes #1942
+Fixes #1920
+Fixes #1928
+Fixes #1911
 
 Relates to #1931 — workflow user-bearer delegation is implemented; live Webex bot → agent → team workflow validation is tracked in `docs/docs/specs/2026-06-22-pr-1967-issue-closure/plan.md` (gap G5).
 

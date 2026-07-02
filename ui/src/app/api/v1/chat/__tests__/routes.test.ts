@@ -17,12 +17,23 @@ const mockRequireAgentUsePermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockRequireConversationResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
+const mockIsSchedulerTokenConfigured = jest.fn();
+const mockIsSchedulerTokenValid = jest.fn();
+const mockResolveScheduledRunOwner = jest.fn();
+const mockMintScheduledOwnerToken = jest.fn();
 
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
   getDynamicAgentsConfig: (...args: unknown[]) => mockGetDynamicAgentsConfig(...args),
   proxySSEStream: (...args: unknown[]) => mockProxySSEStream(...args),
   proxyJSONRequest: (...args: unknown[]) => mockProxyJSONRequest(...args),
+}));
+
+jest.mock("@/lib/scheduled-run-auth", () => ({
+  isSchedulerTokenConfigured: (...args: unknown[]) => mockIsSchedulerTokenConfigured(...args),
+  isSchedulerTokenValid: (...args: unknown[]) => mockIsSchedulerTokenValid(...args),
+  resolveScheduledRunOwner: (...args: unknown[]) => mockResolveScheduledRunOwner(...args),
+  mintScheduledOwnerToken: (...args: unknown[]) => mockMintScheduledOwnerToken(...args),
 }));
 
 jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
@@ -40,12 +51,17 @@ jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
+  isMongoDBConfigured: true,
 }));
 
-function jsonRequest(path: string, body: Record<string, unknown> = {}): NextRequest {
+function jsonRequest(
+  path: string,
+  body: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
@@ -76,6 +92,14 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     });
     mockProxySSEStream.mockResolvedValue(new Response("event: done\n\n", { status: 200 }));
     mockProxyJSONRequest.mockResolvedValue(NextResponse.json({ success: true }));
+    // Scheduled-run defaults: token configured + valid, owner resolves, mint ok.
+    mockIsSchedulerTokenConfigured.mockReturnValue(true);
+    mockIsSchedulerTokenValid.mockReturnValue(true);
+    mockResolveScheduledRunOwner.mockResolvedValue({
+      sub: "owner-sub",
+      email: "owner@example.com",
+    });
+    mockMintScheduledOwnerToken.mockResolvedValue("owner-bearer-token");
   });
 
   it.each([
@@ -317,6 +341,117 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     expect(response.status).toBe(403);
     expect(mockRequireResourcePermission).not.toHaveBeenCalled();
     expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("mints an owner bearer and enforces agent#use as the owner for scheduler-token invoke runs", async () => {
+    const findOne = jest.fn(async () => null);
+    const updateOne = jest.fn(async () => ({ acknowledged: true }));
+    const countDocuments = jest.fn(async () => 1);
+    mockGetCollection.mockResolvedValue({ findOne, updateOne, countDocuments });
+
+    const response = await invokePost(
+      jsonRequest(
+        "/api/v1/chat/invoke",
+        {
+          message: "run scheduled prep",
+          conversation_id: "scheduled-sched_123-run_456",
+          agent_id: "agent-1",
+          owner_user_id: "owner@example.com",
+          trace_id: "scheduled-sched_123-run_456",
+          client_context: {
+            source: "scheduler",
+            schedule_id: "sched_123",
+            schedule_title: "Meeting prep",
+          },
+        },
+        {
+          "X-Scheduler-Token": "service-token",
+          "X-Client-Source": "caipe-cron-runner",
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    // The interactive session auth path is NOT used for scheduled runs.
+    expect(mockAuthenticateRequest).not.toHaveBeenCalled();
+    // Owner is resolved from the schedule DB record (by schedule_id), and a
+    // real owner bearer is minted via Keycloak token exchange.
+    expect(mockResolveScheduledRunOwner).toHaveBeenCalledWith("sched_123");
+    expect(mockMintScheduledOwnerToken).toHaveBeenCalledWith("owner-sub");
+    // agent#use IS enforced as the owner (no scheduled-run authz bypass).
+    expect(mockRequireAgentUsePermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: "owner-sub",
+        agentId: "agent-1",
+        email: "owner@example.com",
+        isServiceAccount: false,
+      }),
+    );
+    // The interactive conversation-write gate is skipped (the route owns the
+    // idempotent scheduled-conversation creation).
+    expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
+    expect(mockProxyJSONRequest).toHaveBeenCalledTimes(1);
+    expect(mockProxyJSONRequest.mock.calls[0][0]).toBe("http://dynamic-agents:8000/api/v1/chat/invoke");
+    // The owner bearer (not a shared token) is forwarded to Dynamic Agents.
+    expect(mockProxyJSONRequest.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        subject: "owner-sub",
+        bearerToken: "owner-bearer-token",
+        traceparent: expect.stringMatching(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/),
+      }),
+    );
+
+    const proxiedBody = JSON.parse(mockProxyJSONRequest.mock.calls[0][1] as string) as Record<string, unknown>;
+    expect(proxiedBody.conversation_id).not.toBe("scheduled-sched_123-run_456");
+    expect(proxiedBody.conversation_id).toEqual(expect.any(String));
+    expect(updateOne).toHaveBeenCalled();
+    expect(countDocuments).toHaveBeenCalled();
+  });
+
+  it("fails a scheduler-token invoke closed when the owner cannot be resolved", async () => {
+    mockResolveScheduledRunOwner.mockResolvedValue(null);
+
+    const response = await invokePost(
+      jsonRequest(
+        "/api/v1/chat/invoke",
+        {
+          message: "run scheduled prep",
+          conversation_id: "scheduled-sched_123-run_456",
+          agent_id: "agent-1",
+          client_context: { source: "scheduler", schedule_id: "sched_123" },
+        },
+        {
+          "X-Scheduler-Token": "service-token",
+          "X-Client-Source": "caipe-cron-runner",
+        },
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    expect(mockMintScheduledOwnerToken).not.toHaveBeenCalled();
+    expect(mockRequireAgentUsePermission).not.toHaveBeenCalled();
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects a scheduler-token invoke with an invalid scheduler token", async () => {
+    mockIsSchedulerTokenValid.mockReturnValue(false);
+
+    const response = await invokePost(
+      jsonRequest(
+        "/api/v1/chat/invoke",
+        {
+          message: "run scheduled prep",
+          conversation_id: "scheduled-sched_123-run_456",
+          agent_id: "agent-1",
+          client_context: { source: "scheduler", schedule_id: "sched_123" },
+        },
+        { "X-Scheduler-Token": "wrong-token" },
+      ),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockResolveScheduledRunOwner).not.toHaveBeenCalled();
     expect(mockProxyJSONRequest).not.toHaveBeenCalled();
   });
 

@@ -196,7 +196,7 @@ beforeEach(() => {
     }
 
     // Anything else: log + return empty 200 so we don't crash.
-     
+
     console.warn("[test] unmocked fetch:", url);
     return jsonResponse({ ok: true, body: {} });
   }) as unknown as typeof fetch;

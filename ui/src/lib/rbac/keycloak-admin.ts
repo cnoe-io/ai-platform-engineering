@@ -871,6 +871,14 @@ const SLACK_BOT_CLIENT_ID =
 const WEBEX_BOT_CLIENT_ID =
   process.env.KEYCLOAK_WEBEX_BOT_CLIENT_ID?.trim() || "caipe-webex-bot";
 
+// Confidential client the BFF uses to mint schedule-owner bearers for cron
+// fires (scheduled-job-auth Approach 2). It impersonates the owner via the
+// same RFC 8693 `requested_subject` exchange as the Slack/Webex bots, so it
+// needs the identical OBO permission wiring (impersonation role + policies on
+// the users.impersonate and caipe-platform token-exchange permissions).
+const SCHEDULER_RUNNER_CLIENT_ID =
+  process.env.KEYCLOAK_SCHEDULER_CLIENT_ID?.trim() || "caipe-scheduler-runner";
+
 export const BOT_OBO_AUDIENCE_CLIENT_ID =
   process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
 
@@ -1432,6 +1440,83 @@ export async function ensureSlackBotOboPermissions(): Promise<void> {
  */
 export async function ensureWebexBotOboPermissions(): Promise<void> {
   return ensureBotOboPermissions(WEBEX_BOT_CLIENT_ID, "caipe-webex-bot-token-exchange");
+}
+
+/**
+ * Idempotently ensure the `caipe-scheduler-runner` Keycloak client EXISTS.
+ *
+ * Why this is needed: clients are only created by Keycloak's realm import
+ * (`--import-realm`), which runs once when the realm is first created. Adding a
+ * new client to `realm-config.json` therefore does NOT appear in a realm that
+ * already exists — a chart upgrade is a no-op for the import. Nothing else in
+ * the platform creates this client (the init-token-exchange job and the OBO
+ * reconcilers only CONFIGURE existing clients). So on every already-provisioned
+ * deployment the scheduled-run client would be missing and token exchange would
+ * fail with `invalid_client`. This self-heals it on BFF startup.
+ *
+ * Mirrors the static realm-config.json shape. The secret is set from
+ * `KEYCLOAK_SCHEDULER_CLIENT_SECRET` so the freshly-created client matches what
+ * the BFF authenticates with; if that env is unset we still create the client
+ * (Keycloak generates a secret) and warn, because minting will need the secret
+ * wired regardless. Idempotent: a present client (fresh-install import or a
+ * prior run) is left untouched; a concurrent create (409) is treated as success.
+ */
+export async function ensureSchedulerRunnerClient(): Promise<void> {
+  const clientId = SCHEDULER_RUNNER_CLIENT_ID;
+  const existing = await getClientByClientId(clientId);
+  if (existing) return;
+
+  const secret = process.env.KEYCLOAK_SCHEDULER_CLIENT_SECRET?.trim();
+  if (!secret) {
+    console.warn(
+      `[KeycloakAdmin] Creating "${clientId}" without a configured secret — set ` +
+        `KEYCLOAK_SCHEDULER_CLIENT_SECRET so the BFF can authenticate as this client`,
+    );
+  }
+
+  const body: Record<string, unknown> = {
+    clientId,
+    name: "CAIPE Scheduler Runner",
+    description:
+      "Confidential client scoped to scheduled-run owner impersonation " +
+      "(scheduled-job-auth Approach 2). Auto-provisioned by BFF reconciliation " +
+      "when absent from a pre-existing realm.",
+    enabled: true,
+    publicClient: false,
+    bearerOnly: false,
+    standardFlowEnabled: false,
+    directAccessGrantsEnabled: false,
+    serviceAccountsEnabled: true,
+    authorizationServicesEnabled: false,
+    protocol: "openid-connect",
+    fullScopeAllowed: true,
+    defaultClientScopes: ["profile", "email", "roles", "groups", "org"],
+    attributes: { "oidc.token.exchange.enabled": "true" },
+    ...(secret ? { secret } : {}),
+  };
+
+  const response = await adminFetch("/clients", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (response.status === 409) return; // created concurrently — fine
+  await assertOk(response, `ensureSchedulerRunnerClient(${clientId})`);
+  console.log(`[KeycloakAdmin] Provisioned missing client "${clientId}"`);
+}
+
+/**
+ * Idempotently wires the token-exchange / impersonation permissions for the
+ * scheduled-run minting client (`caipe-scheduler-runner`). Identical shape to
+ * the bot OBO wiring: its policy is attached to the client's own
+ * token-exchange permission, the realm `users.impersonate` permission, and the
+ * `caipe-platform` audience token-exchange permission, all AFFIRMATIVE so a
+ * later client cannot cross-DENY it (scheduled-job-auth Approach 2).
+ */
+export async function ensureSchedulerRunnerOboPermissions(): Promise<void> {
+  return ensureBotOboPermissions(
+    SCHEDULER_RUNNER_CLIENT_ID,
+    "caipe-scheduler-runner-token-exchange"
+  );
 }
 
 export async function ensureCaipePlatformTokenExchangeDecisionStrategy(

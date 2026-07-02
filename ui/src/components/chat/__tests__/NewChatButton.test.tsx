@@ -87,6 +87,6 @@ describe("NewChatButton", () => {
     await waitFor(() => expect(mainButton).not.toBeDisabled());
     fireEvent.click(mainButton);
 
-    expect(onNewChat).toHaveBeenCalledWith(undefined);
+    expect(onNewChat).toHaveBeenCalledWith(null);
   });
 });

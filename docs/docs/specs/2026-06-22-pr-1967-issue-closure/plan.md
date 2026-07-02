@@ -1,6 +1,6 @@
 # PR #1967 — Issue closure and follow-up plan
 
-**PR**: https://github.com/cnoe-io/ai-platform-engineering/pull/1967  
+**PR**: https://github.com/cnoe-io/ai-platform-engineering/pull/1967
 **Branch**: `prebuild/feat/credentials-mcp-agentgateway-integration`
 
 ## Issues linked on merge

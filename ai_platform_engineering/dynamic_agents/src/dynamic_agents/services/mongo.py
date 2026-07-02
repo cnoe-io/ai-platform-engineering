@@ -139,6 +139,43 @@ class MongoDBService:
         servers_coll = self._get_servers_collection()
         servers_coll.create_index([("enabled", ASCENDING)])
 
+        # User memory indexes
+        memories_coll = self._db[self.settings.user_memories_collection]
+        memories_coll.create_index([("owner_user_id", ASCENDING), ("updated_at", ASCENDING)])
+        memories_coll.create_index([("owner_user_id", ASCENDING), ("scope", ASCENDING)])
+        memories_coll.create_index(
+            [
+                ("owner_user_id", ASCENDING),
+                ("scope", ASCENDING),
+                ("agent_id", ASCENDING),
+                ("context_namespace", ASCENDING),
+                ("context_type", ASCENDING),
+                ("context_id", ASCENDING),
+                ("normalized_key", ASCENDING),
+            ],
+            unique=True,
+        )
+
+        memory_contexts_coll = self._db[self.settings.user_memory_contexts_collection]
+        memory_contexts_coll.create_index(
+            [
+                ("owner_user_id", ASCENDING),
+                ("agent_id", ASCENDING),
+                ("conversation_id", ASCENDING),
+            ]
+        )
+        memory_contexts_coll.create_index(
+            [
+                ("owner_user_id", ASCENDING),
+                ("agent_id", ASCENDING),
+                ("conversation_id", ASCENDING),
+                ("context_namespace", ASCENDING),
+                ("context_type", ASCENDING),
+                ("context_id", ASCENDING),
+            ],
+            unique=True,
+        )
+
         logger.info("MongoDB indexes ensured")
 
     def _get_agents_collection(self) -> Collection:

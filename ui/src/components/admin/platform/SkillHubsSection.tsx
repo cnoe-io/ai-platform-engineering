@@ -392,7 +392,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       // Cap the wait so a runaway crawl can't pin the UI forever
       // (the underlying stream keeps running regardless).
       const deadline = Date.now() + 5 * 60_000; // 5 minutes
-       
+
       while (true) {
         const run = useCrawlConsoleStore
           .getState()

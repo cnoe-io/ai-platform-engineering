@@ -17,6 +17,8 @@ const mockEnsureSlackBotOboPermissions = jest.fn();
 const mockEnsureWebexBotOboPermissions = jest.fn();
 const mockEnsureBotServiceAccountImpersonationRoles = jest.fn();
 const mockEnsureCaipePlatformTokenExchangeDecisionStrategy = jest.fn();
+const mockEnsureSchedulerRunnerClient = jest.fn();
+const mockEnsureSchedulerRunnerOboPermissions = jest.fn();
 const mockReconcileBootstrapAdmins = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
@@ -27,6 +29,10 @@ jest.mock("@/lib/mongodb", () => ({
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   ensureSlackBotOboPermissions: (...args: unknown[]) => mockEnsureSlackBotOboPermissions(...args),
   ensureWebexBotOboPermissions: (...args: unknown[]) => mockEnsureWebexBotOboPermissions(...args),
+  ensureSchedulerRunnerClient: (...args: unknown[]) =>
+    mockEnsureSchedulerRunnerClient(...args),
+  ensureSchedulerRunnerOboPermissions: (...args: unknown[]) =>
+    mockEnsureSchedulerRunnerOboPermissions(...args),
   ensureBotServiceAccountImpersonationRoles: (...args: unknown[]) =>
     mockEnsureBotServiceAccountImpersonationRoles(...args),
   ensureCaipePlatformTokenExchangeDecisionStrategy: (...args: unknown[]) =>
@@ -107,9 +113,16 @@ describe("keycloak RBAC startup reconciliation migration (post Phase 3 demolitio
     // the team-agnostic remnants that survived Phase 3.
     expect(mockEnsureSlackBotOboPermissions).toHaveBeenCalled();
     expect(mockEnsureWebexBotOboPermissions).toHaveBeenCalled();
+    expect(mockEnsureSchedulerRunnerClient).toHaveBeenCalled();
+    expect(mockEnsureSchedulerRunnerOboPermissions).toHaveBeenCalled();
+    // Bots are wired in one call; the scheduler-runner is wired separately so a
+    // not-yet-provisioned client can't fail the whole reconciliation.
     expect(mockEnsureBotServiceAccountImpersonationRoles).toHaveBeenCalledWith([
       "caipe-slack-bot",
       "caipe-webex-bot",
+    ]);
+    expect(mockEnsureBotServiceAccountImpersonationRoles).toHaveBeenCalledWith([
+      "caipe-scheduler-runner",
     ]);
     expect(mockEnsureCaipePlatformTokenExchangeDecisionStrategy).toHaveBeenCalledWith("AFFIRMATIVE");
     expect(mockReconcileBootstrapAdmins).toHaveBeenCalledWith({ actor: "startup-test" });
@@ -131,7 +144,7 @@ describe("keycloak RBAC startup reconciliation migration (post Phase 3 demolitio
         $set: expect.objectContaining({
           status: "completed",
           applied_counts: expect.objectContaining({
-            obo_permission_sets_reconciled: 2,
+            obo_permission_sets_reconciled: 3,
             bootstrap_admins_resolved: 1,
             bootstrap_admin_tuples_written: 3,
           }),

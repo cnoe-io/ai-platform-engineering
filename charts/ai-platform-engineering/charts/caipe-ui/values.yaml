@@ -180,6 +180,10 @@ affinity: {}
 # Each key-value pair is injected as a flat environment variable via ConfigMap (envFrom).
 # For sensitive values (OIDC secrets, MongoDB URI, etc.) use existingSecret or externalSecrets below.
 config:
+  # Bootstrap default agent for new chats. Overridden at runtime by Admin > Settings UI.
+  # Set to a dynamic agent ID to pre-configure the default without manual admin action.
+  # Leave empty to use the first available agent.
+  DEFAULT_AGENT_ID: ""
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"

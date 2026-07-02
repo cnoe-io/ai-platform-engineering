@@ -7,6 +7,7 @@
  * - field_type "multiselect" starts in multiselect (checkbox) mode
  * - Submit sends correct formData (single value / comma-separated)
  * - Toggling back to dropdown collapses to first value
+ * - Browser draft cache restores and clears in the expected scope
  */
 
 import React from "react";
@@ -65,6 +66,7 @@ describe("MetadataInputForm", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    window.localStorage.clear();
   });
 
   it("renders dropdown by default for select fields", () => {
@@ -133,6 +135,7 @@ describe("MetadataInputForm", () => {
     render(
       <MetadataInputForm
         messageId="msg-1"
+        conversationId="conv-1"
         inputFields={defaultFields}
         onSubmit={onSubmit}
       />
@@ -147,6 +150,144 @@ describe("MetadataInputForm", () => {
           provider: "Anthropic",
         })
       );
+    });
+  });
+
+  it("restores cached values when the same form remounts", async () => {
+    const { unmount } = render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={defaultFields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "Anthropic" } });
+    await waitFor(() => {
+      expect(window.localStorage.length).toBeGreaterThan(0);
+    });
+
+    unmount();
+
+    render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={defaultFields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("combobox")[0]).toHaveValue("Anthropic");
+    });
+  });
+
+  it("keeps cached values isolated by conversation", async () => {
+    const { unmount } = render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={defaultFields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "Azure" } });
+    await waitFor(() => {
+      expect(window.localStorage.length).toBeGreaterThan(0);
+    });
+
+    unmount();
+
+    render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-2"
+        inputFields={defaultFields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("combobox")[0]).toHaveValue("");
+    });
+  });
+
+  it("restores cached multiselect mode and checked values", async () => {
+    const fields: InputField[] = [
+      {
+        field_name: "region",
+        field_label: "Region",
+        field_values: ["us-east", "eu-west"],
+        required: false,
+      },
+    ];
+
+    const { unmount } = render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={fields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Allow multiple"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /us-east/i }));
+    await waitFor(() => {
+      expect(window.localStorage.length).toBeGreaterThan(0);
+    });
+
+    unmount();
+
+    render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={fields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: /us-east/i })).toBeChecked();
+    });
+  });
+
+  it("clears the cached draft after successful submit", async () => {
+    const { unmount } = render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={defaultFields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "OpenAI" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /gpt-4/i }));
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ provider: "OpenAI" }));
+      expect(window.localStorage.length).toBe(0);
+    });
+
+    unmount();
+
+    render(
+      <MetadataInputForm
+        messageId="msg-1"
+        conversationId="conv-1"
+        inputFields={defaultFields}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("combobox")[0]).toHaveValue("");
     });
   });
 

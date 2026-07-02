@@ -55,6 +55,7 @@ function profileEndpoint(provider: Provider): string {
     case "atlassian":
       return "https://api.atlassian.com/me";
     case "webex":
+    case "webex_pam":
       return "https://webexapis.com/v1/people/me";
     case "pagerduty":
       return "https://api.pagerduty.com/users/me";
@@ -75,6 +76,8 @@ function providerDisplayName(provider: Provider): string {
       return "Atlassian";
     case "webex":
       return "Webex";
+    case "webex_pam":
+      return "Webex (Pam)";
     case "pagerduty":
       return "PagerDuty";
     case "gitlab":
@@ -114,6 +117,7 @@ function safeProfile(provider: Provider, payload: Record<string, unknown>): Reco
         picture: payload.picture,
       };
     case "webex":
+    case "webex_pam":
       return {
         id: payload.id,
         displayName: payload.displayName,

@@ -396,7 +396,7 @@ export function SkillScanStatusIndicator({
           `built-in/default templates aren't overridable yet`,
       );
     }
-     
+
     console.info(
       "[SkillScanStatusIndicator] override button hidden:",
       reasons.join("; "),

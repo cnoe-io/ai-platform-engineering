@@ -337,6 +337,8 @@ async function seedMCPServers(
       command: (serverData.command as string) ?? undefined,
       args: (serverData.args as string[]) ?? undefined,
       env: (serverData.env as Record<string, string>) ?? undefined,
+      auth:
+        (serverData.auth as MCPServerConfig["auth"]) ?? undefined,
       credential_sources: Array.isArray(serverData.credential_sources)
         ? (serverData.credential_sources as MCPServerConfig["credential_sources"])
         : undefined,
@@ -1078,7 +1080,10 @@ export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
       platformDefaultAgentId !== null && agentId === platformDefaultAgentId;
     await reconcileAgentRelationships({
       agentId,
-      previousAllowedTools: allowedTools,
+      // Materialize desired tool grants on startup. Passing the stored
+      // allowed_tools as both previous and next cannot repair drift when Mongo
+      // already has the config but OpenFGA missed the original write.
+      previousAllowedTools: {},
       nextAllowedTools: allowedTools,
       ownerSubject: agent.owner_subject ?? agent.owner_id,
       organizationId: orgId,

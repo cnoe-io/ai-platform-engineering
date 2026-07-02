@@ -121,13 +121,13 @@ export const POST = withErrorHandler(async (
       // returns nothing), so reconcile is the place to retry.
       let userSubject = source.user_subject;
       if (!userSubject) {
-         
+
         userSubject = await resolveKeycloakUserSubject(email, teamSlug);
         if (userSubject) {
           summary.resolved_subjects += 1;
           // Persist the resolved subject back to the source row so future
           // reads of the team show the user as no-longer-pending.
-           
+
           await upsertTeamMembershipSource({
             ...source,
             user_subject: userSubject,
@@ -149,7 +149,7 @@ export const POST = withErrorHandler(async (
       );
       if (relations.length === 0) continue;
 
-       
+
       const result = await writeTeamMembershipTuples(
         userSubject,
         teamSlug,

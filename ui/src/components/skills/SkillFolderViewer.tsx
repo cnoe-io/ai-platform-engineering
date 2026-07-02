@@ -221,7 +221,7 @@ export function SkillFolderViewer({
         // Best-effort surface — this dialog is read-only and a folder
         // listing failure is rarely actionable. Log to console and
         // leave the row collapsed.
-         
+
         console.warn("SkillFolderViewer: failed to list folder", err);
       }
     },

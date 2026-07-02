@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { AlertCircle,ChevronDown,Send } from "lucide-react";
-import React,{ useCallback,useState } from "react";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 // Dynamic agent input field metadata.
 export interface InputField {
@@ -28,6 +28,7 @@ export interface UserInputMetadata {
 
 interface MetadataInputFormProps {
   messageId: string;
+  conversationId?: string;
   title?: string;
   description?: string;
   inputFields: InputField[];
@@ -36,8 +37,159 @@ interface MetadataInputFormProps {
   disabled?: boolean;
 }
 
+const USER_INPUT_DRAFT_STORAGE_PREFIX = "caipe.metadata-input-form-draft.v1";
+
+interface UserInputDraft {
+  formData?: Record<string, string>;
+  multiselectMode?: Record<string, boolean>;
+}
+
+function getDefaultFormData(inputFields: InputField[]): Record<string, string> {
+  const initial: Record<string, string> = {};
+  inputFields.forEach((field) => {
+    if (field.default_value !== undefined) {
+      initial[field.field_name] = field.default_value;
+    }
+  });
+  return initial;
+}
+
+function getDefaultMultiselectMode(inputFields: InputField[]): Record<string, boolean> {
+  const initial: Record<string, boolean> = {};
+  inputFields.forEach((field) => {
+    if (field.field_values && field.field_values.length > 0) {
+      initial[field.field_name] = field.field_type === "multiselect";
+    }
+  });
+  return initial;
+}
+
+function hashString(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function getInputFieldsSignature(inputFields: InputField[]): string {
+  return hashString(JSON.stringify(inputFields.map((field) => ({
+    field_name: field.field_name,
+    field_label: field.field_label,
+    field_type: field.field_type,
+    field_values: field.field_values,
+    required: field.required,
+    default_value: field.default_value,
+  }))));
+}
+
+function getDraftCacheKey(messageId: string, conversationId: string | undefined, inputFieldsSignature: string): string {
+  return [
+    USER_INPUT_DRAFT_STORAGE_PREFIX,
+    encodeURIComponent(conversationId || "unknown-conversation"),
+    encodeURIComponent(messageId),
+    inputFieldsSignature,
+  ].join(":");
+}
+
+function getStoredUserInputDraft(cacheKey: string, inputFields: InputField[]): {
+  formData: Record<string, string>;
+  multiselectMode: Record<string, boolean>;
+} {
+  const formData = getDefaultFormData(inputFields);
+  const multiselectMode = getDefaultMultiselectMode(inputFields);
+
+  if (typeof window === "undefined") {
+    return { formData, multiselectMode };
+  }
+
+  try {
+    const stored = window.localStorage.getItem(cacheKey);
+    if (!stored) {
+      return { formData, multiselectMode };
+    }
+
+    const parsed = JSON.parse(stored) as UserInputDraft;
+    const fieldNames = new Set(inputFields.map((field) => field.field_name));
+
+    if (parsed.formData && typeof parsed.formData === "object") {
+      Object.entries(parsed.formData).forEach(([fieldName, value]) => {
+        if (fieldNames.has(fieldName) && value !== undefined && value !== null) {
+          formData[fieldName] = String(value);
+        }
+      });
+    }
+
+    if (parsed.multiselectMode && typeof parsed.multiselectMode === "object") {
+      Object.entries(parsed.multiselectMode).forEach(([fieldName, value]) => {
+        if (fieldNames.has(fieldName)) {
+          multiselectMode[fieldName] = Boolean(value);
+        }
+      });
+    }
+  } catch {
+    // Ignore malformed or unavailable browser storage and fall back to defaults.
+  }
+
+  return { formData, multiselectMode };
+}
+
+function saveUserInputDraft(
+  cacheKey: string,
+  inputFields: InputField[],
+  formData: Record<string, string>,
+  multiselectMode: Record<string, boolean>
+) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const fieldNames = new Set(inputFields.map((field) => field.field_name));
+    const defaultFormData = getDefaultFormData(inputFields);
+    const defaultMultiselectMode = getDefaultMultiselectMode(inputFields);
+    const filteredFormData = Object.fromEntries(
+      Object.entries(formData).filter(([fieldName]) => fieldNames.has(fieldName))
+    );
+    const filteredMultiselectMode = Object.fromEntries(
+      Object.entries(multiselectMode).filter(([fieldName]) => fieldNames.has(fieldName))
+    );
+    const hasChanges = inputFields.some((field) => {
+      const fieldName = field.field_name;
+      const currentValue = filteredFormData[fieldName] || "";
+      const defaultValue = defaultFormData[fieldName] || "";
+      const currentMultiselectMode = Boolean(filteredMultiselectMode[fieldName]);
+      const defaultFieldMultiselectMode = Boolean(defaultMultiselectMode[fieldName]);
+
+      return currentValue !== defaultValue || currentMultiselectMode !== defaultFieldMultiselectMode;
+    });
+
+    if (!hasChanges) {
+      window.localStorage.removeItem(cacheKey);
+      return;
+    }
+
+    window.localStorage.setItem(cacheKey, JSON.stringify({
+      formData: filteredFormData,
+      multiselectMode: filteredMultiselectMode,
+      updatedAt: Date.now(),
+    }));
+  } catch {
+    // Best-effort draft persistence; storage failures should not block form use.
+  }
+}
+
+function clearUserInputDraft(cacheKey: string) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(cacheKey);
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
 export function MetadataInputForm({
   messageId,
+  conversationId,
   title = "Additional Input Required",
   description,
   inputFields,
@@ -45,28 +197,41 @@ export function MetadataInputForm({
   onCancel,
   disabled = false,
 }: MetadataInputFormProps) {
-  // Initialize form data with default values
-  const [formData, setFormData] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    inputFields.forEach((field) => {
-      if (field.default_value) {
-        initial[field.field_name] = field.default_value;
-      }
-    });
-    return initial;
-  });
+  const inputFieldsSignature = useMemo(() => getInputFieldsSignature(inputFields), [inputFields]);
+  const draftCacheKey = useMemo(
+    () => getDraftCacheKey(messageId, conversationId, inputFieldsSignature),
+    [conversationId, inputFieldsSignature, messageId]
+  );
+  const draftInputFieldsRef = useRef({ signature: inputFieldsSignature, inputFields });
+  if (draftInputFieldsRef.current.signature !== inputFieldsSignature) {
+    draftInputFieldsRef.current = { signature: inputFieldsSignature, inputFields };
+  }
+
+  // Initialize with defaults, then restore any browser draft after mount.
+  const [formData, setFormData] = useState<Record<string, string>>(() => getDefaultFormData(inputFields));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Per-field: when true, show checkboxes (multi-select); when false, show dropdown (default)
-  const [multiselectMode, setMultiselectMode] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    inputFields.forEach((field) => {
-      if (field.field_values && field.field_values.length > 0) {
-        initial[field.field_name] = field.field_type === "multiselect";
-      }
-    });
-    return initial;
-  });
+  const [multiselectMode, setMultiselectMode] = useState<Record<string, boolean>>(() => getDefaultMultiselectMode(inputFields));
+  const skipNextDraftPersistRef = useRef(true);
+
+  useEffect(() => {
+    skipNextDraftPersistRef.current = true;
+
+    const nextDraft = getStoredUserInputDraft(draftCacheKey, draftInputFieldsRef.current.inputFields);
+    setFormData(nextDraft.formData);
+    setMultiselectMode(nextDraft.multiselectMode);
+    setErrors({});
+  }, [draftCacheKey]);
+
+  useEffect(() => {
+    if (skipNextDraftPersistRef.current) {
+      skipNextDraftPersistRef.current = false;
+      return;
+    }
+
+    saveUserInputDraft(draftCacheKey, draftInputFieldsRef.current.inputFields, formData, multiselectMode);
+  }, [draftCacheKey, formData, multiselectMode]);
 
   const setMultiselectForField = useCallback((fieldName: string, enabled: boolean) => {
     setMultiselectMode((prev) => ({ ...prev, [fieldName]: enabled }));
@@ -133,12 +298,21 @@ export function MetadataInputForm({
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+    clearUserInputDraft(draftCacheKey);
     try {
       await onSubmit(formData);
+    } catch (error) {
+      saveUserInputDraft(draftCacheKey, draftInputFieldsRef.current.inputFields, formData, multiselectMode);
+      throw error;
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, onSubmit, validateForm]);
+  }, [draftCacheKey, formData, multiselectMode, onSubmit, validateForm]);
+
+  const handleCancel = useCallback(() => {
+    clearUserInputDraft(draftCacheKey);
+    onCancel?.();
+  }, [draftCacheKey, onCancel]);
 
   return (
     <motion.div
@@ -320,7 +494,7 @@ export function MetadataInputForm({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={onCancel}
+              onClick={handleCancel}
               disabled={isSubmitting}
             >
               Cancel

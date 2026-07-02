@@ -63,7 +63,9 @@ COPY ui .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD}
 
-# Create version info file
+# Create version info and build Next.js with a deployment-specific asset suffix.
+# NEXT_DEPLOYMENT_ID makes Next append ?dpl=... to immutable /_next/static
+# assets, preserving browser caching while forcing fresh JS/CSS after rollouts.
 RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
     if [ -z "$BUILD_DATE_VALUE" ]; then \
         BUILD_DATE_VALUE=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
@@ -73,12 +75,12 @@ RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
     "${GIT_COMMIT}" \
     "$BUILD_DATE_VALUE" \
     > public/version.json && \
-    cat public/version.json
-
-# Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
-# These will be injected at runtime by entrypoint.sh (Layer 1) and
-# PublicEnvScript server component (Layer 2)
-RUN npm run build
+    cat public/version.json && \
+    RAW_DEPLOYMENT_ID="${IMAGE_TAG}-${GIT_COMMIT}-${BUILD_DATE_VALUE}" && \
+    NEXT_DEPLOYMENT_ID=$(printf '%s' "$RAW_DEPLOYMENT_ID" | tr -c 'A-Za-z0-9_-' '-' | sed 's/--*/-/g; s/^-//; s/-$//') && \
+    export NEXT_DEPLOYMENT_ID && \
+    echo "Next deployment id: ${NEXT_DEPLOYMENT_ID}" && \
+    npm run build
 
 # ---------- Stage 3: Production runtime ----------
 FROM node:24-alpine AS runner

@@ -53,6 +53,8 @@ export interface StreamParams {
   forwardedProps?: Record<string, unknown>;
   /** Opaque client context passed to the backend for system prompt rendering */
   clientContext?: Record<string, unknown>;
+  /** Whether memory should be injected and memory tools enabled for this chat run */
+  memoryEnabled?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -107,6 +109,15 @@ export interface StreamCallbacks {
 
   /** Non-fatal warning from the agent */
   onWarning?(message: string, namespace?: string[]): void;
+
+  /** Memory records were injected into model context for this chat run */
+  onMemoryInjected?(memoryIds: string[], namespace?: string[]): void;
+
+  /** Context memories were attached to a context-provider tool result */
+  onMemoryContextUsed?(memoryIds: string[], namespace?: string[]): void;
+
+  /** Durable memory was changed by a memory tool call */
+  onMemoryUpdate?(memoryIds: string[], action?: string, namespace?: string[]): void;
 
   /** Stream completed successfully */
   onDone?(): void;

@@ -30,6 +30,7 @@ export const PROFILE_CHECK_PROVIDERS = [
   "github",
   "atlassian",
   "webex",
+  "webex_pam",
   "pagerduty",
   "gitlab",
 ] as const;
