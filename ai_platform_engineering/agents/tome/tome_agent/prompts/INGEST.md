@@ -205,6 +205,32 @@ exhaustive dictionary.
 `repos/<slug>/`), split each term it defines into its own `glossary/<slug>.md`
 file with the frontmatter above, then delete the old `glossary.md`. Do this once.
 
+### Glossary extraction during greenfield — active harvesting
+
+On **greenfield ingest**, the glossary is a first-class deliverable, not an
+afterthought. As you research sources (README, CLAUDE.md, code, repos, rooms,
+spaces), actively harvest the project's acronyms and domain terms:
+
+- Recurring three-letter acronyms (e.g., TTT, CFN, MCP) — what do they mean in
+  *this* project's context? (Avoid hallucination: don't guess; find the expansion
+  in a README or commit message.)
+- Specialized tools or patterns the team uses (e.g., "mycelium," "connectors").
+- Proper nouns or brand names specific to the project (e.g., "Outshift," "CAIPE").
+- Domain terms the team leans on (e.g., "provenance," "synthesis").
+
+**Create a glossary entry for each term the moment you encounter it.** Don't
+defer and hope to batch later — harvesting happens during research, not as a
+separate pass. One entry per term, with the structured frontmatter above. Fill in
+whatever you know (term, expansion if it's an acronym, aliases if the team uses
+multiple spellings), and leave optional fields blank if you don't know them yet.
+
+**What NOT to glossary:** common English, widely-known tech terms (REST, JSON,
+API, microservices), or jargon that's industry-standard. Only glossary what a
+smart new hire *to this specific project* would need to learn.
+
+The goal is **high-value vocabulary coverage, not completeness** — a crisp 5-10
+term glossary beats a sprawling 50-term dictionary with padding.
+
 ## Frontmatter format
 
 Every page MUST keep this YAML frontmatter intact:

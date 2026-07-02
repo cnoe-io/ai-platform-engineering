@@ -107,7 +107,13 @@ def _build_system_prompt(
             "`## section` headers, keep the YAML frontmatter and its declared kind. Begin each "
             "stable page body with a one-line italic note marking it an agent-generated draft for "
             "the team to review and refine — never present it as authoritative. Also write every "
-            "dynamic/report/hidden seed page listed above with its declared kind."
+            "dynamic/report/hidden seed page listed above with its declared kind.\n\n"
+            "GLOSSARY: Actively extract and glossary the project's acronyms and domain terms. "
+            "As you research, harvest recurring terms/acronyms from README, CLAUDE.md, repo docs, "
+            "and source activity. Create one `glossary/<slug>.md` file per term with the structured "
+            "frontmatter (see the Glossary section in INGEST.md). Do NOT glossary common English or "
+            "widely-known tech terms — only project-specific vocabulary that a new teammate wouldn't "
+            "already know. A handful of high-value entries beats an exhaustive dictionary."
         )
     else:
         mode_block = (
@@ -115,7 +121,13 @@ def _build_system_prompt(
             f"({stable_paths}), which are pre-created and human-owned — do NOT "
             "write, edit, or overwrite them. Write every OTHER seed page listed "
             "above (dynamic/report/hidden) with its declared kind in the YAML "
-            "frontmatter."
+            "frontmatter.\n\n"
+            "GLOSSARY: Actively extract and glossary the project's acronyms and domain terms. "
+            "As you research, harvest recurring terms/acronyms from README, CLAUDE.md, repo docs, "
+            "and source activity. Create one `glossary/<slug>.md` file per term with the structured "
+            "frontmatter (see the Glossary section in INGEST.md). Do NOT glossary common English or "
+            "widely-known tech terms — only project-specific vocabulary that a new teammate wouldn't "
+            "already know. A handful of high-value entries beats an exhaustive dictionary."
         )
 
     phase = snapshot.phase or "(unset)"
