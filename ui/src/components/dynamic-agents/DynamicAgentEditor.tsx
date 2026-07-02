@@ -43,8 +43,8 @@ import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
-import { SkillsSelector } from "./SkillsSelector";
 import { SubagentPicker } from "./SubagentPicker";
+import { SkillsSelector } from "./SkillsSelector";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
 
 // Lazy-load CodeMirror to avoid SSR issues
@@ -125,10 +125,10 @@ const STEPS = [
     label: "Skills", 
     hint: "Attach skills that guide your agent's behavior (optional)" 
   },
-  { 
-    id: "advanced" as const, 
-    label: "Advanced", 
-    hint: "Subagents, approval rules, and middleware" 
+  {
+    id: "advanced" as const,
+    label: "Advanced",
+    hint: "Subagents, approval rules, and middleware"
   },
 ];
 
@@ -142,7 +142,7 @@ function StepIndicator({
   currentStep, 
   onStepClick 
 }: { 
-  steps: typeof STEPS; 
+  steps: readonly (typeof STEPS[number])[];
   currentStep: StepId; 
   onStepClick: (stepId: StepId) => void;
 }) {
@@ -340,7 +340,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
-  
+
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
 
@@ -725,12 +725,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
     currentValues: currentFormValues,
     snapshotKey,
   });
-  const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
-  const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+
+  // Autonomous scheduling is no longer a wizard step. It is
+  // driven from the agent-list row. The wizard shows all remaining steps.
+  const visibleSteps = React.useMemo(() => STEPS, []);
+  const currentStepIndex = visibleSteps.findIndex((s) => s.id === activeStep);
+  const currentStepConfig = visibleSteps.find((s) => s.id === activeStep);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      setActiveStep(STEPS[currentStepIndex - 1].id);
+      setActiveStep(visibleSteps[currentStepIndex - 1].id);
     }
   };
 
@@ -755,8 +759,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
       // Review passed — clear any stale blocking banner from a prior attempt.
       setBlockingMessage(null);
     }
-    if (currentStepIndex < STEPS.length - 1) {
-      setActiveStep(STEPS[currentStepIndex + 1].id);
+    if (currentStepIndex < visibleSteps.length - 1) {
+      setActiveStep(visibleSteps[currentStepIndex + 1].id);
     }
   };
 
@@ -1058,6 +1062,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
         }
       }
 
+
       // Clear unsaved-changes state BEFORE calling onSave(): the parent will
       // unmount this editor in response to onSave, and we want the global flag
       // to be false by the time any header/tab guards re-evaluate. resetSnapshot
@@ -1190,7 +1195,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
               <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
             </div>
             <StepIndicator 
-              steps={STEPS} 
+              steps={visibleSteps}
               currentStep={activeStep} 
               onStepClick={setActiveStep} 
             />
@@ -2001,11 +2006,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void goToNextStep()}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={goToNextStep}
+              disabled={currentStepIndex === visibleSteps.length - 1 || loading}
               size="sm"
             >
               Next

@@ -18,6 +18,7 @@ Loader2,
 Lock,
 Plus,
 RefreshCw,
+SquarePen,
 ToggleLeft,
 ToggleRight,
 Trash2,
@@ -25,6 +26,7 @@ Users,
 } from "lucide-react";
 import React from "react";
 import { AgentAvatar } from "./AgentAvatar";
+import { AgentAutonomousDrawer } from "./AgentAutonomousDrawer";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 
 const DEFAULT_ROW_PERMISSIONS = {
@@ -56,6 +58,7 @@ export function DynamicAgentsTab() {
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
+  const [drawerAgent, setDrawerAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
 
   const fetchAgents = React.useCallback(async () => {
     setLoading(true);
@@ -142,6 +145,56 @@ export function DynamicAgentsTab() {
       setRowActionErrors((prev) => ({
         ...prev,
         [agent._id]: errorMessage(err, "Failed to update agent"),
+      }));
+    }
+  };
+
+  /**
+   * Enable/disable autonomous scheduling for this agent's owner team
+   * Writes/deletes the team's `automator` grant
+   * via /api/dynamic-agents/agents/[id]/automation. can_manage-gated server-side.
+   */
+  const handleToggleAutonomous = async (
+    agent: DynamicAgentConfigWithPermissions,
+    next: boolean,
+  ) => {
+    clearRowActionError(agent._id);
+    const teamSlug = agent.owner_team_slug;
+    if (!teamSlug) {
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [agent._id]:
+          "This agent has no owner team; pick a team to enable autonomous (coming soon).",
+      }));
+      return;
+    }
+    try {
+      const response = await fetch(`/api/dynamic-agents/agents/${agent._id}/automation`, {
+        method: next ? "PUT" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_slug: teamSlug }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setRowActionErrors((prev) => ({
+          ...prev,
+          [agent._id]: (data as { error?: string }).error || `HTTP ${response.status}`,
+        }));
+        return;
+      }
+      // Optimistically flip the row's can_schedule so the "Add autonomous task"
+      // affordance appears/disappears without a full refetch.
+      setAgents((prev) =>
+        prev.map((a) =>
+          a._id === agent._id
+            ? { ...a, permissions: { ...a.permissions, can_schedule: next } }
+            : a,
+        ),
+      );
+    } catch (err: unknown) {
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [agent._id]: errorMessage(err, "Failed to update autonomous setting"),
       }));
     }
   };
@@ -375,6 +428,36 @@ export function DynamicAgentsTab() {
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                  {canManage && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-8 w-8 ${agent.permissions.can_schedule ? "text-violet-600 dark:text-violet-300" : ""}`}
+                      onClick={() => handleToggleAutonomous(agent, !agent.permissions.can_schedule)}
+                      title={
+                        agent.permissions.can_schedule
+                          ? "Disable autonomous for this agent's team"
+                          : "Enable autonomous for this agent's team"
+                      }
+                      aria-label={
+                        agent.permissions.can_schedule ? "Disable autonomous" : "Enable autonomous"
+                      }
+                    >
+                      <Bot className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {agent.permissions.can_schedule && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setDrawerAgent(agent)}
+                      title="Manage autonomous tasks"
+                      aria-label="Manage autonomous tasks"
+                    >
+                      <SquarePen className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -478,6 +561,15 @@ export function DynamicAgentsTab() {
           </div>
         )}
       </CardContent>
+      {drawerAgent && (
+        <AgentAutonomousDrawer
+          agent={drawerAgent}
+          open={!!drawerAgent}
+          onOpenChange={(open) => {
+            if (!open) setDrawerAgent(null);
+          }}
+        />
+      )}
     </Card>
   );
 }

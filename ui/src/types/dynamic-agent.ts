@@ -428,6 +428,7 @@ export interface AgentRowPermissions {
   can_manage: boolean;
   can_write: boolean;
   can_discover: boolean;
+  can_schedule: boolean;
 }
 
 export interface DynamicAgentConfigWithPermissions extends DynamicAgentConfig {

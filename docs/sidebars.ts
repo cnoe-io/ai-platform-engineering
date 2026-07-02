@@ -113,6 +113,11 @@ const sidebars: SidebarsConfig = {
                     },
                     {
                       type: 'doc',
+                      id: 'installation/helm-charts/ai-platform-engineering/autonomous-agents-chart',
+                      label: 'autonomous-agents',
+                    },
+                    {
+                      type: 'doc',
                       id: 'installation/helm-charts/ai-platform-engineering/slack-bot-chart',
                       label: 'slack-bot',
                     },
