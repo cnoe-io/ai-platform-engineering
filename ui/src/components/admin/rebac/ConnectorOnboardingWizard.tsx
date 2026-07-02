@@ -230,7 +230,7 @@ export function ConnectorOnboardingWizard({
     serverSideSearch || !normalizedSearch
       ? rows
       : rows.filter((row) =>
-          `${row.name} ${row.secondary}`
+          `${row.name} ${row.id ?? ""} ${row.secondary}`
             .toLowerCase()
             .includes(normalizedSearch),
         );
