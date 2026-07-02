@@ -11,6 +11,8 @@ import type { DynamicAgentConfigWithPermissions } from "@/types/dynamic-agent";
 import {
 Bot,
 AlertCircle,
+ChevronLeft,
+ChevronRight,
 CopyPlus,
 Download,
 Globe,
@@ -18,12 +20,14 @@ Loader2,
 Lock,
 Plus,
 RefreshCw,
+Search,
 ToggleLeft,
 ToggleRight,
 Trash2,
 Users,
 } from "lucide-react";
 import React from "react";
+import { Input } from "@/components/ui/input";
 import { AgentAvatar } from "./AgentAvatar";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 
@@ -56,12 +60,24 @@ export function DynamicAgentsTab() {
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
+  const [search, setSearch] = React.useState("");
+  const [searchInput, setSearchInput] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(20);
+  const [total, setTotal] = React.useState(0);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const fetchAgents = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/dynamic-agents?page_size=100");
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: pageSize.toString(),
+      });
+      if (search.trim()) params.set("search", search.trim());
+      const response = await fetch(`/api/dynamic-agents?${params}`);
       const data = await response.json();
       if (data.success) {
         setAgents(
@@ -70,6 +86,7 @@ export function DynamicAgentsTab() {
             permissions: agent.permissions ?? DEFAULT_ROW_PERMISSIONS,
           })),
         );
+        setTotal(data.data.total ?? 0);
       } else {
         setError(data.error || "Failed to fetch agents");
       }
@@ -78,11 +95,22 @@ export function DynamicAgentsTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, search]);
 
   React.useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  // Debounce search input
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== search) {
+        setSearch(searchInput);
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
 
   const clearRowActionError = React.useCallback((agentId: string) => {
     setRowActionErrors((prev) => {
@@ -246,6 +274,15 @@ export function DynamicAgentsTab() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or ID..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="pl-9 h-9 w-48"
+              />
+            </div>
             <Button variant="outline" size="sm" onClick={fetchAgents} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -272,14 +309,26 @@ export function DynamicAgentsTab() {
         ) : agents.length === 0 ? (
           <div className="text-center py-12">
             <Bot className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No agents yet</h3>
-            <p className="text-muted-foreground mb-4">
-              Create an agent when you are ready to give your team a tailored assistant.
-            </p>
-            <Button onClick={() => setIsCreating(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Agent
-            </Button>
+            {search ? (
+              <>
+                <h3 className="text-lg font-semibold mb-2">No agents match &quot;{search}&quot;</h3>
+                <p className="text-muted-foreground mb-4">Try a different search term.</p>
+                <Button variant="outline" onClick={() => { setSearchInput(""); setSearch(""); }}>
+                  Clear search
+                </Button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold mb-2">No agents yet</h3>
+                <p className="text-muted-foreground mb-4">
+                  Create an agent when you are ready to give your team a tailored assistant.
+                </p>
+                <Button onClick={() => setIsCreating(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Agent
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -292,6 +341,15 @@ export function DynamicAgentsTab() {
               <div className="col-span-2">Status</div>
               <div className="col-span-2 text-right">Actions</div>
             </div>
+
+            {/* Result count */}
+            {total > 0 && (
+              <div className="text-xs text-muted-foreground px-2 pb-1">
+                {search
+                  ? `${total} result${total !== 1 ? "s" : ""} for "${search}"`
+                  : `${total} agent${total !== 1 ? "s" : ""}`}
+              </div>
+            )}
 
             {/* Agent rows */}
             {agents.map((agent) => {
@@ -475,6 +533,69 @@ export function DynamicAgentsTab() {
               </div>
             );
             })}
+
+            {/* Pagination */}
+            {total > pageSize && (
+              <div className="flex items-center justify-between pt-4 gap-4 border-t">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                    .reduce<(number | "ellipsis")[]>((acc, p, idx, arr) => {
+                      if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("ellipsis");
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((item, idx) =>
+                      item === "ellipsis" ? (
+                        <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-sm">...</span>
+                      ) : (
+                        <Button
+                          key={item}
+                          variant={page === item ? "default" : "outline"}
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => setPage(item)}
+                        >
+                          {item}
+                        </Button>
+                      )
+                    )}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground whitespace-nowrap">Rows</label>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
