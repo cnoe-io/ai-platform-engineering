@@ -170,6 +170,11 @@ const config: Config = {
           position: 'left',
           label: 'Docs',
         },
+        ...(versionsConfig ? [{
+          type: 'docsVersionDropdown' as const,
+          position: 'left' as const,
+          dropdownActiveClassDisabled: true,
+        }] : []),
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
