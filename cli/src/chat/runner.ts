@@ -17,6 +17,7 @@ import {
   getAuthUrl,
 } from "../platform/config.js";
 import { printLogo } from "../platform/display.js";
+import { checkForUpdate, printUpdateBanner } from "../platform/updater.js";
 import { runSetupWizard } from "../platform/setup.js";
 import { Repl } from "./Repl.js";
 import { buildSystemContext } from "./context.js";
@@ -84,8 +85,23 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
     }
   }
 
-  // Print logo on first render
+  // Kick off update check in background — non-blocking
+  const updateCheckPromise = checkForUpdate(_version);
+
+  // Ensure user is authenticated before opening the REPL
+  const tokens = await import("../auth/tokens.js");
+  const keychain = await import("../auth/keychain.js");
+  const existing = await keychain.loadTokens();
+  if (!existing || tokens.isExpired(existing)) {
+    const { loginBrowser } = await import("../auth/oauth.js");
+    process.stdout.write("You need to log in first.\n");
+    await loginBrowser(authUrl, "caipe-cli");
+  }
+
+  // Print logo, then show update banner if one is available
   printLogo(_version);
+  const latestVersion = await updateCheckPromise;
+  if (latestVersion) printUpdateBanner(_version, latestVersion);
 
   // Resolve agent
   const agentName = opts.agent ?? globalOpts.agent ?? "default";

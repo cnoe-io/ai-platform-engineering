@@ -80,6 +80,9 @@ function writeCache(config: AgentConfig): void {
 /**
  * Fetch (or return cached) /.well-known/agent.json for the given server URL.
  *
+ * Falls back to OIDC standard discovery (/.well-known/openid-configuration)
+ * when agent.json is absent — covers direct Keycloak URLs and any OIDC IdP.
+ *
  * Never throws — on any failure returns an empty config so callers fall back
  * to conventional /oauth/* paths.
  */
@@ -87,17 +90,40 @@ export async function discoverAgentConfig(serverUrl: string): Promise<AgentConfi
   const cached = readCache();
   if (cached) return cached;
 
+  // Try caipe-specific agent.json first
   try {
     const url = `${serverUrl}/.well-known/agent.json`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return {};
-    const json = (await res.json()) as AgentConfig;
-    writeCache(json);
-    return json;
+    if (res.ok) {
+      const json = (await res.json()) as AgentConfig;
+      writeCache(json);
+      return json;
+    }
   } catch {
-    // Discovery is optional — fall back to conventional paths
-    return {};
+    // fall through to OIDC discovery
   }
+
+  // Fall back to standard OIDC discovery (works for Keycloak, Okta, etc.)
+  try {
+    const url = `${serverUrl}/.well-known/openid-configuration`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const oidc = (await res.json()) as Record<string, unknown>;
+      const config: AgentConfig = {
+        oauth: {
+          authorization_endpoint: oidc.authorization_endpoint as string | undefined,
+          token_endpoint: oidc.token_endpoint as string | undefined,
+          device_authorization_endpoint: oidc.device_authorization_endpoint as string | undefined,
+        },
+      };
+      writeCache(config);
+      return config;
+    }
+  } catch {
+    // fall through to conventional paths
+  }
+
+  return {};
 }
 
 /**

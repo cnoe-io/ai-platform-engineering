@@ -16,7 +16,7 @@ const program = new Command();
 
 program
   .name("caipe")
-  .description("AI-assisted coding, workflows, and platform engineering from the terminal")
+  .description("Custom Agents, workflows and more... caipe.io")
   .version(pkg.version, "-v, --version", "Print version and exit")
   .option("--agent <name>", "CAIPE server agent to use for this session", "default")
   .option("--url <url>", "Override server.url from settings.json for this invocation only")
@@ -28,7 +28,7 @@ program
 // ---------------------------------------------------------------------------
 const chatCmd = program
   .command("chat")
-  .description("Open an interactive streaming chat session (or headless when no TTY / --headless)")
+  .description("Start a chat session with an agent")
   .option("--agent <name>", "Pin session to this CAIPE server agent")
   .option("--no-context", "Skip git/repo context gathering")
   .option("--resume <sessionId>", "Resume a previous session by ID")
