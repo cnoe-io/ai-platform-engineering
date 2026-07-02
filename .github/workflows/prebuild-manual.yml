@@ -145,6 +145,8 @@ jobs:
               scheduler: [
                 'ai_platform_engineering/scheduler/**',
                 'ai_platform_engineering/cron-runner/**',
+                'build/Dockerfile.scheduler',
+                'build/Dockerfile.cron-runner',
               ],
               skill_scanner: [
                 'build/Dockerfile.skill-scanner',

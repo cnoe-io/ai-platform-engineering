@@ -7,6 +7,8 @@ on:
     paths:
       - 'ai_platform_engineering/scheduler/**'
       - 'ai_platform_engineering/cron-runner/**'
+      - 'build/Dockerfile.scheduler'
+      - 'build/Dockerfile.cron-runner'
   workflow_call:
     inputs:
       pr_number:
@@ -58,12 +60,12 @@ jobs:
         include:
           - name: scheduler
             image: caipe-scheduler
-            context: ai_platform_engineering/scheduler
-            dockerfile: ai_platform_engineering/scheduler/Dockerfile
+            context: .
+            dockerfile: build/Dockerfile.scheduler
           - name: cron-runner
             image: caipe-cron-runner
-            context: ai_platform_engineering/cron-runner
-            dockerfile: ai_platform_engineering/cron-runner/Dockerfile
+            context: .
+            dockerfile: build/Dockerfile.cron-runner
     env:
       IMAGE_NAME: ${{ github.repository_owner }}/prebuild/${{ matrix.image }}
 

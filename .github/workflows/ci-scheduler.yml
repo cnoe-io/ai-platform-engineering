@@ -9,6 +9,8 @@ on:
     paths:
       - 'ai_platform_engineering/scheduler/**'
       - 'ai_platform_engineering/cron-runner/**'
+      - 'build/Dockerfile.scheduler'
+      - 'build/Dockerfile.cron-runner'
   workflow_dispatch:
     inputs:
       tag_version:
@@ -65,8 +67,10 @@ jobs:
           filters: |
             scheduler:
               - 'ai_platform_engineering/scheduler/**'
+              - 'build/Dockerfile.scheduler'
             cron_runner:
               - 'ai_platform_engineering/cron-runner/**'
+              - 'build/Dockerfile.cron-runner'
 
       - name: Set Outputs
         id: set-outputs
@@ -121,13 +125,13 @@ jobs:
         include:
           - name: scheduler
             image: caipe-scheduler
-            context: ai_platform_engineering/scheduler
-            dockerfile: ai_platform_engineering/scheduler/Dockerfile
+            context: .
+            dockerfile: build/Dockerfile.scheduler
             should_build: ${{ needs.determine-changes.outputs.should_build_scheduler }}
           - name: cron-runner
             image: caipe-cron-runner
-            context: ai_platform_engineering/cron-runner
-            dockerfile: ai_platform_engineering/cron-runner/Dockerfile
+            context: .
+            dockerfile: build/Dockerfile.cron-runner
             should_build: ${{ needs.determine-changes.outputs.should_build_cron_runner }}
     env:
       REGISTRY: ghcr.io
