@@ -36,6 +36,7 @@ export function ServiceAccountSelect({
   value,
   onChange,
   teamSlug,
+  displayName,
   disabled,
   error,
   id = "route-exec-sa",
@@ -47,6 +48,8 @@ export function ServiceAccountSelect({
   onChange: (sub: string, name: string) => void;
   /** Owning team to scope the list to. When absent, no SAs are shown. */
   teamSlug?: string;
+  /** Fallback display name when the SA list is empty but a value is already set (e.g. caller lacks team membership). */
+  displayName?: string;
   disabled?: boolean;
   error?: string;
   id?: string;
@@ -117,6 +120,10 @@ export function ServiceAccountSelect({
     () => serviceAccounts.find((sa) => sa.sa_sub === value),
     [serviceAccounts, value],
   );
+  // When the caller lacks team membership the SA list is empty but a value may
+  // already be saved on the route. Fall back to displayName so the picker shows
+  // the current SA name rather than the "no SAs found" empty state.
+  const resolvedDisplayName = selected?.name ?? (value ? displayName : undefined);
 
   const filtered = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -140,7 +147,7 @@ export function ServiceAccountSelect({
             Retry
           </button>
         </div>
-      ) : serviceAccounts.length === 0 ? (
+      ) : serviceAccounts.length === 0 && !value ? (
         <p className="text-xs text-muted-foreground">
           {!teamSlug
             ? "No team assigned to this channel — assign a team first."
@@ -162,8 +169,8 @@ export function ServiceAccountSelect({
               )}
             >
               <span className="min-w-0 flex-1 truncate">
-                {selected ? (
-                  selected.name
+                {resolvedDisplayName ? (
+                  resolvedDisplayName
                 ) : (
                   <span className="text-muted-foreground">Select service account...</span>
                 )}
