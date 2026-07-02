@@ -97,23 +97,36 @@ export interface StreamingSpinnerProps {
   label?: string;
   /** Elapsed seconds since streaming began */
   elapsed: number;
+  /** Approximate token count received so far */
+  tokenCount?: number;
 }
 
 /**
- * Streaming status line:   ◐ Generating… (12s)
+ * Streaming status line:   ◐ Generating… (12s · ~340 tokens)
  *
- * No animated frames — elapsed time is the only changing value (1 Hz),
- * and the dynamic area is only ~4 lines so re-renders are imperceptible.
+ * Animated spinner frames + elapsed time + optional token count.
  */
 export function StreamingSpinner({
   label = "Generating",
   elapsed,
+  tokenCount,
 }: StreamingSpinnerProps): React.ReactElement {
+  const { useState, useEffect } = React;
+  const frames = NO_COLOR ? SPINNER_PLAIN : CAIPE_SPINNER_FRAMES;
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % frames.length), 250);
+    return () => clearInterval(id);
+  }, [frames.length]);
+
   return (
     <Box>
-      <Text color={NO_COLOR ? undefined : "blue"}>◐ </Text>
+      <Text color={NO_COLOR ? undefined : "blue"}>{frames[frame]} </Text>
       <Text color={NO_COLOR ? undefined : "blue"}>{label}… </Text>
-      <Text dimColor>({elapsed}s)</Text>
+      <Text dimColor>
+        ({elapsed}s{tokenCount !== undefined && tokenCount > 0 ? ` · ~${tokenCount} tokens` : ""})
+      </Text>
     </Box>
   );
 }
