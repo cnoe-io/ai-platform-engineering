@@ -113,6 +113,13 @@ class Connector(ABC, Generic[ExtraT]):
         links; Webex: message permalinks; Confluence: page URLs; etc.)."""
         return ""
 
+    def deep_research_guidance(self, sources: list[SourceItem]) -> str:
+        """Connector-specific guidance on how to investigate deeply:
+        when to use breadth-scan tools (list) vs depth tools (get), and
+        how they compose for synthesis. Returns empty string if no sources
+        or no investigation strategy for this connector."""
+        return ""
+
     def parse_extra(self, raw: Any) -> ExtraT | None:
         """Parse the raw connector_data slot for this connector into its
         typed extra model. Returns None when there's no payload or the

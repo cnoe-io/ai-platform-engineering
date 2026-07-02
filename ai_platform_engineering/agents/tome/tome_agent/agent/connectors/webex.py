@@ -154,6 +154,21 @@ class WebexConnector(Connector[WebexExtra]):
             lines.append(f"· webex meetings: {len(meetings)} selected for transcript ingestion")
         return lines
 
+    def deep_research_guidance(self, sources: list[SourceItem]) -> str:
+        if not sources:
+            return ""
+        room_names = ", ".join(f"`{s.slug}`" for s in sources)
+        return (
+            f"WEBEX DEEP RESEARCH: When investigating {room_names}:\n"
+            "1. Scan `webex_list_messages` for signal (recency and context clues in titles)\n"
+            "2. Threads that carry decisions → `webex_get_message` for full bodies; read author names verbatim (call "
+            "`webex_get_person` if only email is present)\n"
+            "3. Referenced meetings → `webex_meetings_list_transcripts` and `webex_meetings_get_summary` for recorded substance\n"
+            "4. Don't write about a message you only saw as a title in the list. Breadth scan for signal; "
+            "depth calls on what matters — decisions, disagreements, action items, context shifts.\n"
+            "Write concepts and decisions, not dated message logs."
+        )
+
     def citation_guidance(self, sources: list[SourceItem]) -> str:
         if not sources:
             return ""

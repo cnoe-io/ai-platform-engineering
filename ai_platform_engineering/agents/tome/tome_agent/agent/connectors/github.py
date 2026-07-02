@@ -103,6 +103,20 @@ class GitHubConnector(Connector[GitHubExtra]):
     def citation_urls(self, sources: list[SourceItem]) -> list[str]:
         return [s.extra.get("url", "") for s in sources if s.extra.get("url")]
 
+    def deep_research_guidance(self, sources: list[SourceItem]) -> str:
+        if not sources:
+            return ""
+        repo_names = ", ".join(f"`{s.slug}`" for s in sources)
+        return (
+            f"GITHUB DEEP RESEARCH: When you find a signal in {repo_names}:\n"
+            "1. Large or contested PRs → `github_get_pr` to read the diff and review thread\n"
+            "2. Referenced design/architecture issues → `github_get_issue` for the full decision thread\n"
+            "3. Claims about code structure → `github_get_file` / `github_list_dir` to verify against actual code\n"
+            "4. Decision-making context → `github_search_issues` to find related proposals\n"
+            "Don't write about something you only saw in a list title. Cheap breadth-scan first; "
+            "spend depth calls on what matters. Aim to understand the *why* behind changes, not just the *what*."
+        )
+
     def citation_guidance(self, sources: list[SourceItem]) -> str:
         from tome_agent.agent.loop import _normalize_repo_slug
 

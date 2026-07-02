@@ -52,6 +52,7 @@ def _build_system_prompt(
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []
     citation_guidance_blocks: list[str] = []
+    deep_research_blocks: list[str] = []
     steering: list[tuple[str, str]] = []
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
@@ -61,9 +62,12 @@ def _build_system_prompt(
         connector_blocks.append(
             connector.system_prompt_block(sources, extra_data=extra)
         )
-        guidance = connector.citation_guidance(sources)
-        if guidance:
-            citation_guidance_blocks.append(guidance)
+        citation = connector.citation_guidance(sources)
+        if citation:
+            citation_guidance_blocks.append(citation)
+        research = connector.deep_research_guidance(sources)
+        if research:
+            deep_research_blocks.append(research)
 
     steering_block = ""
     if steering:
@@ -118,6 +122,7 @@ def _build_system_prompt(
     cadence = snapshot.cadence or "(unset)"
     connector_sections = "\n\n".join(connector_blocks)
     citation_section = "\n\n".join(citation_guidance_blocks)
+    deep_research_section = "\n\n".join(deep_research_blocks)
 
     project_block = f"""PROJECT: "{snapshot.name}"
 phase: {phase}    cadence: {cadence}
@@ -135,6 +140,9 @@ PROJECT CHARTER (seed context, may be empty):
 
     if citation_section:
         project_block += f"\n\n{citation_section}"
+
+    if deep_research_section:
+        project_block += f"\n\n{deep_research_section}"
 
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
 

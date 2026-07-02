@@ -163,6 +163,20 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
             lines.append(f"· confluence pages: {len(pages)} selected for content ingestion")
         return lines
 
+    def deep_research_guidance(self, sources: list[SourceItem]) -> str:
+        if not sources:
+            return ""
+        space_names = ", ".join(f"`{s.slug}`" for s in sources)
+        return (
+            f"CONFLUENCE DEEP RESEARCH: When investigating {space_names}:\n"
+            "1. Scan `confluence_get_pages` for signal (most-recently-edited first, titles carry context)\n"
+            "2. Central pages or recently-churned docs → `confluence_get_page_content` for full body; walk child pages if they exist\n"
+            "3. Don't write about a page you only saw in the tree. Breadth scan for what's active and matters; "
+            "depth calls on the pages that carry the substance.\n"
+            "4. Write concepts and decisions, not page indices. Interpret the activity: what themes, decisions, "
+            "and open questions do the pages add up to?"
+        )
+
     def citation_guidance(self, sources: list[SourceItem]) -> str:
         if not sources:
             return ""
