@@ -220,7 +220,8 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     });
     console.log(
       `[IdpSync] run ${runId} success: ${groups.length} groups, ` +
-        `+${result.membershipSourcesAdded}/-${result.membershipSourcesRemoved} memberships`
+        `+${result.membershipSourcesAdded}/-${result.membershipSourcesRemoved} memberships, ` +
+        `${result.teamsArchived} teams archived`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -5,6 +5,7 @@ const teamsFind = jest.fn();
 const teamsInsertOne = jest.fn();
 const teamsDeleteOne = jest.fn();
 const teamsUpdateOne = jest.fn();
+const teamsUpdateMany = jest.fn();
 
 jest.mock("../../team-membership-source-store", () => ({
   upsertTeamMembershipSource: (...args: unknown[]) => upsertTeamMembershipSource(...args),
@@ -33,6 +34,7 @@ jest.mock("@/lib/mongodb", () => ({
         insertOne: (...args: unknown[]) => teamsInsertOne(...args),
         deleteOne: (...args: unknown[]) => teamsDeleteOne(...args),
         updateOne: (...args: unknown[]) => teamsUpdateOne(...args),
+        updateMany: (...args: unknown[]) => teamsUpdateMany(...args),
       };
     }
     return {};
@@ -53,6 +55,7 @@ describe("identity group sync apply reconciler", () => {
     teamsInsertOne.mockReset().mockResolvedValue({ insertedId: "created-team-id" });
     teamsDeleteOne.mockReset().mockResolvedValue({ deletedCount: 1 });
     teamsUpdateOne.mockReset().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    teamsUpdateMany.mockReset().mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
   });
 
   it("persists membership source changes and writes OpenFGA tuple diff", async () => {
@@ -92,6 +95,7 @@ describe("identity group sync apply reconciler", () => {
       tupleWrites: 1,
       tupleDeletes: 0,
       openFgaEnabled: true,
+      teamsArchived: 0,
     });
 
     expect(upsertTeamMembershipSource).toHaveBeenCalledTimes(1);
@@ -448,6 +452,77 @@ describe("identity group sync apply reconciler", () => {
         last_applied_at: "2026-05-12T01:00:00.000Z",
       }),
     );
+  });
+
+  it("archives identity_group_sync teams that become orphaned after membership removal", async () => {
+    teamsUpdateMany.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { applyIdentityGroupSyncPlan } = await import("../../identity-group-sync-reconciler");
+
+    const result = await applyIdentityGroupSyncPlan({
+      plan: {
+        matched_groups: [],
+        ignored_groups: [],
+        teams_to_create: [],
+        membership_sources_to_add: [],
+        membership_sources_to_remove: [
+          {
+            team_id: "team-1",
+            team_slug: "old-okta-team",
+            user_subject: "alice-sub",
+            relationship: "member",
+            source_type: "okta",
+            managed: true,
+            status: "active",
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        tuple_writes: [],
+        tuple_deletes: [{ user: "user:alice-sub", relation: "member", object: "team:old-okta-team" }],
+        skipped_users: [],
+        conflicts: [],
+        safety_warnings: [
+          {
+            code: "orphaned_team_membership",
+            severity: "warning",
+            message: "Team old-okta-team would have no active managed identity-sync memberships.",
+            requires_acknowledgement: true,
+            team_slug: "old-okta-team",
+          },
+        ],
+      },
+      actor: "admin@example.test",
+      now: "2026-07-02T00:00:00.000Z",
+    });
+
+    expect(result.teamsArchived).toBe(1);
+    expect(teamsUpdateMany).toHaveBeenCalledWith(
+      { slug: { $in: ["old-okta-team"] }, source: "identity_group_sync", status: { $ne: "archived" } },
+      expect.objectContaining({ $set: expect.objectContaining({ status: "archived", updated_by: "admin@example.test" }) }),
+    );
+  });
+
+  it("does not archive teams when no orphaned_team_membership warnings present", async () => {
+    const { applyIdentityGroupSyncPlan } = await import("../../identity-group-sync-reconciler");
+
+    const result = await applyIdentityGroupSyncPlan({
+      plan: {
+        matched_groups: [],
+        ignored_groups: [],
+        teams_to_create: [],
+        membership_sources_to_add: [],
+        membership_sources_to_remove: [],
+        tuple_writes: [],
+        tuple_deletes: [],
+        skipped_users: [],
+        conflicts: [],
+        safety_warnings: [],
+      },
+      actor: "admin@example.test",
+      now: "2026-07-02T00:00:00.000Z",
+    });
+
+    expect(result.teamsArchived).toBe(0);
+    expect(teamsUpdateMany).not.toHaveBeenCalled();
   });
 
   it("logs and surfaces the original error when rollback itself fails", async () => {
