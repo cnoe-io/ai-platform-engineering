@@ -355,7 +355,7 @@ function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
         return (
           <span
             key={t}
-            className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border whitespace-nowrap"
             title={title}
             aria-label={title}
           >
