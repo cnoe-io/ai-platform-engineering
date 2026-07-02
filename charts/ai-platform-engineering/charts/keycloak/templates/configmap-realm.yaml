@@ -26,11 +26,29 @@ data:
       {{- $_ := set $roles "realm" $realmRoles -}}
       {{- $_ := set $realm "roles" $roles -}}
     {{- end -}}
+    {{- $cliClientId := (.Values.cliClient).clientId | default "caipe-cli" -}}
     {{- $clients := list -}}
     {{- range $client := $realm.clients -}}
       {{- if eq $client.clientId "caipe-ui" -}}
         {{- $_ := set $client "redirectUris" $.Values.uiClient.redirectUris -}}
         {{- $_ := set $client "webOrigins" $.Values.uiClient.webOrigins -}}
+      {{- end -}}
+      {{- if eq $client.clientId "caipe-cli" -}}
+        {{- /* Public CLI client for local-dev tokens; id, callbacks, and access
+               token lifespan are configurable so downstream realms can rename
+               it (e.g. forge-cli) and tune session length. */ -}}
+        {{- $_ := set $client "clientId" $cliClientId -}}
+        {{- with ($.Values.cliClient).redirectUris -}}
+          {{- $_ := set $client "redirectUris" . -}}
+        {{- end -}}
+        {{- with ($.Values.cliClient).webOrigins -}}
+          {{- $_ := set $client "webOrigins" . -}}
+        {{- end -}}
+        {{- with ($.Values.cliClient).accessTokenLifespan -}}
+          {{- $attrs := $client.attributes | default dict -}}
+          {{- $_ := set $attrs "access.token.lifespan" (printf "%d" (int .)) -}}
+          {{- $_ := set $client "attributes" $attrs -}}
+        {{- end -}}
       {{- end -}}
       {{- $clients = append $clients $client -}}
     {{- end -}}
