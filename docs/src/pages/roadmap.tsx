@@ -19,6 +19,20 @@ const ROADMAP = [
     issueRefs: ['#1742'],
   },
   {
+    title: 'Amazon Bedrock AgentCore Integration',
+    description: 'Integrate Amazon Bedrock AgentCore as a managed runtime backend for CAIPE Dynamic Agents — enabling AWS-native teams to run, scale, and observe agents using AgentCore\'s managed infrastructure, memory, and tool execution environment.',
+    status: 'planned',
+    subItems: [
+      'AgentCore runtime adapter for the Dynamic Agents harness',
+      'Agent lifecycle mapping: create / invoke / delete AgentCore agents from CAIPE UI',
+      'Memory bridge: sync AgentCore session memory with CAIPE conversation context',
+      'Tool execution: route MCP tool calls through AgentCore\'s tool executor',
+      'IAM role-based auth for AgentCore API calls',
+      'Surface AgentCore traces and logs in CAIPE AgentOps',
+    ],
+    issueRefs: ['#2109'],
+  },
+  {
     title: 'Multiple Agentic Harness SDK Integration',
     description: 'Support multiple agentic harness SDKs — ADK, Strands, Claude SDK — so teams can bring their preferred agent framework without being locked into a single runtime.',
     status: 'planned',
