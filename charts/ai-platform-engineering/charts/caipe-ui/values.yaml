@@ -387,6 +387,14 @@ keycloakAdminClient:
   # no reason to change this in a vanilla install.
   clientId: "caipe-platform"
 
+# Dedicated client used by the BFF to mint schedule-owner tokens. When the
+# scheduler feature is enabled by the umbrella chart, an empty secretName is
+# resolved to "<release>-keycloak-scheduler-runner".
+schedulerRunnerClient:
+  secretName: ""
+  secretKey: "KC_SCHEDULER_CLIENT_SECRET"
+  clientId: "caipe-scheduler-runner"
+
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
 # Secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
 # To enable: set externalSecrets.enabled=true and configure data section

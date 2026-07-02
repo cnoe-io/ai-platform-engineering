@@ -70,9 +70,10 @@ features:
 # ---------- Strict client-secret mode (production hardening) ----------
 # When true, the init-idp and init-token-exchange Jobs run a final guard at
 # the end of their reconcile passes: they attempt a `client_credentials`
-# token grant for each of the four known development placeholder secrets
+# token grant for each known development placeholder secret
 # (caipe-ui-dev-secret, caipe-platform-dev-secret, caipe-slack-bot-dev-secret,
-# caipe-webex-bot-dev-secret). If Keycloak still accepts ANY of them — for
+# caipe-webex-bot-dev-secret, and caipe-scheduler-runner-dev-secret when the
+# scheduler is enabled). If Keycloak still accepts ANY of them, for
 # example because an operator forgot to set the matching `secretRef` /
 # `externalSecret` — the Job logs a loud ERROR identifying the client and
 # exits non-zero, failing the Helm install fast.
@@ -277,6 +278,26 @@ tokenExchange:
 webexTokenExchange:
   enabled: true
   botClientId: "caipe-webex-bot"
+  botClientSecret: ""
+  secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
+# ---------- Token exchange for the scheduler runner (RFC 8693 / impersonation) ----------
+# Mirrors tokenExchange above. Used by the BFF to mint a schedule owner's bearer
+# for cron fires (scheduled-job-auth Approach 2). The generated Secret key is
+# KC_SCHEDULER_CLIENT_SECRET. When `enabled` is omitted, inherits
+# tokenExchange.enabled.
+schedulerTokenExchange:
+  enabled: true
+  botClientId: "caipe-scheduler-runner"
   botClientSecret: ""
   secretRef: ""
   externalSecret:

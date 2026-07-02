@@ -162,6 +162,10 @@ dependencies:
     version: 0.5.31 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - dynamic-agents
+  # Scheduler service for Dynamic Agents scheduled jobs.
+  - name: scheduler
+    version: 0.5.31 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: global.scheduler.enabled
   # MongoDB for CAIPE UI persistence
   - name: caipe-ui-mongodb
     version: 0.5.31

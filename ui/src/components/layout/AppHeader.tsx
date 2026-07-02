@@ -29,6 +29,7 @@ import {
 AlertTriangle,
 BookOpen,
 Bot,
+CalendarClock,
 ChevronDown,
 ChevronRight,
 Database,
@@ -278,6 +279,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -388,6 +390,13 @@ export function AppHeader() {
       label: "Agents",
       Icon: Bot,
       activeClassName: "bg-purple-500 text-white shadow-sm",
+    },
+    storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
+      key: "schedules",
+      href: "/schedules",
+      label: "Schedules",
+      Icon: CalendarClock,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
     storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",

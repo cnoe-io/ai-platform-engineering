@@ -2,13 +2,13 @@
 # -------------------------------------------------------------------
 # deploy/keycloak/init-token-exchange.sh
 #
-# Configures Keycloak token exchange (RFC 8693) impersonation for the
-# CAIPE Slack bot.  Runs after realm import to set up fine-grained
-# admin permissions that cannot be declared in realm-config.json.
+# Configures Keycloak token exchange (RFC 8693) impersonation for CAIPE
+# service clients. Runs after realm import to set up fine-grained admin
+# permissions that cannot be declared in realm-config.json.
 #
 # Idempotent — safe to re-run on every container start.
 #
-# Depends on: sh, curl, grep, sed (provided by build/Dockerfile.keycloak-init).
+# Depends on: sh, curl, grep, sed, python3 (provided by Dockerfile.keycloak-init).
 #
 # Required env vars:
 #   KEYCLOAK_ADMIN / KC_BOOTSTRAP_ADMIN_USERNAME  (default: admin)
@@ -272,6 +272,83 @@ else
   echo "${TAG} KC_WEBEX_BOT_CLIENT_SECRET not set — leaving Webex client_secret unchanged."
 fi
 
+# Reconcile the scheduler-runner client secret (scheduled-job-auth Approach 2).
+# This client is used by the BFF to mint schedule-owner bearers via
+# requested_subject impersonation; the BFF authenticates with
+# KEYCLOAK_SCHEDULER_CLIENT_SECRET, so Keycloak's stored secret must match.
+SCHEDULER_CLIENT_ID="${KC_SCHEDULER_CLIENT_ID:-}"
+if [ -n "${SCHEDULER_CLIENT_ID}" ]; then
+  SCHEDULER_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${SCHEDULER_CLIENT_ID}" 2>/dev/null || echo "[]")
+  SCHEDULER_INTERNAL_ID=$(json_field "${SCHEDULER_CLIENTS_RESP}" "id")
+
+  # Realm import only creates clients when the realm is first created. Helm
+  # upgrades therefore need to create this newly introduced client explicitly.
+  if [ -z "${SCHEDULER_INTERNAL_ID}" ]; then
+    if [ -z "${KC_SCHEDULER_CLIENT_SECRET:-}" ]; then
+      echo "${TAG}   ERROR: client '${SCHEDULER_CLIENT_ID}' is missing and KC_SCHEDULER_CLIENT_SECRET is unset." >&2
+      exit 1
+    fi
+    echo "${TAG} Creating missing scheduler-runner client '${SCHEDULER_CLIENT_ID}' ..."
+    SCHEDULER_CLIENT_JSON=$(SCHEDULER_CLIENT_ID="${SCHEDULER_CLIENT_ID}" \
+      SCHEDULER_CLIENT_SECRET="${KC_SCHEDULER_CLIENT_SECRET}" python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "clientId": os.environ["SCHEDULER_CLIENT_ID"],
+    "name": "CAIPE Scheduler Runner",
+    "description": "Confidential client scoped to scheduled-run owner impersonation.",
+    "enabled": True,
+    "publicClient": False,
+    "bearerOnly": False,
+    "standardFlowEnabled": False,
+    "directAccessGrantsEnabled": False,
+    "serviceAccountsEnabled": True,
+    "authorizationServicesEnabled": False,
+    "protocol": "openid-connect",
+    "fullScopeAllowed": True,
+    "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
+    "attributes": {"oidc.token.exchange.enabled": "true"},
+    "secret": os.environ["SCHEDULER_CLIENT_SECRET"],
+}))
+')
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients" \
+      -d "${SCHEDULER_CLIENT_JSON}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" != "201" ] && [ "${HTTP_CODE}" != "409" ]; then
+      echo "${TAG}   ERROR: failed to create scheduler-runner client (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+    SCHEDULER_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients?clientId=${SCHEDULER_CLIENT_ID}" 2>/dev/null || echo "[]")
+    SCHEDULER_INTERNAL_ID=$(json_field "${SCHEDULER_CLIENTS_RESP}" "id")
+    if [ -z "${SCHEDULER_INTERNAL_ID}" ]; then
+      echo "${TAG}   ERROR: scheduler-runner client has no internal ID after create." >&2
+      exit 1
+    fi
+  fi
+
+  if [ -n "${KC_SCHEDULER_CLIENT_SECRET:-}" ]; then
+    echo "${TAG} Reconciling client_secret on '${SCHEDULER_CLIENT_ID}' from KC_SCHEDULER_CLIENT_SECRET ..."
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${SCHEDULER_INTERNAL_ID}" \
+      -d "{\"clientId\":\"${SCHEDULER_CLIENT_ID}\",\"secret\":\"${KC_SCHEDULER_CLIENT_SECRET}\"}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "200" ]; then
+      echo "${TAG}   scheduler-runner client_secret reconciled (HTTP ${HTTP_CODE})."
+    else
+      echo "${TAG}   ERROR: failed to set scheduler-runner client_secret (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+  else
+    echo "${TAG} KC_SCHEDULER_CLIENT_SECRET not set; leaving scheduler-runner client_secret unchanged."
+  fi
+else
+  echo "${TAG} KC_SCHEDULER_CLIENT_ID not set; skipping scheduler-runner reconciliation."
+fi
+
 # ------------------------------------------------------------------
 # 5. Get service account users + assign impersonation role
 # ------------------------------------------------------------------
@@ -283,6 +360,7 @@ RM_CLIENT_ID=$(json_field "${RM_RESP}" "id")
 ensure_service_account_impersonation_role() {
   CLIENT_ID="$1"
   CLIENT_INTERNAL_ID="$2"
+  SEED_OPENFGA_GRANTS="${3:-true}"
 
   if [ -z "${CLIENT_ID}" ]; then
     return 0
@@ -307,13 +385,11 @@ ensure_service_account_impersonation_role() {
   fi
   echo "${TAG}   Service account user ID: ${SA_USER_ID}"
 
-  # Stash each bot's service-account user id so the OpenFGA seed section (9)
-  # can grant it the service-to-service relations it needs. This id is the
-  # `sub` the bot's client-credentials token carries, which the BFF graphs
-  # as `service_account:<sub>` when checking resource permissions. Append a
-  # "<sa_user_id>|<clientId>" row per bot to BOT_SA_USER_IDS.
-  BOT_SA_USER_IDS="${BOT_SA_USER_IDS:-}${BOT_SA_USER_IDS:+
+  if [ "${SEED_OPENFGA_GRANTS}" = "true" ]; then
+    # Stash bot service-account ids for the OpenFGA seed section below.
+    BOT_SA_USER_IDS="${BOT_SA_USER_IDS:-}${BOT_SA_USER_IDS:+
 }${SA_USER_ID}|${CLIENT_ID}"
+  fi
 
   SA_CLIENT_ROLES=$(curl -sf -H "${AUTH}" \
     "${KC_URL}/admin/realms/${REALM}/users/${SA_USER_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null || echo "[]")
@@ -347,6 +423,15 @@ if [ -n "${WEBEX_BOT_CLIENT_ID}" ]; then
     WEBEX_INTERNAL_ID=$(json_field "${WEBEX_CLIENTS_RESP}" "id")
   fi
   ensure_service_account_impersonation_role "${WEBEX_BOT_CLIENT_ID}" "${WEBEX_INTERNAL_ID}"
+fi
+
+if [ -n "${SCHEDULER_CLIENT_ID}" ]; then
+  if [ -z "${SCHEDULER_INTERNAL_ID:-}" ]; then
+    SCHEDULER_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients?clientId=${SCHEDULER_CLIENT_ID}" 2>/dev/null || echo "[]")
+    SCHEDULER_INTERNAL_ID=$(json_field "${SCHEDULER_CLIENTS_RESP}" "id")
+  fi
+  ensure_service_account_impersonation_role "${SCHEDULER_CLIENT_ID}" "${SCHEDULER_INTERNAL_ID}" "false"
 fi
 
 # ------------------------------------------------------------------
@@ -465,6 +550,55 @@ else
     attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${IMPERSONATE_PERM_ID}" "${POLICY_ID}" "impersonate permission" || \
       echo "${TAG}   WARNING: could not update impersonate permission."
   fi
+
+  # The scheduler performs requested_subject token exchange on behalf of a
+  # schedule owner. Authorize its client policy on all three Keycloak gates:
+  # its own token-exchange permission, users.impersonate, and (in section 8b)
+  # the target audience's token-exchange permission.
+  if [ -n "${SCHEDULER_INTERNAL_ID:-}" ]; then
+    echo "${TAG} Enabling management permissions on '${SCHEDULER_CLIENT_ID}' ..."
+    SCHEDULER_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${SCHEDULER_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{"enabled":false}')
+    if [ "$(json_bool "${SCHEDULER_MGMT}" "enabled")" != "true" ]; then
+      curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${SCHEDULER_INTERNAL_ID}/management/permissions" \
+        -d '{"enabled":true}' >/dev/null 2>&1 || {
+          echo "${TAG}   ERROR: could not enable scheduler management permissions." >&2
+          exit 1
+        }
+    fi
+    SCHEDULER_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${SCHEDULER_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{}')
+    SCHEDULER_TOKEN_EXCHANGE_PERM_ID=$(echo "${SCHEDULER_MGMT}" | grep -o '"token-exchange" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    if [ -z "${SCHEDULER_TOKEN_EXCHANGE_PERM_ID}" ] || [ -z "${IMPERSONATE_PERM_ID}" ]; then
+      echo "${TAG}   ERROR: scheduler token-exchange or users.impersonate permission is unavailable." >&2
+      exit 1
+    fi
+
+    SCHEDULER_POLICY_NAME="caipe-scheduler-runner-token-exchange-policy"
+    SCHEDULER_POLICIES=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy?name=${SCHEDULER_POLICY_NAME}&max=1" 2>/dev/null || echo '[]')
+    SCHEDULER_POLICY_ID=$(json_field "${SCHEDULER_POLICIES}" "id")
+    if [ -z "${SCHEDULER_POLICY_ID}" ]; then
+      SCHEDULER_POLICY_RESP=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy/client" \
+        -d "{\"name\":\"${SCHEDULER_POLICY_NAME}\",\"description\":\"Allow ${SCHEDULER_CLIENT_ID} to perform owner OBO token exchange\",\"logic\":\"POSITIVE\",\"clients\":[\"${SCHEDULER_INTERNAL_ID}\"]}" 2>/dev/null || echo '{}')
+      SCHEDULER_POLICY_ID=$(json_field "${SCHEDULER_POLICY_RESP}" "id")
+    fi
+    if [ -z "${SCHEDULER_POLICY_ID}" ]; then
+      echo "${TAG}   ERROR: could not resolve or create scheduler token-exchange policy." >&2
+      exit 1
+    fi
+
+    attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${SCHEDULER_TOKEN_EXCHANGE_PERM_ID}" "${SCHEDULER_POLICY_ID}" "scheduler token-exchange permission" || {
+      echo "${TAG}   ERROR: could not authorize scheduler token exchange." >&2
+      exit 1
+    }
+    attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${IMPERSONATE_PERM_ID}" "${SCHEDULER_POLICY_ID}" "scheduler users.impersonate permission" || {
+      echo "${TAG}   ERROR: could not authorize scheduler owner impersonation." >&2
+      exit 1
+    }
+  fi
 fi
 
 # ------------------------------------------------------------------
@@ -536,6 +670,7 @@ if [ -n "${RM_CLIENT_ID:-}" ]; then
       }
       _attach_bot_to_obo_target "caipe-slack-bot-token-exchange-policy" "${BOT_INTERNAL_ID:-}" "caipe-slack-bot"
       _attach_bot_to_obo_target "caipe-webex-bot-token-exchange-policy" "${WEBEX_INTERNAL_ID:-}" "caipe-webex-bot"
+      _attach_bot_to_obo_target "caipe-scheduler-runner-token-exchange-policy" "${SCHEDULER_INTERNAL_ID:-}" "caipe-scheduler-runner"
     fi
   fi
 fi
@@ -696,7 +831,7 @@ _assert_dev_placeholders_rejected() {
     return 0
   fi
 
-  echo "${TAG} Strict mode: verifying caipe-slack-bot + caipe-webex-bot reject their dev placeholders ..."
+  echo "${TAG} Strict mode: verifying caipe-slack-bot + caipe-webex-bot + caipe-scheduler-runner reject their dev placeholders ..."
 
   KC_TOKEN_URL="${KC_URL}/realms/${REALM}/protocol/openid-connect/token"
   violations=0
@@ -704,6 +839,10 @@ _assert_dev_placeholders_rejected() {
   # Pairs: "<clientId>|<dev-placeholder-secret>"
   pairs="caipe-slack-bot|caipe-slack-bot-dev-secret
 caipe-webex-bot|caipe-webex-bot-dev-secret"
+  if [ -n "${SCHEDULER_CLIENT_ID:-}" ]; then
+    pairs="${pairs}
+caipe-scheduler-runner|caipe-scheduler-runner-dev-secret"
+  fi
 
   IFS_OLD="${IFS}"
   IFS='

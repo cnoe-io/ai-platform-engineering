@@ -211,6 +211,31 @@
       }
     },
     {
+      "clientId": "caipe-scheduler-runner",
+      "name": "CAIPE Scheduler Runner",
+      "description": "Confidential client scoped to scheduled-run owner impersonation (token-exchange requested_subject). Used by the BFF to mint owner bearers for cron fires (scheduled-job-auth Approach 2).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-scheduler-runner-dev-secret",
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      }
+    },
+    {
       "clientId": "caipe-webex-bot-admin",
       "name": "CAIPE Webex Bot Admin Audience",
       "description": "Audience target for Web UI BFF tokens calling the Webex bot admin API (JWT aud=caipe-webex-bot-admin)",

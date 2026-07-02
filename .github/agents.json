@@ -21,6 +21,7 @@
     "litellm",
     "netutils",
     "pagerduty",
+    "scheduler",
     "splunk",
     "victorops",
     "webex"

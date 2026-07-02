@@ -1,3 +1,9 @@
+{{- $schedulerEnabled := dig "scheduler" "enabled" false (.Values.global | default dict) -}}
+{{- $schedulerRunnerSecretName := .Values.schedulerRunnerClient.secretName | default "" -}}
+{{- if and $schedulerEnabled (not $schedulerRunnerSecretName) -}}
+{{- $schedulerRunnerBase := printf "%s-keycloak" .Release.Name | trunc 46 | trimSuffix "-" -}}
+{{- $schedulerRunnerSecretName = printf "%s-scheduler-runner" $schedulerRunnerBase -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,6 +29,14 @@ data:
          See values.yaml `keycloakAdminClient` for the full contract. */}}
   {{- if and .Values.keycloakAdminClient.secretName (not (hasKey .Values.config "KEYCLOAK_ADMIN_CLIENT_ID")) }}
   KEYCLOAK_ADMIN_CLIENT_ID: {{ .Values.keycloakAdminClient.clientId | default "caipe-platform" | quote }}
+  {{- end }}
+  {{- /* Scheduled-run minting client id (scheduled-job-auth Approach 2). Its
+         client_secret is injected via secretKeyRef in deployment.yaml. */}}
+  {{- if and $schedulerRunnerSecretName (not (hasKey .Values.config "KEYCLOAK_SCHEDULER_CLIENT_ID")) }}
+  KEYCLOAK_SCHEDULER_CLIENT_ID: {{ .Values.schedulerRunnerClient.clientId | default "caipe-scheduler-runner" | quote }}
+  {{- end }}
+  {{- if and $schedulerEnabled (not (hasKey .Values.config "SCHEDULER_ENABLED")) }}
+  SCHEDULER_ENABLED: "true"
   {{- end }}
   {{- /* Okta directory sync — flatten the structured `oktaSync:` block
          (Backstage-style) into IDENTITY_SYNC_OKTA_* env vars. Only the
