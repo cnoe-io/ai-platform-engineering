@@ -126,6 +126,16 @@ serviceToken:
   existingSecretKey: "token"
   value: ""
 
+# User JWT validation for caller-owned schedule operations. The service token
+# still authenticates the platform component; the JWT determines ownership.
+auth:
+  jwksUrl: ""
+  issuer: ""
+  audiences:
+    - "caipe-platform"
+  algorithms:
+    - "RS256"
+
 # Limits enforced by scheduler-svc.
 limits:
   maxSchedulesPerOwner: 50

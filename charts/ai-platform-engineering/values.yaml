@@ -1127,11 +1127,12 @@ schedulerMcp:
     MCP_PORT: "8000"
     SCHEDULER_URL: "http://caipe-scheduler:8080"
   auth:
-    mode: "oauth2"
+    # AgentGateway authenticates the caller. This MCP relays the caller JWT
+    # opaquely to caipe-scheduler, which validates it and derives ownership.
+    mode: "none"
     jwksUri: ""
     issuer: ""
     audience: "caipe-platform"
-    requireCallerIdentity: true
   resources: {}
 
 ######### Slack Bot Integration configuration #########

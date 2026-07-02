@@ -6,7 +6,7 @@ daemon; it exits after a single attempt.
 ## Flow
 
 ```
-SCHEDULE_ID env ->  GET scheduler-svc/v1/schedules/<id>
+SCHEDULE_ID env ->  GET scheduler-svc/v1/internal/schedules/<id>
                 ->  exit 0 without chat if schedule.enabled is false and this is a recurring fire
                 ->  POST <CAIPE_API_URL><CAIPE_CHAT_PATH>  (auth: X-Scheduler-Token only)
                     BFF resolves the owner from the schedule DB record, mints a

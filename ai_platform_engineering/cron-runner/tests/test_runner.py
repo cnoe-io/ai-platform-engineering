@@ -25,6 +25,7 @@ class _Response:
 class _Client:
   def __init__(self, schedule: dict[str, Any]) -> None:
     self.schedule = schedule
+    self.get_calls: list[str] = []
     self.post_calls: list[tuple[str, dict[str, Any]]] = []
 
   def __enter__(self):
@@ -33,7 +34,8 @@ class _Client:
   def __exit__(self, exc_type, exc, tb):
     return False
 
-  def get(self, _url: str, **_kwargs: Any) -> _Response:
+  def get(self, url: str, **_kwargs: Any) -> _Response:
+    self.get_calls.append(url)
     return _Response(self.schedule)
 
   def post(self, url: str, **kwargs: Any) -> _Response:
@@ -63,6 +65,7 @@ def test_runner_uses_scheduler_token_without_forwarding_owner_bearer(monkeypatch
   monkeypatch.setattr(runner.httpx, "Client", lambda **_kwargs: client)
 
   assert runner.main() == 0
+  assert client.get_calls == ["http://scheduler/v1/internal/schedules/sched-1"]
 
   chat_url, chat_request = client.post_calls[0]
   assert chat_url == "http://ui/api/v1/chat/invoke"

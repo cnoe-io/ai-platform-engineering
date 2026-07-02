@@ -5,10 +5,9 @@
 Generic by design: agents pass the target ``agent_id`` they want fired, so any
 authorized agent can create or manage scheduled invocations.
 
-Auth model: this MCP holds the shared ``SCHEDULER_SERVICE_TOKEN``; calls to
-caipe-scheduler are server-to-server. Normal HTTP deployments derive the
-schedule owner from the caller JWT already validated by the MCP middleware.
-An explicit ``owner_user_id`` is accepted only for non-authenticated local use.
+Auth model: this MCP holds the shared ``SCHEDULER_SERVICE_TOKEN`` and relays the
+caller's JWT from ``X-CAIPE-Caller-Token`` to caipe-scheduler. The MCP treats the
+JWT as opaque; caipe-scheduler validates it and derives the immutable owner.
 """
 
 from __future__ import annotations
@@ -19,8 +18,7 @@ import os
 from typing import Annotated, Any
 
 import httpx
-import jwt
-from mcp_agent_auth.token import get_request_token
+from fastmcp.server.dependencies import get_http_request
 from mcp.shared.exceptions import McpError
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData
 from pydantic import BaseModel, Field, model_validator
@@ -52,52 +50,26 @@ def _scheduler_token() -> str:
   return tok
 
 
-def _headers() -> dict[str, str]:
-  return {"X-Scheduler-Token": _scheduler_token()}
-
-
-def _caller_identity_required() -> bool:
-  return os.environ.get("SCHEDULER_REQUIRE_CALLER_IDENTITY", "false").lower() in {
-    "1",
-    "true",
-    "yes",
-  }
-
-
-def _caller_email() -> str | None:
-  """Read the caller email from the JWT already validated by MCP middleware."""
-  token = get_request_token("SCHEDULER_CALLER_TOKEN")
-  if not token:
-    return None
+def _caller_token() -> str:
+  """Return the opaque caller JWT forwarded by Dynamic Agents via AgentGateway."""
   try:
-    claims = jwt.decode(
-      token,
-      options={
-        "verify_signature": False,
-        "verify_exp": False,
-        "verify_aud": False,
-        "verify_iss": False,
-      },
-    )
-  except jwt.PyJWTError as exc:
-    raise ValueError("Could not read the authenticated scheduler caller") from exc
+    request = get_http_request()
+  except Exception as exc:
+    raise ValueError("Scheduler tools require an authenticated caller token") from exc
 
-  for claim in ("email", "preferred_username"):
-    value = claims.get(claim)
-    if isinstance(value, str) and value.strip():
-      return value.strip()
-  return None
+  token = request.headers.get("x-caipe-caller-token", "").strip()
+  if token.lower().startswith("bearer "):
+    token = token[7:].strip()
+  if not token:
+    raise ValueError("Scheduler tools require an authenticated caller token")
+  return token
 
 
-def _effective_owner(requested_owner: str | None = None) -> str:
-  caller_email = _caller_email()
-  if caller_email:
-    return caller_email
-  if _caller_identity_required():
-    raise ValueError("Scheduler tools require an authenticated caller with an email claim")
-  if requested_owner and requested_owner.strip():
-    return requested_owner.strip()
-  raise ValueError("owner_user_id is required when caller identity enforcement is disabled")
+def _headers() -> dict[str, str]:
+  return {
+    "Authorization": f"Bearer {_caller_token()}",
+    "X-Scheduler-Token": _scheduler_token(),
+  }
 
 
 def _handle_errors(func):
@@ -149,10 +121,6 @@ class CreateScheduleArgs(BaseModel):
     str,
     Field(description=("IANA timezone name, e.g. 'America/Los_Angeles'. The cron expression is evaluated in this zone.")),
   ]
-  owner_user_id: Annotated[
-    str | None,
-    Field(default=None, description=("Owner used only when caller identity enforcement is disabled. Normal HTTP calls always use the authenticated caller's email.")),
-  ] = None
   attributes: dict[str, Any] = Field(
     default_factory=dict,
     description=("Optional JSON object of small display attributes for UIs. Use this for small labels such as project_id, workflow, or environment."),
@@ -167,10 +135,6 @@ class CreateScheduleArgs(BaseModel):
 
 
 class ListSchedulesArgs(BaseModel):
-  owner_user_id: Annotated[
-    str | None,
-    Field(default=None, description="Filter by owner_user_id."),
-  ] = None
   agent_id: Annotated[str | None, Field(default=None, description="Filter by agent_id.")] = None
 
 
@@ -272,9 +236,7 @@ def register_tools(server) -> None:
   async def _patch_schedule(
     schedule_id: str,
     body: dict[str, Any],
-    owner_user_id: str,
   ) -> dict[str, Any]:
-    await _require_owned_schedule(schedule_id, owner_user_id)
     async with httpx.AsyncClient(timeout=timeout) as client:
       r = await client.patch(
         f"{_scheduler_url()}/v1/schedules/{schedule_id}",
@@ -283,23 +245,6 @@ def register_tools(server) -> None:
       )
       r.raise_for_status()
       return r.json()
-
-  async def _require_owned_schedule(
-    schedule_id: str,
-    owner_user_id: str,
-  ) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=timeout) as client:
-      response = await client.get(
-        f"{_scheduler_url()}/v1/schedules/{schedule_id}",
-        headers=_headers(),
-      )
-      response.raise_for_status()
-      schedule = response.json()
-
-    actual_owner = str(schedule.get("owner_user_id") or "").strip()
-    if actual_owner.casefold() != owner_user_id.casefold():
-      raise McpError(ErrorData(code=INVALID_PARAMS, message="Schedule not found for the current user"))
-    return schedule
 
   @server.tool(
     name="create_schedule",
@@ -315,7 +260,6 @@ def register_tools(server) -> None:
   @_handle_errors
   async def create_schedule(args: CreateScheduleArgs) -> dict[str, Any]:
     body = args.model_dump(exclude_none=True)
-    body["owner_user_id"] = _effective_owner(args.owner_user_id)
     async with httpx.AsyncClient(timeout=timeout) as client:
       r = await client.post(
         f"{_scheduler_url()}/v1/schedules",
@@ -331,7 +275,7 @@ def register_tools(server) -> None:
   )
   @_handle_errors
   async def list_schedules(args: ListSchedulesArgs) -> dict[str, Any]:
-    params: dict[str, str] = {"owner": _effective_owner(args.owner_user_id)}
+    params: dict[str, str] = {}
     if args.agent_id:
       params["agent_id"] = args.agent_id
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -349,7 +293,13 @@ def register_tools(server) -> None:
   )
   @_handle_errors
   async def get_schedule(args: GetScheduleArgs) -> dict[str, Any]:
-    return await _require_owned_schedule(args.schedule_id, _effective_owner())
+    async with httpx.AsyncClient(timeout=timeout) as client:
+      response = await client.get(
+        f"{_scheduler_url()}/v1/schedules/{args.schedule_id}",
+        headers=_headers(),
+      )
+      response.raise_for_status()
+      return response.json()
 
   @server.tool(
     name="update_schedule",
@@ -358,7 +308,7 @@ def register_tools(server) -> None:
   @_handle_errors
   async def update_schedule(args: PatchScheduleArgs) -> dict[str, Any]:
     body = args.model_dump(exclude_unset=True, exclude={"schedule_id"})
-    return await _patch_schedule(args.schedule_id, body, _effective_owner())
+    return await _patch_schedule(args.schedule_id, body)
 
   @server.tool(
     name="pause_schedule",
@@ -369,7 +319,6 @@ def register_tools(server) -> None:
     return await _patch_schedule(
       args.schedule_id,
       {"enabled": False},
-      _effective_owner(),
     )
 
   @server.tool(
@@ -381,7 +330,6 @@ def register_tools(server) -> None:
     return await _patch_schedule(
       args.schedule_id,
       {"enabled": True},
-      _effective_owner(),
     )
 
   @server.tool(
@@ -393,7 +341,6 @@ def register_tools(server) -> None:
     return await _patch_schedule(
       args.schedule_id,
       {"enabled": True},
-      _effective_owner(),
     )
 
   @server.tool(
@@ -410,7 +357,6 @@ def register_tools(server) -> None:
   )
   @_handle_errors
   async def schedule_one_off(args: ScheduleOneOffArgs) -> dict[str, Any]:
-    await _require_owned_schedule(args.schedule_id, _effective_owner())
     body = args.model_dump(
       exclude_unset=True,
       exclude_none=True,
@@ -432,7 +378,6 @@ def register_tools(server) -> None:
   )
   @_handle_errors
   async def list_one_off_runs(args: ListOneOffRunsArgs) -> dict[str, Any]:
-    await _require_owned_schedule(args.schedule_id, _effective_owner())
     params: list[tuple[str, str]] = []
     for status in args.status or []:
       params.append(("status", status))
@@ -451,7 +396,6 @@ def register_tools(server) -> None:
   )
   @_handle_errors
   async def delete_schedule(args: DeleteScheduleArgs) -> dict[str, Any]:
-    await _require_owned_schedule(args.schedule_id, _effective_owner())
     async with httpx.AsyncClient(timeout=timeout) as client:
       r = await client.delete(
         f"{_scheduler_url()}/v1/schedules/{args.schedule_id}",

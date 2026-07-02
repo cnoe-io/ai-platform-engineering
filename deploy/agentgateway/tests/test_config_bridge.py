@@ -510,6 +510,36 @@ def test_merge_agentgateway_mcp_routes_uses_header_credential_sources() -> None:
     assert "cred-custom-docs" not in str(route)
 
 
+def test_scheduler_route_forwards_opaque_caller_token_header() -> None:
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        _baseline_config(),
+        [
+            bridge.McpGatewayTarget(
+                id="scheduler",
+                upstream_url="http://mcp-scheduler:8000/mcp",
+                credential_sources=(
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Caller-Token",
+                    },
+                ),
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/scheduler"
+    )
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["x-caipe-caller-token"] == (
+        'default(request.headers["x-caipe-caller-token"], "")'
+    )
+    assert "authorization" not in transform
+
+
 def test_merge_agentgateway_mcp_routes_skips_credential_transforms_when_cleared() -> None:
     baseline = _baseline_config()
     builtins = {

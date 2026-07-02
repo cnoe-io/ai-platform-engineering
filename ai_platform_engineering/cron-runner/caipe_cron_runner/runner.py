@@ -3,7 +3,7 @@
 Single-shot per cron fire:
 
   1. Read SCHEDULE_ID from env.
-  2. GET <SCHEDULER_INTERNAL_URL>/v1/schedules/<id>  (auth: SCHEDULER_SERVICE_TOKEN).
+  2. GET <SCHEDULER_INTERNAL_URL>/v1/internal/schedules/<id>  (auth: SCHEDULER_SERVICE_TOKEN).
   3. POST <CAIPE_API_URL><CAIPE_CHAT_PATH>           (auth: SCHEDULER_SERVICE_TOKEN).
   4. POST <SCHEDULER_INTERNAL_URL>/v1/schedules/<id>/runs with status.
 
@@ -68,7 +68,7 @@ def main() -> int:
   with httpx.Client(timeout=timeout) as client:
     try:
       r = client.get(
-        f"{scheduler_url}/v1/schedules/{schedule_id}",
+        f"{scheduler_url}/v1/internal/schedules/{schedule_id}",
         headers=sched_headers,
       )
       r.raise_for_status()

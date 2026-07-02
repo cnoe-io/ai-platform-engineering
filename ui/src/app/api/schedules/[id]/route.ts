@@ -87,6 +87,14 @@ function schedulerToken(): string {
   );
 }
 
+function callerToken(session: unknown): string {
+  const token = (session as { accessToken?: unknown } | null)?.accessToken;
+  if (typeof token !== "string" || !token.trim()) {
+    throw new ApiError("Your session has no access token. Sign in again.", 401);
+  }
+  return token.trim();
+}
+
 function buildSchedulerPatch(body: SchedulerPatchBody) {
   const patch: {
     agent_id?: string;
@@ -240,9 +248,11 @@ function mapSchedule(doc: RawSchedule, agentName: string) {
 
 async function patchScheduler(
   scheduleId: string,
-  patch: ReturnType<typeof buildSchedulerPatch>
+  patch: ReturnType<typeof buildSchedulerPatch>,
+  accessToken: string,
 ): Promise<RawSchedule> {
   const headers: Record<string, string> = {
+    "Authorization": `Bearer ${accessToken}`,
     "Content-Type": "application/json",
   };
   const token = schedulerToken();
@@ -288,8 +298,13 @@ async function patchScheduler(
   return body as RawSchedule;
 }
 
-async function deleteScheduler(scheduleId: string): Promise<{ deleted: string }> {
-  const headers: Record<string, string> = {};
+async function deleteScheduler(
+  scheduleId: string,
+  accessToken: string,
+): Promise<{ deleted: string }> {
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${accessToken}`,
+  };
   const token = schedulerToken();
   if (token) {
     headers["X-Scheduler-Token"] = token;
@@ -342,7 +357,7 @@ export const PATCH = withErrorHandler(
       throw new ApiError("Schedule ID is required", 400);
     }
 
-    return withAuth(request, async (_req, user) => {
+    return withAuth(request, async (_req, user, session) => {
       const schedules = await getCollection<RawSchedule>("schedules");
       const existing = await schedules.findOne({
         schedule_id: scheduleId,
@@ -355,7 +370,7 @@ export const PATCH = withErrorHandler(
 
       const body = (await request.json().catch(() => ({}))) as SchedulerPatchBody;
       const patch = buildSchedulerPatch(body);
-      const updated = await patchScheduler(scheduleId, patch);
+      const updated = await patchScheduler(scheduleId, patch, callerToken(session));
 
       const agents = await getCollection<{ _id: string; name?: string }>("dynamic_agents");
       const agent = await agents.findOne(
@@ -378,7 +393,7 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Schedule ID is required", 400);
     }
 
-    return withAuth(request, async (_req, user) => {
+    return withAuth(request, async (_req, user, session) => {
       const schedules = await getCollection<RawSchedule>("schedules");
       const existing = await schedules.findOne({
         schedule_id: scheduleId,
@@ -389,7 +404,7 @@ export const DELETE = withErrorHandler(
         throw new ApiError("Schedule not found", 404);
       }
 
-      const deleted = await deleteScheduler(scheduleId);
+      const deleted = await deleteScheduler(scheduleId, callerToken(session));
       return successResponse(deleted);
     });
   }

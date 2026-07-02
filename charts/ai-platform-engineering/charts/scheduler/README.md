@@ -12,7 +12,7 @@ Helm chart for **caipe-scheduler** - the cron schedule registry + k8s
 | `Role` + `RoleBinding` | Grants the scheduler Deployment `cronjobs.*` plus one-off `Job` create/read in the release namespace. **No other CAIPE component has these verbs.** |
 | `ServiceAccount` (caipe-scheduler) | Used by the scheduler Deployment. RBAC bound. |
 | `ServiceAccount` (caipe-cron-runner) | Used by every CronJob's runner pod. **No RBAC. No projected token.** |
-| `ConfigMap` | Non-secret env (Mongo db, image refs, runner SA name, internal URL, limits). |
+| `ConfigMap` | Non-secret env (Mongo db, caller JWT validation, image refs, runner SA name, internal URL, limits). |
 | `Secret` (service token) | Shared `X-Scheduler-Token` (skipped if `serviceToken.existingSecret` is set). |
 
 ## Trust boundary recap
@@ -28,6 +28,12 @@ Helm chart for **caipe-scheduler** - the cron schedule registry + k8s
 | Path | Notes |
 |---|---|
 | `mongo.existingSecret` *or* `mongo.uri` | Pick one. Prefer the Secret in any non-dev. |
+| `auth.jwksUrl` | JWKS endpoint used to verify caller JWT signatures. |
+| `auth.issuer` | Exact issuer expected in caller JWTs. |
+
+`auth.audiences` defaults to `caipe-platform` and `auth.algorithms` defaults to
+`RS256`. User-facing schedule operations fail closed when caller JWT validation
+is not configured.
 
 The chart generates and preserves a scheduler service token when no
 `serviceToken.existingSecret` or explicit `serviceToken.value` is provided.

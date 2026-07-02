@@ -7,7 +7,7 @@ patch, and delete schedules.
 ## Tools
 
 - `create_schedule(agent_id, title, message_template, cron, tz, attributes?, edit_agent_id?)`
-- `list_schedules(owner_user_id?, agent_id?)`
+- `list_schedules(agent_id?)`
 - `get_schedule(schedule_id)`
 - `update_schedule(schedule_id, [enabled|cron|tz|message_template|title|attributes|edit_agent_id])`
 - `pause_schedule(schedule_id)` - set `enabled=false` and suspend the underlying Kubernetes CronJob
@@ -25,16 +25,12 @@ patch, and delete schedules.
 | `SCHEDULER_SERVICE_TOKEN` | yes      | Shared with caipe-scheduler            |
 | `MCP_MODE`                | no       | `streamable-http` (default) or `stdio` |
 | `MCP_PORT`                | no       | Default 8000                           |
-| `MCP_AUTH_MODE`           | no       | Set to `oauth2` in the Helm chart      |
-| `JWKS_URI`                | oauth2   | Keycloak realm signing keys            |
-| `ISSUER`                  | oauth2   | Expected caller token issuer           |
-| `AUDIENCE`                | oauth2   | Expected caller token audience         |
-| `SCHEDULER_REQUIRE_CALLER_IDENTITY` | no | Require an email-bearing caller JWT |
+| `MCP_AUTH_MODE`           | no       | `none` behind AgentGateway             |
 
 ## Trust
 
-Dynamic Agents forwards the validated caller bearer through AgentGateway. The
-MCP validates that JWT, derives the owner email from it, and scopes every list,
-read, update, one-off, and delete operation to that owner. The optional
-`owner_user_id` argument is only a local-development fallback when caller
-identity enforcement is explicitly disabled.
+Dynamic Agents forwards the caller JWT through AgentGateway on
+`X-CAIPE-Caller-Token`. The MCP treats it as opaque and relays it as a bearer to
+caipe-scheduler. The scheduler service validates the JWT, derives `owner_sub`,
+and scopes every list, read, update, one-off, and delete operation to that owner.
+Ownership is never accepted as an MCP tool argument.

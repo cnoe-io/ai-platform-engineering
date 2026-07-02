@@ -68,11 +68,6 @@ class ScheduleCreate(BaseModel):
   )
   cron: str = Field(..., description="Standard 5-field cron string (e.g. '0 9 * * MON').")
   tz: str = Field(..., description="IANA timezone name (e.g. 'America/Los_Angeles').")
-  owner_user_id: str = Field(
-    ...,
-    min_length=1,
-    description="CAIPE user email (or any stable identifier the chat API recognises). The fire is attributed to this user.",
-  )
   attributes: dict[str, Any] = Field(
     default_factory=dict,
     description=("Optional JSON object with small display attributes for UIs (for example {'project': 'platform'})."),
@@ -88,14 +83,6 @@ class ScheduleCreate(BaseModel):
     value = value.strip()
     if not value:
       raise ValueError("title must be a non-empty string")
-    return value
-
-  @field_validator("owner_user_id")
-  @classmethod
-  def owner_user_id_must_not_be_blank(cls, value: str) -> str:
-    value = value.strip()
-    if not value:
-      raise ValueError("owner_user_id must be a non-empty string")
     return value
 
   @field_validator("edit_agent_id")
@@ -150,6 +137,7 @@ class Schedule(BaseModel):
   model_config = ConfigDict(extra="ignore")
 
   schedule_id: str
+  owner_sub: str | None = None
   owner_user_id: str
   agent_id: str
   edit_agent_id: str | None = None
@@ -264,6 +252,7 @@ class ScheduleOneOffRun(BaseModel):
 
   one_off_run_id: str
   schedule_id: str
+  owner_sub: str | None = None
   owner_user_id: str
   run_at: datetime
   status: OneOffRunStatus = "pending"

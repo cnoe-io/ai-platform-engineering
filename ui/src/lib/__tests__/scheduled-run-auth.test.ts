@@ -64,6 +64,25 @@ describe("scheduled-run-auth", () => {
     expect(mockFindUserIdByEmail).toHaveBeenCalledWith("owner@example.com");
   });
 
+  it("uses the immutable persisted owner subject without an email lookup", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        schedule_id: "sched_123",
+        owner_sub: "owner-sub",
+        owner_user_id: "owner@example.com",
+        agent_id: "agent-persisted",
+      }),
+    });
+
+    await expect(resolveScheduledRunContext("sched_123")).resolves.toEqual({
+      sub: "owner-sub",
+      email: "owner@example.com",
+      agentId: "agent-persisted",
+      scheduleTitle: null,
+    });
+    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the persisted schedule has no agent", async () => {
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({

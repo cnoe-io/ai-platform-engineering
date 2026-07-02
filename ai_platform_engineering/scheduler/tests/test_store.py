@@ -20,12 +20,19 @@ def test_list_filters_by_owner_and_agent():
   store._col = _FakeCollection()
 
   store.list(
+    owner_sub="keycloak-user-id",
     owner_user_id="operator@example.com",
     agent_id="agent-weekly-report",
   )
 
   assert store._col.last_query == {
-    "owner_user_id": "operator@example.com",
+    "$or": [
+      {"owner_sub": "keycloak-user-id"},
+      {
+        "owner_sub": {"$exists": False},
+        "owner_user_id": "operator@example.com",
+      },
+    ],
     "agent_id": "agent-weekly-report",
   }
 

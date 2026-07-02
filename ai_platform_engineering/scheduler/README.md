@@ -21,13 +21,14 @@ The podTemplate lives in `caipe_scheduler/k8s.py` - only the `schedule`,
 
 ```
 POST   /v1/schedules                  - create
-GET    /v1/schedules?owner=&agent_id=... - list
+GET    /v1/schedules?agent_id=...       - list for authenticated owner
 GET    /v1/schedules/{id}             - single
 PATCH  /v1/schedules/{id}             - enable/disable, change cron/tz/msg
 DELETE /v1/schedules/{id}             - remove (Mongo + CronJob)
 POST   /v1/schedules/{id}/one-off-runs - create delayed one-off fire
 GET    /v1/schedules/{id}/one-off-runs - list delayed one-off fires
 POST   /v1/schedules/{id}/runs        - runner reports status (status/error/http_status)
+GET    /v1/internal/schedules/{id}    - runner schedule lookup
 POST   /v1/admin/reconcile-cronjobs   - dry-run/apply runner image refresh for existing CronJobs
 GET    /healthz
 ```
@@ -38,7 +39,11 @@ New schedules require a human-readable `title`. They may also include an
 Domain-specific display context belongs in `attributes`; the scheduler does
 not interpret it.
 
-All but `/healthz` require header `X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`.
+All but `/healthz` require `X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`.
+User-owned create/list/get/patch/delete and one-off endpoints additionally
+require a caller bearer. The service validates that JWT and derives immutable
+`owner_sub`; ownership is not accepted in request bodies. Internal runner and
+admin endpoints use only the service token.
 
 `PATCH /v1/schedules/{id}` with `{"enabled": false}` pauses a schedule by
 setting Mongo `enabled=false` and Kubernetes `CronJob.spec.suspend=true`.

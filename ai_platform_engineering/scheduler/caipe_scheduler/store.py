@@ -20,10 +20,12 @@ class ScheduleStore:
     self._dynamic_agents = self._db["dynamic_agents"]
     # schedule_id is the public unique handle; ensure it.
     self._col.create_index("schedule_id", unique=True)
+    self._col.create_index("owner_sub")
     self._col.create_index("owner_user_id")
     self._col.create_index("agent_id")
     self._one_off_runs.create_index("one_off_run_id", unique=True)
     self._one_off_runs.create_index("schedule_id")
+    self._one_off_runs.create_index("owner_sub")
     self._one_off_runs.create_index("owner_user_id")
     self._one_off_runs.create_index([("status", 1), ("run_at", 1)])
 
@@ -31,20 +33,50 @@ class ScheduleStore:
   def agent_exists(self, agent_id: str) -> bool:
     return self._dynamic_agents.count_documents({"_id": agent_id}, limit=1) > 0
 
-  def count_for_owner(self, owner_user_id: str) -> int:
-    return self._col.count_documents({"owner_user_id": owner_user_id})
+  @staticmethod
+  def owner_filter(owner_sub: str, owner_user_id: str) -> dict[str, Any]:
+    """Match current owner_sub records and legacy email-only records."""
+    return {
+      "$or": [
+        {"owner_sub": owner_sub},
+        {
+          "owner_sub": {"$exists": False},
+          "owner_user_id": owner_user_id,
+        },
+      ]
+    }
+
+  def count_for_owner(self, owner_sub: str, owner_user_id: str) -> int:
+    return self._col.count_documents(self.owner_filter(owner_sub, owner_user_id))
 
   def get(self, schedule_id: str) -> dict[str, Any] | None:
     return self._col.find_one({"schedule_id": schedule_id})
 
+  def get_for_owner(
+    self,
+    schedule_id: str,
+    *,
+    owner_sub: str,
+    owner_user_id: str,
+  ) -> dict[str, Any] | None:
+    return self._col.find_one(
+      {
+        "schedule_id": schedule_id,
+        **self.owner_filter(owner_sub, owner_user_id),
+      }
+    )
+
   def list(
     self,
     *,
+    owner_sub: str | None = None,
     owner_user_id: str | None = None,
     agent_id: str | None = None,
   ) -> list[dict[str, Any]]:
     query: dict[str, Any] = {}
-    if owner_user_id:
+    if owner_sub and owner_user_id:
+      query.update(self.owner_filter(owner_sub, owner_user_id))
+    elif owner_user_id:
       query["owner_user_id"] = owner_user_id
     if agent_id:
       query["agent_id"] = agent_id

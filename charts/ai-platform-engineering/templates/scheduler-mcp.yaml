@@ -8,10 +8,6 @@
 {{- $tokenSecretName := dig "scheduler" "serviceTokenSecretName" "caipe-scheduler-service-token" (.Values.global | default dict) -}}
 {{- $tokenSecretKey := dig "scheduler" "serviceTokenSecretKey" "token" (.Values.global | default dict) -}}
 {{- $auth := $mcp.auth | default dict -}}
-{{- $requireCallerIdentity := true -}}
-{{- if hasKey $auth "requireCallerIdentity" -}}
-{{- $requireCallerIdentity = $auth.requireCallerIdentity -}}
-{{- end -}}
 {{- $keycloak := $.Values.keycloak | default dict -}}
 {{- $realmConfig := $keycloak.realm | default dict -}}
 {{- $realm := $realmConfig.name | default "caipe" -}}
@@ -98,15 +94,13 @@ spec:
                   name: {{ $tokenSecretName | quote }}
                   key: {{ $tokenSecretKey | quote }}
             - name: MCP_AUTH_MODE
-              value: {{ $auth.mode | default "oauth2" | quote }}
+              value: {{ $auth.mode | default "none" | quote }}
             - name: JWKS_URI
               value: {{ $jwksUri | quote }}
             - name: ISSUER
               value: {{ $issuer | quote }}
             - name: AUDIENCE
               value: {{ $auth.audience | default "caipe-platform" | quote }}
-            - name: SCHEDULER_REQUIRE_CALLER_IDENTITY
-              value: {{ $requireCallerIdentity | quote }}
           startupProbe:
             tcpSocket:
               port: http

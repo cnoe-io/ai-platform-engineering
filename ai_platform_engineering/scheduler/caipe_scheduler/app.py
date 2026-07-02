@@ -8,6 +8,7 @@ Endpoints:
   DELETE /v1/schedules/{id}             - remove (Mongo + CronJob)
   POST   /v1/schedules/{id}/one-off-runs - create delayed one-off fire
   GET    /v1/schedules/{id}/one-off-runs - list one-off fires
+  GET    /v1/internal/schedules/{id}    - cron-runner schedule lookup
   POST   /v1/schedules/{id}/runs        - cron-runner reports last run
   GET    /healthz
 """
@@ -26,6 +27,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from kubernetes.client.exceptions import ApiException
 
+from caipe_scheduler.auth import CallerIdentity, authenticate_caller
 from caipe_scheduler.config import Settings, get_settings
 from caipe_scheduler.dispatcher import OneOffDispatcher
 from caipe_scheduler.k8s import CronJobOps, cronjob_name_for
@@ -77,6 +79,28 @@ def require_service_token(
     raise HTTPException(503, "Scheduler service authentication is not configured.")
   if not x_scheduler_token or not secrets.compare_digest(x_scheduler_token, expected):
     raise HTTPException(401, "Invalid or missing X-Scheduler-Token.")
+
+
+def require_caller_identity(
+  authorization: Annotated[str | None, Header()] = None,
+  settings: Annotated[Settings, Depends(get_settings)] = None,  # type: ignore[assignment]
+) -> CallerIdentity:
+  return authenticate_caller(authorization, settings or Settings())
+
+
+def get_owned_schedule(
+  schedule_id: str,
+  store: ScheduleStore,
+  caller: CallerIdentity,
+) -> dict:
+  schedule = store.get_for_owner(
+    schedule_id,
+    owner_sub=caller.sub,
+    owner_user_id=caller.email,
+  )
+  if not schedule:
+    raise HTTPException(404, "Schedule not found.")
+  return schedule
 
 
 @asynccontextmanager
@@ -243,6 +267,7 @@ def create_schedule(
   store: Annotated[ScheduleStore, Depends(get_store)],
   k8s: Annotated[CronJobOps, Depends(get_k8s)],
   settings: Annotated[Settings, Depends(get_settings)],
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
 ) -> ScheduleCreateResponse:
   validate_cron(body.cron)
   validate_tz(body.tz)
@@ -253,7 +278,7 @@ def create_schedule(
   if body.edit_agent_id and not store.agent_exists(body.edit_agent_id):
     raise HTTPException(404, f"edit_agent_id {body.edit_agent_id!r} not found.")
 
-  if store.count_for_owner(body.owner_user_id) >= settings.max_schedules_per_owner:
+  if store.count_for_owner(caller.sub, caller.email) >= settings.max_schedules_per_owner:
     raise HTTPException(
       429,
       f"Owner already has {settings.max_schedules_per_owner} schedules (limit).",
@@ -264,7 +289,8 @@ def create_schedule(
 
   doc = {
     "schedule_id": schedule_id,
-    "owner_user_id": body.owner_user_id,
+    "owner_sub": caller.sub,
+    "owner_user_id": caller.email,
     "agent_id": body.agent_id,
     "edit_agent_id": body.edit_agent_id,
     "title": body.title,
@@ -297,10 +323,14 @@ def create_schedule(
 )
 def list_schedules(
   store: Annotated[ScheduleStore, Depends(get_store)],
-  owner: str | None = Query(default=None),
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
   agent_id: str | None = Query(default=None),
 ) -> ScheduleList:
-  docs = store.list(owner_user_id=owner, agent_id=agent_id)
+  docs = store.list(
+    owner_sub=caller.sub,
+    owner_user_id=caller.email,
+    agent_id=agent_id,
+  )
   return ScheduleList(items=[Schedule.model_validate(d) for d in docs])
 
 
@@ -309,7 +339,24 @@ def list_schedules(
   response_model=Schedule,
   dependencies=[Depends(require_service_token)],
 )
-def get_schedule(schedule_id: str, store: Annotated[ScheduleStore, Depends(get_store)]) -> Schedule:
+def get_schedule(
+  schedule_id: str,
+  store: Annotated[ScheduleStore, Depends(get_store)],
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
+) -> Schedule:
+  doc = get_owned_schedule(schedule_id, store, caller)
+  return Schedule.model_validate(doc)
+
+
+@app.get(
+  "/v1/internal/schedules/{schedule_id}",
+  response_model=Schedule,
+  dependencies=[Depends(require_service_token)],
+)
+def get_schedule_internal(
+  schedule_id: str,
+  store: Annotated[ScheduleStore, Depends(get_store)],
+) -> Schedule:
   doc = store.get(schedule_id)
   if not doc:
     raise HTTPException(404, "Schedule not found.")
@@ -327,10 +374,9 @@ def patch_schedule(
   store: Annotated[ScheduleStore, Depends(get_store)],
   k8s: Annotated[CronJobOps, Depends(get_k8s)],
   settings: Annotated[Settings, Depends(get_settings)],
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
 ) -> Schedule:
-  existing = store.get(schedule_id)
-  if not existing:
-    raise HTTPException(404, "Schedule not found.")
+  existing = get_owned_schedule(schedule_id, store, caller)
 
   patch = body.model_dump(exclude_unset=True, exclude_none=False)
   if "cron" in patch and patch["cron"] is not None:
@@ -373,10 +419,9 @@ def delete_schedule(
   schedule_id: str,
   store: Annotated[ScheduleStore, Depends(get_store)],
   k8s: Annotated[CronJobOps, Depends(get_k8s)],
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
 ) -> JSONResponse:
-  existing = store.get(schedule_id)
-  if not existing:
-    raise HTTPException(404, "Schedule not found.")
+  existing = get_owned_schedule(schedule_id, store, caller)
   cronjob_name = existing.get("cronjob_name") or cronjob_name_for(schedule_id)
   try:
     k8s.delete(cronjob_name)
@@ -398,10 +443,9 @@ def create_schedule_one_off_run(
   body: ScheduleOneOffCreate,
   store: Annotated[ScheduleStore, Depends(get_store)],
   settings: Annotated[Settings, Depends(get_settings)],
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
 ) -> ScheduleOneOffRun:
-  existing = store.get(schedule_id)
-  if not existing:
-    raise HTTPException(404, "Schedule not found.")
+  existing = get_owned_schedule(schedule_id, store, caller)
   if body.message_template is not None:
     validate_message(body.message_template, settings.max_message_chars)
 
@@ -411,6 +455,7 @@ def create_schedule_one_off_run(
   doc = {
     "one_off_run_id": one_off_run_id,
     "schedule_id": schedule_id,
+    "owner_sub": existing.get("owner_sub") or caller.sub,
     "owner_user_id": existing["owner_user_id"],
     "run_at": run_at,
     "status": "pending",
@@ -434,10 +479,10 @@ def create_schedule_one_off_run(
 def list_schedule_one_off_runs(
   schedule_id: str,
   store: Annotated[ScheduleStore, Depends(get_store)],
+  caller: Annotated[CallerIdentity, Depends(require_caller_identity)],
   status: list[str] | None = Query(default=None),
 ) -> ScheduleOneOffList:
-  if not store.get(schedule_id):
-    raise HTTPException(404, "Schedule not found.")
+  get_owned_schedule(schedule_id, store, caller)
   docs = store.list_one_off_runs(schedule_id, statuses=status)
   return ScheduleOneOffList(items=[ScheduleOneOffRun.model_validate(d) for d in docs])
 

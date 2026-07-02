@@ -95,6 +95,7 @@ export function isSchedulerTokenConfigured(): boolean {
 
 interface ScheduleRunDoc {
   schedule_id: string;
+  owner_sub?: string;
   owner_user_id?: string;
   agent_id?: string;
   title?: string | null;
@@ -132,6 +133,7 @@ export async function resolveScheduledRunContext(
   }
 
   const email = (doc.owner_user_id || "").trim();
+  const storedSub = (doc.owner_sub || "").trim();
   const agentId = (doc.agent_id || "").trim();
 
   if (!email || !agentId) {
@@ -144,7 +146,7 @@ export async function resolveScheduledRunContext(
   // Resolve the existing owner; do NOT auto-provision. A scheduled run must
   // behave like the real owner, and a missing account means the owner was
   // never created or has been deprovisioned; fail closed.
-  const sub = await findUserIdByEmail(email);
+  const sub = storedSub || await findUserIdByEmail(email);
   if (!sub) {
     console.error(
       `[scheduled-run-auth] no Keycloak user for schedule ${scheduleId} owner ${email}`,

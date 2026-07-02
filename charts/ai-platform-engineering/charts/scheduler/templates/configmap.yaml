@@ -15,6 +15,10 @@ data:
   SCHEDULER_INTERNAL_URL: "http://{{ include "scheduler.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
   SCHEDULER_SERVICE_TOKEN_SECRET_NAME: {{ include "scheduler.serviceTokenSecretName" . | quote }}
   SCHEDULER_SERVICE_TOKEN_SECRET_KEY: {{ include "scheduler.serviceTokenSecretKey" . | quote }}
+  SCHEDULER_JWT_JWKS_URL: {{ .Values.auth.jwksUrl | quote }}
+  SCHEDULER_JWT_ISSUER: {{ .Values.auth.issuer | quote }}
+  SCHEDULER_JWT_AUDIENCES: {{ join "," .Values.auth.audiences | quote }}
+  SCHEDULER_JWT_ALGORITHMS: {{ join "," .Values.auth.algorithms | quote }}
   CAIPE_API_URL: {{ tpl .Values.caipe.apiUrl . | quote }}
   CAIPE_CHAT_PATH: {{ (.Values.CAIPE_CHAT_PATH | default .Values.caipe.chatPath) | quote }}
   MAX_SCHEDULES_PER_OWNER: {{ .Values.limits.maxSchedulesPerOwner | quote }}

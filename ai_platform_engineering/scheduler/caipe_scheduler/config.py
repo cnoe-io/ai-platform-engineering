@@ -35,6 +35,12 @@ class Settings(BaseModel):
     )
   )
 
+  # Caller JWT validation for user-owned schedule operations.
+  jwt_jwks_url: str = Field(default_factory=lambda: os.environ.get("SCHEDULER_JWT_JWKS_URL", ""))
+  jwt_issuer: str = Field(default_factory=lambda: os.environ.get("SCHEDULER_JWT_ISSUER", ""))
+  jwt_audiences: tuple[str, ...] = Field(default_factory=lambda: tuple(value.strip() for value in os.environ.get("SCHEDULER_JWT_AUDIENCES", "caipe-platform").split(",") if value.strip()))
+  jwt_algorithms: tuple[str, ...] = Field(default_factory=lambda: tuple(value.strip() for value in os.environ.get("SCHEDULER_JWT_ALGORITHMS", "RS256").split(",") if value.strip()))
+
   # Kubernetes
   namespace: str = Field(default_factory=lambda: os.environ.get("SCHEDULER_NAMESPACE", "caipe"))
   cron_runner_image: str = Field(default_factory=lambda: os.environ.get("CRON_RUNNER_IMAGE", "ghcr.io/cnoe-io/caipe-cron-runner:latest"))
