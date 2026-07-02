@@ -26,6 +26,7 @@ from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.connectors.base import SourceItem
 from tome_agent.agent.mcp_mycelium import build_mycelium_mcp
+from tome_agent.agent.mcp_tome import build_tome_mcp
 
 log = logging.getLogger("tome_agent.agent.loop")
 
@@ -357,6 +358,13 @@ def build_agent_options(
         allowed = ["Read", "Glob", "Grep", *WEB_TOOLS]
     else:
         allowed = [*WIKI_TOOLS, *WEB_TOOLS]
+        # Editors get the Bash-free tombstone tool for curating collections
+        # (e.g. pruning glossary entries). It structurally refuses stable /
+        # hidden / founding-template pages, so no unsafe delete path exists.
+        mcp_servers["tome"] = build_tome_mcp(
+            project_id=project_id, project_dir=pdir, author=persist_author
+        )
+        allowed.append("mcp__tome__delete_page")
 
     for connector in REGISTRY:
         token = _connector_token(connector.slug)

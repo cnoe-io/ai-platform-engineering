@@ -148,6 +148,28 @@ async def write_page(
         resp.raise_for_status()
 
 
+async def delete_page(
+    *,
+    page_path: str,
+    author: str,
+    message: str | None = None,
+    project_id: str | None = None,
+) -> None:
+    """Tombstone a page via the backend (soft delete — appends a deleted
+    revision). Mirrors `write_page`'s routing; the DELETE handler lives on the
+    same internal pages endpoint and takes the target `path` as a query param."""
+    pid = project_id or _project_id()
+    url = f"{_backend_url()}/api/internal/projects/{pid}/pages"
+    params = {"path": page_path, "author": author}
+    if message:
+        params["message"] = message
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.request(
+            "DELETE", url, headers=_auth_headers(), params=params
+        )
+        resp.raise_for_status()
+
+
 async def append_log(run_id: UUID, line: str) -> None:
     """Best-effort log append. Failures are logged and swallowed — losing
     a log line is acceptable; failing the run is not."""

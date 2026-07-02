@@ -369,6 +369,28 @@ def _kind_from_md(md: str) -> str:
     return str(fm.get("kind") or "stable").lower()
 
 
+def deletion_block_reason(path: str, md: str) -> str | None:
+    """Why the agent must NOT tombstone `path`, or None if deletion is allowed.
+
+    Protected (structurally undeletable): the founding/template seed pages (the
+    wiki's skeleton) and any page whose frontmatter marks it `stable` or
+    `hidden`. Allowed: non-founding `dynamic`/`report` pages, per-source subtree
+    pages, and collection entries like glossary terms (`glossary/<term>.md`)."""
+    if path in {p.path for p in DEFAULT_PAGES}:
+        return (
+            f"`{path}` is a founding template page — part of the wiki's skeleton. "
+            "Rewrite or blank it with Edit instead; it cannot be deleted."
+        )
+    kind = _kind_from_md(md)
+    if kind in ("stable", "hidden"):
+        return (
+            f"`{path}` is a {kind} page ("
+            + ("human-owned" if kind == "stable" else "agent-only working memory")
+            + f"). {kind.capitalize()} pages are protected from deletion."
+        )
+    return None
+
+
 # ---------- Frontmatter ----------
 
 _FENCE = "---\n"
