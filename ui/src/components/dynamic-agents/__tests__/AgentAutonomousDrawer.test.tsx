@@ -7,8 +7,8 @@ import userEvent from "@testing-library/user-event";
 const mockListTasks = jest.fn();
 const mockCreateTask = jest.fn();
 
-// Capture the props TaskList receives so we can assert the agent filter.
-let taskListProps: { tasks: Array<{ id: string }> } | null = null;
+// Capture the props the accordion receives so we can assert the agent filter.
+let accordionProps: { tasks: Array<{ id: string }> } | null = null;
 
 jest.mock("@/components/autonomous/api", () => ({
   autonomousApi: {
@@ -21,14 +21,11 @@ jest.mock("@/components/autonomous/api", () => ({
   },
   AutonomousApiError: class extends Error {},
 }));
-jest.mock("@/components/autonomous/TaskList", () => ({
-  TaskList: (props: { tasks: Array<{ id: string }> }) => {
-    taskListProps = props;
-    return <div data-testid="task-list">{props.tasks.length} tasks</div>;
+jest.mock("@/components/dynamic-agents/AgentTaskAccordion", () => ({
+  AgentTaskAccordion: (props: { tasks: Array<{ id: string }> }) => {
+    accordionProps = props;
+    return <div data-testid="task-accordion">{props.tasks.length} tasks</div>;
   },
-}));
-jest.mock("@/components/autonomous/RunHistory", () => ({
-  RunHistory: ({ taskId }: { taskId: string }) => <div data-testid="run-history">{taskId}</div>,
 }));
 jest.mock("@/components/autonomous/TaskFormDialog", () => ({
   TaskFormDialog: ({ open, initialAgentId }: { open: boolean; initialAgentId?: string }) =>
@@ -42,7 +39,7 @@ const agent = { _id: "agent-hello", name: "Hello Agent", permissions: { can_sche
 
 beforeEach(() => {
   jest.clearAllMocks();
-  taskListProps = null;
+  accordionProps = null;
   mockListTasks.mockResolvedValue([
     { id: "t1", name: "mine", dynamic_agent_id: "agent-hello", trigger: { type: "cron" } },
     { id: "t2", name: "other", dynamic_agent_id: "agent-other", trigger: { type: "cron" } },
@@ -52,14 +49,14 @@ beforeEach(() => {
 it("lists only this agent's tasks", async () => {
   render(<AgentAutonomousDrawer agent={agent} open onOpenChange={() => {}} />);
   // Wait for the async fetch to populate the filtered task list.
-  await waitFor(() => expect(taskListProps?.tasks.length).toBe(1));
-  expect(taskListProps!.tasks.map((t) => t.id)).toEqual(["t1"]);
+  await waitFor(() => expect(accordionProps?.tasks.length).toBe(1));
+  expect(accordionProps!.tasks.map((t) => t.id)).toEqual(["t1"]);
 });
 
 it("opens the add form pre-seeded with this agent", async () => {
   const user = userEvent.setup();
   render(<AgentAutonomousDrawer agent={agent} open onOpenChange={() => {}} />);
-  await waitFor(() => expect(taskListProps?.tasks.length).toBe(1));
-  await user.click(screen.getByRole("button", { name: /add autonomous task/i }));
+  await waitFor(() => expect(accordionProps?.tasks.length).toBe(1));
+  await user.click(screen.getByRole("button", { name: /new task/i }));
   expect(screen.getByTestId("task-form")).toHaveTextContent("agent-hello");
 });
