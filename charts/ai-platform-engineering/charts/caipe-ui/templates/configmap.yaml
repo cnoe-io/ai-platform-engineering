@@ -30,7 +30,7 @@ data:
   {{- if and .Values.keycloakAdminClient.secretName (not (hasKey .Values.config "KEYCLOAK_ADMIN_CLIENT_ID")) }}
   KEYCLOAK_ADMIN_CLIENT_ID: {{ .Values.keycloakAdminClient.clientId | default "caipe-platform" | quote }}
   {{- end }}
-  {{- /* Scheduled-run minting client id (scheduled-job-auth Approach 2). Its
+  {{- /* Scheduled-run minting client id. Its
          client_secret is injected via secretKeyRef in deployment.yaml. */}}
   {{- if and $schedulerRunnerSecretName (not (hasKey .Values.config "KEYCLOAK_SCHEDULER_CLIENT_ID")) }}
   KEYCLOAK_SCHEDULER_CLIENT_ID: {{ .Values.schedulerRunnerClient.clientId | default "caipe-scheduler-runner" | quote }}

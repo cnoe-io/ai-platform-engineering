@@ -1,5 +1,5 @@
 /**
- * Scheduled-run owner authentication (scheduled-job-auth Approach 2).
+ * Scheduled-run owner authentication.
  *
  * A cron fire reaches the BFF as a thin, low-privilege call from the
  * caipe-cron-runner: it carries the shared ``X-Scheduler-Token`` to prove it

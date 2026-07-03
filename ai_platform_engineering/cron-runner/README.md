@@ -45,7 +45,7 @@ The runner POSTs `{ agent_id, message, conversation_id, trace_id,
 client_context }` with **only** `X-Scheduler-Token:
 <SCHEDULER_SERVICE_TOKEN>` and `X-Client-Source: caipe-cron-runner`. It sends no
 `Authorization` bearer and no trusted owner header - the runner does not assert
-the owner's identity (scheduled-job-auth Approach 2).
+the owner's identity.
 
 The Next.js gateway (BFF) authenticates the call by the scheduler token, then:
 
@@ -60,5 +60,3 @@ The Next.js gateway (BFF) authenticates the call by the scheduler token, then:
    upserts a Web UI conversation owned by the resolved owner, persists the
    user/assistant messages, and stores `client_context.schedule_id` in
    conversation metadata so the UI History list can label the run.
-
-See `docs/scheduled-job-auth-approaches.md` for the design rationale.

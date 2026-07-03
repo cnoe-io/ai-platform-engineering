@@ -89,7 +89,7 @@ spec:
                   name: {{ include "keycloak.webexBotSecretName" . }}
                   key: KC_WEBEX_BOT_CLIENT_SECRET
             {{- end }}
-            {{- /* Scheduler-runner client (scheduled-job-auth Approach 2). The
+            {{- /* Scheduler-runner client. The
                    script reconciles its client_secret so it matches what the
                    caipe-ui BFF uses to mint schedule-owner bearers. */}}
             {{- if eq (include "keycloak.schedulerTokenExchangeEnabled" .) "true" }}

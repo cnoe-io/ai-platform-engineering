@@ -42,9 +42,8 @@ The chart generates and preserves a scheduler service token when no
 
 The cron-runner no longer carries a chat-API bearer. It authenticates to the
 BFF with the shared `X-Scheduler-Token`; the BFF mints the schedule owner's
-bearer via Keycloak token exchange (scheduled-job-auth Approach 2). Enable that
-on the BFF side via `keycloak.schedulerTokenExchange` +
-`caipe-ui.schedulerRunnerClient.secretName`.
+bearer via Keycloak token exchange. Enable that on the BFF side via
+`keycloak.schedulerTokenExchange` + `caipe-ui.schedulerRunnerClient.secretName`.
 
 ## Notes
 

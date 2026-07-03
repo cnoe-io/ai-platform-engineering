@@ -287,7 +287,7 @@ function ownerUserContextHeader(email: string): string {
 }
 
 /**
- * Handle a scheduled cron fire (scheduled-job-auth Approach 2).
+ * Handle a scheduled cron fire.
  *
  * The request is authenticated by the shared ``X-Scheduler-Token`` only — it
  * carries no user identity we trust. We resolve the immutable owner from the

@@ -272,7 +272,7 @@ else
   echo "${TAG} KC_WEBEX_BOT_CLIENT_SECRET not set — leaving Webex client_secret unchanged."
 fi
 
-# Reconcile the scheduler-runner client secret (scheduled-job-auth Approach 2).
+# Reconcile the scheduler-runner client secret.
 # This client is used by the BFF to mint schedule-owner bearers via
 # requested_subject impersonation; the BFF authenticates with
 # KEYCLOAK_SCHEDULER_CLIENT_SECRET, so Keycloak's stored secret must match.

@@ -97,8 +97,8 @@ spec:
                   name: {{ .Values.keycloakAdminClient.secretName | quote }}
                   key: {{ .Values.keycloakAdminClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
             {{- end }}
-            {{- /* Scheduled-run minting client secret (scheduled-job-auth
-                   Approach 2). Injected only when the operator wired
+            {{- /* Scheduled-run minting client secret
+                   Injected only when the operator wired
                    schedulerRunnerClient.secretName; otherwise the BFF's
                    scheduled-run token minting is disabled and cron fires fail
                    closed at /api/v1/chat/invoke. */ -}}
