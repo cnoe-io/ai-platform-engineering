@@ -621,6 +621,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      packages: write
       pull-requests: read
     if: |
       always() &&
