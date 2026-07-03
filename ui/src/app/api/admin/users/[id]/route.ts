@@ -9,9 +9,6 @@ import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
 deleteRealmUser,
 getRealmUserById,
-getUserFederatedIdentities,
-getUserSessions,
-listRealmRoleMappingsForUser,
 updateUser,
 } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
@@ -65,12 +62,7 @@ export const GET = withErrorHandler(
     const id = params.id;
     await requireUserProfileRead(session, id);
 
-    const [kcUser, realmRoles, sessions, federatedIdentities] = await Promise.all([
-      getRealmUserById(id),
-      listRealmRoleMappingsForUser(id),
-      getUserSessions(id),
-      getUserFederatedIdentities(id),
-    ]);
+    const kcUser = await getRealmUserById(id);
 
     const email = String(kcUser.email ?? "").trim().toLowerCase();
     const teams: Array<{ team_id: string; tenant_id: string }> = [];
@@ -93,11 +85,6 @@ export const GET = withErrorHandler(
 
     const attributes = normalizeAttributes(kcUser.attributes);
 
-    const lastAccess = sessions.reduce((max, s) => {
-      const t = s.lastAccess ?? s.start ?? 0;
-      return t > max ? t : max;
-    }, 0);
-
     const createdRaw = kcUser.createdTimestamp;
     const createdAt =
       typeof createdRaw === "number" && createdRaw > 0 ? createdRaw : null;
@@ -119,18 +106,10 @@ export const GET = withErrorHandler(
         createdAt,
         attributes,
         slackLinkStatus: slackLinkStatus(attributes),
-        realmRoles: realmRoles.map((r) => ({
-          id: r.id,
-          name: r.name,
-          description: r.description,
-        })),
-        sessions,
-        federatedIdentities,
         teams: teams.map((t) => ({
           team_id: t.team_id,
           tenant_id: t.tenant_id,
         })),
-        lastAccess: lastAccess > 0 ? lastAccess : null,
       },
     });
   }

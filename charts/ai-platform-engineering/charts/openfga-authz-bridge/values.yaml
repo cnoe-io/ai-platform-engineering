@@ -41,6 +41,11 @@ tokenValidation:
   algorithms:
     - RS256
 
+callerToolCheck:
+  # When enabled, the bridge additionally verifies that the calling user/team
+  # holds an explicit grant for the tool being invoked (dual-gate).
+  enabled: false
+
 audit:
   enabled: true
   # Release-name-derived default for the audit-service singleton. Rendered with

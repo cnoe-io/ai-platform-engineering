@@ -53,7 +53,8 @@ const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
   cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
-  readOnly?: boolean; // true for config-driven agents (view only)
+  readOnly?: boolean; // true for view-only mode
+  readOnlyReason?: "config" | "permissions"; // why readOnly is true
   onSave: () => void;
   onCancel: () => void;
 }
@@ -335,7 +336,7 @@ function AdvancedStep({
   );
 }
 
-export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCancel }: DynamicAgentEditorProps) {
+export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
@@ -1160,7 +1161,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </CardTitle>
             <CardDescription>
               {readOnly
-                ? "This agent is managed by configuration and cannot be edited"
+                ? readOnlyReason === "permissions"
+                  ? "You do not have permission to edit this agent"
+                  : "This agent is managed by configuration and cannot be edited"
                 : isEditing
                 ? "Update the agent configuration"
                 : isCloning

@@ -23,6 +23,26 @@ export async function requireConversationWriteAccess(
     );
   }
 
+  // Slack threads are inherently multi-participant — anyone in the channel
+  // should be able to invoke the agent within a thread, not just the user who
+  // originally @mentioned the bot. Rather than granting wildcard writer tuples
+  // (which would also leak read access via the model's `can_read: ... or
+  // can_write` rule), we bypass the conversation#write check for Slack
+  // conversations here.
+  //
+  // Safe because:
+  //   - agent#can_use is enforced first and independently on every invoke/stream
+  //     route, so this grants no tool/data/agent access.
+  //   - `client_type` is read from the stored document, never the request body,
+  //     so a caller cannot spoof it; no update path lets it be flipped to 'slack'.
+  //   - Read endpoints (GET messages/turns/detail) still require `can_read`,
+  //     which this does not touch — thread history stays ReBAC-protected.
+  //   - Metadata mutation is separately gated (owner-only), so routing keys
+  //     cannot be injected via this path.
+  if (conversation.client_type === "slack") {
+    return null;
+  }
+
   try {
     await requireConversationResourcePermission(
       // Carry isServiceAccount so subjectFromSession graphs SA callers as

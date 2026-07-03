@@ -29,7 +29,6 @@ export interface ResourceBooleanDiff {
 
 export interface TeamResourceTupleDiffInput {
   teamSlug: string;
-  memberUserIds: string[];
   agents: ResourceStringDiff;
   agentAdmins: ResourceStringDiff;
   tools: ResourceStringDiff;
@@ -314,20 +313,18 @@ function mcpServerLegacyToolGrantDeletes(teamSlug: string, toolIds: string[]): O
 }
 
 export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): TeamResourceTupleDiff {
-  const teamObject = `team:${input.teamSlug}`;
-  const memberTuples = input.memberUserIds.map((userId) => ({
-    user: `user:${userId}`,
-    relation: "member",
-    object: teamObject,
-  }));
-
+  // Resource grants are keyed on the `team:<slug>#member` / `#admin` userset, so
+  // a member's access is resolved transitively at check time via their
+  // `user:<id> member team:<slug>` membership tuple. Those membership tuples are
+  // owned exclusively by the team-membership writers (members route + sync/audit
+  // reconcilers), NOT this resource-save path — re-writing them here forced an
+  // O(members) Keycloak email→id lookup on every save for no authorization gain.
   const addedTools = splitTeamToolSelections(input.tools.added);
   const removedTools = splitTeamToolSelections(input.tools.removed);
   const wildcardServerSelections = mcpServerSelectionsFromIds(input.allMcpServerIds ?? []);
   const combinedToolIds = combinedTeamToolIds(input.tools.added, input.tools.removed);
 
   const writes = uniqueTuples([
-    ...memberTuples,
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", addedTools.directToolIds),

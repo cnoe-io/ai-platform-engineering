@@ -152,16 +152,41 @@ def parse_time(value: str | None) -> datetime:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
-def list_artifacts() -> list[dict[str, Any]]:
+def list_workflow_runs_for_head() -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        data = api(
+            "GET",
+            f"/repos/{REPO}/actions/runs?head_sha={HEAD_SHA}&per_page=100&page={page}",
+        )
+        page_runs = data.get("workflow_runs", [])
+        runs.extend(page_runs)
+        if len(page_runs) < 100:
+            return runs
+        page += 1
+
+
+def list_artifacts_for_run(run_id: Any) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     page = 1
     while True:
-        data = api("GET", f"/repos/{REPO}/actions/artifacts?per_page=100&page={page}")
+        data = api(
+            "GET",
+            f"/repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100&page={page}",
+        )
         page_artifacts = data.get("artifacts", [])
         artifacts.extend(page_artifacts)
         if len(page_artifacts) < 100:
             return artifacts
         page += 1
+
+
+def list_artifacts() -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for workflow_run in list_workflow_runs_for_head():
+        artifacts.extend(list_artifacts_for_run(workflow_run["id"]))
+    return artifacts
 
 
 def newest_matching_artifacts() -> list[dict[str, Any]]:

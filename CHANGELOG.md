@@ -1,3 +1,92 @@
+## 0.5.35 (2026-07-02)
+
+### Feat
+
+- **rbac**: archived teams grant no access, with self-check repair
+- **idp-sync**: upsert user names and team/membership data from Okta
+- **dynamic-agents**: add search and pagination to agents list
+- **keycloak**: add configurable caipe-cli public client for local dev tokens
+
+### Fix
+
+- **admin**: fix PrometheusCharts Tooltip content type cast
+- **admin**: fix PrometheusCharts TS cast to satisfy strict type check
+- **rbac**: expect owner-team #member manager tuple in self-check audit
+- **ui**: prevent scope refs from overflowing modal bounds in unlinked access dialog
+- **admin**: cap metrics legend to top 5 and tooltip to top 3 series
+- **identity-sync**: chunk orphan sweep updateMany to avoid $in size limit
+- **identity-sync**: sweep for already-orphaned sync teams on full sync
+- **service-accounts**: admins bypass team membership filter on GET
+- **slack**: guard SA empty-state on displayName too
+- **admin**: wrap team name + IDP badge so long names don't hide pill
+- **slack**: show saved SA name when caller lacks team membership
+- **identity-sync**: archive orphaned identity_group_sync teams on full sync
+- **credentials**: preserve renewable flag after token refresh and guard needsAutoRefresh
+- **admin**: prevent Okta pill text from overflowing rounded border
+- **rebac**: search channels by ID in onboarding tab
+- **metrics**: correct agentgateway stats port and openfga SM init pod exclusion
+- **servicemonitor**: exclude openfga init job pods from openfga ServiceMonitor
+- **docs**: remove /docs redirect that conflicts with docs plugin root page
+
+## 0.5.34-dev.1 (2026-07-02)
+
+### Fix
+
+- **metrics**: exclude per-component services from umbrella ServiceMonitor and expose openfga metrics port
+- **setup**: make setup-caipe.sh cleanup orphan-safe, and extend Keycloak install timeout (#2096)
+
+### Refactor
+
+- **setup-caipe**: More to nuke (#2099)
+
+## 0.5.34 (2026-07-01)
+
+### Feat
+
+- **conversations**: open Slack conversations to all thread participants
+
+### Perf
+
+- **admin**: use fast teams endpoint in user detail modal fallback
+- **admin**: use fast teams endpoint in connector onboarding wizard
+- **admin**: lazy-load sessions and federated identities in user detail modal
+- **admin**: reuse parent teams list in user detail modal
+- **admin**: parallelize user detail loading and progressive-render modal
+
+## 0.5.33-dev.2 (2026-07-01)
+
+### Fix
+
+- **metrics**: expose keycloak management port and add per-component ServiceMonitors
+- **rbac**: add team#member to agent manager relation in OpenFGA model
+- **agents**: show correct read-only message when user lacks edit permission
+- **agents**: grant owner team members full manage access on agents
+
+## 0.5.33 (2026-06-30)
+
+### Perf
+
+- **teams**: stop rewriting membership tuples on resource save
+
+## 0.5.32-dev.1 (2026-06-30)
+
+### Feat
+
+- **openfga-authz-bridge**: add callerToolCheck.enabled value to subchart
+
+## 0.5.32 (2026-06-30)
+
+## 0.5.31-dev.1 (2026-06-30)
+
+### Fix
+
+- **agentgateway**: make config-bridge ext_authz host release-aware
+- **docs**: correct broken cross-link in architecture/gateway.md (#2075)
+
+### Refactor
+
+- **agentgateway**: drop authzHostSecret, keep plain authzHost
+
 ## 0.5.31 (2026-06-30)
 
 ### Fix

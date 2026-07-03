@@ -33,6 +33,7 @@ service:
   type: ClusterIP
   port: 4000
   adminPort: 15000
+  statsPort: 15020
 
 ingress:
   enabled: false

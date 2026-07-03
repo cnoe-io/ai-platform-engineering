@@ -71,6 +71,10 @@ spec:
             - name: AUDIT_SUBJECT_SALT
               value: {{ .Values.audit.subjectSalt | quote }}
             {{- end }}
+            {{- if .Values.callerToolCheck.enabled }}
+            - name: CAIPE_CALLER_TOOL_CHECK_ENABLED
+              value: "true"
+            {{- end }}
           ports:
             - name: grpc
               containerPort: 9100
