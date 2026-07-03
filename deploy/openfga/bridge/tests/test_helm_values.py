@@ -56,6 +56,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
     assert 'value: "RS256"' in rendered
     assert "name: AUDIT_SERVICE_URL" in rendered
     assert 'value: "http://audit-service:8010"' in rendered
+    assert "name: CAIPE_RESTRICTED_MCP_SERVERS" in rendered
+    assert 'value: "scheduler"' in rendered
     assert "name: MONGODB_DATABASE" not in rendered
     assert "name: MONGODB_URI" not in rendered
 

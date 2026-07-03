@@ -1427,6 +1427,10 @@ openfga-authz-bridge:
     audiences: []
     algorithms:
       - RS256
+  # Require caller-level `mcp_server:<id>#can_invoke` authorization only for
+  # these AgentGateway MCP targets.
+  restrictedMcpServers:
+    - scheduler
   audit:
     enabled: true
     serviceUrl: ""
