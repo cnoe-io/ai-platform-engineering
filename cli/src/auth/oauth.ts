@@ -16,6 +16,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { promisify } from "node:util";
 import { discoverAgentConfig, resolveOAuthEndpoints } from "../platform/discovery.js";
+import { getIdpHint } from "../platform/config.js";
 import { type TokenSet, storeTokens } from "./keychain.js";
 
 const execFileAsync = promisify(execFile);
@@ -224,7 +225,8 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
 
   // Discovery may involve a network round-trip; server is already up by now.
   const ep = await getOAuthEndpoints(serverUrl, clientId);
-  const authUrl = `${ep.authorizationEndpoint}?response_type=code&client_id=${encodeURIComponent(ep.clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=${state}`;
+  const idpHint = getIdpHint();
+  const authUrl = `${ep.authorizationEndpoint}?response_type=code&client_id=${encodeURIComponent(ep.clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=${state}${idpHint ? `&kc_idp_hint=${encodeURIComponent(idpHint)}` : ""}`;
 
   if (process.env.CAIPE_AUTH_DEBUG === "1") {
     process.stderr.write(`[caipe-auth] Callback server ready on port ${CALLBACK_PORT}\n`);

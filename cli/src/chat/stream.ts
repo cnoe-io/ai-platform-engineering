@@ -88,6 +88,9 @@ export interface StreamAdapter {
  *         TOOL_CALL_END, RUN_FINISHED, RUN_ERROR, CUSTOM
  */
 export class AguiAdapter implements StreamAdapter {
+  // Maps local sessionId → server-assigned conversation _id
+  private readonly conversationIds = new Map<string, string>();
+
   constructor(
     private readonly agent: Agent,
     /** Full URL of the stream endpoint (e.g. http://localhost:3000/api/v1/chat/stream/start) */
@@ -95,13 +98,62 @@ export class AguiAdapter implements StreamAdapter {
     private readonly getAccessToken: () => Promise<string>,
   ) {}
 
+  /**
+   * Ensure the conversation exists in the BFF before streaming.
+   * Returns the server-assigned conversation _id to use in subsequent stream calls.
+   */
+  private async ensureConversation(sessionId: string, agentId: string, token: string): Promise<string> {
+    const cached = this.conversationIds.get(sessionId);
+    if (cached) return cached;
+
+    // Derive conversations URL from stream endpoint:
+    // http://localhost:3000/api/v1/chat/stream/start → http://localhost:3000/api/chat/conversations
+    const base = this.streamEndpoint.replace(/\/api\/v1\/chat\/stream\/start$/, "");
+    const url = `${base}/api/chat/conversations`;
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "CLI session",
+          client_type: "cli",
+          agent_id: agentId,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to create conversation (${res.status}): ${text}`);
+      }
+      const json = await res.json() as { data?: { conversation?: { _id?: string } } };
+      const serverId = json?.data?.conversation?._id;
+      if (!serverId) throw new Error("Server did not return conversation _id");
+      this.conversationIds.set(sessionId, serverId);
+      return serverId;
+    } catch (err) {
+      throw new Error(`Conversation setup failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   async *connect(payload: SendPayload): AsyncIterable<StreamEvent> {
     const token = await this.getAccessToken();
+    const agentId = this.agent.name === "default" ? payload.agentName : this.agent.name;
+
+    let conversationId: string;
+    try {
+      conversationId = await this.ensureConversation(payload.sessionId, agentId, token);
+    } catch (err) {
+      yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+      return;
+    }
 
     const body = JSON.stringify({
       message: payload.prompt,
-      conversation_id: payload.sessionId,
-      agent_id: this.agent.name === "default" ? payload.agentName : this.agent.name,
+      conversation_id: conversationId,
+      agent_id: agentId,
       protocol: "agui",
     });
 

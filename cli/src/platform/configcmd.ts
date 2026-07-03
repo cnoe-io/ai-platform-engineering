@@ -15,13 +15,19 @@ function normalizeConfigUrl(value: string, key: string): string {
   return v;
 }
 
-type SupportedKey = "auth.url" | "server.url" | "auth.apiKey" | "auth.credential-storage";
+type SupportedKey =
+  | "auth.url"
+  | "server.url"
+  | "auth.apiKey"
+  | "auth.credential-storage"
+  | "auth.idp-hint";
 
 const SUPPORTED_KEYS: SupportedKey[] = [
   "auth.url",
   "server.url",
   "auth.apiKey",
   "auth.credential-storage",
+  "auth.idp-hint",
 ];
 
 const CREDENTIAL_STORAGE_VALUES = ["encrypted-file", "keychain"] as const;
@@ -85,6 +91,14 @@ export async function runConfigSet(key: string, value: string): Promise<void> {
     process.stdout.write(`Set auth.credential-storage = ${v}\n`);
     return;
   }
+
+  if (key === "auth.idp-hint") {
+    const settings = readSettings();
+    settings.auth = { ...settings.auth, idpHint: value.trim() };
+    writeSettings(settings);
+    process.stdout.write(`Set auth.idp-hint = ${value.trim()}\n`);
+    return;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +133,14 @@ export async function runConfigGet(key: string, opts: { json?: boolean }): Promi
   } else if (key === "auth.credential-storage") {
     value = settings.auth?.credentialStorage ?? "encrypted-file";
     source = settings.auth?.credentialStorage ? "settings.json" : "default";
+  } else if (key === "auth.idp-hint") {
+    const envVal = process.env.CAIPE_IDP_HINT;
+    if (envVal) {
+      value = envVal;
+      source = "CAIPE_IDP_HINT env var";
+    } else {
+      value = settings.auth?.idpHint;
+    }
   }
 
   if (opts.json) {
@@ -160,6 +182,8 @@ export async function runConfigUnset(key: string): Promise<void> {
     settings.auth.apiKey = undefined;
   } else if (key === "auth.credential-storage" && settings.auth) {
     settings.auth.credentialStorage = undefined;
+  } else if (key === "auth.idp-hint" && settings.auth) {
+    settings.auth.idpHint = undefined;
   }
 
   writeSettings(settings);
