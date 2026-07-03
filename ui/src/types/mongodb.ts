@@ -35,10 +35,10 @@ export interface UserPublicInfo {
 // ============================================================================
 
 /** Valid client types for conversation creation. */
-export type ClientType = 'webui' | 'slack' | 'webex';
+export type ClientType = 'webui' | 'slack' | 'webex' | 'cli';
 
 /** All valid client_type values — used for runtime validation. */
-export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'webex'] as const;
+export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'webex', 'cli'] as const;
 
 /**
  * A conversation participant — either an agent or a user.

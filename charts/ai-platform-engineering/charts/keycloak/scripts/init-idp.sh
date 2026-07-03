@@ -1595,6 +1595,30 @@ else
   echo "[init-idp]   '${CLI_CLIENT_ID}' client already exists — skipping."
 fi
 
+# Add audience mapper so caipe-cli tokens carry aud=caipe-ui (required by BFF)
+CLI_UUID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=${CLI_CLIENT_ID}" 2>/dev/null \
+  | python3 -c "import sys,json; cs=json.load(sys.stdin); print(cs[0]['id'] if cs else '')" 2>/dev/null || true)
+if [ -n "${CLI_UUID}" ]; then
+  MAPPER_EXISTS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${CLI_UUID}/protocol-mappers/models" 2>/dev/null \
+    | grep -c '"caipe-ui-audience"' || true)
+  if [ "${MAPPER_EXISTS}" = "0" ]; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${CLI_UUID}/protocol-mappers/models" \
+      -d '{
+        "name":"caipe-ui-audience",
+        "protocol":"openid-connect",
+        "protocolMapper":"oidc-audience-mapper",
+        "consentRequired":false,
+        "config":{"included.client.audience":"caipe-ui","id.token.claim":"false","access.token.claim":"true"}
+      }' && echo "[init-idp]   Added caipe-ui audience mapper to '${CLI_CLIENT_ID}'." \
+      || echo "[init-idp]   WARNING: failed to add audience mapper."
+  else
+    echo "[init-idp]   Audience mapper already present on '${CLI_CLIENT_ID}' — skipping."
+  fi
+fi
+
 # -------------------------------------------------------------------
 # Spec 104: allow caipe-slack-bot to perform token-exchange whose
 # *target audience* is the CAIPE UI BFF resource server (`caipe-platform`

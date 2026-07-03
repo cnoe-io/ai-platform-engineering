@@ -15,6 +15,7 @@ import {
   ServerNotConfigured,
   authEndpoints,
   getAuthUrl,
+  getServerUrl,
 } from "../platform/config.js";
 import { printLogo } from "../platform/display.js";
 import { checkForUpdate, printUpdateBanner } from "../platform/updater.js";
@@ -121,8 +122,14 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
     session.memoryContext = systemContext;
   }
 
-  // Stream endpoint: caipe-ui BFF at /api/v1/chat/stream/start
-  const ep = authEndpoints(authUrl);
+  // Stream endpoint: caipe-ui BFF (may differ from authUrl when KC is separate)
+  let serverUrl: string;
+  try {
+    serverUrl = getServerUrl(globalOpts.url);
+  } catch {
+    serverUrl = authUrl; // fallback: single-URL setup
+  }
+  const ep = authEndpoints(serverUrl);
   const adapter = createAdapter(DEFAULT_AGENT, ep.streamStart, () =>
     getValidToken(authUrl),
   );
@@ -134,7 +141,7 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
         session,
         adapter,
         systemContext,
-        serverUrl: authUrl,
+        serverUrl: serverUrl,
         onExit: (finalSession: ChatSession) => {
           saveSession(finalSession);
           unmount();

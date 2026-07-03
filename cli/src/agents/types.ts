@@ -13,9 +13,9 @@ export interface Agent {
 }
 
 export const DEFAULT_AGENT: Agent = {
-  name: "default",
-  displayName: "Default Agent",
-  description: "General-purpose CAIPE server agent",
+  name: "hello-world",
+  displayName: "Hello World",
+  description: "Default starter agent",
   endpoint: "",
   protocols: ["agui"],
   available: true,

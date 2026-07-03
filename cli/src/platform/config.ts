@@ -29,6 +29,12 @@ export interface Settings {
     apiKey?: string;
     /** Credential storage method. Default: "encrypted-file" (no OS prompts). */
     credentialStorage?: "encrypted-file" | "keychain";
+    /**
+     * Keycloak identity-provider alias to skip the login chooser page.
+     * Appended as kc_idp_hint=<value> on the authorization URL.
+     * Env override: CAIPE_IDP_HINT
+     */
+    idpHint?: string;
   };
   setup?: {
     /** true once the user has completed or explicitly skipped the setup wizard */
@@ -134,13 +140,24 @@ function ensureConfigDir(): void {
   }
 }
 
+const DEFAULT_SETTINGS: Settings = {
+  server: { url: "http://localhost:3000" },
+  auth: { url: "http://localhost:7080/realms/caipe" },
+};
+
 export function readSettings(): Settings {
   const path = settingsJsonPath();
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) return { ...DEFAULT_SETTINGS };
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Settings;
+    const saved = JSON.parse(readFileSync(path, "utf8")) as Settings;
+    // Merge: saved values win; fall back to defaults for any missing key
+    return {
+      server: { ...DEFAULT_SETTINGS.server, ...saved.server },
+      auth: { ...DEFAULT_SETTINGS.auth, ...saved.auth },
+      setup: saved.setup,
+    };
   } catch {
-    return {};
+    return { ...DEFAULT_SETTINGS };
   }
 }
 
@@ -181,11 +198,31 @@ export function getAuthUrl(flagOverride?: string): string {
 }
 
 /**
- * @deprecated Use getAuthUrl() for the UI/OAuth URL.
- * Kept as a thin alias so callers can be migrated incrementally.
+ * Resolve the caipe-ui BFF URL (for API calls: stream, agents, etc.).
+ *
+ * Priority: flagOverride → CAIPE_SERVER_URL → settings.server.url
+ *           → settings.auth.url (fallback for single-URL setups where both
+ *             OAuth and the BFF are on the same host, e.g. caipe-ui proxying KC)
+ *
+ * Throws ServerNotConfigured when nothing is configured.
  */
 export function getServerUrl(flagOverride?: string): string {
-  return getAuthUrl(flagOverride);
+  if (flagOverride && flagOverride.trim() !== "") {
+    return normalizeUrl(flagOverride);
+  }
+  const envServer = process.env.CAIPE_SERVER_URL;
+  if (envServer && envServer.trim() !== "") {
+    return normalizeUrl(envServer);
+  }
+  const settings = readSettings();
+  if (settings.server?.url && settings.server.url.trim() !== "") {
+    return normalizeUrl(settings.server.url);
+  }
+  // Fallback: single-URL setup where caipe-ui also proxies OAuth
+  if (settings.auth?.url && settings.auth.url.trim() !== "") {
+    return normalizeUrl(settings.auth.url);
+  }
+  throw new ServerNotConfigured();
 }
 
 /** Strip trailing slash. Allow http://localhost for local dev; require https otherwise. */
@@ -201,6 +238,16 @@ function normalizeUrl(raw: string): string {
 // ---------------------------------------------------------------------------
 // Derived endpoint helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the IdP hint (Keycloak kc_idp_hint alias).
+ * Priority: CAIPE_IDP_HINT env → settings.auth.idpHint
+ */
+export function getIdpHint(): string | undefined {
+  const env = process.env.CAIPE_IDP_HINT;
+  if (env && env.trim() !== "") return env.trim();
+  return readSettings().auth?.idpHint;
+}
 
 /** Endpoints derived from the caipe-ui (auth) URL. */
 export function authEndpoints(authUrl: string) {

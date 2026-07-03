@@ -17,7 +17,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 
 import { loginBrowser } from "../auth/oauth.js";
 import { getValidToken } from "../auth/tokens.js";
-import { getAuthUrl } from "../platform/config.js";
+import { getAuthUrl, readSettings, settingsJsonPath } from "../platform/config.js";
 import { StreamingSpinner } from "../platform/display.js";
 import { renderMarkdown } from "../platform/markdown.js";
 import { fetchSupervisorSkills } from "../skills/catalog.js";
@@ -68,6 +68,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/clear", description: "Clear conversation context" },
   { name: "/compact", description: "Summarize and compress history" },
   { name: "/login", description: "Re-authenticate (opens browser)" },
+  { name: "/settings", description: "View or edit CLI configuration" },
   { name: "/exit", description: "End session and save history" },
   { name: "/skills", description: "Show skills loaded in supervisor" },
   { name: "/agents", description: "Switch to a different agent" },
@@ -206,7 +207,8 @@ function InputBar({
     if (historyIdx === history.length) stashedRef.current = value;
     const idx = historyIdx - 1;
     setHistoryIdx(idx);
-    const entry = history[idx]!;
+    const entry = history[idx];
+    if (!entry) return;
     onChange(entry);
     setCursor(entry.length);
   }, [history, historyIdx, value, onChange]);
@@ -576,13 +578,13 @@ export function Repl({
 
   // ── Slash picker ──
   const filteredCommands = useMemo<SlashCommand[]>(() => {
-    if (!input.startsWith("/")) return [];
+    if (!input?.startsWith("/")) return [];
     const query = input.slice(1).toLowerCase();
     if (query === "") return SLASH_COMMANDS;
     return SLASH_COMMANDS.filter((c) => c.name.slice(1).startsWith(query));
   }, [input]);
 
-  const showPicker = input.startsWith("/") && !streaming;
+  const showPicker = !!input?.startsWith("/") && !streaming;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset picker on filter count change, not on array identity
   useEffect(() => {
@@ -751,6 +753,36 @@ export function Repl({
           setStatusText("Run `caipe memory` outside the session to edit memory files.");
           setTimeout(() => setStatusText(null), 3000);
           break;
+
+        case "/settings": {
+          const s = readSettings();
+          const path = settingsJsonPath();
+          const editor = process.env.VISUAL ?? process.env.EDITOR;
+          if (editor) {
+            // Pause Ink, open editor, resume
+            setStatusText(`Opening ${path} in ${editor}…`);
+            try {
+              const { spawnSync } = await import("node:child_process");
+              spawnSync(editor, [path], { stdio: "inherit" });
+            } catch {
+              // ignore spawn errors
+            } finally {
+              setStatusText(null);
+            }
+          } else {
+            // No editor — print current settings
+            const lines = [
+              `**Settings** — \`${path}\`\n`,
+              `- **server.url** = \`${s.server?.url ?? "(not set)"}\``,
+              `- **auth.url** = \`${s.auth?.url ?? "(not set)"}\``,
+              `- **auth.idp-hint** = \`${s.auth?.idpHint ?? "(not set)"}\``,
+              `- **auth.credential-storage** = \`${s.auth?.credentialStorage ?? "encrypted-file"}\``,
+              `\nTo edit, set **EDITOR** or run \`caipe config set <key> <value>\``,
+            ];
+            pushAssistant(lines.join("\n"));
+          }
+          break;
+        }
 
         default:
           pushAssistant(`Unknown command: ${cmd}. Type / to see available commands.`);
