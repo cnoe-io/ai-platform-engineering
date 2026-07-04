@@ -1,3 +1,17 @@
+## 0.5.35-dev.1 (2026-07-04)
+
+### Feat
+
+- **docs**: clean up comments and add a docs page
+- **openfga-authz-bridge**: add restrictedMcpServers for admin access only
+
+### Fix
+
+- **ci**: helm prebuild
+- **ci**: optimise reconcile-prebuild-artifacts.py to filter on pr head sha
+- further attempt to fix prebuild-artifact-comment.yml
+- fix ci
+
 ## 0.5.35 (2026-07-02)
 
 ### Feat
@@ -24,6 +38,8 @@
 - **credentials**: preserve renewable flag after token refresh and guard needsAutoRefresh
 - **admin**: prevent Okta pill text from overflowing rounded border
 - **rebac**: search channels by ID in onboarding tab
+- fix ci
+- ci mcp wtf
 - **metrics**: correct agentgateway stats port and openfga SM init pod exclusion
 - **servicemonitor**: exclude openfga init job pods from openfga ServiceMonitor
 - **docs**: remove /docs redirect that conflicts with docs plugin root page
@@ -78,9 +94,19 @@
 
 ## 0.5.31-dev.1 (2026-06-30)
 
+### Feat
+
+- **scheduler**: JWT to be passed to mcp-scheduler (relay) and then to scheduler service which validates and derives owner_sub
+- 5.6-sol is too much and out of control
+
 ### Fix
 
 - **agentgateway**: make config-bridge ext_authz host release-aware
+- security
+- **ui**: show schedule run title on the chat
+- reconcile all cron runner image upon deploy and indicate on the schedule modified history
+- dockerfile migration to build/
+- missing changes
 - **docs**: correct broken cross-link in architecture/gateway.md (#2075)
 
 ### Refactor
