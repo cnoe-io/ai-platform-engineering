@@ -9,6 +9,7 @@
 import { render } from "ink";
 import React from "react";
 
+import { fetchAgents, getAgent } from "../agents/registry.js";
 import { DEFAULT_AGENT } from "../agents/types.js";
 import { getValidToken } from "../auth/tokens.js";
 import {
@@ -104,12 +105,42 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
   const latestVersion = await updateCheckPromise;
   if (latestVersion) printUpdateBanner(_version, latestVersion);
 
-  // Resolve agent
-  const agentName = opts.agent ?? globalOpts.agent ?? "default";
+  // Stream endpoint: caipe-ui BFF (may differ from authUrl when KC is separate)
+  let serverUrl: string;
+  try {
+    serverUrl = getServerUrl(globalOpts.url);
+  } catch {
+    serverUrl = authUrl; // fallback: single-URL setup
+  }
 
-  // Gather context
+  const getToken = () => getValidToken(authUrl);
+
+  // Resolve agent — prefer explicit flag, fall back to default
+  const agentNameOpt = opts.agent ?? globalOpts.agent;
+  let resolvedAgent = DEFAULT_AGENT;
+  if (agentNameOpt) {
+    try {
+      const agents = await fetchAgents(serverUrl, getToken);
+      const found = getAgent(agents, agentNameOpt);
+      if (found) {
+        resolvedAgent = found;
+      } else {
+        process.stderr.write(
+          `[WARNING] Agent "${agentNameOpt}" not found in registry — using default.\n`,
+        );
+      }
+    } catch {
+      // registry unavailable — continue with default
+    }
+  }
+  const agentName = resolvedAgent.name;
+
+  // Gather context (inject agents + skills for richer system prompt)
   const cwd = process.cwd();
-  const systemContext = await buildSystemContext(cwd, opts.noContext ?? false);
+  const systemContext = await buildSystemContext(cwd, opts.noContext ?? false, {
+    serverUrl,
+    getToken,
+  });
 
   // Create or resume session
   let session: ChatSession;
@@ -122,17 +153,8 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
     session.memoryContext = systemContext;
   }
 
-  // Stream endpoint: caipe-ui BFF (may differ from authUrl when KC is separate)
-  let serverUrl: string;
-  try {
-    serverUrl = getServerUrl(globalOpts.url);
-  } catch {
-    serverUrl = authUrl; // fallback: single-URL setup
-  }
   const ep = authEndpoints(serverUrl);
-  const adapter = createAdapter(DEFAULT_AGENT, ep.streamStart, () =>
-    getValidToken(authUrl),
-  );
+  const adapter = createAdapter(resolvedAgent, ep.streamStart, getToken);
 
   // Mount REPL
   return new Promise<void>((resolve) => {

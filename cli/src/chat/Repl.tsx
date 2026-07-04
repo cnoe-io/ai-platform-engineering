@@ -17,12 +17,15 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 
 import { loginBrowser } from "../auth/oauth.js";
 import { getValidToken } from "../auth/tokens.js";
-import { getAuthUrl, readSettings, settingsJsonPath } from "../platform/config.js";
+import { fetchAgents } from "../agents/registry.js";
+import { type Agent, DEFAULT_AGENT } from "../agents/types.js";
+import { authEndpoints, getAuthUrl, getServerUrl, readSettings, settingsJsonPath } from "../platform/config.js";
 import { StreamingSpinner } from "../platform/display.js";
 import { renderMarkdown } from "../platform/markdown.js";
 import { fetchSupervisorSkills } from "../skills/catalog.js";
 import type { ChatSession } from "./history.js";
 import { parseInput, pipeThrough, runShellCommand } from "./pipes.js";
+import { createAdapter } from "./stream.js";
 import type { StreamAdapter } from "./stream.js";
 
 // ---------------------------------------------------------------------------
@@ -466,6 +469,10 @@ export function Repl({
   const historyRef = useRef<HistoryEntry[]>([]);
   const accumulatedRef = useRef(""); // full response text during streaming
 
+  // ── Active adapter + agent — swappable via /agents ──
+  const adapterRef = useRef<StreamAdapter>(adapter);
+  const [currentAgent, setCurrentAgent] = useState<Agent>(DEFAULT_AGENT);
+
   // ── Input history: previous user inputs for Up/Down navigation ──
   const [inputHistory, setInputHistory] = useState<string[]>([]);
 
@@ -697,13 +704,10 @@ export function Repl({
         case "/skills":
           setStatusText("Loading skills from supervisor…");
           try {
-            let authUrl: string;
-            try {
-              authUrl = getAuthUrl();
-            } catch {
-              authUrl = "";
-            }
-            const { skills, meta } = await fetchSupervisorSkills(() => getValidToken(authUrl));
+            let skillsUrl: string;
+            try { skillsUrl = getServerUrl(); } catch { skillsUrl = serverUrl ?? ""; }
+            const skillsAuthUrl = (() => { try { return getAuthUrl(); } catch { return skillsUrl; } })();
+            const { skills, meta } = await fetchSupervisorSkills(() => getValidToken(skillsAuthUrl), skillsUrl);
             if (skills.length === 0) {
               pushAssistant("No skills loaded in supervisor.");
             } else {
@@ -723,10 +727,40 @@ export function Repl({
           }
           break;
 
-        case "/agents":
-          setStatusText("Run `caipe agents list` to see and switch agents.");
-          setTimeout(() => setStatusText(null), 3000);
+        case "/agents": {
+          setStatusText("Loading agents from registry…");
+          try {
+            let sv: string;
+            try { sv = getServerUrl(); } catch { sv = serverUrl ?? ""; }
+            const authUrl2 = (() => { try { return getAuthUrl(); } catch { return sv; } })();
+            const agents = await fetchAgents(sv, () => getValidToken(authUrl2));
+            const arg = cmd.split(" ")[1]?.trim();
+            if (arg) {
+              // /agents <name> — switch directly
+              const target = agents.find((a) => a.name === arg);
+              if (!target) {
+                pushAssistant(`Agent **${arg}** not found. Available: ${agents.map((a) => a.name).join(", ")}`);
+              } else {
+                const ep = authEndpoints(sv);
+                adapterRef.current = createAdapter(target, ep.streamStart, () => getValidToken(authUrl2));
+                setCurrentAgent(target);
+                pushAssistant(`Switched to agent **${target.displayName ?? target.name}** — ${target.description}`);
+              }
+            } else {
+              // /agents — list with switch hint
+              const lines = agents.map((a) => {
+                const active = a.name === currentAgent.name ? " _(active)_" : "";
+                return `- **${a.name}**${active} — ${a.description}`;
+              });
+              pushAssistant(`**Available agents** (use \`/agents <name>\` to switch)\n\n${lines.join("\n")}`);
+            }
+          } catch (err) {
+            pushAssistant(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            setStatusText(null);
+          }
           break;
+        }
 
         case "/login":
           setStatusText("Opening browser for re-authentication…");
@@ -749,10 +783,31 @@ export function Repl({
           }
           break;
 
-        case "/memory":
-          setStatusText("Run `caipe memory` outside the session to edit memory files.");
-          setTimeout(() => setStatusText(null), 3000);
+        case "/memory": {
+          const { memoryFilePaths } = await import("../memory/loader.js");
+          const paths = memoryFilePaths(process.cwd());
+          const editor = process.env.VISUAL ?? process.env.EDITOR;
+          if (editor && paths.length > 0) {
+            const target = paths[0]!;
+            setStatusText(`Opening ${target} in ${editor}…`);
+            try {
+              const { spawnSync } = await import("node:child_process");
+              spawnSync(editor, [target], { stdio: "inherit" });
+            } catch {
+              // ignore
+            } finally {
+              setStatusText(null);
+            }
+          } else {
+            const listed = paths.length > 0
+              ? paths.map((p) => `- \`${p}\``).join("\n")
+              : "_(none found)_";
+            pushAssistant(
+              `**Memory files** (loaded at session start):\n${listed}\n\nSet **EDITOR** to open inline, or edit files directly and restart the session.`,
+            );
+          }
           break;
+        }
 
         case "/settings": {
           const s = readSettings();
@@ -788,7 +843,7 @@ export function Repl({
           pushAssistant(`Unknown command: ${cmd}. Type / to see available commands.`);
       }
     },
-    [handleExit, pushAssistant, streaming, serverUrl],
+    [handleExit, pushAssistant, streaming, serverUrl, currentAgent],
   );
 
   // ── Submit: greeting / shell escape / pipe / agent prompt ──
@@ -841,11 +896,11 @@ export function Repl({
       pushStatic({ kind: "chunk", text: "" }); // ⏺ spacer
 
       try {
-        const gen = adapter.connect({
+        const gen = adapterRef.current.connect({
           prompt,
           systemContext,
           sessionId: session.sessionId,
-          agentName: session.agentName,
+          agentName: currentAgent.name,
           history: historyRef.current,
         });
 
@@ -867,6 +922,11 @@ export function Repl({
             flushTokens();
             pushToolItem(ev.name);
             setActiveToolName(ev.name);
+          } else if (ev.type === "interrupted") {
+            // Agent paused for human input — flush what it said, keep input bar open
+            flushTokens();
+            flushLineBuffer();
+            break;
           } else if (ev.type === "error") {
             pushAssistant(`[ERROR] ${ev.message}`);
             break;
@@ -1057,7 +1117,7 @@ export function Repl({
           )}
         </Box>
         <Text dimColor>
-          {session.agentName !== "default" ? `${session.agentName} · ` : ""}
+          {currentAgent.name !== "hello-world" && currentAgent.name !== "default" ? `${currentAgent.name} · ` : ""}
           {totalTokenDisplay > 0 ? `~${totalTokenDisplay} tokens · ` : ""}
           {serverHost ?? ""}
         </Text>

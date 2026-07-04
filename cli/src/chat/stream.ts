@@ -15,7 +15,7 @@ import type { Agent } from "../agents/types.js";
 // Common event types
 // ---------------------------------------------------------------------------
 
-export type StreamEventType = "token" | "started" | "done" | "error" | "tool" | "state";
+export type StreamEventType = "token" | "started" | "done" | "error" | "interrupted" | "tool" | "state";
 
 export interface TokenEvent {
   type: "token";
@@ -37,6 +37,12 @@ export interface ErrorEvent {
   message: string;
 }
 
+/** Agent paused for human input — not a failure; user should reply in the same session. */
+export interface InterruptedEvent {
+  type: "interrupted";
+  reason?: string;
+}
+
 export interface ToolEvent {
   type: "tool";
   name: string;
@@ -54,6 +60,7 @@ export type StreamEvent =
   | StartedEvent
   | DoneEvent
   | ErrorEvent
+  | InterruptedEvent
   | ToolEvent
   | StateEvent;
 
@@ -270,13 +277,9 @@ export class AguiAdapter implements StreamAdapter {
       case "RUN_FINISHED": {
         const outcome = parsed.outcome as string | undefined;
         if (outcome === "interrupt") {
-          // Surface HITL interrupts as an informational message
           const interrupt = parsed.interrupt as Record<string, unknown> | undefined;
           const reason = interrupt?.reason as string | undefined;
-          return {
-            type: "error",
-            message: `Agent paused — ${reason ?? "human input required"}. Use the web UI to respond.`,
-          };
+          return { type: "interrupted", reason };
         }
         return { type: "done" };
       }
@@ -295,10 +298,7 @@ export class AguiAdapter implements StreamAdapter {
           return { type: "token", text: `\n> ⚠ ${(val?.message as string) ?? ""}` };
         }
         if (name === "INPUT_REQUIRED") {
-          return {
-            type: "error",
-            message: "Agent requires human input. Use the web UI to respond.",
-          };
+          return { type: "interrupted" };
         }
         return null;
       }

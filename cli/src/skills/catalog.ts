@@ -204,6 +204,9 @@ export async function fetchSupervisorSkills(
     return { skills: data.skills, meta: data.meta };
   } catch (err) {
     if (cached) {
+      process.stderr.write(
+        `[WARNING] Could not reach skills supervisor (${String(err)}). Using cached list.\n`,
+      );
       return { skills: cached.skills, meta: cached.meta };
     }
     throw new Error(`Supervisor skills unavailable: ${String(err)}`);

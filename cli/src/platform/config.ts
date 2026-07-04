@@ -256,7 +256,7 @@ export function authEndpoints(authUrl: string) {
     deviceCode: `${authUrl}/oauth/device/code`,
     token: `${authUrl}/oauth/token`,
     agentCard: `${authUrl}/.well-known/agent.json`,
-    agents: `${authUrl}/api/v1/agents`,
+    agents: `${authUrl}/api/user/accessible-agents`,
     streamStart: `${authUrl}/api/v1/chat/stream/start`,
     skills: `${authUrl}/api/skills`,
   };
