@@ -107,12 +107,14 @@ const RESET = NO_COLOR ? "" : "\x1b[0m";
  * Print the update notice banner to stdout.
  */
 export function printUpdateBanner(currentVersion: string, latestVersion: string): void {
+  // Plain-text versions determine visual widths; ANSI versions are for colour only.
+  const plain1 = `Update available: v${currentVersion} → v${latestVersion}`;
+  const plain2 = `Run: caipe update`;
+  const innerWidth = Math.max(plain1.length, plain2.length) + 4; // 2 leading + 2 trailing spaces
+  const bar = "─".repeat(innerWidth);
+
   const msg1 = `Update available: ${DIM}v${currentVersion}${RESET} → ${YELLOW}${BOLD}v${latestVersion}${RESET}`;
   const msg2 = `Run: ${CYAN}caipe update${RESET}`;
-  const inner1 = `  Update available: v${currentVersion} → v${latestVersion}  `;
-  const inner2 = `  Run: caipe update  `;
-  const width = Math.max(inner1.length, inner2.length);
-  const bar = "─".repeat(width);
 
   if (NO_COLOR) {
     process.stdout.write(`\n  Update available: v${currentVersion} → v${latestVersion}\n`);
@@ -120,8 +122,10 @@ export function printUpdateBanner(currentVersion: string, latestVersion: string)
     return;
   }
 
+  // pad fills from after the 2 leading spaces to innerWidth, so right │ aligns with ╮/╯
+  const pad = (plain: string) => " ".repeat(innerWidth - 2 - plain.length);
   process.stdout.write(`\n  ${YELLOW}╭${bar}╮${RESET}\n`);
-  process.stdout.write(`  ${YELLOW}│${RESET}  ${msg1}${" ".repeat(Math.max(0, width - inner1.length))}${YELLOW}│${RESET}\n`);
-  process.stdout.write(`  ${YELLOW}│${RESET}  ${msg2}${" ".repeat(Math.max(0, width - inner2.length))}${YELLOW}│${RESET}\n`);
+  process.stdout.write(`  ${YELLOW}│${RESET}  ${msg1}${pad(plain1)}${YELLOW}│${RESET}\n`);
+  process.stdout.write(`  ${YELLOW}│${RESET}  ${msg2}${pad(plain2)}${YELLOW}│${RESET}\n`);
   process.stdout.write(`  ${YELLOW}╰${bar}╯${RESET}\n\n`);
 }

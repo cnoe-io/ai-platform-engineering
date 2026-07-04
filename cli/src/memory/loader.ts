@@ -107,3 +107,27 @@ export function buildMemoryContext(files: MemoryFile[]): string {
   if (files.length === 0) return "";
   return files.map((f) => `<!-- memory:${f.scope}:${f.path} -->\n${f.content}`).join("\n\n");
 }
+
+/**
+ * Return the candidate memory file paths for a given cwd (whether they exist or not).
+ * Used by /memory to show the user where to edit.
+ * Order: project CLAUDE.md first (most relevant), then global.
+ */
+export function memoryFilePaths(cwd: string): string[] {
+  const paths: string[] = [];
+  const claudeDir = projectClaudeDir(cwd);
+  if (claudeDir !== null) {
+    paths.push(join(claudeDir, "CLAUDE.md"));
+    const managedDir = join(claudeDir, "memory");
+    if (existsSync(managedDir)) {
+      try {
+        readdirSync(managedDir)
+          .filter((f) => f.endsWith(".md"))
+          .sort()
+          .forEach((f) => paths.push(join(managedDir, f)));
+      } catch { /* ignore */ }
+    }
+  }
+  paths.push(globalMemoryFile());
+  return paths;
+}

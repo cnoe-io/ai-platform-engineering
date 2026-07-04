@@ -7,11 +7,12 @@
 // assisted-by claude code claude-sonnet-4-6
 
 import { readFileSync } from "node:fs";
+import { fetchAgents, getAgent } from "../agents/registry.js";
 import { DEFAULT_AGENT } from "../agents/types.js";
 import { buildSystemContext } from "../chat/context.js";
 import { createSession } from "../chat/history.js";
 import { createAdapter } from "../chat/stream.js";
-import { authEndpoints, getAuthUrl } from "../platform/config.js";
+import { authEndpoints, getAuthUrl, getServerUrl } from "../platform/config.js";
 import { resolveHeadlessCredentials } from "./auth.js";
 import { type OutputFormat, createOutputWriter } from "./output.js";
 
@@ -38,6 +39,13 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
     }
   })();
 
+  let serverUrl: string;
+  try {
+    serverUrl = getServerUrl(opts.urlOverride);
+  } catch {
+    serverUrl = authUrl;
+  }
+
   // Resolve credentials
   const credentials = await resolveHeadlessCredentials(opts.token, authUrl);
   if (!credentials) {
@@ -49,14 +57,30 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
   }
 
   const getToken = async () => credentials.accessToken;
-  const ep = authEndpoints(authUrl);
-  const adapter = createAdapter(DEFAULT_AGENT, ep.streamStart, getToken);
+
+  // Resolve agent from registry when a name is specified
+  let resolvedAgent = DEFAULT_AGENT;
+  if (opts.agentName && opts.agentName !== "default") {
+    try {
+      const agents = await fetchAgents(serverUrl, getToken);
+      const found = getAgent(agents, opts.agentName);
+      if (found) resolvedAgent = found;
+    } catch {
+      // registry unavailable — continue with default
+    }
+  }
+
+  const ep = authEndpoints(serverUrl);
+  const adapter = createAdapter(resolvedAgent, ep.streamStart, getToken);
   const writer = createOutputWriter(opts.output);
 
   const cwd = process.cwd();
-  const systemContext = await buildSystemContext(cwd, opts.noContext ?? false);
+  const systemContext = await buildSystemContext(cwd, opts.noContext ?? false, {
+    serverUrl,
+    getToken,
+  });
   const session = createSession({
-    agentName: opts.agentName,
+    agentName: resolvedAgent.name,
     workingDir: cwd,
     headless: true,
     outputFormat: opts.output,
@@ -66,14 +90,14 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
     // Multi-turn: read lines from stdin until EOF or \exit
     for await (const line of stdinLines()) {
       if (line.trim() === "\\exit" || line.trim() === "/exit") break;
-      await runSingleTurn(line, session, adapter, systemContext, writer, opts);
+      await runSingleTurn(line, session, adapter, systemContext, writer, resolvedAgent.name);
     }
-    writer.flush(opts.agentName);
+    writer.flush(resolvedAgent.name);
   } else {
     // Single-shot
     const prompt = await resolvePrompt(opts);
-    await runSingleTurn(prompt, session, adapter, systemContext, writer, opts);
-    writer.flush(opts.agentName);
+    await runSingleTurn(prompt, session, adapter, systemContext, writer, resolvedAgent.name);
+    writer.flush(resolvedAgent.name);
   }
 }
 
@@ -87,17 +111,17 @@ async function runSingleTurn(
   adapter: ReturnType<typeof createAdapter>,
   systemContext: string,
   writer: ReturnType<typeof createOutputWriter>,
-  opts: HeadlessOpts,
+  agentName: string,
 ): Promise<void> {
   try {
     for await (const event of adapter.connect({
       prompt,
       systemContext,
       sessionId: session.sessionId,
-      agentName: opts.agentName,
+      agentName,
     })) {
       writer.write(event);
-      if (event.type === "done" || event.type === "error") break;
+      if (event.type === "done" || event.type === "error" || event.type === "interrupted") break;
     }
   } catch (err) {
     emitError(String(err));

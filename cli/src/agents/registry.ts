@@ -1,7 +1,7 @@
 /**
- * CAIPE server agent registry client (T033).
+ * CAIPE server agent registry client.
  *
- * Fetches agents from GET <serverUrl>/api/v1/agents.
+ * Fetches agents from GET <serverUrl>/api/user/accessible-agents.
  * Cache: ~/.config/caipe/agents-cache.json (5-minute TTL).
  */
 
@@ -43,13 +43,28 @@ export async function fetchAgents(
     const token = await getToken();
     const res = await fetch(ep.agents, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
 
-    const agents = (await res.json()) as Agent[];
+    // Response: { success: true, data: { agents: AgentPickerEntry[], total, page, page_size } }
+    const body = (await res.json()) as {
+      success: boolean;
+      data?: { agents: Array<{ id: string; name: string; description: string }> };
+    };
+    const pickerEntries = body.data?.agents ?? [];
+    const agents: Agent[] = pickerEntries.map((e) => ({
+      name: e.name || e.id,
+      displayName: e.name || e.id,
+      description: e.description,
+      endpoint: "",
+      protocols: ["agui"],
+      available: true,
+      domain: "general",
+    }));
     writeCache(agents);
     return agents;
   } catch (err) {
