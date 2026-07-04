@@ -761,6 +761,7 @@ const storeImplementation = (set: any, get: any) => ({
               accessLevel: conv.access_level,
               isSharedWithViewer: conv.viewer_has_shared_access,
               sharing: conv.sharing,
+              metadata: conv.metadata,
             };
           });
 

@@ -7,7 +7,7 @@ on:
       - '**'
   pull_request:
     paths:
-      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/mcp/**'
       - 'build/agents/Dockerfile.mcp'
   workflow_dispatch:
     inputs:
@@ -96,12 +96,12 @@ jobs:
             filters += 'shared_config:\n';
             filters += '  - \'pyproject.toml\'\n';
             filters += '  - \'uv.lock\'\n';
+            filters += '  - \'ai_platform_engineering/mcp/common/**\'\n';
             filters += 'shared_dockerfile:\n';
             filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/mcp/${agent}/**'\n`;
             });
             core.setOutput('filters', filters);
 
@@ -109,7 +109,6 @@ jobs:
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         with:
-          predicate-quantifier: 'every'
           filters: ${{ steps.generate-filters.outputs.filters }}
 
       - name: Set matrix based on changes (MCP)
@@ -192,7 +191,6 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner
@@ -234,20 +232,12 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
-      - name: Determine Dockerfile path
-        id: dockerfile
-        run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
-          else
-            echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
-          fi
 
       - name: Build and Push MCP Docker image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
-          file: ${{ steps.dockerfile.outputs.path }}
+          file: build/agents/Dockerfile.mcp
           push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -275,7 +265,6 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 Harden runner
@@ -379,22 +368,13 @@ jobs:
       - name: Set up QEMU
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
-      - name: Determine Dockerfile path
-        if: steps.retag-or-build.outputs.needs_build == 'true'
-        id: dockerfile
-        run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
-          else
-            echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
-          fi
 
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
-          file: ${{ steps.dockerfile.outputs.path }}
+          file: build/agents/Dockerfile.mcp
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-agents.outputs.tag_version }}

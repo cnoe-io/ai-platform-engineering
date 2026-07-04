@@ -39,6 +39,8 @@ export interface Conversation {
     team_permissions?: Record<string, "view" | "comment">;
     share_link_enabled?: boolean;
   };
+  /** Server-side metadata for integrations such as scheduled runs. */
+  metadata?: Record<string, unknown>;
 }
 
 // ═══════════════════════════════════════════════════════════════

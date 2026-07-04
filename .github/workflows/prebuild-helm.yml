@@ -36,11 +36,10 @@ on:
         default: ''
 
 permissions:
-  contents: write
-  issues: write
-  packages: write
-  pull-requests: write
   actions: read
+  contents: write
+  packages: write
+  pull-requests: read
 
 jobs:
   publish-prebuild:

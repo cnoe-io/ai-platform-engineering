@@ -26,6 +26,9 @@ authorization.
 6. **Observability and governance**
    Audit logs, metrics, tracing, and admin controls cover runtime activity and tool access.
 
+See [Scheduler](./scheduler.md) for recurring and delayed Dynamic Agent runs,
+including the user JWT, token-exchange, and OpenFGA authorization paths.
+
 ---
 
 ## Request Path
