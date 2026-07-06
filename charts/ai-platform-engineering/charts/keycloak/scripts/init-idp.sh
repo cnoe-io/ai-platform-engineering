@@ -428,6 +428,149 @@ json.dump(client, sys.stdout)
 _reconcile_caipe_platform_client_secret
 
 # -------------------------------------------------------------------
+# Reconcile the public CLI client (caipe-cli / forge-cli).
+#
+# Background: the CLI client is a public authorization-code + PKCE
+# client that lets local developer CLIs (e.g. `dev-login`) mint a
+# real-user JWT with aud=caipe-platform. It ships in realm-config.json,
+# but Keycloak's `--import-realm` only imports on FIRST boot. On any
+# deployment with a persistent database (database.enabled=true), the
+# realm already exists on upgrade, so a newly-added client in
+# realm-config.json is NEVER created — login fails with "Client not
+# found". Every other client this platform relies on (caipe-ui,
+# caipe-platform, agentgateway, the bots) is instead reconciled
+# imperatively here via the Admin API, which runs on every
+# post-install/post-upgrade. This function brings the CLI client into
+# that same idempotent path so `helm upgrade` creates/updates it.
+#
+# The clientId, redirect URIs, web origins, and access-token lifespan
+# are configurable so downstream realms can rename the client
+# (e.g. forge-cli) and tune callbacks/session length. Defaults mirror
+# the caipe-cli definition in realm-config.json.
+#
+# assisted-by Claude:claude-opus-4-8
+# -------------------------------------------------------------------
+_reconcile_cli_client() {
+  local CLI_CLIENT_ID="${KEYCLOAK_CLI_CLIENT_ID:-caipe-cli}"
+  # Space- or comma-separated lists; defaults match realm-config.json.
+  local CLI_REDIRECT_URIS="${KEYCLOAK_CLI_REDIRECT_URIS:-http://localhost:8085 http://localhost:8085/* http://127.0.0.1:8085 http://127.0.0.1:8085/*}"
+  local CLI_WEB_ORIGINS="${KEYCLOAK_CLI_WEB_ORIGINS:-http://localhost:8085 http://127.0.0.1:8085}"
+  local CLI_ACCESS_TOKEN_LIFESPAN="${KEYCLOAK_CLI_ACCESS_TOKEN_LIFESPAN:-28800}"
+
+  echo "[init-idp] Reconciling public CLI client '${CLI_CLIENT_ID}' (authorization-code + PKCE) ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   WARNING: could not acquire admin token — skipping CLI client reconcile."
+      return 0
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  # Build the desired client representation. Keycloak honours the
+  # defaultClientScopes/optionalClientScopes name arrays on both create
+  # and update, so we do not need to bind scopes via separate endpoints.
+  local DESIRED_JSON
+  DESIRED_JSON=$(CLI_CLIENT_ID="${CLI_CLIENT_ID}" \
+    CLI_REDIRECT_URIS="${CLI_REDIRECT_URIS}" \
+    CLI_WEB_ORIGINS="${CLI_WEB_ORIGINS}" \
+    CLI_ACCESS_TOKEN_LIFESPAN="${CLI_ACCESS_TOKEN_LIFESPAN}" \
+    python3 -c '
+import json
+import os
+
+
+def split(value):
+    return [item for item in value.replace(",", " ").split() if item]
+
+
+client = {
+    "clientId": os.environ["CLI_CLIENT_ID"],
+    "name": "CAIPE CLI",
+    "description": (
+        "Public OIDC client for local developer CLIs (authorization-code + "
+        "PKCE). Mints a real-user JWT with aud=caipe-platform accepted by "
+        "Dynamic Agents, AgentGateway, and MCP servers. No client secret; "
+        "PKCE S256 required."
+    ),
+    "enabled": True,
+    "publicClient": True,
+    "standardFlowEnabled": True,
+    "directAccessGrantsEnabled": False,
+    "serviceAccountsEnabled": False,
+    "authorizationServicesEnabled": False,
+    "redirectUris": split(os.environ["CLI_REDIRECT_URIS"]),
+    "webOrigins": split(os.environ["CLI_WEB_ORIGINS"]),
+    "protocol": "openid-connect",
+    "fullScopeAllowed": True,
+    "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "access.token.lifespan": str(int(os.environ["CLI_ACCESS_TOKEN_LIFESPAN"])),
+    },
+    "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
+    "optionalClientScopes": ["offline_access"],
+}
+print(json.dumps(client))
+' 2>/dev/null)
+
+  if [ -z "${DESIRED_JSON}" ]; then
+    echo "[init-idp]   WARNING: failed to render CLI client JSON (python3 required) — skipping."
+    return 0
+  fi
+
+  local CLI_CLIENT_UUID
+  CLI_CLIENT_UUID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${CLI_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${CLI_CLIENT_UUID}" ]; then
+    echo "[init-idp]   Client '${CLI_CLIENT_ID}' not found — creating ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients" \
+      -d "${DESIRED_JSON}" \
+      && echo "[init-idp]   Created CLI client '${CLI_CLIENT_ID}'." \
+      || echo "[init-idp]   WARNING: failed to create CLI client '${CLI_CLIENT_ID}'."
+  else
+    # Merge desired fields onto the existing representation so we keep
+    # the Keycloak-assigned id and any fields we do not manage, then PUT.
+    local EXISTING_JSON MERGED_JSON
+    EXISTING_JSON=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${CLI_CLIENT_UUID}" 2>/dev/null || echo "")
+    if [ -z "${EXISTING_JSON}" ]; then
+      echo "[init-idp]   WARNING: could not fetch existing CLI client — skipping update."
+      return 0
+    fi
+    MERGED_JSON=$(EXISTING_JSON="${EXISTING_JSON}" DESIRED_JSON="${DESIRED_JSON}" python3 -c '
+import json
+import os
+
+existing = json.loads(os.environ["EXISTING_JSON"])
+desired = json.loads(os.environ["DESIRED_JSON"])
+# Preserve Keycloak-managed identity; merge attributes rather than replace.
+attributes = existing.get("attributes") or {}
+attributes.update(desired.pop("attributes", {}))
+existing.update(desired)
+existing["attributes"] = attributes
+print(json.dumps(existing))
+' 2>/dev/null)
+    if [ -z "${MERGED_JSON}" ]; then
+      echo "[init-idp]   WARNING: failed to merge CLI client JSON — skipping update."
+      return 0
+    fi
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${CLI_CLIENT_UUID}" \
+      -d "${MERGED_JSON}" \
+      && echo "[init-idp]   Updated CLI client '${CLI_CLIENT_ID}' (public/PKCE/redirects/lifespan reconciled)." \
+      || echo "[init-idp]   WARNING: failed to update CLI client '${CLI_CLIENT_ID}'."
+  fi
+}
+
+_reconcile_cli_client
+
+# -------------------------------------------------------------------
 # Strict client-secret mode guard (init-idp scope: caipe-ui + caipe-platform).
 #
 # When KEYCLOAK_STRICT_CLIENT_SECRETS=true, attempt a client_credentials
