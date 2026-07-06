@@ -635,6 +635,29 @@ mcp-webex:
       enabled: false
       protocol: StreamableHTTP
 
+mcp-webex-meetings:
+  nameOverride: "mcp-webex-meetings"
+  mcpSecrets:
+    requiresSecret: false
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-webex-meetings"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    mode: "http"
+    port: 8000
+    agentgateway:
+      enabled: true
+      id: webex_meetings
+      pathPrefix: /mcp/webex_meetings
+      protocol: StreamableHTTP
+      credential_sources:
+        - kind: provider_connection
+          name: X-CAIPE-Provider-Token
+          provider: webex
+          target: header
+
 mcp-komodor:
   nameOverride: "mcp-komodor"
   image:
@@ -774,7 +797,9 @@ caipe-ui:
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     # Bootstrap global OAuth connectors from server env at startup. In
     # Kubernetes, provide provider client IDs/secrets/redirect URIs through
-    # externalSecrets; in Docker Compose, provide them through .env.
+    # externalSecrets; in Docker Compose, provide them through .env. This flag
+    # controls the legacy fixed-provider variables; oauthConnectors below is
+    # always bootstrapped when non-empty.
     CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true. Leave empty to use the
@@ -844,6 +869,25 @@ caipe-ui:
     # SOURCE_URL: "https://github.com/your-org/your-repo"
     # Enable Prometheus metrics
     # PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+  # Arbitrary OAuth connectors to upsert at UI startup. Client secrets are not
+  # accepted inline: clientSecretEnv must reference a key supplied through
+  # caipe-ui.existingSecret or caipe-ui.externalSecrets. Entries are keyed by
+  # provider, and configured entries override the legacy fixed-env bootstrap.
+  # Removing an entry does not delete or disable an existing connector.
+  oauthConnectors: []
+    # - provider: "webex_secondary"
+    #   name: "Webex Secondary"
+    #   clientIdEnv: "WEBEX_SECONDARY_CLIENT_ID"
+    #   clientSecretEnv: "WEBEX_SECONDARY_CLIENT_SECRET"
+    #   authorizationUrl: "https://webexapis.com/v1/authorize"
+    #   tokenUrl: "https://webexapis.com/v1/access_token"
+    #   scopes:
+    #     - "spark:mcp"
+    #     - "meeting:schedules_read"
+    #     - "meeting:transcripts_read"
+    #   # Defaults to ${NEXTAUTH_URL}/api/credentials/oauth/<provider>/callback.
+    #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
 
   # ── Okta directory sync (Identity Sync admin tab) ──────────────────────────
   # Structured config modeled after the Backstage Okta entity provider. The

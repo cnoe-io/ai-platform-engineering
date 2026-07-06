@@ -313,6 +313,17 @@ describe("AgentGateway MCP discovery", () => {
     ]);
   });
 
+  it("attaches the caller's Webex connection to webex_meetings", () => {
+    expect(builtinCredentialSourcesFor("webex_meetings")).toEqual([
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "webex",
+        target: "header",
+      },
+    ]);
+  });
+
   it("omits credential_sources for targets with no built-in mapping", () => {
     const target: AgentGatewayMcpDiscoveryTarget = {
       id: "argocd",

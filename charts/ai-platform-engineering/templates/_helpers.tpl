@@ -177,7 +177,9 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- $mcp := $agentValues.mcp | default dict -}}
 {{- $sub := $mcp.agentgateway | default dict -}}
 {{- if $sub.enabled -}}
-{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-mcp-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
+{{- $targetId := $sub.id | default $name -}}
+{{- $pathPrefix := $sub.pathPrefix | default (printf "/mcp/%s" $targetId) -}}
+{{- $entry := dict "id" $targetId "pathPrefix" $pathPrefix "host" (printf "%s-mcp-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
 {{- if eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $sub) "true" -}}
 {{- $_ := set $entry "providerTokenAuth" true -}}
 {{- end -}}
