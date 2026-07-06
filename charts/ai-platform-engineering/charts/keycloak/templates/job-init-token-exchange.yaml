@@ -51,6 +51,24 @@ spec:
               value: {{ .Values.tokenExchange.botClientId | quote }}
             - name: KC_SSL_REQUIRED
               value: {{ .Values.realm.sslRequired | quote }}
+            {{- /* Public CLI client (caipe-cli / forge-cli) — reconciled
+                   imperatively by init-token-exchange.sh so it lands on
+                   existing realms during upgrade even when idp.enabled=false
+                   (this job is always-on; job-init-idp is not). */}}
+            - name: KEYCLOAK_CLI_CLIENT_ID
+              value: {{ (.Values.cliClient).clientId | default "caipe-cli" | quote }}
+            {{- with (.Values.cliClient).accessTokenLifespan }}
+            - name: KEYCLOAK_CLI_ACCESS_TOKEN_LIFESPAN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (.Values.cliClient).redirectUris }}
+            - name: KEYCLOAK_CLI_REDIRECT_URIS
+              value: {{ join " " . | quote }}
+            {{- end }}
+            {{- with (.Values.cliClient).webOrigins }}
+            - name: KEYCLOAK_CLI_WEB_ORIGINS
+              value: {{ join " " . | quote }}
+            {{- end }}
             {{- /* The script seeds each bot service account's OpenFGA grants
                    (e.g. read on system_config:platform_settings) so the bots
                    can make service-to-service reads against the BFF. The URL
