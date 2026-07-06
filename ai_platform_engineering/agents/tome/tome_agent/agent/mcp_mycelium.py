@@ -30,6 +30,8 @@ import httpx
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from tome_agent.agent import http_client
+
 
 def _ok(payload: Any) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(payload, indent=2)}]}
@@ -141,12 +143,16 @@ def build_mycelium_mcp(room_name: str = ""):
         if not summary:
             return _err("`summary` is required.")
         cited = [str(c) for c in (args.get("cited") or [])]
+        # Attribute to the actual chatting user (set per-request via
+        # `http_client.set_active_actor_email`), falling back to a generic
+        # handle if the caller (e.g. an ingest run) has none.
+        sender = http_client.get_active_actor_email() or "tome"
         try:
             await _ensure_room()
             data = await _post(
                 f"/api/rooms/{_room}/messages",
                 {
-                    "sender_handle": "tome",
+                    "sender_handle": sender,
                     "recipient_handle": None,
                     "message_type": "event",
                     "content": summary,
@@ -158,11 +164,17 @@ def build_mycelium_mcp(room_name: str = ""):
             )
         except httpx.HTTPError as e:
             return _err(f"could not reach Mycelium: {e}")
+        message_id = data.get("id")
         return _ok(
             {
                 "posted": True,
-                "id": data.get("id"),
-                "feed_path": f"/projects/{_room}/tome/feed",
+                "id": message_id,
+                "link": f"tome://@{_room}/feed/{message_id}",
+                "note": (
+                    "Tell the user, and link them to it with markdown like "
+                    f"[view in the Feed](tome://@{_room}/feed/{message_id}) — that "
+                    "link scrolls to and highlights this exact message."
+                ),
             }
         )
 

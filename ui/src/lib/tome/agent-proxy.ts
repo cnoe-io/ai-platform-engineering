@@ -117,6 +117,9 @@ export interface AgentChatRequest {
   snapshot: ProjectSnapshot;
   stable_pages: Record<string, string>;
   role: "viewer" | "editor";
+  /** The chatting user's email, so a `feed_promote` call attributes to them
+   * instead of a generic "tome" handle. */
+  actor_email: string | null;
   /**
    * Per-request OAuth credentials forwarded from CAIPE's connection store. The
    * agent forwards each provider's `access_token` to the matching MCP. Empty
@@ -298,6 +301,7 @@ export async function buildChatRequest(
     snapshot,
     stable_pages: stablePages,
     role: ctx.canEdit ? "editor" : "viewer",
+    actor_email: ctx.user.email ?? null,
     credentials,
   };
 }

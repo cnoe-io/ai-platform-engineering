@@ -2,6 +2,8 @@
 
 import { cn } from "@/lib/utils";
 import {
+  feedMessageRoute,
+  parseFeedHref,
   parseTomeHref,
   wikiRoute,
   type GlossaryPreview,
@@ -42,6 +44,12 @@ const sharedMarkedOptions = {
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
+      // A link to one Feed message (#91's promote-to-feed) — distinct chip,
+      // always explicit `@<project>` so no ambient state is needed to resolve it.
+      const feed = parseFeedHref(href);
+      if (feed) {
+        return `<a href="${href}" data-tome-feed-project="${feed.project}" data-tome-feed-message="${feed.messageId}"${titleAttr} class="md-link tome-feed-link">${text}</a>`;
+      }
       // Internal wiki link (`tome://<path>` or bare `*.md`) → tag for click
       // routing instead of a (broken) browser navigation.
       const internal = parseTomeHref(href);
@@ -371,6 +379,15 @@ export function MarkdownRenderer({
       const handleInternalLinkClick = (e: MouseEvent) => {
         const target = e.target;
         if (!(target instanceof Element)) return;
+        const feedAnchor = target.closest("a.tome-feed-link");
+        if (feedAnchor instanceof HTMLAnchorElement) {
+          const feed = parseFeedHref(feedAnchor.getAttribute("href") || "");
+          if (feed) {
+            e.preventDefault();
+            window.location.assign(feedMessageRoute(feed.project, feed.messageId));
+          }
+          return;
+        }
         const anchor = target.closest("a.tome-link, a.tome-glossary-link");
         if (!(anchor instanceof HTMLAnchorElement)) return;
         const internal = parseTomeHref(anchor.getAttribute("href") || "");

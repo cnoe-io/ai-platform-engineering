@@ -630,8 +630,11 @@ const TOOLS: ToolDef[] = [
         payload: { source_ref: "chat", cited },
       });
       const data = ensureOk(r, "promote to feed");
+      const id = data?.message?.id;
       return toolText(
-        `Promoted to the Feed (id=${data?.message?.id}). View it at /projects/${args.project_slug}/tome/feed`,
+        `Promoted to the Feed (id=${id}). Tell the user, and link them to it with ` +
+          `markdown like [view in the Feed](tome://@${args.project_slug}/feed/${id}) — ` +
+          `that link scrolls to and highlights this exact message.`,
       );
     },
   },

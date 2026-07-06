@@ -91,3 +91,35 @@ function normalizePath(path: string): string {
 export function wikiRoute(slug: string, path: string): string {
   return `/projects/${slug}/tome/wiki/${path}`;
 }
+
+/**
+ * A link to one Feed message (#91's promote-to-feed): `tome://@<project>/feed/<id>`.
+ * Always carries an explicit `@<project>` — even when it's the chat agent's
+ * own project — so resolving it never needs ambient "current project" state,
+ * matching how a genuinely cross-project ref already works. Distinct from
+ * `TomeLinkTarget` (wiki pages): a Feed message isn't a page, it's a
+ * scroll-to target within the Feed view (`?to_message=`).
+ */
+export interface TomeFeedLinkTarget {
+  project: string;
+  messageId: string;
+}
+
+/** Parse a `tome://@<project>/feed/<id>` reference, or `null` if it isn't one. */
+export function parseFeedHref(href: string): TomeFeedLinkTarget | null {
+  if (!href) return null;
+  const raw = href.trim();
+  if (!raw.startsWith("tome://@")) return null;
+  const rest = raw.slice("tome://@".length);
+  const slash = rest.indexOf("/");
+  if (slash === -1) return null;
+  const project = rest.slice(0, slash).trim();
+  const m = rest.slice(slash + 1).match(/^feed\/([^/?#]+)\/?$/);
+  if (!project || !m) return null;
+  return { project, messageId: decodeURIComponent(m[1]) };
+}
+
+/** The full SPA route to one Feed message, focused and scrolled to on load. */
+export function feedMessageRoute(slug: string, messageId: string): string {
+  return `/projects/${slug}/tome/feed?to_message=${encodeURIComponent(messageId)}`;
+}

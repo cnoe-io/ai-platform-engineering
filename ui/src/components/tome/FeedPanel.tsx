@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
@@ -189,13 +190,21 @@ export function FeedPanel({
   const [notConfigured, setNotConfigured] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Deep link to one message (feed-message links, e.g. from a promoted
+  // action): scroll to it and pulse-highlight once it's loaded, paging
+  // older until found or the room's start is reached.
+  const targetMessageId = useSearchParams().get("to_message");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const targetResolvedRef = useRef(false);
+
   const viewportRef = useRef<HTMLDivElement | null>(null);
   // Set before a prepend so the layout effect can keep the viewport anchored.
   const restoreRef = useRef<{ height: number; top: number } | null>(null);
   // Whether to pin to the bottom after the next render (new message + at bottom).
   const stickBottomRef = useRef(true);
-  // First visit to the panel should land on the newest message. Resets on
-  // remount (i.e. each time the Feed view is opened).
+  // First visit to the panel should land on the newest message (unless a
+  // `to_message` deep link takes over). Resets on remount (i.e. each time the
+  // Feed view is opened).
   const initialScrollRef = useRef(false);
 
   const hasMore = !reachedStart;
@@ -317,6 +326,29 @@ export function FeedPanel({
     return () => vp.removeEventListener("scroll", onScroll);
   }, [loadOlder]);
 
+  // `?to_message=<id>` deep link: keep paging older until the target shows up
+  // (it may be well before the initially-loaded window) or the room's start
+  // is reached, then scroll to it and pulse-highlight briefly.
+  useEffect(() => {
+    if (!targetMessageId || targetResolvedRef.current || loading) return;
+    if (messages.some((m) => m.id === targetMessageId)) {
+      targetResolvedRef.current = true;
+      requestAnimationFrame(() => {
+        document
+          .getElementById(`feed-message-${targetMessageId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      setHighlightId(targetMessageId);
+      const t = setTimeout(() => setHighlightId(null), 2500);
+      return () => clearTimeout(t);
+    }
+    if (!hasMore) {
+      targetResolvedRef.current = true; // not found, give up quietly
+      return;
+    }
+    void loadOlder();
+  }, [targetMessageId, messages, loading, hasMore, loadOlder]);
+
   // After messages render: restore anchor on prepend, else pin to bottom if sticky.
   useLayoutEffect(() => {
     const vp = viewportRef.current;
@@ -327,20 +359,24 @@ export function FeedPanel({
       return;
     }
     if (!initialScrollRef.current && messages.length > 0) {
-      // First content render: always land on the newest message. Re-pin on the
-      // next frame as a backstop in case markdown height settles after layout.
+      // First content render: always land on the newest message, UNLESS a
+      // `to_message` deep link is resolving (that effect owns the scroll then).
+      // Re-pin on the next frame as a backstop in case markdown height settles
+      // after layout.
       initialScrollRef.current = true;
-      vp.scrollTop = vp.scrollHeight;
-      requestAnimationFrame(() => {
-        const v = viewportRef.current;
-        if (v) v.scrollTop = v.scrollHeight;
-      });
+      if (!targetMessageId) {
+        vp.scrollTop = vp.scrollHeight;
+        requestAnimationFrame(() => {
+          const v = viewportRef.current;
+          if (v) v.scrollTop = v.scrollHeight;
+        });
+      }
       return;
     }
-    if (stickBottomRef.current) {
+    if (stickBottomRef.current && !targetMessageId) {
       vp.scrollTop = vp.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, targetMessageId]);
 
   const send = useCallback(async () => {
     const message = draft.trim();
@@ -421,7 +457,14 @@ export function FeedPanel({
               // Activity events render as a distinct full-width bar interleaved
               // in the stream, not a chat bubble.
               if (evt?.kind === "source_event") {
-                return <SourceEventRow key={m.id} m={m} payload={(evt.payload ?? {}) as SourceEventPayload} />;
+                return (
+                  <SourceEventRow
+                    key={m.id}
+                    m={m}
+                    payload={(evt.payload ?? {}) as SourceEventPayload}
+                    highlighted={m.id === highlightId}
+                  />
+                );
               }
               if (evt?.kind === "ingest_event") {
                 return (
@@ -430,11 +473,19 @@ export function FeedPanel({
                     m={m}
                     payload={(evt.payload ?? {}) as IngestEventPayload}
                     onOpenIngestRun={onOpenIngestRun}
+                    highlighted={m.id === highlightId}
                   />
                 );
               }
               if (evt?.kind === "promoted_action") {
-                return <PromotedActionRow key={m.id} m={m} onOpenPage={onOpenPage} />;
+                return (
+                  <PromotedActionRow
+                    key={m.id}
+                    m={m}
+                    onOpenPage={onOpenPage}
+                    highlighted={m.id === highlightId}
+                  />
+                );
               }
               if (evt) return null; // unrecognized event kind — skip rather than mis-render
               const prev = i > 0 ? messages[i - 1] : null;
@@ -453,7 +504,12 @@ export function FeedPanel({
               return (
                 <div
                   key={m.id}
-                  className={`relative pl-12 ${grouped ? "mt-0.5" : "mt-4 first:mt-0"}`}
+                  id={`feed-message-${m.id}`}
+                  className={cn(
+                    "relative rounded-lg pl-12 transition-colors",
+                    grouped ? "mt-0.5" : "mt-4 first:mt-0",
+                    m.id === highlightId && "bg-primary/10",
+                  )}
                 >
                   {!grouped && (
                     <>
@@ -557,14 +613,27 @@ export function FeedPanel({
  * asset" button on the right. Distinct from chat bubbles so machine feed reads
  * as feed, not conversation.
  */
-function SourceEventRow({ m, payload }: { m: FeedMessage; payload: SourceEventPayload }) {
+function SourceEventRow({
+  m,
+  payload,
+  highlighted,
+}: {
+  m: FeedMessage;
+  payload: SourceEventPayload;
+  highlighted?: boolean;
+}) {
   const Icon = payload.artifact ? ARTIFACT_ICON[payload.artifact] : Rss;
   const sub = [payload.actor ? `@${payload.actor}` : null, payload.repo, relativeTime(payload.ts || m.created_at)]
     .filter(Boolean)
     .join(" · ");
   return (
-    <div className="mt-2 first:mt-0">
-      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+    <div id={`feed-message-${m.id}`} className="mt-2 first:mt-0">
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors",
+          highlighted && "border-primary/40 bg-primary/10",
+        )}
+      >
         <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-foreground/90">{m.content}</p>
@@ -592,10 +661,12 @@ function IngestEventRow({
   m,
   payload,
   onOpenIngestRun,
+  highlighted,
 }: {
   m: FeedMessage;
   payload: IngestEventPayload;
   onOpenIngestRun?: (runId: string) => void;
+  highlighted?: boolean;
 }) {
   const status = payload.status ?? "running";
   const Icon = INGEST_ICON[status];
@@ -609,8 +680,13 @@ function IngestEventRow({
     .filter(Boolean)
     .join(" · ");
   return (
-    <div className="mt-2 first:mt-0">
-      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+    <div id={`feed-message-${m.id}`} className="mt-2 first:mt-0">
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors",
+          highlighted && "border-primary/40 bg-primary/10",
+        )}
+      >
         <Icon className={cn("h-4 w-4 shrink-0", tone, status === "running" && "animate-spin")} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-foreground/90">{m.content}</p>
@@ -631,26 +707,52 @@ function IngestEventRow({
   );
 }
 
-/** A concern/action promoted out of a private 1:1 chat (#91) — highlighted so
- * it reads as deliberately raised, not ordinary conversation. `content` is
- * the agent- or user-authored summary, which may cite `tome://` pages. */
+/** A concern/action promoted out of a private 1:1 chat (#91). Renders as an
+ * ordinary message bubble — same avatar/name/timestamp as conversation —
+ * attributed to whoever actually promoted it, with a small "promoted" tag
+ * as the only visual difference. `content` is the agent- or user-authored
+ * summary, which may cite `tome://` pages. */
 function PromotedActionRow({
   m,
   onOpenPage,
+  highlighted,
 }: {
   m: FeedMessage;
   onOpenPage?: (path: string) => void;
+  highlighted?: boolean;
 }) {
+  const isAgent = isAgentHandle(m.sender_handle);
   return (
-    <div className="mt-2 first:mt-0">
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
-        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-500">
-          <Megaphone className="h-3.5 w-3.5" />
-          Promoted from a 1:1
-        </div>
-        <div className="text-sm text-foreground/90">
-          <MarkdownRenderer content={m.content} variant="thinking" onInternalLink={onOpenPage} />
-        </div>
+    <div
+      id={`feed-message-${m.id}`}
+      className={cn("relative mt-4 rounded-lg pl-12 transition-colors first:mt-0", highlighted && "bg-primary/10")}
+    >
+      <div
+        className={cn(
+          "absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white",
+          isAgent ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "gradient-primary-br",
+        )}
+      >
+        {initialsOf(m.display_name || m.sender_handle)}
+      </div>
+      <div className="mb-0.5 flex items-baseline gap-2">
+        <span className="text-sm font-medium text-foreground">
+          {m.display_name || displayName(m.sender_handle)}
+        </span>
+        {isAgent && (
+          <span className="inline-flex items-center gap-0.5 rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-px text-[10px] font-medium text-violet-500">
+            <Bot className="h-3 w-3" />
+            agent
+          </span>
+        )}
+        <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-500">
+          <Megaphone className="h-3 w-3" />
+          promoted
+        </span>
+        <span className="text-[11px] text-muted-foreground">{timeLabel(m.created_at)}</span>
+      </div>
+      <div className="break-words text-sm text-foreground/90">
+        <MarkdownRenderer content={m.content} variant="final" onInternalLink={onOpenPage} />
       </div>
     </div>
   );

@@ -82,6 +82,23 @@ def get_active_credentials() -> dict[str, dict[str, str]]:
     return _active_credentials.get()
 
 
+# The chatting user's email, when known. Task-local, same rationale as
+# credentials above. Read by `build_mycelium_mcp` so a `feed_promote` call
+# attributes to the actual person instead of a generic "tome" handle.
+_active_actor_email: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "tome_active_actor_email", default=None
+)
+
+
+def set_active_actor_email(email: str | None) -> None:
+    """Scope this request's Feed-promotion attribution."""
+    _active_actor_email.set(email)
+
+
+def get_active_actor_email() -> str | None:
+    return _active_actor_email.get()
+
+
 def _project_id() -> str:
     # CAIPE project ids are Mongo ObjectId hex / slugs, not UUIDs. Treat as
     # an opaque string used only to build callback URLs.

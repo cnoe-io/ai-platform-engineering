@@ -157,6 +157,7 @@ async def chat_endpoint(body: ChatRequest):
         # ContextVars).
         http_client.set_active_project_id(body.snapshot.project_id)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_actor_email(body.actor_email)
         _state.in_flight_runs += 1
         _state.last_activity_at = datetime.now(timezone.utc)
         try:

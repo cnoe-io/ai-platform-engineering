@@ -66,7 +66,7 @@ class ProjectSnapshot(BaseModel):
     look anything up itself."""
 
     project_id: str  # CAIPE project id (ObjectId hex / slug); not a UUID
-    slug: str = ""  # CAIPE project slug; also the project's Mycelium Talk room name
+    slug: str = ""  # CAIPE project slug; also the project's Mycelium Feed room name
     name: str
     charter: str = ""
     phase: str | None = None
@@ -97,6 +97,10 @@ class ChatRequest(BaseModel):
     """The requesting user's effective role: 'viewer' or 'editor'. The agent
     container uses this to confirm its configured role (TTT_AGENT_ROLE) and
     adjust its system prompt accordingly."""
+    actor_email: str | None = None
+    """The chatting user's email. Used as the sender identity when the agent
+    promotes a concern to the Feed (`feed_promote`), so the entry attributes
+    to the actual person, not a generic "tome" handle."""
     credentials: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Per-request OAuth credentials forwarded from the caller. Keyed by
     provider slug (`github`, `atlassian`, `webex`). Each value carries
