@@ -13,6 +13,7 @@ import {
   Link2,
   MessageSquare,
   MessagesSquare,
+  Newspaper,
   Plus,
   RefreshCw,
   Settings,
@@ -42,6 +43,7 @@ import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
+import { StandupView } from "@/components/tome/StandupView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
@@ -75,6 +77,7 @@ const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
 type MainView =
   | { kind: "agent" }
+  | { kind: "standup" }
   | { kind: "talk" }
   | { kind: "settings" }
   | { kind: "page"; path: string }
@@ -94,6 +97,8 @@ function viewToPath(slug: string, view: MainView): string {
   switch (view.kind) {
     case "agent":
       return base;
+    case "standup":
+      return `${base}/standup`;
     case "talk":
       return `${base}/talk`;
     case "settings":
@@ -115,6 +120,8 @@ function pathToView(segments: string[]): MainView {
   switch (head) {
     case undefined:
       return { kind: "agent" };
+    case "standup":
+      return { kind: "standup" };
     case "talk":
       return { kind: "talk" };
     case "settings":
@@ -508,6 +515,8 @@ export function TomeWiki({ slug }: { slug: string }) {
     switch (view.kind) {
       case "agent":
         return [{ label: "Agent" }];
+      case "standup":
+        return [{ label: "Standup" }];
       case "talk":
         return [{ label: "Talk" }];
       case "settings":
@@ -567,6 +576,7 @@ export function TomeWiki({ slug }: { slug: string }) {
 
   const navActive = {
     agent: view.kind === "agent",
+    standup: view.kind === "standup",
     talk: view.kind === "talk",
     settings: view.kind === "settings",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
@@ -665,6 +675,14 @@ export function TomeWiki({ slug }: { slug: string }) {
             <ScrollArea className="h-full">
               <div className="flex flex-col p-3">
                 <div className="flex flex-col gap-0.5">
+                  <NavItem
+                    icon={<Newspaper className="h-4 w-4" />}
+                    label="Standup"
+                    active={navActive.standup}
+                    onClick={() => navigate({ kind: "standup" })}
+                    tipTitle="Standup"
+                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest."
+                  />
                   <NavItem
                     icon={<MessageSquare className="h-4 w-4" />}
                     label="Agent"
@@ -941,6 +959,15 @@ export function TomeWiki({ slug }: { slug: string }) {
                   </div>
                 )}
               </>
+            ) : view.kind === "standup" ? (
+              <div className="min-w-0 flex-1">
+                <StandupView
+                  markdown={data?.pages["standup.md"]}
+                  onNavigate={(path) => navigate({ kind: "page", path })}
+                  glossaryPreview={glossaryPreview}
+                  onStartIngest={() => navigate({ kind: "ingest" })}
+                />
+              </div>
             ) : view.kind === "talk" ? (
               <div className="min-w-0 flex-1">
                 <TalkPanel slug={slug} onOpenPage={(path) => navigate({ kind: "page", path })} />
