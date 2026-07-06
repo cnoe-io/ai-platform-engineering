@@ -98,7 +98,7 @@ function ActiveIngestsIndicator({ runs }: { runs: ActiveIngestRun[] }) {
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-700/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-500">
         <PulseDot />
         {runs.length} {runs.length === 1 ? "run" : "runs"} in progress
       </span>
@@ -121,7 +121,7 @@ function ActiveIngestsIndicator({ runs }: { runs: ActiveIngestRun[] }) {
                   className={cn(
                     "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize",
                     r.status === "running"
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                      ? "bg-emerald-500/15 text-emerald-500"
                       : "bg-muted text-muted-foreground",
                   )}
                 >
@@ -227,7 +227,7 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
         {activeRun ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-500">
                 <PulseDot />
                 {activeRun.status === "running" ? "Ingesting" : "Queued"}
               </span>
@@ -314,7 +314,7 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
             {initiatives.slice(0, 3).map((l) => (
               <Tooltip key={l}>
                 <TooltipTrigger asChild>
-                  <span className="rounded-full border border-violet-300 px-2 py-0.5 text-[10px] text-violet-700 dark:border-violet-800/40 dark:text-violet-400/80">
+                  <span className="rounded-full border border-violet-500/30 px-2 py-0.5 text-[10px] text-violet-500/80">
                     {l}
                   </span>
                 </TooltipTrigger>
@@ -324,7 +324,7 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
             {swimlanes.slice(0, 3).map((l) => (
               <Tooltip key={l}>
                 <TooltipTrigger asChild>
-                  <span className="rounded-full border border-sky-300 px-2 py-0.5 text-[10px] text-sky-700 dark:border-sky-800/40 dark:text-sky-400/80">
+                  <span className="rounded-full border border-sky-500/30 px-2 py-0.5 text-[10px] text-sky-500/80">
                     {l}
                   </span>
                 </TooltipTrigger>
@@ -361,8 +361,8 @@ function ProjectGroup({
   const labelClass = isUngrouped
     ? "text-sm font-medium text-muted-foreground"
     : groupBy === "initiative"
-      ? "text-sm font-semibold text-violet-700 dark:text-violet-300"
-      : "text-sm font-semibold text-sky-600 dark:text-sky-400";
+      ? "text-sm font-semibold text-violet-500"
+      : "text-sm font-semibold text-sky-500";
 
   return (
     <div className="space-y-3">
@@ -377,7 +377,7 @@ function ProjectGroup({
           ) : (
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
-          {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />}
+          {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-violet-500" />}
           <span className={labelClass}>{label}</span>
           <span className="text-xs text-muted-foreground/50">{items.length}</span>
           <span className="ml-1 h-px flex-grow bg-border/40" />
@@ -389,7 +389,7 @@ function ProjectGroup({
           (bhag ? (
             <Link
               href={`/projects/${bhag.slug}`}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-800 transition hover:border-violet-500 hover:bg-violet-100 dark:border-violet-700/50 dark:bg-violet-950/40 dark:text-violet-200 dark:hover:bg-violet-900/50"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-500 transition hover:border-violet-500 hover:bg-violet-500/20"
             >
               <BookOpen className="h-3.5 w-3.5" />
               Open {bhag.name} BHAG wiki
@@ -400,7 +400,7 @@ function ProjectGroup({
               type="button"
               onClick={() => onCreateBhag?.(label, items)}
               disabled={creating}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-violet-400 px-3 py-1.5 text-xs font-medium text-violet-700/80 transition hover:border-violet-500 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-700/50 dark:text-violet-300/80 dark:hover:bg-violet-950/40"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-violet-500/40 px-3 py-1.5 text-xs font-medium text-violet-500/80 transition hover:border-violet-500 hover:bg-violet-500/10 disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
               {creating ? "Creating…" : "Create BHAG wiki"}

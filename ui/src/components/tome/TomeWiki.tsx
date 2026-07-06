@@ -604,7 +604,7 @@ export function TomeWiki({ slug }: { slug: string }) {
             ]}
           />
           {isBhag && (
-            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:border-violet-700/50 dark:bg-violet-950/40 dark:text-violet-300">
+            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-500">
               <Target className="h-3 w-3" />
               BHAG
             </span>
@@ -620,7 +620,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   <TooltipTrigger asChild>
                     <Link
                       href={`/projects/${b.slug}/tome`}
-                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 transition hover:border-violet-500 hover:bg-violet-100 dark:border-violet-700/50 dark:bg-violet-950/30 dark:text-violet-300 dark:hover:bg-violet-900/50"
+                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-500 transition hover:border-violet-500 hover:bg-violet-500/20"
                     >
                       <Target className="h-3 w-3" />
                       {b.name}
@@ -632,7 +632,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               ) : (
                 <Tooltip key={init}>
                   <TooltipTrigger asChild>
-                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-300/70 px-2 py-0.5 text-[11px] font-medium text-violet-700/70 dark:border-violet-800/30 dark:text-violet-300/60">
+                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/25 px-2 py-0.5 text-[11px] font-medium text-violet-500/70">
                       <Target className="h-3 w-3" />
                       {init}
                     </span>
@@ -893,7 +893,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                             href={`/projects/${child.slug}/tome`}
                             className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
                           >
-                            <Target className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                            <Target className="h-4 w-4 shrink-0 text-violet-500" />
                             <span className="truncate">{child.title}</span>
                             <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
                           </Link>
