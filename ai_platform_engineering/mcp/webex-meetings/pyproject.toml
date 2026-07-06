@@ -2,7 +2,7 @@
 name = "mcp_webex_meetings"
 description = "Local MCP server proxying Webex Meetings/Transcripts/Recordings REST API. Tool surface mirrors Cisco's official Webex Meetings MCP for drop-in replacement."
 authors = [
-    { name = "CNOE", email = "cnoe-developers@cisco.com" }
+    { email = "suwhang@cisco.com" }
 ]
 dynamic = [
     "version"

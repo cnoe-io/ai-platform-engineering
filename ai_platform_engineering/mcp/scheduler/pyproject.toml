@@ -2,7 +2,7 @@
 name = "mcp_scheduler"
 description = "Generic cron-schedule MCP for CAIPE dynamic agents. Wraps caipe-scheduler's REST API as MCP tools so any agent can register/list/cancel scheduled chat fires of itself or other agents."
 authors = [
-    { name = "CNOE", email = "cnoe-developers@cisco.com" }
+    { email = "suwhang@cisco.com" }
 ]
 dynamic = [
     "version"
