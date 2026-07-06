@@ -1,3 +1,16 @@
+## 0.5.38 (2026-07-06)
+
+### Feat
+
+- **dynamic-agents**: add Import from YAML config adoption flow
+
+### Fix
+
+- **keycloak**: reconcile CLI client on the always-on token-exchange job
+- **keycloak**: reconcile public CLI client on upgrade, not just first boot
+
+## 0.5.37 (2026-07-06)
+
 ## 0.5.36-dev.1 (2026-07-06)
 
 ### Feat
