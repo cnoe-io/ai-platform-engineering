@@ -210,7 +210,23 @@ export const PATCH = withErrorHandler(
         confluence_url?: string;
         webex_rooms?: Array<{ room_id?: string; name?: string; slug?: string }>;
       };
+      /** Feed data steward (email): the principal the source feed runs as. */
+      data_steward?: string | null;
+      /** Per-project source-feed on/off. */
+      sources_feed_enabled?: boolean;
     };
+
+    // Steward assignment + feed toggle are governance actions: owner or org
+    // admin only, not a plain team-member editor.
+    const touchesFeedGovernance =
+      "data_steward" in body || "sources_feed_enabled" in body;
+    if (touchesFeedGovernance && !isOwner && !isOrgAdmin) {
+      throw new ApiError(
+        "Only the project owner or an admin can change the data steward or feed settings",
+        403,
+        "FORBIDDEN",
+      );
+    }
 
     const $set: Record<string, unknown> = { updated_at: new Date() };
     if (typeof body.title === "string" && body.title.trim()) {
@@ -249,6 +265,16 @@ export const PATCH = withErrorHandler(
         $set["team_name"] = target.name;
       }
     }
+    const $unset: Record<string, ""> = {};
+    if ("data_steward" in body) {
+      // Empty/null clears the steward → the feed falls back to the owner.
+      const steward = (body.data_steward ?? "").trim().toLowerCase();
+      if (steward) $set["data_steward"] = steward;
+      else $unset["data_steward"] = "";
+    }
+    if (typeof body.sources_feed_enabled === "boolean") {
+      $set["sources_feed_enabled"] = body.sources_feed_enabled;
+    }
     if (body.sources) {
       if (Array.isArray(body.sources.repos)) {
         $set["sources.repos"] = body.sources.repos.map((r) => r.trim()).filter(Boolean);
@@ -267,7 +293,10 @@ export const PATCH = withErrorHandler(
       }
     }
 
-    await projects.updateOne({ _id: project._id }, { $set });
+    await projects.updateOne(
+      { _id: project._id },
+      Object.keys($unset).length > 0 ? { $set, $unset } : { $set },
+    );
 
     const updated = await projects.findOne({ slug });
     if (!updated) throw new ApiError("Project not found after update", 500, "UPDATE_FAILED");

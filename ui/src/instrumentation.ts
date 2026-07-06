@@ -40,4 +40,15 @@ export async function register() {
   } catch (err) {
     console.warn("[instrumentation] Tome ingest queue not started:", err);
   }
+
+  // Start the Tome source-activity feed poller. Opt-in via
+  // TOME_SOURCE_FEED_ENABLED. Polls connected GitHub sources and emits
+  // `source_event`s into each project's Talk room. Idempotent; failures here
+  // must not take down the server.
+  try {
+    const { startSourceFeedPoller } = await import("./lib/tome/source-feed/poller");
+    startSourceFeedPoller();
+  } catch (err) {
+    console.warn("[instrumentation] Tome source-feed poller not started:", err);
+  }
 }

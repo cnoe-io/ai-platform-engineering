@@ -26,6 +26,7 @@ import {
 
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { LabelComboBox } from "@/components/projects/LabelComboBox";
+import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { SourcePicker } from "@/components/projects/source-pickers";
 import { cn } from "@/lib/utils";
@@ -132,6 +133,9 @@ export function ProjectOnboardingWizard({
   // User-shared data sources (collected by the configured `source` steps;
   // forwarded to connected external apps on onboarding).
   const [githubReposRaw, setGithubReposRaw] = useState("");
+  // Data steward for the source-activity feed: the principal the feed runs as.
+  // Blank means the create API assigns the creator (owner) explicitly.
+  const [stewardEmail, setStewardEmail] = useState("");
   const [confluenceUrl, setConfluenceUrl] = useState("");
   // Encoded {room_id, name} blobs from the picker (see lib/projects/webex-room).
   const [webexRooms, setWebexRooms] = useState<string[]>([]);
@@ -273,6 +277,7 @@ export function ProjectOnboardingWizard({
     setInitiativesRaw("");
     setSwimlanesRaw("");
     setGithubReposRaw("");
+    setStewardEmail("");
     setConfluenceUrl("");
     setWebexRooms([]);
     setProvisioning(false);
@@ -315,6 +320,8 @@ export function ProjectOnboardingWizard({
           github_repos,
           confluence_url,
           webex_rooms,
+          // Blank → the API assigns the creator explicitly (no runtime fallback).
+          data_steward: stewardEmail.trim() || undefined,
         }),
       });
       const body = await res.json();
@@ -603,6 +610,19 @@ export function ProjectOnboardingWizard({
                           project must belong to a team).
                         </span>
                       )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <span className="block text-sm font-medium">Data steward</span>
+                      <UserEmailPicker
+                        value={stewardEmail}
+                        onChange={setStewardEmail}
+                        placeholder="Defaults to you (the creator)"
+                      />
+                      <span className="block text-xs text-muted-foreground">
+                        The person (by email) whose GitHub connection powers this
+                        project&apos;s source activity feed. Defaults to you. This role will
+                        do more later. Changeable in settings.
+                      </span>
                     </div>
                   </div>
                   <div className="space-y-4">

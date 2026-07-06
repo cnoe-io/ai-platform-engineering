@@ -143,6 +143,22 @@ export interface ProjectDocument {
    * UI edits can't race the agent's rewrite. Set by the ingest runner.
    */
   locked?: boolean;
+  /**
+   * Newest source-activity event time seen by the feed poller. Feeds the
+   * freshness/staleness signal alongside `last_ingested_at`.
+   */
+  last_source_event_at?: Date;
+  /**
+   * Data steward: the project role that will own the project's data sources and
+   * ingestion. Today it only sets who the source-activity feed runs as (their
+   * connection reads the project's activity); source curation and ingest still
+   * run as the acting user. Set explicitly (onboarding assigns the creator/owner
+   * by default); no implicit fallback. A pragmatic field (an email) that will
+   * become a first-class OpenFGA relation with capability enforcement.
+   */
+  data_steward?: string;
+  /** Per-project on/off for the source-activity feed. Undefined = on. */
+  sources_feed_enabled?: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -164,6 +180,9 @@ export interface CreateProjectRequest {
   confluence_url?: string;
   webex_rooms?: WebexRoomSource[];
   component_urls?: string[];
+  /** Data steward for the source-activity feed: the principal the feed runs as.
+   * Defaults to the creator (owner) when omitted. */
+  data_steward?: string;
 }
 
 export interface OnboardProjectRequest {

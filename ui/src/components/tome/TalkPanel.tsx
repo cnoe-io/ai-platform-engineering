@@ -1,7 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Bot, Loader2, MessagesSquare, User } from "lucide-react";
+import {
+  ArrowUp,
+  ArrowUpRight,
+  Bot,
+  CircleDot,
+  GitCommit,
+  GitPullRequest,
+  Loader2,
+  MessagesSquare,
+  Rss,
+  Tag,
+  User,
+} from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +46,66 @@ interface TalkMessage {
   content: string;
   created_at: string;
   display_name?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** The asset an event concerns (mirrors the producer's SourceArtifact). */
+type SourceArtifact = "pr" | "issue" | "release" | "commit";
+
+/** Payload carried by a `source_event` feed item: a GitHub/etc. activity item. */
+interface SourceEventPayload {
+  source?: string;
+  artifact?: SourceArtifact;
+  event?: string;
+  repo?: string;
+  ref?: string;
+  url?: string;
+  actor?: string | null;
+  ts?: string;
+}
+
+/** Extract the source-event payload from a message, or null if it isn't one. */
+function sourceEventPayload(m: TalkMessage): SourceEventPayload | null {
+  if (m.message_type !== "event") return null;
+  const md = m.metadata as { kind?: string; payload?: SourceEventPayload } | null | undefined;
+  if (!md || md.kind !== "source_event") return null;
+  return md.payload ?? {};
+}
+
+/** "View" button label per asset type. Keyed off the typed `artifact`
+ * discriminator the producer sets — no parsing of the event string. */
+const VIEW_LABEL: Record<SourceArtifact, string> = {
+  pr: "View PR",
+  issue: "View issue",
+  release: "View release",
+  commit: "View commit",
+};
+
+function viewLabel(artifact: SourceArtifact | undefined): string {
+  return artifact ? VIEW_LABEL[artifact] : "View";
+}
+
+/** Icon per asset type, keyed off the typed `artifact` (Rss = generic feed). */
+const ARTIFACT_ICON: Record<SourceArtifact, typeof GitPullRequest> = {
+  pr: GitPullRequest,
+  issue: CircleDot,
+  release: Tag,
+  commit: GitCommit,
+};
+
+/** Compact relative time, e.g. "just now", "2h ago", "3d ago". */
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 const PAGE = 30;
@@ -109,6 +181,8 @@ export function TalkPanel({
   const participants = useMemo<Participant[]>(() => {
     const byHandle = new Map<string, Participant>();
     for (const m of messages) {
+      // Source-activity events aren't conversation participants.
+      if (m.message_type === "event") continue;
       if (byHandle.has(m.sender_handle)) continue;
       byHandle.set(m.sender_handle, {
         handle: m.sender_handle,
@@ -319,6 +393,11 @@ export function TalkPanel({
             </div>
           ) : (
             messages.map((m, i) => {
+              // Source-activity events render as a distinct full-width bar
+              // interleaved in the stream, not a chat bubble.
+              if (sourceEventPayload(m)) {
+                return <SourceEventRow key={m.id} m={m} />;
+              }
               const prev = i > 0 ? messages[i - 1] : null;
               // Posted via the MCP (agent acting as the user) vs typed in the UI.
               // Agents post with message_type "announce" (the only valid
@@ -428,6 +507,42 @@ export function TalkPanel({
             Powered by Mycelium
           </a>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A source-activity event rendered as a full-width bar: source icon on
+ * the left, the event label + context subline in the middle, and a "view the
+ * asset" button on the right. Distinct from chat bubbles so machine feed reads
+ * as feed, not conversation.
+ */
+function SourceEventRow({ m }: { m: TalkMessage }) {
+  const p = sourceEventPayload(m) ?? {};
+  const Icon = p.artifact ? ARTIFACT_ICON[p.artifact] : Rss;
+  const sub = [p.actor ? `@${p.actor}` : null, p.repo, relativeTime(p.ts || m.created_at)]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="mt-2 first:mt-0">
+      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-foreground/90">{m.content}</p>
+          {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
+        </div>
+        {p.url && (
+          <a
+            href={p.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-foreground/80 transition hover:bg-background hover:text-foreground"
+          >
+            {viewLabel(p.artifact)}
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </a>
+        )}
       </div>
     </div>
   );

@@ -21,6 +21,9 @@ export interface MyceliumMessage {
   message_type: string;
   content: string;
   created_at: string;
+  /** Structured metadata for `message_type: "event"` (Mycelium #392): carries
+   * `kind`, `payload`, `provenance`, etc. Absent on plain chat messages. */
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface MyceliumMessageList {
@@ -113,6 +116,41 @@ export async function listMessages(
   if (res.status === 404) return { messages: [], total: 0 }; // room not created yet
   if (!res.ok) throw await failure(res, "list messages");
   return (await res.json()) as MyceliumMessageList;
+}
+
+/** Post a typed `event` message (Mycelium #392) to a project's room. Used by
+ * the source-activity feed: `kind: "source_event"` with a TTL so events age
+ * out. `content` is the human-readable label; `payload`/`provenance` carry the
+ * structured data. Ensures the room exists first. `source_event` is stateless,
+ * so no `status` is sent (the backend rejects a non-null status on it). */
+export async function postEvent(
+  slug: string,
+  opts: {
+    sender_handle: string;
+    content: string;
+    kind: string;
+    payload?: Record<string, unknown>;
+    provenance?: { type: string; ref: string; url?: string }[];
+    ttl_seconds?: number;
+    correlation_id?: string;
+  },
+): Promise<MyceliumMessage> {
+  await ensureRoom(slug);
+  const room = roomNameForProject(slug);
+  const metadata: Record<string, unknown> = { kind: opts.kind };
+  if (opts.ttl_seconds) metadata.ttl_seconds = opts.ttl_seconds;
+  if (opts.payload) metadata.payload = opts.payload;
+  if (opts.provenance?.length) metadata.provenance = opts.provenance;
+  if (opts.correlation_id) metadata.correlation_id = opts.correlation_id;
+  const res = await call("POST", `/api/rooms/${encodeURIComponent(room)}/messages`, {
+    sender_handle: opts.sender_handle,
+    recipient_handle: null,
+    message_type: "event",
+    content: opts.content,
+    metadata,
+  });
+  if (!res.ok) throw await failure(res, "post event");
+  return (await res.json()) as MyceliumMessage;
 }
 
 /** Post a message to a project's room. Ensures the room exists first. */

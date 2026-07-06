@@ -254,6 +254,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     team_name: team.name,
     owner_id: user.email ?? "unknown",
     member_ids: memberIds,
+    // Feed data steward: set explicitly at creation so it's never a magic
+    // "blank means owner". BHAGs have no sources, so no steward.
+    ...(isBhag
+      ? {}
+      : { data_steward: body.data_steward?.trim().toLowerCase() || user.email }),
     domain,
     labels: sanitizeLabels(
       { domain, initiatives: body.initiatives, swimlanes: body.swimlanes },
