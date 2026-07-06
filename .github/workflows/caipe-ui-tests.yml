@@ -374,6 +374,9 @@ jobs:
       - name: Run mocked RBAC Playwright regression
         id: playwright
         working-directory: ui
+        # The container's default shell is sh (dash); mapfile + process
+        # substitution below are bash builtins, so pin the shell to bash.
+        shell: bash
         env:
           RUN_RBAC_REGRESSION: '1'
           CAIPE_UI_BASE_URL: http://localhost:3000
