@@ -389,6 +389,13 @@ jobs:
           # see issue #2124, which tracked a stale hardcoded 11-file list that
           # silently skipped newly-added specs.
           mapfile -t specs < <(find e2e/rbac -maxdepth 1 -name '*.spec.ts' ! -name '*-live.spec.ts' | sort)
+          # Fail loud if the glob matches nothing — otherwise `playwright test`
+          # with no files would silently pass and re-introduce the #2124 gap.
+          if [ "${#specs[@]}" -eq 0 ]; then
+            echo "::error::No mocked-RBAC specs matched e2e/rbac/*.spec.ts (excluding *-live). Check the glob."
+            exit 1
+          fi
+          echo "Running ${#specs[@]} mocked-RBAC spec files."
           npx playwright test "${specs[@]}" --config=playwright.rbac.config.ts
 
       - name: Upload Playwright artifacts
