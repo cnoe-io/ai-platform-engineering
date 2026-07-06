@@ -63,6 +63,13 @@ function elapsedLabel(since: string | Date | null | undefined): string {
   return `${h}h ${m % 60}m`;
 }
 
+/** "just started" already reads as a full phrase; only durations need the
+ * "running for" prefix, else it reads as "running for just started". */
+function runningForLabel(since: string | Date | null | undefined): string {
+  const elapsed = elapsedLabel(since);
+  return elapsed === "just started" ? elapsed : `running for ${elapsed}`;
+}
+
 function modeLabel(mode: ActiveIngestRun["mode"]): string {
   return mode === "bhag_rollup" ? "BHAG roll-up" : "Ingest";
 }
@@ -228,7 +235,7 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
             <TooltipContent>
               {modeLabel(activeRun.mode)}{" "}
               {activeRun.status === "running"
-                ? `running for ${elapsedLabel(activeRun.started_at)}`
+                ? runningForLabel(activeRun.started_at)
                 : "queued, waiting to start"}
             </TooltipContent>
           </Tooltip>
