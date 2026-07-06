@@ -1,11 +1,9 @@
 # mcp-webex-meetings
 
 Local MCP server that exposes the Webex Meetings / Transcripts / Recordings REST
-API as MCP tools. It mostly mirrors Cisco's official Webex Meetings MCP
+API as MCP tools. It mostly mirrors the official Webex Meetings MCP
 (`https://mcp.webexapis.com/mcp/webex-meeting`), with two local fallback helpers
-for stale/expired-series debugging. If Cisco enables agentic apps in the
-cisco.com Control Hub, the official-compatible tools can be pointed at Cisco's
-endpoint and the local fallback tools can be kept or removed deliberately.
+for stale/expired-series debugging.
 
 ## Authentication
 
