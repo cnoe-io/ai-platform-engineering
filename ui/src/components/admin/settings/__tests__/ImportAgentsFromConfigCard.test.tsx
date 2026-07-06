@@ -137,4 +137,30 @@ describe("ImportAgentsFromConfigCard", () => {
       );
     });
   });
+
+  it("keeps the agent checklist in a capped, scrollable container with ~200 agents", async () => {
+    const manyAgents = Array.from({ length: 200 }, (_, i) => ({
+      id: `agent-${i}`,
+      name: `Agent ${i}`,
+      in_db: true,
+      already_adopted: false,
+    }));
+    mockFetch({ preview: { success: true, data: { agents: manyAgents } } });
+
+    render(<ImportAgentsFromConfigCard isAdmin />);
+    fireEvent.click(screen.getByTestId("import-agents-from-config-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("import-agent-checkbox-agent-0")).toBeChecked();
+    });
+
+    // All 200 rows render (nothing is truncated/paginated away)...
+    expect(screen.getByTestId("import-agent-checkbox-agent-199")).toBeInTheDocument();
+
+    // ...but the list itself scrolls within a bounded height rather than
+    // growing the dialog to fit all 200 rows.
+    const checklist = screen.getByTestId("import-agents-checklist");
+    expect(checklist.className).toContain("max-h-56");
+    expect(checklist.className).toContain("overflow-y-auto");
+  });
 });

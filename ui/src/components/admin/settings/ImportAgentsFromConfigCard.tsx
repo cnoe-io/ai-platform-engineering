@@ -213,7 +213,10 @@ export function ImportAgentsFromConfigCard({ isAdmin }: ImportAgentsFromConfigCa
                   No agents found in the config file, or none are eligible for import.
                 </p>
               ) : (
-                <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
+                <div
+                  className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2"
+                  data-testid="import-agents-checklist"
+                >
                   {previewAgents.map((agent) => (
                     <label
                       key={agent.id}
