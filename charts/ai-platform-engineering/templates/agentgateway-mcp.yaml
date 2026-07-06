@@ -92,7 +92,8 @@ spec:
 {{- $mcpServiceName := printf "%s-%s-mcp" $.Release.Name $agentKey }}
 {{- $mcpHost := printf "%s.%s.svc.cluster.local" $mcpServiceName $.Release.Namespace }}
 {{- $protocol := $agw.protocol | default "StreamableHTTP" }}
-{{- $pathPrefix := printf "/mcp/%s" $name }}
+{{- $targetId := $agw.id | default $name }}
+{{- $pathPrefix := $agw.pathPrefix | default (printf "/mcp/%s" $targetId) }}
 {{- $routeName := printf "%s-mcp-route" $name }}
 {{- $backendName := printf "%s-mcp-backend" $name }}
 ---

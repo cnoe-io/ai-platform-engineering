@@ -131,6 +131,15 @@ dependencies:
         parent: global.enabledSubAgents.webex
   - name: mcp-server
     version: 0.5.36 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: mcp-webex-meetings
+    tags:
+      - mcp-webex-meetings
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.webex-meetings
+  - name: mcp-server
+    version: 0.5.36 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: mcp-netutils
     tags:
       - mcp-netutils
