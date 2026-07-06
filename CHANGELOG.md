@@ -1,3 +1,17 @@
+## 0.5.36-dev.1 (2026-07-06)
+
+### Feat
+
+- **doc**: add new doc page for webex meetings mcp
+- **webex-meetings**: add new mcp server for webex-meetings
+
+### Fix
+
+- **chart**: add to tags and disable by default
+- put existing email
+
+## 0.5.36 (2026-07-04)
+
 ## 0.5.35-dev.1 (2026-07-04)
 
 ### Feat

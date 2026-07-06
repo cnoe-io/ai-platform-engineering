@@ -1,6 +1,6 @@
 [project]
-name = "mcp_scheduler"
-description = "Generic cron-schedule MCP for CAIPE dynamic agents. Wraps caipe-scheduler's REST API as MCP tools so any agent can register/list/cancel scheduled chat fires of itself or other agents."
+name = "mcp_webex_meetings"
+description = "Local MCP server proxying Webex Meetings/Transcripts/Recordings REST API. Tool surface mirrors Cisco's official Webex Meetings MCP for drop-in replacement."
 authors = [
     { email = "suwhang@cisco.com" }
 ]
@@ -8,12 +8,11 @@ dynamic = [
     "version"
 ]
 readme = "README.md"
-keywords = ["scheduler", "cron", "mcp"]
+keywords = ["webex", "meetings", "mcp"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "click==8.3.1",
     "mcp==1.27.1",
-    "mcp-agent-auth",
     "pydantic==2.12.5",
     "httpx==0.28.1",
     "python-dotenv==1.2.2",
@@ -33,14 +32,11 @@ dev = [
     "hatch==1.16.3",
 ]
 
-[tool.uv.sources]
-mcp-agent-auth = { path = "../common/mcp-auth", editable = true }
-
 [tool.hatch.version]
-path = "mcp_scheduler/__about__.py"
+path = "mcp_webex_meetings/__about__.py"
 
 [project.scripts]
-mcp-server-scheduler = "mcp_scheduler:main"
+mcp-server-webex-meetings = "mcp_webex_meetings:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -53,4 +49,4 @@ python_classes = "Test*"
 python_functions = "test_*"
 
 [tool.hatch.build.targets.wheel]
-packages = ["mcp_scheduler"]
+packages = ["mcp_webex_meetings"]

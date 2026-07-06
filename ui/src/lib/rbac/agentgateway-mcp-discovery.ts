@@ -58,6 +58,14 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       target: "header",
     },
   ],
+  webex_meetings: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "webex",
+      target: "header",
+    },
+  ],
   "knowledge-base": [
     {
       kind: "caller_token",
