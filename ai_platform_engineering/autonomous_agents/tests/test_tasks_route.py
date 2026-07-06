@@ -889,6 +889,8 @@ class TestTaskOwnership:
         headers = {**_user_headers("alice@example.com"), "X-Authenticated-User-Sub": "alice-uuid"}
         resp = client.post("/api/v1/tasks", json=_cron_task("t1"), headers=headers)
         assert resp.status_code == 201
+        # owner_sub is exposed read-only on the wire (admin oversight join key).
+        assert resp.json()["owner_sub"] == "alice-uuid"
 
         stored = task_lifecycle._task_store
         assert stored is not None

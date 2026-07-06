@@ -17,7 +17,7 @@
  */
 
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { TaskList } from '../TaskList';
 import type { AutonomousTask } from '../types';
@@ -40,6 +40,8 @@ jest.mock('lucide-react', () => {
   return {
     Pencil: stub('pencil'),
     Play: stub('play'),
+    Pause: stub('pause'),
+    CirclePlay: stub('resume'),
     Trash2: stub('trash'),
     Webhook: stub('webhook'),
     Clock: stub('clock'),
@@ -266,5 +268,45 @@ describe('TaskList — next-run formatting (spec #099 FR-010 / FR-012)', () => {
     expect(row).not.toBeNull();
     expect(row).toHaveTextContent('next: —');
     expect(within(row as HTMLElement).queryByText(/\(in /)).toBeNull();
+  });
+});
+
+describe('TaskList — Pause/Resume slot (admin oversight)', () => {
+  it('renders a Pause control for an enabled task and fires onToggleEnabled', () => {
+    const onToggleEnabled = jest.fn();
+    render(
+      <TaskList
+        tasks={[makeTask({ enabled: true })]}
+        {...noopHandlers}
+        onToggleEnabled={onToggleEnabled}
+      />,
+    );
+    const actions = screen.getByTestId('autonomous-task-actions');
+    const pause = within(actions).getByRole('button', { name: /pause/i });
+    fireEvent.click(pause);
+    expect(onToggleEnabled).toHaveBeenCalledTimes(1);
+    // The edit pencil is replaced, not shown alongside.
+    expect(within(actions).queryByText('Edit')).toBeNull();
+  });
+
+  it('renders a Resume control for a paused task', () => {
+    render(
+      <TaskList
+        tasks={[makeTask({ enabled: false })]}
+        {...noopHandlers}
+        onToggleEnabled={jest.fn()}
+      />,
+    );
+    const actions = screen.getByTestId('autonomous-task-actions');
+    expect(within(actions).getByRole('button', { name: /resume/i })).toBeInTheDocument();
+    expect(within(actions).queryByText('Pause')).toBeNull();
+  });
+
+  it('falls back to the Edit pencil when only onEdit is provided', () => {
+    render(<TaskList tasks={[makeTask()]} {...noopHandlers} />);
+    const actions = screen.getByTestId('autonomous-task-actions');
+    expect(within(actions).getByText('Edit')).toBeInTheDocument();
+    expect(within(actions).queryByText('Pause')).toBeNull();
+    expect(within(actions).queryByText('Resume')).toBeNull();
   });
 });

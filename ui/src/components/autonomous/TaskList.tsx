@@ -5,7 +5,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Pencil, Play, Trash2, MessageSquare } from "lucide-react";
+import { Pencil, Play, Pause, CirclePlay, Trash2, MessageSquare } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,20 @@ interface TaskListProps {
   tasks: AutonomousTask[];
   selectedTaskId: string | null;
   onSelect: (task: AutonomousTask) => void;
-  onEdit: (task: AutonomousTask) => void;
+  /**
+   * Opens the edit form. Optional so surfaces that don't edit task definitions
+   * (e.g. admin oversight, which pauses/resumes instead) can omit it. When
+   * omitted and `onToggleEnabled` is provided, the row shows a Pause/Resume
+   * control in the Edit slot instead of a pencil.
+   */
+  onEdit?: (task: AutonomousTask) => void;
+  /**
+   * Pause/resume handler. When provided, the row renders a clear Pause (for an
+   * enabled task) / Resume (for a paused one) button in place of the Edit
+   * pencil — used by the admin oversight panel, where the action is toggling
+   * `enabled`, not editing the definition.
+   */
+  onToggleEnabled?: (task: AutonomousTask) => void;
   onDelete: (task: AutonomousTask) => void;
   onTrigger: (task: AutonomousTask) => void;
   /** ids that are currently being acted on (delete/trigger) — used to grey out buttons. */
@@ -44,6 +57,7 @@ export function TaskList({
   selectedTaskId,
   onSelect,
   onEdit,
+  onToggleEnabled,
   onDelete,
   onTrigger,
   busyIds,
@@ -227,19 +241,45 @@ export function TaskList({
                     <Play className="h-3.5 w-3.5" />
                     <span className="ml-1 text-xs">Run</span>
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEdit(task);
-                    }}
-                    disabled={isBusy}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    <span className="ml-1 text-xs">Edit</span>
-                  </Button>
+                  {/* Edit slot. `onToggleEnabled` (admin oversight) takes
+                      precedence and renders a clear Pause/Resume control;
+                      otherwise the pencil opens the edit form. */}
+                  {onToggleEnabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleEnabled(task);
+                      }}
+                      disabled={isBusy}
+                      title={task.enabled ? "Pause this task" : "Resume this task"}
+                    >
+                      {task.enabled ? (
+                        <Pause className="h-3.5 w-3.5" />
+                      ) : (
+                        <CirclePlay className="h-3.5 w-3.5" />
+                      )}
+                      <span className="ml-1 text-xs">{task.enabled ? "Pause" : "Resume"}</span>
+                    </Button>
+                  ) : (
+                    onEdit && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(task);
+                        }}
+                        disabled={isBusy}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        <span className="ml-1 text-xs">Edit</span>
+                      </Button>
+                    )
+                  )}
                   <Button
                     type="button"
                     variant="ghost"

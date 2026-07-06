@@ -149,6 +149,11 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "last_ack": ack_dump,
         "chat_conversation_id": conversation_id_for_task(task.id),
         "owner_id": task.owner_id,
+        # Owner's Keycloak subject (UUID). Exposed read-only so the admin
+        # oversight UI can join tasks to team members by stable subject rather
+        # than mutable email. Still never trusted as *input* (create/update
+        # scrub any client-supplied owner_sub).
+        "owner_sub": task.owner_sub,
     }
 
 

@@ -391,7 +391,7 @@ export function AppHeader() {
       Icon: Bot,
       activeClassName: "bg-purple-500 text-white shadow-sm",
     },
-    config.autonomousAgentsEnabled && {
+    config.autonomousAgentsEnabled && isAdmin && {
       key: "autonomous",
       href: "/autonomous",
       label: "Autonomous",

@@ -121,16 +121,12 @@ async function forward(
   }
 
   return await withAuth(request, async (_req, user, session) => {
-    // Optional "admins only" switch (AUTONOMOUS_AGENTS_ADMIN_ONLY=true). Lets
-    // operators turn the feature on platform-wide while restricting who can
-    // actually drive it. Enforced here at the BFF boundary -- the FastAPI
-    // service is not publicly reachable, so this proxy is the entry point.
-    // Group-level access stays the job of OpenFGA resource checks; this is
-    // just the coarse admin gate (see suwhang review on PR #1588).
-    if (getConfig('autonomousAgentsAdminOnly') && session.role !== 'admin') {
-      throw new ApiError('Autonomous agents are restricted to administrators', 403);
-    }
-
+    // This proxy is intentionally per-user: every authenticated caller may
+    // reach it, and the autonomous-agents backend enforces per-task ownership
+    // (`_assert_task_access`) — admins act on any task, non-admins only their
+    // own. The Piece-1 per-agent drawer relies on this per-user access, so the
+    // proxy must NOT be admin-gated. Admin-only oversight lives on a separate
+    // route (`/api/autonomous/oversight`) instead.
     const targetUrl = buildTargetUrl(request, pathSegments);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

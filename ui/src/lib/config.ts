@@ -154,15 +154,6 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether autonomous task scheduling and webhook automation is enabled */
   autonomousAgentsEnabled: boolean;
-  /**
-   * When true, only admin users may reach the autonomous-agents BFF proxy
-   * (task CRUD, run history, manual trigger). Lets operators enable the
-   * feature platform-wide while restricting who can actually use it.
-   * Group-level access is handled by OpenFGA resource checks; this flag is
-   * the simple "admins only" switch. Defaults to false (any authenticated
-   * user, gated per-task by ownership in the backend).
-   */
-  autonomousAgentsAdminOnly: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -269,7 +260,6 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   autonomousAgentsEnabled: false,
-  autonomousAgentsAdminOnly: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -407,7 +397,6 @@ export function getServerConfig(): Config {
   const autonomousAgentsFlag =
     env('ENABLE_AUTONOMOUS_AGENTS') ?? env('AUTONOMOUS_AGENTS_ENABLED');
   const autonomousAgentsEnabled = autonomousAgentsFlag === 'true';
-  const autonomousAgentsAdminOnly = env('AUTONOMOUS_AGENTS_ADMIN_ONLY') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -472,7 +461,6 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     autonomousAgentsEnabled,
-    autonomousAgentsAdminOnly,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,
