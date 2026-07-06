@@ -708,11 +708,12 @@ function IngestEventRow({
 }
 
 /** A concern/action promoted out of a private 1:1 chat (#91). Attributed to
- * whoever actually raised it (real avatar/name), but wrapped in a callout so
- * it doesn't read as "I typed this in the Feed myself" — it's a summary the
- * agent lifted out of a private conversation, not a message they posted
- * here directly. `content` is the agent- or user-authored summary, which may
- * cite `tome://` pages. */
+ * whoever actually raised it (real avatar/name), inside the same neutral
+ * card treatment as the other Feed rows (source/ingest events) — flat,
+ * bordered, `bg-muted/30` — with a small muted "promoted via Tome agent"
+ * tag as the only difference, so it doesn't read as "I typed this myself"
+ * without introducing a clashing accent color. `content` is the agent- or
+ * user-authored summary, which may cite `tome://` pages. */
 function PromotedActionRow({
   m,
   onOpenPage,
@@ -727,13 +728,13 @@ function PromotedActionRow({
     <div
       id={`feed-message-${m.id}`}
       className={cn(
-        "relative mt-4 rounded-xl border border-amber-300/60 bg-amber-50/60 py-3 pl-14 pr-3 transition-colors first:mt-0 dark:border-amber-500/20 dark:bg-amber-500/[0.04]",
-        highlighted && "border-primary/50 bg-primary/10 dark:bg-primary/10",
+        "relative mt-4 rounded-lg border bg-muted/30 py-3 pl-14 pr-3 transition-colors first:mt-0",
+        highlighted && "border-primary/50 bg-primary/10",
       )}
     >
       <div
         className={cn(
-          "absolute left-3 top-3 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white ring-2 ring-amber-400/70",
+          "absolute left-3 top-3 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white",
           isAgent ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "gradient-primary-br",
         )}
       >
@@ -751,7 +752,7 @@ function PromotedActionRow({
         )}
         <span
           title="Raised in a private 1:1 chat, promoted here for team visibility"
-          className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-400"
+          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"
         >
           <Megaphone className="h-3 w-3" />
           promoted via Tome agent

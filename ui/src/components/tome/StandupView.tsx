@@ -111,15 +111,15 @@ export function StandupView({ markdown, onNavigate, glossaryPreview, onStartInge
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-800/30 dark:bg-amber-950/10">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-500">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <AlertTriangle className="h-3.5 w-3.5" />
               Asks / Blockers
             </div>
             {s.blockers ? (
               <MarkdownRenderer
                 content={s.blockers}
-                variant="thinking"
+                variant="final"
                 onInternalLink={onNavigate}
                 glossaryPreview={glossaryPreview}
               />
@@ -128,15 +128,15 @@ export function StandupView({ markdown, onNavigate, glossaryPreview, onStartInge
             )}
           </div>
 
-          <div className="rounded-2xl border border-sky-300/60 bg-sky-50 p-4 dark:border-sky-800/30 dark:bg-sky-950/10">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-400">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <ArrowRight className="h-3.5 w-3.5" />
               Up Next
             </div>
             {s.upNext ? (
               <MarkdownRenderer
                 content={s.upNext}
-                variant="thinking"
+                variant="final"
                 onInternalLink={onNavigate}
                 glossaryPreview={glossaryPreview}
               />
