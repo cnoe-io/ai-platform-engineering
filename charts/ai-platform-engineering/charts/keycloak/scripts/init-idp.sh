@@ -470,9 +470,12 @@ _reconcile_cli_client() {
     AUTH="Authorization: Bearer ${_tok}"
   fi
 
-  # Build the desired client representation. Keycloak honours the
-  # defaultClientScopes/optionalClientScopes name arrays on both create
-  # and update, so we do not need to bind scopes via separate endpoints.
+  # Build the desired client representation. Keycloak binds the
+  # defaultClientScopes/optionalClientScopes name arrays only on CREATE
+  # (RepresentationToModel.createClient); updateClient does not re-bind
+  # scopes. That is safe here because caipe-cli's default scopes match
+  # the realm's defaultDefaultClientScopes, so an existing client keeps
+  # the right scopes without a separate scope-binding call.
   local DESIRED_JSON
   DESIRED_JSON=$(CLI_CLIENT_ID="${CLI_CLIENT_ID}" \
     CLI_REDIRECT_URIS="${CLI_REDIRECT_URIS}" \
