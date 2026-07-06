@@ -111,8 +111,8 @@ export function StandupView({ markdown, onNavigate, glossaryPreview, onStartInge
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-amber-800/30 bg-amber-950/10 p-4">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-500">
+          <div className="rounded-2xl border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-800/30 dark:bg-amber-950/10">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-500">
               <AlertTriangle className="h-3.5 w-3.5" />
               Asks / Blockers
             </div>
@@ -128,8 +128,8 @@ export function StandupView({ markdown, onNavigate, glossaryPreview, onStartInge
             )}
           </div>
 
-          <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-400">
+          <div className="rounded-2xl border border-sky-300/60 bg-sky-50 p-4 dark:border-sky-800/30 dark:bg-sky-950/10">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-400">
               <ArrowRight className="h-3.5 w-3.5" />
               Up Next
             </div>

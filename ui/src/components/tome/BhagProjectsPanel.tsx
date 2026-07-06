@@ -245,7 +245,7 @@ export function BhagProjectsPanel({
                 <div className="flex items-start justify-between gap-2">
                   <Link
                     href={`/projects/${p.slug}/tome`}
-                    className="font-medium leading-snug hover:text-violet-300"
+                    className="font-medium leading-snug hover:text-violet-600 dark:hover:text-violet-300"
                   >
                     {p.title}
                   </Link>

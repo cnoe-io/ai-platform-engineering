@@ -526,7 +526,7 @@ export function FeedPanel({
                       >
                         {initialsOf(m.display_name || m.sender_handle)}
                       </div>
-                      <div className="mb-0.5 flex items-baseline gap-2">
+                      <div className="mb-0.5 flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground">
                           {m.display_name || displayName(m.sender_handle)}
                         </span>
@@ -707,11 +707,12 @@ function IngestEventRow({
   );
 }
 
-/** A concern/action promoted out of a private 1:1 chat (#91). Renders as an
- * ordinary message bubble — same avatar/name/timestamp as conversation —
- * attributed to whoever actually promoted it, with a small "promoted" tag
- * as the only visual difference. `content` is the agent- or user-authored
- * summary, which may cite `tome://` pages. */
+/** A concern/action promoted out of a private 1:1 chat (#91). Attributed to
+ * whoever actually raised it (real avatar/name), but wrapped in a callout so
+ * it doesn't read as "I typed this in the Feed myself" — it's a summary the
+ * agent lifted out of a private conversation, not a message they posted
+ * here directly. `content` is the agent- or user-authored summary, which may
+ * cite `tome://` pages. */
 function PromotedActionRow({
   m,
   onOpenPage,
@@ -725,17 +726,20 @@ function PromotedActionRow({
   return (
     <div
       id={`feed-message-${m.id}`}
-      className={cn("relative mt-4 rounded-lg pl-12 transition-colors first:mt-0", highlighted && "bg-primary/10")}
+      className={cn(
+        "relative mt-4 rounded-xl border border-amber-300/60 bg-amber-50/60 py-3 pl-14 pr-3 transition-colors first:mt-0 dark:border-amber-500/20 dark:bg-amber-500/[0.04]",
+        highlighted && "border-primary/50 bg-primary/10 dark:bg-primary/10",
+      )}
     >
       <div
         className={cn(
-          "absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white",
+          "absolute left-3 top-3 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white ring-2 ring-amber-400/70",
           isAgent ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "gradient-primary-br",
         )}
       >
         {initialsOf(m.display_name || m.sender_handle)}
       </div>
-      <div className="mb-0.5 flex items-baseline gap-2">
+      <div className="mb-0.5 flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-foreground">
           {m.display_name || displayName(m.sender_handle)}
         </span>
@@ -745,9 +749,12 @@ function PromotedActionRow({
             agent
           </span>
         )}
-        <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-500">
+        <span
+          title="Raised in a private 1:1 chat, promoted here for team visibility"
+          className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-400"
+        >
           <Megaphone className="h-3 w-3" />
-          promoted
+          promoted via Tome agent
         </span>
         <span className="text-[11px] text-muted-foreground">{timeLabel(m.created_at)}</span>
       </div>
