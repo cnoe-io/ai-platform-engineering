@@ -33,7 +33,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { normLabel } from "@/lib/projects/labels";
+import { cn } from "@/lib/utils";
 import type { ProjectDocument } from "@/types/projects";
+import type { ActiveIngestRun } from "@/types/tome";
 
 type GroupBy = "none" | "initiative" | "swimlane";
 
@@ -41,10 +43,91 @@ type GroupBy = "none" | "initiative" | "swimlane";
 // across the hub and any project's wiki.
 const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
+// Silent background refresh so the active-ingest indicator clears/updates
+// without a "Loading projects…" flicker on every tick.
+const ACTIVE_INGEST_POLL_MS = 15_000;
+
 type EnrichedProject = ProjectDocument & {
   page_count?: number | null;
   last_ingested_at?: string | Date | null;
+  active_ingests?: ActiveIngestRun[];
 };
+
+function elapsedLabel(since: string | Date | null | undefined): string {
+  if (!since) return "just started";
+  const ms = Date.now() - new Date(since).getTime();
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return "just started";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function modeLabel(mode: ActiveIngestRun["mode"]): string {
+  return mode === "bhag_rollup" ? "BHAG roll-up" : "Ingest";
+}
+
+/** Small pulsing dot used both on the hub header pill and per-card badge. */
+function PulseDot({ className }: { className?: string }) {
+  return (
+    <span className={cn("relative flex h-2 w-2 shrink-0", className)}>
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+    </span>
+  );
+}
+
+/** Hub-level indicator: lights up when any visible project has an in-flight
+ * ingest/roll-up run, with a hovercard listing them. Data comes from the
+ * `active_ingests` aggregate already on the projects payload — no extra
+ * per-project polling. */
+function ActiveIngestsIndicator({ runs }: { runs: ActiveIngestRun[] }) {
+  const [open, setOpen] = useState(false);
+  if (runs.length === 0) return null;
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-xs font-medium text-emerald-300">
+        <PulseDot />
+        {runs.length} {runs.length === 1 ? "run" : "runs"} in progress
+      </span>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-lg">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Active runs
+          </p>
+          <ul className="space-y-2">
+            {runs.map((r, i) => (
+              <li key={i} className="flex items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{r.project_title}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {modeLabel(r.mode)} ·{" "}
+                    {r.status === "running" ? elapsedLabel(r.started_at) : "waiting to start"}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                    r.status === "running"
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {r.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface OnboardingHeroConfig {
   title: string;
@@ -118,6 +201,7 @@ function groupProjects(
 
 function ProjectCard({ project }: { project: EnrichedProject }) {
   const freshness = freshnessLabel(project.last_ingested_at);
+  const activeRun = project.active_ingests?.[0];
   const repoCount = project.sources?.repos?.length ?? 0;
   const webexCount = project.sources?.webex_rooms?.length ?? 0;
   const confluenceCount = (project.sources?.confluence_spaces?.length ?? 0) ||
@@ -133,15 +217,32 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
     >
       <div className="flex items-start justify-between gap-3">
         <h3 className="font-semibold leading-snug group-hover:text-primary">{project.title}</h3>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className={`inline-flex shrink-0 items-center gap-1 text-[11px] ${freshness.className}`}>
-              <History className="h-3 w-3" />
-              {freshness.text}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{freshness.tooltip}</TooltipContent>
-        </Tooltip>
+        {activeRun ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-400">
+                <PulseDot />
+                {activeRun.status === "running" ? "Ingesting" : "Queued"}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {modeLabel(activeRun.mode)}{" "}
+              {activeRun.status === "running"
+                ? `running for ${elapsedLabel(activeRun.started_at)}`
+                : "queued, waiting to start"}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={`inline-flex shrink-0 items-center gap-1 text-[11px] ${freshness.className}`}>
+                <History className="h-3 w-3" />
+                {freshness.text}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{freshness.tooltip}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground/40">{project.team_name}</p>
 
@@ -354,9 +455,12 @@ export function ProjectsHub() {
     router.replace(`/projects?${params.toString()}`);
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       // Real projects (BHAGs are filtered out server-side) and BHAG entities are
       // fetched separately; BHAGs enrich the Group-by-BHAG headers rather than
@@ -373,9 +477,9 @@ export function ProjectsHub() {
         setBhags((bhagBody.data?.projects ?? []) as EnrichedProject[]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!silent) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -418,6 +522,13 @@ export function ProjectsHub() {
     void load();
   }, [load]);
 
+  // Keep the active-ingest indicator live without re-triggering the loading
+  // state on every tick.
+  useEffect(() => {
+    const id = setInterval(() => void load({ silent: true }), ACTIVE_INGEST_POLL_MS);
+    return () => clearInterval(id);
+  }, [load]);
+
   useEffect(() => {
     fetch("/api/projects/onboarding-config")
       .then((res) => res.json())
@@ -447,6 +558,7 @@ export function ProjectsHub() {
   }, []);
 
   const groups = groupProjects(projects, groupBy);
+  const activeIngests = projects.flatMap((p) => p.active_ingests ?? []);
 
   return (
     <div className="mx-auto max-w-6xl space-y-10 p-6">
@@ -486,11 +598,14 @@ export function ProjectsHub() {
 
       <section className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">
-            {loading
-              ? "Your projects"
-              : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold">
+              {loading
+                ? "Your projects"
+                : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
+            </h2>
+            <ActiveIngestsIndicator runs={activeIngests} />
+          </div>
           <div className="flex items-center gap-2">
             <TooltipProvider>
               <Tooltip>

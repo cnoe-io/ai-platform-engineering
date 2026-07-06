@@ -147,6 +147,16 @@ export interface IngestRun {
   usage?: { output: number; input: number };
 }
 
+/** One in-flight run, as surfaced on the projects hub (GET /api/projects). */
+export interface ActiveIngestRun {
+  status: "queued" | "running";
+  mode: "ingest" | "bhag_rollup";
+  started_at: Date | null;
+  queued_at: Date | null;
+  project_slug: string;
+  project_title: string;
+}
+
 export interface ChatSession {
   _id?: string;
   project_id: string;
