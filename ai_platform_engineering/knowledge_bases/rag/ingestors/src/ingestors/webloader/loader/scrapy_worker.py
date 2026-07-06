@@ -58,7 +58,7 @@ class SSRFProtectionMiddleware:
   def process_request(self, request: Request, spider):
     # assisted-by claude code claude-sonnet-4-6
     is_safe, reason = is_publicly_routable_url(request.url)
-    if is_safe:
+    if is_safe or getattr(spider, "allow_non_public_urls", False):
       return None
 
     error_msg = f"Blocked unsafe crawl URL because it must resolve only to publicly routable IP addresses ({reason}): {request.url}"
@@ -97,6 +97,7 @@ class WorkerSpider(Spider):
     self.follow_external = request.follow_external_links
     self.allowed_patterns = request.allowed_url_patterns or []
     self.denied_patterns = request.denied_url_patterns or []
+    self.allow_non_public_urls = request.allow_non_public_urls or False
 
     # Track the effective domain (may change after redirect for sitemap mode)
     self.effective_domain: str | None = None
@@ -207,7 +208,7 @@ class WorkerSpider(Spider):
       return True
 
     is_safe, reason = is_publicly_routable_url(url)
-    if is_safe:
+    if is_safe or self.allow_non_public_urls:
       return True
 
     error_msg = f"Blocked unsafe crawl URL because it must resolve only to publicly routable IP addresses ({reason}): {url}"
