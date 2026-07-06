@@ -207,6 +207,18 @@ function handleCopyClick(e: MouseEvent) {
 // Parse markdown to sanitized HTML
 // ═══════════════════════════════════════════════════════════════
 
+/** Lightweight inline-only markdown — bold, italics, inline code, links.
+ * No block elements (headings, lists, tables); for compact surfaces like the
+ * glossary hovercard where a full block render would be overkill. */
+export function renderInlineMarkdown(text: string): string {
+  try {
+    const raw = mdFast.parseInline(text) as string;
+    return sanitize(raw);
+  } catch {
+    return sanitize(escapeHtml(text));
+  }
+}
+
 async function parseMarkdown(content: string, streaming: boolean): Promise<string> {
   const src = streaming ? remend(content, { linkMode: "text-only" }) : content;
   try {
@@ -400,7 +412,8 @@ export function MarkdownRenderer({
           head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
           const def = document.createElement("div");
           def.className = "tome-glossary-card-def";
-          def.textContent = p.definition || "No definition yet.";
+          if (p.definition) def.innerHTML = renderInlineMarkdown(p.definition);
+          else def.textContent = "No definition yet.";
           c.append(head, def);
         });
       const renderUnresolved = (anchor: HTMLAnchorElement) =>

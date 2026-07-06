@@ -1068,6 +1068,25 @@ pre code.hljs {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.tome-glossary-card-def strong {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.tome-glossary-card-def em {
+  font-style: italic;
+}
+.tome-glossary-card-def code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+}
+.tome-glossary-card-def a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.4);
+}
 
 /* Dangling glossary reference: resolves to nothing (wrong project or missing
    term). Distinct from a healthy term — muted, wavy amber underline. */
