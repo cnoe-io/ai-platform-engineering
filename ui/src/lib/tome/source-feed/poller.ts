@@ -5,8 +5,9 @@
 // (no request session exists here — same off-request trick the ingest queue
 // uses via resolveCredentialsForSub), fetches curated activity deltas since the
 // last cursor, and emits them into the project's Mycelium room as `event`
-// messages (kind `source_event`, with a TTL). The Talk "Feed" view is then a
-// server-side `?kind=source_event` filter over the room.
+// messages (kind `source_event`, with a TTL), rendered inline in the
+// project's Feed alongside conversation, ingest-lifecycle events, and
+// promoted actions — all typed `event` messages in the same room.
 //
 // Opt-in: only runs when TOME_SOURCE_FEED_ENABLED=true. Replica-safe (each
 // project's poll is claimed atomically per interval). Failures on one project

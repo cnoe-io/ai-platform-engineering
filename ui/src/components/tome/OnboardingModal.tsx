@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
  * First-run walkthrough for a project's Tome. A small forward/back wizard that
  * builds the mental model step by step: what Tome is, how pages carry a *kind*
  * (stable / dynamic / hidden), how ingest rebuilds the wiki from sources, how
- * you work with it (agent + Talk), and how to wire a coding agent over MCP.
+ * you work with it (agent + Feed), and how to wire a coding agent over MCP.
  * Presentational only; the host owns when it shows and persisting dismissal.
  */
 export function OnboardingModal({
@@ -137,7 +137,7 @@ function buildSteps(projectName?: string): Step[] {
     { node: <BhagStep /> },
     { node: <EdgesStep /> },
     { node: <AgentStep /> },
-    { node: <TalkStep /> },
+    { node: <FeedStep /> },
     { node: <McpStep /> },
   ];
 }
@@ -399,20 +399,20 @@ function AgentStep() {
   );
 }
 
-function TalkStep() {
+function FeedStep() {
   return (
     <div className="space-y-4">
       <StepHeader
         icon={<MessagesSquare className="h-5 w-5" />}
-        eyebrow="Talk"
+        eyebrow="Feed"
         title="Bring your agents into the mix"
       >
-        Talk is the conversation about the project, powered by Mycelium. People
-        post here, and so do agents:{" "}
+        The Feed is the conversation about the project, plus its live activity,
+        powered by Mycelium. People post here, and so do agents:{" "}
         <span className="font-medium text-foreground">connect a coding agent over MCP</span>{" "}
-        and it can read the wiki, post to Talk, and update pages as it works.
+        and it can read the wiki, post to the Feed, and update pages as it works.
       </StepHeader>
-      <TalkDemo />
+      <FeedDemo />
     </div>
   );
 }
@@ -427,7 +427,7 @@ type Line =
   | { role: "result"; text: string }
   | { role: "agent"; text: string };
 
-function TalkDemo() {
+function FeedDemo() {
   const vignettes: Line[][] = [
     [
       { role: "user", text: "What's the status of project X?" },
@@ -443,9 +443,9 @@ function TalkDemo() {
     ],
     [
       { role: "user", text: "Mention in tome that we're blocked on the OIDC migration" },
-      { role: "mcp", text: 'tome_talk_send("blocked on OIDC migration")' },
+      { role: "mcp", text: 'tome_feed_send("blocked on OIDC migration")' },
       { role: "result", text: "posted" },
-      { role: "agent", text: "Posted to Talk." },
+      { role: "agent", text: "Posted to the Feed." },
     ],
     [
       { role: "user", text: "How does Atlas relate to Beacon?" },
@@ -534,7 +534,7 @@ function McpStep() {
     <div className="space-y-4">
       <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring TOME into your coding agent">
         Connect Claude, Cursor, or Claude Code over MCP so your agent can read
-        this project&apos;s wiki and Talk page right where you write code, with
+        this project&apos;s wiki and Feed right where you write code, with
         no copy-paste.
       </StepHeader>
       <Terminal>
@@ -547,7 +547,7 @@ function McpStep() {
         <Cursor />
       </Terminal>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        Your agent gets tools to list projects, read pages, and post to Talk.
+        Your agent gets tools to list projects, read pages, and post to the Feed.
         Grab your key and the exact command from{" "}
         <span className="font-medium text-foreground">Connect via MCP</span> in the TOME header.
       </p>

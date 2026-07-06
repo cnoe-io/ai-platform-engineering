@@ -33,6 +33,7 @@ import {
 import { parseFrontmatter, stableSeedTemplates } from "./schema";
 import { injectCharterIntro } from "./seed";
 import { auditTome } from "./audit";
+import { isMyceliumConfigured, postEvent } from "./mycelium";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
 import type { IngestDispatch, IngestRun, Report } from "@/types/tome";
@@ -396,7 +397,9 @@ async function appendLog(runId: string, line: string): Promise<void> {
  * carries the triggering `sub`; the project gives the slug for the resource
  * ref. Never throws — auditing must not affect the run. The `endpoint` in
  * metadata distinguishes ingest vs synthesize vs compact (they share this
- * lifecycle). */
+ * lifecycle). Also mirrors the transition into the project's Feed as an
+ * `ingest_event`, same mechanism the source-activity feed uses, so ingest
+ * state shows up alongside GitHub/Confluence/Webex activity. */
 async function auditRunLifecycle(
   runId: string,
   action: "tome.ingest.started" | "tome.ingest.finished" | "tome.ingest.failed",
@@ -423,6 +426,30 @@ async function auditRunLifecycle(
         ...extra,
       },
     });
+
+    if (project?.slug && isMyceliumConfigured()) {
+      const mode = run.dispatch?.endpoint === "/synthesize" ? "bhag_rollup" : "ingest";
+      const label = mode === "bhag_rollup" ? "Synthesize" : "Ingest";
+      const status =
+        action === "tome.ingest.started"
+          ? "running"
+          : action === "tome.ingest.finished"
+            ? "succeeded"
+            : "failed";
+      const content =
+        status === "running"
+          ? `${label} started`
+          : status === "succeeded"
+            ? `${label} completed`
+            : `${label} failed: ${String(extra?.error ?? "unknown error")}`;
+      await postEvent(project.slug, {
+        sender_handle: "tome",
+        content,
+        kind: "ingest_event",
+        payload: { run_id: runId, mode, status },
+        ttl_seconds: 60 * 60 * 24 * 7, // a week — ephemeral like source events
+      });
+    }
   } catch (e) {
     console.warn(`auditRunLifecycle(${runId}, ${action}) failed`, e);
   }

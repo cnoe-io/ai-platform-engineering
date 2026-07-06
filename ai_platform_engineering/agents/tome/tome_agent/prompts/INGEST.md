@@ -80,12 +80,12 @@ information, and a stable wiki is a feature, not a failure.
   rooms. Also meeting tools: `webex_meetings_list_meetings()`, transcripts, summaries.
 - Confluence (`mcp__confluence__*`): `confluence_get_pages(space_key)` (newest
   edited first), then `confluence_get_page_content(page_id)` for bodies.
-- Talk page (`mcp__mycelium__talk_read_messages`, when available): the
-  conversation *about* this project — decisions, open questions, what people and
-  agents are saying. Read it to inform the wiki: fold relevant decisions and
-  themes into the right pages. It is discussion, not a source of record — weave
-  it in, don't transcribe it, and let the GitHub/Confluence/Webex evidence win
-  on facts.
+- Feed (`mcp__mycelium__feed_read_messages`, when available): the
+  conversation *about* this project, plus its live activity — decisions, open
+  questions, what people and agents are saying. Read it to inform the wiki:
+  fold relevant decisions and themes into the right pages. It is discussion,
+  not a source of record — weave it in, don't transcribe it, and let the
+  GitHub/Confluence/Webex evidence win on facts.
 - Other Projects (`mcp__tome__list_projects`, `list_project_pages`,
   `read_project_page`): your Read/Glob tools only see this project's own
   working copy. Use these three read-only tools to look outside it — required
@@ -286,7 +286,7 @@ Field rules:
   on, transition or retire it rather than leaving a stale claim standing.
 
 **When to create one:** only when research surfaces a *concrete*,
-evidence-backed relationship to another named project — a Talk-page mention,
+evidence-backed relationship to another named project — a Feed mention,
 a linked issue, a dependency called out in a README — AND you've confirmed the
 target side with `list_project_pages`/`read_project_page`. Don't manufacture
 edges from speculation, and don't create one just because two projects share a

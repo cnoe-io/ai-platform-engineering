@@ -8,7 +8,7 @@ Tome is the wiki/projects feature running as a second dev instance on **port 330
 |---|---|
 | UI dev server | 33000 |
 | Tome agent backend | 9500 |
-| Mycelium hub (Talk page) | 9510 |
+| Mycelium hub (Feed) | 9510 |
 | Keycloak | 17080 |
 | OpenFGA | 28080 |
 | MongoDB | 27117 |
@@ -67,7 +67,7 @@ Open [http://localhost:33000](http://localhost:33000). Log in with Keycloak loca
 ## 3. Tome agent + Mycelium (now in the Docker stack)
 
 The **Tome agent** (LLM chat/ingest for the wiki) and the **Mycelium hub**
-(backing the Talk page) come up with the Docker stack in step 1 — no manual
+(backing the Feed) come up with the Docker stack in step 1 — no manual
 uvicorn step. The stack builds `tome-agent` from
 `ai_platform_engineering/agents/tome` and publishes:
 
@@ -98,7 +98,7 @@ docker compose -f docker-compose.tome.yaml ps
 # Tome agent
 curl http://localhost:9500/healthz
 
-# Mycelium hub (Talk page)
+# Mycelium hub (Feed)
 curl http://localhost:9510/health
 
 # UI

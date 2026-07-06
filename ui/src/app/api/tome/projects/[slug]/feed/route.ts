@@ -1,7 +1,11 @@
-// Tome "Talk page": the project's conversation, backed by a Mycelium room.
+// Tome "Feed": the project's conversation plus its live activity (source
+// events, ingest runs, promoted actions), backed by one Mycelium room.
 //
-//   GET  /api/tome/projects/[slug]/talk        → { messages, total }
-//   POST /api/tome/projects/[slug]/talk { message } → { message }
+//   GET  /api/tome/projects/[slug]/feed        → { messages, total }
+//   POST /api/tome/projects/[slug]/feed { message } → { message }
+//   POST /api/tome/projects/[slug]/feed { message, kind, payload } →
+//     a typed `event` message (e.g. a promoted action, #91) instead of plain
+//     chat — same mechanism the source-activity feed and ingest lifecycle use.
 //
 // Auth happens here (loadTomeProject = feature gate + project resolution +
 // identity). The Mycelium backend is unauthenticated and internal-only; this
@@ -12,7 +16,7 @@ import { NextRequest } from "next/server";
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
-import { isMyceliumConfigured, listMessages, sendMessage } from "@/lib/tome/mycelium";
+import { isMyceliumConfigured, listMessages, postEvent, sendMessage } from "@/lib/tome/mycelium";
 import type { MyceliumMessage } from "@/lib/tome/mycelium";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 
@@ -86,14 +90,18 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   ensureConfigured();
 
-  const body = (await request.json().catch(() => ({}))) as { message?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    message?: string;
+    kind?: string;
+    payload?: Record<string, unknown>;
+  };
   if (!body.message || typeof body.message !== "string" || !body.message.trim()) {
     throw new ApiError("`message` (string) is required", 400, "BAD_REQUEST");
   }
 
   const sender = tctx.user.email || "unknown";
   // Distinguish who actually posted: the web UI authenticates with a session
-  // cookie, while the MCP (tome_talk_send) forwards an `Authorization: Bearer`
+  // cookie, while the MCP (tome_feed_send) forwards an `Authorization: Bearer`
   // token. A Bearer here means the message came from an agent acting as the
   // user, not the user typing in the UI. Encode it in `message_type`.
   //
@@ -103,6 +111,28 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   // In a Tome room only humans and agents post, so "announce" unambiguously
   // means "posted by an agent".
   const viaBearer = (request.headers.get("Authorization") || "").startsWith("Bearer ");
+
+  // A `kind` turns this into a typed `event` message (promoted action,
+  // etc.) instead of plain chat — same mechanism the source-activity feed
+  // and ingest lifecycle already use.
+  if (body.kind) {
+    const message = await postEvent(slug, {
+      sender_handle: sender,
+      content: body.message.trim(),
+      kind: body.kind,
+      payload: body.payload,
+    });
+
+    auditTome({
+      action: "tome.feed.promote",
+      actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+      projectSlug: slug,
+      metadata: { kind: body.kind, via: viaBearer ? "agent" : "web" },
+    });
+
+    return successResponse({ message }, 201);
+  }
+
   const message = await sendMessage(slug, {
     sender_handle: sender,
     content: body.message.trim(),
@@ -110,7 +140,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   });
 
   auditTome({
-    action: "tome.talk.post",
+    action: "tome.feed.post",
     actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
     projectSlug: slug,
     metadata: { via: viaBearer ? "agent" : "web" },

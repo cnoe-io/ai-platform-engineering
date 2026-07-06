@@ -5,11 +5,15 @@ import {
   ArrowUp,
   ArrowUpRight,
   Bot,
+  CircleCheck,
   CircleDot,
+  CircleX,
   GitCommit,
   GitPullRequest,
   Loader2,
+  Megaphone,
   MessagesSquare,
+  RefreshCw,
   Rss,
   Tag,
   User,
@@ -27,10 +31,12 @@ import { MarkdownRenderer } from "@/components/shared/timeline";
 import { cn } from "@/lib/utils";
 
 /**
- * The project's "Talk page", the conversation ABOUT the project, backed by a
- * Mycelium room (one room per project). The wiki holds the context; this holds
- * the discussion. Messages are attributed to the CAIPE-authenticated user;
- * agents posting via the MCP show up here under their own identity too.
+ * The project's Feed: conversation ABOUT the project plus live activity
+ * (source events, ingest runs, promoted actions), all backed by one Mycelium
+ * room (one room per project). The wiki holds the context; this holds the
+ * discussion and the signal around it. Messages are attributed to the
+ * CAIPE-authenticated user; agents posting via the MCP show up here under
+ * their own identity too.
  *
  * Reverse infinite scroll: the newest page loads first (pinned to the bottom);
  * scrolling up loads older pages and anchors the viewport so it doesn't jump.
@@ -38,7 +44,7 @@ import { cn } from "@/lib/utils";
  * newest-first with limit/offset; we hold them ascending for display.
  */
 
-interface TalkMessage {
+interface FeedMessage {
   id: string;
   sender_handle: string;
   recipient_handle: string | null;
@@ -47,6 +53,14 @@ interface TalkMessage {
   created_at: string;
   display_name?: string | null;
   metadata?: Record<string, unknown> | null;
+}
+
+/** Any typed `event` message's kind + payload, before we know which one. */
+function feedEventMeta(m: FeedMessage): { kind: string; payload?: Record<string, unknown> } | null {
+  if (m.message_type !== "event") return null;
+  const md = m.metadata as { kind?: string; payload?: Record<string, unknown> } | null | undefined;
+  if (!md?.kind) return null;
+  return { kind: md.kind, payload: md.payload };
 }
 
 /** The asset an event concerns (mirrors the producer's SourceArtifact). */
@@ -64,12 +78,12 @@ interface SourceEventPayload {
   ts?: string;
 }
 
-/** Extract the source-event payload from a message, or null if it isn't one. */
-function sourceEventPayload(m: TalkMessage): SourceEventPayload | null {
-  if (m.message_type !== "event") return null;
-  const md = m.metadata as { kind?: string; payload?: SourceEventPayload } | null | undefined;
-  if (!md || md.kind !== "source_event") return null;
-  return md.payload ?? {};
+/** Payload carried by an `ingest_event` feed item — an ingest/synthesize run's
+ * lifecycle transition, emitted the same way source events are. */
+interface IngestEventPayload {
+  run_id?: string;
+  mode?: "ingest" | "bhag_rollup";
+  status?: "running" | "succeeded" | "failed";
 }
 
 /** "View" button label per asset type. Keyed off the typed `artifact`
@@ -91,6 +105,13 @@ const ARTIFACT_ICON: Record<SourceArtifact, typeof GitPullRequest> = {
   issue: CircleDot,
   release: Tag,
   commit: GitCommit,
+};
+
+/** Icon per ingest-run status. */
+const INGEST_ICON: Record<NonNullable<IngestEventPayload["status"]>, typeof RefreshCw> = {
+  running: RefreshCw,
+  succeeded: CircleCheck,
+  failed: CircleX,
 };
 
 /** Compact relative time, e.g. "just now", "2h ago", "3d ago". */
@@ -144,15 +165,18 @@ interface Participant {
   isAgent: boolean;
 }
 
-export function TalkPanel({
+export function FeedPanel({
   slug,
   onOpenPage,
+  onOpenIngestRun,
 }: {
   slug: string;
   /** Navigate to a wiki page when an internal `tome://` link is clicked. */
   onOpenPage?: (path: string) => void;
+  /** Navigate to an ingest run's detail view from an `ingest_event` row. */
+  onOpenIngestRun?: (runId: string) => void;
 }) {
-  const [messages, setMessages] = useState<TalkMessage[]>([]);
+  const [messages, setMessages] = useState<FeedMessage[]>([]);
   // Mycelium's `total` is just the returned-page size, not a grand total, so we
   // can't use it for hasMore. Instead we stop paging when an older fetch returns
   // a short page (fewer than PAGE) or yields no new ids.
@@ -171,7 +195,7 @@ export function TalkPanel({
   // Whether to pin to the bottom after the next render (new message + at bottom).
   const stickBottomRef = useRef(true);
   // First visit to the panel should land on the newest message. Resets on
-  // remount (i.e. each time the Talk view is opened).
+  // remount (i.e. each time the Feed view is opened).
   const initialScrollRef = useRef(false);
 
   const hasMore = !reachedStart;
@@ -181,7 +205,7 @@ export function TalkPanel({
   const participants = useMemo<Participant[]>(() => {
     const byHandle = new Map<string, Participant>();
     for (const m of messages) {
-      // Source-activity events aren't conversation participants.
+      // Activity events aren't conversation participants.
       if (m.message_type === "event") continue;
       if (byHandle.has(m.sender_handle)) continue;
       byHandle.set(m.sender_handle, {
@@ -196,7 +220,7 @@ export function TalkPanel({
     );
   }, [messages]);
 
-  const merge = useCallback((batch: TalkMessage[]) => {
+  const merge = useCallback((batch: FeedMessage[]) => {
     setMessages((prev) => {
       const byId = new Map(prev.map((m) => [m.id, m]));
       for (const m of batch) byId.set(m.id, m);
@@ -207,8 +231,8 @@ export function TalkPanel({
   }, []);
 
   const fetchPage = useCallback(
-    async (offset: number): Promise<{ messages: TalkMessage[]; total: number } | null> => {
-      const res = await fetch(`/api/tome/projects/${slug}/talk?limit=${PAGE}&offset=${offset}`, {
+    async (offset: number): Promise<{ messages: FeedMessage[]; total: number } | null> => {
+      const res = await fetch(`/api/tome/projects/${slug}/feed?limit=${PAGE}&offset=${offset}`, {
         cache: "no-store",
       });
       if (res.status === 503) {
@@ -218,7 +242,7 @@ export function TalkPanel({
       if (!res.ok) throw new Error(`Failed to load messages (${res.status})`);
       const body = await res.json();
       return {
-        messages: (body?.data?.messages ?? body?.messages ?? []) as TalkMessage[],
+        messages: (body?.data?.messages ?? body?.messages ?? []) as FeedMessage[],
         total: (body?.data?.total ?? body?.total ?? 0) as number,
       };
     },
@@ -324,7 +348,7 @@ export function TalkPanel({
     setSending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tome/projects/${slug}/talk`, {
+      const res = await fetch(`/api/tome/projects/${slug}/feed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -348,7 +372,7 @@ export function TalkPanel({
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md text-center text-sm text-muted-foreground">
           <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-50" />
-          The Talk page isn’t configured on this deployment.
+          The Feed isn’t configured on this deployment.
           <div className="mt-1 text-xs">
             Set <code>MYCELIUM_URL</code> to enable it.
           </div>
@@ -377,27 +401,42 @@ export function TalkPanel({
             </p>
           )}
           {loading && messages.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading the feed…</p>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                 <MessagesSquare className="h-6 w-6 text-primary" />
               </div>
-              <h2 className="text-lg font-semibold">Talk about {slug}</h2>
+              <h2 className="text-lg font-semibold">The {slug} feed</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                The project&apos;s talk page: discussion about{" "}
-                <span className="font-medium">{slug}</span>, powered by Mycelium. People and
-                agents post decisions, questions, and updates here. The wiki holds the durable
-                context; this holds the conversation that shapes it.
+                Conversation about <span className="font-medium">{slug}</span>, plus its live
+                activity, powered by Mycelium. People and agents post decisions, questions, and
+                updates; source activity and ingest runs show up here too. The wiki holds the
+                durable context; this holds the conversation and signal around it.
               </p>
             </div>
           ) : (
             messages.map((m, i) => {
-              // Source-activity events render as a distinct full-width bar
-              // interleaved in the stream, not a chat bubble.
-              if (sourceEventPayload(m)) {
-                return <SourceEventRow key={m.id} m={m} />;
+              const evt = feedEventMeta(m);
+              // Activity events render as a distinct full-width bar interleaved
+              // in the stream, not a chat bubble.
+              if (evt?.kind === "source_event") {
+                return <SourceEventRow key={m.id} m={m} payload={(evt.payload ?? {}) as SourceEventPayload} />;
               }
+              if (evt?.kind === "ingest_event") {
+                return (
+                  <IngestEventRow
+                    key={m.id}
+                    m={m}
+                    payload={(evt.payload ?? {}) as IngestEventPayload}
+                    onOpenIngestRun={onOpenIngestRun}
+                  />
+                );
+              }
+              if (evt?.kind === "promoted_action") {
+                return <PromotedActionRow key={m.id} m={m} onOpenPage={onOpenPage} />;
+              }
+              if (evt) return null; // unrecognized event kind — skip rather than mis-render
               const prev = i > 0 ? messages[i - 1] : null;
               // Posted via the MCP (agent acting as the user) vs typed in the UI.
               // Agents post with message_type "announce" (the only valid
@@ -480,7 +519,7 @@ export function TalkPanel({
             }}
             minRows={1}
             maxRows={10}
-            placeholder="Message the talk page…"
+            placeholder="Message the feed…"
             className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
           <Button
@@ -518,10 +557,9 @@ export function TalkPanel({
  * asset" button on the right. Distinct from chat bubbles so machine feed reads
  * as feed, not conversation.
  */
-function SourceEventRow({ m }: { m: TalkMessage }) {
-  const p = sourceEventPayload(m) ?? {};
-  const Icon = p.artifact ? ARTIFACT_ICON[p.artifact] : Rss;
-  const sub = [p.actor ? `@${p.actor}` : null, p.repo, relativeTime(p.ts || m.created_at)]
+function SourceEventRow({ m, payload }: { m: FeedMessage; payload: SourceEventPayload }) {
+  const Icon = payload.artifact ? ARTIFACT_ICON[payload.artifact] : Rss;
+  const sub = [payload.actor ? `@${payload.actor}` : null, payload.repo, relativeTime(payload.ts || m.created_at)]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -532,17 +570,87 @@ function SourceEventRow({ m }: { m: TalkMessage }) {
           <p className="truncate text-sm text-foreground/90">{m.content}</p>
           {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
         </div>
-        {p.url && (
+        {payload.url && (
           <a
-            href={p.url}
+            href={payload.url}
             target="_blank"
             rel="noreferrer"
             className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-foreground/80 transition hover:bg-background hover:text-foreground"
           >
-            {viewLabel(p.artifact)}
+            {viewLabel(payload.artifact)}
             <ArrowUpRight className="h-3.5 w-3.5" />
           </a>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** An ingest/synthesize run's lifecycle transition, same bar treatment as a
+ * source event — "View run" jumps to the run's live/finished log. */
+function IngestEventRow({
+  m,
+  payload,
+  onOpenIngestRun,
+}: {
+  m: FeedMessage;
+  payload: IngestEventPayload;
+  onOpenIngestRun?: (runId: string) => void;
+}) {
+  const status = payload.status ?? "running";
+  const Icon = INGEST_ICON[status];
+  const tone =
+    status === "failed"
+      ? "text-destructive"
+      : status === "succeeded"
+        ? "text-emerald-500"
+        : "text-muted-foreground";
+  const sub = [payload.mode === "bhag_rollup" ? "Synthesize" : "Ingest", relativeTime(m.created_at)]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="mt-2 first:mt-0">
+      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+        <Icon className={cn("h-4 w-4 shrink-0", tone, status === "running" && "animate-spin")} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-foreground/90">{m.content}</p>
+          {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
+        </div>
+        {payload.run_id && onOpenIngestRun && (
+          <button
+            type="button"
+            onClick={() => onOpenIngestRun(payload.run_id!)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-foreground/80 transition hover:bg-background hover:text-foreground"
+          >
+            View run
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A concern/action promoted out of a private 1:1 chat (#91) — highlighted so
+ * it reads as deliberately raised, not ordinary conversation. `content` is
+ * the agent- or user-authored summary, which may cite `tome://` pages. */
+function PromotedActionRow({
+  m,
+  onOpenPage,
+}: {
+  m: FeedMessage;
+  onOpenPage?: (path: string) => void;
+}) {
+  return (
+    <div className="mt-2 first:mt-0">
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-500">
+          <Megaphone className="h-3.5 w-3.5" />
+          Promoted from a 1:1
+        </div>
+        <div className="text-sm text-foreground/90">
+          <MarkdownRenderer content={m.content} variant="thinking" onInternalLink={onOpenPage} />
+        </div>
       </div>
     </div>
   );

@@ -36,7 +36,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ChatPanel } from "@/components/tome/ChatPanel";
-import { TalkPanel } from "@/components/tome/TalkPanel";
+import { FeedPanel } from "@/components/tome/FeedPanel";
 import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
@@ -78,7 +78,7 @@ const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 type MainView =
   | { kind: "agent" }
   | { kind: "standup" }
-  | { kind: "talk" }
+  | { kind: "feed" }
   | { kind: "settings" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
@@ -90,7 +90,7 @@ type MainView =
  * view lives in the route (not React state) so every surface is deep-linkable
  * and browser back/forward work. Wiki page paths (which contain `/` and `.md`)
  * are namespaced under `wiki/` / `history/` so they can't collide with the
- * reserved `talk` / `ingest` segments.
+ * reserved `feed` / `ingest` segments.
  */
 function viewToPath(slug: string, view: MainView): string {
   const base = `/projects/${slug}/tome`;
@@ -99,8 +99,8 @@ function viewToPath(slug: string, view: MainView): string {
       return base;
     case "standup":
       return `${base}/standup`;
-    case "talk":
-      return `${base}/talk`;
+    case "feed":
+      return `${base}/feed`;
     case "settings":
       return `${base}/settings`;
     case "ingest":
@@ -122,8 +122,8 @@ function pathToView(segments: string[]): MainView {
       return { kind: "agent" };
     case "standup":
       return { kind: "standup" };
-    case "talk":
-      return { kind: "talk" };
+    case "feed":
+      return { kind: "feed" };
     case "settings":
       return { kind: "settings" };
     case "ingest":
@@ -517,8 +517,8 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Agent" }];
       case "standup":
         return [{ label: "Standup" }];
-      case "talk":
-        return [{ label: "Talk" }];
+      case "feed":
+        return [{ label: "Feed" }];
       case "settings":
         return [{ label: "Settings" }];
       case "page": {
@@ -577,7 +577,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const navActive = {
     agent: view.kind === "agent",
     standup: view.kind === "standup",
-    talk: view.kind === "talk",
+    feed: view.kind === "feed",
     settings: view.kind === "settings",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
@@ -697,11 +697,11 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
-                    label="Talk"
-                    active={navActive.talk}
-                    onClick={() => navigate({ kind: "talk" })}
-                    tipTitle="Talk"
-                    tipDescription="The project's talk page: discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
+                    label="Feed"
+                    active={navActive.feed}
+                    onClick={() => navigate({ kind: "feed" })}
+                    tipTitle="Feed"
+                    tipDescription="The project's feed: discussion about the context, plus live activity (source events, ingest runs), powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation and the signal around it."
                   />
                   <NavItem
                     icon={<Settings className="h-4 w-4" />}
@@ -976,9 +976,13 @@ export function TomeWiki({ slug }: { slug: string }) {
                   onStartIngest={() => navigate({ kind: "ingest" })}
                 />
               </div>
-            ) : view.kind === "talk" ? (
+            ) : view.kind === "feed" ? (
               <div className="min-w-0 flex-1">
-                <TalkPanel slug={slug} onOpenPage={(path) => navigate({ kind: "page", path })} />
+                <FeedPanel
+                  slug={slug}
+                  onOpenPage={(path) => navigate({ kind: "page", path })}
+                  onOpenIngestRun={(runId) => navigate({ kind: "ingestRun", runId })}
+                />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">

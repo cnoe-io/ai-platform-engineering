@@ -382,13 +382,17 @@ def build_agent_options(
         mcp_servers[connector.slug] = connector.build_mcp(token=token, sources=sources)
         allowed.extend(connector.mcp_tools)
 
-    # Talk page: the project's own Mycelium room (read-only), keyed by slug.
-    # Available to both chat and ingest when the hub is configured, so the agent
-    # can fold recent discussion (decisions, open questions) into its answers and
-    # the wiki. No attached "sources" — it's the project's own conversation.
+    # Feed: the project's own Mycelium room, keyed by slug. Reading is
+    # available to both chat and ingest when the hub is configured, so the
+    # agent can fold recent discussion (decisions, open questions) into its
+    # answers and the wiki. No attached "sources" — it's the project's own
+    # conversation. Promoting (a write) is editor-only, same gate as the
+    # other write tools above.
     if os.environ.get("MYCELIUM_URL", "").strip() and snapshot.slug:
         mcp_servers["mycelium"] = build_mycelium_mcp(snapshot.slug)
-        allowed.append("mcp__mycelium__talk_read_messages")
+        allowed.append("mcp__mycelium__feed_read_messages")
+        if agent_role != "viewer":
+            allowed.append("mcp__mycelium__feed_promote")
 
     claude_agent_env = {
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",

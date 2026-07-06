@@ -23,7 +23,7 @@ import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import type { ProjectDocument, ProjectSources } from "@/types/projects";
 
 /**
- * Project settings, surfaced as a Tome view (nav item under Talk) so a project
+ * Project settings, surfaced as a Tome view (nav item under Feed) so a project
  * can be reconfigured without leaving Tome. Edits title, description,
  * organization (team / BHAG / swim lane), and sources, persisting with
  * `PATCH /api/projects/<slug>`. `onSaved` lets the host refresh anything
@@ -427,7 +427,7 @@ export function ProjectSettingsPanel({
             <Section title="Source activity feed">
               <p className="text-xs text-muted-foreground">
                 Surfaces this project&apos;s live GitHub activity (PRs, issues, releases)
-                in the Talk stream, read with the{" "}
+                in the Feed, read with the{" "}
                 <span className="font-medium">data steward</span>&apos;s connection
                 (set under Organization).
               </p>

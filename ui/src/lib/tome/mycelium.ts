@@ -1,14 +1,14 @@
-// Thin client for the Mycelium hub — the "Talk page" backing store.
+// Thin client for the Mycelium hub — the Feed's backing store.
 //
 // Tome is a *spoke*: it maps one project → one Mycelium room (`room =
 // project.slug`) and reads/writes that room's messages. We deliberately use
 // only the messages slice of Mycelium's API (rooms + messages); memory,
-// negotiation, and CFN are out of scope for the Talk page.
+// negotiation, and CFN are out of scope for the Feed.
 //
 // Mycelium's backend has no auth of its own and is expected to live on the
 // internal network (never publicly exposed) — tome's authenticated routes
 // front it. `MYCELIUM_URL` points at the backend (e.g. http://mycelium-backend:8000).
-// When unset, the Talk feature is considered not-configured and callers should
+// When unset, the Feed feature is considered not-configured and callers should
 // surface that cleanly (mirrors the TOME_AGENT_URL contract).
 
 const DEFAULT_MESSAGE_TYPE = "broadcast"; // room-wide post, no specific recipient
@@ -73,7 +73,7 @@ async function call(
     method,
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-    // Talk traffic is conversational, not cached.
+    // Feed traffic is conversational, not cached.
     cache: "no-store",
   });
   return res;
@@ -93,7 +93,7 @@ export async function ensureRoom(slug: string, description?: string): Promise<vo
 
   const created = await call("POST", "/api/rooms", {
     name: room,
-    description: description ?? `Tome talk page for ${slug}`,
+    description: description ?? `Tome feed for ${slug}`,
     is_public: true,
   });
   // Tolerate a race: another request may have created it first (409/400).
