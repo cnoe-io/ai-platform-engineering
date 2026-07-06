@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   HelpCircle,
+  Link2,
   MessageSquare,
   MessagesSquare,
   Plus,
@@ -46,6 +47,7 @@ import { IngestRunView } from "@/components/tome/IngestRunView";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
+import { EdgeGraphDialog } from "@/components/tome/EdgeGraphDialog";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
@@ -55,6 +57,17 @@ interface PagesResponse {
   slug: string;
   tree: PageTreeNode[];
   pages: Record<string, string>;
+}
+
+/** An edge authored in another project, pointing at this one. */
+interface IncomingEdge {
+  source_project_slug: string;
+  path: string;
+  relation: string;
+  source: string;
+  target: string;
+  confidence: string | null;
+  status: string;
 }
 
 /** Browser-local flag so the first-run walkthrough only auto-opens once. */
@@ -292,6 +305,24 @@ export function TomeWiki({ slug }: { slug: string }) {
       cancelled = true;
     };
   }, [isBhag, projectName]);
+
+  // Edges authored in OTHER projects that target this one — the
+  // backlink half; outgoing edges are ordinary pages under this project's own
+  // `edges/` dir and already show in the tree above.
+  const [incomingEdges, setIncomingEdges] = useState<IncomingEdge[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tome/projects/${slug}/edges`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        setIncomingEdges((body?.data?.incoming ?? []) as IncomingEdge[]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
 
   // Show the first-run walkthrough once per browser. The Help button reopens it.
   useEffect(() => {
@@ -603,6 +634,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               );
             })}
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -842,6 +874,34 @@ export function TomeWiki({ slug }: { slug: string }) {
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Incoming edges: relationships authored in OTHER
+                    projects that point at this one. Outgoing edges are
+                    ordinary pages under this project's own `edges/` dir and
+                    already show in the tree above. */}
+                {incomingEdges.length > 0 && (
+                  <div className="mt-4">
+                    <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Referenced by
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      {incomingEdges.map((e) => (
+                        <Link
+                          key={`${e.source_project_slug}:${e.path}`}
+                          href={`/projects/${e.source_project_slug}/tome/wiki/${e.path}`}
+                          title={`${e.source} ${e.relation} ${e.target}`}
+                          className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                        >
+                          <Link2 className="h-4 w-4 shrink-0 text-amber-500" />
+                          <span className="truncate">
+                            {e.source_project_slug}: {e.relation}
+                          </span>
+                          <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
+                        </Link>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

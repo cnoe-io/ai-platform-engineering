@@ -90,6 +90,10 @@ let cached: PageStore | null = null;
 /**
  * Resolve the configured PageStore singleton. Phase 1 only wires the `mongo`
  * backend; `s3` is added later behind the same interface.
+ *
+ * Wrapped in `withEdgesIndex` so the edges backlink index stays in sync
+ * from this one choke point, regardless of backend or caller (UI save, ingest
+ * agent write, chat agent write all funnel through here).
  */
 export async function getPageStore(): Promise<PageStore> {
   if (cached) return cached;
@@ -97,11 +101,66 @@ export async function getPageStore(): Promise<PageStore> {
   switch (backend) {
     case "mongo": {
       const { MongoPageStore } = await import("./mongo-page-store");
-      cached = new MongoPageStore();
+      cached = withEdgesIndex(new MongoPageStore());
       return cached;
     }
     // case "s3": ... (added with the object-storage value-add)
     default:
       throw new Error(`unknown TOME_PAGE_STORE backend: ${backend}`);
   }
+}
+
+/**
+ * Decorate a PageStore's write paths to keep `tome_edges_index` current.
+ * Explicit passthrough (not `{...store}`) — the underlying store's methods
+ * live on its class prototype, not as own properties, so a spread would drop
+ * them all.
+ */
+function withEdgesIndex(store: PageStore): PageStore {
+  return {
+    writePage: async (projectId, path, markdown, opts) => {
+      await store.writePage(projectId, path, markdown, opts);
+      await reindexTouched(projectId, { [path]: markdown });
+    },
+    writePages: async (projectId, pages, opts) => {
+      await store.writePages(projectId, pages, opts);
+      await reindexTouched(projectId, pages);
+    },
+    deletePage: async (projectId, path, opts) => {
+      await store.deletePage(projectId, path, opts);
+      const { syncEdgeIndex } = await import("./edges-index");
+      const slug = await projectSlugFor(projectId);
+      if (slug) await syncEdgeIndex(projectId, slug, path, null);
+    },
+    readPage: (projectId, path) => store.readPage(projectId, path),
+    listPages: (projectId) => store.listPages(projectId),
+    pageHistory: (projectId, path) => store.pageHistory(projectId, path),
+    readRevision: (projectId, revisionId) => store.readRevision(projectId, revisionId),
+    ...(store.presignRead
+      ? { presignRead: (projectId: string, path: string) => store.presignRead!(projectId, path) }
+      : {}),
+  };
+}
+
+async function reindexTouched(
+  projectId: string,
+  pages: Record<string, string>,
+): Promise<void> {
+  const touched = Object.keys(pages).filter((p) => p.startsWith("edges/"));
+  if (touched.length === 0) return;
+  const { syncEdgeIndex } = await import("./edges-index");
+  const slug = await projectSlugFor(projectId);
+  if (!slug) return;
+  for (const path of touched) {
+    await syncEdgeIndex(projectId, slug, path, pages[path]);
+  }
+}
+
+async function projectSlugFor(projectId: string): Promise<string | null> {
+  const { ObjectId } = await import("mongodb");
+  const { getCollection } = await import("@/lib/mongodb");
+  const projects = await getCollection<{ _id: unknown; slug: string }>("projects");
+  if (!ObjectId.isValid(projectId)) return null;
+  const p = await projects.findOne({ _id: new ObjectId(projectId) as never });
+  return p?.slug ?? null;
 }

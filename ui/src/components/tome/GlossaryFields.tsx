@@ -54,34 +54,36 @@ export function GlossaryFields({ value, editing, onChange }: Props) {
 
   if (!editing) {
     return (
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-b bg-muted/30 px-5 py-3 text-sm">
-        <Term label="Term">
-          <span className={cn("font-medium", deprecated && "line-through text-muted-foreground")}>
-            {term || "—"}
-          </span>
-          {deprecated && (
-            <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-              Deprecated
+      <div className="border-b bg-muted/30 px-5 py-3">
+        <dl className="inline-grid grid-cols-[auto_auto] items-baseline gap-x-4 gap-y-1.5 text-sm">
+          <Term label="Term">
+            <span className={cn("font-medium", deprecated && "line-through text-muted-foreground")}>
+              {term || "—"}
             </span>
-          )}
-        </Term>
-        {expansion && <Term label="Expansion">{expansion}</Term>}
-        <Term label="Scope">
-          <Pill>{scope}</Pill>
-        </Term>
-        <Term label="Kind">
-          <Pill>{termKind}</Pill>
-        </Term>
-        {aliases.length > 0 && (
-          <Term label="Aliases">
-            <span className="flex flex-wrap gap-1">
-              {aliases.map((a) => (
-                <Pill key={a}>{a}</Pill>
-              ))}
-            </span>
+            {deprecated && (
+              <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                Deprecated
+              </span>
+            )}
           </Term>
-        )}
-      </dl>
+          {expansion && <Term label="Expansion">{expansion}</Term>}
+          <Term label="Scope">
+            <span className="capitalize">{scope}</span>
+          </Term>
+          <Term label="Kind">
+            <span className="capitalize">{termKind}</span>
+          </Term>
+          {aliases.length > 0 && (
+            <Term label="Aliases">
+              <span className="flex flex-wrap gap-1">
+                {aliases.map((a) => (
+                  <Pill key={a}>{a}</Pill>
+                ))}
+              </span>
+            </Term>
+          )}
+        </dl>
+      </div>
     );
   }
 

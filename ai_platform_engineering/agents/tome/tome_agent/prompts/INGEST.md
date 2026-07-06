@@ -86,6 +86,10 @@ information, and a stable wiki is a feature, not a failure.
   themes into the right pages. It is discussion, not a source of record — weave
   it in, don't transcribe it, and let the GitHub/Confluence/Webex evidence win
   on facts.
+- Other Projects (`mcp__tome__list_projects`, `list_project_pages`,
+  `read_project_page`): your Read/Glob tools only see this project's own
+  working copy. Use these three read-only tools to look outside it — required
+  before authoring an Edge (below) that names another project.
 
 **If a connector returns 401/403 / auth errors (or a GitHub rate limit)** that
 source isn't connected (GitHub is read *unauthenticated* unless connected — so
@@ -230,6 +234,64 @@ smart new hire *to this specific project* would need to learn.
 
 The goal is **high-value vocabulary coverage, not completeness** — a crisp 5-10
 term glossary beats a sprawling 50-term dictionary with padding.
+
+## Edges — typed, evidenced cross-project relationships
+
+An edge is a durable record that one thing **blocks / depends-on / supersedes /
+duplicates / contradicts / relates-to** another — usually across two different
+Projects. Like the glossary, it's a **project-level collection**: one file per
+edge at `edges/<slug>.md` (e.g. `edges/x-pivot-blocks-y-q3.md`), never a
+freeform note buried in `conversations.md`.
+
+An edge is authored into the **source** project (the one where the causing
+change lives), even when it's the target project that most needs to know.
+Don't wait to be asked — if the target should see it, that's the backlink
+index's job, not a reason to skip creating the edge.
+
+```
+---
+type: edge
+title: <short label, e.g. "atlas pivot blocks nimbus Q3">
+kind: dynamic
+relation: blocks
+source: tome://roadmap.md#q3-pivot
+target: tome://@nimbus/roadmap/q3-milestone.md
+confidence: high
+evidence: [tome://conversations.md#pr-4821, tome://@nimbus/issues#142]
+status: active
+---
+
+One or two sentences: what changed on the source side, and what it does to
+the target. Cite the evidence inline where it clarifies.
+```
+
+Field rules:
+- `type: edge`, `relation`, `source`, `target` (required) — a half-filled edge
+  is still valid; fill `confidence`/`evidence`/`status` when you know them.
+- `relation` — one of `blocks | depends-on | supersedes | duplicates |
+  contradicts | relates-to`.
+- `source`/`target`/`evidence` are `tome://` refs. `target` (and any
+  cross-project evidence) needs the explicit `@<project-slug>` form. **Never
+  guess a slug or a target path.** Your filesystem tools (Read/Glob) only see
+  this project's own working copy, so use the three cross-project MCP tools
+  before authoring: `list_projects` to get the exact slug, `list_project_pages`
+  to see what the other project actually has, and `read_project_page` to
+  confirm the specific target/evidence page exists and read what it says. If
+  you can't confirm a target this way, don't author the edge yet — note the
+  suspected relationship in `memory.md` instead and revisit next ingest.
+- `confidence` — `high | medium | low`, reflecting how solid the evidence is.
+- `status` — `active` (still true) → `resolved` (the block/conflict went away)
+  → `stale` (evidence is old, hasn't been re-checked). You maintain this on
+  re-ingest: if you revisit an edge you created and its target has since moved
+  on, transition or retire it rather than leaving a stale claim standing.
+
+**When to create one:** only when research surfaces a *concrete*,
+evidence-backed relationship to another named project — a Talk-page mention,
+a linked issue, a dependency called out in a README — AND you've confirmed the
+target side with `list_project_pages`/`read_project_page`. Don't manufacture
+edges from speculation, and don't create one just because two projects share a
+vague theme (`relates-to` is a last resort, not a default). A handful of real
+edges beats a dense web of weak ones.
 
 ## Frontmatter format
 

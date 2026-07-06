@@ -285,6 +285,67 @@ def glossary_slug(term: str) -> str:
     return s or "term"
 
 
+# ---------------------------------------------------------------------------
+# Edges — cross-project (or in-project) relationships as first-class,
+# evidenced documents. Same one-file-per-entry primitive as the glossary
+# above: one file per edge at `edges/<slug>.md`, `type: edge` + typed
+# frontmatter, prose body. Keep in sync with ui/src/lib/tome/schema.ts (EDGE_*).
+#
+# Storage decision (option A): an edge is authored into its SOURCE
+# project's `edges/` dir. The target project sees it via the backlink index
+# (ui/src/lib/tome/edges-index.ts) built from writes to `edges/*.md` across
+# all projects, keyed by the edge's resolved target project — not a copy in
+# the target's own tree.
+# ---------------------------------------------------------------------------
+
+EDGES_DIR = "edges"
+EDGE_TYPE = "edge"
+
+FM_RELATION = "relation"
+FM_SOURCE = "source"
+FM_TARGET = "target"
+FM_CONFIDENCE = "confidence"
+FM_EVIDENCE = "evidence"
+# FM_STATUS (above) is reused; EDGE_STATUSES is the vocabulary that applies
+# when the entry's `type` is "edge" (distinct from the glossary's).
+
+EDGE_RELATIONS: tuple[str, ...] = (
+    "blocks",
+    "depends-on",
+    "supersedes",
+    "duplicates",
+    "contradicts",
+    "relates-to",
+)
+EDGE_CONFIDENCES: tuple[str, ...] = ("high", "medium", "low")
+EDGE_STATUSES: tuple[str, ...] = ("active", "resolved", "stale")
+
+# Permissive floor: an edge is valid with only `type` + `relation` + `source` +
+# `target`. `confidence`/`evidence`/`status` are recommended, not required.
+EDGE_FRONTMATTER: dict[str, str] = {
+    FM_TYPE: EDGE_TYPE,
+    FM_TITLE: "<short label, e.g. X pivot blocks Y Q3>",
+    FM_KIND: "dynamic",
+    FM_RELATION: "blocks | depends-on | supersedes | duplicates | contradicts | relates-to",
+    FM_SOURCE: "tome://<path> or tome://@<project>/<path>",
+    FM_TARGET: "tome://@<project>/<path>",
+    FM_CONFIDENCE: "high | medium | low",
+    FM_EVIDENCE: "[tome://<ref>, tome://@<project>/<ref>]",
+    FM_STATUS: "active",
+}
+
+
+def edge_path(slug: str) -> str:
+    """Path for an edge file given its slug, e.g. `x-pivot-blocks-y-q3` -> `edges/x-pivot-blocks-y-q3.md`."""
+    return f"{EDGES_DIR}/{slug}.md"
+
+
+def edge_slug(label: str) -> str:
+    """Derive a filename slug from a short edge label (same rule as glossary_slug)."""
+    s = re.sub(r"[^a-z0-9]+", "-", label.strip().lower()).strip("-")
+    return s or "edge"
+
+
 def frontmatter_example(fields: dict[str, str]) -> str:
     """Render a frontmatter shape as a YAML example block for agent prompts."""
     lines = ["---"]
@@ -396,8 +457,15 @@ def deletion_block_reason(path: str, md: str) -> str | None:
 _FENCE = "---\n"
 
 
+_BLOCK_LIST_ITEM = re.compile(r"^\s+-\s*(.*)$")
+
+
 def parse_frontmatter(markdown: str) -> tuple[dict[str, object], str]:
-    """Return ({key: value}, body). YAML-lite: only top-level scalar key:value pairs."""
+    """Return ({key: value}, body). YAML-lite: top-level scalar `key: value`
+    pairs, inline `key: [a, b]` arrays, AND multi-line block-list arrays —
+    `key:` followed by `  - item` lines — since agent-authored frontmatter
+    (Claude writing plain YAML, not going through `serialize_frontmatter`)
+    uses the block-list form for arrays, not the inline bracket form."""
     if not markdown.startswith(_FENCE):
         return {}, markdown
     end = markdown.find(f"\n{_FENCE}", len(_FENCE))
@@ -406,13 +474,33 @@ def parse_frontmatter(markdown: str) -> tuple[dict[str, object], str]:
     block = markdown[len(_FENCE) : end + 1]  # include trailing newline
     rest = markdown[end + len(_FENCE) + 1 :]
     fm: dict[str, object] = {}
-    for raw in block.splitlines():
+    lines = block.splitlines()
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
         if not raw.strip() or raw.lstrip().startswith("#"):
+            i += 1
             continue
         if ":" not in raw:
+            i += 1
             continue
         k, _, v = raw.partition(":")
-        fm[k.strip()] = _coerce(v.strip())
+        k, v = k.strip(), v.strip()
+        if not v:
+            items: list[str] = []
+            j = i + 1
+            while j < len(lines):
+                m = _BLOCK_LIST_ITEM.match(lines[j])
+                if not m:
+                    break
+                items.append(m.group(1).strip().strip("'\""))
+                j += 1
+            if items:
+                fm[k] = items
+                i = j
+                continue
+        fm[k] = _coerce(v)
+        i += 1
     return fm, rest
 
 

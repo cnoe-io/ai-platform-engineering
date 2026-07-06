@@ -226,6 +226,62 @@ export function glossarySlug(term: string): string {
   return s || "term";
 }
 
+// ---------------------------------------------------------------------------
+// Edges — cross-project (or in-project) relationships as first-class,
+// evidenced documents. Same one-file-per-entry primitive as the glossary
+// : one file per edge at `edges/<slug>.md`, `type: edge` + typed
+// frontmatter, prose body. Keep in sync with reports/schema.py (EDGE_*).
+//
+// Storage decision (option A): an edge is authored into its SOURCE
+// project's `edges/` dir. The target project doesn't own a copy — it sees the
+// edge via the backlink index (see lib/tome/edges-index.ts), which is built by
+// scanning writes to `edges/*.md` across all projects, keyed by the edge's
+// resolved target project. This matches "edges live within projects" while
+// still letting the target side see edges pointing at it.
+// ---------------------------------------------------------------------------
+
+export const EDGES_DIR = "edges";
+export const EDGE_TYPE = "edge";
+
+export const FM_RELATION = "relation";
+export const FM_SOURCE = "source";
+export const FM_TARGET = "target";
+export const FM_CONFIDENCE = "confidence";
+export const FM_EVIDENCE = "evidence";
+// FM_STATUS is shared with the glossary (same "status" key); the vocabulary
+// below (EDGE_STATUSES) is what applies when the entry's `type` is "edge".
+
+export const EDGE_RELATIONS = [
+  "blocks",
+  "depends-on",
+  "supersedes",
+  "duplicates",
+  "contradicts",
+  "relates-to",
+] as const;
+export const EDGE_CONFIDENCES = ["high", "medium", "low"] as const;
+export const EDGE_STATUSES = ["active", "resolved", "stale"] as const;
+
+export type EdgeRelation = (typeof EDGE_RELATIONS)[number];
+export type EdgeConfidence = (typeof EDGE_CONFIDENCES)[number];
+export type EdgeStatus = (typeof EDGE_STATUSES)[number];
+
+/** True when a page's frontmatter marks it as an edge entry. */
+export function isEdge(fm: Record<string, FrontmatterValue>): boolean {
+  return String(fm[FM_TYPE] ?? "").toLowerCase() === EDGE_TYPE;
+}
+
+/** Derive an edge filename slug from its label, e.g. an author-chosen short
+ * description like "x-pivot-blocks-y-q3" (same slugging rule as glossary). */
+export function edgeSlug(label: string): string {
+  const s = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return s || "edge";
+}
+
 // ---------- Default-list helpers (seed-only) ----------
 
 export function defaultStablePaths(): string[] {
@@ -293,7 +349,16 @@ const FENCE = "---\n";
 export type FrontmatterValue = string | number | boolean | string[];
 
 /**
- * Return [{key: value}, body]. YAML-lite: only top-level scalar key:value pairs.
+ * Return [{key: value}, body]. YAML-lite: top-level scalar `key: value` pairs,
+ * inline `key: [a, b]` arrays, AND multi-line block-list arrays —
+ * ```
+ * key:
+ *   - a
+ *   - b
+ * ```
+ * — since agent-authored frontmatter (Claude writing plain YAML, not going
+ * through `serializeFrontmatter`) uses the block-list form for arrays, not
+ * the inline bracket form.
  */
 export function parseFrontmatter(
   markdown: string,
@@ -304,12 +369,29 @@ export function parseFrontmatter(
   const block = markdown.slice(FENCE.length, end + 1); // include trailing newline
   const rest = markdown.slice(end + 1 + FENCE.length);
   const fm: Record<string, FrontmatterValue> = {};
-  for (const raw of block.split("\n")) {
+  const lines = block.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
     if (!raw.trim() || raw.trimStart().startsWith("#")) continue;
     const idx = raw.indexOf(":");
     if (idx === -1) continue;
     const k = raw.slice(0, idx).trim();
     const v = raw.slice(idx + 1).trim();
+    if (v === "") {
+      // Possible block-list: consume following `  - item` lines.
+      const items: string[] = [];
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        const m = lines[j].match(/^\s+-\s*(.*)$/);
+        if (!m) break;
+        items.push(m[1].trim().replace(/^['"]|['"]$/g, ""));
+      }
+      if (items.length > 0) {
+        fm[k] = items;
+        i = j - 1;
+        continue;
+      }
+    }
     fm[k] = coerce(v);
   }
   return [fm, rest];

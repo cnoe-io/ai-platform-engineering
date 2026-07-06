@@ -27,6 +27,8 @@ export const TOME_COLLECTIONS = {
   CHAT_SESSIONS: "tome_chat_sessions",
   /** Chat messages within a session. */
   CHAT_MESSAGES: "tome_chat_messages",
+  /** Backlink index over `edges/*.md` pages, keyed by resolved target project. */
+  EDGES_INDEX: "tome_edges_index",
 } as const;
 
 export type TomeCollectionName =
@@ -77,6 +79,26 @@ export interface PageRevision {
   /** The ingest run/report that produced this write, when agent-authored. */
   report_id?: string;
   created_at: Date;
+}
+
+/**
+ * One indexed row per `edges/<slug>.md` page, rebuilt on every write to
+ * that path and removed on delete/retype. Lets the TARGET project surface an
+ * edge authored in some other (SOURCE) project's `edges/` dir, without either
+ * side owning a copy of the file.
+ */
+export interface EdgeIndexRow {
+  _id?: string; // `${source_project_id}:${path}`
+  source_project_id: string;
+  source_project_slug: string;
+  path: string; // e.g. "edges/x-pivot-blocks-y-q3.md"
+  relation: string;
+  source: string; // authored `source` ref (tome://…)
+  target: string; // authored `target` ref (tome://…)
+  target_project_slug: string; // resolved from `target`; same as source slug if same-project
+  confidence?: string;
+  status: string;
+  updated_at: Date;
 }
 
 /** A versioned wiki snapshot produced by one ingest run. */

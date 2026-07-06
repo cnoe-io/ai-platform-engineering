@@ -13,10 +13,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CrepeEditor, type CrepeEditorHandle } from "@/components/tome/CrepeEditor";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import { GlossaryFields } from "@/components/tome/GlossaryFields";
+import { EdgeFields } from "@/components/tome/EdgeFields";
 import { KindBadge } from "@/components/tome/KindBadge";
 import {
+  FM_RELATION,
+  FM_SOURCE,
+  FM_TARGET,
   FM_TERM,
   FM_TITLE,
+  isEdge,
   isGlossaryTerm,
   parseFrontmatter,
   serializeFrontmatter,
@@ -97,10 +102,11 @@ export function WikiPageView({
   }, [markdown, path]);
 
   const isGlossary = useMemo(() => isGlossaryTerm(frontmatter), [frontmatter]);
+  const isEdgeEntry = useMemo(() => isEdge(frontmatter), [frontmatter]);
 
-  // Editable copy of the frontmatter for structured (glossary) entries. Kept in
-  // sync with the page's frontmatter whenever we're not mid-edit (page switch /
-  // external agent edit); the Edit→Save flow mutates this draft.
+  // Editable copy of the frontmatter for structured (glossary/edge) entries.
+  // Kept in sync with the page's frontmatter whenever we're not mid-edit (page
+  // switch / external agent edit); the Edit→Save flow mutates this draft.
   const [fmDraft, setFmDraft] = useState<Record<string, FrontmatterValue>>(frontmatter);
   useEffect(() => {
     if (!isEditing) setFmDraft(frontmatter);
@@ -154,6 +160,15 @@ export function WikiPageView({
         // Keep the sidebar title in sync with the term.
         const term = String(fmToWrite[FM_TERM] ?? "").trim();
         if (term) fmToWrite[FM_TITLE] = term;
+      } else if (isEdgeEntry) {
+        fmToWrite = { ...fmDraft };
+        // Keep the sidebar title in sync with the relationship.
+        const relation = String(fmToWrite[FM_RELATION] ?? "").trim();
+        const source = String(fmToWrite[FM_SOURCE] ?? "").trim();
+        const target = String(fmToWrite[FM_TARGET] ?? "").trim();
+        if (relation && source && target) {
+          fmToWrite[FM_TITLE] = `${source} ${relation} ${target}`;
+        }
       }
       const md = serializeFrontmatter(fmToWrite, editorRef.current.getMarkdown());
       await onWrite(path, md, `edit ${path}`);
@@ -164,7 +179,7 @@ export function WikiPageView({
     } finally {
       setSaving(false);
     }
-  }, [frontmatter, isGlossary, fmDraft, onWrite, path]);
+  }, [frontmatter, isGlossary, isEdgeEntry, fmDraft, onWrite, path]);
 
   const handleCancel = useCallback(() => {
     setIsEditing(false);
@@ -302,6 +317,19 @@ export function WikiPageView({
           />
           <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Definition
+          </div>
+        </>
+      )}
+
+      {isEdgeEntry && (
+        <>
+          <EdgeFields
+            value={isEditing ? fmDraft : frontmatter}
+            editing={isEditing}
+            onChange={setFmDraft}
+          />
+          <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Explanation
           </div>
         </>
       )}

@@ -364,7 +364,15 @@ def build_agent_options(
         mcp_servers["tome"] = build_tome_mcp(
             project_id=project_id, project_dir=pdir, author=persist_author
         )
-        allowed.append("mcp__tome__delete_page")
+        allowed.extend(
+            [
+                "mcp__tome__delete_page",
+                # Cross-project lookups for authoring edges — read-only.
+                "mcp__tome__list_projects",
+                "mcp__tome__list_project_pages",
+                "mcp__tome__read_project_page",
+            ]
+        )
 
     for connector in REGISTRY:
         token = _connector_token(connector.slug)
