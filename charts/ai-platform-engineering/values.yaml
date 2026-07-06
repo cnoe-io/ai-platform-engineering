@@ -16,6 +16,7 @@ tags:
   mcp-splunk: false
   mcp-victorops: false
   mcp-webex: false
+  mcp-webex-meetings: false
   mcp-netutils: false
   rag-stack: false
   slack-bot: false
