@@ -350,7 +350,9 @@ function MessageRow({
   }
 
   // Assistant: render parts in arrival order — text segments and tool chips
-  // interleaved exactly as the stream produced them.
+  // interleaved exactly as the stream produced them. Adjacent tool parts
+  // collapse into a single group so a burst of tool calls doesn't render as
+  // a wall of individual pills.
   const lastTextIdx = msg.parts.reduce(
     (acc, p, i) => (p.kind === "text" ? i : acc),
     -1,
@@ -358,6 +360,7 @@ function MessageRow({
   const lastPart = msg.parts[msg.parts.length - 1];
   const showDots =
     msg.pending && (msg.parts.length === 0 || lastPart?.kind === "tool");
+  const groups = groupToolParts(msg.parts);
 
   return (
     <div className="flex gap-3">
@@ -365,22 +368,17 @@ function MessageRow({
         <Bot className="h-4 w-4 text-primary" />
       </div>
       <div className="flex max-w-[90%] flex-col gap-2">
-        {msg.parts.map((p, i) =>
-          p.kind === "tool" ? (
-            <ToolChip
-              key={i}
-              label={p.label}
-              path={p.path}
-              onOpen={onOpenPage}
-            />
+        {groups.map((g) =>
+          g.kind === "toolGroup" ? (
+            <ToolChipGroup key={g.startIndex} parts={g.parts} onOpen={onOpenPage} />
           ) : (
             <div
-              key={i}
+              key={g.index}
               className="rounded-2xl bg-muted px-4 py-2 text-sm text-foreground"
             >
               <MarkdownRenderer
-                content={p.text}
-                isStreaming={Boolean(msg.pending) && i === lastTextIdx}
+                content={g.part.text}
+                isStreaming={Boolean(msg.pending) && g.index === lastTextIdx}
                 variant="final"
                 onInternalLink={onOpenPage}
                 glossaryPreview={glossaryPreview}
@@ -395,6 +393,84 @@ function MessageRow({
         )}
       </div>
     </div>
+  );
+}
+
+type ToolPart = Extract<Part, { kind: "tool" }>;
+type TextPart = Extract<Part, { kind: "text" }>;
+type Group =
+  | { kind: "text"; part: TextPart; index: number }
+  | { kind: "toolGroup"; parts: ToolPart[]; startIndex: number };
+
+function groupToolParts(parts: Part[]): Group[] {
+  const groups: Group[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    const p = parts[i];
+    if (p.kind === "tool") {
+      const startIndex = i;
+      const run: ToolPart[] = [];
+      while (i < parts.length && parts[i].kind === "tool") {
+        run.push(parts[i] as ToolPart);
+        i++;
+      }
+      groups.push({ kind: "toolGroup", parts: run, startIndex });
+    } else {
+      groups.push({ kind: "text", part: p as TextPart, index: i });
+      i++;
+    }
+  }
+  return groups;
+}
+
+/** A run of adjacent tool calls. Single calls render as a plain chip; runs of
+ * two or more collapse into one pill (latest call + count) that expands to
+ * the full sequence on click. Collapsed by default on every fresh render. */
+function ToolChipGroup({
+  parts,
+  onOpen,
+}: {
+  parts: ToolPart[];
+  onOpen?: (path: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (parts.length === 1) {
+    const p = parts[0];
+    return <ToolChip label={p.label} path={p.path} onOpen={onOpen} />;
+  }
+
+  if (expanded) {
+    return (
+      <div className="flex flex-col items-start gap-1.5">
+        {parts.map((p, i) => (
+          <ToolChip key={i} label={p.label} path={p.path} onOpen={onOpen} />
+        ))}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Collapse
+        </button>
+      </div>
+    );
+  }
+
+  const latest = parts[parts.length - 1];
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      title={`${parts.length} tool calls — click to expand`}
+      className="inline-flex max-w-[280px] items-center gap-1 self-start rounded-full border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+    >
+      <Wrench className="h-3 w-3 shrink-0" />
+      <span className="truncate">{latest.label}</span>
+      <span className="shrink-0 rounded-full bg-background px-1.5 text-[10px] font-medium">
+        {parts.length}
+      </span>
+    </button>
   );
 }
 
