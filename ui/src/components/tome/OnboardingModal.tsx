@@ -7,6 +7,7 @@ import {
   ArrowRight,
   MessageSquare,
   MessagesSquare,
+  Network,
   Plug,
   Tags,
   Target,
@@ -134,6 +135,7 @@ function buildSteps(projectName?: string): Step[] {
     { node: <GlossaryStep /> },
     { node: <IngestStep /> },
     { node: <BhagStep /> },
+    { node: <EdgesStep /> },
     { node: <AgentStep /> },
     { node: <TalkStep /> },
     { node: <McpStep /> },
@@ -328,6 +330,41 @@ function BhagLadder() {
           <Target className="h-3.5 w-3.5" /> Project Horizon
         </span>
       </div>
+    </div>
+  );
+}
+
+function EdgesStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader
+        icon={<Network className="h-5 w-5" />}
+        eyebrow="Edges"
+        title="Typed links between projects"
+      >
+        Edges are evidenced relationships, like{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">depends-on</code> or{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">blocks</code>, between
+        pages, even across projects. The agent cites what it read to draw one.
+      </StepHeader>
+      <Terminal>
+        <span className="text-muted-foreground/60">---</span>
+        {"\n"}
+        <span className="text-sky-400">type</span>: edge
+        {"\n"}
+        <span className="text-sky-400">relation</span>: <span className="text-amber-300">depends-on</span>
+        {"\n"}
+        <span className="text-sky-400">source</span>: overview.md
+        {"\n"}
+        <span className="text-sky-400">target</span>: tome://@carbon/overview.md
+        {"\n"}
+        <span className="text-muted-foreground/60">---</span>
+      </Terminal>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Open <span className="font-medium text-foreground">Graph</span>, next to
+        &ldquo;Connect via MCP&rdquo; in a project&apos;s header, to see every edge
+        touching it as a force-directed map you can search and click through.
+      </p>
     </div>
   );
 }
