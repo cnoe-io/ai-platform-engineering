@@ -676,14 +676,6 @@ export function TomeWiki({ slug }: { slug: string }) {
               <div className="flex flex-col p-3">
                 <div className="flex flex-col gap-0.5">
                   <NavItem
-                    icon={<Newspaper className="h-4 w-4" />}
-                    label="Standup"
-                    active={navActive.standup}
-                    onClick={() => navigate({ kind: "standup" })}
-                    tipTitle="Standup"
-                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest."
-                  />
-                  <NavItem
                     icon={<MessageSquare className="h-4 w-4" />}
                     label="Agent"
                     active={navActive.agent}
@@ -718,6 +710,22 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "settings" })}
                     tipTitle="Settings"
                     tipDescription="Reconfigure this project: its title, description, and sources (GitHub repos, Confluence spaces, Webex rooms). Changes apply to future ingests."
+                  />
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-1 px-2 pb-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Reports
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <NavItem
+                    icon={<Newspaper className="h-4 w-4" />}
+                    label="Standup"
+                    active={navActive.standup}
+                    onClick={() => navigate({ kind: "standup" })}
+                    tipTitle="Standup"
+                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest."
                   />
                 </div>
 

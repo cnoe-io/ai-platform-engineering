@@ -2,8 +2,9 @@
 
 import { AlertTriangle, ArrowRight, RefreshCw, Sparkles } from "lucide-react";
 
-import { MarkdownRenderer } from "@/components/shared/timeline/MarkdownRenderer";
+import { MarkdownRenderer, renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRenderer";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { parseFrontmatter } from "@/lib/tome/schema";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
 
@@ -85,56 +86,66 @@ export function StandupView({ markdown, onNavigate, glossaryPreview, onStartInge
   const s = parseStandup(markdown);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 overflow-y-auto p-8">
-      <div className="space-y-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          The Standup
-        </span>
-        {s.headline ? (
-          <h1 className="text-2xl font-semibold leading-snug">{s.headline}</h1>
-        ) : (
-          <h1 className="text-2xl font-semibold leading-snug text-muted-foreground">
-            No headline yet
-          </h1>
-        )}
-        {s.whatIsThis && <p className="text-sm text-muted-foreground">{s.whatIsThis}</p>}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-amber-800/30 bg-amber-950/10 p-4">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-500">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Asks / Blockers
-          </div>
-          {s.blockers ? (
-            <MarkdownRenderer
-              content={s.blockers}
-              variant="thinking"
-              onInternalLink={onNavigate}
-              glossaryPreview={glossaryPreview}
+    <ScrollArea className="h-full">
+      <div className="mx-auto w-full max-w-3xl space-y-6 p-8">
+        <div className="space-y-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            The Standup
+          </span>
+          {s.headline ? (
+            <h1
+              className="text-2xl font-semibold leading-snug"
+              dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(s.headline) }}
             />
           ) : (
-            <p className="text-sm text-muted-foreground">Nothing blocking right now.</p>
+            <h1 className="text-2xl font-semibold leading-snug text-muted-foreground">
+              No headline yet
+            </h1>
+          )}
+          {s.whatIsThis && (
+            <p
+              className="text-sm text-muted-foreground"
+              dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(s.whatIsThis) }}
+            />
           )}
         </div>
 
-        <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-400">
-            <ArrowRight className="h-3.5 w-3.5" />
-            Up Next
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-amber-800/30 bg-amber-950/10 p-4">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-500">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Asks / Blockers
+            </div>
+            {s.blockers ? (
+              <MarkdownRenderer
+                content={s.blockers}
+                variant="thinking"
+                onInternalLink={onNavigate}
+                glossaryPreview={glossaryPreview}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Nothing blocking right now.</p>
+            )}
           </div>
-          {s.upNext ? (
-            <MarkdownRenderer
-              content={s.upNext}
-              variant="thinking"
-              onInternalLink={onNavigate}
-              glossaryPreview={glossaryPreview}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Nothing planned yet.</p>
-          )}
+
+          <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sky-400">
+              <ArrowRight className="h-3.5 w-3.5" />
+              Up Next
+            </div>
+            {s.upNext ? (
+              <MarkdownRenderer
+                content={s.upNext}
+                variant="thinking"
+                onInternalLink={onNavigate}
+                glossaryPreview={glossaryPreview}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Nothing planned yet.</p>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </ScrollArea>
   );
 }
