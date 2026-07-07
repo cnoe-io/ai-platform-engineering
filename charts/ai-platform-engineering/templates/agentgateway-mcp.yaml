@@ -130,6 +130,9 @@ spec:
 ---
 # Per-request provider/identity token: rewrite X-CAIPE-Provider-Token into the
 # upstream Authorization header for MCPs that opt into caller-token passthrough.
+# When X-CAIPE-Provider-Token is absent/empty, fall back to the caller's existing
+# Authorization header (already validated by the gateway's jwtAuth) so direct
+# callers can use a plain Bearer token without setting the provider-token header.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
@@ -144,7 +147,7 @@ spec:
       request:
         set:
           - name: authorization
-            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+            value: 'default(request.headers["x-caipe-provider-token"], "") != "" ? "Bearer " + request.headers["x-caipe-provider-token"] : default(request.headers["authorization"], "")'
 {{- end }}
 {{- end }}
 {{- end }}
@@ -189,6 +192,9 @@ spec:
 ---
 # Per-request provider/identity token: rewrite X-CAIPE-Provider-Token into the
 # upstream Authorization header for MCPs that opt into caller-token passthrough.
+# When X-CAIPE-Provider-Token is absent/empty, fall back to the caller's existing
+# Authorization header (already validated by the gateway's jwtAuth) so direct
+# callers can use a plain Bearer token without setting the provider-token header.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
@@ -203,7 +209,7 @@ spec:
       request:
         set:
           - name: authorization
-            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+            value: 'default(request.headers["x-caipe-provider-token"], "") != "" ? "Bearer " + request.headers["x-caipe-provider-token"] : default(request.headers["authorization"], "")'
 {{- end }}
 {{- end }}
 {{- range $target := $extraMcpTargets }}
@@ -251,6 +257,9 @@ spec:
 ---
 # Per-request provider/identity token: rewrite X-CAIPE-Provider-Token into the
 # upstream Authorization header for MCPs that opt into caller-token passthrough.
+# When X-CAIPE-Provider-Token is absent/empty, fall back to the caller's existing
+# Authorization header (already validated by the gateway's jwtAuth) so direct
+# callers can use a plain Bearer token without setting the provider-token header.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
@@ -265,7 +274,7 @@ spec:
       request:
         set:
           - name: authorization
-            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+            value: 'default(request.headers["x-caipe-provider-token"], "") != "" ? "Bearer " + request.headers["x-caipe-provider-token"] : default(request.headers["authorization"], "")'
 {{- end }}
 {{- end }}
 {{- end }}

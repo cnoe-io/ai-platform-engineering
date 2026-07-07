@@ -90,10 +90,14 @@ data:
                   # OAuth token (or org PAT fallback); the knowledge-base (RAG)
                   # route forwards the caller's user JWT or a caipe-platform
                   # service token.
+                  # When X-CAIPE-Provider-Token is absent/empty, fall back to the
+                  # caller's existing Authorization header (already validated by
+                  # the gateway's jwtAuth) so direct callers can use a plain
+                  # Bearer token without setting the provider-token header.
                   transformations:
                     request:
                       set:
-                        authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+                        authorization: 'default(request.headers["x-caipe-provider-token"], "") != "" ? "Bearer " + request.headers["x-caipe-provider-token"] : default(request.headers["authorization"], "")'
                   {{- end }}
                 {{- end }}
                 backends:

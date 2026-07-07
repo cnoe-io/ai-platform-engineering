@@ -442,6 +442,7 @@ mcp-github:
       enabled: false
       protocol: StreamableHTTP
       # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
+      # Falls back to the caller's existing Authorization header when the provider-token header is unset.
       providerTokenAuth: true
 
 mcp-gitlab:
@@ -465,6 +466,7 @@ mcp-gitlab:
       enabled: false
       protocol: StreamableHTTP
       # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
+      # Falls back to the caller's existing Authorization header when the provider-token header is unset.
       providerTokenAuth: true
     env:
       STREAMABLE_HTTP: "true"
