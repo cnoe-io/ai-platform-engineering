@@ -110,7 +110,7 @@ describe("buildWorkflowContextPrefix", () => {
   it("treats deterministically populated workflow-state files as read-only investigation context", () => {
     expect(prompt).toContain("workflow engine deterministically populates `workflow-state/`");
     expect(prompt).toContain("Treat the entire directory as read-only");
-    expect(prompt).toContain("provided only as reference material for investigation");
+    expect(prompt).toContain("read-only reference material for investigation");
     expect(prompt).toContain(
       "Previous-step logs are stored under `workflow-state/step-{N}--{agent-id}/`",
     );
@@ -121,10 +121,10 @@ describe("buildWorkflowContextPrefix", () => {
     expect(prompt).toContain("Run `ls /`");
   });
 
-  it("keeps all agent-written files outside workflow-state", () => {
+  it("allows only the failure marker to be written under workflow-state", () => {
     expect(prompt).toContain("`/choices.txt`");
-    expect(prompt).toContain("`/workflow-step-2--release-agent-error.txt`");
-    expect(prompt).not.toContain("workflow-state/step-2--release-agent/error.txt");
+    expect(prompt).toContain("`workflow-state/step-2--release-agent/error.txt`");
+    expect(prompt).toContain("only path you may write under `workflow-state/`");
   });
 });
 

@@ -812,19 +812,20 @@ export function buildWorkflowContextPrefix(
 
   // --- Investigating workflow files ---
   ctx += "## Investigating Workflow Files\n";
-  ctx += "The workflow engine deterministically populates `workflow-state/` after each step. Treat the entire directory as read-only: never create, modify, or delete files under `workflow-state/`. It is provided only as reference material for investigation.\n";
+  ctx += "The workflow engine deterministically populates `workflow-state/` after each step. Treat the entire directory as read-only reference material for investigation, except for the step-specific error file described below. Never create, modify, or delete any other file under `workflow-state/`.\n";
   ctx += "Previous-step logs are stored under `workflow-state/step-{N}--{agent-id}/`. You may use `ls` and `read_file` to inspect user_prompt.txt, tool_calls.txt, and agent_output.txt.\n";
   ctx += "Other steps may write shared files at the filesystem root, outside `workflow-state/`. Run `ls /` to discover those files when investigating previous work.\n\n";
 
   // --- Critical: User interaction ---
   ctx += "## Critical: User Interaction\n";
   ctx += "The user does NOT have access to this chat. All interaction with the user must happen through the `request_user_input` tool.\n";
-  ctx += "When a step must pass data to later steps, call `request_user_input` if needed, then persist outputs with `write_file` at the filesystem root (for example `/choices.txt`), never under `workflow-state/`.\n";
+  ctx += "When a step must pass data to later steps, call `request_user_input` if needed, then persist outputs with `write_file` at the filesystem root (for example `/choices.txt`), never under `workflow-state/`; the failure marker below is the sole exception.\n";
   ctx += "If that tool is not available and you cannot proceed without user input, use the failure-reporting file below and stop.\n\n";
 
   // --- Critical: Reporting failure ---
   ctx += "## Critical: Reporting Failure\n";
-  ctx += `If you determine this step has failed or you cannot complete the task, write a brief explanation to \`/workflow-step-${stepIndex + 1}--${agentId}-error.txt\` at the filesystem root using \`write_file\`.\n`;
+  ctx += `If you determine this step has failed or you cannot complete the task, write a brief explanation to \`workflow-state/step-${stepIndex + 1}--${agentId}/error.txt\` using \`write_file\`.\n`;
+  ctx += "This error file is the only path you may write under `workflow-state/`.\n";
   ctx += "The workflow engine will detect this file and mark the step as failed.\n\n";
 
   // --- Workflow identity ---
@@ -867,7 +868,7 @@ export function buildWorkflowContextPrefix(
 }
 
 /**
- * Check if the agent wrote the reserved root-level error file to signal step failure.
+ * Check if the agent wrote an error.txt file to signal step failure.
  * Returns the error content if found, null otherwise.
  */
 async function checkAgentErrorFile(
@@ -876,11 +877,10 @@ async function checkAgentErrorFile(
   agentId: string,
   authHeaders: Record<string, string>,
 ): Promise<string | null> {
-  // Check both with and without leading slash (agents may write either way).
-  const errorFilename = `workflow-step-${stepIndex + 1}--${agentId}-error.txt`;
+  // Check both with and without leading slash (agents may write either way)
   const paths = [
-    errorFilename,
-    `/${errorFilename}`,
+    `workflow-state/step-${stepIndex + 1}--${agentId}/error.txt`,
+    `/workflow-state/step-${stepIndex + 1}--${agentId}/error.txt`,
   ];
   for (const path of paths) {
     try {
@@ -890,16 +890,7 @@ async function checkAgentErrorFile(
       );
       if (res.ok) {
         const body = await res.json();
-        const content = body?.content || "Agent reported failure (no details)";
-        try {
-          await fetch(
-            `${DA_SERVER_BASE_URL}/api/v1/files/content?fs_namespace=${encodeURIComponent(JSON.stringify(fsNamespace))}&path=${encodeURIComponent(path)}`,
-            { method: "DELETE", headers: authHeaders },
-          );
-        } catch {
-          // Best-effort cleanup; the failure signal has already been captured.
-        }
-        return content;
+        return body?.content || "Agent reported failure (no details)";
       }
     } catch {
       // File not found or network error — continue to next path
@@ -930,18 +921,6 @@ async function deleteStepArtifacts(
       } catch {
         // Ignore — file may not exist
       }
-    }
-  }
-
-  const errorFilename = `workflow-step-${stepIndex + 1}--${agentId}-error.txt`;
-  for (const path of [errorFilename, `/${errorFilename}`]) {
-    try {
-      await fetch(
-        `${DA_SERVER_BASE_URL}/api/v1/files/content?fs_namespace=${encodeURIComponent(JSON.stringify(fsNamespace))}&path=${encodeURIComponent(path)}`,
-        { method: "DELETE", headers: authHeaders },
-      );
-    } catch {
-      // Ignore — file may not exist
     }
   }
 }
