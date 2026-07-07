@@ -1,0 +1,43 @@
+{{- $daPort := index .Values "dynamic-agents" "service" "port" | default 8001 | int }}
+{{- $daMetricsPort := index .Values "dynamic-agents" "service" "metricsPort" | default 0 | int }}
+{{- if and .Values.metrics.serviceMonitor.enabled (ne $daMetricsPort 0) (ne $daMetricsPort $daPort) }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-dynamic-agents-metrics
+  labels:
+    app.kubernetes.io/name: ai-platform-engineering
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.metrics.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # dynamic-agents.service.metricsPort is set to a port different from the
+  # main service port, so /metrics moved to its own "metrics" service port
+  # (see charts/dynamic-agents/templates/service.yaml). A dedicated
+  # ServiceMonitor is used so this endpoint is only applied to dynamic-agents.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dynamic-agents
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.metrics.path | default "/metrics" }}
+      interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
+      {{- with .Values.metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
