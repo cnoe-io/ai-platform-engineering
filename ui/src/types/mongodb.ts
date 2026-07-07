@@ -81,14 +81,22 @@ export interface Conversation {
     };
   };
   sharing: {
+    /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
     is_public: boolean;
-    public_permission?: 'view' | 'comment'; // Permission for public shares (default: comment)
+    /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
+    public_permission?: 'view' | 'comment';
     shared_with: string[]; // Array of user emails
     shared_with_teams: string[]; // Array of team IDs
     team_permissions?: Record<string, 'view' | 'comment'>; // Per-team permission
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
+  // assisted-by Codex Codex-sonnet-4-6
+  // Response-only: current viewer reached this conversation through sharing, not ownership.
+  viewer_has_shared_access?: boolean;
+  // assisted-by Codex Codex-sonnet-4-6
+  // Response-only: current viewer's effective access level for UI affordances.
+  access_level?: 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;
@@ -132,7 +140,6 @@ export interface Message {
     timeline_segments?: any[]; // TimelineSegment[] persisted for plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];
-  a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
   stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
   feedback?: MessageFeedback;
 }
@@ -199,6 +206,11 @@ export interface UserSettings {
     show_thinking_enabled: string;
     auto_scroll_enabled: string;
     show_timestamps_enabled: string;
+    // Per-user opt-out for the post-login release notes notification. When
+    // false, the release upgrade dialog/toast is suppressed for this user only
+    // (it does not change the platform-wide admin configuration). Defaults to
+    // enabled when absent.
+    releaseNotesNotificationsEnabled?: boolean;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
     favorite_agentic_apps?: string[];
@@ -233,6 +245,7 @@ export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'upda
     show_thinking_enabled: 'true',
     auto_scroll_enabled: 'true',
     show_timestamps_enabled: 'false',
+    releaseNotesNotificationsEnabled: true,
   },
   notifications: {
     email_enabled: true,
@@ -283,7 +296,7 @@ export interface SharingAccess {
 export interface CreateConversationRequest {
   title: string;
   client_type: ClientType; // Required: 'webui' | 'slack'
-  agent_id?: string; // Optional: builds participants with this agent
+  agent_id: string; // Required: every conversation targets a dynamic agent
   owner_id?: string; // Optional: trusted callers (e.g. Slack bot) can set on behalf of user
   idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
   metadata?: Record<string, unknown>; // Optional: arbitrary key/values from client
@@ -310,11 +323,13 @@ export interface PatchConversationMetadataRequest {
 export interface ShareConversationRequest {
   user_emails?: string[];
   team_ids?: string[];
-  permission: 'view' | 'comment';
+  permission?: 'view' | 'comment';
   enable_link?: boolean;
   link_expires?: string; // ISO date string
+  /** @deprecated Only is_public=false is accepted to clear legacy public state. */
   is_public?: boolean;
-  public_permission?: 'view' | 'comment'; // Permission when is_public is true
+  /** @deprecated Public/everyone conversation sharing is rejected by the API. */
+  public_permission?: 'view' | 'comment';
 }
 
 // Message API
@@ -339,7 +354,6 @@ export interface AddMessageRequest {
     timeline_segments?: any[]; // TimelineSegment[] for plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];
-  a2a_events?: any[]; // A2A events (tasks, tool calls, debug)
   stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
 }
 
@@ -353,8 +367,6 @@ export interface UpdateMessageRequest {
     task_id?: string;
     turn_id?: string;
   };
-  /** Update A2A events (e.g., after streaming completes with full event history) */
-  a2a_events?: any[];
   /** Update message feedback (rating + optional comment) */
   feedback?: Pick<MessageFeedback, 'rating' | 'comment'>;
 }
@@ -401,7 +413,6 @@ export interface PaginatedResponse<T> {
 export interface UserStats {
   total_conversations: number;
   total_messages: number;
-  total_tokens_used: number;
   conversations_this_week: number;
   messages_this_week: number;
   favorite_agents: Array<{ name: string; count: number }>;

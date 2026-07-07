@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -94,6 +95,10 @@ class FailingThreadContextWebexApi(FakeWebexApi):
         raise RuntimeError("webex unavailable")
 
 
+def _webex_timestamp(age: timedelta = timedelta()) -> str:
+    return (datetime.now(timezone.utc) - age).isoformat().replace("+00:00", "Z")
+
+
 def test_unlinked_user_gets_private_card_and_generic_thread_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_NAME", "Grid")
     api = FakeWebexApi()
@@ -122,6 +127,7 @@ def test_unlinked_user_gets_private_card_and_generic_thread_notice(monkeypatch: 
     assert direct_message["markdown"] == "Link your Grid account to Webex to continue."
     card = direct_message["attachments"][0]["content"]
     assert card["type"] == "AdaptiveCard"
+    assert card["body"][1]["text"] == "Verify your identity to interface with Grid agents."
     assert card["actions"][0] == {
         "type": "Action.OpenUrl",
         "title": "Link with SSO",
@@ -173,6 +179,112 @@ def test_unlinked_user_does_not_get_duplicate_linking_cards_within_cooldown(
     assert len(direct_messages) == 1
     assert len(thread_messages) == 2
     assert "card I sent earlier" in thread_messages[1]["markdown"]
+
+
+def test_unlinked_user_does_not_get_duplicate_card_when_room_already_has_link_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_platform_engineering.integrations.webex_bot import webex_responder as responder_module
+
+    monkeypatch.setenv("APP_NAME", "Grid")
+    responder_module._recent_linking_cards_sent.clear()
+    api = FakeWebexApi(
+        thread_messages=[
+            {
+                "markdown": "Link your Grid account to Webex to continue.",
+                "created": _webex_timestamp(),
+                "attachments": [
+                    {
+                        "content": {
+                            "type": "AdaptiveCard",
+                            "body": [{"text": "Link Grid to Webex"}],
+                            "actions": [{"title": "Link with SSO"}],
+                        }
+                    }
+                ],
+            }
+        ]
+    )
+    responder = WebexResponder(webex_api=api)
+    event = {
+        "data": {
+            "id": "message-public-id",
+            "webexRoomId": "room-public-id",
+            "personId": "person-public-id",
+        }
+    }
+    result = WebexMessageResult(
+        allowed=False,
+        dispatched=False,
+        ignored=False,
+        reason_code="WEBEX_USER_NOT_LINKED",
+        deny_message="Your Webex account is not linked.",
+        linking_url="http://localhost:3000/api/auth/webex-link?x=2",
+    )
+
+    asyncio.run(responder.reply_to_result(event, result))
+
+    direct_messages = [msg for msg in api.created if msg.get("person_id")]
+    assert direct_messages == []
+    assert api.created == [
+        {
+            "room_id": "room-public-id",
+            "parent_id": "message-public-id",
+            "markdown": (
+                "Your Webex account still needs to be linked to Grid. "
+                "Open your **1:1 chat with me** and tap **Link with SSO** on the card I sent earlier "
+                "(links expire after 10 minutes). After linking, retry here — no need to wait for a new card."
+            ),
+        }
+    ]
+
+
+def test_unlinked_user_gets_new_card_when_existing_card_is_expired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_platform_engineering.integrations.webex_bot import webex_responder as responder_module
+
+    monkeypatch.setenv("APP_NAME", "Grid")
+    responder_module._recent_linking_cards_sent.clear()
+    api = FakeWebexApi(
+        thread_messages=[
+            {
+                "markdown": "Link your Grid account to Webex to continue.",
+                "created": _webex_timestamp(timedelta(minutes=11)),
+                "attachments": [
+                    {
+                        "content": {
+                            "type": "AdaptiveCard",
+                            "body": [{"text": "Link Grid to Webex"}],
+                            "actions": [{"title": "Link with SSO"}],
+                        }
+                    }
+                ],
+            }
+        ]
+    )
+    responder = WebexResponder(webex_api=api)
+    event = {
+        "data": {
+            "id": "message-public-id",
+            "webexRoomId": "room-public-id",
+            "personId": "person-public-id",
+        }
+    }
+    result = WebexMessageResult(
+        allowed=False,
+        dispatched=False,
+        ignored=False,
+        reason_code="WEBEX_USER_NOT_LINKED",
+        deny_message="Your Webex account is not linked.",
+        linking_url="http://localhost:3000/api/auth/webex-link?x=3",
+    )
+
+    asyncio.run(responder.reply_to_result(event, result))
+
+    direct_messages = [msg for msg in api.created if msg.get("person_id")]
+    assert len(direct_messages) == 1
+    assert direct_messages[0]["attachments"][0]["content"]["actions"][0]["url"].endswith("x=3")
 
 
 def test_unlinked_user_dm_failure_does_not_post_signed_link_publicly(
@@ -236,6 +348,7 @@ def test_reason_code_fallback_is_user_friendly() -> None:
         dispatched=False,
         ignored=False,
         reason_code="WEBEX_OBO_FAILED",
+        explicit_invocation=True,
     )
 
     asyncio.run(responder.reply_to_result(event, result))

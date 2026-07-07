@@ -148,7 +148,7 @@ const docs: TestAuditDoc[] = [
     action: "argocd_list_applications",
     outcome: "success",
     correlation_id: "tool-correlation",
-    source: "supervisor",
+    source: "dynamic_agents",
     agent_name: "argocd",
     tool_name: "argocd_list_applications",
   },
@@ -160,7 +160,7 @@ const docs: TestAuditDoc[] = [
     action: "delegate_to_argocd",
     outcome: "success",
     correlation_id: "delegation-correlation",
-    source: "supervisor",
+    source: "dynamic_agents",
     agent_name: "argocd",
   },
   {

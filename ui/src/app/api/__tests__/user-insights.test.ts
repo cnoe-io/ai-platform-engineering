@@ -286,22 +286,6 @@ describe('GET /api/users/me/insights — Overview', () => {
       .mockResolvedValueOnce(45)
       .mockResolvedValueOnce(10);
 
-    // Token aggregation
-    msgCol.aggregate.mockImplementation((pipeline: any[]) => {
-      // Tokens pipeline: $group with total_tokens
-      const hasTokenGroup = pipeline.some(
-        (stage: Record<string, any>) => stage.$group?.total_tokens
-      );
-      if (hasTokenGroup) {
-        return {
-          toArray: jest.fn().mockResolvedValue([
-            { _id: null, total_tokens: 15000 },
-          ]),
-        };
-      }
-      return { toArray: jest.fn().mockResolvedValue([]) };
-    });
-
     const req = makeRequest('/api/users/me/insights');
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -309,22 +293,10 @@ describe('GET /api/users/me/insights — Overview', () => {
     const body = await res.json();
     expect(body.data.overview.total_conversations).toBe(3);
     expect(body.data.overview.total_messages).toBe(45);
-    expect(body.data.overview.total_tokens_used).toBe(15000);
+    // total_tokens_used was removed in 0.6.0 — dynamic agents emit no usage.
+    expect(body.data.overview).not.toHaveProperty('total_tokens_used');
     expect(body.data.overview.conversations_this_week).toBe(1);
     expect(body.data.overview.messages_this_week).toBe(10);
-  });
-
-  it('returns 0 tokens when no messages have token metadata', async () => {
-    const { convCol, msgCol } = setupUserWithConversations();
-
-    convCol.countDocuments.mockResolvedValue(0);
-    msgCol.countDocuments.mockResolvedValue(0);
-
-    const req = makeRequest('/api/users/me/insights');
-    const res = await GET(req);
-    const body = await res.json();
-
-    expect(body.data.overview.total_tokens_used).toBe(0);
   });
 });
 
@@ -891,7 +863,6 @@ describe('GET /api/users/me/insights — Response Shape', () => {
     // overview sub-fields
     expect(body.data.overview).toHaveProperty('total_conversations');
     expect(body.data.overview).toHaveProperty('total_messages');
-    expect(body.data.overview).toHaveProperty('total_tokens_used');
     expect(body.data.overview).toHaveProperty('conversations_this_week');
     expect(body.data.overview).toHaveProperty('messages_this_week');
     expect(body.data.overview).toHaveProperty('avg_messages_per_conversation');

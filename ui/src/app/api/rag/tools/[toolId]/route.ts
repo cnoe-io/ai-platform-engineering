@@ -2,6 +2,7 @@ import { ApiError,handleApiError,requireRbacPermission } from "@/lib/api-middlew
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { loadTeamAllowedDatasourceIds } from "@/app/api/rag/tools/route";
 import { getServerSession } from "next-auth";
 import { NextRequest,NextResponse } from "next/server";
 
@@ -25,14 +26,6 @@ interface TeamRagToolDoc {
   created_by: string;
   updated_at: Date;
   status: string;
-}
-
-interface TeamKbOwnershipDoc {
-  team_id: string;
-  tenant_id: string;
-  kb_ids: string[];
-  allowed_datasource_ids: string[];
-  updated_at: Date;
 }
 
 export async function GET(
@@ -107,14 +100,8 @@ export async function PUT(
     };
 
     if (datasource_ids && datasource_ids.length > 0) {
-      const ownership = await getCollection<TeamKbOwnershipDoc>("team_kb_ownership");
-      const teamOwnership = await ownership.findOne({
-        team_id: existing.team_id,
-        ...(session.org ? { tenant_id: session.org } : {}),
-      });
-
-      if (teamOwnership) {
-        const allowed = new Set(teamOwnership.allowed_datasource_ids);
+      const allowed = await loadTeamAllowedDatasourceIds(existing.team_id);
+      if (allowed) {
         const violations = datasource_ids.filter((ds) => !allowed.has(ds));
         if (violations.length > 0) {
           throw new ApiError(

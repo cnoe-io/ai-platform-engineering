@@ -7,6 +7,7 @@ import {
   type ConnectorRuntimeRouteDiagnostic,
   computeConnectorDiagnostics,
   computeConnectorHealthSummary,
+  computeConnectorHealthSummaries,
 } from "@/lib/rbac/connector-diagnostics";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
@@ -22,6 +23,11 @@ export interface SlackChannelDiagnostics extends Omit<ConnectorDiagnostics, "ite
 
 export type SlackChannelHealthSummary = ConnectorHealthSummary;
 
+export interface SlackChannelHealthSummaryTarget {
+  workspaceId: string;
+  channelId: string;
+}
+
 function agentIdFromObject(object: string): string | null {
   if (!object.startsWith("agent:")) return null;
   const agentId = object.slice("agent:".length).trim();
@@ -34,11 +40,11 @@ async function listOpenFgaSlackChannelAgentIds(workspaceId: string, channelId: s
   let continuationToken: string | undefined;
   do {
     const result = await readOpenFgaTuples({
+      tuple: { user: subject, relation: "user", object: "agent:" },
       pageSize: 100,
       ...(continuationToken ? { continuationToken } : {}),
     });
     for (const tuple of result.tuples) {
-      if (tuple.key.user !== subject || tuple.key.relation !== "user") continue;
       const agentId = agentIdFromObject(tuple.key.object);
       if (agentId) seen.add(agentId);
     }
@@ -110,4 +116,13 @@ export async function computeSlackChannelHealthSummary(
   channelId: string,
 ): Promise<SlackChannelHealthSummary> {
   return computeConnectorHealthSummary(SLACK_DIAGNOSTICS_ADAPTER, workspaceId, channelId);
+}
+
+export async function computeSlackChannelHealthSummaries(
+  targets: SlackChannelHealthSummaryTarget[],
+): Promise<SlackChannelHealthSummary[]> {
+  return computeConnectorHealthSummaries(
+    SLACK_DIAGNOSTICS_ADAPTER,
+    targets.map((target) => ({ workspaceId: target.workspaceId, itemId: target.channelId })),
+  );
 }

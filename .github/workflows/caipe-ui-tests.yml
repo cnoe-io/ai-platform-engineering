@@ -38,7 +38,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
@@ -211,7 +211,7 @@ jobs:
 
             - ✅ auth-guard.test.tsx - Route protection & authorization
             - ✅ token-expiry-guard.test.tsx - Token expiry handling
-            - ✅ a2a-sdk-client.test.ts - A2A streaming SDK
+            - ✅ dynamic-agent-client.test.ts - Dynamic Agents streaming client
             - ✅ auth-utils.test.ts - Authentication utilities (100% coverage)
             - ✅ auth-config.test.ts - OIDC configuration
 
@@ -230,7 +230,7 @@ jobs:
             <summary>⚠️ Areas Needing Tests</summary>
 
             **High Priority:**
-            - hooks/use-a2a-streaming.ts - Core streaming functionality
+            - lib/streaming/* - Core stream event handling
             - store/chat-store.ts - Chat state management
             - store/agent-skills-store.ts - Agent skills
             - lib/api-client.ts - API communication
@@ -310,7 +310,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -332,12 +332,30 @@ jobs:
             sleep $((attempt * 10))
           done
 
-      - name: Start CAIPE UI dev server
+      - name: Build CAIPE UI
         working-directory: ui
         env:
           WORKFLOWS_ENABLED: 'true'
+          # The specs mock every API, so no real database is contacted. But the
+          # home page gates shared-conversation / insights UI on server-side
+          # storage mode (getStorageMode reads MONGODB_URI + MONGODB_DATABASE at
+          # render time). Set dummy values so SSR renders in "mongodb" mode and
+          # those components exist in the server markup for the mocks to drive.
+          MONGODB_URI: 'mongodb://mock:27017'
+          MONGODB_DATABASE: 'mock'
+        run: npm run build
+
+      - name: Start CAIPE UI server
+        working-directory: ui
+        env:
+          WORKFLOWS_ENABLED: 'true'
+          MONGODB_URI: 'mongodb://mock:27017'
+          MONGODB_DATABASE: 'mock'
         run: |
-          npm run dev -- --port 3000 > /tmp/caipe-ui-dev.log 2>&1 &
+          # Run the production server, not `next dev`: React StrictMode
+          # double-invokes effects only in dev, which breaks exact
+          # request-count assertions in several specs.
+          npx next start --port 3000 > /tmp/caipe-ui-dev.log 2>&1 &
           echo $! > /tmp/caipe-ui-dev.pid
 
       - name: Wait for CAIPE UI
@@ -356,23 +374,29 @@ jobs:
       - name: Run mocked RBAC Playwright regression
         id: playwright
         working-directory: ui
+        # The container's default shell is sh (dash); mapfile + process
+        # substitution below are bash builtins, so pin the shell to bash.
+        shell: bash
         env:
           RUN_RBAC_REGRESSION: '1'
           CAIPE_UI_BASE_URL: http://localhost:3000
           WORKFLOWS_ENABLED: 'true'
         run: |
-          npx playwright test \
-            e2e/rbac/workflow-agent-access.spec.ts \
-            e2e/rbac/workflows-rbac-regression.spec.ts \
-            e2e/rbac/webex-workflow-agent-routes.spec.ts \
-            e2e/rbac/rbac-admin-regression.spec.ts \
-            e2e/rbac/mcp-openfga-tuples.spec.ts \
-            e2e/rbac/mcp-server-permission-gating.spec.ts \
-            e2e/rbac/mcp-test-modal-and-agentgateway.spec.ts \
-            e2e/rbac/credentials-workspace-regression.spec.ts \
-            e2e/rbac/admin-settings-regression.spec.ts \
-            e2e/rbac/identity-sync-regression.spec.ts \
-            --config=playwright.rbac.config.ts
+          # Run every mocked-RBAC spec under e2e/rbac/, excluding the
+          # *-live.spec.ts files (those need live Keycloak/OpenFGA infra and
+          # are only exercised by the label-gated e2e lane in test-rbac.yaml).
+          # A glob keeps this job in sync automatically as specs are added —
+          # see issue #2124, which tracked a stale hardcoded 11-file list that
+          # silently skipped newly-added specs.
+          mapfile -t specs < <(find e2e/rbac -maxdepth 1 -name '*.spec.ts' ! -name '*-live.spec.ts' | sort)
+          # Fail loud if the glob matches nothing — otherwise `playwright test`
+          # with no files would silently pass and re-introduce the #2124 gap.
+          if [ "${#specs[@]}" -eq 0 ]; then
+            echo "::error::No mocked-RBAC specs matched e2e/rbac/*.spec.ts (excluding *-live). Check the glob."
+            exit 1
+          fi
+          echo "Running ${#specs[@]} mocked-RBAC spec files."
+          npx playwright test "${specs[@]}" --config=playwright.rbac.config.ts
 
       - name: Upload Playwright artifacts
         if: failure() && steps.playwright.outcome == 'failure'
@@ -409,7 +433,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:

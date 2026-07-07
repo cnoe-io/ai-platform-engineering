@@ -1,8 +1,5 @@
 "use client";
 
-import { HelpCircle } from "lucide-react";
-
-import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import type {
 ConnectorAdminAdapter,
@@ -11,41 +8,6 @@ ItemAgentRoute,
 ItemDiagnostics,
 ItemSummary,
 } from "./connector-admin-adapter";
-
-function WebexAccessNote() {
-  return (
-    <div className="flex max-w-4xl items-start gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
-      <span>
-        Members of the assigned team can manage this Webex space&apos;s bot routing. The space and the
-        assigned team must both be allowed to use an agent before the bot will call it.
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Webex access details"
-            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <HelpCircle className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-md whitespace-normal break-words text-xs">
-          <div className="space-y-2">
-            <p>
-              Team assignment controls who can manage this space&apos;s integration. Before dispatch,
-              the Webex bot checks that the space has <code className="mx-0.5">can_use agent:&lt;id&gt;</code>{" "}
-              and the user&apos;s active team has the same permission.
-            </p>
-            <p>
-              Adding an agent to a team-assigned space grants every member of that team permission to
-              invoke the agent in the space, even if they were never granted the agent directly.
-            </p>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </div>
-  );
-}
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
@@ -72,6 +34,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   connectorName: "Webex",
   itemSingular: "space",
   itemPlural: "spaces",
+  singlePanelView: "onboard",
 
   api: {
     list: "/api/admin/webex/spaces",
@@ -115,11 +78,17 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     );
     const spaces = (d.spaces ?? []) as Record<string, unknown>[];
     return {
-      items: spaces.map((sp) => ({
-        id: String(sp.id ?? ""),
-        name: String(sp.name ?? sp.id),
-        secondary: [String(sp.id ?? ""), sp.type, sp.is_locked ? "locked" : ""].filter(Boolean).join(" · "),
-      })),
+      items: spaces.map((sp) => {
+        const type = String(sp.type ?? "group").trim().toLowerCase() || "group";
+        const isDirect = type === "direct";
+        return {
+          id: String(sp.id ?? ""),
+          name: String(sp.name ?? sp.id),
+          secondary: [String(sp.id ?? ""), type, sp.is_locked ? "locked" : ""].filter(Boolean).join(" · "),
+          teamRequired: !isDirect,
+          selectable: !isDirect,
+        };
+      }),
       nextCursor: d.next_cursor ?? null,
       hasMore: Boolean(d.has_more),
       totalMatches: typeof d.total_matches === "number" ? d.total_matches : undefined,
@@ -152,7 +121,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   copy: {
     configuredTabTitle: "Configured spaces",
     configuredTabDescription: "Spaces CAIPE already knows about. Click a space to manage its agents and diagnostics.",
-    onboardTabTitle: "Onboard spaces",
+    onboardTabTitle: "Configure spaces",
     onboardTabDescription: "Find Webex spaces where the bot is installed and set them up.",
     advancedTabTitle: "Advanced",
     advancedTabDescription: "One-time YAML import and Webex bot runtime status. Most admins won't need this.",
@@ -174,10 +143,12 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     advancedRegion: "Advanced Setup - Import/Sync with Webex Bot",
   },
 
-  discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) =>
-    discoveredCount > 0
-      ? `${discoveredCount} bot-visible found · ${newCount} new · ${configuredCount} in CAIPE · ${unassignedCount} missing team`
-      : `${configuredCount} in CAIPE · ${unassignedCount} missing team`,
+  discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) => [
+    `Discovered: ${discoveredCount}`,
+    `Configured: ${configuredCount}`,
+    ...(newCount > 0 ? [`New: ${newCount}`] : []),
+    ...(unassignedCount > 0 ? [`Missing team: ${unassignedCount}`] : []),
+  ].join(" · "),
 
   staticConfigLabel: ({ items, routes }) => `${items} spaces / ${routes} routes`,
   routeCacheLabel: (count) => `${count} cached space${count === 1 ? "" : "s"}`,
@@ -193,7 +164,23 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     },
   ],
 
-  authzDisclaimer: <WebexAccessNote />,
+  authzDisclaimer: (
+    <>
+      <div>
+        The Webex bot checks that the space has
+        <code className="mx-1">can_use agent:&lt;id&gt;</code> (a space→agent grant).
+        User-level <code className="mx-1">can_use</code> on the agent is enforced when
+        the conversation is created — any user with agent access can use it in spaces
+        where that agent is assigned.
+      </div>
+      <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
+        <span className="font-medium">Sharing model:</span> Assigning an agent to a
+        space exposes it to users who message in that space. Grant agent access to
+        individual users or teams separately; space assignment alone does not
+        substitute for user <code className="mx-1">can_use</code> permission.
+      </div>
+    </>
+  ),
 
   diagnosticRouteIsFixable: (route: DiagnosticRoute) =>
     (route.route_metadata && !route.openfga_tuple) ||
@@ -227,7 +214,13 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   },
 
   applyOnboarding: async ({ rows, defaultTeamSlug, defaultAgentId, createDefaultRoutes, fetchFn }) => {
-    const selectedImports = rows.filter((r) => r.selected && r.teamSlug && r.agentId);
+    const selectedImports = rows.filter((r) =>
+      r.selectable !== false &&
+      r.teamRequired !== false &&
+      r.selected &&
+      r.teamSlug &&
+      r.agentId
+    );
     if (selectedImports.length === 0) return { toastMessage: "No spaces selected." };
     const grouped = new Map<string, Array<{ id: string; name?: string }>>();
     for (const sp of selectedImports) {

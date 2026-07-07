@@ -479,16 +479,6 @@ Merged skills catalog: prefers proxy to Python `GET {BACKEND_SKILLS_URL}/skills`
 
 ---
 
-### POST `/api/skills/refresh`
-
-**Auth:** Session + **`requireAdmin`**.
-
-Proxies to Python `POST /skills/refresh` (catalog invalidation / supervisor graph rebuild). Requires `BACKEND_SKILLS_URL`.
-
-**Response:** Pass-through status and JSON from backend; `503` if backend URL unset; `502` if unreachable.
-
----
-
 ### POST `/api/skills/token`
 
 **Auth:** Session (`withAuth`).
@@ -498,14 +488,6 @@ Mints an HS256 JWT for programmatic catalog reads (`scope: skills:read`, `role: 
 **Body (optional):** `{ "expires_in_days": 30 | 60 | 90 }` (default 90, max 90).
 
 **Response `200`:** `{ "token", "token_type": "Bearer", "expires_in", "scope": "skills:read" }`
-
----
-
-### GET `/api/skills/supervisor-status`
-
-**Auth:** Session.
-
-Proxies to Python `GET /internal/supervisor/skills-status`. If `BACKEND_SKILLS_URL` is unset, returns `200` with null fields and an explanatory `message`.
 
 ---
 

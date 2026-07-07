@@ -1406,6 +1406,12 @@ async def ingest_local_file(
     last_updated=now,
     default_chunk_size=bounded_chunk_size,
     default_chunk_overlap=bounded_chunk_overlap,
+    # Config is the source of truth for ownership; OpenFGA is the derived
+    # projection (spec 2026-06-03). Persist the same owner/creator the
+    # tuples below encode so the sharing panel reflects the owning team.
+    owner_team_slug=(owner_team_slug or "").strip() or None,
+    creator_subject=user.subject,
+    owner_subject=user.subject if not (owner_team_slug or "").strip() else None,
     metadata={
       "filename": first_filename,
       "file_count": len(uploads),
@@ -1495,7 +1501,7 @@ async def ingest_url(
   logger.info(f"Received URL ingestion request: {url_request.url}")
 
   # Sanitize URL
-  sanitized_url = sanitize_url(url_request.url)
+  sanitized_url = sanitize_url(url_request.url, url_request.settings.allow_non_public_urls)
   url_request.url = sanitized_url
 
   # Generate datasource ID and create datasource
@@ -1547,6 +1553,12 @@ async def ingest_url(
     last_updated=int(time.time()),
     default_chunk_size=url_request.settings.chunk_size,
     default_chunk_overlap=url_request.settings.chunk_overlap,
+    # Config is the source of truth for ownership; OpenFGA is the derived
+    # projection (spec 2026-06-03). Persist the same owner/creator the
+    # tuples below encode so the sharing panel reflects the owning team.
+    owner_team_slug=(url_request.owner_team_slug or "").strip() or None,
+    creator_subject=user.subject,
+    owner_subject=user.subject if not (url_request.owner_team_slug or "").strip() else None,
     metadata={
       "url_ingest_request": url_request.model_dump(),
       "reload_interval": url_request.reload_interval,  # Top-level for easy access by IngestorBuilder
@@ -1699,6 +1711,12 @@ async def ingest_confluence_page(
       last_updated=int(time.time()),
       default_chunk_size=1000,
       default_chunk_overlap=200,
+      # Config is the source of truth for ownership; OpenFGA is the derived
+      # projection (spec 2026-06-03). Persist the same owner/creator the
+      # tuples below encode so the sharing panel reflects the owning team.
+      owner_team_slug=(confluence_request.owner_team_slug or "").strip() or None,
+      creator_subject=user.subject,
+      owner_subject=user.subject if not (confluence_request.owner_team_slug or "").strip() else None,
       metadata={
         "confluence_ingest_request": confluence_request.model_dump(),
         "space_key": space_key,

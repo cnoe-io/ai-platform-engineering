@@ -147,6 +147,107 @@ describe("OAuth connector env bootstrap", () => {
     ]);
   });
 
+  it("builds arbitrary deploy-configured connectors and resolves secret env references", () => {
+    const inputs = buildOAuthConnectorBootstrapInputs({
+      NEXTAUTH_URL: "https://caipe.example.com",
+      ACME_OAUTH_CLIENT_ID: "acme-client",
+      ACME_OAUTH_CLIENT_SECRET: "acme-secret",
+      CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+        {
+          provider: "acme",
+          name: "Acme Cloud",
+          clientIdEnv: "ACME_OAUTH_CLIENT_ID",
+          clientSecretEnv: "ACME_OAUTH_CLIENT_SECRET",
+          authorizationUrl: "https://identity.acme.example.com/oauth/authorize",
+          tokenUrl: "https://identity.acme.example.com/oauth/token",
+          scopes: ["projects.read", "projects.write"],
+        },
+        {
+          provider: "public-acme",
+          name: "Acme Public Client",
+          clientId: "public-client",
+          pkce: true,
+          authorizationUrl: "https://identity.acme.example.com/oauth/authorize",
+          tokenUrl: "https://identity.acme.example.com/oauth/token",
+          scopes: ["profile"],
+          redirectUri: "https://caipe.example.com/custom/callback",
+        },
+      ]),
+    });
+
+    expect(inputs).toEqual([
+      {
+        provider: "acme",
+        name: "Acme Cloud",
+        clientId: "acme-client",
+        clientSecret: "acme-secret",
+        authorizationUrl: "https://identity.acme.example.com/oauth/authorize",
+        tokenUrl: "https://identity.acme.example.com/oauth/token",
+        scopes: ["projects.read", "projects.write"],
+        redirectUri: "https://caipe.example.com/api/credentials/oauth/acme/callback",
+      },
+      {
+        provider: "public-acme",
+        name: "Acme Public Client",
+        clientId: "public-client",
+        pkce: true,
+        authorizationUrl: "https://identity.acme.example.com/oauth/authorize",
+        tokenUrl: "https://identity.acme.example.com/oauth/token",
+        scopes: ["profile"],
+        redirectUri: "https://caipe.example.com/custom/callback",
+      },
+    ]);
+  });
+
+  it("lets deploy-configured connectors override legacy bootstrap for the same provider", () => {
+    const inputs = buildOAuthConnectorBootstrapInputs({
+      WEBEX_CLIENT_ID: "legacy-webex-client",
+      WEBEX_CLIENT_SECRET: "legacy-webex-secret",
+      WEBEX_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/webex/callback",
+      DECLARATIVE_WEBEX_SECRET: "declarative-webex-secret",
+      CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+        {
+          provider: "webex",
+          name: "Declarative Webex",
+          clientId: "declarative-webex-client",
+          clientSecretEnv: "DECLARATIVE_WEBEX_SECRET",
+          authorizationUrl: "https://webexapis.com/v1/authorize",
+          tokenUrl: "https://webexapis.com/v1/access_token",
+          scopes: ["spark:mcp"],
+          redirectUri: "https://caipe.example.com/api/credentials/oauth/webex/callback",
+        },
+      ]),
+    });
+
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        provider: "webex",
+        name: "Declarative Webex",
+        clientId: "declarative-webex-client",
+        clientSecret: "declarative-webex-secret",
+        scopes: ["spark:mcp"],
+      }),
+    ]);
+  });
+
+  it("rejects deploy-configured connectors whose referenced secret env is missing", () => {
+    expect(() =>
+      buildOAuthConnectorBootstrapInputs({
+        CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+          {
+            provider: "acme",
+            name: "Acme Cloud",
+            clientId: "acme-client",
+            clientSecretEnv: "ACME_OAUTH_CLIENT_SECRET",
+            authorizationUrl: "https://identity.acme.example.com/oauth/authorize",
+            tokenUrl: "https://identity.acme.example.com/oauth/token",
+            scopes: ["projects.read"],
+          },
+        ]),
+      }),
+    ).toThrow("references missing environment variable ACME_OAUTH_CLIENT_SECRET");
+  });
+
   it("normalizes legacy local GitHub and Webex callback URLs to the CAIPE UI callback route", () => {
     const inputs = buildOAuthConnectorBootstrapInputs({
       NEXTAUTH_URL: "http://localhost:3000",
@@ -200,6 +301,37 @@ describe("OAuth connector env bootstrap", () => {
       service,
     });
     expect(service.upsertConnector).not.toHaveBeenCalled();
+  });
+
+  it("bootstraps a configured connector without the legacy enable flag", async () => {
+    const service = {
+      upsertConnector: jest.fn<UpsertConnector>(async (input) => connectorMetadata(input)),
+    };
+
+    await expect(
+      bootstrapOAuthConnectorsFromEnv({
+        env: {
+          ACME_OAUTH_CLIENT_SECRET: "acme-secret",
+          CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+            {
+              provider: "acme",
+              name: "Acme Cloud",
+              clientId: "acme-client",
+              clientSecretEnv: "ACME_OAUTH_CLIENT_SECRET",
+              authorizationUrl: "https://identity.acme.example.com/oauth/authorize",
+              tokenUrl: "https://identity.acme.example.com/oauth/token",
+              scopes: ["projects.read"],
+              redirectUri: "https://caipe.example.com/api/credentials/oauth/acme/callback",
+            },
+          ]),
+        },
+        service,
+      }),
+    ).resolves.toBe(1);
+
+    expect(service.upsertConnector).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "acme", clientSecret: "acme-secret" }),
+    );
   });
 
   it("continues bootstrapping remaining providers when one provider fails validation", async () => {

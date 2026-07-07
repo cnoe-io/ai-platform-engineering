@@ -393,9 +393,13 @@ describe("login OpenFGA bootstrap", () => {
     });
 
     expect(result.status).toBe("completed");
-    // Super-admins team tuple written via writeTeamMembershipTuples
+    // assisted-by Codex Codex-sonnet-4-6
+    // Super-admins team tuples written via writeTeamMembershipTuples.
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: "user:sub-admin", relation: "admin", object: "team:super-admins" }],
+      writes: expect.arrayContaining([
+        { user: "user:sub-admin", relation: "admin", object: "team:super-admins" },
+        { user: "user:sub-admin", relation: "member", object: "team:super-admins" },
+      ]),
       deletes: [],
     });
     // Membership source upserted

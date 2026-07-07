@@ -111,7 +111,7 @@ const WARNING_PATTERNS: WarningPattern[] = [
           `user-profile policy is rejecting the placeholder user — check ` +
           `\`KEYCLOAK_USER_PROFILE_UNMANAGED_ATTRIBUTE_POLICY\` (it should be ` +
           `\`ADMIN_VIEW\` or laxer); (3) OpenFGA is unreachable — check the ` +
-          `OpenFGA tab and the supervisor logs; (4) the user already exists ` +
+          `OpenFGA tab and the OpenFGA bridge logs; (4) the user already exists ` +
           `but with a *different* email casing — Keycloak email lookup is ` +
           `case-sensitive in some configurations. After fixing the cause, ` +
           `click \`Reconcile all\` to retry; this warning clears as soon ` +

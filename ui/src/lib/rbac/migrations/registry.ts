@@ -24,12 +24,41 @@ CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
 deriveConversationOwnerIdentityPlan,
 } from "./conversation-owner-identity";
 import {
+  applyLegacyRuntimeCleanupMigration,
+  deriveLegacyRuntimeCleanupPlan,
+  DEPRECATED_CONVERSATION_FIELDS_FILTER,
+  A2A_EVENTS_FILTER,
+  LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
+  LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
+} from "./legacy-runtime-cleanup";
+import {
   applyTeamToolWildcardSlashMigration,
   planTeamToolWildcardSlashMigration,
   TEAM_TOOL_WILDCARD_SLASH_CONFIRMATION,
   TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
 } from "./team-tool-wildcard-slash";
+import {
+  applyDropTeamResourcesArrayMigration,
+  DROP_TEAM_RESOURCES_ARRAY_CONFIRMATION,
+  DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID,
+  planDropTeamResourcesArrayMigration,
+  type TeamResourcesDoc,
+} from "./drop-team-resources-array";
+import {
+  applyDropTeamKbOwnershipMigration,
+  DROP_TEAM_KB_OWNERSHIP_CONFIRMATION,
+  DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID,
+  planDropTeamKbOwnershipMigration,
+  TEAM_KB_OWNERSHIP_COLLECTION,
+  type DropTeamKbOwnershipInputs,
+} from "./drop-team-kb-ownership";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
+export {
+  getUnclassifiedSchemaAreas,
+  SCHEMA_AREA_CLASSIFICATIONS,
+  type SchemaAreaClassification,
+  type SchemaAreaClassificationEntry,
+} from "./schema-area-classifications";
 import type {
 MigrationApplyAllItemResult,
 MigrationApplyAllResult,
@@ -43,13 +72,6 @@ MigrationSchemaVersionStatus,
 SchemaVersionBootstrapApplyResult,
 SchemaVersionBootstrapPlanResult,
 } from "./types";
-export {
-getUnclassifiedSchemaAreas,
-SCHEMA_AREA_CLASSIFICATIONS,
-type SchemaAreaClassification,
-type SchemaAreaClassificationEntry
-} from "./schema-area-classifications";
-
 export const RELEASE_051 = "0.5.1";
 // 0.5.8 manifest — the unified shareable-resource RBAC backfills
 // (spec 2026-06-03). The migration framework tracks completed runs and the
@@ -57,10 +79,14 @@ export const RELEASE_051 = "0.5.1";
 // `ACTIVE_RELEASES` (the runs query, override scope, and runtime label all
 // span every active release).
 export const RELEASE_058 = "0.5.8";
+// 0.6.0 manifest — runtime storage cleanup. The
+// `legacy_runtime_cleanup_v1` migration keeps only checkpoint collections and
+// message metadata used by the current Dynamic Agents runtime.
+export const RELEASE_060 = "0.6.0";
 // All release manifests the runtime surfaces. The newest is the reported
 // `migration_release`; the runs query spans every entry so completed-state is
 // tracked across releases. Keep newest-last so `latestRelease()` is the tail.
-export const ACTIVE_RELEASES = [RELEASE_051, RELEASE_058] as const;
+export const ACTIVE_RELEASES = [RELEASE_051, RELEASE_058, RELEASE_060] as const;
 
 function latestRelease(): string {
   return ACTIVE_RELEASES[ACTIVE_RELEASES.length - 1];
@@ -219,7 +245,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Organization membership backfill",
     description:
-      "Grant existing linked users organization membership so baseline supervisor, RAG, and chat access survive the OpenFGA cutover.",
+      "Grant existing linked users organization membership so baseline RAG and chat access survive the OpenFGA cutover.",
     confirmation: "MIGRATE organization_membership TO v2",
     required: true,
     implemented: true,
@@ -503,7 +529,51 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
   },
+  {
+    id: DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "team_resources",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "Drop legacy team.resources array",
+    description:
+      "Make OpenFGA the single source of truth for team↔resource grants. Backfills any grant still present only in the `team.resources` array (agents/agent_admins/tools/knowledge_bases/skills/tasks) into OpenFGA, then `$unset`s the dead `resources` field. The admin Teams/Users views now read grants live from OpenFGA, so the hand-curated array can only re-introduce drift. Strictly additive on tuples; idempotent once the field is gone.",
+    confirmation: DROP_TEAM_RESOURCES_ARRAY_CONFIRMATION,
+    required: true,
+    implemented: true,
+    dependencies: [UNIVERSAL_REBAC_MIGRATION_ID, TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID],
+  },
+  {
+    id: DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "team_kb_ownership",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "Drop legacy team_kb_ownership collection",
+    description:
+      "Make OpenFGA the single source of truth for team↔knowledge-base grants. Backfills any (team, kb) grant still present only in a `team_kb_ownership` row into OpenFGA (reader/ingestor/manager by permission), then drops the collection. The admin KB views, RAG-tool datasource binding, and team-card KB count now read grants live from OpenFGA, so the Mongo collection can only re-introduce drift. Strictly additive on tuples; idempotent once the collection is gone.",
+    confirmation: DROP_TEAM_KB_OWNERSHIP_CONFIRMATION,
+    required: true,
+    implemented: true,
+    dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
+  },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  {
+    id: LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "legacy_runtime_cleanup",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Legacy runtime storage cleanup",
+    description:
+      "Drop checkpoint collections not used by Dynamic Agents and strip message metadata fields that the current runtime does not read. Conversation/message stat data is preserved.",
+    confirmation: LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
+    required: false,
+    implemented: true,
+  },
 ];
 
 interface SchemaVersionDoc {
@@ -2097,6 +2167,34 @@ async function loadConversationMigrationInputs() {
   return { conversations, conversationDocs, userDocs };
 }
 
+/** Plan-time inputs for the 0.6.0 legacy-runtime cleanup: live collection
+ *  names plus counts of documents still carrying the dead fields. */
+async function loadLegacyRuntimeCleanupInputs() {
+  const conversations = await getCollection("conversations");
+  const messages = await getCollection("messages");
+  const [collectionNames, conversationsWithDeprecatedFields, messagesWithA2aEvents] =
+    await Promise.all([
+      listMongoCollectionNames(),
+      conversations.countDocuments(DEPRECATED_CONVERSATION_FIELDS_FILTER),
+      messages.countDocuments(A2A_EVENTS_FILTER),
+    ]);
+  return { collectionNames, conversationsWithDeprecatedFields, messagesWithA2aEvents };
+}
+
+/** Apply-time collection adapter for the 0.6.0 legacy-runtime cleanup. Wraps
+ *  the raw mongodb driver so the migration module stays driver-agnostic. */
+async function buildLegacyRuntimeCleanupCollections() {
+  const { db } = await connectToDatabase();
+  const conversations = await getCollection("conversations");
+  const messages = await getCollection("messages");
+  return {
+    conversations,
+    messages,
+    listCollectionNames: () => listMongoCollectionNames(),
+    dropCollection: (name: string) => db.dropCollection(name).catch(() => false),
+  };
+}
+
 async function loadUniversalMigrationInputs() {
   const [teams, users, dynamicAgents, platformConfig] = await Promise.all([
     getCollection("teams"),
@@ -2207,6 +2305,24 @@ async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
 }
 
 /**
+ * Inputs for the 0.6.0 drop-team-kb-ownership migration: the same rows +
+ * teamId→slug map the KB shared-team backfill uses (so the final belt-and-
+ * suspenders backfill mirrors it exactly), plus whether the collection still
+ * physically exists (drives the irreversible-drop warning + counts).
+ */
+async function loadDropTeamKbOwnershipInputs(): Promise<DropTeamKbOwnershipInputs> {
+  const [{ ownershipDocs, teamSlugByMongoId }, collectionNames] = await Promise.all([
+    loadKnowledgeBaseSharedTeamGrantsInputs(),
+    listMongoCollectionNames(),
+  ]);
+  return {
+    ownershipDocs,
+    teamSlugByMongoId,
+    collectionExists: collectionNames.includes(TEAM_KB_OWNERSHIP_COLLECTION),
+  };
+}
+
+/**
  * Read existing `knowledge_base:*` tuples from OpenFGA. Used by
  * `deriveDataSourceGrantsBackfillPlan` so the data_source mirror set is
  * computed from the source of truth instead of Mongo. OpenFGA does not
@@ -2281,6 +2397,23 @@ async function loadTeamToolWildcardInputs(): Promise<{
   } while (continuationToken);
 
   return { teams, toolTuples };
+}
+
+/**
+ * Load every team doc that still physically carries a `resources` field for
+ * the drop-team-resources-array migration. The `$exists` filter keeps the scan
+ * proportional to the work remaining — once the field is gone everywhere the
+ * loader returns nothing and the migration is a no-op. Projects only the slug +
+ * resources sub-fields the migration reads.
+ */
+async function loadDropTeamResourcesInputs(): Promise<TeamResourcesDoc[]> {
+  const teamsCol = await getCollection("teams");
+  const docs = (await teamsCol
+    .find({ resources: { $exists: true } } as never, {
+      projection: { _id: 1, slug: 1, resources: 1 },
+    } as never)
+    .toArray()) as Array<Record<string, unknown>>;
+  return docs as unknown as TeamResourcesDoc[];
 }
 
 /**
@@ -2779,6 +2912,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
       now,
     });
   }
+  if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
+    return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
+  }
   if (migrationId === UNIVERSAL_REBAC_MIGRATION_ID) {
     const { teamDocs, userDocs, agentDocs, configDoc } = await loadUniversalMigrationInputs();
     return deriveUniversalRebacPlan({
@@ -2856,6 +2992,12 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     // The migration reads only `_id` + `resources.tools[]`; the loader returns
     // the looser Mongo doc shape, so narrow to the migration's input type.
     return planTeamToolWildcardSlashMigration({ teams: teams as never[], toolTuples });
+  }
+  if (migrationId === DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID) {
+    return planDropTeamResourcesArrayMigration(await loadDropTeamResourcesInputs());
+  }
+  if (migrationId === DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID) {
+    return planDropTeamKbOwnershipMigration(await loadDropTeamKbOwnershipInputs());
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
@@ -3115,6 +3257,17 @@ export async function applyMigration(input: {
     return applyKeycloakRbacReconciliationMigration({ actor: input.actor, now });
   }
 
+  if (input.migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
+    const collections = await buildLegacyRuntimeCleanupCollections();
+    const result = await applyLegacyRuntimeCleanupMigration({
+      actor: input.actor,
+      now,
+      collections,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
   if (input.migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
     const { planAgentSkillOpenFgaReconcileMigration, applyAgentSkillOpenFgaReconcileMigration } =
       await import("./agent-skill-openfga-reconcile");
@@ -3163,6 +3316,54 @@ export async function applyMigration(input: {
         updateOne: (filter, update) =>
           teamsCollection.updateOne(filter as never, update as never),
       },
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === DROP_TEAM_RESOURCES_ARRAY_MIGRATION_ID) {
+    const teams = await loadDropTeamResourcesInputs();
+    const teamsCollection = await getCollection("teams");
+    const result = await applyDropTeamResourcesArrayMigration({
+      teams,
+      actor: input.actor,
+      now,
+      // Backfill tuples are plain `team:<slug>#<rel>` usersets on resource
+      // objects. They are strictly additive (no deletes), so a single
+      // writeOpenFgaTuples pass is sufficient; it no-ops on identical writes.
+      writeTuples: async (writes) => {
+        if (writes.length === 0) return { writes: 0 };
+        const w = await writeOpenFgaTuples({ writes, deletes: [] });
+        return { writes: w.writes };
+      },
+      teamsCollection: {
+        updateOne: (filter, update) =>
+          teamsCollection.updateOne(filter as never, update as never),
+      },
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === DROP_TEAM_KB_OWNERSHIP_MIGRATION_ID) {
+    const { ownershipDocs, teamSlugByMongoId, collectionExists } =
+      await loadDropTeamKbOwnershipInputs();
+    const { db } = await connectToDatabase();
+    const result = await applyDropTeamKbOwnershipMigration({
+      ownershipDocs,
+      teamSlugByMongoId,
+      collectionExists,
+      actor: input.actor,
+      now,
+      // Backfill tuples are plain `team:<slug>#<rel>` usersets on
+      // knowledge_base objects — strictly additive (no deletes), so one
+      // writeOpenFgaTuples pass suffices; it no-ops on identical writes.
+      writeTuples: async (writes) => {
+        if (writes.length === 0) return { writes: 0 };
+        const w = await writeOpenFgaTuples({ writes, deletes: [] });
+        return { writes: w.writes };
+      },
+      dropCollection: (name) => db.dropCollection(name).catch(() => false),
     });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;

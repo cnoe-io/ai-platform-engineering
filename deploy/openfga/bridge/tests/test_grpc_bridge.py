@@ -244,6 +244,115 @@ def test_check_audits_openfga_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert events[0]["correlation_id"] == "request-error"
 
 
+def test_restricted_mcp_server_denies_caller_without_invoke_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+    events: list[dict] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        checks.append((user, relation, obj))
+        return (user, relation, obj) == (
+            "user:user-sub-123",
+            "can_call",
+            "mcp_gateway:list",
+        )
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "RESTRICTED_MCP_SERVERS", frozenset({"scheduler"}))
+
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/scheduler",
+        method="POST",
+        body='{"jsonrpc":"2.0","method":"initialize"}',
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert response.status.message == "caller lacks MCP server invoke grant"
+    assert checks == [
+        ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("user:user-sub-123", "can_invoke", "mcp_server:scheduler"),
+    ]
+    assert events[-1]["reason_code"] == "DENY_MCP_SERVER_INVOKE"
+    assert events[-1]["resource_ref"] == (
+        "user:user-sub-123 can_invoke mcp_server:scheduler"
+    )
+
+
+def test_restricted_mcp_server_allows_caller_with_invoke_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+    events: list[dict] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        checks.append((user, relation, obj))
+        return (user, relation, obj) in {
+            ("user:admin-sub", "can_call", "mcp_gateway:list"),
+            ("user:admin-sub", "can_invoke", "mcp_server:scheduler"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "admin-sub")
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "RESTRICTED_MCP_SERVERS", frozenset({"scheduler"}))
+
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/scheduler",
+        method="POST",
+        body='{"jsonrpc":"2.0","method":"initialize"}',
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    assert checks == [
+        ("user:admin-sub", "can_call", "mcp_gateway:list"),
+        ("user:admin-sub", "can_invoke", "mcp_server:scheduler"),
+    ]
+    assert any(event["reason_code"] == "OK_MCP_SERVER_INVOKE" for event in events)
+
+
+def test_unrestricted_mcp_server_does_not_require_invoke_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        checks.append((user, relation, obj))
+        return (user, relation, obj) == (
+            "user:user-sub-123",
+            "can_call",
+            "mcp_gateway:list",
+        )
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "RESTRICTED_MCP_SERVERS", frozenset({"scheduler"}))
+
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/jira",
+        method="POST",
+        body='{"jsonrpc":"2.0","method":"initialize"}',
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    assert checks == [("user:user-sub-123", "can_call", "mcp_gateway:list")]
+
+
 def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytest.MonkeyPatch) -> None:
     bridge = _load_bridge_module()
     checks: list[tuple[str, str, str]] = []

@@ -38,7 +38,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           fetch-tags: true
           fetch-depth: 0
@@ -54,10 +54,10 @@ jobs:
           echo "::endgroup::"
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v5
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
 
       - name: Install helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       - name: Install kind
         run: |
@@ -77,10 +77,12 @@ jobs:
           kind delete cluster --name caipe 2>/dev/null || true
 
       - name: Resolve chart version
+        env:
+          CHART_VERSION_INPUT: ${{ github.event.inputs.chart_version }}
         run: |
           set -euo pipefail
-          if [ -n "${{ github.event.inputs.chart_version }}" ]; then
-            CHART_VERSION="${{ github.event.inputs.chart_version }}"
+          if [ -n "$CHART_VERSION_INPUT" ]; then
+            CHART_VERSION="$CHART_VERSION_INPUT"
             echo "Using manually provided chart version: $CHART_VERSION"
           else
             CHART_VERSION=$(git tag --sort=-version:refname \

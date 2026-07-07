@@ -29,6 +29,7 @@ import { ObjectId } from 'mongodb';
 // Mock NextAuth
 const mockGetServerSession = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
+const mockListOpenFgaObjects = jest.fn(async () => ({ objects: [] as string[] }));
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
@@ -57,8 +58,17 @@ jest.mock('@/lib/rbac/openfga', () => ({
   readOpenFgaTuples: jest.fn(async () => ({ tuples: [], continuationToken: undefined })),
   writeOpenFgaTuples: jest.fn(async () => ({ enabled: false, writes: 0, deletes: 0 })),
   // FR-025 team-deletion guard: DELETE lists owned service accounts before
-  // deleting. No SAs owned in this suite → deletion proceeds.
-  listOpenFgaObjects: jest.fn(async () => ({ objects: [] as string[] })),
+  // deleting. Also drives the live KB-count decoration on GET. Default returns
+  // no objects; the kb_count test overrides it per (user, relation) tuple.
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...(args as [])),
+  // `team-resource-listing` (the live KB + resource count helpers GET decorates
+  // each row with) imports these from openfga; provide pass-through impls so the
+  // batch helpers run against the mocked `listOpenFgaObjects` above.
+  openFgaReadConcurrency: jest.fn(() => 8),
+  mapWithConcurrency: jest.fn(
+    async <T, R>(items: readonly T[], _limit: number, fn: (item: T, index: number) => Promise<R>) =>
+      Promise.all(items.map((item, index) => fn(item, index))),
+  ),
 }));
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
@@ -367,17 +377,16 @@ describe('GET /api/admin/teams', () => {
     expect(byName['Ghost Team']).toBe(0);
   });
 
-  it('decorates each team with kb_count from team_kb_ownership (deduped), defaulting to 0', async () => {
-    // Issue #1642 follow-up: the team-card "KBs" badge must read the
-    // canonical `team_kb_ownership` collection, not the almost-always-empty
-    // legacy `team.resources.knowledge_bases` array. A team with an
-    // ownership row reports its distinct kb_id count; a team without one
-    // reports 0 so the badge renders a number instead of hiding.
+  it('decorates each team with kb_count read live from OpenFGA (deduped), defaulting to 0', async () => {
+    // OpenFGA is now the single source of truth for team↔KB grants (the
+    // `team_kb_ownership` collection was dropped). The team-card "KBs" badge
+    // counts distinct `knowledge_base:<id>` objects the team holds across the
+    // reader/ingestor/manager relations; a team with no grants reports 0 so
+    // the badge renders a number instead of hiding.
     mockGetServerSession.mockResolvedValue(adminSession());
 
-    const kbTeamId = new ObjectId();
     const kbTeam = {
-      _id: kbTeamId,
+      _id: new ObjectId(),
       name: 'KB Team',
       slug: 'kb-team',
       created_at: new Date(),
@@ -399,14 +408,22 @@ describe('GET /api/admin/teams', () => {
     });
     mockCollections['teams'] = teamsCol;
 
-    const ownershipCol = createMockCollection();
-    ownershipCol.find = jest.fn().mockReturnValue({
-      // Duplicate kb-a must collapse to a single distinct KB → count 2.
-      toArray: jest.fn().mockResolvedValue([
-        { team_id: kbTeamId.toString(), kb_ids: ['kb-a', 'kb-b', 'kb-a'] },
-      ]),
-    });
-    mockCollections['team_kb_ownership'] = ownershipCol;
+    // Drive kb_count through OpenFGA list-objects. kb-team holds kb-a via
+    // `reader` AND `ingestor`; the strongest-permission merge in
+    // `listTeamKbGrants` collapses that to a single distinct KB, plus kb-b →
+    // count 2. no-kb-team holds nothing → 0.
+    mockListOpenFgaObjects.mockImplementation(
+      (async (args: { user: string; relation: string; type: string }) => {
+        if (args.type !== 'knowledge_base') return { objects: [] as string[] };
+        if (args.user === 'team:kb-team#member' && args.relation === 'reader') {
+          return { objects: ['knowledge_base:kb-a', 'knowledge_base:kb-b'] };
+        }
+        if (args.user === 'team:kb-team#member' && args.relation === 'ingestor') {
+          return { objects: ['knowledge_base:kb-a'] };
+        }
+        return { objects: [] as string[] };
+      }) as unknown as () => Promise<{ objects: string[] }>,
+    );
 
     const req = makeRequest('/api/admin/teams');
     const res = await GET(req);

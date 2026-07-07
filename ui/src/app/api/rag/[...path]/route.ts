@@ -316,7 +316,7 @@ async function requireMcpToolCallPermission(
 
   // Principal: an agent-initiated call carries `agent:<id>`; otherwise the
   // session user. The agent id is conveyed via the `X-Agent-Id` header set by
-  // the supervisor when proxying tool calls on an agent's behalf.
+  // the dynamic-agent runtime when proxying tool calls on an agent's behalf.
   const agentId = normalizeString(headers['X-Agent-Id'] ?? headers['x-agent-id']);
   const subject = normalizeString(session.sub);
   const principal = agentId ? `agent:${agentId}` : subject ? `user:${subject}` : null;

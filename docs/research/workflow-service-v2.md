@@ -434,7 +434,7 @@ Same as before. Field `agent_id` on each step references the DA agent `_id`.
 - [ ] Delete `ui/src/app/api/workflow-service/route.ts`
 - [ ] Remove `workflow-service` from `docker-compose.yaml`
 - [ ] Remove stale `streaming/agui-adapter.ts` and `streaming/custom-adapter.ts` (if not already)
-- [ ] Update `docs/research/workflow-service.md` — mark as superseded
+- [ ] Remove stale references to the deleted standalone workflow-service design
 
 ---
 

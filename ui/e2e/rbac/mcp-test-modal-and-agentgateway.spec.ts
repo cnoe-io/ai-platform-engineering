@@ -38,7 +38,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await expect(
         page.getByText(/Pick a routed MCP target from AgentGateway/i),
       ).toBeVisible();
-      await expect(page.getByRole("button", { name: /agentgateway target/i })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: /agentgateway target/i })).toBeVisible();
 
       const agLabel = page.getByText("AgentGateway target", { exact: true });
       const endpointLabel = page.getByText(/Endpoint URL/i);
@@ -56,7 +56,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openAddMcpServerEditor(page);
       await expect.poll(() => mocks.discoverRequests).toBeGreaterThanOrEqual(1);
 
-      await page.getByRole("button", { name: /agentgateway target/i }).click();
+      await page.getByRole("combobox", { name: /agentgateway target/i }).click();
       await page.getByRole("textbox", { name: /search targets/i }).fill("jira");
       await page.getByRole("option", { name: /Jira/i }).click();
 
@@ -511,15 +511,15 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
 
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-      await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
+      await page.getByLabel(/^Provider$/i).selectOption("atlassian");
       await page.getByRole("button", { name: "Create Server" }).click();
 
       await expect.poll(() => mocks.createRequests.length).toBe(1);
       expect(mocks.createRequests[0].credential_sources).toEqual([
         expect.objectContaining({
           kind: "provider_connection",
-          connection_scope: "pinned",
-          provider_connection_id: "conn-atlassian",
+          connection_scope: "caller",
+          provider: "atlassian",
         }),
       ]);
 
@@ -549,7 +549,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openAddMcpServerEditor(page);
       await expect.poll(() => mocks.discoverRequests).toBeGreaterThanOrEqual(1);
 
-      await page.getByRole("button", { name: /agentgateway target/i }).click();
+      await page.getByRole("combobox", { name: /agentgateway target/i }).click();
       for (const target of DEFAULT_AGENTGATEWAY_TARGETS) {
         await expect(page.getByRole("option", { name: new RegExp(target.name, "i") })).toBeVisible();
       }

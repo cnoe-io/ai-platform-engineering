@@ -70,7 +70,6 @@ export interface WebexSpaceAgentRoute {
 export interface WebexSpaceAccessCheckRequest {
   workspace_id: string;
   space_id: string;
-  user_subject?: string;
   resource: UniversalRebacResourceRef;
   action: UniversalRebacResourceAction;
 }
@@ -78,10 +77,5 @@ export interface WebexSpaceAccessCheckRequest {
 export interface WebexSpaceAccessCheckResult {
   allowed: boolean;
   space_allowed: boolean;
-  user_allowed: boolean;
-  reason:
-    | "allowed"
-    | "missing_space_grant"
-    | "missing_user_grant"
-    | "unsupported_resource";
+  reason: "allowed" | "missing_space_grant" | "unsupported_resource";
 }

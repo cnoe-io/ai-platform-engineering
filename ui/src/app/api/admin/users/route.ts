@@ -237,8 +237,52 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const includeRolesRaw = (url.searchParams.get("includeRoles") ?? "").trim().toLowerCase();
   const includeRoles = includeRolesRaw === "true" || includeRolesRaw === "1";
 
-  if (!hasAdminView) {
-    const subject = typeof session.sub === "string" ? session.sub.trim() : "";
+  // Resolve the caller's subject + the teams they administer (`team#admin`).
+  // Org/super admins keep the unscoped full-list view. A TEAM admin (not org
+  // admin) is now widened to the same full-list view so they can VIEW any
+  // user, but each row is stamped `can_edit` only for users on a team they
+  // administer. Plain members fall back to the self/team-scoped listing.
+  const subject = typeof session.sub === "string" ? session.sub.trim() : "";
+  let adminSlugs = new Set<string>();
+  if (!hasAdminView && subject) {
+    try {
+      const adminObjects = await listOpenFgaObjects({
+        user: `user:${subject}`,
+        relation: "admin",
+        type: "team",
+      });
+      adminSlugs = new Set(
+        adminObjects.objects.map((obj) => obj.split(":").slice(1).join(":")).filter(Boolean)
+      );
+    } catch {
+      // fail-closed: treat as non-team-admin
+    }
+  }
+  const isTeamAdmin = adminSlugs.size > 0;
+  const orgAdmin = hasAdminView;
+
+  // Emails the caller may EDIT: org admins → everyone (null sentinel); team
+  // admins → union of member emails across the teams they administer.
+  let editableEmails: Set<string> | null = null;
+  if (!orgAdmin && isTeamAdmin) {
+    editableEmails = new Set<string>();
+    await Promise.all(
+      [...adminSlugs].map(async (slug) => {
+        try {
+          const emails = await loadTeamMemberEmailsBySlug(slug);
+          for (const email of emails) editableEmails!.add(email);
+        } catch {
+          // skip this team on error
+        }
+      })
+    );
+  }
+  const canEditEmail = (email: string): boolean =>
+    editableEmails === null || editableEmails.has(email.trim().toLowerCase());
+  const stampCanEdit = <T extends AdminUsersListItem>(rows: T[]): Array<T & { can_edit: boolean }> =>
+    rows.map((row) => ({ ...row, can_edit: orgAdmin || canEditEmail(row.email) }));
+
+  if (!orgAdmin && !isTeamAdmin) {
     if (!subject) {
       throw new ApiError("A stable user subject is required to load your user profile.", 401);
     }
@@ -268,7 +312,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         true
       );
       return NextResponse.json({
-        users: [self],
+        users: [{ ...self, can_edit: self.id === subject }],
         total: 1,
         page: 1,
         pageSize: 1,
@@ -295,7 +339,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         true
       );
       return NextResponse.json({
-        users: [self],
+        users: [{ ...self, can_edit: self.id === subject }],
         total: 1,
         page: 1,
         pageSize: 1,
@@ -325,8 +369,9 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       })
     );
 
+    // Plain members can only edit their own profile.
     return NextResponse.json({
-      users: teamUsers,
+      users: teamUsers.map((u) => ({ ...u, can_edit: u.id === subject })),
       total: teamUsers.length,
       page: 1,
       pageSize: teamUsers.length,
@@ -423,7 +468,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         raw.map((row) => enrichListRow(row, pendingSlackIds, includeRoles))
       );
       return NextResponse.json({
-        users,
+        users: stampCanEdit(users),
         total,
         page,
         pageSize,
@@ -463,7 +508,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     }
 
     return NextResponse.json({
-      users: pageRows,
+      users: stampCanEdit(pageRows),
       total: matchCount,
       page,
       pageSize,

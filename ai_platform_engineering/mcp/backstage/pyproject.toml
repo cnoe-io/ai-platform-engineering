@@ -1,0 +1,29 @@
+[project]
+name = "mcp-backstage"
+version = "0.1.0"
+description = "Backstage MCP Server"
+license = "Apache-2.0"
+authors = [
+  { name = "Rehan Agrawal", email = "rehagraw@cisco.com" }
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+  "httpx==0.28.1",
+  "python-dotenv==1.2.2",
+  "pydantic==2.12.5",
+  "mcp==1.27.1",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
+  "fastmcp==3.2.4",
+  "pyyaml==6.0.3",
+  "typing-extensions==4.15.0",
+  "cryptography==49.0.0",
+]
+
+[tool.uv]
+# Run from source (flat module layout: server.py at the project root). uv
+# installs only the dependencies, not this project as a package.
+package = false
+
+[tool.uv.sources]
+mcp-agent-auth = { path = "../common/mcp-auth", editable = true }

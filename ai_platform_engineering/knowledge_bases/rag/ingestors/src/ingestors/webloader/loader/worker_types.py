@@ -60,6 +60,7 @@ class CrawlRequest:
   concurrent_requests: int = 8
   respect_robots_txt: bool = True
   user_agent: str | None = None
+  allow_non_public_urls: bool = False
 
   # Metadata for document creation
   ingestor_id: str = ""

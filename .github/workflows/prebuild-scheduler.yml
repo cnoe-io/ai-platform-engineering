@@ -1,0 +1,226 @@
+name: "[Prebuild] Scheduler Docker Build and Push"
+description: "Build and push caipe-scheduler and caipe-cron-runner images for prebuild branches"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'ai_platform_engineering/scheduler/**'
+      - 'ai_platform_engineering/cron-runner/**'
+      - 'build/Dockerfile.scheduler'
+      - 'build/Dockerfile.cron-runner'
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to publish prebuild for'
+        required: true
+        type: number
+      head_ref:
+        description: 'PR head branch ref'
+        required: true
+        type: string
+      head_sha:
+        description: 'PR head commit SHA'
+        required: true
+        type: string
+      base_ref:
+        description: 'PR base branch ref'
+        required: true
+        type: string
+      base_sha:
+        description: 'PR base commit SHA'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: |
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
+      (
+        startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+        github.event.action != 'closed'
+      )
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: scheduler
+            image: caipe-scheduler
+            context: .
+            dockerfile: build/Dockerfile.scheduler
+          - name: cron-runner
+            image: caipe-cron-runner
+            context: .
+            dockerfile: build/Dockerfile.cron-runner
+    env:
+      IMAGE_NAME: ${{ github.repository_owner }}/prebuild/${{ matrix.image }}
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        with:
+          ref: ${{ inputs.head_sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Compute prebuild tag
+        id: compute_tag
+        shell: bash
+        env:
+          HEAD_REF: ${{ inputs.head_ref || github.head_ref }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+        run: |
+          BRANCH="$HEAD_REF"
+          BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
+          BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_COMMIT="$BASE_SHA"
+          else
+            BASE_COMMIT="origin/${BASE_REF}"
+          fi
+          COMMIT_COUNT=$(git rev-list --count "${BASE_COMMIT}..HEAD")
+          PREBUILD_TAG="${BRANCH_SANITIZED}-${COMMIT_COUNT}"
+          echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
+          echo "PREBUILD_TAG=${PREBUILD_TAG}" >> $GITHUB_ENV
+          echo "prebuild_tag=${PREBUILD_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Upload building prebuild status
+        uses: ./.github/actions/prebuild-status
+        with:
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          head_ref: ${{ inputs.head_ref || github.head_ref }}
+          source: scheduler
+          type: docker
+          name: ${{ matrix.image }}
+          repository: ghcr.io/${{ env.IMAGE_NAME }}
+          tag: ${{ steps.compute_tag.outputs.prebuild_tag }}
+          ref: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
+          status: building
+          artifact_suffix: ${{ matrix.name }}-start
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
+        with:
+          images: ghcr.io/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.PREBUILD_TAG }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
+
+      - name: Build and Push Docker image
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=prebuild-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=prebuild-${{ matrix.name }}
+          provenance: false
+          sbom: false
+
+      - name: Upload final prebuild status
+        if: ${{ always() && steps.compute_tag.outputs.prebuild_tag != '' }}
+        uses: ./.github/actions/prebuild-status
+        with:
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          head_ref: ${{ inputs.head_ref || github.head_ref }}
+          source: scheduler
+          type: docker
+          name: ${{ matrix.image }}
+          repository: ghcr.io/${{ env.IMAGE_NAME }}
+          tag: ${{ steps.compute_tag.outputs.prebuild_tag }}
+          ref: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
+          status: ${{ steps.build.outcome == 'success' && 'published' || 'failed' }}
+          artifact_suffix: ${{ matrix.name }}-final
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - prebuild/caipe-scheduler
+          - prebuild/caipe-cron-runner
+    env:
+      OWNER: ${{ github.repository_owner }}
+      PACKAGE_NAME: ${{ matrix.package }}
+    steps:
+      - name: Delete prebuild images for branch
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const owner = process.env.OWNER;
+            const rawBranch = process.env.HEAD_REF || '';
+            const branchNoPrefix = rawBranch.startsWith('prebuild/') ? rawBranch.substring('prebuild/'.length) : rawBranch;
+            const sanitized = branchNoPrefix.replace(/\//g, '-');
+            const prefix = `${sanitized}-`;
+            const packageName = process.env.PACKAGE_NAME;
+            const packageType = 'container';
+            try {
+              const versions = await github.paginate(github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg, {
+                org: owner,
+                package_type: packageType,
+                package_name: packageName,
+                per_page: 100,
+              });
+              const toDelete = versions.filter(v => (v.metadata?.container?.tags || []).some(t => t.startsWith(prefix)));
+              for (const v of toDelete) {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  org: owner,
+                  package_type: packageType,
+                  package_name: packageName,
+                  package_version_id: v.id,
+                });
+              }
+              core.info(`Deleted ${toDelete.length} versions for ${packageName} with tag prefix ${prefix}`);
+            } catch (e) {
+              if (e.status === 404) {
+                core.info(`Package ${packageName} not found in org ${owner}, skipping.`);
+              } else {
+                throw e;
+              }
+            }

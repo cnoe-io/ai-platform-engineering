@@ -5,7 +5,7 @@ import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import {
-computeWebexSpaceHealthSummary,
+computeWebexSpaceHealthSummaries,
 type WebexSpaceHealthSummary,
 } from "@/lib/rbac/webex-space-diagnostics";
 import { listWebexSpaceGrants,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
@@ -69,26 +69,44 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(500)
       .toArray();
 
+    const visibleRows = (
+      await Promise.all(
+        rows.map(async (row) => {
+          const workspaceId = webexWorkspaceRef(row.webex_workspace_id);
+          const access = subject
+            ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
+            : { canRead: false, canManage: false };
+          if (!access.canRead) return null;
+          return { row, workspaceId, access };
+        })
+      )
+    ).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    const healthSummaries = includeHealth
+      ? await computeWebexSpaceHealthSummaries(
+          visibleRows.map(({ row, workspaceId }) => ({
+            workspaceId,
+            spaceId: row.webex_space_id,
+          })),
+        ).catch(
+          () =>
+            visibleRows.map(
+              (): WebexSpaceHealthSummary => ({
+                warnings_count: 0,
+                openfga_reachable: false,
+                last_runtime_error_ts: null,
+              }),
+            ),
+        )
+      : [];
+
     const spaces = await Promise.all(
-      rows.map(async (row) => {
-        const workspaceId = webexWorkspaceRef(row.webex_workspace_id);
-        const access = subject
-          ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
-          : { canRead: false, canManage: false };
-        if (!access.canRead) return null;
-        const [grants, routes, health] = await Promise.all([
+      visibleRows.map(async ({ row, workspaceId, access }, index) => {
+        const [grants, routes] = await Promise.all([
           listWebexSpaceGrants(workspaceId, row.webex_space_id),
           listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id),
-          includeHealth
-            ? computeWebexSpaceHealthSummary(workspaceId, row.webex_space_id).catch(
-                (): WebexSpaceHealthSummary => ({
-                  warnings_count: 0,
-                  openfga_reachable: false,
-                  last_runtime_error_ts: null,
-                }),
-              )
-            : Promise.resolve(undefined),
         ]);
+        const health = includeHealth ? healthSummaries[index] : undefined;
         return {
           workspace_id: workspaceId,
           space_id: row.webex_space_id,

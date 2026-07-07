@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Custom Agents
 
-Build your own agents with custom system prompts, tool access, and personas — deploy via the no-code Agent Builder UI or the `dynamic-agents` Helm chart with full MCP server support.
+Build your own team-owned agents with custom system prompts, model selection, tool access, skills, subagents, and workflows. Use the no-code Agent Builder UI for day-to-day authoring, or bootstrap config-driven agents with the CAIPE UI chart.
 
 **Quick links**: [Helm Chart Docs](../installation/helm-charts/ai-platform-engineering/dynamic-agents-chart) · [Developer Guide](../development/creating-an-agent)
 
@@ -12,48 +12,51 @@ Build your own agents with custom system prompts, tool access, and personas — 
 
 ## Dynamic Agents Service
 
-Standalone agent-builder service — deploy independently of the main supervisor.
+Dynamic Agents is the chat runtime and agent-builder service.
 
-- Each custom agent gets its own system prompt, tool access, and persona
-- Built-in MCP tool support: mount any MCP server into your agent at deploy time
-- REST + SSE API compatible with A2A and AG-UI protocols
+- Each custom agent gets its own system prompt, model, tool access, and persona
+- MCP tool support: connect registered MCP servers over `stdio` or streamable `http`
+- Built-in tools include URL fetch, current datetime, user info, wait, and approved workflow execution
+- REST + SSE API for browser, bot, workflow, and service callers
 - Deploy via Helm: `oci://ghcr.io/cnoe-io/charts/dynamic-agents`
 
 ## Agent Builder UI
 
 No-code agent creation directly from the CAIPE web UI.
 
-- Configure system prompt, model, temperature, and allowed tools interactively
-- Attach MCP servers to agents from the Skills Gateway catalog
+- Configure owner team, visibility, system prompt, model, and allowed tools interactively
+- Attach registered MCP server tools and built-in tools to each agent
+- Add skills, subagents, middleware settings, human approval rules, and workflow access
 - Instantly test agents in the chat UI without redeployment
-- Share agents across teams with RBAC-controlled access
+- Use `team` or `global` visibility with RBAC-controlled access
 
-## Seed Config — Pre-wire Agents & MCP Servers
+## App Config — Pre-wire Models, MCP Servers, Agents, and Workflows
 
-Bootstrap agents and MCP servers at chart install time using `seedConfig`.
+Bootstrap CAIPE resources at chart install time using `appConfig` in the `caipe-ui` chart. Bootstrapped resources are marked `config_driven` and cannot be edited through the UI.
 
 | Key | Purpose |
 |-----|---------|
-| `seedConfig.enabled` | Enable bootstrapping on chart install |
-| `seedConfig.agents` | List of agent definitions (name, system prompt, model, tools) |
-| `seedConfig.mcp_servers` | MCP server endpoints to register at startup |
-| `seedConfig.models` | Available LLM endpoints for agent selection |
+| `appConfig.models` | Available LLM endpoints for agent selection |
+| `appConfig.mcp_servers` | MCP server endpoints to register at startup |
+| `appConfig.agents` | Agent definitions: name, system prompt, model, tools, skills, subagents, and visibility |
+| `appConfig.workflow_configs` | Workflow definitions that agents can trigger when granted access |
 
-Idempotent: safe to apply on upgrades without duplicating entries.
+Idempotent: safe to apply on upgrades without duplicating entries. Removed config-driven entries are cleaned up on the next startup.
 
 ## Customizable System Prompts
 
-- Per-agent system prompts — different personas for Platform Engineer, SRE, Developer
-- Prompt library: curated, evaluated prompts for common platform workflows
-- Override prompts at runtime via UI without redeploying the chart
-- Prompt versioning tied to Helm chart version for reproducibility
+- Per-agent system prompts for Platform Engineer, SRE, Developer, or service-specific personas
+- Ready-to-use SRE agent included out of the box — customize prompts, tools, and workflows for your team
+- Prompt changes are saved in MongoDB for UI-managed agents; config-driven agents keep prompts in Helm values for GitOps review
+- Workflow-enabled agents receive an automatic prompt addendum listing approved workflows
 
 ## Multi-Model Support per Agent
 
-Each custom agent can target a different LLM — Claude, GPT-4o, Gemini, or any OpenAI-compatible endpoint.
+Each custom agent can target a different configured model/provider entry.
 
-- Model selection per agent in `seedConfig.models`
-- Switch models at runtime from the Agent Builder UI
+- Define available models in `appConfig.models`
+- Select or change an agent's model in the Agent Builder UI
+- Use OpenAI-compatible provider entries, including LiteLLM-backed endpoints
 - LLM secrets managed via Kubernetes Secrets or ExternalSecrets Operator
 
 ## Production Deployment

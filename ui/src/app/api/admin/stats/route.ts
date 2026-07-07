@@ -287,8 +287,8 @@ async function getAdminStats(request: NextRequest) {
           const sharedFilter: Record<string, unknown> = { ...convSourceFilter };
           andInto(sharedFilter, {
             $or: [
-              { 'sharing.is_public': true },
               { 'sharing.shared_with.0': { $exists: true } },
+              { 'sharing.shared_with_teams.0': { $exists: true } },
               { 'sharing.share_link_enabled': true },
             ],
           });

@@ -4,15 +4,15 @@
 
 ```
 ai_platform_engineering/   # Python backend
-  agents/                  # Sub-agents (GitHub, ArgoCD, etc.)
+  agents/                  # Per-tool MCP servers (GitHub, ArgoCD, etc.)
+  dynamic_agents/          # Dynamic agents runtime (FastAPI, MongoDB, AG-UI/SSE)
   knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
-  mcp/                     # MCP (Model Context Protocol) integrations
-  multi_agents/            # Multi-agent orchestration (supervisor, deepagent)
+  skills_middleware/       # Skill scanning / catalog middleware
   utils/                   # Shared utilities
 ui/                        # Next.js frontend
 docs/                      # Documentation site (Docusaurus)
 docker-compose/            # Docker configs for services
-integration/               # Integration tests
+tests/                     # Repo-level + RBAC tests
 scripts/                   # Utility scripts
 charts/                    # Helm charts
 ```
@@ -74,7 +74,7 @@ The `docker-compose.yaml` + `.env.example` path must work for a first-time OSS
 user with the minimal profiles:
 
 ```bash
-mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor
+mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb,web_ingestor
 ```
 
 Do not add Slack/Webex bots to that default path.

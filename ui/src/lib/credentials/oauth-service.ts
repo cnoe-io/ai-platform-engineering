@@ -31,12 +31,13 @@ export interface OAuthConnectorDocument {
   scopes: string[];
   redirectUri: string;
   enabled: boolean;
+  pkce?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export type OAuthConnectorMetadata = Omit<OAuthConnectorDocument, "clientSecretRef"> & {
-  clientSecretConfigured: true;
+  clientSecretConfigured: boolean;
 };
 
 export interface ProviderConnectionDocument {
@@ -52,6 +53,11 @@ export interface ProviderConnectionDocument {
   updatedAt?: Date;
   profileSummary?: string;
   profileCheckedAt?: Date;
+  // Whether the connection can silently renew its access token via a refresh
+  // grant. False for refresh-less tokens (public/PKCE clients, pasted PATs):
+  // the connection is usable now but will require manual re-auth at expiry.
+  // Absent on legacy connections ⇒ treat as unknown (assume renewable).
+  renewable?: boolean;
   // What this user asked for at connect time (a subset of the connector's
   // scopes). Absent on legacy connections ⇒ "used the connector default".
   requestedScopes?: string[];
@@ -68,6 +74,9 @@ export interface ProviderConnectionMetadata {
   expiresAt?: Date;
   connectedAt?: Date;
   updatedAt?: Date;
+  // See ProviderConnectionDocument.renewable. Lets the UI distinguish a
+  // self-renewing connection from one that is valid now but will expire.
+  renewable?: boolean;
   profileSummary?: string;
   profileCheckedAt?: Date;
   requestedScopes?: string[];
@@ -89,11 +98,12 @@ export interface CreateConnectorInput {
   name: string;
   provider: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
   redirectUri: string;
+  pkce?: boolean;
 }
 
 export interface TokenClientResponse {
@@ -166,7 +176,7 @@ function validateRedirectUri(value: string): string {
 }
 
 function toConnectorMetadata(doc: OAuthConnectorDocument): OAuthConnectorMetadata {
-  const metadata = {
+  return {
     id: doc.id,
     name: doc.name,
     provider: doc.provider,
@@ -176,10 +186,11 @@ function toConnectorMetadata(doc: OAuthConnectorDocument): OAuthConnectorMetadat
     scopes: doc.scopes,
     redirectUri: doc.redirectUri,
     enabled: doc.enabled,
+    pkce: doc.pkce,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    clientSecretConfigured: doc.pkce !== true,
   };
-  return { ...metadata, clientSecretConfigured: true };
 }
 
 function authorizationScopes(provider: string, scopes: string[]): string[] {
@@ -228,6 +239,7 @@ function authorizationCodeTokenBody(input: {
   code: string;
   codeVerifier: string;
   redirectUri: string;
+  pkce?: boolean;
 }): Record<string, string> {
   const body: Record<string, string> = {
     grant_type: "authorization_code",
@@ -236,7 +248,8 @@ function authorizationCodeTokenBody(input: {
     code_verifier: nonEmpty(input.codeVerifier, "codeVerifier"),
     redirect_uri: input.redirectUri,
   };
-  if (input.provider.toLowerCase() !== "pagerduty") {
+  const omitSecret = input.pkce === true || input.provider.toLowerCase() === "pagerduty";
+  if (!omitSecret) {
     body.client_secret = input.clientSecret;
   }
   return body;
@@ -247,13 +260,15 @@ function refreshTokenBody(input: {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
+  pkce?: boolean;
 }): Record<string, string> {
   const body: Record<string, string> = {
     grant_type: "refresh_token",
     client_id: input.clientId,
     refresh_token: input.refreshToken,
   };
-  if (input.provider.toLowerCase() !== "pagerduty") {
+  const omitSecret = input.pkce === true || input.provider.toLowerCase() === "pagerduty";
+  if (!omitSecret) {
     body.client_secret = input.clientSecret;
   }
   return body;
@@ -287,11 +302,14 @@ export class OAuthConnectorService {
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
+      ...(input.pkce ? { pkce: true } : {}),
       createdAt: now,
       updatedAt: now,
     };
 
-    await this.payloadStore.putSecret({ secretRefId: clientSecretRef, plaintext: nonEmpty(input.clientSecret, "clientSecret") });
+    if (!input.pkce) {
+      await this.payloadStore.putSecret({ secretRefId: clientSecretRef, plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret") });
+    }
     await this.connectorsCollection.insertOne(doc);
     return toConnectorMetadata(doc);
   }
@@ -313,14 +331,26 @@ export class OAuthConnectorService {
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
+      ...(input.pkce ? { pkce: true } : {}),
       updatedAt: now,
     };
-    await this.payloadStore.putSecret({
-      secretRefId: existing.clientSecretRef,
-      plaintext: nonEmpty(input.clientSecret, "clientSecret"),
-    });
-    await this.connectorsCollection.updateOne?.({ id: existing.id }, { $set: update });
-    return toConnectorMetadata({ ...existing, ...update });
+    if (!input.pkce) {
+      await this.payloadStore.putSecret({
+        secretRefId: existing.clientSecretRef,
+        plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret"),
+      });
+    }
+    // `$set: { pkce: undefined }` is a no-op in MongoDB, so a PKCE→confidential
+    // switch must explicitly `$unset` the flag to clear it (mirrors
+    // updateConnector). Without this an env-bootstrap that flips an existing
+    // PKCE connector back to confidential would leave pkce:true, and runtime
+    // token exchange would send an empty client secret.
+    const writeUpdate =
+      input.pkce || !existing.pkce
+        ? { $set: update }
+        : { $set: update, $unset: { pkce: "" } };
+    await this.connectorsCollection.updateOne?.({ id: existing.id }, writeUpdate);
+    return toConnectorMetadata({ ...existing, ...update, pkce: input.pkce ? true : undefined });
   }
 
   async listConnectors(): Promise<OAuthConnectorMetadata[]> {
@@ -346,6 +376,60 @@ export class OAuthConnectorService {
     validateExternalHttpsUrl(connector.authorizationUrl, "authorizationUrl");
     validateExternalHttpsUrl(connector.tokenUrl, "tokenUrl");
     return { ok: true, connectorId };
+  }
+
+  async updateConnector(connectorId: string, input: CreateConnectorInput): Promise<OAuthConnectorMetadata> {
+    const existing = await this.connectorsCollection.findOne({ id: nonEmpty(connectorId, "connectorId") });
+    if (!existing) {
+      throw new ApiError("OAuth connector was not found", 404, "CREDENTIAL_NOT_FOUND");
+    }
+    const now = this.now();
+    const update: Partial<OAuthConnectorDocument> = {
+      name: nonEmpty(input.name, "name"),
+      clientId: nonEmpty(input.clientId, "clientId"),
+      authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
+      tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
+      scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
+      redirectUri: validateRedirectUri(input.redirectUri),
+      updatedAt: now,
+    };
+    if (input.pkce) {
+      update.pkce = true;
+    } else if (input.clientSecret) {
+      // Switching to (or staying) confidential: a new secret must be persisted.
+      await this.payloadStore.putSecret({
+        secretRefId: existing.clientSecretRef,
+        plaintext: nonEmpty(input.clientSecret, "clientSecret"),
+      });
+    } else if (existing.pkce) {
+      // Toggling an existing PKCE connector to confidential requires a secret;
+      // without one the connector would be a confidential client with no secret.
+      throw new ApiError(
+        "A client secret is required when disabling PKCE (public client) mode",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    // `$set: { pkce: undefined }` is a no-op in MongoDB, so a PKCE→confidential
+    // switch must explicitly `$unset` the flag to clear it.
+    const writeUpdate =
+      input.pkce || !existing.pkce
+        ? { $set: update }
+        : { $set: update, $unset: { pkce: "" } };
+    await this.connectorsCollection.updateOne?.({ id: existing.id }, writeUpdate);
+    return toConnectorMetadata({ ...existing, ...update, pkce: input.pkce ? true : undefined });
+  }
+
+  async deleteConnector(connectorId: string): Promise<void> {
+    const existing = await this.connectorsCollection.findOne({ id: nonEmpty(connectorId, "connectorId") });
+    if (!existing) {
+      throw new ApiError("OAuth connector was not found", 404, "CREDENTIAL_NOT_FOUND");
+    }
+    if (!this.connectorsCollection.updateOne) return;
+    await this.connectorsCollection.updateOne(
+      { id: existing.id },
+      { $set: { enabled: false, updatedAt: this.now() } },
+    );
   }
 }
 
@@ -521,7 +605,7 @@ export class ProviderConnectionService {
     requestedScopes?: string[];
   }): Promise<CompletedProviderConnection> {
     const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
-    const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef);
+    const clientSecret = connector.pkce ? "" : await this.payloadStore.getSecret(connector.clientSecretRef);
     const token = await this.tokenClient(
       connector.tokenUrl,
       authorizationCodeTokenBody({
@@ -531,6 +615,7 @@ export class ProviderConnectionService {
         code: input.code,
         codeVerifier: input.codeVerifier,
         redirectUri: connector.redirectUri,
+        pkce: connector.pkce,
       }),
     );
 
@@ -562,7 +647,15 @@ export class ProviderConnectionService {
       connectorId: connector.id,
       provider: connector.provider,
       owner: input.owner,
-      status: token.refresh_token || !token.expires_in ? "connected" : "needs_reauth",
+      // A freshly issued access token is usable now, so the connection is
+      // "connected" regardless of whether the provider returned a refresh token.
+      // Public/PKCE clients (e.g. CO2) often return an access token with
+      // `expires_in` but no `refresh_token`; refreshConnection already falls back
+      // to reusing the stored access token for refresh-less connections. Marking
+      // these "needs_reauth" at creation would hide a working connection from
+      // listConnections (which filters to status === "connected").
+      status: "connected",
+      renewable: Boolean(token.refresh_token),
       accessTokenRef,
       refreshTokenRef,
       expiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
@@ -633,6 +726,8 @@ export class ProviderConnectionService {
       provider,
       owner: input.owner,
       status: "connected",
+      // Static tokens cannot be silently renewed via an OAuth refresh grant.
+      renewable: false,
       accessTokenRef,
       // No refresh token — static tokens are long-lived and not rotated via
       // an OAuth refresh grant. refreshConnection already handles this case.
@@ -742,7 +837,7 @@ export class ProviderConnectionService {
       return reuseStoredToken();
     }
 
-    const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef);
+    const clientSecret = connector.pkce ? "" : await this.payloadStore.getSecret(connector.clientSecretRef);
     let token: TokenClientResponse;
     try {
       token = await this.tokenClient(
@@ -752,6 +847,7 @@ export class ProviderConnectionService {
           clientId: connector.clientId,
           clientSecret,
           refreshToken,
+          pkce: connector.pkce,
         }),
       );
     } catch (error) {
@@ -779,6 +875,11 @@ export class ProviderConnectionService {
       {
         $set: {
           status: "connected",
+          // Only update `renewable` when the provider returned a new refresh
+          // token. Providers that don't rotate their refresh token omit it from
+          // the response; overwriting with `false` here would incorrectly mark a
+          // still-renewable connection as non-auto-renew.
+          ...(token.refresh_token ? { renewable: true } : {}),
           expiresAt: token.expires_in ? new Date(this.now().getTime() + token.expires_in * 1000) : undefined,
           updatedAt: this.now(),
         },
@@ -801,6 +902,7 @@ function toProviderConnectionMetadata(
     expiresAt: doc.expiresAt,
     connectedAt: doc.connectedAt ?? doc.updatedAt,
     updatedAt: doc.updatedAt,
+    ...(doc.renewable !== undefined ? { renewable: doc.renewable } : {}),
     ...(doc.profileSummary ? { profileSummary: doc.profileSummary } : {}),
     ...(doc.profileCheckedAt ? { profileCheckedAt: doc.profileCheckedAt } : {}),
     ...(doc.requestedScopes ? { requestedScopes: doc.requestedScopes } : {}),

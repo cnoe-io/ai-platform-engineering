@@ -11,8 +11,19 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
-import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
-import { listOpenFgaObjects } from '@/lib/rbac/openfga';
+import {
+listTeamMembershipSources,
+markTeamMembershipSourceRemoved,
+} from '@/lib/rbac/team-membership-source-store';
+import {
+buildTeamMembershipTuples,
+type TeamMemberRelation,
+} from '@/lib/rbac/team-membership-sync';
+import {
+listOpenFgaObjects,
+writeOpenFgaTuples,
+type OpenFgaTupleKey,
+} from '@/lib/rbac/openfga';
 import type { UpdateTeamRequest } from '@/types/teams';
 import { ObjectId,type Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
@@ -41,6 +52,26 @@ function parseTeamId(id: string): ObjectId {
     throw new ApiError('Invalid team ID format', 400);
   }
   return new ObjectId(id);
+}
+
+function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
+  const seen = new Set<string>();
+  const out: OpenFgaTupleKey[] = [];
+  for (const tuple of tuples) {
+    const key = `${tuple.user}\n${tuple.relation}\n${tuple.object}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tuple);
+  }
+  return out;
+}
+
+function relationsForDeletedTeamSource(relationship: string | undefined): TeamMemberRelation[] {
+  // Team creation writes both member+admin tuples for the creator, but stores
+  // the canonical source row as admin. Deleting both is idempotent and prevents
+  // the hidden creator member tuple from surviving team deletion.
+  if (relationship === 'admin') return ['admin', 'member'];
+  return ['member'];
 }
 
 // GET /api/admin/teams/[id]
@@ -197,6 +228,32 @@ export const DELETE = withErrorHandler(async (
           'TEAM_OWNS_SERVICE_ACCOUNTS',
         );
       }
+    }
+
+    const membershipSources = await listTeamMembershipSources(params.id);
+    const activeMembershipSources = membershipSources.filter((source) => source.status === 'active');
+    const tupleDeletes = uniqueTuples(
+      activeMembershipSources.flatMap((source) => {
+        const userSubject = typeof source.user_subject === 'string' ? source.user_subject.trim() : '';
+        const sourceTeamSlug = typeof source.team_slug === 'string' ? source.team_slug.trim() : teamSlug;
+        if (!userSubject || !sourceTeamSlug) return [];
+        return buildTeamMembershipTuples(
+          userSubject,
+          sourceTeamSlug,
+          relationsForDeletedTeamSource(source.relationship),
+        );
+      }),
+    );
+    if (tupleDeletes.length > 0) {
+      await writeOpenFgaTuples({ writes: [], deletes: tupleDeletes });
+    }
+    if (activeMembershipSources.length > 0) {
+      const removedAt = new Date().toISOString();
+      await Promise.all(
+        activeMembershipSources.map((source) =>
+          markTeamMembershipSourceRemoved(source, user.email, removedAt),
+        ),
+      );
     }
 
     // Remove team references from conversations shared_with_teams

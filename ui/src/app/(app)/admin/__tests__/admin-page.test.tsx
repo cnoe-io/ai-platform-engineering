@@ -10,8 +10,12 @@
  * - Data rendering (stats cards, user list, team list)
  */
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import React from 'react';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+
+// assisted-by Codex Codex-sonnet-4-6
 
 // ============================================================================
 // Mocks
@@ -96,8 +100,12 @@ jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
   CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
-jest.mock('@/components/admin/security/OpenFgaRebacTab', () => ({
-  OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
+jest.mock('@/components/admin/security/AccessExplorerTab', () => ({
+  AccessExplorerTab: () => <div data-testid="access-explorer-tab">AccessExplorerTab</div>,
+}));
+
+jest.mock('@/components/admin/security/RbacSelfCheckTab', () => ({
+  RbacSelfCheckTab: () => <div data-testid="rbac-self-check-tab">RbacSelfCheckTab</div>,
 }));
 
 jest.mock('@/components/admin/rebac/SlackChannelRebacPanel', () => ({
@@ -124,11 +132,6 @@ jest.mock('@/components/admin/rebac/WebexSpaceRebacPanel', () => ({
   ),
 }));
 
-jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
-  RagTeamAccessPanel: () => <div data-testid="rag-team-access-panel">RagTeamAccessPanel</div>,
-}));
-
-
 jest.mock('@/components/admin/security/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
 }));
@@ -145,9 +148,6 @@ jest.mock('@/components/admin/security/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 
-jest.mock('@/components/admin/PermissionsToolTab', () => ({
-  PermissionsToolTab: () => <div data-testid="permissions-tool-tab">PermissionsToolTab</div>,
-}));
 
 jest.mock('@/components/admin/teams/CreateTeamDialog', () => ({
   CreateTeamDialog: () => null,
@@ -681,7 +681,7 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('orders Security & Policy tabs with RBAC Audit second and Permissions Tool as default', async () => {
+    it('orders Security & Policy tabs with RBAC Audit as default and no Permissions Tool', async () => {
       currentSearchParams = new URLSearchParams('cat=security');
 
       render(<AdminPage />);
@@ -692,19 +692,18 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByText('Security & Policy'));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Permissions Tool',
         'RBAC Audit',
-        'OpenFGA ReBAC',
+        'Access Explorer',
+        'Self Check',
         'Chat Audit',
         'Keycloak',
         'Migrations',
       ]);
-      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^RBAC Audit$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByRole('tab', { name: /^RBAC Audit$/i })).toBeInTheDocument();
-      expect(screen.queryByRole('tab', { name: /^Policy$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^Permissions Tool$/i })).not.toBeInTheDocument();
     });
 
     it('does not show Keycloak role badges for listed users', async () => {
@@ -756,15 +755,15 @@ describe('Admin Dashboard Page', () => {
         'Release notes',
         'AI Review',
         'Credentials',
-        'Knowledge Bases',
         'Skills',
         'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /release notes/i })).toBeInTheDocument();
+      // Release notes lives under General, not as a standalone tab.
+      expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /knowledge bases/i })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /knowledge bases/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /rag team access/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
@@ -839,28 +838,27 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('opens the Release notes settings tab from the query string', async () => {
+    it('falls back to the General settings tab for the removed release-notes tab', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=release-notes');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Release notes$/i })).toHaveAttribute(
+      // An unknown tab value falls through to the first visible Settings tab
+      // (General), which renders both the platform settings and the release
+      // notes preference/config sections.
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
+      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(screen.getByTestId('release-notes-settings-tab')).toBeInTheDocument();
-      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
-        scroll: false,
-      });
     });
 
     it.each([
       ['settings', 'settings', /^General$/i],
-      ['settings', 'release-notes', /^Release notes$/i],
       ['settings', 'ai-review', /^AI Review$/i],
-      ['settings', 'rag-access', /^Knowledge Bases$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
       ['people', 'teams', /^Teams$/i],
@@ -870,7 +868,8 @@ describe('Admin Dashboard Page', () => {
       ['insights', 'feedback', /^Feedback$/i],
       ['platform', 'metrics', /^Metrics$/i],
       ['platform', 'health', /^Health$/i],
-      ['security', 'openfga', /^OpenFGA ReBAC$/i],
+      ['security', 'access-explorer', /^Access Explorer$/i],
+      ['security', 'rbac-self-check', /^Self Check$/i],
       ['security', 'keycloak', /^Keycloak$/i],
       ['security', 'action-audit', /^RBAC Audit$/i],
       ['security', 'audit-logs', /^Chat Audit$/i],
@@ -914,49 +913,63 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
 
-    it('moves Knowledge Bases under Settings', async () => {
+    it('falls back from removed Settings Knowledge Bases links to General', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Knowledge Bases$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('rag-team-access-panel')).toBeInTheDocument();
-    });
-
-    it('canonicalizes legacy OpenFGA RAG deep links to Settings Knowledge Bases', async () => {
-      currentSearchParams = new URLSearchParams('cat=security&tab=openfga&subtab=rag&openfgaTab=rag');
-
-      render(<AdminPage />);
-
-      expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Knowledge Bases$/i })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      );
-      expect(screen.getByTestId('rag-team-access-panel')).toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
+      expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
         scroll: false,
       });
     });
 
-    it('canonicalizes legacy Resources Knowledge Base links to Settings', async () => {
+    it('canonicalizes legacy OpenFGA RAG deep links to Access Explorer', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=openfga&subtab=rag&openfgaTab=rag');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      // assisted-by Codex Codex-sonnet-4-6
+      // Preserve the legacy OpenFGA deep-link markers for the Access Explorer route.
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=security&tab=access-explorer&subtab=rag&openfgaTab=rag',
+        { scroll: false },
+      );
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
+        scroll: false,
+      });
+    });
+
+    it('canonicalizes legacy Resources Knowledge Base links to Settings General', async () => {
       currentSearchParams = new URLSearchParams('cat=resources&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Knowledge Bases$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=rag-access', {
+      expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
         scroll: false,
       });
     });
@@ -978,7 +991,40 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('opens the requested category sub-tab from the query string', async () => {
+    it('opens the requested Access Explorer sub-tab from the query string', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=access-explorer');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=security&tab=openfga', {
+        scroll: false,
+      });
+    });
+
+    it('opens the requested RBAC Self Check sub-tab from the query string', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=rbac-self-check');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Self Check$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('rbac-self-check-tab')).toBeInTheDocument();
+    });
+
+    it('canonicalizes legacy OpenFGA tab links to Access Explorer', async () => {
       currentSearchParams = new URLSearchParams('cat=security&tab=openfga');
 
       render(<AdminPage />);
@@ -986,11 +1032,14 @@ describe('Admin Dashboard Page', () => {
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /openfga rebac/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('openfga-rebac-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('access-explorer-tab')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=security&tab=access-explorer', {
+        scroll: false,
+      });
     });
 
     it('canonicalizes legacy OpenFGA Slack deep links to Integrations Slack', async () => {
@@ -1041,45 +1090,14 @@ describe('Admin Dashboard Page', () => {
       confirmSpy.mockRestore();
     });
 
-    it('shows a compact Chat chip for combined Slack channels and Webex spaces', async () => {
-      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
-      setupFetchMock({
-        teams: {
-          success: true,
-          data: {
-            teams: [
-              {
-                _id: 'team-integrations',
-                name: 'Integration Team',
-                description: 'Owns chat surfaces',
-                owner_id: 'admin@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-                slack_channels: [
-                  { slack_channel_id: 'C111', channel_name: 'alerts' },
-                ],
-                webex_spaces: [
-                  { space_id: 'space-1', space_name: 'Support Room' },
-                  { space_id: 'space-2', space_name: 'Incident Room' },
-                ],
-              },
-            ],
-          },
-        },
-      });
+    // The team card was decluttered to four high-signal chips (Members,
+    // Agents, MCPs, KBs); the Slack/Webex "Chat" chip was dropped — those
+    // surfaces remain reachable via the team-management dialog tabs.
 
-      render(<AdminPage />);
-
-      expect(await screen.findByText('Integration Team')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /3 chat integrations/i })).toBeInTheDocument();
-      expect(screen.getByText(/^Chat$/i)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /3 integrations/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /1 channels/i })).not.toBeInTheDocument();
-    });
-
-    it('shows the KB chip count from team resources', async () => {
+    it('shows the KB chip count from the server-decorated kb_count', async () => {
+      // KB grants are sourced from OpenFGA and decorated onto each team as
+      // `kb_count` by GET /api/admin/teams; the card no longer derives the
+      // count from a `resources.knowledge_bases` array.
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
       setupFetchMock({
         teams: {
@@ -1093,9 +1111,7 @@ describe('Admin Dashboard Page', () => {
                 created_at: new Date().toISOString(),
                 member_count: 1,
                 members: [],
-                resources: {
-                  knowledge_bases: ['kb-1', 'kb-2'],
-                },
+                kb_count: 2,
               },
             ],
           },
@@ -1221,6 +1237,74 @@ describe('Admin Dashboard Page', () => {
       expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
       expect(teamRequests[1][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[1][1]).toMatchObject({ cache: 'no-store' });
+    });
+
+    it('does not request archived teams or show the Archived badge by default', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+      expect(screen.queryByText('Archived')).not.toBeInTheDocument();
+
+      const teamRequests = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/api/admin/teams')
+      );
+      expect(teamRequests.length).toBeGreaterThan(0);
+      teamRequests.forEach(([url]) => {
+        expect(String(url)).not.toContain('include_archived=true');
+      });
+    });
+
+    it('requests archived teams when "Show archived" is checked', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(/show archived/i));
+
+      await waitFor(() => {
+        const teamRequests = fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes('/api/admin/teams')
+        );
+        expect(
+          teamRequests.some(([url]) => String(url).includes('include_archived=true'))
+        ).toBe(true);
+      });
+    });
+
+    it('renders the Archived badge for teams with status "archived"', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: (url: string) => {
+          const includeArchived = new URL(url, 'http://localhost').searchParams.get('include_archived') === 'true';
+          const teams = includeArchived
+            ? [
+                {
+                  _id: 'team-archived',
+                  name: 'Retired Team',
+                  owner_id: 'admin@example.com',
+                  created_at: new Date().toISOString(),
+                  member_count: 1,
+                  members: [],
+                  status: 'archived',
+                },
+              ]
+            : [];
+          return { success: true, data: { teams, total: teams.length, page: 1, page_size: 12 } };
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(screen.getByLabelText(/show archived/i));
+
+      expect(await screen.findByText('Retired Team')).toBeInTheDocument();
+      expect(screen.getByText('Archived')).toBeInTheDocument();
     });
   });
 

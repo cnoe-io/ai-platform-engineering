@@ -47,10 +47,10 @@ Recorded against the live e2e stack brought up via:
 
 ```bash
 make test-rbac-up   # wraps:
-# E2E_RUN=true MONGODB_HOST_PORT=28017 SUPERVISOR_HOST_PORT=28000 \
+# E2E_RUN=true MONGODB_HOST_PORT=28017 \
 #   RBAC_FALLBACK_FILE=$(pwd)/deploy/keycloak/realm-config-extras.json \
 #   RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json \
-#   COMPOSE_PROFILES='rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot' \
+#   COMPOSE_PROFILES='rbac,caipe-ui,caipe-mongodb,dynamic-agents,rag,mcp-servers,slack-bot' \
 #   docker compose -f docker-compose.dev.yaml up -d
 ```
 
@@ -63,7 +63,7 @@ Stack boot wall-clock (cold containers, recreate):
 
 | Step                                              | Wall-clock | Notes                                    |
 |---------------------------------------------------|------------|------------------------------------------|
-| `docker compose up -d` (caipe-ui+supervisor+rag)  | ~95 s      | UI is the long pole (~60 s for next.js)  |
+| `docker compose up -d` (caipe-ui+dynamic-agents+rag) | ~95 s   | UI is the long pole (~60 s for next.js)  |
 | `init-idp.sh` (persona seed + idp redirector)     | ~1 s       | (after the function-ordering bug fix)    |
 | Playwright story-7 (5 personas, parallel)         | 0.8 s      | matrix-completeness; no live HTTP needed |
 | **Total ready-to-test**                           | ~96 s      |                                          |

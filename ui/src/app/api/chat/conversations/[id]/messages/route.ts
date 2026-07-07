@@ -1,16 +1,14 @@
 // GET /api/chat/conversations/[id]/messages - Get all messages in conversation
-//   Kept for reading legacy `messages` data during migration (Phase 3).
+//   Reads persisted message rows for conversation history and audit views.
 // POST /api/chat/conversations/[id]/messages - Add message to conversation
-//   Kept for migration tooling. The UI no longer calls this — the A2A server
-//   persists all streaming data directly (Phase 1/3). Future cleanup: remove
-//   POST once all conversations have been migrated to server-side persistence.
+//   Used by integrations and maintenance tooling that write message rows through
+//   the BFF instead of the chat turn endpoint.
 
 import {
 ApiError,
 getPaginationParams,
 paginatedResponse,
 requireConversationAccess,
-requireRbacPermission,
 successResponse,
 validateRequired,
 validateUUID,
@@ -67,8 +65,6 @@ export const POST = withErrorHandler(async (
   context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user, session) => {
-    await requireRbacPermission(session, 'supervisor', 'invoke');
-
     const params = await context.params;
     const conversationId = params.id;
     const body: AddMessageRequest = await request.json();
@@ -126,7 +122,6 @@ export const POST = withErrorHandler(async (
             ...(body.metadata?.task_id && { task_id: body.metadata.task_id }),
             ...(body.metadata?.timeline_segments && { timeline_segments: body.metadata.timeline_segments }),
           },
-          ...(body.a2a_events !== undefined && { a2a_events: body.a2a_events }),
           ...(body.stream_events !== undefined && { stream_events: body.stream_events }),
           ...(body.artifacts !== undefined && { artifacts: body.artifacts }),
           updated_at: now,

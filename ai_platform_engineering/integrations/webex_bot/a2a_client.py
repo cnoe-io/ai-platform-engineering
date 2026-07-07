@@ -19,6 +19,14 @@ _SENSITIVE_SSE_ERROR_RE = re.compile(
 
 WEBEX_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "webex.caipe.io")
 
+
+class AgentAccessDeniedError(Exception):
+    """Raised when the API returns 403 agent#use — the user lacks can_use on the agent."""
+
+    def __init__(self, agent_id: str) -> None:
+        super().__init__(f"Access denied to agent {agent_id!r}")
+        self.agent_id = agent_id
+
 _obo_token_cv: ContextVar[Optional[str]] = ContextVar("caipe_webex_obo_token", default=None)
 
 
@@ -238,6 +246,14 @@ class WebexSSEClient:
                     "Accept": "application/json",
                 },
             )
+            if response.status_code == 403:
+                try:
+                    body = response.json()
+                    code = body.get("code") if isinstance(body, dict) else None
+                except json.JSONDecodeError:
+                    code = None
+                if code == "agent#use":
+                    raise AgentAccessDeniedError(agent_id)
             if response.status_code not in (200, 201):
                 safe_detail = redact_sse_error_body(response.text)
                 raise RuntimeError(

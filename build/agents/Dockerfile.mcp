@@ -19,15 +19,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Mirror the source-tree layout under /app so that relative path sources in
-# `[tool.uv.sources]` (e.g. `mcp-agent-auth = { path = "../../common/mcp-auth" }`)
+# `[tool.uv.sources]` (e.g. `mcp-agent-auth = { path = "../common/mcp-auth" }`)
 # resolve inside the project base directory. uv refuses to follow `..` paths
-# that escape the project root, so we cannot use a flat layout here.
-COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp \
-     /app/ai_platform_engineering/agents/${AGENT_NAME}/mcp/
-COPY --chown=root:root ./ai_platform_engineering/agents/common \
-     /app/ai_platform_engineering/agents/common/
+# that escape the project root, so we keep the `mcp/<name>` + sibling
+# `mcp/common` layout intact rather than flattening into the image.
+COPY --chown=root:root ./ai_platform_engineering/mcp/${AGENT_NAME} \
+     /app/ai_platform_engineering/mcp/${AGENT_NAME}/
+COPY --chown=root:root ./ai_platform_engineering/mcp/common \
+     /app/ai_platform_engineering/mcp/common/
 
-WORKDIR /app/ai_platform_engineering/agents/${AGENT_NAME}/mcp
+WORKDIR /app/ai_platform_engineering/mcp/${AGENT_NAME}
+
+# Keep the dependency environment outside the source tree. Dev compose bind
+# mounts each MCP source directory and would otherwise hide the image-built venv.
+ENV UV_PROJECT_ENVIRONMENT=/opt/caipe-mcp-venvs/${AGENT_NAME}
 
 # Install dependencies into venv (no dev deps)
 # Increase timeout for large packages (e.g., pyarrow 39MB) and to absorb
@@ -102,24 +107,26 @@ RUN mkdir -p /usr/local/bin \
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-# Mirror the layout used in the builder stage so the editable
-# `mcp-agent-auth` install (whose .pth file points to ../../common/mcp-auth)
-# still resolves at runtime. Pin WORKDIR + venv to the per-agent mcp dir.
-ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/${AGENT_NAME}/mcp/.venv \
-    PATH="/app/ai_platform_engineering/agents/${AGENT_NAME}/mcp/.venv/bin:${PATH}" \
+# Mirror the source layout used in the builder stage so relative source
+# dependencies such as `../common/mcp-auth` still resolve at runtime. Keep the
+# venv outside /app so dev source mounts cannot hide installed dependencies.
+ENV UV_PROJECT_ENVIRONMENT=/opt/caipe-mcp-venvs/${AGENT_NAME} \
+    PATH="/opt/caipe-mcp-venvs/${AGENT_NAME}/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     AGENT_NAME=${AGENT_NAME}
 
-WORKDIR /app/ai_platform_engineering/agents/${AGENT_NAME}/mcp
+WORKDIR /app/ai_platform_engineering/mcp/${AGENT_NAME}
 
-# Copy venv & code from builder (whole /app to preserve the agents/common/
+# Copy venv & code from builder (whole /app to preserve the mcp/common/
 # sibling directory referenced by the editable mcp-agent-auth package).
+COPY --from=builder --chown=appuser:appuser /opt/caipe-mcp-venvs /opt/caipe-mcp-venvs
 COPY --from=builder --chown=appuser:appuser /app /app
 
 USER appuser
 
 EXPOSE 8000
 
-# Run the HTTP/SSE MCP server
-CMD ["sh", "-c", "exec python -m mcp_${AGENT_NAME}"]
+# Run the HTTP/SSE MCP server. The flat module layout (server.py at the
+# project root, package = false) is launched directly rather than as a module.
+CMD ["sh", "-c", "exec python server.py"]

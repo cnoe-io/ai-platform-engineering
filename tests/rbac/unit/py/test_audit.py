@@ -65,7 +65,7 @@ def test_successful_write_posts_service_event(monkeypatch: pytest.MonkeyPatch) -
     assert captured["scope"] == "view"
     assert captured["allowed"] is True
     assert captured["reason"] == "OK"
-    assert captured["source"] == "supervisor"
+    assert captured["source"] == "ui"
     assert captured["service"] == "ui"
     assert captured["route"] == "GET /api/admin/users"
     assert captured["requestId"] == "req-123"

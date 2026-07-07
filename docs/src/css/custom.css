@@ -246,3 +246,30 @@
   width: var(--img-width, 400px);
   /* Use variable with 400px as fallback */
 }
+
+/* Mermaid diagrams — click to fullscreen */
+.mermaid {
+  cursor: zoom-in;
+  border-radius: 8px;
+  transition: box-shadow 0.2s;
+}
+
+.mermaid:hover {
+  box-shadow: 0 0 0 2px var(--ifm-color-primary);
+}
+
+.mermaid:fullscreen {
+  cursor: zoom-out;
+  background: var(--ifm-background-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.mermaid:fullscreen svg {
+  max-width: 100%;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+}

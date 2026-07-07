@@ -31,6 +31,8 @@ import * as React from "react";
 
 export interface CommentCardProps {
   verdict: CriterionVerdict;
+  /** Sum of all criterion weights — denominator for this check's grade share. */
+  totalWeight: number;
   applied: boolean;
   dismissed: boolean;
   onApplyFix: () => void;
@@ -64,6 +66,7 @@ const SEVERITY_ICON_CLASS: Record<ReviewSeverity, string> = {
 
 export function CommentCard({
   verdict,
+  totalWeight,
   applied,
   dismissed,
   onApplyFix,
@@ -96,6 +99,11 @@ export function CommentCard({
   const Icon = SEVERITY_ICON[verdict.severity];
   const hasFix = verdict.suggested_fix !== null;
   const hasAnchor = verdict.anchor !== null;
+  // Share of the overall grade this failing check costs. Shown as a percentage
+  // so the number is meaningful on its own ("worth 15% of the grade") rather
+  // than a bare weight whose denominator the user can't see.
+  const gradeShare =
+    totalWeight > 0 ? Math.round((verdict.weight / totalWeight) * 100) : 0;
 
   const handleAnchorClick = () => {
     if (verdict.anchor && onClickAnchor) onClickAnchor(verdict.anchor);
@@ -121,6 +129,15 @@ export function CommentCard({
             >
               {verdict.severity}
             </Badge>
+            {gradeShare > 0 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] tracking-wide"
+                title={`This check is weight ${verdict.weight} of ${totalWeight} total — failing it costs ${gradeShare}% of the grade`}
+              >
+                {gradeShare}% of grade
+              </Badge>
+            )}
             {hasAnchor && (
               <button
                 type="button"

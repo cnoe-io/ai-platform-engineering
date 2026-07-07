@@ -27,7 +27,7 @@ export function formatDate(date: Date): string {
 }
 
 export function generateId(): string {
-  // Generate a proper UUID v4 (required by A2A protocol for context_id)
+  // UUIDs are used as backend conversation/context identifiers.
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }

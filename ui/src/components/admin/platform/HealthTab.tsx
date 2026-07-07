@@ -1,35 +1,40 @@
-// assisted-by Codex Codex-sonnet-4-6
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
-import { usePlatformHealthProbes,type PlatformHealthProbe } from "@/hooks/use-platform-health-probes";
-import { useServiceHealth,type HealthStatus } from "@/hooks/use-service-health";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-PROMETHEUS_SETUP_GUIDANCE,
-PROMETHEUS_UNAVAILABLE_MESSAGE,
-type PlatformHealthRemediationLink,
-} from "@/lib/platform-health-remediation";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  usePlatformHealthProbes,
+  type PlatformHealthCapability,
+  type PlatformDiagnosticProbe,
+} from "@/hooks/use-platform-health-probes";
+import { useServiceHealth, type HealthStatus, type ServiceHealth } from "@/hooks/use-service-health";
 import { cn } from "@/lib/utils";
 import {
-AlertTriangle,
-CheckCircle2,
-Database,
-ExternalLink,
-HelpCircle,
-Info,
-Loader2,
-MessageSquare,
-RefreshCw,
-Server,
-Shield,
-XCircle,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  CircleSlash,
+  ExternalLink,
+  HelpCircle,
+  Loader2,
+  MessageSquare,
+  RefreshCw,
+  XCircle,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import React,{ useCallback,useEffect,useMemo,useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+
+type UiStatus = HealthStatus | "disabled";
 
 const STATUS_CONFIG: Record<
-  HealthStatus,
+  UiStatus,
   { icon: typeof CheckCircle2; color: string; bg: string; label: string }
 > = {
   healthy: {
@@ -56,13 +61,50 @@ const STATUS_CONFIG: Record<
     bg: "bg-muted-foreground",
     label: "Unknown",
   },
+  disabled: {
+    icon: CircleSlash,
+    color: "text-muted-foreground",
+    bg: "bg-muted-foreground/60",
+    label: "Disabled",
+  },
 };
 
-interface HealthTabProps {
-  ssoEnabled?: boolean;
-  mongodbEnabled?: boolean;
-  ragEnabled?: boolean;
-}
+const GROUP_LABELS: Record<PlatformHealthCapability["group"], string> = {
+  runtime: "Runtime",
+  knowledge: "Knowledge",
+  identity: "Identity",
+  observability: "Observability",
+  messaging: "Messaging",
+};
+
+const PROBE_GROUP_LABELS: Record<PlatformDiagnosticProbe["group"], string> = {
+  runtime: "Runtime",
+  identity: "Identity",
+  storage: "Storage",
+  knowledge: "Knowledge",
+  bootstrap: "Bootstrap",
+  observability: "Observability",
+};
+
+const CAPABILITY_PROBES: Record<string, string[]> = {
+  "chat-runtime": ["dynamic-agents-runtime", "agentgateway", "agentgateway-config-bridge", "caipe-mongodb"],
+  "dynamic-agents": ["dynamic-agents-runtime", "agentgateway", "agentgateway-config-bridge", "caipe-mongodb"],
+  "knowledge-bases": ["rag-server", "rag-redis", "milvus", "milvus-minio", "etcd", "web-ingestor"],
+  authentication: [
+    "keycloak",
+    "openfga",
+    "openfga-authz-bridge",
+    "keycloak-postgres",
+    "openfga-postgres",
+    "keycloak-bootstrap",
+    "openfga-bootstrap",
+    "rebac-migrations",
+  ],
+  metrics: [],
+  "audit-service": ["audit-service", "caipe-mongodb"],
+  "slack-integration": [],
+  "webex-integration": [],
+};
 
 interface SlackDirectoryStatus {
   configured: boolean;
@@ -118,366 +160,261 @@ interface WebexDirectoryStatus {
   };
 }
 
-export function HealthTab({
-  ssoEnabled = true,
-  mongodbEnabled = true,
-  ragEnabled = true,
-}: HealthTabProps) {
-  const router = useRouter();
-  const { services, overall, loading, error, configured, refetch } =
+function capabilityToUiStatus(status: PlatformHealthCapability["status"]): UiStatus {
+  return status;
+}
+
+export function HealthTab() {
+  const { services, loading, error, configured, refetch } =
     useServiceHealth({ refreshInterval: 30_000 });
   const {
-    probes: platformProbes,
-    summary: platformProbeSummary,
-    status: platformProbeStatus,
-    checkNow: refreshPlatformProbes,
-    secondsUntilNextCheck: platformProbeNextCheck,
-  } = usePlatformHealthProbes();
+    capabilities,
+    summary,
+    probes,
+    probeSummary,
+    status: platformStatus,
+    checkNow: refreshPlatformHealth,
+    secondsUntilNextCheck,
+  } = usePlatformHealthProbes({ diagnostics: true });
 
+  const systemStatus: UiStatus =
+    platformStatus === "checking" ? "unknown" : platformStatus;
+  const overallConfig = STATUS_CONFIG[systemStatus];
+  const OverallIcon = overallConfig.icon;
   const prometheusUnavailable = !configured || error === "Prometheus not configured";
   const operationalError =
     error && error !== "Prometheus not configured" ? error : null;
-
-  const systemStatus = useMemo((): HealthStatus => {
-    if (platformProbeStatus === "checking") return "unknown";
-    if (platformProbeStatus === "down") return "down";
-    if (platformProbeStatus === "degraded") return "degraded";
-    if (platformProbeStatus === "healthy") {
-      if (!prometheusUnavailable && overall !== "unknown") {
-        if (overall === "down") return "down";
-        if (overall === "degraded") return "degraded";
-      }
-      return "healthy";
-    }
-    return overall;
-  }, [platformProbeStatus, prometheusUnavailable, overall]);
-
-  const overallConfig = STATUS_CONFIG[systemStatus];
-  const OverallIcon = overallConfig.icon;
   const [slackStatus, setSlackStatus] = useState<SlackDirectoryStatus | null>(null);
-  const [slackLoading, setSlackLoading] = useState(false);
-  const [slackError, setSlackError] = useState<string | null>(null);
+  const [slackStatusError, setSlackStatusError] = useState<string | null>(null);
   const [webexStatus, setWebexStatus] = useState<WebexDirectoryStatus | null>(null);
-  const [webexLoading, setWebexLoading] = useState(false);
-  const [webexError, setWebexError] = useState<string | null>(null);
+  const [webexStatusError, setWebexStatusError] = useState<string | null>(null);
+  const [selectedCapability, setSelectedCapability] = useState<PlatformHealthCapability | null>(null);
+
+  const agentServices = services.filter((service) => service.name.startsWith("Agent: "));
+  const platformMetricServices = services.filter((service) => !service.name.startsWith("Agent: "));
 
   const loadSlackStatus = useCallback(async () => {
-    setSlackLoading(true);
-    setSlackError(null);
     try {
       const res = await fetch("/api/admin/slack/directory/status");
       const payload = await res.json();
-      if (!res.ok || !payload.success) throw new Error(payload?.error || "Failed to load Slack status");
-      setSlackStatus(payload.data);
-    } catch (err) {
-      setSlackError(err instanceof Error ? err.message : "Failed to load Slack status");
-    } finally {
-      setSlackLoading(false);
+      if (res.ok && payload.success) {
+        setSlackStatus(payload.data);
+        setSlackStatusError(null);
+      } else {
+        setSlackStatus(null);
+        setSlackStatusError(
+          typeof payload?.error === "string" ? payload.error : "Slack status check failed",
+        );
+      }
+    } catch {
+      setSlackStatus(null);
+      setSlackStatusError("Slack status check failed");
     }
   }, []);
 
   const loadWebexStatus = useCallback(async () => {
-    setWebexLoading(true);
-    setWebexError(null);
     try {
       const res = await fetch("/api/admin/webex/directory/status");
       const payload = await res.json();
-      if (res.status === 404) {
-        throw new Error("Webex health API is unavailable. Rebuild or restart the UI service to pick up the latest Health tab.");
+      if (res.ok && payload.success) {
+        setWebexStatus(payload.data);
+        setWebexStatusError(null);
+      } else {
+        setWebexStatus(null);
+        setWebexStatusError(
+          typeof payload?.error === "string" ? payload.error : "Webex status check failed",
+        );
       }
-      if (!res.ok || !payload.success) throw new Error(payload?.error || "Failed to load Webex status");
-      setWebexStatus(payload.data);
-    } catch (err) {
-      setWebexError(err instanceof Error ? err.message : "Failed to load Webex status");
-    } finally {
-      setWebexLoading(false);
+    } catch {
+      setWebexStatus(null);
+      setWebexStatusError("Webex status check failed");
     }
   }, []);
 
   useEffect(() => {
-    void loadSlackStatus();
-    void loadWebexStatus();
+    const timer = window.setTimeout(() => {
+      void loadSlackStatus();
+      void loadWebexStatus();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadSlackStatus, loadWebexStatus]);
 
-  useEffect(() => {
-    if (!slackStatus || (slackStatus.users.status !== "warming" && slackStatus.emoji.status !== "warming")) return;
-    const id = window.setInterval(() => void loadSlackStatus(), 5000);
-    return () => window.clearInterval(id);
-  }, [loadSlackStatus, slackStatus]);
-
-  useEffect(() => {
-    if (!webexStatus || webexStatus.space_discovery.status !== "warming") return;
-    const id = window.setInterval(() => void loadWebexStatus(), 5000);
-    return () => window.clearInterval(id);
-  }, [loadWebexStatus, webexStatus]);
-
-  // Separate agent-specific services from platform services
-  const agentServices = services.filter((s) => s.name.startsWith("Agent: "));
-  const platformMetricServices = services.filter((s) => !s.name.startsWith("Agent: "));
-  const platformProbeIssues = platformProbes.filter((probe) => probe.status !== "healthy");
-
   const refreshAll = useCallback(() => {
+    refreshPlatformHealth();
     void refetch();
-    refreshPlatformProbes();
     void loadSlackStatus();
     void loadWebexStatus();
-  }, [refetch, refreshPlatformProbes, loadSlackStatus, loadWebexStatus]);
+  }, [refreshPlatformHealth, refetch, loadSlackStatus, loadWebexStatus]);
+
+  const slackCapability = capabilities.find((capability) => capability.id === "slack-integration") ?? null;
+  const webexCapability = capabilities.find((capability) => capability.id === "webex-integration") ?? null;
+  const showSlack = slackStatus?.configured === true || Boolean(slackCapability);
+  const showWebex = webexStatus?.configured === true || Boolean(webexCapability);
+  const selectedCapabilityProbes = selectedCapability
+    ? diagnosticsForCapability(selectedCapability.id, probes)
+    : [];
 
   return (
     <div className="space-y-4">
-      {/* Overall Status Banner */}
-      {(platformProbeSummary || !prometheusUnavailable) && platformProbeStatus !== "checking" && (
-        <Card className={cn(
+      <Card
+        className={cn(
           "border-l-4",
           systemStatus === "healthy" && "border-l-green-500",
           systemStatus === "degraded" && "border-l-yellow-500",
           systemStatus === "down" && "border-l-red-500",
           systemStatus === "unknown" && "border-l-muted-foreground",
-        )}>
-          <CardContent className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-3">
-              <OverallIcon className={cn("h-6 w-6", overallConfig.color)} />
-              <div>
-                <p className="font-medium">System Status: {overallConfig.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  {platformProbeSummary
-                    ? `${platformProbeSummary.healthy} of ${platformProbeSummary.total} dependency checks passing`
-                    : "Running dependency checks"}
-                  {configured && !prometheusUnavailable && platformMetricServices.length > 0 && (
-                    <> · {platformMetricServices.filter((s) => s.status === "healthy").length} of{" "}
-                    {platformMetricServices.length} Prometheus metrics healthy</>
-                  )}
-                  {agentServices.length > 0 && (
-                    <> · {agentServices.filter((s) => s.status === "healthy").length} of{" "}
-                    {agentServices.length} agents enabled</>
-                  )}
-                  {prometheusUnavailable && platformProbeSummary ? (
-                    <> · optional Prometheus metrics not configured</>
-                  ) : null}
-                </p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={refreshAll}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              Refresh
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Platform Services */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Platform Services</CardTitle>
-          <CardDescription>
-            {configured && !prometheusUnavailable
-              ? "Live dependency checks plus Prometheus-backed agent metrics"
-              : PROMETHEUS_UNAVAILABLE_MESSAGE}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <section className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">Dependency checks</p>
-                <p className="text-xs text-muted-foreground">
-                  Keycloak, OpenFGA, AgentGateway, databases, RAG stack, and bootstrap migrations
-                </p>
-              </div>
-              {platformProbeSummary ? (
-                <span className="text-xs text-muted-foreground">
-                  {platformProbeSummary.healthy}/{platformProbeSummary.total} OK · next in {platformProbeNextCheck}s
-                </span>
-              ) : null}
-            </div>
-
-            {platformProbeStatus === "checking" && platformProbes.length === 0 ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="text-sm text-muted-foreground ml-2">Checking platform dependencies...</span>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {platformProbes.map((probe) => (
-                  <PlatformProbeRow
-                    key={probe.id}
-                    probe={probe}
-                    onNavigate={(href) => router.push(href)}
-                  />
-                ))}
-              </div>
-            )}
-
-            {platformProbeIssues.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
-                <p className="font-semibold">Remediation tips</p>
-                <ul className="mt-2 list-disc space-y-1 pl-4 text-amber-900/90 dark:text-amber-100/90">
-                  {platformProbeIssues.slice(0, 4).map((probe) => (
-                    <li key={probe.id}>
-                      <span className="font-medium">{probe.label}:</span>{" "}
-                      {probe.remediation?.description ?? probe.detail}
-                    </li>
-                  ))}
-                  {platformProbeIssues.length > 4 ? (
-                    <li>{platformProbeIssues.length - 4} more checks need attention.</li>
-                  ) : null}
-                </ul>
-              </div>
-            ) : platformProbes.length > 0 ? (
-              <div className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-xs text-muted-foreground">
-                All dependency checks are passing.
-              </div>
-            ) : null}
-          </section>
-
-          <section className="space-y-3">
-            <div>
-              <p className="text-sm font-medium">Configured integrations</p>
+        )}
+      >
+        <CardContent className="flex items-center justify-between gap-4 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <OverallIcon className={cn("h-6 w-6 shrink-0", overallConfig.color)} />
+            <div className="min-w-0">
+              <p className="font-medium">System Status: {overallConfig.label}</p>
               <p className="text-xs text-muted-foreground">
-                Feature flags and integration caches for this deployment
+                {summary
+                  ? `${summary.healthy} healthy · ${summary.degraded} degraded · ${summary.down} down · ${summary.disabled} disabled`
+                  : "Checking platform status"}
               </p>
             </div>
-            <div className="space-y-3">
-              <ServiceRow
-                name="MongoDB"
-                description="Database connection"
-                icon={<Database className="h-4 w-4 text-muted-foreground" />}
-                status={mongodbEnabled ? "healthy" : "unknown"}
-                detail={mongodbEnabled ? "Configured" : "Not configured"}
-                remediation={
-                  mongodbEnabled
-                    ? undefined
-                    : {
-                        label: "Docs",
-                        href: "/admin?cat=metrics&tab=health",
-                        description: "Set MONGODB_URI on the UI service and verify the caipe-mongodb container is running.",
-                      }
-                }
-                onNavigate={(href) => router.push(href)}
-              />
-              <ServiceRow
-                name="Authentication"
-                description="OIDC SSO"
-                icon={<Shield className="h-4 w-4 text-muted-foreground" />}
-                status={ssoEnabled ? "healthy" : "unknown"}
-                detail={ssoEnabled ? "SSO enabled" : "Disabled"}
-                remediation={
-                  ssoEnabled
-                    ? {
-                        label: "Keycloak",
-                        href: "/admin?cat=security&tab=keycloak",
-                        description: "Review realm reconciliation, IdP mappers, and admin credentials.",
-                      }
-                    : {
-                        label: "Enable SSO",
-                        href: "/admin?cat=security&tab=keycloak",
-                        description: "Configure OIDC_CLIENT_ID, OIDC_ISSUER, and OIDC_CLIENT_SECRET on the UI service.",
-                      }
-                }
-                onNavigate={(href) => router.push(href)}
-              />
-              <ServiceRow
-                name="RAG Server"
-                description="Knowledge base operations"
-                icon={<Server className="h-4 w-4 text-muted-foreground" />}
-                status={ragEnabled ? "healthy" : "unknown"}
-                detail={ragEnabled ? "Enabled" : "Disabled"}
-                remediation={
-                  ragEnabled
-                    ? {
-                        label: "Knowledge Bases",
-                        href: "/knowledge-bases",
-                        description: "Open knowledge bases to verify ingest jobs and retrieval.",
-                      }
-                    : {
-                        label: "Setup",
-                        href: "/knowledge-bases/ingest",
-                        description: "Start the rag compose profile and set RAG_SERVER_URL on the UI service.",
-                      }
-                }
-                onNavigate={(href) => router.push(href)}
-              />
-              <SlackIntegrationStatus
-                status={slackStatus}
-                loading={slackLoading}
-                error={slackError}
-                onRefresh={loadSlackStatus}
-                onNavigate={(href) => router.push(href)}
-              />
-              <WebexIntegrationStatus
-                status={webexStatus}
-                loading={webexLoading}
-                error={webexError}
-                onRefresh={loadWebexStatus}
-                onNavigate={(href) => router.push(href)}
-              />
-            </div>
-          </section>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-1.5"
+            onClick={refreshAll}
+            disabled={loading || platformStatus === "checking"}
+          >
+            {loading || platformStatus === "checking" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </Button>
+        </CardContent>
+      </Card>
 
-          {prometheusUnavailable ? (
-            <section className="rounded-lg border border-border/70 bg-muted/20 p-4">
-              <div className="flex items-start gap-3">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{PROMETHEUS_SETUP_GUIDANCE.title}</p>
-                  <p className="text-xs text-muted-foreground">{PROMETHEUS_SETUP_GUIDANCE.body}</p>
-                </div>
-              </div>
-            </section>
+      <Card>
+        <CardHeader>
+              <CardTitle>Platform Capabilities</CardTitle>
+              <CardDescription>
+                Select a capability to inspect upstream service probes.
+              </CardDescription>
+            </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex justify-end text-xs text-muted-foreground">
+            <span>
+              {probeSummary ? `${probeSummary.healthy}/${probeSummary.total} probes ready · ` : null}
+              Next check: {secondsUntilNextCheck}s
+            </span>
+          </div>
+
+          {platformStatus === "checking" && capabilities.length === 0 ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Checking platform capabilities...</span>
+            </div>
           ) : (
-            <>
-              {loading && platformMetricServices.length === 0 ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground ml-2">Loading Prometheus metrics...</span>
-                </div>
-              ) : null}
-              {platformMetricServices.map((svc) => (
-                <ServiceRow
-                  key={svc.name}
-                  name={svc.name}
-                  status={svc.status}
-                  detail={svc.detail}
-                />
-              ))}
-            </>
+            <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+              {capabilities.map((capability) => {
+                const capabilityProbes = diagnosticsForCapability(capability.id, probes);
+                return (
+                  <CapabilityRow
+                    key={capability.id}
+                    capability={capability}
+                    probeCount={capabilityProbes.length}
+                    issueCount={capabilityProbes.filter((probe) => probe.status !== "healthy").length}
+                    onSelect={() => setSelectedCapability(capability)}
+                  />
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Agent Status */}
+      {(showSlack || showWebex) && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Integrations</CardTitle>
+              </div>
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {showSlack && slackStatus?.configured ? (
+              <SlackIntegrationStatus status={slackStatus} />
+            ) : showSlack ? (
+              <IntegrationCapabilityStatus
+                title="Slack"
+                capability={slackCapability}
+                error={slackStatusError}
+              />
+            ) : null}
+            {showWebex && webexStatus?.configured ? (
+              <WebexIntegrationStatus status={webexStatus} />
+            ) : showWebex ? (
+              <IntegrationCapabilityStatus
+                title="Webex"
+                capability={webexCapability}
+                error={webexStatusError}
+              />
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Metrics</CardTitle>
+          <CardDescription>
+            Optional Prometheus-backed runtime signals.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {prometheusUnavailable ? (
+            <p className="text-sm text-muted-foreground">
+              Prometheus is not configured for this UI service.
+            </p>
+          ) : loading && platformMetricServices.length === 0 ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading metrics...</span>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+              {platformMetricServices.map((service) => (
+                <MetricRow key={service.name} service={service} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {configured && agentServices.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Agent Status</CardTitle>
-            <CardDescription>Individual sub-agent availability</CardDescription>
+            <CardDescription>Sub-agent availability from Prometheus.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {agentServices.map((svc) => {
-                const cfg = STATUS_CONFIG[svc.status];
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {agentServices.map((service) => {
+                const cfg = STATUS_CONFIG[service.status];
                 const Icon = cfg.icon;
                 return (
                   <div
-                    key={svc.name}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-muted/50"
+                    key={service.name}
+                    className="flex items-center gap-3 rounded-lg bg-muted/50 p-3"
                   >
                     <Icon className={cn("h-4 w-4 shrink-0", cfg.color)} />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {svc.name.replace("Agent: ", "")}
+                      <p className="truncate text-sm font-medium">
+                        {service.name.replace("Agent: ", "")}
                       </p>
-                      <p className="text-xs text-muted-foreground">{svc.detail}</p>
+                      <p className="text-xs text-muted-foreground">{service.detail}</p>
                     </div>
                   </div>
                 );
@@ -494,116 +431,246 @@ export function HealthTab({
           </CardContent>
         </Card>
       )}
+
+      <CapabilityDiagnosticsDialog
+        capability={selectedCapability}
+        probes={selectedCapabilityProbes}
+        metricServices={selectedCapability?.id === "metrics" ? platformMetricServices : []}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCapability(null);
+        }}
+      />
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────
-// ServiceRow — single service status row
-// ────────────────────────────────────────────────────────────────
-
-function probeStatusToHealth(status: PlatformHealthProbe["status"]): HealthStatus {
-  if (status === "healthy") return "healthy";
-  if (status === "warning") return "degraded";
-  return "down";
+function diagnosticsForCapability(
+  capabilityId: string,
+  probes: PlatformDiagnosticProbe[],
+): PlatformDiagnosticProbe[] {
+  const probeIds = CAPABILITY_PROBES[capabilityId] ?? [];
+  const idOrder = new Map(probeIds.map((id, index) => [id, index]));
+  return probes
+    .filter((probe) => idOrder.has(probe.id))
+    .sort((left, right) => (idOrder.get(left.id) ?? 0) - (idOrder.get(right.id) ?? 0));
 }
 
-function PlatformProbeRow({
-  probe,
-  onNavigate,
+function CapabilityRow({
+  capability,
+  probeCount,
+  issueCount,
+  onSelect,
 }: {
-  probe: PlatformHealthProbe;
-  onNavigate: (href: string) => void;
+  capability: PlatformHealthCapability;
+  probeCount: number;
+  issueCount: number;
+  onSelect: () => void;
 }) {
-  const status = probeStatusToHealth(probe.status);
+  const status = capabilityToUiStatus(capability.status);
   const cfg = STATUS_CONFIG[status];
+  const Icon = cfg.icon;
+  const statusNote =
+    capability.status === "down" && capability.required
+      ? "Required capability unavailable; platform status is down."
+      : capability.status === "degraded" && !capability.required
+        ? "Optional capability unavailable; platform status is degraded."
+        : capability.status === "disabled"
+          ? "Disabled capabilities do not affect platform status."
+          : null;
 
   return (
-    <div className="rounded-lg bg-muted/50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium">{probe.label}</p>
-          <p className="text-xs text-muted-foreground">
-            {probe.detail}
-            {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
-          </p>
-          <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">{probe.target}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <div className={cn("h-2 w-2 rounded-full", cfg.bg)} />
-          <span className="text-xs font-medium">{cfg.label}</span>
-          {probe.remediation ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1 px-2 text-[10px]"
-              title={probe.remediation.description}
-              onClick={() => onNavigate(probe.remediation!.href)}
-            >
-              {probe.remediation.label}
-              <ExternalLink className="h-3 w-3" />
-            </Button>
+    <button
+      type="button"
+      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onSelect}
+      aria-label={`Inspect ${capability.label} health details`}
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium">{capability.label}</p>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {GROUP_LABELS[capability.group]}
+          </span>
+          {capability.required ? (
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+              Required
+            </span>
           ) : null}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ServiceRow({
-  name,
-  description,
-  icon,
-  status,
-  detail,
-  remediation,
-  onNavigate,
-}: {
-  name: string;
-  description?: string;
-  icon?: React.ReactNode;
-  status: HealthStatus;
-  detail: string;
-  remediation?: PlatformHealthRemediationLink;
-  onNavigate?: (href: string) => void;
-}) {
-  const cfg = STATUS_CONFIG[status];
-
-  return (
-    <div className="flex items-center justify-between gap-3 p-4 bg-muted/50 rounded-lg">
-      <div className="flex min-w-0 items-center gap-3">
-        {icon}
-        <div className="min-w-0">
-          <p className="text-sm font-medium">{name}</p>
-          {description && (
-            <p className="text-xs text-muted-foreground">{description}</p>
-          )}
-          {remediation && (
-            <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">{remediation.description}</p>
-          )}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <div className={cn("h-2 w-2 rounded-full", cfg.bg)} />
-        <span className="text-sm">{detail}</span>
-        {remediation && onNavigate ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-[10px]"
-            onClick={() => onNavigate(remediation.href)}
-          >
-            {remediation.label}
-          </Button>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {capability.description}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground/85">
+          {capability.detail}
+          {capability.latency_ms !== null ? ` · ${capability.latency_ms}ms` : ""}
+        </p>
+        {statusNote ? (
+          <p className="mt-1 text-xs text-muted-foreground/85">{statusNote}</p>
+        ) : null}
+        {probeCount > 0 ? (
+          <p className="mt-1 text-xs text-muted-foreground/85">
+            {probeCount} upstream probe{probeCount === 1 ? "" : "s"}
+            {issueCount > 0 ? ` · ${issueCount} need attention` : ""}
+          </p>
         ) : null}
       </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Icon className={cn("h-4 w-4", cfg.color)} />
+        <span className="text-sm">{cfg.label}</span>
+        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+      </div>
+    </button>
+  );
+}
+
+function probeToUiStatus(status: PlatformDiagnosticProbe["status"]): UiStatus {
+  return status === "warning" ? "degraded" : status;
+}
+
+function CapabilityDiagnosticsDialog({
+  capability,
+  probes,
+  metricServices,
+  onOpenChange,
+}: {
+  capability: PlatformHealthCapability | null;
+  probes: PlatformDiagnosticProbe[];
+  metricServices: ServiceHealth[];
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!capability) return null;
+
+  const status = capabilityToUiStatus(capability.status);
+  const cfg = STATUS_CONFIG[status];
+  const Icon = cfg.icon;
+  const unhealthy = probes.filter((probe) => probe.status !== "healthy").length;
+
+  return (
+    <Dialog open={Boolean(capability)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Icon className={cn("h-5 w-5", cfg.color)} />
+            {capability.label}
+          </DialogTitle>
+          <DialogDescription>
+            {capability.description}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <section className="rounded-lg border border-border/70 bg-muted/25 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Capability Status</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {capability.detail}
+                  {capability.latency_ms !== null ? ` · ${capability.latency_ms}ms` : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 rounded-full border border-border bg-background px-2.5 py-1 text-xs">
+                <StatusDot status={status} />
+                {cfg.label}
+              </div>
+            </div>
+          </section>
+
+          {probes.length > 0 ? (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Upstream Probes</p>
+                  <p className="text-xs text-muted-foreground">
+                    {probes.length - unhealthy}/{probes.length} ready
+                    {unhealthy > 0 ? ` · ${unhealthy} need attention` : ""}
+                  </p>
+                </div>
+              </div>
+              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+                {probes.map((probe) => (
+                  <DiagnosticProbeRow key={probe.id} probe={probe} />
+                ))}
+              </div>
+            </section>
+          ) : metricServices.length > 0 ? (
+            <section className="space-y-3">
+              <div>
+                <p className="text-sm font-medium">Metric Signals</p>
+                <p className="text-xs text-muted-foreground">Prometheus-backed runtime signals.</p>
+              </div>
+              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+                {metricServices.map((service) => (
+                  <MetricRow key={service.name} service={service} />
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-lg border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+              No additional upstream probes are registered for this capability.
+            </section>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DiagnosticProbeRow({ probe }: { probe: PlatformDiagnosticProbe }) {
+  const status = probeToUiStatus(probe.status);
+  const cfg = STATUS_CONFIG[status];
+  const Icon = cfg.icon;
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4 bg-muted/30 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium">{probe.label}</p>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {PROBE_GROUP_LABELS[probe.group]}
+          </span>
+        </div>
+        <p className="mt-1 break-words text-xs text-muted-foreground">
+          {probe.detail}
+          {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
+        </p>
+        <p className="mt-1 break-all text-[11px] text-muted-foreground/75">{probe.target}</p>
+        {probe.remediation ? (
+          <a
+            href={probe.remediation.href}
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            {probe.remediation.label}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Icon className={cn("h-4 w-4", cfg.color)} />
+        <span className="text-sm">{probe.status === "warning" ? "Warning" : cfg.label}</span>
+      </div>
     </div>
   );
 }
 
-function cacheStateToHealth(status: SlackDirectoryStatus["users"]["status"], error?: string): HealthStatus {
+function MetricRow({ service }: { service: { name: string; status: HealthStatus; detail: string } }) {
+  const cfg = STATUS_CONFIG[service.status];
+  const Icon = cfg.icon;
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 bg-muted/30 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{service.name}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{service.detail}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Icon className={cn("h-4 w-4", cfg.color)} />
+        <span className="text-sm">{cfg.label}</span>
+      </div>
+    </div>
+  );
+}
+
+function cacheStateToStatus(status: SlackDirectoryStatus["users"]["status"], error?: string): UiStatus {
   if (error) return "degraded";
   if (status === "ready") return "healthy";
   if (status === "warming" || status === "stale") return "degraded";
@@ -615,256 +682,146 @@ function formatTime(ts: number | null | undefined): string {
   return new Date(ts).toLocaleTimeString();
 }
 
-function SlackIntegrationStatus({
-  status,
-  loading,
-  error,
-  onRefresh,
-  onNavigate,
-}: {
-  status: SlackDirectoryStatus | null;
-  loading: boolean;
-  error: string | null;
-  onRefresh: () => void | Promise<void>;
-  onNavigate?: (href: string) => void;
-}) {
-  if (error && !status) {
-    return (
-      <ServiceRow
-        name="Slack Integration"
-        description="Bot admin API and Slack directory caches"
-        icon={<MessageSquare className="h-4 w-4 text-muted-foreground" />}
-        status="degraded"
-        detail={error}
-        remediation={{
-          label: "Slack Admin",
-          href: "/admin?cat=integrations&tab=slack",
-          description: "Verify SLACK_BOT_ADMIN_TOKEN_URL, bot credentials, and directory sync permissions.",
-        }}
-        onNavigate={onNavigate}
-      />
-    );
-  }
+function StatusDot({ status }: { status: UiStatus }) {
+  const cfg = STATUS_CONFIG[status];
+  return <span className={cn("h-2 w-2 rounded-full", cfg.bg)} />;
+}
 
-  const botStatus: HealthStatus = status?.bot_admin.reachable ? "healthy" : status ? "degraded" : "unknown";
-  const userStatus = status ? cacheStateToHealth(status.users.status, status.users.last_error) : "unknown";
-  const overallStatus: HealthStatus =
-    [botStatus, userStatus].includes("down") ? "down"
-      : [botStatus, userStatus].includes("degraded") ? "degraded"
-        : [botStatus, userStatus].every((s) => s === "healthy") ? "healthy"
-          : "unknown";
-  const cfg = STATUS_CONFIG[overallStatus];
-  const emojiReady = status?.emoji.status === "ready" && !status.emoji.last_error;
+function IntegrationPanel({
+  title,
+  status,
+  children,
+}: {
+  title: string;
+  status: UiStatus;
+  children: React.ReactNode;
+}) {
+  const cfg = STATUS_CONFIG[status];
 
   return (
-    <div className="rounded-lg bg-muted/50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <MessageSquare className="mt-0.5 h-4 w-4 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium">Slack Integration</p>
-            <p className="text-xs text-muted-foreground">Bot admin API, user directory, and optional emoji picker cache</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className={cn("h-2 w-2 rounded-full", cfg.bg)} />
-          {onNavigate ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-[10px]"
-              onClick={() => onNavigate("/admin?cat=integrations&tab=slack")}
-            >
-              Slack Admin
-            </Button>
-          ) : null}
-          <Button type="button" variant="ghost" size="sm" onClick={() => void onRefresh()} disabled={loading}>
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          </Button>
+    <section className="rounded-lg border border-border/70 bg-muted/25 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <StatusDot status={status} />
+          {cfg.label}
         </div>
       </div>
-      <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
-        <div className="rounded-md border bg-background/60 p-2">
-          <div className="font-medium">Bot admin API</div>
-          <div className={status?.bot_admin.reachable ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
-            {status ? (status.bot_admin.reachable ? "reachable" : "unreachable") : "checking"}
-          </div>
-          {status?.bot_admin.error && <div className="mt-1 text-muted-foreground line-clamp-2">{status.bot_admin.error}</div>}
-        </div>
-        <div className="rounded-md border bg-background/60 p-2">
-          <div className="font-medium">User directory cache</div>
-          <div className="text-muted-foreground">
-            {status ? `${status.users.status}: ${status.users.active_users_indexed} active / ${status.users.users_indexed} indexed` : "checking"}
-          </div>
-          {status && (
-            <div className="text-muted-foreground">
-              {status.users.pages_scanned} pages · {status.users.members_seen} Slack records · updated {formatTime(status.users.updated_at)}
-            </div>
-          )}
-          {status?.users.last_error && <div className="mt-1 text-amber-700 dark:text-amber-400 line-clamp-2">{status.users.last_error}</div>}
-        </div>
-        <div className="rounded-md border border-dashed bg-background/60 p-2">
-          <div className="font-medium">
-            Emoji cache <span className="font-normal text-muted-foreground">(optional)</span>
-          </div>
-          <div className={emojiReady ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
-            {status
-              ? status.emoji.last_error
-                ? "Not loaded · bot messaging unaffected"
-                : `${status.emoji.status}: ${status.emoji.emoji_indexed} emoji indexed`
-              : "checking"}
-          </div>
-          {status && !status.emoji.last_error && (
-            <div className="text-muted-foreground">updated {formatTime(status.emoji.updated_at)}</div>
-          )}
-          {status?.emoji.last_error ? (
-            <div className="mt-1 text-muted-foreground line-clamp-3">{status.emoji.last_error}</div>
-          ) : (
-            <div className="text-muted-foreground">
-              Suggests custom workspace emoji in Slack Admin escalation config · requires <code className="text-[10px]">emoji:read</code>
-            </div>
-          )}
-        </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">{children}</div>
+    </section>
+  );
+}
+
+function StatTile({
+  title,
+  status,
+  detail,
+  meta,
+}: {
+  title: string;
+  status: UiStatus;
+  detail: string;
+  meta?: string;
+}) {
+  return (
+    <div className="rounded-md border border-border/70 bg-background/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium text-foreground">{title}</div>
+        <StatusDot status={status} />
       </div>
+      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+      {meta ? <div className="mt-1 text-[11px] text-muted-foreground/80">{meta}</div> : null}
     </div>
   );
 }
 
-function WebexIntegrationStatus({
-  status,
-  loading,
-  error,
-  onRefresh,
-  onNavigate,
-}: {
-  status: WebexDirectoryStatus | null;
-  loading: boolean;
-  error: string | null;
-  onRefresh: () => void | Promise<void>;
-  onNavigate?: (href: string) => void;
-}) {
-  if (error && !status) {
-    return (
-      <ServiceRow
-        name="Webex Integration"
-        description="Bot admin API and Webex space discovery"
-        icon={<MessageSquare className="h-4 w-4 text-muted-foreground" />}
-        status="degraded"
-        detail={error}
-        remediation={{
-          label: "Webex Admin",
-          href: "/admin?cat=integrations&tab=webex",
-          description: "Verify WEBEX_BOT_ADMIN_CLIENT_SECRET, WEBEX_INTEGRATION_BOT_ACCESS_TOKEN, and webex-bot connectivity.",
-        }}
-        onNavigate={onNavigate}
-      />
-    );
-  }
-
-  const botStatus: HealthStatus = status?.bot_admin.reachable ? "healthy" : status ? "degraded" : "unknown";
-  const platformStatus: HealthStatus = status
-    ? status.platform.reachable && (status.platform.spaces_onboarded > 0 || status.platform.routes_configured > 0)
-      ? "healthy"
-      : status.platform.reachable
-        ? "unknown"
-        : "degraded"
-    : "unknown";
-  const discoveryStatus = status
-    ? status.space_discovery.configured
-      ? cacheStateToHealth(status.space_discovery.status, status.space_discovery.last_error)
-      : "unknown"
-    : "unknown";
-  const overallStatus: HealthStatus =
-    [botStatus, platformStatus, discoveryStatus].includes("down") ? "down"
-      : [botStatus, platformStatus, discoveryStatus].includes("degraded") ? "degraded"
-        : [botStatus, platformStatus, discoveryStatus].some((s) => s === "healthy") ? "healthy"
-          : status?.configured ? "degraded" : "unknown";
-  const cfg = STATUS_CONFIG[overallStatus];
-  const runtime = status?.bot_admin.runtime;
-  const platform = status?.platform;
+function SlackIntegrationStatus({ status }: { status: SlackDirectoryStatus }) {
+  const botStatus: UiStatus = status.bot_admin.reachable ? "healthy" : "degraded";
+  const usersStatus = cacheStateToStatus(status.users.status, status.users.last_error);
+  const emojiStatus = cacheStateToStatus(status.emoji.status, status.emoji.last_error);
+  const overall: UiStatus =
+    [botStatus, usersStatus, emojiStatus].includes("degraded") ? "degraded" : "healthy";
 
   return (
-    <div className="rounded-lg bg-muted/50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <MessageSquare className="mt-0.5 h-4 w-4 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium">Webex Integration</p>
-            <p className="text-xs text-muted-foreground">Bot admin API and Webex space discovery</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className={cn("h-2 w-2 rounded-full", cfg.bg)} />
-          {onNavigate ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-[10px]"
-              onClick={() => onNavigate("/admin?cat=integrations&tab=webex")}
-            >
-              Webex Admin
-            </Button>
-          ) : null}
-          <Button type="button" variant="ghost" size="sm" onClick={() => void onRefresh()} disabled={loading}>
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          </Button>
-        </div>
-      </div>
-      <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
-        <div className="rounded-md border bg-background/60 p-2">
-          <div className="font-medium">Bot admin API</div>
-          <div className={status?.bot_admin.reachable ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
-            {status ? (status.bot_admin.reachable ? "reachable" : "unreachable") : "checking"}
-          </div>
-          {runtime ? (
-            <div className="mt-1 text-muted-foreground">
-              {runtime.route_mode ?? "unknown"} · {runtime.static_spaces ?? 0} spaces · {runtime.static_routes ?? 0} routes
-              {runtime.cache_size !== undefined ? ` · cache ${runtime.cache_size}` : ""}
-            </div>
-          ) : null}
-          {status?.bot_admin.error && <div className="mt-1 text-muted-foreground line-clamp-2">{status.bot_admin.error}</div>}
-        </div>
-        <div className="rounded-md border bg-background/60 p-2">
-          <div className="font-medium">Platform configuration</div>
-          <div className="text-muted-foreground">
-            {status
-              ? platform?.reachable
-                ? `${platform.spaces_onboarded} spaces onboarded · ${platform.routes_configured} routes configured`
-                : "MongoDB summary unavailable"
-              : "checking"}
-          </div>
-          {platform?.spaces_onboarded || platform?.routes_configured ? (
-            <div className="text-muted-foreground">Configured in Admin → Integrations → Webex</div>
-          ) : (
-            <div className="text-muted-foreground">Onboard spaces in Admin → Integrations → Webex</div>
-          )}
-          {platform?.error && <div className="mt-1 text-amber-700 dark:text-amber-400 line-clamp-2">{platform.error}</div>}
-        </div>
-        <div className="rounded-md border bg-background/60 p-2">
-          <div className="font-medium">Space discovery cache</div>
-          <div className="text-muted-foreground">
-            {status
-              ? status.space_discovery.configured
-                ? `${status.space_discovery.status}: ${status.space_discovery.spaces_indexed} spaces indexed`
-                : "Optional · WEBEX_INTEGRATION_BOT_ACCESS_TOKEN unset"
-              : "checking"}
-          </div>
-          {status?.space_discovery.configured ? (
-            <div className="text-muted-foreground">
-              TTL {status.space_discovery.ttl_seconds ?? 0}s · updated {formatTime(status.space_discovery.updated_at)}
-            </div>
-          ) : (
-            <div className="text-muted-foreground">
-              Enables the Webex space picker; manual space IDs still work without it.
-            </div>
-          )}
-          {status?.space_discovery.last_error && (
-            <div className="mt-1 text-amber-700 dark:text-amber-400 line-clamp-2">{status.space_discovery.last_error}</div>
-          )}
-        </div>
-      </div>
-    </div>
+    <IntegrationPanel title="Slack" status={overall}>
+      <StatTile
+        title="Bot Admin API"
+        status={botStatus}
+        detail={status.bot_admin.reachable ? "Reachable" : "Unreachable"}
+        meta={status.bot_admin.error}
+      />
+      <StatTile
+        title="User Directory Cache"
+        status={usersStatus}
+        detail={`${status.users.status}: ${status.users.active_users_indexed} active / ${status.users.users_indexed} indexed`}
+        meta={`${status.users.pages_scanned} pages · ${status.users.members_seen} records · updated ${formatTime(status.users.updated_at)}`}
+      />
+      <StatTile
+        title="Emoji Cache"
+        status={emojiStatus}
+        detail={`${status.emoji.status}: ${status.emoji.emoji_indexed} indexed`}
+        meta={`updated ${formatTime(status.emoji.updated_at)}`}
+      />
+    </IntegrationPanel>
+  );
+}
+
+function WebexIntegrationStatus({ status }: { status: WebexDirectoryStatus }) {
+  const botStatus: UiStatus = status.bot_admin.reachable ? "healthy" : "degraded";
+  const platformStatus: UiStatus = status.platform.reachable ? "healthy" : "degraded";
+  const discoveryStatus = cacheStateToStatus(status.space_discovery.status, status.space_discovery.last_error);
+  const overall: UiStatus =
+    [botStatus, platformStatus, discoveryStatus].includes("degraded") ? "degraded" : "healthy";
+  const runtime = status.bot_admin.runtime;
+
+  return (
+    <IntegrationPanel title="Webex" status={overall}>
+      <StatTile
+        title="Bot Admin API"
+        status={botStatus}
+        detail={status.bot_admin.reachable ? "Reachable" : "Unreachable"}
+        meta={runtime ? `${runtime.route_mode ?? "routes"} · ${runtime.cache_size ?? 0} cached` : status.bot_admin.error}
+      />
+      <StatTile
+        title="Platform Configuration"
+        status={platformStatus}
+        detail={`${status.platform.spaces_onboarded} spaces onboarded · ${status.platform.routes_configured} routes configured`}
+        meta={status.platform.error}
+      />
+      <StatTile
+        title="Space Discovery Cache"
+        status={discoveryStatus}
+        detail={
+          status.space_discovery.configured
+            ? `${status.space_discovery.status}: ${status.space_discovery.spaces_indexed} indexed`
+            : "Not configured"
+        }
+        meta={`updated ${formatTime(status.space_discovery.updated_at)}`}
+      />
+    </IntegrationPanel>
+  );
+}
+
+function IntegrationCapabilityStatus({
+  title,
+  capability,
+  error,
+}: {
+  title: string;
+  capability: PlatformHealthCapability | null;
+  error: string | null;
+}) {
+  const status = capability ? capabilityToUiStatus(capability.status) : "degraded";
+  const detail = capability?.detail ?? error ?? "Status check failed";
+
+  return (
+    <IntegrationPanel title={title} status={status}>
+      <StatTile
+        title="Integration Status"
+        status={status}
+        detail={detail}
+        meta={error && error !== detail ? error : undefined}
+      />
+    </IntegrationPanel>
   );
 }

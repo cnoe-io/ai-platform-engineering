@@ -62,7 +62,7 @@ const MOCK_STATS = {
     agents: [
       { name: "aws", checkpoints: 67, writes: 409, threads: 12, latest_checkpoint: new Date().toISOString() },
       { name: "jira", checkpoints: 23, writes: 48, threads: 5, latest_checkpoint: new Date(Date.now() - 3600000).toISOString() },
-      { name: "caipe_supervisor", checkpoints: 53, writes: 106, threads: 20, latest_checkpoint: new Date().toISOString() },
+      { name: "conversation", checkpoints: 53, writes: 106, threads: 20, latest_checkpoint: new Date().toISOString() },
       { name: "weather", checkpoints: 0, writes: 0, threads: 0, latest_checkpoint: null },
     ],
     totals: {
@@ -79,8 +79,8 @@ const MOCK_STATS = {
     cross_contamination: {
       shared_threads: 2,
       details: [
-        { thread_id: "f8221179...", collections: ["checkpoints_caipe_supervisor", "checkpoints_aws"] },
-        { thread_id: "abc12345...", collections: ["checkpoints_caipe_supervisor", "checkpoints_jira"] },
+        { thread_id: "f8221179...", collections: ["checkpoints_conversation", "checkpoints_aws"] },
+        { thread_id: "abc12345...", collections: ["checkpoints_conversation", "checkpoints_jira"] },
       ],
     },
     range: "7d",
@@ -153,7 +153,7 @@ describe("CheckpointStatsSection", () => {
     await waitFor(() => {
       expect(screen.getByText("AWS")).toBeInTheDocument();
       expect(screen.getByText("Jira")).toBeInTheDocument();
-      expect(screen.getByText("Supervisor")).toBeInTheDocument();
+      expect(screen.getByText("Conversation")).toBeInTheDocument();
       expect(screen.getByText("Weather")).toBeInTheDocument();
     });
   });
@@ -216,7 +216,7 @@ describe("CheckpointStatsSection", () => {
 
     await waitFor(() => {
       expect(screen.getByText("2 shared thread(s)")).toBeInTheDocument();
-      expect(screen.getByText(/supervisor forwards context_id/)).toBeInTheDocument();
+      expect(screen.getByText(/reused a conversation thread id/)).toBeInTheDocument();
     });
   });
 

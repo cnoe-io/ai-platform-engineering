@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   Bot,
   AlertTriangle,
+  CalendarClock,
   KeyRound,
   ChevronDown,
   ChevronRight,
@@ -30,8 +31,7 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
@@ -46,7 +46,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useToast } from "@/components/ui/toast";
 import {
   applyTopNavConfig,
   normalizeTopNavConfig,
@@ -81,7 +80,6 @@ function formatInterval(seconds: number): string {
  * unsaved-changes store.
  */
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
-  "/task-builder",
   "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
@@ -96,16 +94,9 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  * dialog for both cases by reading `pendingNavigationHref` directly.
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
-  "/task-builder",
   "/workflows",
   "/dynamic-agents",
 ];
-
-const PLATFORM_HEALTH_ADMIN_HREF = "/admin?cat=platform&tab=health";
-
-function openPlatformHealthDashboard(router: ReturnType<typeof useRouter>): void {
-  router.push(PLATFORM_HEALTH_ADMIN_HREF);
-}
 
 function isOnGuardedEditor(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
@@ -234,7 +225,7 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
-  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Task Builder, Dynamic Agent
+  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Workflows, Dynamic Agent
   // editor) ask the AppHeader to render the discard dialog on their behalf
   // for top-nav clicks. Other editors (e.g. /skills/workspace) own their own
   // in-page dialog and consume `pendingNavigationHref` directly — that keeps
@@ -274,16 +265,11 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for CAIPE supervisor (polls every 30 seconds)
+  // Health check for the Dynamic Agents runtime API path (polls every 30 seconds)
   const {
-    status: caipeStatus,
-    url: caipeUrl,
-    secondsUntilNextCheck: caipeNextCheck,
-    agents,
-    tags,
-    mongoDBStatus,
-    storageMode
-  } = useCAIPEHealth();
+    status: runtimeStatus,
+  } = useAgentRuntimeHealth();
+  const storageMode = config.storageMode;
 
   const mongoNavEnabled =
     storageMode === "mongodb" || config.storageMode === "mongodb";
@@ -303,7 +289,7 @@ export function AppHeader() {
   // Platform health probes (polls all platform services: dynamic agents, auth, storage, RAG, migrations)
   const {
     status: platformProbeStatus,
-    summary: platformProbeSummary,
+    capabilities: platformCapabilities,
     secondsUntilNextCheck: platformProbeNextCheck,
   } = usePlatformHealthProbes();
 
@@ -320,30 +306,19 @@ export function AppHeader() {
   // Policy → Keycloak just to notice. Gated by `isAdmin` so non-admin
   // sessions never trigger the underlying Keycloak Admin round-trip.
   const keycloakHealth = useKeycloakHealthSummary({ enabled: isAdmin });
-  const { toast } = useToast();
   const noAuthConfigured = !config.ssoEnabled || config.unsafeRbacBypassEnabled;
   const noAuthStatusText = config.unsafeRbacBypassEnabled
     ? "RBAC bypass is enabled. UI authorization checks allow every operation."
     : "SSO is disabled. This deployment is not enforcing browser sign-in.";
 
-  React.useEffect(() => {
-    if (!session || !releasePrompt.toastNotification) return;
-    toast(
-      releasePrompt.toastNotification.message,
-      "info",
-      releasePrompt.toastNotification.duration,
-    );
-    releasePrompt.markToastShown();
-  }, [releasePrompt, session, toast]);
-
   // Combined status: hard failures from the API path or platform
   // dependencies mark the system as disconnected; optional RAG failures are
   // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
-    if (caipeStatus === "checking") return "checking";
+    if (runtimeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
     if (platformProbeStatus === "checking") return "checking";
-    if (caipeStatus === "disconnected") return "disconnected";
+    if (runtimeStatus === "disconnected") return "disconnected";
     if (platformProbeStatus === "down") return "disconnected";
     if (platformProbeStatus === "degraded") return "degraded";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
@@ -352,30 +327,34 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
   const combinedStatusLabel =
-    combinedStatus === "connected" ? "Connected" :
+    combinedStatus === "connected" ? "Healthy" :
     combinedStatus === "checking" ? "Checking" :
     combinedStatus === "degraded" ? "Needs Attention" :
     combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
     "Disconnected";
 
+  const activeCapabilities = platformCapabilities.filter(
+    (capability) => capability.status !== "disabled",
+  );
+  const [expandedHealthDetails, setExpandedHealthDetails] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleHealthDetail = React.useCallback((capabilityId: string) => {
+    setExpandedHealthDetails((current) => {
+      const next = new Set(current);
+      if (next.has(capabilityId)) {
+        next.delete(capabilityId);
+      } else {
+        next.add(capabilityId);
+      }
+      return next;
+    });
+  }, []);
   const platformHealthLabel =
     platformProbeStatus === "healthy" ? "Ready" :
-    platformProbeStatus === "degraded" ? "Attention" :
+    platformProbeStatus === "degraded" ? "Degraded" :
     platformProbeStatus === "down" ? "Down" :
     "Checking";
-  const platformHealthTone: "green" | "amber" | "red" | "muted" =
-    platformProbeStatus === "healthy" ? "green" :
-    platformProbeStatus === "down" ? "red" :
-    platformProbeStatus === "checking" ? "muted" :
-    "amber";
-  const statusBadgeClassName = (tone: "green" | "amber" | "red" | "muted") =>
-    cn(
-      "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-      tone === "green" && "border-green-500/25 bg-green-500/10 text-green-500 dark:text-green-400",
-      tone === "amber" && "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-      tone === "red" && "border-red-500/25 bg-red-500/10 text-red-500 dark:text-red-400",
-      tone === "muted" && "border-border bg-muted/40 text-muted-foreground",
-    );
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -383,11 +362,11 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/credentials")) return "credentials";
     if (pathname?.startsWith("/workflows")) return "workflows";
-    if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/projects")) return "projects";
     if (pathname?.startsWith("/apps")) return "apps";
+    if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -403,9 +382,8 @@ export function AppHeader() {
   //   - the title / aria-label lists alerts in the same order so the
   //     hover-text is stable.
   //
-  // Counts use the same numbers each individual source previously
-  // displayed in its own chip, so the total in the unified pill is
-  // a simple sum across the visible sources.
+  // Counts are source-owned and additive, so the total in the unified
+  // pill is a simple sum across the visible sources.
   type AdminAlertSource = {
     id: string;
     label: string;
@@ -606,13 +584,6 @@ export function AppHeader() {
   ];
 
   const secondaryNavItems = [
-    config.taskBuilderEnabled && {
-      key: "task-builder",
-      href: "/task-builder",
-      label: "Task Builder",
-      Icon: Workflow,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
     config.workflowsEnabled && {
       key: "workflows",
       href: "/workflows",
@@ -642,10 +613,17 @@ export function AppHeader() {
       activeClassName: "bg-cyan-600 text-white shadow-sm",
     },
     ...pinnedAppNavItems,
-    mongoNavEnabled && config.credentialsEnabled && {
+    mongoNavEnabled && config.dynamicAgentsEnabled && config.schedulerEnabled && {
+      key: "schedules",
+      href: "/schedules",
+      label: "Schedules",
+      Icon: CalendarClock,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    mongoNavEnabled && config.userConnectionsEnabled && {
       key: "credentials",
-      href: "/credentials",
-      label: "Connections",
+      href: "/credentials#connections",
+      label: "Credentials",
       Icon: KeyRound,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
@@ -846,164 +824,113 @@ export function AppHeader() {
                 <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] p-0 overflow-hidden border-2">
-              <div className="bg-gradient-to-br from-card via-card to-card/95">
-                {/* Header with gradient */}
-                <div className="gradient-primary-br p-4">
+            <PopoverContent side="bottom" align="end" className="w-80 max-w-[calc(100vw-1rem)] p-0 overflow-hidden">
+              <div className="bg-card">
+                <div className="border-b border-border/60 p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="text-base font-bold text-white mb-1">System Status</div>
-                      <div className="text-xs text-white/80">{config.appName} Agents & Knowledge Services</div>
+                    <div className="min-w-0">
+                      {isAdmin ? (
+                        <GuardedLink
+                          href="/admin?cat=platform&tab=health"
+                          className="inline-flex max-w-full items-center gap-1 rounded-sm text-sm font-semibold text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="Open Admin health status"
+                        >
+                          <span className="truncate">System Status</span>
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        </GuardedLink>
+                      ) : (
+                        <div className="text-sm font-semibold text-foreground">System Status</div>
+                      )}
                     </div>
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        onClick={() => openPlatformHealthDashboard(router)}
-                        title="Open full health dashboard"
-                        className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 backdrop-blur-sm transition-colors hover:bg-white/30"
-                      >
-                        <span className={cn(
-                          "inline-block h-2 w-2 rounded-full transition-colors duration-700",
-                          combinedStatus === "connected" ? "bg-green-400" :
-                          combinedStatus === "checking" ? "bg-amber-400" :
-                          combinedStatus === "degraded" ? "bg-amber-400" :
-                          combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
-                        )} />
-                        <span className="text-xs font-medium text-white">
-                          {combinedStatus === "connected" ? "All Systems Live" :
-                           combinedStatus === "checking" ? "Checking" :
-                           combinedStatus === "degraded" ? "Action Needed" :
-                           combinedStatus === "rag-disconnected" ? "RAG Offline" :
-                           "Issues Detected"}
-                        </span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 backdrop-blur-sm">
-                        <span className={cn(
-                          "inline-block h-2 w-2 rounded-full transition-colors duration-700",
-                          combinedStatus === "connected" ? "bg-green-400" :
-                          combinedStatus === "checking" ? "bg-amber-400" :
-                          combinedStatus === "degraded" ? "bg-amber-400" :
-                          combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
-                        )} />
-                        <span className="text-xs font-medium text-white">
-                          {combinedStatus === "connected" ? "All Systems Live" :
-                           combinedStatus === "checking" ? "Checking" :
-                           combinedStatus === "degraded" ? "Action Needed" :
-                           combinedStatus === "rag-disconnected" ? "RAG Offline" :
-                           "Issues Detected"}
-                        </span>
-                      </div>
-                    )}
+                    <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                      <span className={cn(
+                        "h-2 w-2 rounded-full",
+                        combinedStatus === "connected" && "bg-green-400",
+                        combinedStatus === "checking" && "bg-amber-400",
+                        combinedStatus === "degraded" && "bg-amber-400",
+                        combinedStatus === "rag-disconnected" && "bg-amber-400",
+                        combinedStatus === "disconnected" && "bg-red-400",
+                      )} />
+                      {combinedStatusLabel}
+                    </div>
                   </div>
                 </div>
 
-                <div
-                  data-testid="platform-health-scroll"
-                  className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4"
-                >
-                  <div className="rounded-xl border border-border/70 bg-background/40 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <div className="text-sm font-semibold text-foreground">Platform Health</div>
-                          {isAdmin ? (
-                            <button
-                              type="button"
-                              onClick={() => openPlatformHealthDashboard(router)}
-                              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
-                            >
-                              Full health report
-                              <ChevronRight className="h-3 w-3" />
-                            </button>
-                          ) : null}
-                        </div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">
-                          {platformProbeSummary
-                            ? `${platformProbeSummary.total} checks across dynamic agents, auth, storage, RAG, web ingestor, and migrations`
-                            : "Checking dynamic agents, auth, storage, RAG, web ingestor, and migrations"}
-                        </div>
+                <div className="space-y-3 p-4">
+                  <div className="rounded-lg border border-border/70 bg-muted/25 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Platform
                       </div>
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => openPlatformHealthDashboard(router)}
-                          title="Open full health dashboard"
-                          className={cn(statusBadgeClassName(platformHealthTone), "transition-opacity hover:opacity-90")}
-                        >
-                          {platformProbeSummary
-                            ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
-                            : platformHealthLabel}
-                        </button>
-                      ) : (
-                        <span className={statusBadgeClassName(platformHealthTone)}>
-                          {platformProbeSummary
-                            ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
-                            : platformHealthLabel}
-                        </span>
-                      )}
+                      <div className="text-xs text-muted-foreground">{platformHealthLabel}</div>
                     </div>
+                    {platformProbeStatus === "checking" && activeCapabilities.length === 0 ? (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Checking capabilities
+                      </div>
+                    ) : activeCapabilities.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {activeCapabilities.map((capability) => {
+                          const showDetail = capability.status === "degraded" || capability.status === "down";
+                          const expanded = expandedHealthDetails.has(capability.id);
+                          const dot = (
+                            <span className={cn(
+                              "mt-1 h-2 w-2 shrink-0 rounded-full",
+                              capability.status === "healthy" && "bg-green-400",
+                              capability.status === "degraded" && "bg-amber-400",
+                              capability.status === "down" && "bg-red-400",
+                            )} />
+                          );
 
-                    {/* Agent Info */}
-                    {agents.length > 0 && (
-                      <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-lg gradient-primary-br flex items-center justify-center shrink-0">
-                            <span className="text-lg font-bold text-white">AI</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-sm text-foreground mb-1">
-                              {agents[0].name}
-                            </div>
-                            {agents[0].description && (
-                              <div className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                                {agents[0].description}
+                          if (!showDetail) {
+                            return (
+                              <div key={capability.id} className="flex items-center justify-between gap-3">
+                                <div className="min-w-0 truncate text-xs font-medium text-foreground">
+                                  {capability.label}
+                                </div>
+                                <span className={cn(
+                                  "h-2 w-2 shrink-0 rounded-full",
+                                  capability.status === "healthy" && "bg-green-400",
+                                )} />
                               </div>
-                            )}
-                          </div>
-                        </div>
+                            );
+                          }
+
+                          return (
+                            <div key={capability.id} className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-xs font-medium text-foreground">
+                                  {capability.label}
+                                </div>
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "mt-0.5 block max-w-full rounded-sm text-left text-[11px] leading-snug text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    expanded ? "whitespace-normal break-words" : "overflow-hidden text-ellipsis whitespace-nowrap",
+                                  )}
+                                  aria-expanded={expanded}
+                                  aria-label={`${expanded ? "Collapse" : "Expand"} ${capability.label} details`}
+                                  onClick={() => toggleHealthDetail(capability.id)}
+                                >
+                                  <span
+                                    className={cn(
+                                      "block max-w-full",
+                                      expanded ? "whitespace-normal break-words" : "overflow-hidden text-ellipsis whitespace-nowrap",
+                                    )}
+                                  >
+                                    {capability.detail}
+                                  </span>
+                                </button>
+                              </div>
+                              {dot}
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-
-                    <div className="mt-2 text-right text-[10px] font-mono text-muted-foreground">
-                      Next probe: {platformProbeNextCheck}s
-                      {isAdmin ? (
-                        <>
-                          {" · "}
-                          <button
-                            type="button"
-                            onClick={() => openPlatformHealthDashboard(router)}
-                            className="font-sans font-medium text-primary hover:underline"
-                          >
-                            Open health dashboard
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-
-                    {/* Integrations */}
-                    {tags.length > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            Connected Integrations
-                          </div>
-                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
-                            <span className="text-[10px] font-bold text-primary">{tags.length}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                          {tags.map((tag, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-gradient-to-br from-primary/10 to-primary/5 text-primary border border-primary/20 hover:border-primary/40 hover:bg-primary/15 transition-all"
-                            >
-                              <span className="inline-block w-1 h-1 rounded-full bg-green-400" />
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
+                    ) : (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        No active platform capabilities reported.
                       </div>
                     )}
                   </div>
@@ -1118,24 +1045,14 @@ export function AppHeader() {
                   </>
                 </div>
 
-                {/* Footer */}
-                <div className="px-4 py-2.5 bg-muted/20 border-t border-border/50 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                      <span>Health checks active (30s interval)</span>
-                    </div>
-                    <div className="text-muted-foreground">
-                      {combinedStatus === "connected" ? "All systems operational" :
-                       combinedStatus === "checking" ? "Checking status..." :
-                       combinedStatus === "rag-disconnected" ? "RAG server unavailable" :
-                       "Check logs for details"}
-                    </div>
+                <div className="space-y-1.5 border-t border-border/50 bg-muted/20 px-4 py-2.5">
+                  <div className="text-right text-xs text-muted-foreground">
+                    Next: {platformProbeNextCheck}s
                   </div>
                   {versionInfo && (
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-primary">UI Version:</span>
+                    <div className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground font-mono">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="font-semibold text-primary">UI:</span>
                         <span>{versionInfo.version}</span>
                         {versionInfo.gitCommit !== "unknown" && (
                           <span className="text-muted-foreground/60">
@@ -1151,7 +1068,7 @@ export function AppHeader() {
                         </button>
                       </div>
                       {versionInfo.buildDate && (
-                        <span className="text-muted-foreground/60">
+                        <span className="shrink-0 text-muted-foreground/60">
                           Built: {new Date(versionInfo.buildDate).toLocaleDateString()}
                         </span>
                       )}
@@ -1189,20 +1106,14 @@ export function AppHeader() {
             </Popover>
           )}
           {/*
-            Unified admin alerts pill. Replaces four previously separate
-            chips (Migrations required, Version metadata needed,
-            Migration override active, Keycloak unreachable / failing
-            invariants) with a single labelled `Alerts: <total>` trigger
-            so the header stays compact when multiple subsystems flag
-            issues simultaneously. Trigger severity is the worst across
-            all visible sources (red wins over amber).
+            Unified admin alerts pill. A single labelled `Alerts: <total>`
+            trigger keeps the header compact when multiple subsystems flag
+            issues simultaneously. Trigger severity is the worst across all
+            visible sources (red wins over amber).
 
-            Clicking the pill opens a popover that lists EVERY active
-            alert as its own row, each with its own GuardedLink to the
-            relevant admin tab. This replaces the previous "single
-            deep-link to the highest-severity source" behavior which
-            silently hid lower-severity items and produced confusing
-            no-ops when the user was already on the destination tab.
+            Clicking the pill opens a popover that lists every active alert
+            as its own row, each with its own GuardedLink to the relevant
+            admin tab so lower-severity items remain actionable.
 
             Per-row navigation uses GuardedLink so unsaved-changes
             guards still fire. The popover closes itself on row click
@@ -1389,10 +1300,9 @@ export function AppHeader() {
         isAdmin={releasePrompt.isAdmin}
         releaseVersion={releasePrompt.releaseVersion}
         release={releasePrompt.release}
-        onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
+        releaseMarkdown={releasePrompt.releaseMarkdown}
         onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
         onDismissPermanently={releasePrompt.dismissPermanently}
-        showMigrationCta={releasePrompt.showMigrationCta}
         isDismissing={releasePrompt.isDismissing}
       />
     )}

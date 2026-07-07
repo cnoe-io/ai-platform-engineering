@@ -119,7 +119,6 @@ function seedTeamsCollection(rows: Array<Record<string, unknown>>, total: number
     findOne: jest.fn().mockResolvedValue(null),
   };
   mockCollections.teams = teamsCol;
-  mockCollections.team_kb_ownership = createMockCollection();
   return { teamsCol, calls };
 }
 
@@ -214,5 +213,23 @@ describe("GET /api/admin/teams pagination", () => {
     // The legacy (unpaginated) envelope omits page / page_size / has_more.
     expect(body.data.page).toBeUndefined();
     expect(body.data.has_more).toBeUndefined();
+  });
+
+  it("filters out archived teams by default", async () => {
+    const { calls } = seedTeamsCollection([], 0);
+
+    await callGet("/api/admin/teams");
+
+    const and = (calls.query as { $and?: Array<Record<string, unknown>> })?.$and;
+    expect(and).toContainEqual({ status: { $ne: "archived" } });
+  });
+
+  it("includes archived teams when include_archived=true", async () => {
+    const { calls } = seedTeamsCollection([], 0);
+
+    await callGet("/api/admin/teams?include_archived=true");
+
+    const and = (calls.query as { $and?: Array<Record<string, unknown>> })?.$and;
+    expect(and ?? []).not.toContainEqual({ status: { $ne: "archived" } });
   });
 });

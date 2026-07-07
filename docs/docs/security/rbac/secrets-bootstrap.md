@@ -17,13 +17,12 @@ realm:
 | `<release>-keycloak-admin`           | `username`, `password`        | both init Jobs (Keycloak Admin REST API)                                           |
 | `<release>-keycloak-idp`             | `IDP_CLIENT_SECRET`           | `init-idp` Job (configures upstream IdP broker, e.g. Okta/Duo)                     |
 | `<release>-keycloak-ui-client`       | `OIDC_CLIENT_SECRET`          | `init-idp` / auth reconcile Jobs (reconciles Keycloak `caipe-ui`)                  |
-| `<release>-keycloak-platform-client` | `OIDC_CLIENT_SECRET`          | `init-idp` / auth reconcile Jobs (reconciles Keycloak `caipe-platform` supervisor) |
+| `<release>-keycloak-platform-client` | `OIDC_CLIENT_SECRET`          | `init-idp` / auth reconcile Jobs (reconciles Keycloak `caipe-platform`)            |
 | `<release>-keycloak-bot`             | `KC_BOT_CLIENT_SECRET`        | `init-token-exchange` Job **and** the `slack-bot` deployment                       |
 
-> **What is `caipe-platform`?** It's the confidential OIDC client the
-> **supervisor** uses for two flows: (1) `client_credentials` tokens for
-> internal service-to-service calls, and (2) the **target audience** for
-> on-behalf-of token-exchange from the bots. The realm import ships a
+> **What is `caipe-platform`?** It's the confidential OIDC client and
+> shared platform audience used by the CAIPE UI BFF, bot OBO token
+> exchange, and service-token fallback flows. The realm import ships a
 > dev placeholder (`caipe-platform-dev-secret`) so first-boot import works
 > without external state — but that placeholder is plaintext-visible in
 > the rendered realm ConfigMap and **must be replaced for any deployment
@@ -325,7 +324,7 @@ needs *something* in the realm JSON for the client to be created.
 In production, however, the rendered realm ConfigMap is plaintext. Anyone
 with `kubectl get cm -o yaml` permission in the Keycloak namespace can
 read the dev secret and mint `client_credentials` tokens for the
-supervisor's audience — exactly the same risk class we already mitigated
+platform audience — exactly the same risk class we already mitigated
 for `caipe-ui` and the bot OBO clients.
 
 The `init-idp` (post-install) and `auth-reconcile` (PreSync) Jobs now
@@ -342,29 +341,29 @@ lives in a ConfigMap. The script behaves exactly like the existing
 ### Existing installs
 
 Pick one of the two paths below. Both produce the same end-state and can
-be rolled out without downtime — the supervisor reads the secret from a
-mounted Secret, not from Keycloak, so the cutover is just:
+be rolled out without downtime — the BFF reads the secret from a mounted
+Secret, not from Keycloak, so the cutover is just:
 
-1. Decide the new secret value (or reuse what your existing supervisor
-   pod is already configured with — see *Pre-flight* below).
-2. Make sure the supervisor's `KEYCLOAK_CLIENT_SECRET` and the new
+1. Decide the new secret value (or reuse what your existing BFF pod is
+   already configured with — see *Pre-flight* below).
+2. Make sure the BFF's `KEYCLOAK_ADMIN_CLIENT_SECRET` and the new
    Keycloak Secret hold the **same** value.
 3. `helm upgrade` — `auth-reconcile` runs first (PreSync) and pushes
    the value into Keycloak.
 4. The placeholder in the realm ConfigMap becomes inert (Keycloak only
    reads the realm import on a fresh database).
 
-#### Pre-flight: what secret is the supervisor currently using?
+#### Pre-flight: what secret is the BFF currently using?
 
-If your supervisor is running, check what it thinks the client_secret is.
+If your BFF is running, check what it thinks the client_secret is.
 The simplest, safest check is:
 
 ```bash
-# Resolve via whatever variable / secret the supervisor reads.
-# In the default chart, that's KEYCLOAK_CLIENT_SECRET on the
-# supervisor (caipe-platform) deployment.
-kubectl -n caipe get deploy ai-platform-engineering-supervisor \
-  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="KEYCLOAK_CLIENT_SECRET")]}'
+# Resolve via whatever variable / secret the BFF reads.
+# In the default chart, that's KEYCLOAK_ADMIN_CLIENT_SECRET on the
+# caipe-ui deployment.
+kubectl -n caipe get deploy ai-platform-engineering-caipe-ui \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="KEYCLOAK_ADMIN_CLIENT_SECRET")]}'
 ```
 
 If the result references `caipe-platform-dev-secret`, you are running
@@ -381,11 +380,11 @@ PLATFORM_CLIENT_SECRET="$(openssl rand -hex 32)"   # or: existing value
 kubectl -n caipe create secret generic caipe-keycloak-platform-client \
   --from-literal=OIDC_CLIENT_SECRET="${PLATFORM_CLIENT_SECRET}"
 
-# 3. (If different) update the supervisor's own client_secret source
+# 3. (If different) update the BFF's own client_secret source
 #    to the SAME value, so no pod is mismatched after step 4.
-#    e.g. if the supervisor reads from caipe-platform-secret:
+#    e.g. if the BFF reads from caipe-platform-secret:
 kubectl -n caipe create secret generic caipe-platform-secret \
-  --from-literal=KEYCLOAK_CLIENT_SECRET="${PLATFORM_CLIENT_SECRET}" \
+  --from-literal=OIDC_CLIENT_SECRET="${PLATFORM_CLIENT_SECRET}" \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
@@ -442,7 +441,7 @@ ArgoCD sync.
 
 Just include `platformClient.secretRef` (or `platformClient.externalSecret`)
 from day one — the dev placeholder will be overwritten on the very first
-`init-idp` Job, before any supervisor pod has ever produced a token.
+`init-idp` Job, before any platform component uses the client.
 
 ### Rotation
 
@@ -455,9 +454,9 @@ vault kv put secret/prod/caipe-platform oidc_client_secret="$(openssl rand -hex 
 # 3. Re-run init-idp / auth-reconcile so Keycloak picks up the new value.
 helm upgrade caipe ./charts/ai-platform-engineering -n caipe -f values.yaml
 
-# 4. Restart the supervisor pod so it reads the new value (or use
-#    stakater/Reloader on the supervisor deployment for hands-off rotation).
-kubectl -n caipe rollout restart deploy/ai-platform-engineering-supervisor
+# 4. Restart the BFF pod so it reads the new value (or use
+#    stakater/Reloader on the caipe-ui deployment for hands-off rotation).
+kubectl -n caipe rollout restart deploy/ai-platform-engineering-caipe-ui
 ```
 
 The order matters: **always rotate Keycloak first**, then the consumer.
@@ -768,7 +767,7 @@ the message is always actionable.
 |-------|------|--------------|
 | Vendored validator (the actual runtime path) | `ai_platform_engineering/dynamic_agents/tests/test_jwks_validate.py` | `_kc_base_url()`, `_kc_issuer()`, `_kc_jwks_uri()` resolution order + end-to-end validation: token with public issuer + `OIDC_ISSUER` set → valid; same token without `OIDC_ISSUER` → `InvalidIssuerError`; explicit `KEYCLOAK_JWKS_URL` / `OIDC_JWKS_URL` overrides win |
 | Helm chart | `tests/test_dynamic_agents_chart_keycloak_env.py` | Both keys propagate into the rendered ConfigMap when set; empty defaults are omitted; NOTES.txt warns on every empty-value branch; umbrella chart defaults `KEYCLOAK_URL` to the bundled Keycloak service |
-| Shared validator (used by supervisor + RAG, not dynamic-agents) | `tests/rbac/unit/py/test_jwks_validate.py` | Same contract pinned for `ai_platform_engineering.utils.auth.jwks_validate` |
+| Shared validator (used by shared Python auth helpers) | `tests/rbac/unit/py/test_jwks_validate.py` | Same contract pinned for `ai_platform_engineering.utils.auth.jwks_validate` |
 
 The vendored and shared copies MUST stay in sync — if you change one,
 update the other and run both test suites.
@@ -1090,7 +1089,7 @@ materialised directly into the in-cluster Secret by
 either overriding `auth.rootPassword` or enabling
 `externalSecrets.enabled=true` would ship `admin/changeme` to MongoDB.
 The same `changeme` then propagated into every `MONGODB_URI` consumer
-(dynamic-agents, supervisor, caipe-ui session store).
+(dynamic-agents, caipe-ui session store, and setup-managed runtime ConfigMaps).
 
 This is the same class of issue we fixed for Keycloak `caipe-*-dev-secret`
 under `strictClientSecrets`. R3 introduces the parallel
@@ -1179,7 +1178,6 @@ into four cluster-internal config destinations:
 |------|-------------|
 | `helm upgrade ... bitnami/mongodb` | `auth.rootPassword=changeme`, `auth.passwords[0]=changeme` |
 | `caipe-dynamic-agents-config` ConfigMap | `MONGODB_URI` |
-| `caipe-supervisor-agent-env` ConfigMap | `MONGODB_URI` |
 | `caipe-single-node-agent-env` ConfigMap | `MONGODB_URI` |
 | `caipe-ui-secret` Secret | `MONGODB_URI` |
 | Seed values file (dynamic-agents Helm seed) | `dynamic-agents.config.MONGODB_URI` |

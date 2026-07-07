@@ -4,8 +4,8 @@
  * These types are used by the AgentTimeline component to render
  * an interleaved timeline view where content and tools appear in stream order.
  *
- * Files and Tasks are fixed (fetched via API), but content/tools/subagents
- * appear in temporal order like A2A.
+ * Files and Tasks are fixed (fetched via API), while streamed content,
+ * tools, and subagents appear in temporal order.
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -110,8 +110,8 @@ export interface StatusSegment {
 }
 
 /**
- * @deprecated Use StatusSegment instead
- * Kept for backward compatibility during migration
+ * @deprecated Use StatusSegment instead. Stored timeline data may still
+ * contain this older segment shape.
  */
 export interface DoneSegment {
   type: "done";

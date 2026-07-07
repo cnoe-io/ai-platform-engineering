@@ -2,11 +2,14 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
+import { ChevronDown } from "lucide-react";
 import React from "react";
 
 import {
   describeProviderConnectionHealth,
+  formatExpiresInLabel,
   formatRelativeRefreshLabel,
+  supportsProfileCheck,
 } from "@/lib/credentials/provider-connection-display";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 
@@ -18,6 +21,9 @@ interface ProviderConnection {
   updatedAt?: string | Date;
   connectedAt?: string | Date;
   expiresAt?: string | Date;
+  // False ⇒ no refresh token; connection is valid now but will expire and
+  // need manual re-auth. Absent on legacy connections ⇒ assume renewable.
+  renewable?: boolean;
   profileSummary?: string;
   requestedScopes?: string[];
   grantedScopes?: string[];
@@ -85,7 +91,6 @@ function oauthPopupFeatures(): string {
     "height=760",
     "resizable=yes",
     "scrollbars=yes",
-    "noopener=yes",
   ].join(",");
 }
 
@@ -111,7 +116,13 @@ function effectiveScopeSelection(
   return allowed.filter((scope) => base.includes(scope));
 }
 
-export function ProviderConnections() {
+export function ProviderConnections({
+  collapsed = false,
+  onToggle,
+}: {
+  collapsed?: boolean;
+  onToggle?: () => void;
+} = {}) {
   const [connections, setConnections] = React.useState<ProviderConnection[]>([]);
   const [connectors, setConnectors] = React.useState<OAuthConnector[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -365,14 +376,30 @@ export function ProviderConnections() {
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold">Connected Apps</h2>
-        <p className="text-sm text-muted-foreground">
-          Connect apps like Atlassian so agents can use approved account access.
-        </p>
-      </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="overflow-hidden rounded-3xl border border-border/80 bg-card/85 shadow-2xl shadow-black/15 ring-1 ring-white/[0.03] backdrop-blur">
+      <button
+        type="button"
+        className="flex w-full items-start gap-3 text-left"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+      >
+        <ChevronDown
+          className={`mt-1 h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
+          aria-hidden="true"
+        />
+        <div>
+          <h2 className="text-xl font-semibold">Connected Apps</h2>
+          <p className="text-sm text-muted-foreground">
+            Connect apps like Atlassian so agents can use approved account access.
+          </p>
+        </div>
+      </button>
+      <p className="ml-8 text-xs text-muted-foreground/70">
+        Adding additional apps requires admin permissions.
+      </p>
+      {!collapsed && (
+        <>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm">
         {connectionRows.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1040px] table-fixed text-left">
@@ -457,8 +484,11 @@ export function ProviderConnections() {
                           </p>
                           {connected && (
                             <p className="text-xs text-muted-foreground/80">
-                              {formatRelativeRefreshLabel(connection?.updatedAt ?? connection?.connectedAt) ??
-                                formatDateTime(connection?.updatedAt)}
+                              {connection?.renewable === false
+                                ? formatExpiresInLabel(connection?.expiresAt) ??
+                                  "manual reconnect at expiry"
+                                : formatRelativeRefreshLabel(connection?.updatedAt ?? connection?.connectedAt) ??
+                                  formatDateTime(connection?.updatedAt)}
                             </p>
                           )}
                         </div>
@@ -466,7 +496,7 @@ export function ProviderConnections() {
                       <td className="px-4 py-5 align-middle">
                         <div className="flex items-center gap-2">
                           <ConnectionStatusMark connection={connection} providerLabel={profileLabel} />
-                          {connection && (
+                          {connection && supportsProfileCheck(connector.provider) && (
                             <button
                               type="button"
                               className={cx(
@@ -688,6 +718,8 @@ export function ProviderConnections() {
           onClose={() => setDiagnosticModal(null)}
         />
       )}
+        </>
+      )}
     </section>
   );
 }
@@ -871,6 +903,7 @@ function summarizeProfile(profile: Record<string, unknown> | undefined): string 
 
 function needsAutoRefresh(connection: ProviderConnection): boolean {
   if (connection.status !== "connected" || !connection.expiresAt) return false;
+  if (connection.renewable === false) return false;
   const expiresAt = new Date(connection.expiresAt).getTime();
   if (Number.isNaN(expiresAt)) return false;
   return expiresAt <= Date.now() + 15 * 60 * 1000;
@@ -934,6 +967,9 @@ function healthTone(health: string): "good" | "warning" | "danger" | "neutral" {
   switch (health) {
     case "healthy":
     case "connected":
+    // Connected and usable now — it simply won't auto-renew. Green, not amber:
+    // amber is reserved for connections that are within minutes of lapsing.
+    case "no auto-renew":
       return "good";
     case "expiring soon":
     case "relink required":

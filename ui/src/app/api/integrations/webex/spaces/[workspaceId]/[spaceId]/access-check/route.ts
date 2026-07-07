@@ -6,8 +6,6 @@ getAuthFromBearerOrSession,
 successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
 import { parseWebexSpaceRouteParams } from "@/lib/rbac/webex-space-openfga";
 import { checkWebexSpaceAccess } from "@/lib/rbac/webex-space-rebac";
 import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
@@ -31,14 +29,10 @@ function parseResource(value: unknown): UniversalRebacResourceRef {
 
 export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
   const { session } = await getAuthFromBearerOrSession(request);
+  void session; // Authentication is required; agent-level can_use is the authorization gate.
 
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
-  await requireResourcePermission(session, {
-    type: "webex_space",
-    id: webexSpaceSubjectId(workspaceId, spaceId),
-    action: "read",
-  }, { bypassForOrgAdmin: true });
 
   const body = (await request.json()) as Record<string, unknown>;
   const action =
@@ -52,7 +46,6 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   const result = await checkWebexSpaceAccess({
     workspace_id: workspaceId,
     space_id: spaceId,
-    user_subject: typeof body.user_subject === "string" ? body.user_subject : undefined,
     resource: parseResource(body.resource),
     action,
   });

@@ -52,6 +52,8 @@ jest.mock('@/lib/audit', () => ({
 
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
+const mockValidateBearerJWT = jest.requireMock('@/lib/jwt-validation').validateBearerJWT;
+const mockValidateLocalSkillsJWT = jest.requireMock('@/lib/jwt-validation').validateLocalSkillsJWT;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
 const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkPermission;
 
@@ -59,6 +61,7 @@ beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
   mockAuditWrite.mockClear();
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
+  delete process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS;
 });
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -79,9 +82,15 @@ import {
   requireOwnership,
   requireAdmin,
   requireRbacPermission,
+  clearSessionAuthCacheForTests,
+  getAuthFromBearerOrSession,
   getAuthenticatedUser,
   withAuth,
 } from '../api-middleware';
+
+beforeEach(() => {
+  clearSessionAuthCacheForTests();
+});
 
 describe('ApiError', () => {
   it('creates with message and default status 500', () => {
@@ -404,7 +413,7 @@ describe('requireRbacPermission organization ReBAC', () => {
           accessToken: 'legacy-token-without-sub',
           user: { email: 'legacy-session@example.com' },
         },
-        'supervisor',
+        'chat',
         'invoke'
       )
     ).resolves.toBeUndefined();
@@ -412,7 +421,7 @@ describe('requireRbacPermission organization ReBAC', () => {
     expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
     expect(mockCheckPermission).toHaveBeenCalledWith({
       accessToken: 'legacy-token-without-sub',
-      resource: 'supervisor',
+      resource: 'chat',
       scope: 'invoke',
     });
   });
@@ -898,6 +907,119 @@ describe('getAuthenticatedUser', () => {
 
     expect(result.user.role).toBe('user');
   });
+
+  it('caches valid cookie sessions for repeated API calls', async () => {
+    process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS = '10000';
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1 });
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'alice@test.com', name: 'Alice' },
+      role: 'user',
+      sub: 'alice-sub',
+    });
+    mockGetCollection.mockResolvedValue({ updateOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=alice-session' },
+      }) as unknown as NextRequest;
+
+    const first = await getAuthenticatedUser(makeRequest());
+    const second = await getAuthenticatedUser(makeRequest());
+
+    expect(first.user).toEqual(second.user);
+    expect(mockGetServerSession).toHaveBeenCalledTimes(1);
+    expect(updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache session auth when no cookie header is present', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'nocookie@test.com', name: 'No Cookie' },
+      role: 'user',
+    });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels') as unknown as NextRequest;
+
+    await getAuthenticatedUser(makeRequest());
+    await getAuthenticatedUser(makeRequest());
+
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes session auth after the cache ttl expires', async () => {
+    process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS = '50';
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1000);
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'ttl@test.com', name: 'TTL User' },
+      role: 'user',
+    });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=ttl-session' },
+      }) as unknown as NextRequest;
+
+    await getAuthenticatedUser(makeRequest());
+    nowSpy.mockReturnValue(1049);
+    await getAuthenticatedUser(makeRequest());
+    nowSpy.mockReturnValue(1051);
+    await getAuthenticatedUser(makeRequest());
+
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it('does not cache sessions denied by the Web UI admission gate', async () => {
+    mockGetServerSession
+      .mockResolvedValueOnce({
+        user: { email: 'blocked@test.com', name: 'Blocked User' },
+        role: 'user',
+        isAuthorized: false,
+      })
+      .mockResolvedValueOnce({
+        user: { email: 'blocked@test.com', name: 'Blocked User' },
+        role: 'user',
+        isAuthorized: true,
+      });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=blocked-session' },
+      }) as unknown as NextRequest;
+
+    await expect(getAuthenticatedUser(makeRequest())).rejects.toMatchObject({
+      code: 'WEB_UI_ACCESS_DENIED',
+    });
+
+    const result = await getAuthenticatedUser(makeRequest());
+
+    expect(result.user.email).toBe('blocked@test.com');
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps bearer authentication outside the cookie session cache', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue(null);
+    mockValidateBearerJWT.mockResolvedValue({
+      email: 'service@test.com',
+      name: 'Service Account',
+      sub: 'service-sub',
+      org: 'caipe',
+    });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: {
+          authorization: 'Bearer service-token',
+          cookie: 'next-auth.session-token=browser-session',
+        },
+      }) as unknown as NextRequest;
+
+    await getAuthFromBearerOrSession(makeRequest());
+    await getAuthFromBearerOrSession(makeRequest());
+
+    expect(mockGetServerSession).not.toHaveBeenCalled();
+    expect(mockValidateBearerJWT).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('withAuth', () => {
@@ -960,14 +1082,11 @@ describe('withAuth', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  // Regression: read-only admin endpoints that handle their own resource-level
-  // RBAC must NOT have an `admin_ui#view` blanket gate slapped on by the BFF
-  // — otherwise a non-admin user with the resource-level grant (e.g. a viewer
-  // with `system_config:platform_settings#read`) gets a misleading
-  // `admin_ui#view` 403 long before the route handler runs and the Settings
-  // tab silently falls back to the placeholder ("Default CAIPE Supervisor")
-  // instead of showing the configured value.
-  describe('legacy RBAC policy resolution', () => {
+  // Read-only admin endpoints that handle their own resource-level RBAC must
+  // not also require the broader `admin_ui#view` gate. Otherwise a viewer with
+  // `system_config:platform_settings#read` cannot load the configured platform
+  // defaults even though the route-level permission allows that read.
+  describe('route RBAC policy resolution', () => {
     function viewerSession() {
       mockGetServerSession.mockResolvedValue({
         user: { email: 'viewer@test.com', name: 'Read-Only Viewer' },
@@ -1011,7 +1130,7 @@ describe('withAuth', () => {
       expect(relations).toContain('can_use');
       expect(relations).not.toContain('can_audit'); // admin_ui#view → can_audit
       expect(loggedCapabilities()).toContain('system_config#read');
-      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
+      expect(loggedCapabilities()).not.toContain('admin_ui#view');
     });
 
     it.each([
@@ -1024,7 +1143,6 @@ describe('withAuth', () => {
       ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
-      ['/api/a2a/tasks', 'POST', 'can_chat'],
       ['/api/dynamic-agents/models', 'GET', 'can_chat'],
       ['/api/dynamic-agents/available', 'GET', 'can_chat'],
       ['/api/files/list', 'GET', 'can_use_files'],
@@ -1197,7 +1315,6 @@ describe('withAuth', () => {
       const relations = calls.map((c) => c[0]?.relation);
       expect(relations).toContain(expectedRelation);
       expect(loggedCapabilities()).toContain(expectedCapability);
-      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
     });
   });
 });

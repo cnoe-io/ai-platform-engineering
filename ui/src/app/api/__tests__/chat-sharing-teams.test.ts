@@ -180,7 +180,43 @@ describe('getUserTeamIds', () => {
     const result = await getUserTeamIds(MEMBER_EMAIL);
 
     expect(result).toEqual([TEAM_ID_1.toString(), TEAM_ID_2.toString()]);
-    expect(teamsCol.find).toHaveBeenCalledWith({ 'members.user_id': MEMBER_EMAIL });
+    expect(teamsCol.find).toHaveBeenCalledWith({
+      $or: [{ 'members.user_id': MEMBER_EMAIL }],
+    });
+  });
+
+  it('returns canonical team ids and slugs from team_membership_sources', async () => {
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { team_id: TEAM_ID_1.toString(), team_slug: 'platform' },
+          { team_id: TEAM_ID_2.toString(), team_slug: 'sre' },
+        ]),
+      }),
+    });
+    mockCollections['team_membership_sources'] = sourcesCol;
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const result = await getUserTeamIds(MEMBER_EMAIL);
+
+    expect(result).toEqual([
+      TEAM_ID_1.toString(),
+      'platform',
+      TEAM_ID_2.toString(),
+      'sre',
+    ]);
+    expect(sourcesCol.find).toHaveBeenCalledWith({
+      status: 'active',
+      user_email: MEMBER_EMAIL,
+    });
   });
 
   it('returns empty array when user has no teams', async () => {
@@ -268,6 +304,34 @@ describe('requireConversationAccess — team-based access', () => {
       }),
     });
     mockCollections['teams'] = teamsCol;
+
+    const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
+
+    expect(result).toBeDefined();
+    expect(result.conversation._id).toBe(conv._id);
+    expect(result.access_level).toBe('shared');
+  });
+
+  it('grants access when user belongs to a canonically shared team slug', async () => {
+    const conv = makeConversation({
+      sharing: {
+        shared_with: [],
+        shared_with_teams: ['platform'],
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { team_id: TEAM_ID_1.toString(), team_slug: 'platform' },
+        ]),
+      }),
+    });
+    mockCollections['team_membership_sources'] = sourcesCol;
 
     const result = await requireConversationAccess(conv._id, MEMBER_EMAIL, mockGetCollection);
 
@@ -433,14 +497,7 @@ describe('GET /api/chat/conversations — team sharing', () => {
     GET = mod.GET;
   });
 
-  // Spec 098-enterprise-rbac moved team-share visibility out of the Mongo
-  // query and into a ReBAC post-filter. The route now fetches non-deleted
-  // candidates and lets `filterConversationsByImplicitOrExplicitPermission`
-  // decide visibility, so the legacy `$or` over `sharing.shared_with_*` is
-  // intentionally gone. These tests now assert the new contract: the query
-  // no longer leaks legacy sharing predicates regardless of the caller's
-  // team memberships.
-  it('does NOT include legacy shared_with_teams predicates in the Mongo query', async () => {
+  it('prefilters owned and sharing-configured candidates before ReBAC', async () => {
     mockGetServerSession.mockResolvedValue(userSession(MEMBER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -459,12 +516,18 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const serialized = JSON.stringify(findCall);
-    expect(serialized).not.toContain('shared_with_teams');
-    expect(serialized).not.toContain('shared_with');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      {
+        $or: [
+          { owner_id: MEMBER_EMAIL },
+          { 'sharing.shared_with': MEMBER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      },
+    ]));
   });
 
-  it('does NOT include legacy shared_with predicates when user has no teams', async () => {
+  it('uses the same bounded candidate shape when user has no teams', async () => {
     mockGetServerSession.mockResolvedValue(userSession(NON_MEMBER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -483,7 +546,15 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(JSON.stringify(findCall)).not.toContain('shared_with');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: [
+          { owner_id: NON_MEMBER_EMAIL },
+          { 'sharing.shared_with': NON_MEMBER_EMAIL },
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ],
+      }),
+    ]));
   });
 
   it('does not branch query shape on the number of teams (ReBAC does the filtering)', async () => {
@@ -508,7 +579,13 @@ describe('GET /api/chat/conversations — team sharing', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(JSON.stringify(findCall)).not.toContain('shared_with_teams');
+    expect(findCall.$and).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $or: expect.arrayContaining([
+          { 'sharing.shared_with_teams.0': { $exists: true } },
+        ]),
+      }),
+    ]));
   });
 
   it('still excludes soft-deleted conversations', async () => {
@@ -582,7 +659,7 @@ describe('GET /api/chat/shared — team sharing', () => {
     // Must include a sharing pre-filter ($or over sharing fields)
     expect(findCall.$or).toBeDefined();
     const orStr = JSON.stringify(findCall.$or);
-    expect(orStr).toContain('sharing.is_public');
+    expect(orStr).not.toContain('sharing.is_public');
     expect(orStr).toContain('sharing.shared_with');
     expect(orStr).toContain('sharing.share_link_enabled');
     expect(orStr).toContain('sharing.shared_with_teams');
