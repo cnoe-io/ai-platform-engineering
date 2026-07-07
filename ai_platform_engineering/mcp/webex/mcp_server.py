@@ -16,26 +16,26 @@ WEBEX_API_BASE = "https://webexapis.com/v1"
 
 
 class PostMessage(BaseModel):
-    text: Annotated[str, Field(description="Text message to send")]
+    text: Annotated[
+        str | None, Field(description="Text message to send")
+    ] = None
     to_person_email: Annotated[
         str | None,
-        Field(description="Email of the person to send the message to", default=None),
-    ]
+        Field(description="Email of the person to send the message to"),
+    ] = None
     markdown: Annotated[
-        str | None, Field(description="Markdown message to send", default=None)
-    ]
+        str | None, Field(description="Markdown message to send")
+    ] = None
     room_id: Annotated[
         str | None,
-        Field(description="Room that will receive the message", default=None),
-    ]
+        Field(description="Room that will receive the message"),
+    ] = None
     parent_id: Annotated[
         str | None,
         Field(
-            description="If specified, this message is a reply in a thread ("
-            "parentId)",
-            default=None,
+            description="If specified, this message is a reply in a thread (parentId)"
         ),
-    ]
+    ] = None
 
     class Config:
         description = """Send a message to a Webex room or user.
@@ -44,15 +44,15 @@ class PostMessage(BaseModel):
             At least one of 'text' or 'markdown' must be provided.
         """
 
-    @model_validator(mode="before")
-    def validate_message_content(cls, data):
-        if not (data.get("text") or data.get("markdown")):
+    @model_validator(mode="after")
+    def validate_message_content(self):
+        if not (self.text or self.markdown):
             raise ValueError("Either 'text' or 'markdown' must be provided")
 
-        if not (data.get("room_id") or data.get("to_person_email")):
+        if not (self.room_id or self.to_person_email):
             raise ValueError("Either 'room_id' or 'to_person_email' must be provided")
 
-        return data
+        return self
 
 
 class CreateRoom(BaseModel):
