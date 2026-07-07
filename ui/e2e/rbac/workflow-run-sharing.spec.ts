@@ -267,7 +267,7 @@ test.describe("workflow run sharing", () => {
 
     // Run detail renders for non-owner
     await expect(page.getByText("Use private agent")).toBeVisible();
-    await expect(page.getByText("Completed")).toBeVisible();
+    await expect(page.getByText("Completed", { exact: true })).toBeVisible();
 
     // No Share button for non-owners
     await expect(page.getByRole("button", { name: /^share$/i })).not.toBeVisible();
@@ -338,7 +338,7 @@ test.describe("workflow run sharing", () => {
 
     // Admin sees full run detail
     await expect(page.getByText("Use private agent")).toBeVisible();
-    await expect(page.getByText("Completed")).toBeVisible();
+    await expect(page.getByText("Completed", { exact: true })).toBeVisible();
   });
 
   test("org-admin sees the Share button to optionally broadcast a run", async ({ page }) => {
