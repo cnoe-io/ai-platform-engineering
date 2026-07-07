@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { startIngestRun, IngestInProgressError } from "@/lib/tome/ingest-runner";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       seed: body.seed ?? null,
       webexMeetings: body.webexMeetings,
       seedStablePages: body.seedStablePages,
+    });
+    auditTome({
+      action: "tome.ingest.trigger",
+      actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+      projectSlug: slug,
+      metadata: { run_id: runId, seeded: Boolean(body.seed) },
     });
     return successResponse({ runId });
   } catch (e) {

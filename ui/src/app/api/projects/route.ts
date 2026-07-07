@@ -22,8 +22,10 @@ import { projectMatchesLabels, sanitizeLabels } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import type { CreateProjectRequest, ProjectDocument, ProjectType } from "@/types/projects";
 import type { Team } from "@/types/teams";
+import type { ActiveIngestRun } from "@/types/tome";
 
 async function resolveTeam(teamId: string): Promise<Team & { _id: string }> {
   const teams = await getCollection<Team>("teams");
@@ -113,11 +115,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     });
   }
 
-  // Enrich with Tome wiki metadata (page count + last ingest).
-  // Both aggregations are scoped to the visible project set — no N+1.
+  // Enrich with Tome wiki metadata (page count + last ingest + active runs).
+  // All aggregations are scoped to the visible project set — no N+1.
   const projectIds = results.map((p) => String(p._id));
   const pageCountMap = new Map<string, number>();
   const lastIngestMap = new Map<string, Date | null>();
+  const activeRunsMap = new Map<string, ActiveIngestRun[]>();
 
   if (projectIds.length > 0) {
     try {
@@ -125,7 +128,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         getCollection("tome_page_revisions"),
         getCollection("tome_ingest_runs"),
       ]);
-      const [pageCounts, lastIngests] = await Promise.all([
+      const [pageCounts, lastIngests, activeRuns] = await Promise.all([
         pageRevisions.aggregate([
           { $match: { project_id: { $in: projectIds }, deleted: { $ne: true } } },
           { $sort: { project_id: 1, path: 1, created_at: -1 } },
@@ -136,12 +139,34 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           { $match: { project_id: { $in: projectIds }, status: "succeeded" } },
           { $group: { _id: "$project_id", last_ingested_at: { $max: "$finished_at" } } },
         ]).toArray(),
+        ingestRuns
+          .find({
+            project_id: { $in: projectIds },
+            status: { $in: ["queued", "running"] },
+          })
+          .project({ project_id: 1, status: 1, dispatch: 1, started_at: 1, queued_at: 1 })
+          .toArray(),
       ]);
       for (const row of pageCounts) {
         pageCountMap.set(String(row._id), row.count as number);
       }
       for (const row of lastIngests) {
         lastIngestMap.set(String(row._id), row.last_ingested_at as Date);
+      }
+      const idToProject = new Map(results.map((p) => [String(p._id), p]));
+      for (const run of activeRuns) {
+        const projectId = String(run.project_id);
+        const project = idToProject.get(projectId);
+        const list = activeRunsMap.get(projectId) ?? [];
+        list.push({
+          status: run.status as "queued" | "running",
+          mode: run.dispatch?.endpoint === "/synthesize" ? "bhag_rollup" : "ingest",
+          started_at: run.started_at ?? null,
+          queued_at: run.queued_at ?? null,
+          project_slug: project?.slug ?? "",
+          project_title: project?.title || project?.name || projectId,
+        });
+        activeRunsMap.set(projectId, list);
       }
     } catch {
       // Tome collections not present — enrichment is optional
@@ -156,8 +181,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         _id: id,
         page_count: pageCountMap.get(id) ?? null,
         last_ingested_at: lastIngestMap.get(id) ?? null,
+        active_ingests: activeRunsMap.get(id) ?? [],
       };
     }),
+    active_ingest_count: [...activeRunsMap.values()].reduce((n, list) => n + list.length, 0),
   });
 });
 
@@ -166,7 +193,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB not configured", 503, "MONGODB_NOT_CONFIGURED");
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const body = (await request.json()) as CreateProjectRequest;
 
   if (!body.name?.trim()) {
@@ -253,6 +280,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     team_name: team.name,
     owner_id: user.email ?? "unknown",
     member_ids: memberIds,
+    // Feed data steward: set explicitly at creation so it's never a magic
+    // "blank means owner". BHAGs have no sources, so no steward.
+    ...(isBhag
+      ? {}
+      : { data_steward: body.data_steward?.trim().toLowerCase() || user.email }),
     domain,
     labels: sanitizeLabels(
       { domain, initiatives: body.initiatives, swimlanes: body.swimlanes },
@@ -271,6 +303,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   };
 
   const result = await projects.insertOne(doc as ProjectDocument & { _id?: ObjectId });
+
+  auditTome({
+    action: "tome.project.create",
+    actor: tomeActorFromAuth({ user, session }),
+    projectSlug: slug,
+    metadata: { type: projectType, name: doc.name, team_slug: teamSlug },
+  });
 
   return successResponse(
     { project: { ...doc, _id: String(result.insertedId) } },

@@ -26,6 +26,7 @@ from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.connectors.base import SourceItem
 from tome_agent.agent.mcp_mycelium import build_mycelium_mcp
+from tome_agent.agent.mcp_tome import build_tome_mcp
 
 log = logging.getLogger("tome_agent.agent.loop")
 
@@ -58,37 +59,6 @@ def _normalize_repo_slug(repo: str) -> str | None:
     if len(parts) < 2 or not parts[0] or not parts[1]:
         return None
     return f"{parts[0]}/{parts[1]}"
-
-
-def build_citation_guidance(repos: list[str]) -> str:
-    canonical = [r for r in (_normalize_repo_slug(r) for r in repos) if r]
-    if not canonical:
-        return (
-            "CITATION FORMAT: When you cite a commit, issue, or PR, use a normal "
-            "markdown link like `[commit `a1b2c3d`](URL)` so the renderer makes "
-            "it clickable. If you don't know the canonical URL, leave the "
-            "citation as plain text in brackets — the renderer has a fallback."
-        )
-
-    primary = canonical[0]
-    examples = [
-        f"`[commit `a1b2c3d`](https://github.com/{primary}/commit/a1b2c3d)`",
-        f"`[issue #142](https://github.com/{primary}/issues/142)`",
-        f"`[PR #99](https://github.com/{primary}/pull/99)`",
-        "`[@alice](https://github.com/alice)` for people (or just write `@alice` — the renderer resolves it)",
-    ]
-
-    repo_list = "\n".join(f"  - https://github.com/{r}" for r in canonical)
-    return (
-        "CITATION FORMAT: When you cite something, use a markdown link so the "
-        "renderer makes it clickable.\n\n"
-        f"Project repos:\n{repo_list}\n\n"
-        "Examples (use the repo the item lives in — don't guess across repos):\n"
-        + "\n".join(f"  - {e}" for e in examples)
-        + "\n\nIf you don't know the canonical URL for a citation, leave it as plain "
-        "bracketed text (e.g. `[commit a1b2c3d]`) — there's a renderer-side "
-        "fallback that resolves common patterns."
-    )
 
 
 def make_deny_unsafe_tools_hook():
@@ -388,6 +358,21 @@ def build_agent_options(
         allowed = ["Read", "Glob", "Grep", *WEB_TOOLS]
     else:
         allowed = [*WIKI_TOOLS, *WEB_TOOLS]
+        # Editors get the Bash-free tombstone tool for curating collections
+        # (e.g. pruning glossary entries). It structurally refuses stable /
+        # hidden / founding-template pages, so no unsafe delete path exists.
+        mcp_servers["tome"] = build_tome_mcp(
+            project_id=project_id, project_dir=pdir, author=persist_author
+        )
+        allowed.extend(
+            [
+                "mcp__tome__delete_page",
+                # Cross-project lookups for authoring edges — read-only.
+                "mcp__tome__list_projects",
+                "mcp__tome__list_project_pages",
+                "mcp__tome__read_project_page",
+            ]
+        )
 
     for connector in REGISTRY:
         token = _connector_token(connector.slug)
@@ -397,13 +382,17 @@ def build_agent_options(
         mcp_servers[connector.slug] = connector.build_mcp(token=token, sources=sources)
         allowed.extend(connector.mcp_tools)
 
-    # Talk page: the project's own Mycelium room (read-only), keyed by slug.
-    # Available to both chat and ingest when the hub is configured, so the agent
-    # can fold recent discussion (decisions, open questions) into its answers and
-    # the wiki. No attached "sources" — it's the project's own conversation.
+    # Feed: the project's own Mycelium room, keyed by slug. Reading is
+    # available to both chat and ingest when the hub is configured, so the
+    # agent can fold recent discussion (decisions, open questions) into its
+    # answers and the wiki. No attached "sources" — it's the project's own
+    # conversation. Promoting (a write) is editor-only, same gate as the
+    # other write tools above.
     if os.environ.get("MYCELIUM_URL", "").strip() and snapshot.slug:
         mcp_servers["mycelium"] = build_mycelium_mcp(snapshot.slug)
-        allowed.append("mcp__mycelium__talk_read_messages")
+        allowed.append("mcp__mycelium__feed_read_messages")
+        if agent_role != "viewer":
+            allowed.append("mcp__mycelium__feed_promote")
 
     claude_agent_env = {
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",

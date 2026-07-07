@@ -15,6 +15,7 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getPageStore } from "@/lib/tome/page-store";
 import { PageNotFoundError } from "@/lib/tome/mongo-page-store";
 import { parseFrontmatter } from "@/lib/tome/schema";
@@ -80,6 +81,13 @@ export const PUT = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     author: tctx.user.email ?? "tome",
   });
 
+  auditTome({
+    action: "tome.page.edit",
+    actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+    projectSlug: slug,
+    page: pagePath,
+  });
+
   return successResponse(toResponse(pagePath, body.markdown));
 });
 
@@ -99,6 +107,13 @@ export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) =>
   const store = await getPageStore();
   await store.deletePage(tctx.projectId, pagePath, {
     author: tctx.user.email ?? "tome",
+  });
+
+  auditTome({
+    action: "tome.page.delete",
+    actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+    projectSlug: slug,
+    page: pagePath,
   });
 
   return successResponse({ deleted: true, path: pagePath });

@@ -10,8 +10,10 @@ import {
   Eye,
   EyeOff,
   HelpCircle,
+  Link2,
   MessageSquare,
   MessagesSquare,
+  Newspaper,
   Plus,
   RefreshCw,
   Settings,
@@ -34,18 +36,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ChatPanel } from "@/components/tome/ChatPanel";
-import { TalkPanel } from "@/components/tome/TalkPanel";
+import { FeedPanel } from "@/components/tome/FeedPanel";
 import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
+import { StandupView } from "@/components/tome/StandupView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
+import { EdgeGraphDialog } from "@/components/tome/EdgeGraphDialog";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
@@ -57,12 +61,24 @@ interface PagesResponse {
   pages: Record<string, string>;
 }
 
+/** An edge authored in another project, pointing at this one. */
+interface IncomingEdge {
+  source_project_slug: string;
+  path: string;
+  relation: string;
+  source: string;
+  target: string;
+  confidence: string | null;
+  status: string;
+}
+
 /** Browser-local flag so the first-run walkthrough only auto-opens once. */
 const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 
 type MainView =
   | { kind: "agent" }
-  | { kind: "talk" }
+  | { kind: "standup" }
+  | { kind: "feed" }
   | { kind: "settings" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
@@ -74,15 +90,17 @@ type MainView =
  * view lives in the route (not React state) so every surface is deep-linkable
  * and browser back/forward work. Wiki page paths (which contain `/` and `.md`)
  * are namespaced under `wiki/` / `history/` so they can't collide with the
- * reserved `talk` / `ingest` segments.
+ * reserved `feed` / `ingest` segments.
  */
 function viewToPath(slug: string, view: MainView): string {
   const base = `/projects/${slug}/tome`;
   switch (view.kind) {
     case "agent":
       return base;
-    case "talk":
-      return `${base}/talk`;
+    case "standup":
+      return `${base}/standup`;
+    case "feed":
+      return `${base}/feed`;
     case "settings":
       return `${base}/settings`;
     case "ingest":
@@ -102,8 +120,10 @@ function pathToView(segments: string[]): MainView {
   switch (head) {
     case undefined:
       return { kind: "agent" };
-    case "talk":
-      return { kind: "talk" };
+    case "standup":
+      return { kind: "standup" };
+    case "feed":
+      return { kind: "feed" };
     case "settings":
       return { kind: "settings" };
     case "ingest":
@@ -165,6 +185,10 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [initiatives, setInitiatives] = useState<string[]>([]);
   const [parentBhags, setParentBhags] = useState<{ slug: string; name: string }[]>([]);
   const isBhag = projectType === "bhag";
+  // For a BHAG: its own name (the initiative label children are tagged with) and
+  // the child projects that resolve from it — surfaced as down-links in the nav.
+  const [projectName, setProjectName] = useState("");
+  const [childProjects, setChildProjects] = useState<{ slug: string; title: string }[]>([]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
@@ -232,6 +256,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         const p = body?.data?.project;
         if (!p) return;
         if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
+        setProjectName(p.name ?? p.title ?? "");
         setProjectType(p.type === "bhag" ? "bhag" : "project");
         setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
       })
@@ -263,6 +288,48 @@ export function TomeWiki({ slug }: { slug: string }) {
       cancelled = true;
     };
   }, [slug, isBhag, initiatives]);
+
+  // For a BHAG, resolve the projects tagged to it (those whose initiatives
+  // include this BHAG's name) so the nav can list them as down-links. Mirrors
+  // the /api/projects?initiative= query BhagProjectsPanel uses.
+  useEffect(() => {
+    if (!isBhag || !projectName) {
+      setChildProjects([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?initiative=${encodeURIComponent(projectName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const kids = (body?.data?.projects ?? []) as { slug: string; title?: string; name?: string }[];
+        setChildProjects(
+          kids.map((k) => ({ slug: k.slug, title: k.title || k.name || k.slug })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isBhag, projectName]);
+
+  // Edges authored in OTHER projects that target this one — the
+  // backlink half; outgoing edges are ordinary pages under this project's own
+  // `edges/` dir and already show in the tree above.
+  const [incomingEdges, setIncomingEdges] = useState<IncomingEdge[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tome/projects/${slug}/edges`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        setIncomingEdges((body?.data?.incoming ?? []) as IncomingEdge[]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
 
   // Show the first-run walkthrough once per browser. The Help button reopens it.
   useEffect(() => {
@@ -448,8 +515,10 @@ export function TomeWiki({ slug }: { slug: string }) {
     switch (view.kind) {
       case "agent":
         return [{ label: "Agent" }];
-      case "talk":
-        return [{ label: "Talk" }];
+      case "standup":
+        return [{ label: "Standup" }];
+      case "feed":
+        return [{ label: "Feed" }];
       case "settings":
         return [{ label: "Settings" }];
       case "page": {
@@ -507,7 +576,8 @@ export function TomeWiki({ slug }: { slug: string }) {
 
   const navActive = {
     agent: view.kind === "agent",
-    talk: view.kind === "talk",
+    standup: view.kind === "standup",
+    feed: view.kind === "feed",
     settings: view.kind === "settings",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
@@ -534,7 +604,7 @@ export function TomeWiki({ slug }: { slug: string }) {
             ]}
           />
           {isBhag && (
-            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-500">
               <Target className="h-3 w-3" />
               BHAG
             </span>
@@ -550,7 +620,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   <TooltipTrigger asChild>
                     <Link
                       href={`/projects/${b.slug}/tome`}
-                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-700/50 bg-violet-950/30 px-2 py-0.5 text-[11px] font-medium text-violet-300 transition hover:border-violet-500 hover:bg-violet-900/50"
+                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-500 transition hover:border-violet-500 hover:bg-violet-500/20"
                     >
                       <Target className="h-3 w-3" />
                       {b.name}
@@ -562,7 +632,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               ) : (
                 <Tooltip key={init}>
                   <TooltipTrigger asChild>
-                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-800/30 px-2 py-0.5 text-[11px] font-medium text-violet-300/60">
+                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/25 px-2 py-0.5 text-[11px] font-medium text-violet-500/70">
                       <Target className="h-3 w-3" />
                       {init}
                     </span>
@@ -574,6 +644,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               );
             })}
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -626,11 +697,11 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
-                    label="Talk"
-                    active={navActive.talk}
-                    onClick={() => navigate({ kind: "talk" })}
-                    tipTitle="Talk"
-                    tipDescription="The project's talk page: discussion about the context, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation."
+                    label="Feed"
+                    active={navActive.feed}
+                    onClick={() => navigate({ kind: "feed" })}
+                    tipTitle="Feed"
+                    tipDescription="The project's feed: discussion about the context, plus live activity (source events, ingest runs), powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation and the signal around it."
                   />
                   <NavItem
                     icon={<Settings className="h-4 w-4" />}
@@ -639,6 +710,22 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "settings" })}
                     tipTitle="Settings"
                     tipDescription="Reconfigure this project: its title, description, and sources (GitHub repos, Confluence spaces, Webex rooms). Changes apply to future ingests."
+                  />
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-1 px-2 pb-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Reports
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <NavItem
+                    icon={<Newspaper className="h-4 w-4" />}
+                    label="Standup"
+                    active={navActive.standup}
+                    onClick={() => navigate({ kind: "standup" })}
+                    tipTitle="Standup"
+                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest."
                   />
                 </div>
 
@@ -785,6 +872,64 @@ export function TomeWiki({ slug }: { slug: string }) {
                     />
                   )
                 )}
+
+                {/* BHAG down-links: the projects tagged to this BHAG. Links out
+                    to each project's own wiki — the roll-up reads these same
+                    children; this makes the hierarchy navigable (#92). */}
+                {isBhag && (
+                  <div className="mt-4">
+                    <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Projects
+                    </div>
+                    {childProjects.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-muted-foreground/70">
+                        No projects tagged to this BHAG yet.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        {childProjects.map((child) => (
+                          <Link
+                            key={child.slug}
+                            href={`/projects/${child.slug}/tome`}
+                            className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                          >
+                            <Target className="h-4 w-4 shrink-0 text-violet-500" />
+                            <span className="truncate">{child.title}</span>
+                            <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Incoming edges: relationships authored in OTHER
+                    projects that point at this one. Outgoing edges are
+                    ordinary pages under this project's own `edges/` dir and
+                    already show in the tree above. */}
+                {incomingEdges.length > 0 && (
+                  <div className="mt-4">
+                    <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Referenced by
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      {incomingEdges.map((e) => (
+                        <Link
+                          key={`${e.source_project_slug}:${e.path}`}
+                          href={`/projects/${e.source_project_slug}/tome/wiki/${e.path}`}
+                          title={`${e.source} ${e.relation} ${e.target}`}
+                          className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                        >
+                          <Link2 className="h-4 w-4 shrink-0 text-amber-500" />
+                          <span className="truncate">
+                            {e.source_project_slug}: {e.relation}
+                          </span>
+                          <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </aside>
@@ -822,9 +967,22 @@ export function TomeWiki({ slug }: { slug: string }) {
                   </div>
                 )}
               </>
-            ) : view.kind === "talk" ? (
+            ) : view.kind === "standup" ? (
               <div className="min-w-0 flex-1">
-                <TalkPanel slug={slug} onOpenPage={(path) => navigate({ kind: "page", path })} />
+                <StandupView
+                  markdown={data?.pages["standup.md"]}
+                  onNavigate={(path) => navigate({ kind: "page", path })}
+                  glossaryPreview={glossaryPreview}
+                  onStartIngest={() => navigate({ kind: "ingest" })}
+                />
+              </div>
+            ) : view.kind === "feed" ? (
+              <div className="min-w-0 flex-1">
+                <FeedPanel
+                  slug={slug}
+                  onOpenPage={(path) => navigate({ kind: "page", path })}
+                  onOpenIngestRun={(runId) => navigate({ kind: "ingestRun", runId })}
+                />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">

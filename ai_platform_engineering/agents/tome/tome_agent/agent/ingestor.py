@@ -24,7 +24,6 @@ from tome_agent.agent.connectors.base import format_pages
 from tome_agent.agent.connectors.github import GitHubExtra
 from tome_agent.agent.loop import (
     build_agent_options,
-    build_citation_guidance,
     sources_for_connector,
 )
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
@@ -52,7 +51,8 @@ def _build_system_prompt(
 
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []
-    citation_urls: list[str] = []
+    citation_guidance_blocks: list[str] = []
+    deep_research_blocks: list[str] = []
     steering: list[tuple[str, str]] = []
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
@@ -62,7 +62,12 @@ def _build_system_prompt(
         connector_blocks.append(
             connector.system_prompt_block(sources, extra_data=extra)
         )
-        citation_urls.extend(connector.citation_urls(sources))
+        citation = connector.citation_guidance(sources)
+        if citation:
+            citation_guidance_blocks.append(citation)
+        research = connector.deep_research_guidance(sources)
+        if research:
+            deep_research_blocks.append(research)
 
     steering_block = ""
     if steering:
@@ -102,7 +107,13 @@ def _build_system_prompt(
             "`## section` headers, keep the YAML frontmatter and its declared kind. Begin each "
             "stable page body with a one-line italic note marking it an agent-generated draft for "
             "the team to review and refine — never present it as authoritative. Also write every "
-            "dynamic/report/hidden seed page listed above with its declared kind."
+            "dynamic/report/hidden seed page listed above with its declared kind.\n\n"
+            "GLOSSARY: Actively extract and glossary the project's acronyms and domain terms. "
+            "As you research, harvest recurring terms/acronyms from README, CLAUDE.md, repo docs, "
+            "and source activity. Create one `glossary/<slug>.md` file per term with the structured "
+            "frontmatter (see the Glossary section in INGEST.md). Do NOT glossary common English or "
+            "widely-known tech terms — only project-specific vocabulary that a new teammate wouldn't "
+            "already know. A handful of high-value entries beats an exhaustive dictionary."
         )
     else:
         mode_block = (
@@ -110,12 +121,20 @@ def _build_system_prompt(
             f"({stable_paths}), which are pre-created and human-owned — do NOT "
             "write, edit, or overwrite them. Write every OTHER seed page listed "
             "above (dynamic/report/hidden) with its declared kind in the YAML "
-            "frontmatter."
+            "frontmatter.\n\n"
+            "GLOSSARY: Actively extract and glossary the project's acronyms and domain terms. "
+            "As you research, harvest recurring terms/acronyms from README, CLAUDE.md, repo docs, "
+            "and source activity. Create one `glossary/<slug>.md` file per term with the structured "
+            "frontmatter (see the Glossary section in INGEST.md). Do NOT glossary common English or "
+            "widely-known tech terms — only project-specific vocabulary that a new teammate wouldn't "
+            "already know. A handful of high-value entries beats an exhaustive dictionary."
         )
 
     phase = snapshot.phase or "(unset)"
     cadence = snapshot.cadence or "(unset)"
     connector_sections = "\n\n".join(connector_blocks)
+    citation_section = "\n\n".join(citation_guidance_blocks)
+    deep_research_section = "\n\n".join(deep_research_blocks)
 
     project_block = f"""PROJECT: "{snapshot.name}"
 phase: {phase}    cadence: {cadence}
@@ -129,9 +148,13 @@ PROJECT CHARTER (seed context, may be empty):
 
 {connector_sections}
 
-{mode_block}
+{mode_block}"""
 
-{build_citation_guidance(citation_urls)}"""
+    if citation_section:
+        project_block += f"\n\n{citation_section}"
+
+    if deep_research_section:
+        project_block += f"\n\n{deep_research_section}"
 
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
 

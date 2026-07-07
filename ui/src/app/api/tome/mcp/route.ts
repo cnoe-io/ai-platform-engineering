@@ -576,9 +576,9 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "tome_talk_read",
+    name: "tome_feed_read",
     description:
-      "Read a project's Talk page — the conversation ABOUT the project (Mycelium room messages), as opposed to the wiki which holds the context itself. Returns newest-first messages with sender, type, content, and timestamp, plus `total` for paging. `project_slug` is required; `limit` (default 50) and `offset` (default 0, for older pages) are optional.",
+      "Read a project's Feed — the conversation ABOUT the project plus its live activity (Mycelium room messages), as opposed to the wiki which holds the context itself. Returns newest-first messages with sender, type, content, and timestamp, plus `total` for paging. `project_slug` is required; `limit` (default 50) and `offset` (default 0, for older pages) are optional.",
     inputSchema: schema(
       { project_slug: STR, limit: { type: "integer" }, offset: { type: "integer" } },
       ["project_slug"],
@@ -589,24 +589,53 @@ const TOOLS: ToolDef[] = [
       if (args.limit) p.set("limit", String(args.limit));
       if (args.offset) p.set("offset", String(args.offset));
       const qs = p.toString() ? `?${p}` : "";
-      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/talk${qs}`), "read talk");
+      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/feed${qs}`), "read feed");
       return toolText(
         JSON.stringify({ messages: data?.messages ?? [], total: data?.total ?? 0 }, null, 2),
       );
     },
   },
   {
-    name: "tome_talk_send",
+    name: "tome_feed_send",
     description:
-      "Post a message to a project's Talk page (its Mycelium room). Use for commentary/discussion about the project's context. `project_slug` and `message` are required.",
+      "Post a message to a project's Feed (its Mycelium room). Use for commentary/discussion about the project's context. `project_slug` and `message` are required.",
     inputSchema: schema({ project_slug: STR, message: STR }, ["project_slug", "message"]),
     handler: async (_req, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
-      const r = await fwd("POST", `/api/tome/projects/${slug}/talk`, {
+      const r = await fwd("POST", `/api/tome/projects/${slug}/feed`, {
         message: String(args.message),
       });
-      const data = ensureOk(r, "send talk");
-      return toolText(`Posted to the Talk page (id=${data?.message?.id}).`);
+      const data = ensureOk(r, "send to feed");
+      return toolText(`Posted to the Feed (id=${data?.message?.id}).`);
+    },
+  },
+  {
+    name: "tome_promote_to_feed",
+    description:
+      "Promote a concern, decision, or action from a private 1:1 chat into the project's shared Feed as a highlighted, citable entry — not ordinary chat. Use when something discussed 1:1 needs visibility beyond that conversation (a blocker, a decision, an ask). `project_slug` and `summary` are required; `cited` (tome:// refs backing it) is optional but strongly recommended.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        summary: STR,
+        cited: { type: "array", items: STR },
+      },
+      ["project_slug", "summary"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const cited = Array.isArray(args.cited) ? args.cited.map(String) : [];
+      const r = await fwd("POST", `/api/tome/projects/${slug}/feed`, {
+        message: String(args.summary),
+        kind: "promoted_action",
+        payload: { source_ref: "chat", cited },
+      });
+      const data = ensureOk(r, "promote to feed");
+      const id = data?.message?.id;
+      return toolText(
+        `Promoted to the Feed (id=${id}). Tell the user, and link them to it with ` +
+          `markdown like [view in the Feed](tome://@${args.project_slug}/feed/${id}) — ` +
+          `that link scrolls to and highlights this exact message.`,
+      );
     },
   },
 ];

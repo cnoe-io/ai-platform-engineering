@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
@@ -22,7 +23,7 @@ import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import type { ProjectDocument, ProjectSources } from "@/types/projects";
 
 /**
- * Project settings, surfaced as a Tome view (nav item under Talk) so a project
+ * Project settings, surfaced as a Tome view (nav item under Feed) so a project
  * can be reconfigured without leaving Tome. Edits title, description,
  * organization (team / BHAG / swim lane), and sources, persisting with
  * `PATCH /api/projects/<slug>`. `onSaved` lets the host refresh anything
@@ -61,6 +62,18 @@ export function ProjectSettingsPanel({
     confluence_url: "",
   });
 
+  // Source-activity feed: the data steward (whose GitHub connection the
+  // feed runs as) + the per-project on/off. `stewardEmail` empty = fall back to
+  // the owner.
+  const [feedEnabled, setFeedEnabled] = useState(true);
+  const [stewardEmail, setStewardEmail] = useState("");
+  const [feedStatus, setFeedStatus] = useState<{
+    assigned: boolean;
+    steward: string;
+    owner: string;
+    github_connected: boolean;
+  } | null>(null);
+
   // Organization
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
@@ -98,6 +111,8 @@ export function ProjectSettingsPanel({
         setInitialTeamSlug(project.team_slug ?? "");
         setInitiativesRaw((project.labels?.initiatives ?? []).join(", "));
         setSwimlanesRaw((project.labels?.swimlanes ?? []).join(", "));
+        setFeedEnabled(project.sources_feed_enabled !== false);
+        setStewardEmail(project.data_steward ?? "");
         setError(null);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -149,6 +164,24 @@ export function ProjectSettingsPanel({
     };
   }, []);
 
+  // Feed status (steward's GitHub-connected badge). Refetched after save so the
+  // badge reflects a newly-assigned steward.
+  const loadFeedStatus = useCallback(async () => {
+    if (isBhag) return;
+    try {
+      const res = await fetch(`/api/tome/projects/${encodeURIComponent(slug)}/feed-status`);
+      if (!res.ok) return;
+      const body = await res.json();
+      setFeedStatus(body.data ?? body);
+    } catch {
+      /* status is best-effort */
+    }
+  }, [slug, isBhag]);
+
+  useEffect(() => {
+    void loadFeedStatus();
+  }, [loadFeedStatus]);
+
   const teamChanged = teamSlug !== initialTeamSlug;
   const selectedTeamId = useMemo(
     () => teams.find((t) => t.slug === teamSlug)?._id,
@@ -172,6 +205,9 @@ export function ProjectSettingsPanel({
           repos: (sources.repos ?? []).map((r) => r.trim()).filter(Boolean),
           confluence_url: (sources.confluence_url ?? "").trim(),
         },
+        // Empty steward clears it → the feed falls back to the owner.
+        data_steward: stewardEmail.trim() || null,
+        sources_feed_enabled: feedEnabled,
       };
       // Only send team_id when the team actually changed — avoids the
       // reassignment permission/sync path on an ordinary save.
@@ -191,8 +227,11 @@ export function ProjectSettingsPanel({
       setInitialTeamSlug(project.team_slug ?? "");
       setInitiativesRaw((project.labels?.initiatives ?? []).join(", "));
       setSwimlanesRaw((project.labels?.swimlanes ?? []).join(", "));
+      setStewardEmail(project.data_steward ?? "");
+      setFeedEnabled(project.sources_feed_enabled !== false);
       setSavedAt(true);
       onSaved?.(project);
+      void loadFeedStatus();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -205,9 +244,12 @@ export function ProjectSettingsPanel({
     initiativesRaw,
     swimlanesRaw,
     sources,
+    stewardEmail,
+    feedEnabled,
     teamChanged,
     selectedTeamId,
     onSaved,
+    loadFeedStatus,
   ]);
 
   const deleteProject = useCallback(async () => {
@@ -281,6 +323,46 @@ export function ProjectSettingsPanel({
                 </p>
               )}
             </Field>
+            {!isBhag && (
+              <Field
+                label="Data steward"
+                hint="The person (by email) whose GitHub connection powers this project's source activity feed. Defaults to the owner. This role will do more later. Only the owner or an admin can change it."
+              >
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <UserEmailPicker value={stewardEmail} onChange={setStewardEmail} />
+                  </div>
+                  {feedStatus?.owner && stewardEmail.trim().toLowerCase() !== feedStatus.owner && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setStewardEmail(feedStatus.owner)}
+                    >
+                      Assign owner
+                    </Button>
+                  )}
+                </div>
+                {feedStatus && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                    {!feedStatus.assigned ? (
+                      <span className="inline-flex items-center gap-1 text-amber-500">
+                        <TriangleAlert className="h-3.5 w-3.5" /> no steward assigned
+                      </span>
+                    ) : feedStatus.github_connected ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-500">
+                        <Check className="h-3.5 w-3.5" /> {feedStatus.steward}, GitHub connected
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-amber-500">
+                        <TriangleAlert className="h-3.5 w-3.5" /> {feedStatus.steward}, no GitHub connection, so the feed can&apos;t read sources
+                      </span>
+                    )}
+                  </div>
+                )}
+              </Field>
+            )}
             <Field label="BHAG / Initiatives" hint="Pick existing or type a new one (comma-separated).">
               <LabelComboBox
                 ariaLabel="BHAG / Initiatives"
@@ -336,6 +418,35 @@ export function ProjectSettingsPanel({
               ) : (
                 <SourcesEditor kinds={sourceKinds} value={sources} onChange={setSources} />
               )}
+            </Section>
+          )}
+
+          {/* Source activity feed: a consumer of the data steward's connection
+              (steward is assigned in Organization). Non-BHAG only. */}
+          {!isBhag && (
+            <Section title="Source activity feed">
+              <p className="text-xs text-muted-foreground">
+                Surfaces this project&apos;s live GitHub activity (PRs, issues, releases)
+                in the Feed, read with the{" "}
+                <span className="font-medium">data steward</span>&apos;s connection
+                (set under Organization).
+              </p>
+              <Field label="Enabled">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={feedEnabled}
+                    onChange={(e) => setFeedEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  Show source activity for this project
+                </label>
+              </Field>
+              <p className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-500">
+                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Activity is fetched with the steward&apos;s GitHub visibility and shown to
+                everyone with access to this project.
+              </p>
             </Section>
           )}
 

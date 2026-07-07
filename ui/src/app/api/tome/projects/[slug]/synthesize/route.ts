@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import {
   startIngestRun,
   enqueueBhagCascade,
@@ -58,6 +59,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
         seed: body.seed ?? null,
         seedStablePages: body.seedStablePages,
       });
+      auditTome({
+        action: "tome.synthesize.trigger",
+        actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+        projectSlug: slug,
+        metadata: { run_id: parentRunId, cascade_id: cascadeId, child_count: childCount, refresh_children: true },
+      });
       return successResponse({ runId: parentRunId, cascadeId, childCount });
     }
 
@@ -65,6 +72,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       seed: body.seed ?? null,
       seedStablePages: body.seedStablePages,
       agentEndpoint: "/synthesize",
+    });
+    auditTome({
+      action: "tome.synthesize.trigger",
+      actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
+      projectSlug: slug,
+      metadata: { run_id: runId, seeded: Boolean(body.seed) },
     });
     return successResponse({ runId });
   } catch (e) {

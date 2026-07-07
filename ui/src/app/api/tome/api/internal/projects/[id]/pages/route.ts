@@ -48,3 +48,24 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   });
   return Response.json({ ok: true });
 });
+
+// Tombstone a page (soft delete — appends a deleted revision). The agent's
+// delete_page tool enforces the protected-class guard (stable/hidden/template)
+// before calling; this endpoint is the tombstone op and is agent-token gated.
+// No `locked` check: the agent deletes DURING an ingest, which holds the lock.
+export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
+  requireAgentToken(request);
+  const { id } = await ctx.params;
+  const project = await resolveProject(id);
+
+  const path = request.nextUrl.searchParams.get("path");
+  if (!path) {
+    throw new ApiError("`path` query param is required", 400, "BAD_REQUEST");
+  }
+  const author = request.nextUrl.searchParams.get("author") || "tome-agent";
+  const message = request.nextUrl.searchParams.get("message") || undefined;
+
+  const store = await getPageStore();
+  await store.deletePage(project._id, path, { author, message });
+  return Response.json({ deleted: true, path });
+});

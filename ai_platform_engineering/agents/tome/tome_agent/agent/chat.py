@@ -31,7 +31,6 @@ from tome_agent import prompts
 from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.loop import (
     build_agent_options,
-    build_citation_guidance,
     project_root,
     sources_for_connector,
 )
@@ -67,7 +66,8 @@ def build_system_prompt(
         _, body = report_schema.parse_frontmatter(md)
         return body.strip() or "_(empty)_"
 
-    citation_urls: list[str] = []
+    citation_guidance_blocks: list[str] = []
+    deep_research_blocks: list[str] = []
     tree_lines: list[str] = [
         "- Top-level pages: `charter.md`, `objectives.md`, `roadmap.md` (stable, "
         "human-owned — edit only when the user asks; never rewrite unprompted), "
@@ -76,7 +76,12 @@ def build_system_prompt(
     ]
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
-        citation_urls.extend(connector.citation_urls(sources))
+        citation = connector.citation_guidance(sources)
+        if citation:
+            citation_guidance_blocks.append(citation)
+        research = connector.deep_research_guidance(sources)
+        if research:
+            deep_research_blocks.append(research)
         if sources:
             def _label(s) -> str:
                 # Surface the connector's stable identifier (e.g. Confluence
@@ -97,11 +102,19 @@ def build_system_prompt(
             )
 
     wiki_tree = "\n".join(tree_lines)
+    citation_section = "\n\n".join(citation_guidance_blocks)
+    deep_research_section = "\n\n".join(deep_research_blocks)
 
-    project_block = f"""PROJECT: "{snapshot.name}"
-phase: {snapshot.phase or '(unset)'}    cadence: {snapshot.cadence or '(unset)'}
+    project_header = f"""PROJECT: "{snapshot.name}"
+phase: {snapshot.phase or '(unset)'}    cadence: {snapshot.cadence or '(unset)'}"""
 
-{build_citation_guidance(citation_urls)}
+    if citation_section:
+        project_header += f"\n\n{citation_section}"
+
+    if deep_research_section:
+        project_header += f"\n\n{deep_research_section}"
+
+    project_block = f"""{project_header}
 
 WIKI TREE:
 {wiki_tree}

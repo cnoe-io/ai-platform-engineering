@@ -998,6 +998,8 @@ pre code.hljs {
    Shared icon (a document glyph, tinted via currentColor mask). */
 :root {
   --tome-link-icon: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M14%202H6a2%202%200%200%200-2%202v16a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2V8z'/%3E%3Cpath%20d='M14%202v6h6'/%3E%3C/svg%3E");
+  /* Feed-message link (#91): a chat-bubble glyph, same mask technique. */
+  --tome-feed-link-icon: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M21%2015a2%202%200%200%201-2%202H7l-4%204V5a2%202%200%200%201%202-2h14a2%202%200%200%201%202%202z'/%3E%3C/svg%3E");
 }
 .milkdown-host .milkdown .ProseMirror a.tome-link {
   color: hsl(var(--primary));
@@ -1067,6 +1069,25 @@ pre code.hljs {
   -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.tome-glossary-card-def strong {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.tome-glossary-card-def em {
+  font-style: italic;
+}
+.tome-glossary-card-def code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+}
+.tome-glossary-card-def a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.4);
 }
 
 /* Dangling glossary reference: resolves to nothing (wrong project or missing

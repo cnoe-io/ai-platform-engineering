@@ -82,6 +82,23 @@ def get_active_credentials() -> dict[str, dict[str, str]]:
     return _active_credentials.get()
 
 
+# The chatting user's email, when known. Task-local, same rationale as
+# credentials above. Read by `build_mycelium_mcp` so a `feed_promote` call
+# attributes to the actual person instead of a generic "tome" handle.
+_active_actor_email: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "tome_active_actor_email", default=None
+)
+
+
+def set_active_actor_email(email: str | None) -> None:
+    """Scope this request's Feed-promotion attribution."""
+    _active_actor_email.set(email)
+
+
+def get_active_actor_email() -> str | None:
+    return _active_actor_email.get()
+
+
 def _project_id() -> str:
     # CAIPE project ids are Mongo ObjectId hex / slugs, not UUIDs. Treat as
     # an opaque string used only to build callback URLs.
@@ -144,6 +161,28 @@ async def write_page(
             url,
             headers=_auth_headers(),
             json=payload.model_dump(mode="json"),
+        )
+        resp.raise_for_status()
+
+
+async def delete_page(
+    *,
+    page_path: str,
+    author: str,
+    message: str | None = None,
+    project_id: str | None = None,
+) -> None:
+    """Tombstone a page via the backend (soft delete — appends a deleted
+    revision). Mirrors `write_page`'s routing; the DELETE handler lives on the
+    same internal pages endpoint and takes the target `path` as a query param."""
+    pid = project_id or _project_id()
+    url = f"{_backend_url()}/api/internal/projects/{pid}/pages"
+    params = {"path": page_path, "author": author}
+    if message:
+        params["message"] = message
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.request(
+            "DELETE", url, headers=_auth_headers(), params=params
         )
         resp.raise_for_status()
 

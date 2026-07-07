@@ -2,6 +2,8 @@
 
 import { cn } from "@/lib/utils";
 import {
+  feedMessageRoute,
+  parseFeedHref,
   parseTomeHref,
   wikiRoute,
   type GlossaryPreview,
@@ -42,6 +44,12 @@ const sharedMarkedOptions = {
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
+      // A link to one Feed message (#91's promote-to-feed) — distinct chip,
+      // always explicit `@<project>` so no ambient state is needed to resolve it.
+      const feed = parseFeedHref(href);
+      if (feed) {
+        return `<a href="${href}" data-tome-feed-project="${feed.project}" data-tome-feed-message="${feed.messageId}"${titleAttr} class="md-link tome-feed-link">${text}</a>`;
+      }
       // Internal wiki link (`tome://<path>` or bare `*.md`) → tag for click
       // routing instead of a (broken) browser navigation.
       const internal = parseTomeHref(href);
@@ -207,6 +215,18 @@ function handleCopyClick(e: MouseEvent) {
 // Parse markdown to sanitized HTML
 // ═══════════════════════════════════════════════════════════════
 
+/** Lightweight inline-only markdown — bold, italics, inline code, links.
+ * No block elements (headings, lists, tables); for compact surfaces like the
+ * glossary hovercard where a full block render would be overkill. */
+export function renderInlineMarkdown(text: string): string {
+  try {
+    const raw = mdFast.parseInline(text) as string;
+    return sanitize(raw);
+  } catch {
+    return sanitize(escapeHtml(text));
+  }
+}
+
 async function parseMarkdown(content: string, streaming: boolean): Promise<string> {
   const src = streaming ? remend(content, { linkMode: "text-only" }) : content;
   try {
@@ -359,6 +379,15 @@ export function MarkdownRenderer({
       const handleInternalLinkClick = (e: MouseEvent) => {
         const target = e.target;
         if (!(target instanceof Element)) return;
+        const feedAnchor = target.closest("a.tome-feed-link");
+        if (feedAnchor instanceof HTMLAnchorElement) {
+          const feed = parseFeedHref(feedAnchor.getAttribute("href") || "");
+          if (feed) {
+            e.preventDefault();
+            window.location.assign(feedMessageRoute(feed.project, feed.messageId));
+          }
+          return;
+        }
         const anchor = target.closest("a.tome-link, a.tome-glossary-link");
         if (!(anchor instanceof HTMLAnchorElement)) return;
         const internal = parseTomeHref(anchor.getAttribute("href") || "");
@@ -400,7 +429,8 @@ export function MarkdownRenderer({
           head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
           const def = document.createElement("div");
           def.className = "tome-glossary-card-def";
-          def.textContent = p.definition || "No definition yet.";
+          if (p.definition) def.innerHTML = renderInlineMarkdown(p.definition);
+          else def.textContent = "No definition yet.";
           c.append(head, def);
         });
       const renderUnresolved = (anchor: HTMLAnchorElement) =>

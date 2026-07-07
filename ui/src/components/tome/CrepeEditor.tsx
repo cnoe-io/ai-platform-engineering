@@ -10,6 +10,7 @@ import { replaceAll } from "@milkdown/utils";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import { classifyCitationHref } from "@/lib/tome/citations";
+import { renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRenderer";
 import {
   parseTomeHref,
   wikiRoute,
@@ -216,7 +217,8 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
         head.textContent = p.expansion ? `${p.term}: ${p.expansion}` : p.term;
         const def = document.createElement("div");
         def.className = "tome-glossary-card-def";
-        def.textContent = p.definition || "No definition yet.";
+        if (p.definition) def.innerHTML = renderInlineMarkdown(p.definition);
+        else def.textContent = "No definition yet.";
         c.append(head, def);
       });
     const showUnresolved = (anchor: HTMLAnchorElement) =>

@@ -80,12 +80,16 @@ information, and a stable wiki is a feature, not a failure.
   rooms. Also meeting tools: `webex_meetings_list_meetings()`, transcripts, summaries.
 - Confluence (`mcp__confluence__*`): `confluence_get_pages(space_key)` (newest
   edited first), then `confluence_get_page_content(page_id)` for bodies.
-- Talk page (`mcp__mycelium__talk_read_messages`, when available): the
-  conversation *about* this project — decisions, open questions, what people and
-  agents are saying. Read it to inform the wiki: fold relevant decisions and
-  themes into the right pages. It is discussion, not a source of record — weave
-  it in, don't transcribe it, and let the GitHub/Confluence/Webex evidence win
-  on facts.
+- Feed (`mcp__mycelium__feed_read_messages`, when available): the
+  conversation *about* this project, plus its live activity — decisions, open
+  questions, what people and agents are saying. Read it to inform the wiki:
+  fold relevant decisions and themes into the right pages. It is discussion,
+  not a source of record — weave it in, don't transcribe it, and let the
+  GitHub/Confluence/Webex evidence win on facts.
+- Other Projects (`mcp__tome__list_projects`, `list_project_pages`,
+  `read_project_page`): your Read/Glob tools only see this project's own
+  working copy. Use these three read-only tools to look outside it — required
+  before authoring an Edge (below) that names another project.
 
 **If a connector returns 401/403 / auth errors (or a GitHub rate limit)** that
 source isn't connected (GitHub is read *unauthenticated* unless connected — so
@@ -204,6 +208,90 @@ exhaustive dictionary.
 **Migration:** if you find a legacy single `glossary.md` (top-level or under any
 `repos/<slug>/`), split each term it defines into its own `glossary/<slug>.md`
 file with the frontmatter above, then delete the old `glossary.md`. Do this once.
+
+### Glossary extraction during greenfield — active harvesting
+
+On **greenfield ingest**, the glossary is a first-class deliverable, not an
+afterthought. As you research sources (README, CLAUDE.md, code, repos, rooms,
+spaces), actively harvest the project's acronyms and domain terms:
+
+- Recurring three-letter acronyms (e.g., TTT, CFN, MCP) — what do they mean in
+  *this* project's context? (Avoid hallucination: don't guess; find the expansion
+  in a README or commit message.)
+- Specialized tools or patterns the team uses (e.g., "mycelium," "connectors").
+- Proper nouns or brand names specific to the project (e.g., "Outshift," "CAIPE").
+- Domain terms the team leans on (e.g., "provenance," "synthesis").
+
+**Create a glossary entry for each term the moment you encounter it.** Don't
+defer and hope to batch later — harvesting happens during research, not as a
+separate pass. One entry per term, with the structured frontmatter above. Fill in
+whatever you know (term, expansion if it's an acronym, aliases if the team uses
+multiple spellings), and leave optional fields blank if you don't know them yet.
+
+**What NOT to glossary:** common English, widely-known tech terms (REST, JSON,
+API, microservices), or jargon that's industry-standard. Only glossary what a
+smart new hire *to this specific project* would need to learn.
+
+The goal is **high-value vocabulary coverage, not completeness** — a crisp 5-10
+term glossary beats a sprawling 50-term dictionary with padding.
+
+## Edges — typed, evidenced cross-project relationships
+
+An edge is a durable record that one thing **blocks / depends-on / supersedes /
+duplicates / contradicts / relates-to** another — usually across two different
+Projects. Like the glossary, it's a **project-level collection**: one file per
+edge at `edges/<slug>.md` (e.g. `edges/x-pivot-blocks-y-q3.md`), never a
+freeform note buried in `conversations.md`.
+
+An edge is authored into the **source** project (the one where the causing
+change lives), even when it's the target project that most needs to know.
+Don't wait to be asked — if the target should see it, that's the backlink
+index's job, not a reason to skip creating the edge.
+
+```
+---
+type: edge
+title: <short label, e.g. "atlas pivot blocks nimbus Q3">
+kind: dynamic
+relation: blocks
+source: tome://roadmap.md#q3-pivot
+target: tome://@nimbus/roadmap/q3-milestone.md
+confidence: high
+evidence: [tome://conversations.md#pr-4821, tome://@nimbus/issues#142]
+status: active
+---
+
+One or two sentences: what changed on the source side, and what it does to
+the target. Cite the evidence inline where it clarifies.
+```
+
+Field rules:
+- `type: edge`, `relation`, `source`, `target` (required) — a half-filled edge
+  is still valid; fill `confidence`/`evidence`/`status` when you know them.
+- `relation` — one of `blocks | depends-on | supersedes | duplicates |
+  contradicts | relates-to`.
+- `source`/`target`/`evidence` are `tome://` refs. `target` (and any
+  cross-project evidence) needs the explicit `@<project-slug>` form. **Never
+  guess a slug or a target path.** Your filesystem tools (Read/Glob) only see
+  this project's own working copy, so use the three cross-project MCP tools
+  before authoring: `list_projects` to get the exact slug, `list_project_pages`
+  to see what the other project actually has, and `read_project_page` to
+  confirm the specific target/evidence page exists and read what it says. If
+  you can't confirm a target this way, don't author the edge yet — note the
+  suspected relationship in `memory.md` instead and revisit next ingest.
+- `confidence` — `high | medium | low`, reflecting how solid the evidence is.
+- `status` — `active` (still true) → `resolved` (the block/conflict went away)
+  → `stale` (evidence is old, hasn't been re-checked). You maintain this on
+  re-ingest: if you revisit an edge you created and its target has since moved
+  on, transition or retire it rather than leaving a stale claim standing.
+
+**When to create one:** only when research surfaces a *concrete*,
+evidence-backed relationship to another named project — a Feed mention,
+a linked issue, a dependency called out in a README — AND you've confirmed the
+target side with `list_project_pages`/`read_project_page`. Don't manufacture
+edges from speculation, and don't create one just because two projects share a
+vague theme (`relates-to` is a last resort, not a default). A handful of real
+edges beats a dense web of weak ones.
 
 ## Frontmatter format
 

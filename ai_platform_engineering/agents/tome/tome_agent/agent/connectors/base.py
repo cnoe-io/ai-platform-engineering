@@ -100,10 +100,25 @@ class Connector(ABC, Generic[ExtraT]):
         return None
 
     def citation_urls(self, sources: list[SourceItem]) -> list[str]:
-        """URLs for `build_citation_guidance` to render markdown link
-        templates. The GitHub connector returns repo URLs; other
-        connectors return []."""
+        """Extract URLs from sources. Used internally by connectors to
+        build citation guidance. Connectors may override this to provide
+        URLs for their specific source type."""
         return []
+
+    def citation_guidance(self, sources: list[SourceItem]) -> str:
+        """Connector-specific guidance for how to cite sources of this
+        type in the agent's output. Returns empty string if no sources
+        or no citation convention for this connector. Each connector
+        teaches the agent its own citation format (GitHub: commit/issue/PR
+        links; Webex: message permalinks; Confluence: page URLs; etc.)."""
+        return ""
+
+    def deep_research_guidance(self, sources: list[SourceItem]) -> str:
+        """Connector-specific guidance on how to investigate deeply:
+        when to use breadth-scan tools (list) vs depth tools (get), and
+        how they compose for synthesis. Returns empty string if no sources
+        or no investigation strategy for this connector."""
+        return ""
 
     def parse_extra(self, raw: Any) -> ExtraT | None:
         """Parse the raw connector_data slot for this connector into its

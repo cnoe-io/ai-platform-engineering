@@ -579,16 +579,16 @@ services:
       TTT_AGENT_ROLE: editor
       TTT_BACKEND_URL: ${TOME_AGENT_BACKEND_URL:-http://host.docker.internal:33000/api/tome}
       TTT_PROJECT_ROOT: /project
-      # Lets the agent read a project's Talk page (Mycelium room) during chat/ingest.
+      # Lets the agent read/promote-to a project's Feed (Mycelium room) during chat/ingest.
       MYCELIUM_URL: ${TOME_AGENT_MYCELIUM_URL:-http://mycelium-backend:8000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  # ── Mycelium hub (Talk page) — backend + DB only; no IoC/CFN/frontend ──
+  # ── Mycelium hub (Feed) — backend + DB only; no IoC/CFN/frontend ──
   # Backend published on :9510 (MYCELIUM_URL); the DB stays internal.
   mycelium-db:
-    image: ghcr.io/mycelium-io/mycelium-db:latest
+    image: ghcr.io/mycelium-io/mycelium-db:${MYCELIUM_IMAGE_TAG:-1.1.4rc1}
     platform: linux/amd64
     container_name: mycelium-db-tome
     command: postgres -c max_locks_per_transaction=256
@@ -606,7 +606,7 @@ services:
     restart: unless-stopped
 
   mycelium-backend:
-    image: ghcr.io/mycelium-io/mycelium-backend:latest
+    image: ghcr.io/mycelium-io/mycelium-backend:${MYCELIUM_IMAGE_TAG:-1.1.4rc1}
     platform: linux/amd64
     container_name: mycelium-backend-tome
     ports:

@@ -24,7 +24,7 @@ import httpx
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 API = "https://webexapis.com/v1"
-DEFAULT_MAX = 10
+DEFAULT_MAX = 50
 
 
 def _ok(payload: Any) -> dict[str, Any]:
