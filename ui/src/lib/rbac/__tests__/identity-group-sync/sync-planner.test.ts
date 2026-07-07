@@ -1,4 +1,8 @@
-import type { ExternalGroup, IdentityGroupSyncRule } from "@/types/identity-group-sync";
+import type {
+  ExternalGroup,
+  IdentityGroupSyncRule,
+  TeamMembershipSource,
+} from "@/types/identity-group-sync";
 
 import { planIdentityGroupSync } from "../../identity-group-sync-planner";
 
@@ -63,6 +67,7 @@ describe("identity group sync dry-run planner", () => {
         team_slug: "platform",
         user_subject: "bob-sub",
         user_email: "bob@example.test",
+        display_name: "Bob User",
         relationship: "member",
         source_type: "oidc_claim",
         managed: true,
@@ -79,6 +84,61 @@ describe("identity group sync dry-run planner", () => {
     expect(result.tuple_writes).toEqual([
       { user: "user:bob-sub", relation: "member", object: "team:platform" },
     ]);
+  });
+
+  it("queues a team rename when the stored team name differs from the IdP group name", () => {
+    const result = planIdentityGroupSync({
+      groups: [group],
+      rules: [rule],
+      existingTeams: [{ id: "platform-id", slug: "platform", name: "Old Platform Name" }],
+      existingMembershipSources: [],
+      now: "2026-05-12T01:00:00.000Z",
+      actor: "admin@example.test",
+    });
+
+    expect(result.teams_to_update).toEqual([
+      { slug: "platform", name: "Platform", source_group_id: "gid-caipe-users" },
+    ]);
+    expect(result.teams_to_create).toEqual([]);
+  });
+
+  it("stamps last_seen_at on membership_sources_to_refresh for unchanged active memberships", () => {
+    const existingSource: TeamMembershipSource = {
+      team_id: "platform-id",
+      team_slug: "platform",
+      user_subject: "bob-sub",
+      user_email: "bob@example.test",
+      display_name: "Bob User",
+      relationship: "member",
+      source_type: "oidc_claim",
+      provider_id: "oidc-claims",
+      external_group_id: "gid-caipe-users",
+      sync_rule_id: "rule-platform",
+      managed: true,
+      status: "active",
+      first_seen_at: "2026-04-01T00:00:00.000Z",
+      last_seen_at: "2026-04-01T00:00:00.000Z",
+      created_by: "admin@example.test",
+      created_at: "2026-04-01T00:00:00.000Z",
+    };
+
+    const result = planIdentityGroupSync({
+      groups: [group],
+      rules: [rule],
+      existingTeams: [{ id: "platform-id", slug: "platform", name: "Platform" }],
+      existingMembershipSources: [existingSource],
+      now: "2026-05-12T01:00:00.000Z",
+      actor: "admin@example.test",
+    });
+
+    expect(result.membership_sources_to_refresh).toEqual([
+      expect.objectContaining({
+        team_slug: "platform",
+        user_subject: "bob-sub",
+        last_seen_at: "2026-05-12T01:00:00.000Z",
+      }),
+    ]);
+    expect(result.membership_sources_to_add).toEqual([]);
   });
 
   it("surfaces safety warnings for disruptive managed membership removals", () => {

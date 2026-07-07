@@ -1236,6 +1236,74 @@ describe('Admin Dashboard Page', () => {
       expect(teamRequests[1][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[1][1]).toMatchObject({ cache: 'no-store' });
     });
+
+    it('does not request archived teams or show the Archived badge by default', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+      expect(screen.queryByText('Archived')).not.toBeInTheDocument();
+
+      const teamRequests = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/api/admin/teams')
+      );
+      expect(teamRequests.length).toBeGreaterThan(0);
+      teamRequests.forEach(([url]) => {
+        expect(String(url)).not.toContain('include_archived=true');
+      });
+    });
+
+    it('requests archived teams when "Show archived" is checked', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(/show archived/i));
+
+      await waitFor(() => {
+        const teamRequests = fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes('/api/admin/teams')
+        );
+        expect(
+          teamRequests.some(([url]) => String(url).includes('include_archived=true'))
+        ).toBe(true);
+      });
+    });
+
+    it('renders the Archived badge for teams with status "archived"', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: (url: string) => {
+          const includeArchived = new URL(url, 'http://localhost').searchParams.get('include_archived') === 'true';
+          const teams = includeArchived
+            ? [
+                {
+                  _id: 'team-archived',
+                  name: 'Retired Team',
+                  owner_id: 'admin@example.com',
+                  created_at: new Date().toISOString(),
+                  member_count: 1,
+                  members: [],
+                  status: 'archived',
+                },
+              ]
+            : [];
+          return { success: true, data: { teams, total: teams.length, page: 1, page_size: 12 } };
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(screen.getByLabelText(/show archived/i));
+
+      expect(await screen.findByText('Retired Team')).toBeInTheDocument();
+      expect(screen.getByText('Archived')).toBeInTheDocument();
+    });
   });
 
   describe('Stats rendering', () => {

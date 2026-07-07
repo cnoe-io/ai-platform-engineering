@@ -214,4 +214,22 @@ describe("GET /api/admin/teams pagination", () => {
     expect(body.data.page).toBeUndefined();
     expect(body.data.has_more).toBeUndefined();
   });
+
+  it("filters out archived teams by default", async () => {
+    const { calls } = seedTeamsCollection([], 0);
+
+    await callGet("/api/admin/teams");
+
+    const and = (calls.query as { $and?: Array<Record<string, unknown>> })?.$and;
+    expect(and).toContainEqual({ status: { $ne: "archived" } });
+  });
+
+  it("includes archived teams when include_archived=true", async () => {
+    const { calls } = seedTeamsCollection([], 0);
+
+    await callGet("/api/admin/teams?include_archived=true");
+
+    const and = (calls.query as { $and?: Array<Record<string, unknown>> })?.$and;
+    expect(and ?? []).not.toContainEqual({ status: { $ne: "archived" } });
+  });
 });
