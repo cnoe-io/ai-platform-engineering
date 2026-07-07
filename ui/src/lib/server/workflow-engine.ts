@@ -87,10 +87,14 @@ export interface WorkflowRunTriggerInfo {
   context?: Record<string, unknown>;
 }
 
+export type WorkflowRunVisibility = "private" | "workspace" | "admin";
+
 export interface WorkflowRunDocument {
   _id: string;
   workflow_config_id: string;
   owner_subject?: Subject | null;
+  /** Who can view this run besides the owner. Defaults to "private". */
+  shared_with?: WorkflowRunVisibility | null;
   status: WorkflowRunStatus;
   steps: WorkflowStepRun[];
   current_step_index: number;
