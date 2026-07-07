@@ -40,11 +40,11 @@ describe("AguiAdapter", () => {
         controller.enqueue(
           new TextEncoder().encode(
             sseFrame("RUN_STARTED", { runId: "r1" }) +
-            sseFrame("TEXT_MESSAGE_START", { messageId: "m1", role: "assistant" }) +
-            sseFrame("TEXT_MESSAGE_CONTENT", { messageId: "m1", delta: "Hello " }) +
-            sseFrame("TEXT_MESSAGE_CONTENT", { messageId: "m1", delta: "world!" }) +
-            sseFrame("TEXT_MESSAGE_END", { messageId: "m1" }) +
-            sseFrame("RUN_FINISHED", { runId: "r1", outcome: "success" }),
+              sseFrame("TEXT_MESSAGE_START", { messageId: "m1", role: "assistant" }) +
+              sseFrame("TEXT_MESSAGE_CONTENT", { messageId: "m1", delta: "Hello " }) +
+              sseFrame("TEXT_MESSAGE_CONTENT", { messageId: "m1", delta: "world!" }) +
+              sseFrame("TEXT_MESSAGE_END", { messageId: "m1" }) +
+              sseFrame("RUN_FINISHED", { runId: "r1", outcome: "success" }),
           ),
         );
         controller.close();
@@ -104,9 +104,9 @@ describe("AguiAdapter", () => {
         controller.enqueue(
           new TextEncoder().encode(
             sseFrame("RUN_STARTED", { runId: "r1" }) +
-            sseFrame("TOOL_CALL_START", { toolCallId: "tc1", toolCallName: "search_github" }) +
-            sseFrame("TOOL_CALL_END", { toolCallId: "tc1" }) +
-            sseFrame("RUN_FINISHED", { runId: "r1", outcome: "success" }),
+              sseFrame("TOOL_CALL_START", { toolCallId: "tc1", toolCallName: "search_github" }) +
+              sseFrame("TOOL_CALL_END", { toolCallId: "tc1" }) +
+              sseFrame("RUN_FINISHED", { runId: "r1", outcome: "success" }),
           ),
         );
         controller.close();
@@ -141,7 +141,7 @@ describe("AguiAdapter", () => {
         controller.enqueue(
           new TextEncoder().encode(
             sseFrame("RUN_STARTED", { runId: "r1" }) +
-            sseFrame("RUN_ERROR", { message: "Agent execution failed" }),
+              sseFrame("RUN_ERROR", { message: "Agent execution failed" }),
           ),
         );
         controller.close();
@@ -181,7 +181,9 @@ describe("AguiAdapter", () => {
     try {
       const customPayload: SendPayload = { ...PAYLOAD, agentName: "my-agent" };
       const adapter = new AguiAdapter(DEFAULT_AGENT, SERVER_URL, getToken);
-      for await (const _ of adapter.connect(customPayload)) { /* drain */ }
+      for await (const _ of adapter.connect(customPayload)) {
+        /* drain */
+      }
 
       const body = JSON.parse(capturedBody) as Record<string, unknown>;
       expect(body.agent_id).toBe("my-agent");
@@ -214,8 +216,8 @@ describe("token accumulation", () => {
         controller.enqueue(
           new TextEncoder().encode(
             sseFrame("RUN_STARTED", { runId: "r1" }) +
-            frames +
-            sseFrame("RUN_FINISHED", { runId: "r1", outcome: "success" }),
+              frames +
+              sseFrame("RUN_FINISHED", { runId: "r1", outcome: "success" }),
           ),
         );
         controller.close();
@@ -236,7 +238,9 @@ describe("token accumulation", () => {
         collected.push(ev);
       }
 
-      const tokens = collected.filter((e) => e.type === "token").map((e) => (e as { text: string }).text);
+      const tokens = collected
+        .filter((e) => e.type === "token")
+        .map((e) => (e as { text: string }).text);
       expect(tokens.join("")).toBe("Hello, world!");
     } finally {
       global.fetch = originalFetch;

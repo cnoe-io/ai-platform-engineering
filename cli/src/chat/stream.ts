@@ -15,7 +15,14 @@ import type { Agent } from "../agents/types.js";
 // Common event types
 // ---------------------------------------------------------------------------
 
-export type StreamEventType = "token" | "started" | "done" | "error" | "interrupted" | "tool" | "state";
+export type StreamEventType =
+  | "token"
+  | "started"
+  | "done"
+  | "error"
+  | "interrupted"
+  | "tool"
+  | "state";
 
 export interface TokenEvent {
   type: "token";
@@ -109,7 +116,11 @@ export class AguiAdapter implements StreamAdapter {
    * Ensure the conversation exists in the BFF before streaming.
    * Returns the server-assigned conversation _id to use in subsequent stream calls.
    */
-  private async ensureConversation(sessionId: string, agentId: string, token: string): Promise<string> {
+  private async ensureConversation(
+    sessionId: string,
+    agentId: string,
+    token: string,
+  ): Promise<string> {
     const cached = this.conversationIds.get(sessionId);
     if (cached) return cached;
 
@@ -135,13 +146,15 @@ export class AguiAdapter implements StreamAdapter {
         const text = await res.text().catch(() => "");
         throw new Error(`Failed to create conversation (${res.status}): ${text}`);
       }
-      const json = await res.json() as { data?: { conversation?: { _id?: string } } };
+      const json = (await res.json()) as { data?: { conversation?: { _id?: string } } };
       const serverId = json?.data?.conversation?._id;
       if (!serverId) throw new Error("Server did not return conversation _id");
       this.conversationIds.set(sessionId, serverId);
       return serverId;
     } catch (err) {
-      throw new Error(`Conversation setup failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `Conversation setup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -246,10 +259,7 @@ export class AguiAdapter implements StreamAdapter {
     yield { type: "done", response: fullText };
   }
 
-  private mapEvent(
-    eventType: string,
-    parsed: Record<string, unknown>,
-  ): StreamEvent | null {
+  private mapEvent(eventType: string, parsed: Record<string, unknown>): StreamEvent | null {
     switch (eventType) {
       case "RUN_STARTED":
         return { type: "started", taskId: (parsed.runId as string | undefined) ?? undefined };

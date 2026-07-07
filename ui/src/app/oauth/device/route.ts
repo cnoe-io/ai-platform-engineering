@@ -15,9 +15,12 @@ export async function POST(req: NextRequest) {
   if (!issuer) {
     return NextResponse.json({ error: "OIDC_ISSUER not configured" }, { status: 503 });
   }
+  // Use OIDC_DISCOVERY_URL for Docker-internal hostname resolution.
+  // Mirrors the pattern in lib/auth-config.ts:336.
+  const serverIssuer = (process.env.OIDC_DISCOVERY_URL ?? issuer).replace(/\/$/, "");
 
   const body = await req.text();
-  const upstream = `${issuer}/protocol/openid-connect/auth/device`;
+  const upstream = `${serverIssuer}/protocol/openid-connect/auth/device`;
 
   const res = await fetch(upstream, {
     method: "POST",

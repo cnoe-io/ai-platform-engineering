@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write  # cosign keyless OIDC signing
 
 jobs:
   build:
@@ -75,9 +74,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            cli/dist/${{ matrix.artifact }}
-            cli/dist/caipe-checksums.txt
+          path: cli/dist/${{ matrix.artifact }}
+
+      - name: Upload checksums artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums-${{ matrix.artifact }}
+          path: cli/dist/caipe-checksums.txt
 
   release:
     name: Create GitHub Release
@@ -90,14 +93,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4.1.3
         with:
+          pattern: "caipe-*"
           path: dist/
+          merge-multiple: false
+
+      - name: Download checksums
+        uses: actions/download-artifact@v4.1.3
+        with:
+          pattern: "checksums-*"
+          path: dist-checksums/
+          merge-multiple: true
 
       - name: Merge checksums
         run: |
-          cat dist/*/caipe-checksums.txt > caipe-checksums.txt
+          cat dist-checksums/caipe-checksums.txt > caipe-checksums.txt 2>/dev/null || \
+          cat dist-checksums/*.txt > caipe-checksums.txt
 
       - name: Extract version from tag
         id: version
@@ -148,6 +161,7 @@ jobs:
             dist/caipe-linux-arm64/caipe-linux-arm64
             dist/caipe-linux-x64/caipe-linux-x64
             caipe-checksums.txt
+          fail_on_unmatched_files: true
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
 
@@ -162,10 +176,12 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da  # v3.7.0
 
-      - name: Download all artifacts
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4.1.3
         with:
+          pattern: "caipe-*"
           path: dist/
+          merge-multiple: false
 
       - name: Sign each binary
         env:
@@ -208,10 +224,12 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#caipe/}" >> $GITHUB_OUTPUT
 
-      - name: Download all artifacts
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4.1.3
         with:
+          pattern: "caipe-*"
           path: binaries/
+          merge-multiple: false
 
       - name: Prepare platform packages
         run: |

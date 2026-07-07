@@ -59,10 +59,10 @@ jobs:
       - name: Cold-start check (<1s)
         working-directory: cli
         run: |
-          start=$(date +%s%N)
+          ms() { python3 -c "import time; print(int(time.time()*1000))"; }
+          start=$(ms)
           node dist/index.js --version
-          end=$(date +%s%N)
-          elapsed=$(( (end - start) / 1000000 ))
+          elapsed=$(( $(ms) - start ))
           echo "Cold-start: ${elapsed}ms"
           if [ "$elapsed" -gt 1000 ]; then
             echo "FAIL: cold-start exceeded 1000ms (${elapsed}ms)"

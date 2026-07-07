@@ -19,8 +19,8 @@ import {
   getServerUrl,
 } from "../platform/config.js";
 import { printLogo } from "../platform/display.js";
-import { checkForUpdate, printUpdateBanner } from "../platform/updater.js";
 import { runSetupWizard } from "../platform/setup.js";
+import { checkForUpdate, printUpdateBanner } from "../platform/updater.js";
 import { Repl } from "./Repl.js";
 import { buildSystemContext } from "./context.js";
 import { createSession, saveSession } from "./history.js";

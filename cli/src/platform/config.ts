@@ -261,4 +261,3 @@ export function authEndpoints(authUrl: string) {
     skills: `${authUrl}/api/skills`,
   };
 }
-

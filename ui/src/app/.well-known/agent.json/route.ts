@@ -39,7 +39,9 @@ export async function GET(_req: NextRequest) {
 
   return NextResponse.json(body, {
     headers: {
-      "Cache-Control": "public, max-age=3600",
+      // private: deployment-specific values (client_id, issuer URLs) must not
+      // be cached by CDNs or shared caches — only the requesting CLI may cache.
+      "Cache-Control": "private, max-age=300",
     },
   });
 }
