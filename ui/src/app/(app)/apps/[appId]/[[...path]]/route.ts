@@ -107,13 +107,7 @@ async function proxyAgenticAppRequest(
     request instanceof NextRequest ? request : new NextRequest(request.url, { headers: request.headers });
 
   let user: { email: string; name: string; role: string };
-  let session: {
-    role?: string;
-    canViewAdmin?: boolean;
-    groups?: string[];
-    sub?: string;
-    idToken?: string;
-  };
+  let session: unknown;
   try {
     // Execution gateway never uses anonymous/no-SSO fallback — real session required.
     const auth = await getAuthenticatedUser(nextRequest, { allowAnonymous: false });
@@ -165,7 +159,7 @@ async function proxyAgenticAppRequest(
     return Response.json({ error }, { status });
   }
 
-  const subjectId = deriveUserId({ session, email: user.email });
+  const subjectId = deriveUserId({ session: session as Record<string, unknown>, email: user.email });
   const action = `proxy:${request.method.toUpperCase()}`;
   const pdpDecision = decideAgenticAppPdp({
     action,
@@ -255,7 +249,7 @@ async function proxyAgenticAppRequest(
         decisionId: pdpDecision.decisionId,
         correlationId,
         userId: subjectId,
-        roles: deriveRoles({ session, role: user.role }),
+        roles: deriveRoles({ session: session as Record<string, unknown>, role: user.role }),
       }),
       ...(bodyBuffer ? { body: toArrayBuffer(bodyBuffer) } : {}),
       redirect: "manual",
@@ -466,8 +460,9 @@ function toArrayBuffer(buffer: Buffer): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function deriveUserId(input: { session: { sub?: string }; email: string }): string {
-  const sub = input.session.sub?.trim();
+function deriveUserId(input: { session: Record<string, unknown>; email: string }): string {
+  const rawSub = input.session.sub;
+  const sub = typeof rawSub === "string" ? rawSub.trim() : "";
   if (sub && sub.length > 0) {
     return sub;
   }
@@ -477,12 +472,13 @@ function deriveUserId(input: { session: { sub?: string }; email: string }): stri
 }
 
 function deriveRoles(input: {
-  session: { role?: string; canViewAdmin?: boolean };
+  session: Record<string, unknown>;
   role: string;
 }): string[] {
   const set = new Set<string>();
   if (input.role) set.add(input.role);
-  if (input.session.role) set.add(input.session.role);
+  const sessionRole = input.session.role;
+  if (typeof sessionRole === "string" && sessionRole) set.add(sessionRole);
   // Admin implicitly inherits user privileges in this UI; mirror that
   // expectation downstream so a runtime gating on `user` works for admins.
   if (set.has("admin")) {

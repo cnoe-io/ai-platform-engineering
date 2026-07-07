@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import {
   BookOpen,
@@ -329,9 +330,7 @@ export function AppHeader() {
   const combinedStatusLabel =
     combinedStatus === "connected" ? "Healthy" :
     combinedStatus === "checking" ? "Checking" :
-    combinedStatus === "degraded" ? "Needs Attention" :
-    combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-    "Disconnected";
+    "Degraded";
 
   const activeCapabilities = platformCapabilities.filter(
     (capability) => capability.status !== "disabled",
@@ -802,10 +801,13 @@ export function AppHeader() {
               <button
                 aria-label={`System status: ${combinedStatusLabel}`}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
-                  headerNavCollapsed && "h-8 w-8 justify-center px-0",
-                  combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
+                  "flex items-center gap-1.5 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
+                  // When connected: fixed square so the lone dot stays a perfect circle
+                  combinedStatus === "connected"
+                    ? "h-8 w-8 justify-center bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20"
+                    : "px-2.5 py-1",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
+                  combinedStatus === "degraded" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/20"
                 )}
@@ -814,14 +816,28 @@ export function AppHeader() {
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <div className={cn(
-                    "h-2 w-2 rounded-full",
+                    "h-2 w-2 rounded-full shrink-0 transition-colors duration-700",
                     combinedStatus === "connected" && "bg-green-400",
+                    combinedStatus === "degraded" && "bg-amber-400",
                     combinedStatus === "rag-disconnected" && "bg-amber-400",
                     combinedStatus === "disconnected" && "bg-red-400",
                     isStreaming && "animate-pulse"
                   )} />
                 )}
-                <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
+                <AnimatePresence initial={false}>
+                  {combinedStatus !== "connected" && (
+                    <motion.span
+                      key={combinedStatusLabel}
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden whitespace-nowrap"
+                    >
+                      {combinedStatusLabel}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-80 max-w-[calc(100vw-1rem)] p-0 overflow-hidden">

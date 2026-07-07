@@ -210,6 +210,7 @@ jest.mock('@/components/ui/toast', () => ({
 
 // Mock config
 let mockReportProblemEnabled = false
+let mockDynamicAgentsEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -223,6 +224,7 @@ jest.mock('@/lib/config', () => ({
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
+    get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, any> = {
@@ -232,6 +234,7 @@ jest.mock('@/lib/config', () => ({
       get storageMode() { return mockStorageMode },
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
+      get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
     }
     return configs[key]
   }),

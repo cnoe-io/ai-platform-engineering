@@ -14,7 +14,6 @@ import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation'
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
-import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import {
   getDevAnonymousSession,
   getDevAnonymousUser,

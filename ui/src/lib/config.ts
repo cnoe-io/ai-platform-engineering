@@ -152,8 +152,6 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
-  /** Whether dynamic agents feature is enabled */
-  dynamicAgentsEnabled: boolean;
   /**
    * Whether the host shell exposes the Agentic Apps Hub.
    * Controlled by AGENTIC_APPS_INSTALL_ENABLED.
