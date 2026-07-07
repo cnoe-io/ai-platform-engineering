@@ -10,7 +10,6 @@
  *
  * Outputs: dist/caipe  (signed with codesign -s - on macOS)
  */
-// assisted-by Codex Codex-sonnet-4-6
 
 import { build } from "esbuild";
 import {

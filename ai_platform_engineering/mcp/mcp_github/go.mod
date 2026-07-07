@@ -1,6 +1,5 @@
 module github.com/github/github-mcp-server
 
-// assisted-by Codex Codex-sonnet-4-6
 go 1.26.3
 
 require (

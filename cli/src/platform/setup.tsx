@@ -10,7 +10,6 @@
  * ServerNotConfigured in interactive mode.  In headless mode the error
  * propagates and the process exits 1.
  */
-// assisted-by Codex Codex-sonnet-4-6
 
 import { Box, Text, useApp, useInput } from "ink";
 import { render } from "ink";
