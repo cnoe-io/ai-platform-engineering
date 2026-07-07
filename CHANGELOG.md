@@ -1,3 +1,18 @@
+## 0.5.39-dev.1-chart.1 (2026-07-07)
+
+### Feat
+
+- **agentgateway**: optional explicit stats/readiness bind addresses
+
+## 0.5.39-dev.1 (2026-07-07)
+
+### Fix
+
+- **keycloak**: fix two more compact-JSON id lookups; add shared helper
+- **keycloak**: make init-idp.sh role-id and redirector parsing robust
+
+## 0.5.39 (2026-07-07)
+
 ## 0.5.38-dev.4 (2026-07-07)
 
 ### Fix
