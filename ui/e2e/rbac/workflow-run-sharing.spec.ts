@@ -17,7 +17,6 @@
 
 import { expect, test } from "@playwright/test";
 import {
-  buildDefaultWorkflowCatalog,
   buildPrivateAgentFixture,
   installWorkflowBrowserMocks,
   WORKFLOW_ORG_ADMIN_SESSION,
