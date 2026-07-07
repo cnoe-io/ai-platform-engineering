@@ -21,8 +21,10 @@ import {
   updateIdpSyncRun,
 } from "@/lib/rbac/idp-sync-store";
 import { provisionShellUser } from "@/lib/rbac/keycloak-admin";
+import { stripArchivedTeamResourceGrants } from "@/lib/rbac/archived-team-grants";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
+import { getRbacCollection } from "./mongo-collections";
 import type { IdpSyncRun } from "./mongo-collections";
 
 interface TeamDocument {
@@ -161,7 +163,7 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // skips everyone as `missing_subject`. Cached per run so a user appearing in
     // many groups is resolved once.
     const subCache = new Map<string, string | null>();
-    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string }> }>) {
+    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string; display_name?: string }> }>) {
       for (const member of group.members ?? []) {
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
@@ -171,9 +173,15 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
             // `POST /api/admin/users/provision-shell` endpoint the bots call
             // (issue #1781) — in-process, so no self-network hop. The caller's
             // own RBAC gate (route) or trusted context (scheduler) authorizes.
+            // Split "First Last" on first space; handles "Mary Jo Smith" → firstName="Mary", lastName="Jo Smith"
+            const nameParts = member.display_name?.trim().split(/\s+(.+)/) ?? [];
+            const firstName = nameParts[0] || undefined;
+            const lastName = nameParts[1] || undefined;
             const { sub } = await provisionShellUser({
               email,
               source: `idp-sync:${provider}`,
+              firstName,
+              lastName,
             });
             subCache.set(email, sub);
           } catch (err) {
@@ -204,11 +212,30 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
       partialFetch,
     });
 
+    const now = new Date().toISOString();
     const result = await applyIdentityGroupSyncPlan({
       plan,
       actor,
-      now: new Date().toISOString(),
+      now,
     });
+
+    // On a full fetch, sweep for already-orphaned identity_group_sync teams
+    // that pre-date this fix (their sources were previously removed but the
+    // team document was never archived). Phase 3 inside applyIdentityGroupSyncPlan
+    // only catches teams whose sources are removed in the current run; this
+    // catches everything that slipped through before.
+    let sweptArchived = 0;
+    if (!partialFetch) {
+      try {
+        sweptArchived = await archiveAlreadyOrphanedSyncTeams({ provider, actor, now });
+      } catch (sweepErr) {
+        console.error(
+          `[IdpSync] run ${runId}: orphan sweep failed; stale teams may remain active`,
+          sweepErr,
+        );
+      }
+    }
+    const totalArchived = result.teamsArchived + sweptArchived;
 
     await updateIdpSyncRun(runId, {
       status: "success",
@@ -220,7 +247,8 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     });
     console.log(
       `[IdpSync] run ${runId} success: ${groups.length} groups, ` +
-        `+${result.membershipSourcesAdded}/-${result.membershipSourcesRemoved} memberships`
+        `+${result.membershipSourcesAdded}/-${result.membershipSourcesRemoved} memberships, ` +
+        `${totalArchived} teams archived (${sweptArchived} from sweep)`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -235,4 +263,82 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
   } finally {
     clearInterval(heartbeat);
   }
+}
+
+/**
+ * Sweep for identity_group_sync teams that are already orphaned from previous
+ * syncs (their managed membership sources are all removed, but the team doc
+ * was never archived because the archival logic didn't exist yet). Only runs
+ * on full (non-filtered) fetches so we never archive teams that simply weren't
+ * in scope for a scoped sync.
+ *
+ * Strategy: find all non-archived identity_group_sync teams, then find which
+ * ones have at least one active managed membership source for this provider.
+ * Any team not in that second set gets archived.
+ */
+async function archiveAlreadyOrphanedSyncTeams(input: {
+  provider: string;
+  actor: string;
+  now: string;
+}): Promise<number> {
+  const teamsCol = await getCollection<TeamDocument & Record<string, unknown>>("teams");
+  const sourcesCol = await getRbacCollection<Record<string, unknown>>("teamMembershipSources");
+
+  // All non-archived identity_group_sync team slugs.
+  const syncTeams = await teamsCol
+    .find({ source: "identity_group_sync", status: { $ne: "archived" } })
+    .project({ slug: 1 })
+    .toArray();
+  if (syncTeams.length === 0) return 0;
+
+  const allSlugs = syncTeams.map((t) => t.slug as string).filter(Boolean);
+
+  // Which of those slugs have at least one active managed source for this provider?
+  const activeDocs = await sourcesCol
+    .distinct("team_slug", {
+      team_slug: { $in: allSlugs },
+      provider_id: input.provider,
+      managed: true,
+      status: "active",
+    });
+  const activeSlugs = new Set(activeDocs);
+
+  const orphanedSlugs = allSlugs.filter((slug) => !activeSlugs.has(slug));
+  if (orphanedSlugs.length === 0) return 0;
+
+  // Chunk to stay well under MongoDB's $in limit (MongoDB itself has no hard
+  // limit but the Node driver serializes BSON per-doc and large $in arrays
+  // can exceed the 16 MB document size limit — 500 is a safe batch size).
+  const BATCH_SIZE = 500;
+  let totalModified = 0;
+  for (let i = 0; i < orphanedSlugs.length; i += BATCH_SIZE) {
+    const batch = orphanedSlugs.slice(i, i + BATCH_SIZE);
+    const result = await teamsCol.updateMany(
+      { slug: { $in: batch }, source: "identity_group_sync", status: { $ne: "archived" } },
+      { $set: { status: "archived", updated_by: input.actor, updated_at: new Date(input.now) } },
+    );
+    totalModified += result.modifiedCount;
+  }
+  if (totalModified > 0) {
+    console.log(`[IdpSync] orphan sweep archived ${totalModified} stale identity_group_sync team(s)`);
+    // Revoke the archived teams' resource-grant tuples so archival actually
+    // removes access (OpenFGA never checks team.status). Reads the store once
+    // and filters to these slugs, so it scales with store size rather than
+    // slug count. Best-effort — the self-check repairs anything left behind.
+    try {
+      const strip = await stripArchivedTeamResourceGrants(orphanedSlugs);
+      if (strip.tuplesDeleted > 0) {
+        console.log(
+          `[IdpSync] orphan sweep stripped ${strip.tuplesDeleted} resource-grant tuple(s) ` +
+            `from archived teams`,
+        );
+      }
+    } catch (stripErr) {
+      console.error(
+        "[IdpSync] orphan sweep grant-strip failed; archived teams may still grant access until self-check repair",
+        stripErr,
+      );
+    }
+  }
+  return totalModified;
 }

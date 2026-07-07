@@ -75,6 +75,10 @@ spec:
             - name: CAIPE_CALLER_TOOL_CHECK_ENABLED
               value: "true"
             {{- end }}
+            {{- if .Values.restrictedMcpServers }}
+            - name: CAIPE_RESTRICTED_MCP_SERVERS
+              value: {{ join "," .Values.restrictedMcpServers | quote }}
+            {{- end }}
           ports:
             - name: grpc
               containerPort: 9100

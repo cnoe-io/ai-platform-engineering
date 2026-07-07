@@ -278,6 +278,8 @@ config:
   # Bootstrap global OAuth connectors from server env at startup. In
   # Kubernetes, provide provider client IDs/secrets/redirect URIs through
   # externalSecrets below; in Docker Compose, provide them through .env.
+  # This flag controls the legacy fixed-provider environment variables. A
+  # non-empty oauthConnectors list below is always bootstrapped.
   CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
   # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
   # Set when global.skillScanner.enabled=true on the parent chart so the
@@ -339,6 +341,30 @@ config:
   # When true, the UI stops prefixing messages with "by user: email".
   ENABLE_USER_INFO_TOOL: "false"
 
+# Declarative OAuth connectors to upsert into the credential store at UI
+# startup. Entries are keyed by `provider`; an entry here overrides the legacy
+# fixed-provider environment bootstrap for the same provider. Removing an entry
+# does not delete or disable an existing MongoDB connector.
+#
+# Client secrets must never be placed in this list. `clientSecretEnv` names an
+# environment variable supplied through `existingSecret` or `externalSecrets`.
+# `clientId` is non-sensitive and may be inline; use `clientIdEnv` instead when
+# it is also supplied by the Secret. Set `pkce: true` for public clients that do
+# not have a client secret. When redirectUri is omitted, the UI derives
+# `${NEXTAUTH_URL}/api/credentials/oauth/<provider>/callback`.
+oauthConnectors: []
+  # - provider: "webex_secondary"
+  #   name: "Webex Secondary"
+  #   clientIdEnv: "WEBEX_SECONDARY_CLIENT_ID"
+  #   clientSecretEnv: "WEBEX_SECONDARY_CLIENT_SECRET"
+  #   authorizationUrl: "https://webexapis.com/v1/authorize"
+  #   tokenUrl: "https://webexapis.com/v1/access_token"
+  #   scopes:
+  #     - "spark:mcp"
+  #     - "meeting:schedules_read"
+  #     - "meeting:transcripts_read"
+  #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
+
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
 # The secret is mounted via envFrom.secretRef alongside the config ConfigMap.
@@ -386,6 +412,14 @@ keycloakAdminClient:
   # `realm-management` role mappings — see realm-config.json. There is
   # no reason to change this in a vanilla install.
   clientId: "caipe-platform"
+
+# Dedicated client used by the BFF to mint schedule-owner tokens. When the
+# scheduler feature is enabled by the umbrella chart, an empty secretName is
+# resolved to "<release>-keycloak-scheduler-runner".
+schedulerRunnerClient:
+  secretName: ""
+  secretKey: "KC_SCHEDULER_CLIENT_SECRET"
+  clientId: "caipe-scheduler-runner"
 
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
 # Secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
+import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 import {
   checkOpenFgaTuple,
   deleteExactOpenFgaTuples,
@@ -148,26 +149,37 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Read the caller's role so admins can see SAs for teams they don't belong to.
+  const { user: callerUser } = await getAuthFromBearerOrSession(request);
+  const isAdmin = callerUser.role === "admin";
+
   const searchParams = new URL(request.url).searchParams;
   const includeRevoked = searchParams.get("include_revoked") === "true";
   // Optional: narrow to a single owning team (e.g. the team that owns a Slack
-  // channel). Still bounded by the caller's memberships below, so this only
-  // ever filters within what the caller may already see.
+  // channel). Still bounded by the caller's memberships below (unless admin),
+  // so this only ever filters within what the caller may already see.
   const teamFilter = searchParams.get("team")?.trim() || null;
 
   try {
-    // Visibility boundary: the caller's own team memberships (FR-021).
-    const teamObjects = await listOpenFgaObjects({
-      user: `user:${session.sub}`,
-      relation: "member",
-      type: "team",
-    });
-    let owningTeamIds = teamObjects.objects.map(teamIdFromObject);
+    let owningTeamIds: string[];
 
-    if (teamFilter) {
-      // Intersect the requested team with the caller's memberships. If the
-      // caller isn't in that team, the result is empty (no cross-team leak).
-      owningTeamIds = owningTeamIds.filter((id) => id === teamFilter);
+    if (teamFilter && isAdmin) {
+      // Admins can see SAs for any team — no membership intersection needed.
+      owningTeamIds = [teamFilter];
+    } else {
+      // Visibility boundary: the caller's own team memberships (FR-021).
+      const teamObjects = await listOpenFgaObjects({
+        user: `user:${session.sub}`,
+        relation: "member",
+        type: "team",
+      });
+      owningTeamIds = teamObjects.objects.map(teamIdFromObject);
+
+      if (teamFilter) {
+        // Intersect the requested team with the caller's memberships. If the
+        // caller isn't in that team, the result is empty (no cross-team leak).
+        owningTeamIds = owningTeamIds.filter((id) => id === teamFilter);
+      }
     }
 
     if (owningTeamIds.length === 0) {

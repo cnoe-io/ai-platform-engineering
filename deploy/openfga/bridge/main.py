@@ -67,6 +67,14 @@ AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_
 CALLER_TOOL_CHECK_ENABLED = os.environ.get(
     "CAIPE_CALLER_TOOL_CHECK_ENABLED", ""
 ).strip().lower() in ("1", "true", "yes", "on")
+# MCP targets in this set require the caller to hold `can_invoke` on the
+# corresponding `mcp_server:<target>` object. This supports selectively
+# restricted servers without enabling caller-keyed checks for every MCP tool.
+RESTRICTED_MCP_SERVERS = frozenset(
+    server_id.strip()
+    for server_id in os.environ.get("CAIPE_RESTRICTED_MCP_SERVERS", "").split(",")
+    if server_id.strip()
+)
 _JWKS_CLIENT: jwt.PyJWKClient | None = None
 OK = 0
 PERMISSION_DENIED = 7
@@ -695,6 +703,36 @@ class OpenFgaAuthorizationService:
         start = time.perf_counter()
         try:
             allowed = _check_openfga(user, relation, obj)
+            mcp_target = _mcp_target_from_path(request.attributes.request.http.path)
+            if allowed and mcp_target in RESTRICTED_MCP_SERVERS:
+                mcp_server_obj = f"mcp_server:{mcp_target}"
+                server_allowed = _check_openfga(user, "can_invoke", mcp_server_obj)
+                if not server_allowed:
+                    _audit_decision(
+                        request=request,
+                        subject=sub,
+                        user=user,
+                        relation="can_invoke",
+                        obj=mcp_server_obj,
+                        outcome="deny",
+                        reason_code="DENY_MCP_SERVER_INVOKE",
+                        duration_ms=(time.perf_counter() - start) * 1000,
+                    )
+                    return build_check_response(
+                        allowed=False,
+                        code=PERMISSION_DENIED,
+                        message="caller lacks MCP server invoke grant",
+                    )
+                _audit_decision(
+                    request=request,
+                    subject=sub,
+                    user=user,
+                    relation="can_invoke",
+                    obj=mcp_server_obj,
+                    outcome="allow",
+                    reason_code="OK_MCP_SERVER_INVOKE",
+                    duration_ms=(time.perf_counter() - start) * 1000,
+                )
             tool_call = mcp_tool_call_from_request(request)
             if allowed and tool_call and AGENT_CONTEXT_HMAC_SECRET:
                 agent_id = _agent_id_from_context_headers(headers)

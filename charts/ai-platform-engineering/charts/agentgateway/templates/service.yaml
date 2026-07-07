@@ -15,5 +15,9 @@ spec:
       port: {{ .Values.service.adminPort }}
       targetPort: admin
       protocol: TCP
+    - name: stats
+      port: {{ .Values.service.statsPort }}
+      targetPort: stats
+      protocol: TCP
   selector:
     {{- include "agentgateway.selectorLabels" . | nindent 4 }}

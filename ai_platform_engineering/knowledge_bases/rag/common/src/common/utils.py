@@ -144,7 +144,7 @@ def is_publicly_routable_url(url: str) -> tuple[bool, str]:
   return is_publicly_routable_host(parsed.hostname or "")
 
 
-def sanitize_url(url: str) -> str:
+def sanitize_url(url: str, allow_non_public_urls: bool = False) -> str:
   url = url.strip()
   parsed = urlparse(url)  # Parse the URL
   if not parsed.scheme:  # Add default scheme if missing
@@ -153,10 +153,11 @@ def sanitize_url(url: str) -> str:
     raise ValueError(f"Invalid URL scheme. Only HTTP and HTTPS are supported, got: {parsed.scheme}")
   if not parsed.netloc:  # Validate that we have a netloc (domain)
     raise ValueError("Invalid URL: missing domain name")
-  hostname = parsed.hostname or ""
-  is_safe, reason = is_publicly_routable_host(hostname)
-  if not is_safe:
-    raise ValueError(f"Invalid URL: hostname '{hostname}' must resolve only to publicly routable IP addresses: {reason}")
+  if not allow_non_public_urls:
+    hostname = parsed.hostname or ""
+    is_safe, reason = is_publicly_routable_host(hostname)
+    if not is_safe:
+      raise ValueError(f"Invalid URL: hostname '{hostname}' must resolve only to publicly routable IP addresses: {reason}")
   url = parsed.geturl()  # Reconstruct the URL to ensure it's properly formatted
   return url
 
