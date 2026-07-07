@@ -42,10 +42,6 @@ _REJECTED_OVERRIDE_FIELDS: set[str] = {
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Deep merge override into base dict. Override values win for scalars/lists.
-
-    For nested dicts, recurse so partial overrides don't clobber sibling keys.
-    """
     merged = base.copy()
     for key, value in override.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
@@ -56,15 +52,6 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, Any]) -> DynamicAgentConfig:
-    """Apply config_override to a DynamicAgentConfig, returning a new instance.
-
-    Validates that only allowed fields are overridden and uses deep merge
-    to avoid clobbering nested structures (e.g., backend.config).
-
-    Raises:
-        HTTPException(400): If rejected fields are present in the override.
-        HTTPException(400): If allowed_tools override is not a subset of base.
-    """
     rejected = _REJECTED_OVERRIDE_FIELDS & set(config_override.keys())
     if rejected:
         raise HTTPException(
@@ -72,11 +59,9 @@ def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, 
             detail=f"config_override contains disallowed fields: {sorted(rejected)}",
         )
 
-    # Validate allowed_tools subset constraint before merging
     if "allowed_tools" in config_override:
         _validate_allowed_tools_subset(agent.allowed_tools, config_override["allowed_tools"])
 
-    # Convert agent to dict, deep merge, reconstruct
     agent_dict = agent.model_dump(by_alias=True)
     merged = _deep_merge(agent_dict, config_override)
     return DynamicAgentConfig.model_validate(merged)
@@ -86,18 +71,6 @@ def _validate_allowed_tools_subset(
     base: dict[str, list[str] | bool],
     override: dict[str, list[str] | bool],
 ) -> None:
-    """Ensure override allowed_tools is a strict subset of base config.
-
-    Rules:
-    - Cannot add servers not in base
-    - Cannot enable a server that is disabled (False) in base
-    - Cannot add tools not in base's tool list (when base has a specific list)
-    - Setting False (disable) is always allowed
-    - Setting True (all) is allowed if base allows the server
-
-    Raises:
-        HTTPException(400): If override violates subset constraint.
-    """
     if not isinstance(override, dict):
         return
 
@@ -112,7 +85,6 @@ def _validate_allowed_tools_subset(
 
         base_val = base[server_id]
 
-        # Cannot re-enable a server that is explicitly disabled in base
         if base_val is False and override_val is not False:
             raise HTTPException(
                 status_code=400,
@@ -122,15 +94,12 @@ def _validate_allowed_tools_subset(
                 ),
             )
 
-        # Disabling is always fine
         if override_val is False:
             continue
 
-        # "All tools" is fine if base allows the server at all
         if override_val is True:
             continue
 
-        # Override is a specific list — validate each tool
         if isinstance(override_val, list) and isinstance(base_val, list):
             extra = set(override_val) - set(base_val)
             if extra:
@@ -141,10 +110,8 @@ def _validate_allowed_tools_subset(
                         f"not in base config: {sorted(extra)}"
                     ),
                 )
-        # override is list, base is True — any subset is fine (all tools available)
 
 
-# assisted-by Codex Codex-sonnet-4-6
 router = APIRouter(prefix="/chat", tags=["chat"])
 GENERIC_AGENT_ERROR = "Agent execution failed. Check server logs for details."
 
@@ -280,11 +247,6 @@ async def _generate_sse_events(
         for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
             yield frame
     except RuntimeInitError as e:
-        # If init failed because of a config problem (no LLM provider/model,
-        # invalid provider, missing API key, etc.) we own the message — emit
-        # the actionable LLMConfigError text instead of GENERIC_AGENT_ERROR
-        # so the client surface (Slack/Webex/UI) can tell the operator what
-        # to fix. Anything else falls through to the generic message.
         cause = e.cause
         if isinstance(cause, LLMConfigError):
             logger.warning(

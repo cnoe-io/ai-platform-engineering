@@ -94,7 +94,6 @@ async function resolveListConversationAccessLevel(
   userEmail: string,
   session?: { role?: unknown; sub?: unknown },
 ): Promise<ConversationAccessLevel> {
-  // assisted-by Codex Codex-sonnet-4-6
   // The list already passed ReBAC filtering; derive display-level access without refetching the row.
   if (isListConversationOwner(conversation, userEmail, session)) return 'owner';
 
@@ -203,6 +202,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   // Filter by client_type if specified.
   // Backward compat: older documents without top-level client_type are treated as 'webui'.
+  // When no filter is given, exclude 'cli' conversations from the web UI list.
   if (clientTypeParam) {
     if (clientTypeParam === 'webui') {
       // Match docs with client_type: 'webui' OR missing client_type (legacy)
@@ -215,6 +215,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     } else {
       query.$and.push({ client_type: clientTypeParam });
     }
+  } else {
+    // Default: exclude CLI-only sessions from the web UI conversation list
+    query.$and.push({ client_type: { $ne: 'cli' } });
   }
 
   if (archived !== null) {

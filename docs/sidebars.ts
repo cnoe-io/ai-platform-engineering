@@ -256,7 +256,6 @@ const sidebars: SidebarsConfig = {
           label: 'Knowledge Bases',
           items: [
             { type: 'doc', id: 'knowledge_bases/index', label: 'Overview' },
-            // assisted-by Codex Codex-sonnet-4-6
             { type: 'doc', id: 'knowledge_bases/api-reference', label: 'API Reference' },
             { type: 'doc', id: 'knowledge_bases/architecture', label: 'Architecture' },
             { type: 'doc', id: 'knowledge_bases/ingestors', label: 'Ingestors' },
@@ -319,7 +318,6 @@ const sidebars: SidebarsConfig = {
           label: 'Tracing & Evaluations',
           items: [
             { type: 'doc', id: 'evaluations/index', label: 'Overview' },
-            // assisted-by Codex Codex-sonnet-4-6
             { type: 'doc', id: 'evaluations/ui-performance-benchmark-results', label: 'UI Performance Benchmarks' },
           ],
         },
@@ -351,7 +349,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'tools-utils/agent-chat-cli',
+          id: 'tools-utils/caipe-cli',
         },
         {
           type: 'doc',

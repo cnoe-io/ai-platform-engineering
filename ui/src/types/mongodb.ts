@@ -35,10 +35,10 @@ export interface UserPublicInfo {
 // ============================================================================
 
 /** Valid client types for conversation creation. */
-export type ClientType = 'webui' | 'slack' | 'webex';
+export type ClientType = 'webui' | 'slack' | 'webex' | 'cli';
 
 /** All valid client_type values — used for runtime validation. */
-export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'webex'] as const;
+export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'webex', 'cli'] as const;
 
 /**
  * A conversation participant — either an agent or a user.
@@ -91,10 +91,8 @@ export interface Conversation {
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
-  // assisted-by Codex Codex-sonnet-4-6
   // Response-only: current viewer reached this conversation through sharing, not ownership.
   viewer_has_shared_access?: boolean;
-  // assisted-by Codex Codex-sonnet-4-6
   // Response-only: current viewer's effective access level for UI affordances.
   access_level?: 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
   tags: string[];

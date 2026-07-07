@@ -25,6 +25,7 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
+	caipe-cli-test caipe-cli-lint caipe-cli-build \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests caipe-ui-e2e-rbac \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	caipe-ui-hot caipe-ui-prod \
@@ -71,6 +72,47 @@ clean:             ## Clean all build artifacts and cache
 uv-prep: ## Lock and sync uv dependencies
 	uv lock
 	uv sync
+
+install-deps: uv-prep ## Install all dependencies
+
+run-a2a: install-deps ## Run the AI Platform Engineer single-node deep agent with A2A protocol
+	@PORT=$${PORT:-8000}; \
+	HOST=$${HOST:-0.0.0.0}; \
+	export A2A_HOST=$$HOST; \
+	export A2A_PORT=$$PORT; \
+	export A2A_PUBLIC_URL=http://localhost:$$PORT; \
+	export MONGODB_URI=$${MONGODB_URI:-mongodb://admin:changeme@localhost:27017/caipe?authSource=admin}; \
+	export MONGODB_DATABASE=$${MONGODB_DATABASE:-caipe}; \
+	export PYTHONPATH="$${PWD}/ai_platform_engineering/agents/github:$${PWD}/ai_platform_engineering/agents/backstage:$${PWD}/ai_platform_engineering/agents/jira:$${PWD}/ai_platform_engineering/agents/webex:$${PWD}/ai_platform_engineering/agents/argocd:$${PWD}/ai_platform_engineering/agents/aigateway:$${PWD}/ai_platform_engineering/agents/pagerduty:$${PWD}/ai_platform_engineering/agents/slack:$${PWD}/ai_platform_engineering/agents/splunk:$${PWD}/ai_platform_engineering/agents/komodor:$${PWD}/ai_platform_engineering/agents/confluence:$${PWD}/ai_platform_engineering/agents/aws:$${PYTHONPATH}"; \
+	echo "Starting AI Platform Engineer A2A server (single-node) on $$HOST:$$PORT"; \
+	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app --host $$HOST --port $$PORT --reload
+
+run-a2a-client: ## Connect to the A2A agent using the CAIPE CLI
+	@HOST=$${A2A_HOST:-localhost}; \
+	PORT=$${A2A_PORT:-8000}; \
+	echo "Connecting to A2A agent at $$HOST:$$PORT via CAIPE CLI..."; \
+	cd cli && bun run dev -- chat --url http://$$HOST:$$PORT
+
+run-a2a-client-local: ## Run CAIPE CLI from local source (dev mode)
+	@HOST=$${A2A_HOST:-localhost}; \
+	PORT=$${A2A_PORT:-8000}; \
+	echo "Running local CAIPE CLI connecting to $$HOST:$$PORT..."; \
+	cd cli && bun run dev -- chat --url http://$$HOST:$$PORT
+
+## ========== CAIPE CLI ==========
+
+caipe-cli-test: ## Run CAIPE CLI unit tests (vitest)
+	@echo "Running CAIPE CLI tests..."
+	@cd cli && bun run test
+
+caipe-cli-lint: ## Lint CAIPE CLI (Biome)
+	@echo "Linting CAIPE CLI..."
+	@cd cli && bun run lint
+
+caipe-cli-build: ## Build CAIPE CLI binary (current platform)
+	@echo "Building CAIPE CLI binary..."
+	@cd cli && bun install && npm run compile
+
 
 ## ========== CAIPE UI ==========
 
