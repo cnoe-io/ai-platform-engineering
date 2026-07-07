@@ -61,6 +61,36 @@ json_field() {
   echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:.*"\(.*\)"/\1/'
 }
 
+# --- helper: from a JSON array on stdin, print the "id" of the first object
+# whose <field> == <value> (empty string if none) ---------------------------
+# Keycloak 26.x returns admin-API list endpoints as single-line compact JSON,
+# which defeats line-oriented `grep -B<N> '"<name>"' | grep -o '"id"...'`
+# lookups: with no distinct preceding line, `-B<N>` matches nothing and the
+# outer grep falls back to the FIRST id in the whole array regardless of name.
+# This parses the JSON structurally instead (works for compact or pretty
+# output). The match value is passed via env, not string-interpolated into the
+# python source, so a value containing quotes/metacharacters can never break
+# the snippet or inject code. Malformed / non-list responses (e.g. curl -sf
+# swallowing an error body) degrade to empty output without aborting under
+# `set -eu`.
+json_id_by_field() {
+  MATCH_KEY="$1" MATCH_VALUE="$2" python3 -c '
+import json
+import os
+import sys
+
+try:
+    items = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(items, list):
+    sys.exit(0)
+key = os.environ["MATCH_KEY"]
+value = os.environ["MATCH_VALUE"]
+print(next((it.get("id", "") for it in items if isinstance(it, dict) and it.get(key) == value), ""))
+'
+}
+
 seed_personas_main() {
   echo "[init-idp] [spec-102] seeding personas in realm ${REALM} ..."
 
@@ -1053,7 +1083,7 @@ DEFAULT_REALM_ROLE="default-roles-${REALM}"
 echo "[init-idp] Ensuring offline_access is in ${DEFAULT_REALM_ROLE} ..."
 DEFAULT_ROLE_ID=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-  | grep -B1 "\"${DEFAULT_REALM_ROLE}\"" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+  | json_id_by_field "name" "${DEFAULT_REALM_ROLE}")
 
 if [ -n "${DEFAULT_ROLE_ID}" ]; then
   COMPOSITES=$(curl -sf -H "${AUTH}" \
@@ -1063,7 +1093,7 @@ if [ -n "${DEFAULT_ROLE_ID}" ]; then
   else
     OFFLINE_ROLE_ID=$(curl -sf -H "${AUTH}" \
       "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-      | grep -B1 '"offline_access"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+      | json_id_by_field "name" "offline_access")
     if [ -n "${OFFLINE_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
         "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
@@ -1441,7 +1471,7 @@ echo "[init-idp]   No Keycloak role mappers are created for IDP_ACCESS_GROUP or 
 # Keycloak's ID token/userinfo carry the user's name to downstream clients.
 echo "[init-idp] Ensuring standard profile scope mappers ..."
 PROFILE_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
-  | grep -B1 '"profile"' | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  | json_id_by_field "name" "profile")
 
 if [ -n "${PROFILE_SCOPE_ID}" ]; then
   EXISTING_MAPPERS=$(curl -sf -H "${AUTH}" \
@@ -1485,7 +1515,7 @@ AUTH="Authorization: Bearer $(json_field "$(curl -sf -X POST "${KC_URL}/realms/m
 EXECUTIONS=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/authentication/flows/first%20broker%20login/executions" 2>/dev/null || echo "[]")
 
-REVIEW_ID=$(echo "${EXECUTIONS}" | grep -B2 '"idp-review-profile"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+REVIEW_ID=$(printf '%s' "${EXECUTIONS}" | json_id_by_field "providerId" "idp-review-profile")
 
 if [ -n "${REVIEW_ID}" ]; then
   # Keycloak 26.x requires providerId in the execution update payload
@@ -1580,24 +1610,33 @@ echo "[init-idp] Setting '${ALIAS}' as default IdP redirector in browser flow ..
 BROWSER_EXECS=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" 2>/dev/null || echo "[]")
 
-REDIR_INFO=$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
+# Emit shell KEY=value assignments (shlex-quoted) and eval them, rather than
+# reading a tab-delimited line with `IFS=<tab> read`. Tab is an IFS whitespace
+# character, so `read` collapses consecutive tabs and drops empty fields — on a
+# fresh realm the redirector has no authenticationConfig yet (empty middle
+# field), which would shift every subsequent field and leave FORMS_ID empty and
+# REDIR_CONFIG_ID garbage. shlex.quote preserves empty strings intact.
+eval "$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
 import json
+import shlex
 import sys
 
-executions = json.load(sys.stdin)
+try:
+    executions = json.load(sys.stdin)
+except Exception:
+    executions = []
 redirector = next((e for e in executions if e.get("providerId") == "identity-provider-redirector"), {})
 forms = next((e for e in executions if e.get("displayName") == "forms" or e.get("flowAlias") == "forms"), {})
-print("\t".join([
-    redirector.get("id", ""),
-    redirector.get("authenticationConfig") or "",
-    redirector.get("providerId") or "",
-    forms.get("id", ""),
-    forms.get("providerId") or "",
-]))
-')
-IFS='	' read -r REDIR_ID REDIR_CONFIG_ID REDIR_PROVIDER_ID FORMS_ID FORMS_PROVIDER_ID <<EOF
-${REDIR_INFO}
-EOF
+fields = {
+    "REDIR_ID": redirector.get("id", ""),
+    "REDIR_CONFIG_ID": redirector.get("authenticationConfig") or "",
+    "REDIR_PROVIDER_ID": redirector.get("providerId") or "",
+    "FORMS_ID": forms.get("id", ""),
+    "FORMS_PROVIDER_ID": forms.get("providerId") or "",
+}
+for key, value in fields.items():
+    print(f"{key}={shlex.quote(value)}")
+')"
 
 if [ -n "${REDIR_ID}" ]; then
   if [ -n "${REDIR_CONFIG_ID}" ]; then
