@@ -1053,7 +1053,12 @@ DEFAULT_REALM_ROLE="default-roles-${REALM}"
 echo "[init-idp] Ensuring offline_access is in ${DEFAULT_REALM_ROLE} ..."
 DEFAULT_ROLE_ID=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-  | grep -B1 "\"${DEFAULT_REALM_ROLE}\"" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+  | python3 -c "import sys, json
+try:
+    roles = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print(next((r['id'] for r in roles if r.get('name') == '${DEFAULT_REALM_ROLE}'), ''))")
 
 if [ -n "${DEFAULT_ROLE_ID}" ]; then
   COMPOSITES=$(curl -sf -H "${AUTH}" \
@@ -1063,7 +1068,12 @@ if [ -n "${DEFAULT_ROLE_ID}" ]; then
   else
     OFFLINE_ROLE_ID=$(curl -sf -H "${AUTH}" \
       "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-      | grep -B1 '"offline_access"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+      | python3 -c "import sys, json
+try:
+    roles = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print(next((r['id'] for r in roles if r.get('name') == 'offline_access'), ''))")
     if [ -n "${OFFLINE_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
         "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
@@ -1580,24 +1590,33 @@ echo "[init-idp] Setting '${ALIAS}' as default IdP redirector in browser flow ..
 BROWSER_EXECS=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" 2>/dev/null || echo "[]")
 
-REDIR_INFO=$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
+# Emit shell KEY=value assignments (shlex-quoted) and eval them, rather than
+# reading a tab-delimited line with `IFS=<tab> read`. Tab is an IFS whitespace
+# character, so `read` collapses consecutive tabs and drops empty fields — on a
+# fresh realm the redirector has no authenticationConfig yet (empty middle
+# field), which would shift every subsequent field and leave FORMS_ID empty and
+# REDIR_CONFIG_ID garbage. shlex.quote preserves empty strings intact.
+eval "$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
 import json
+import shlex
 import sys
 
-executions = json.load(sys.stdin)
+try:
+    executions = json.load(sys.stdin)
+except Exception:
+    executions = []
 redirector = next((e for e in executions if e.get("providerId") == "identity-provider-redirector"), {})
 forms = next((e for e in executions if e.get("displayName") == "forms" or e.get("flowAlias") == "forms"), {})
-print("\t".join([
-    redirector.get("id", ""),
-    redirector.get("authenticationConfig") or "",
-    redirector.get("providerId") or "",
-    forms.get("id", ""),
-    forms.get("providerId") or "",
-]))
-')
-IFS='	' read -r REDIR_ID REDIR_CONFIG_ID REDIR_PROVIDER_ID FORMS_ID FORMS_PROVIDER_ID <<EOF
-${REDIR_INFO}
-EOF
+fields = {
+    "REDIR_ID": redirector.get("id", ""),
+    "REDIR_CONFIG_ID": redirector.get("authenticationConfig") or "",
+    "REDIR_PROVIDER_ID": redirector.get("providerId") or "",
+    "FORMS_ID": forms.get("id", ""),
+    "FORMS_PROVIDER_ID": forms.get("providerId") or "",
+}
+for key, value in fields.items():
+    print(f"{key}={shlex.quote(value)}")
+')"
 
 if [ -n "${REDIR_ID}" ]; then
   if [ -n "${REDIR_CONFIG_ID}" ]; then
