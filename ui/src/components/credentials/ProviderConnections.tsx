@@ -902,6 +902,7 @@ function summarizeProfile(profile: Record<string, unknown> | undefined): string 
 
 function needsAutoRefresh(connection: ProviderConnection): boolean {
   if (connection.status !== "connected" || !connection.expiresAt) return false;
+  if (connection.renewable === false) return false;
   const expiresAt = new Date(connection.expiresAt).getTime();
   if (Number.isNaN(expiresAt)) return false;
   return expiresAt <= Date.now() + 15 * 60 * 1000;

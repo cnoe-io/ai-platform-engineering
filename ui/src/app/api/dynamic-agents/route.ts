@@ -358,6 +358,7 @@ async function validateSubagentVisibility(
  *
  * Query params:
  * - enabled_only=true: Only return enabled agents (useful for subagent selection)
+ * - search=<string>: Filter agents by name or description (case-insensitive)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
@@ -367,10 +368,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { page, pageSize, skip } = getPaginationParams(request);
     const { searchParams } = new URL(request.url);
     const enabledOnly = searchParams.get("enabled_only") === "true";
+    const search = searchParams.get("search")?.trim() || "";
 
     const query: Record<string, unknown> = enabledOnly
       ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
       : {};
+
+    if (search) {
+      const regex = { $regex: search, $options: "i" };
+      const orClauses: Record<string, unknown>[] = [{ name: regex }, { description: regex }];
+      if (ObjectId.isValid(search)) orClauses.push({ _id: new ObjectId(search) });
+      const searchClause = { $or: orClauses };
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, searchClause];
+        delete query.$or;
+      } else {
+        Object.assign(query, searchClause);
+      }
+    }
 
     const allItems = await collection.find(query).sort({ created_at: -1 }).toArray();
 

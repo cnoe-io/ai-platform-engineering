@@ -114,10 +114,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const pageSizeRaw = parseInt(url.searchParams.get('page_size') || '24', 10) || 24;
   const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
   const search = (url.searchParams.get('search') || '').trim();
+  // Archived teams (identity-sync teams whose Okta group vanished, or teams an
+  // admin retired) are hidden by default so the grid only shows live teams.
+  // The admin UI opts back in via `?include_archived=true` behind a checkbox.
+  const includeArchived = url.searchParams.get('include_archived') === 'true';
 
   // Build the Mongo query honoring per-row access control + search so the
   // skip/limit and the aggregations only ever touch matching rows.
   const andClauses: Record<string, unknown>[] = [];
+  if (!includeArchived) {
+    // Treat a missing `status` as active — legacy team docs predate the field.
+    andClauses.push({ status: { $ne: 'archived' } });
+  }
   if (!hasAdminView) {
     const allowedSlugs = Array.from(memberSlugs);
     if (allowedSlugs.length === 0) {

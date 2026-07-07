@@ -107,6 +107,23 @@ spec:
                   name: {{ include "keycloak.platformClientSecretName" . }}
                   key: {{ .Values.platformClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
             {{- end }}
+            {{- /* Public CLI client (caipe-cli / forge-cli) — reconciled
+                   imperatively by init-idp.sh so it lands on existing realms
+                   during upgrade, not only first-boot realm import. */}}
+            - name: KEYCLOAK_CLI_CLIENT_ID
+              value: {{ (.Values.cliClient).clientId | default "caipe-cli" | quote }}
+            {{- with (.Values.cliClient).accessTokenLifespan }}
+            - name: KEYCLOAK_CLI_ACCESS_TOKEN_LIFESPAN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (.Values.cliClient).redirectUris }}
+            - name: KEYCLOAK_CLI_REDIRECT_URIS
+              value: {{ join " " . | quote }}
+            {{- end }}
+            {{- with (.Values.cliClient).webOrigins }}
+            - name: KEYCLOAK_CLI_WEB_ORIGINS
+              value: {{ join " " . | quote }}
+            {{- end }}
             - name: IDP_ACCESS_GROUP
               value: {{ .Values.idp.accessGroup | quote }}
             - name: IDP_ADMIN_GROUP

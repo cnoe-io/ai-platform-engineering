@@ -10,6 +10,7 @@ Supports three configurable actions (all fire if enabled):
 """
 
 import re
+import uuid
 
 from loguru import logger
 
@@ -26,7 +27,6 @@ def execute_escalation(
   user_id: str,
   escalation_config: EscalationConfig,
   agent_id: str = "",
-  conversation_id: str = "",
 ):
   """Run all configured escalation actions.
 
@@ -39,7 +39,6 @@ def execute_escalation(
       user_id: Slack user ID of the person who triggered escalation.
       escalation_config: Parsed escalation configuration.
       agent_id: Agent ID for VictorOps AI queries (channel default).
-      conversation_id: Conversation UUID for VictorOps AI queries.
 
   Returns:
       List of result summary strings.
@@ -54,7 +53,6 @@ def execute_escalation(
       thread_ts,
       escalation_config.victorops.team,
       agent_id=agent_id,
-      conversation_id=conversation_id,
     )
     results.append(result)
 
@@ -81,26 +79,27 @@ def _ping_victorops_oncall(
   thread_ts: str,
   team: str,
   agent_id: str,
-  conversation_id: str,
 ) -> str:
   """Query the AI for VictorOps on-call via SSE, resolve to Slack user, and ping them."""
-  if not agent_id or not conversation_id:
-    logger.error(f"[{thread_ts}] VictorOps: missing agent_id or conversation_id")
+  if not agent_id:
+    logger.error(f"[{thread_ts}] VictorOps: missing agent_id")
     slack_client.chat_postMessage(
       channel=channel_id,
       thread_ts=thread_ts,
       text=f"Could not determine on-call for team *{team}*. Please check VictorOps manually.",
     )
-    return "victorops: missing agent_id or conversation_id"
+    return "victorops: missing agent_id"
 
   try:
     prompt = f"RESPOND IN 1 WORD THAT IS USER EMAIL. WHO IS ON CALL FOR TEAM {team}?"
     logger.info(f"[{thread_ts}] VictorOps: querying on-call for team {team} (agent={agent_id})")
     accumulated_text: list[str] = []
 
+    # Use a fresh conversation so the on-call lookup does not inherit the
+    # channel thread history, which can be very large and cause incorrect results.
     for event in sse_client.stream_chat(
       message=prompt,
-      conversation_id=conversation_id,
+      conversation_id=str(uuid.uuid4()),
       agent_id=agent_id,
     ):
       if event.type == SSEEventType.TEXT_MESSAGE_CONTENT and event.delta:

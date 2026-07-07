@@ -594,6 +594,53 @@ describe("ProviderConnectionService", () => {
     });
   });
 
+  it("keeps renewable=true on refresh when the provider omits refresh_token (non-rotating refresh)", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-1",
+      connectorId: "connector-1",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+      refreshTokenRef: "provider_connection:conn-1:refresh_token",
+      accessTokenRef: "provider_connection:conn-1:access_token",
+      renewable: true,
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "GitHub",
+      provider: "github",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://github.example.com/login/oauth/authorize",
+      tokenUrl: "https://github.example.com/login/oauth/access_token",
+      scopes: ["repo", "offline_access"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => `${ref}:value`),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({
+      access_token: "new-access-token",
+      expires_in: 3600,
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    await service.refreshConnection("conn-1");
+
+    expect(providerConnections.docs[0].renewable).toBe(true);
+  });
+
   it("refreshes PagerDuty PKCE tokens without client_secret", async () => {
     const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
     providerConnections.docs.push({

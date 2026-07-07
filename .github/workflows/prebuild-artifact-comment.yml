@@ -13,7 +13,6 @@ permissions:
 
 concurrency:
   group: prebuild-artifact-comment-pr-${{ github.event.client_payload.pr_number }}-sha-${{ github.event.client_payload.head_sha }}
-  # assisted-by Codex Codex-sonnet-4-6
   # Later dispatches reconcile the same artifact set, so stale runs can be canceled.
   cancel-in-progress: true
 
@@ -31,10 +30,6 @@ jobs:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
           repositories: ${{ github.event.repository.name }}
-          permission-actions: read
-          permission-contents: read
-          permission-issues: write
-          permission-pull-requests: write
 
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6

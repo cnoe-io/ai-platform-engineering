@@ -136,6 +136,43 @@
       ]
     },
     {
+      "clientId": "caipe-cli",
+      "name": "CAIPE CLI",
+      "description": "Public OIDC client for local developer CLIs (authorization-code + PKCE). Mints a real-user JWT with aud=caipe-platform accepted by Dynamic Agents, AgentGateway, and MCP servers. No client secret; PKCE S256 required.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "redirectUris": [
+        "http://localhost:8085",
+        "http://localhost:8085/*",
+        "http://127.0.0.1:8085",
+        "http://127.0.0.1:8085/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8085",
+        "http://127.0.0.1:8085"
+      ],
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "access.token.lifespan": "28800"
+      },
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
+    },
+    {
       "clientId": "caipe-platform",
       "name": "CAIPE Platform Resource Server",
       "description": "Confidential service client — identity and token-exchange only; CAIPE authorization is enforced in OpenFGA.",
@@ -192,6 +229,31 @@
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-webex-bot-dev-secret",
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      }
+    },
+    {
+      "clientId": "caipe-scheduler-runner",
+      "name": "CAIPE Scheduler Runner",
+      "description": "Confidential client scoped to scheduled-run owner impersonation (token-exchange requested_subject). Used by the BFF to mint owner bearers for cron fires (scheduled-job-auth Approach 2).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-scheduler-runner-dev-secret",
       "bearerOnly": false,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,

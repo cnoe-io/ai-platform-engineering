@@ -21,6 +21,12 @@ Prerequisites:
 {{- $hasAgentgatewayAgent := false }}
 {{- $extraMcpTargets := .Values.global.agentgateway.extraMcpTargets | default list }}
 {{- $knowledgeBaseTarget := .Values.global.agentgateway.knowledgeBaseTarget | default dict }}
+{{- $schedulerEnabled := dig "scheduler" "enabled" false (.Values.global | default dict) }}
+{{- $schedulerMcp := .Values.schedulerMcp | default dict }}
+{{- if and $schedulerEnabled ($schedulerMcp.enabled | default false) }}
+{{- $schedulerService := $schedulerMcp.service | default dict }}
+{{- $extraMcpTargets = append $extraMcpTargets (dict "id" "scheduler" "pathPrefix" "/mcp/scheduler" "host" (printf "%s.%s.svc.cluster.local" ($schedulerMcp.nameOverride | default "mcp-scheduler") .Release.Namespace) "port" ($schedulerService.port | default 8000) "protocol" "StreamableHTTP") }}
+{{- end }}
 
 {{- /* Scan for any agent that has mcp.agentgateway.enabled */ -}}
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
@@ -86,7 +92,8 @@ spec:
 {{- $mcpServiceName := printf "%s-%s-mcp" $.Release.Name $agentKey }}
 {{- $mcpHost := printf "%s.%s.svc.cluster.local" $mcpServiceName $.Release.Namespace }}
 {{- $protocol := $agw.protocol | default "StreamableHTTP" }}
-{{- $pathPrefix := printf "/mcp/%s" $name }}
+{{- $targetId := $agw.id | default $name }}
+{{- $pathPrefix := $agw.pathPrefix | default (printf "/mcp/%s" $targetId) }}
 {{- $routeName := printf "%s-mcp-route" $name }}
 {{- $backendName := printf "%s-mcp-backend" $name }}
 ---

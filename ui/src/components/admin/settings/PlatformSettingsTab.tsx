@@ -16,6 +16,7 @@ DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
 import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceAccountModal";
+import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AlertTriangle,Info,Loader2,Shield } from "lucide-react";
 import { useEffect,useState } from "react";
@@ -278,6 +279,8 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
           isAdmin={isAdmin}
         />
       )}
+
+      <ImportAgentsFromConfigCard isAdmin={isAdmin} />
 
       <Dialog
         open={confirmAction !== null}

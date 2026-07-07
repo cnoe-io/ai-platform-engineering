@@ -256,6 +256,7 @@ function EscalationEditor({ enabled, onToggleEnabled, escalation, onChange, disa
 function ExecutionIdentitySelector({
   mode,
   serviceAccountSub,
+  serviceAccountName,
   onModeChange,
   onServiceAccountChange,
   teamSlug,
@@ -264,6 +265,7 @@ function ExecutionIdentitySelector({
 }: {
   mode: SlackRouteExecutionMode;
   serviceAccountSub: string;
+  serviceAccountName: string;
   onModeChange: (mode: SlackRouteExecutionMode) => void;
   onServiceAccountChange: (sub: string, name: string) => void;
   teamSlug?: string;
@@ -317,6 +319,7 @@ function ExecutionIdentitySelector({
               value={serviceAccountSub}
               onChange={onServiceAccountChange}
               teamSlug={teamSlug}
+              displayName={serviceAccountName}
               disabled={disabled}
               error={error}
             />
@@ -442,6 +445,7 @@ function SlackRouteEditorDialog({
               <ExecutionIdentitySelector
                 mode={routeDraft.executionMode}
                 serviceAccountSub={routeDraft.executionServiceAccountSub}
+                serviceAccountName={routeDraft.executionServiceAccountName}
                 onModeChange={(mode) =>
                   setRouteDraft((prev) => ({
                     ...prev,

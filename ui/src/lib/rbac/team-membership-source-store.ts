@@ -154,7 +154,19 @@ export async function upsertTeamMembershipSource(source: TeamMembershipSource): 
   const collection = await getRbacCollection<TeamMembershipSource & { team_slug: string }>(
     "teamMembershipSources"
   );
-  await collection.updateOne(membershipSourceFilter(source), { $set: source }, { upsert: true });
+  const { first_seen_at, created_at, created_by, ...mutableFields } = source;
+  await collection.updateOne(
+    membershipSourceFilter(source),
+    {
+      $set: mutableFields,
+      $setOnInsert: {
+        ...(first_seen_at !== undefined && { first_seen_at }),
+        ...(created_at !== undefined && { created_at }),
+        ...(created_by !== undefined && { created_by }),
+      },
+    },
+    { upsert: true }
+  );
 
   // Collapse stale orphans: when a user is removed and later re-added with a
   // different `relationship` (e.g. removed as member, re-added as admin), the
