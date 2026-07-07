@@ -30,6 +30,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-contents: read
           permission-issues: write
