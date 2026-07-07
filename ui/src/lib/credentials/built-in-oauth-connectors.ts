@@ -5,6 +5,9 @@ export interface BuiltInOAuthConnectorDescriptor {
   tokenUrl: string;
   // RFC 7009 revocation endpoint — omit if the provider uses ${tokenUrl}/revoke.
   revocationUrl?: string;
+  // "basic" sends credentials as Authorization: Basic (required by Webex idbroker).
+  // Omit (body params per RFC 7009 §2.1) for all other providers.
+  revocationClientAuth?: "body" | "basic";
   scopes: string[];
   pkce?: boolean;
 }
@@ -52,8 +55,10 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     name: "Webex",
     authorizationUrl: "https://webexapis.com/v1/authorize",
     tokenUrl: "https://webexapis.com/v1/access_token",
-    // Webex uses idbroker for revocation (webexapis.com/v1/access_token/revoke does not exist)
+    // Webex idbroker requires Basic auth for revocation and revokes both access
+    // and refresh tokens (each is a separate CTS slot against the integration limit).
     revocationUrl: "https://idbroker.webex.com/idb/oauth2/v1/revoke",
+    revocationClientAuth: "basic",
     scopes: [
       "spark:kms",
       "spark:people_read",

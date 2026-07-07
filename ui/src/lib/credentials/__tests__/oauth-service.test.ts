@@ -1556,4 +1556,186 @@ describe("ProviderConnectionService", () => {
     ]);
     expect(providerConnections.docs.find((doc) => doc.id === "conn-old")?.status).toBe("disabled");
   });
+
+  describe("revokeTokenAtProvider (via revokeConnection)", () => {
+    const REVOCATION_URL = "https://idbroker.webex.com/idb/oauth2/v1/revoke";
+
+    function makeWebexConnector(overrides?: Partial<OAuthConnectorDocument>): OAuthConnectorDocument {
+      return {
+        id: "webex-connector-1",
+        name: "Webex",
+        provider: "webex",
+        clientId: "webex-client-id",
+        clientSecretRef: "oauth_connector:webex-connector-1:client_secret",
+        authorizationUrl: "https://webexapis.com/v1/authorize",
+        tokenUrl: "https://webexapis.com/v1/access_token",
+        revocationUrl: REVOCATION_URL,
+        revocationClientAuth: "basic",
+        scopes: ["spark:kms"],
+        redirectUri: "https://caipe.example.com/api/credentials/oauth/webex/callback",
+        enabled: true,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+        ...overrides,
+      };
+    }
+
+    function makeConnection(overrides?: Partial<ProviderConnectionDocument>): ProviderConnectionDocument {
+      return {
+        id: "conn-1",
+        connectorId: "webex-connector-1",
+        provider: "webex",
+        owner: { type: "user", id: "alice-sub" },
+        status: "connected",
+        refreshTokenRef: "provider_connection:conn-1:refresh_token",
+        accessTokenRef: "provider_connection:conn-1:access_token",
+        connectedAt: new Date("2026-01-01T00:00:00Z"),
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+        ...overrides,
+      };
+    }
+
+    function makeService(
+      connectors: MemoryCollection<OAuthConnectorDocument>,
+      connections: MemoryCollection<ProviderConnectionDocument>,
+      getSecret: (ref: string) => Promise<string>,
+    ) {
+      return new ProviderConnectionService({
+        providerConnectionsCollection: connections,
+        connectorsCollection: connectors,
+        payloadStore: { getSecret: jest.fn(getSecret), putSecret: mockPutSecret() },
+        tokenClient: mockTokenClient({ access_token: "unused" }),
+        idGenerator: () => "new-id",
+        now: () => new Date("2026-07-07T00:00:00Z"),
+      });
+    }
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("sends Authorization: Basic and revokes both tokens when revocationClientAuth is 'basic'", async () => {
+      const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+        fetchCalls.push({ url: url as string, init: init ?? {} });
+        return new Response(null, { status: 200 });
+      });
+
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeWebexConnector());
+      connections.docs.push(makeConnection());
+
+      const secrets: Record<string, string> = {
+        "oauth_connector:webex-connector-1:client_secret": "webex-client-secret",
+        "provider_connection:conn-1:access_token": "access-token-abc",
+        "provider_connection:conn-1:refresh_token": "refresh-token-xyz",
+      };
+      const service = makeService(connectors, connections, async (ref) => secrets[ref] ?? "");
+
+      await service.revokeConnection({ connectionId: "conn-1", owner: { type: "user", id: "alice-sub" } });
+
+      expect(fetchCalls).toHaveLength(2);
+      const expectedAuth = `Basic ${Buffer.from("webex-client-id:webex-client-secret").toString("base64")}`;
+      for (const call of fetchCalls) {
+        expect(call.url).toBe(REVOCATION_URL);
+        expect((call.init.headers as Record<string, string>)["Authorization"]).toBe(expectedAuth);
+        expect((call.init.headers as Record<string, string>)["Content-Type"]).toBe("application/x-www-form-urlencoded");
+      }
+      const bodies = fetchCalls.map((c) => Object.fromEntries(new URLSearchParams(c.init.body as string)));
+      expect(bodies.find((b) => b.token === "access-token-abc" && b.token_type_hint === "access_token")).toBeDefined();
+      expect(bodies.find((b) => b.token === "refresh-token-xyz" && b.token_type_hint === "refresh_token")).toBeDefined();
+    });
+
+    it("sends client credentials in the body (not Basic auth) when revocationClientAuth is absent", async () => {
+      const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+        fetchCalls.push({ url: url as string, init: init ?? {} });
+        return new Response(null, { status: 200 });
+      });
+
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeWebexConnector({ revocationClientAuth: undefined, revocationUrl: "https://example.com/revoke" }));
+      connections.docs.push(makeConnection());
+
+      const secrets: Record<string, string> = {
+        "oauth_connector:webex-connector-1:client_secret": "webex-client-secret",
+        "provider_connection:conn-1:access_token": "access-token-abc",
+        "provider_connection:conn-1:refresh_token": "refresh-token-xyz",
+      };
+      const service = makeService(connectors, connections, async (ref) => secrets[ref] ?? "");
+
+      await service.revokeConnection({ connectionId: "conn-1", owner: { type: "user", id: "alice-sub" } });
+
+      expect(fetchCalls.length).toBeGreaterThan(0);
+      for (const call of fetchCalls) {
+        const headers = call.init.headers as Record<string, string>;
+        expect(headers["Authorization"]).toBeUndefined();
+        const body = Object.fromEntries(new URLSearchParams(call.init.body as string));
+        expect(body.client_id).toBe("webex-client-id");
+        expect(body.client_secret).toBe("webex-client-secret");
+      }
+    });
+
+    it("does not include client_secret in revocation body for PKCE connectors", async () => {
+      const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+        fetchCalls.push({ url: url as string, init: init ?? {} });
+        return new Response(null, { status: 200 });
+      });
+
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeWebexConnector({ revocationClientAuth: undefined, pkce: true }));
+      connections.docs.push(makeConnection());
+
+      const secrets: Record<string, string> = {
+        "provider_connection:conn-1:access_token": "access-token-pkce",
+      };
+      const service = makeService(connectors, connections, async (ref) => secrets[ref] ?? "");
+
+      await service.revokeConnection({ connectionId: "conn-1", owner: { type: "user", id: "alice-sub" } });
+
+      for (const call of fetchCalls) {
+        const body = Object.fromEntries(new URLSearchParams(call.init.body as string));
+        expect(body.client_secret).toBeUndefined();
+      }
+    });
+
+    it("proceeds with local disable even when the revocation fetch fails", async () => {
+      jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network error"));
+
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeWebexConnector());
+      connections.docs.push(makeConnection());
+
+      const secrets: Record<string, string> = {
+        "oauth_connector:webex-connector-1:client_secret": "webex-client-secret",
+        "provider_connection:conn-1:access_token": "access-token-abc",
+        "provider_connection:conn-1:refresh_token": "refresh-token-xyz",
+      };
+      const service = makeService(connectors, connections, async (ref) => secrets[ref] ?? "");
+
+      await expect(
+        service.revokeConnection({ connectionId: "conn-1", owner: { type: "user", id: "alice-sub" } }),
+      ).resolves.toMatchObject({ status: "disabled" });
+      expect(connections.docs[0].status).toBe("disabled");
+    });
+
+    it("skips revocation and does not call fetch for static: connectors", async () => {
+      const mockFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connections.docs.push(makeConnection({ connectorId: "static:webex" }));
+
+      const service = makeService(connectors, connections, async () => "some-token");
+
+      await service.revokeConnection({ connectionId: "conn-1", owner: { type: "user", id: "alice-sub" } });
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
 });

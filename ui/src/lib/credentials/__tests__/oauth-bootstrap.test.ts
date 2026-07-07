@@ -64,6 +64,7 @@ describe("OAuth connector env bootstrap", () => {
       clientId: "webex-client",
       clientSecret: "webex-secret",
       revocationUrl: "https://idbroker.webex.com/idb/oauth2/v1/revoke",
+      revocationClientAuth: "basic",
       scopes: [
         "spark:kms",
         "spark:people_read",

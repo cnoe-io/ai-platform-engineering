@@ -30,6 +30,10 @@ export interface OAuthConnectorDocument {
   tokenUrl: string;
   // RFC 7009 revocation endpoint. Absent means ${tokenUrl}/revoke is tried instead.
   revocationUrl?: string;
+  // How to authenticate the revocation request. "basic" sends credentials as
+  // Authorization: Basic (required by Webex idbroker); "body" is the default
+  // and sends client_id/client_secret as form fields per RFC 7009 §2.1.
+  revocationClientAuth?: "body" | "basic";
   scopes: string[];
   redirectUri: string;
   enabled: boolean;
@@ -104,6 +108,7 @@ export interface CreateConnectorInput {
   authorizationUrl: string;
   tokenUrl: string;
   revocationUrl?: string;
+  revocationClientAuth?: "body" | "basic";
   scopes: string[];
   redirectUri: string;
   pkce?: boolean;
@@ -303,6 +308,7 @@ export class OAuthConnectorService {
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       ...(input.revocationUrl ? { revocationUrl: validateExternalHttpsUrl(input.revocationUrl, "revocationUrl") } : {}),
+      ...(input.revocationClientAuth ? { revocationClientAuth: input.revocationClientAuth } : {}),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
@@ -333,6 +339,7 @@ export class OAuthConnectorService {
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       ...(input.revocationUrl ? { revocationUrl: validateExternalHttpsUrl(input.revocationUrl, "revocationUrl") } : {}),
+      ...(input.revocationClientAuth ? { revocationClientAuth: input.revocationClientAuth } : {}),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
@@ -499,31 +506,47 @@ export class ProviderConnectionService {
     );
   }
 
-  // Best-effort: revoke token at the provider (e.g. Webex CTS) before disabling
-  // locally, so the integration's token slot is freed. Silently swallows all
-  // errors so failures at the provider never block the local disable.
+  // Best-effort: revoke tokens at the provider (e.g. Webex CTS) before disabling
+  // locally, so the integration's token slots are freed. Revokes both the access
+  // token and refresh token (each occupies a separate CTS slot). Silently swallows
+  // all errors so failures at the provider never block the local disable.
   private async revokeTokenAtProvider(connection: ProviderConnectionDocument): Promise<void> {
     if (connection.connectorId.startsWith("static:")) return;
     try {
       const connector = await this.connectorsCollection.findOne({ id: connection.connectorId });
       if (!connector) return;
-      const accessToken = await this.payloadStore.getSecret(connection.accessTokenRef).catch(() => undefined);
-      if (!accessToken) return;
-      const body = new URLSearchParams({
-        token: accessToken,
-        token_type_hint: "access_token",
-        client_id: connector.clientId,
-      });
-      if (!connector.pkce) {
-        const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef).catch(() => undefined);
-        if (clientSecret) body.set("client_secret", clientSecret);
-      }
+
       const revocationUrl = connector.revocationUrl ?? `${connector.tokenUrl}/revoke`;
-      await fetch(revocationUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
+      const useBasicAuth = connector.revocationClientAuth === "basic";
+
+      // Build the Authorization header and base body params once.
+      const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+      const baseBody: Record<string, string> = {};
+      if (useBasicAuth) {
+        const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef).catch(() => undefined);
+        if (!clientSecret) return;
+        headers["Authorization"] = `Basic ${Buffer.from(`${connector.clientId}:${clientSecret}`).toString("base64")}`;
+      } else {
+        baseBody["client_id"] = connector.clientId;
+        if (!connector.pkce) {
+          const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef).catch(() => undefined);
+          if (clientSecret) baseBody["client_secret"] = clientSecret;
+        }
+      }
+
+      const revokeOne = async (token: string, hint: "access_token" | "refresh_token") => {
+        const body = new URLSearchParams({ ...baseBody, token, token_type_hint: hint });
+        await fetch(revocationUrl, { method: "POST", headers, body: body.toString() });
+      };
+
+      // Revoke access token first, then refresh token. Each is a separate CTS slot.
+      const accessToken = await this.payloadStore.getSecret(connection.accessTokenRef).catch(() => undefined);
+      if (accessToken) await revokeOne(accessToken, "access_token").catch(() => undefined);
+
+      const refreshToken = connection.refreshTokenRef
+        ? await this.payloadStore.getSecret(connection.refreshTokenRef).catch(() => undefined)
+        : undefined;
+      if (refreshToken) await revokeOne(refreshToken, "refresh_token").catch(() => undefined);
     } catch {
       // Revocation is best-effort; local disable proceeds regardless.
     }
