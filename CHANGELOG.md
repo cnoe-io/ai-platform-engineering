@@ -1,3 +1,34 @@
+## 0.5.38-dev.4 (2026-07-07)
+
+### Fix
+
+- **webex**: allow markdown-only messages (#2127)
+
+## 0.5.38-dev.3 (2026-07-07)
+
+### Fix
+
+- **workflows**: use exact match for Completed text in sharing e2e tests
+- **workflows**: remove unused buildDefaultWorkflowCatalog import
+
+## 0.5.38-dev.2 (2026-07-07)
+
+### Fix
+
+- **openfga**: make migrate job hook delete policy configurable (#2130)
+
+## 0.5.38-dev.1 (2026-07-06)
+
+### Feat
+
+- **rag**: add opt-in bypass for SSRF protection on web ingestion
+
+### Fix
+
+- **dynamic-agents**: filter Deep Agents internal summarization chunks from SSE stream
+- **dynamic-agents**: harden default middleware stack from 0.4.18-hotfix
+- **slack-bot**: port thread-reply, bot-fallback, and VictorOps fixes from 0.4.18-hotfix
+
 ## 0.5.38 (2026-07-06)
 
 ### Feat
@@ -47,6 +78,9 @@
 - **idp-sync**: upsert user names and team/membership data from Okta
 - **dynamic-agents**: add search and pagination to agents list
 - **keycloak**: add configurable caipe-cli public client for local dev tokens
+- **scheduler**: JWT to be passed to mcp-scheduler (relay) and then to scheduler service which validates and derives owner_sub
+- 5.6-sol is too much and out of control
+- **workflows**: make workflow runs shareable for collaborative debugging
 
 ### Fix
 
@@ -70,6 +104,12 @@
 - **metrics**: correct agentgateway stats port and openfga SM init pod exclusion
 - **servicemonitor**: exclude openfga init job pods from openfga ServiceMonitor
 - **docs**: remove /docs redirect that conflicts with docs plugin root page
+- security
+- **ui**: show schedule run title on the chat
+- reconcile all cron runner image upon deploy and indicate on the schedule modified history
+- dockerfile migration to build/
+- missing changes
+- **workflows**: org-admins can always access any run for troubleshooting
 
 ## 0.5.34-dev.1 (2026-07-02)
 
@@ -121,19 +161,9 @@
 
 ## 0.5.31-dev.1 (2026-06-30)
 
-### Feat
-
-- **scheduler**: JWT to be passed to mcp-scheduler (relay) and then to scheduler service which validates and derives owner_sub
-- 5.6-sol is too much and out of control
-
 ### Fix
 
 - **agentgateway**: make config-bridge ext_authz host release-aware
-- security
-- **ui**: show schedule run title on the chat
-- reconcile all cron runner image upon deploy and indicate on the schedule modified history
-- dockerfile migration to build/
-- missing changes
 - **docs**: correct broken cross-link in architecture/gateway.md (#2075)
 
 ### Refactor
