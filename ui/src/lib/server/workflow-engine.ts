@@ -813,7 +813,7 @@ export function buildWorkflowContextPrefix(
   // --- Investigating workflow files ---
   ctx += "## Investigating Workflow Files\n";
   ctx += "The workflow engine deterministically populates `workflow-state/` after each step. Treat the entire directory as read-only: never create, modify, or delete files under `workflow-state/`. It is provided only as reference material for investigation.\n";
-  ctx += "Previous-step artifacts are stored under `workflow-state/step-{N}--{agent-id}/`. You may use `ls` and `read_file` to inspect user_prompt.txt, tool_calls.txt, and agent_output.txt.\n";
+  ctx += "Previous-step logs are stored under `workflow-state/step-{N}--{agent-id}/`. You may use `ls` and `read_file` to inspect user_prompt.txt, tool_calls.txt, and agent_output.txt.\n";
   ctx += "Other steps may write shared files at the filesystem root, outside `workflow-state/`. Run `ls /` to discover those files when investigating previous work.\n\n";
 
   // --- Critical: User interaction ---

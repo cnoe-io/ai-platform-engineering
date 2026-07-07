@@ -111,6 +111,9 @@ describe("buildWorkflowContextPrefix", () => {
     expect(prompt).toContain("workflow engine deterministically populates `workflow-state/`");
     expect(prompt).toContain("Treat the entire directory as read-only");
     expect(prompt).toContain("provided only as reference material for investigation");
+    expect(prompt).toContain(
+      "Previous-step logs are stored under `workflow-state/step-{N}--{agent-id}/`",
+    );
   });
 
   it("directs agents to inspect shared files at the filesystem root", () => {
