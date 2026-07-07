@@ -34,6 +34,7 @@ import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
 import { TeamDetailsDialog,type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
 import { ServiceAccountsTab } from "@/components/admin/ServiceAccountsTab";
+import { TopNavSettingsTab } from "@/components/admin/TopNavSettingsTab";
 import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
 import { AuthGuard } from "@/components/auth-guard";
@@ -58,7 +59,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,Bug,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,LayoutGrid,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -226,7 +227,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'navigation', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -261,6 +262,8 @@ const CATEGORIES: Category[] = [
     icon: Settings,
     tabs: [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
+      { value: 'navigation', label: 'Navigation', icon: LayoutGrid, gateKey: 'settings' },
+      { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
@@ -1488,8 +1491,18 @@ function AdminPage() {
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
                   <PlatformSettingsTab isAdmin={isAdmin} />
-                  <ReleaseNotesSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
+              )}
+
+              {tabGateValues.settings && (
+                <>
+                  <TabsContent value="release-notes" className="space-y-4">
+                    <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                  </TabsContent>
+                  <TabsContent value="navigation" className="space-y-4">
+                    <TopNavSettingsTab isAdmin={isAdmin} />
+                  </TabsContent>
+                </>
               )}
 
               {tabGateValues.service_accounts && (

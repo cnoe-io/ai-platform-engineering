@@ -1,50 +1,70 @@
 "use client";
 
-import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
-import { SettingsPanel } from "@/components/settings-panel";
-import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
-import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
-import { Button } from "@/components/ui/button";
-import { GithubIcon as Github } from "@/components/ui/icons";
-import {
-Popover,
-PopoverContent,
-PopoverTrigger,
-} from "@/components/ui/popover";
-import { UserMenu } from "@/components/user-menu";
-import { useAdminRole } from "@/hooks/use-admin-role";
-import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
-import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
-import { useMigrationStatus } from "@/hooks/use-migration-status";
-import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
-import { useRAGHealth } from "@/hooks/use-rag-health";
-import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
-import { useVersion } from "@/hooks/use-version";
-import { config,getLogoFilterClass } from "@/lib/config";
-import { cn } from "@/lib/utils";
-import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
-import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { AnimatePresence,motion } from "framer-motion";
-import {
-AlertTriangle,
-BookOpen,
-Bot,
-CalendarClock,
-ChevronDown,
-ChevronRight,
-Database,
-FileText,
-Home,
-KeyRound,
-Loader2,
-Shield,
-Workflow,
-Zap,
-} from "lucide-react";
-import { useSession } from "next-auth/react";
-import Link from "next/link";
-import { usePathname,useRouter } from "next/navigation";
 import React from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import {
+  BookOpen,
+  Zap,
+  Loader2,
+  Database,
+  Shield,
+  FileText,
+  Workflow,
+  FolderKanban,
+  Home,
+  LayoutGrid,
+  Bot,
+  AlertTriangle,
+  CalendarClock,
+  KeyRound,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { GithubIcon as Github } from "@/components/ui/icons";
+import { UserMenu } from "@/components/user-menu";
+import { SettingsPanel } from "@/components/settings-panel";
+import { Button } from "@/components/ui/button";
+import { cn, formatRelativeTime } from "@/lib/utils";
+import { config, getLogoFilterClass } from "@/lib/config";
+import { useChatStore } from "@/store/chat-store";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { useRAGHealth } from "@/hooks/use-rag-health";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
+import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
+import { useVersion } from "@/hooks/use-version";
+import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
+import { useMigrationStatus } from "@/hooks/use-migration-status";
+import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
+import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  applyTopNavConfig,
+  normalizeTopNavConfig,
+  type TopNavConfig,
+} from "@/lib/nav/top-nav-items";
+
+/** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
+function formatInterval(seconds: number): string {
+  if (seconds >= 3600) {
+    const hours = seconds / 3600;
+    return hours % 1 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
+  }
+  if (seconds >= 60) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
 
 /**
  * Editor routes that participate in the unsaved-changes guard.
@@ -134,17 +154,69 @@ function GuardedLink({
   );
 }
 
-// Nav overflow is handled dynamically via ResizeObserver — no fixed breakpoints.
+// Baseline breakpoint: collapse the inline nav (Home/Chat/Skills/...) into
+// the "More" popover. Tuned so 8 primary nav pills + standard right-side
+// cluster (status pill + settings + user menu) still fit on a typical
+// laptop without overlap.
+const HEADER_NAV_COLLAPSE_BASE_PX = 1180;
+// Wider breakpoint used when an admin-only banner is showing on the right
+// (`migrationStatus.is_blocking` / `needs_version_bootstrap` /
+// `override_active`, or the Keycloak invariant alert chip). Each banner
+// pill adds ~140-200px of labelled width, and combined with the
+// full-text "Report a Problem" button can push the right cluster into
+// the inline nav — which then silently clips the last secondary item
+// (Admin) due to `overflow-hidden` on the left flex region. Collapsing
+// earlier in that case prevents the overlap that hides the Admin tab on
+// 1180-1500px viewports. Empirical: at 1440px with the Version metadata
+// chip showing, the inline nav was clipping Admin off-screen; 1500 is
+// the smallest breakpoint that gives reliable headroom for the wider
+// right cluster on every layout we've reproduced.
+const HEADER_NAV_COLLAPSE_BASE_PX_WITH_BANNER = 1500;
+
+function useHeaderNavCollapsed(earlyCollapse: boolean = false, extraPx = 0): boolean {
+  // Dynamic breakpoint: each pinned app/extra tab widens the inline nav, so
+  // raise the collapse threshold accordingly — otherwise the nav clips the
+  // last tab instead of moving items into the "More" popover.
+  const base = earlyCollapse
+    ? HEADER_NAV_COLLAPSE_BASE_PX_WITH_BANNER
+    : HEADER_NAV_COLLAPSE_BASE_PX;
+  const query = `(max-width: ${base + extraPx}px)`;
+
+  const [collapsed, setCollapsed] = React.useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  });
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia(query);
+    const handleChange = () => setCollapsed(media.matches);
+    handleChange();
+    media.addEventListener?.("change", handleChange);
+    return () => media.removeEventListener?.("change", handleChange);
+  }, [query]);
+
+  return collapsed;
+}
+
+type NavItem = {
+  key: string;
+  href: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  activeClassName: string;
+  disabled?: boolean;
+  /** Render this glyph instead of `Icon` (used by Chat's 💬). */
+  emoji?: string;
+  /** Render the live conversation count badge (Chat only). */
+  badge?: "chat";
+};
 
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
-  const { streamingConversations, unviewedConversations, inputRequiredConversations, conversations, activeConversationId } = useChatStore();
-  const chatHref = React.useMemo(
-    () => resolveChatNavigationPath({ conversations, activeConversationId }),
-    [conversations, activeConversationId],
-  );
+  const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
     pendingNavigationHref,
@@ -200,10 +272,22 @@ export function AppHeader() {
   } = useAgentRuntimeHealth();
   const storageMode = config.storageMode;
 
+  const mongoNavEnabled =
+    storageMode === "mongodb" || config.storageMode === "mongodb";
+
   // Health check for RAG server (polls every 30 seconds)
   const {
-    status: ragStatus
+    status: ragStatus,
+    url: ragUrl,
+    secondsUntilNextCheck: ragNextCheck,
+    graphRagEnabled,
+    cleanupConfig
   } = useRAGHealth();
+
+  // Health check for Agent Runtime (polls every 30 seconds)
+  const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
+
+  // Platform health probes (polls all platform services: dynamic agents, auth, storage, RAG, migrations)
   const {
     status: platformProbeStatus,
     capabilities: platformCapabilities,
@@ -247,7 +331,7 @@ export function AppHeader() {
     combinedStatus === "connected" ? "Healthy" :
     combinedStatus === "checking" ? "Checking" :
     "Degraded";
-  // assisted-by Codex Codex-sonnet-4-6
+
   const activeCapabilities = platformCapabilities.filter(
     (capability) => capability.status !== "disabled",
   );
@@ -279,12 +363,13 @@ export function AppHeader() {
     if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/projects")) return "projects";
+    if (pathname?.startsWith("/apps")) return "apps";
     if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
 
-  const activeTab = getActiveTab();
   // Admin-only alerts shown in the right cluster. Sources collapse into
   // a SINGLE pill ("Alerts: <total>") to keep the header uncluttered —
   // see the rendering block further down. Severity is `red` when the
@@ -369,6 +454,134 @@ export function AppHeader() {
           : null,
       ].filter(Boolean) as AdminAlertSource[])
     : [];
+  // The early-collapse signal for the inline nav: any time the admin
+  // alert pill is showing it adds ~140-200px of width to the right
+  // cluster, which can push the inline nav (including the Admin tab)
+  // into overflow. Keep the existing breakpoint behavior by treating
+  // the unified pill the same as the old per-source banners.
+  const hasMigrationBanner = adminAlerts.length > 0;
+  // Pinned agentic apps: any installed app whose manifest sets
+  // surfaces.showInTopNav renders as a top-nav tab (sorted by navOrder by the
+  // API). Lets admins promote installed agentic apps into the nav.
+  const [pinnedAppNavItems, setPinnedAppNavItems] = React.useState<
+    Array<{
+      key: string;
+      href: string;
+      label: string;
+      Icon: React.ComponentType<{ className?: string }>;
+      activeClassName: string;
+    }>
+  >([]);
+  React.useEffect(() => {
+    if (!(mongoNavEnabled && config.agenticAppsEnabled)) return;
+    let cancelled = false;
+    fetch("/api/agentic-apps")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body) return;
+        const items = (body.items ?? body.data?.items ?? []) as Array<{
+          appId: string;
+          href?: string;
+          displayName?: string;
+          surfaces?: { showInTopNav?: boolean };
+        }>;
+        setPinnedAppNavItems(
+          items
+            .filter(
+              (a) => a?.surfaces?.showInTopNav === true && typeof a.href === "string",
+            )
+            .map((a) => ({
+              key: `app-${a.appId}`,
+              href: a.href as string,
+              label: a.displayName ?? a.appId,
+              Icon: LayoutGrid,
+              activeClassName: "bg-cyan-600 text-white shadow-sm",
+            })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Active tab. A pinned agentic-app tab (href like /apps/embed/ttt or
+  // /apps/agentic-sdlc) must win over the generic "Apps" tab when its route is
+  // open — otherwise getActiveTab()'s broad `/apps` match highlights "Apps"
+  // while the user is on the pinned app. Match the longest pinned href prefix
+  // first, then fall back to the keyword map.
+  const activePinnedApp = pinnedAppNavItems
+    .filter((it) => pathname === it.href || pathname?.startsWith(`${it.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const activeTab = activePinnedApp ? activePinnedApp.key : getActiveTab();
+  // Admin-customized top-nav order + enabled/disabled set (Admin → Settings →
+  // Navigation), stored in platform_config.top_nav and readable by any
+  // authenticated user. Applied to the unified nav list below.
+  const [topNavConfig, setTopNavConfig] = React.useState<TopNavConfig | null>(
+    null,
+  );
+  const fetchTopNavConfig = React.useCallback(() => {
+    let cancelled = false;
+    fetch("/api/admin/platform-config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        setTopNavConfig(normalizeTopNavConfig(body?.data?.top_nav));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  React.useEffect(() => {
+    const cleanup = fetchTopNavConfig();
+    const handler = () => fetchTopNavConfig();
+    window.addEventListener("caipe:top-nav-config-updated", handler);
+    return () => {
+      cleanup();
+      window.removeEventListener("caipe:top-nav-config-updated", handler);
+    };
+  }, [fetchTopNavConfig]);
+  // Collapse into "More" sooner when pinned-app tabs widen the inline nav
+  // (~150px each) so it overflows gracefully instead of clipping the last tab.
+  const headerNavCollapsed = useHeaderNavCollapsed(
+    hasMigrationBanner,
+    pinnedAppNavItems.length * 150,
+  );
+  // Primary tabs always available regardless of MongoDB/feature flags. These
+  // join the secondary tabs + pinned apps into a single ordered list so the
+  // admin Navigation editor can reorder/hide any of them.
+  const primaryNavItems = [
+    {
+      key: "home",
+      href: "/",
+      label: "Home",
+      Icon: Home,
+      activeClassName: "gradient-primary text-white shadow-sm",
+    },
+    {
+      key: "chat",
+      href: "/chat",
+      label: "Chat",
+      Icon: Home, // unused; chat renders an emoji glyph
+      emoji: "💬",
+      badge: "chat" as const,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    {
+      key: "projects",
+      href: "/projects",
+      label: "Projects",
+      Icon: FolderKanban,
+      activeClassName: "bg-indigo-600 text-white shadow-sm",
+    },
+    {
+      key: "skills",
+      href: "/skills",
+      label: "Skills",
+      Icon: Zap,
+      activeClassName: "gradient-primary text-white shadow-sm",
+    },
+  ];
+
   const secondaryNavItems = [
     config.workflowsEnabled && {
       key: "workflows",
@@ -384,21 +597,29 @@ export function AppHeader() {
       Icon: Database,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && {
+    mongoNavEnabled && config.dynamicAgentsEnabled && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
       Icon: Bot,
       activeClassName: "bg-purple-500 text-white shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
+    mongoNavEnabled && config.agenticAppsEnabled && {
+      key: "apps",
+      href: "/apps",
+      label: "Apps",
+      Icon: LayoutGrid,
+      activeClassName: "bg-cyan-600 text-white shadow-sm",
+    },
+    ...pinnedAppNavItems,
+    mongoNavEnabled && config.dynamicAgentsEnabled && config.schedulerEnabled && {
       key: "schedules",
       href: "/schedules",
       label: "Schedules",
       Icon: CalendarClock,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && config.userConnectionsEnabled && {
+    mongoNavEnabled && config.userConnectionsEnabled && {
       key: "credentials",
       href: "/credentials#connections",
       label: "Credentials",
@@ -410,93 +631,32 @@ export function AppHeader() {
       href: "/admin",
       label: "Admin",
       Icon: Shield,
-      disabled: storageMode !== "mongodb",
+      disabled: !mongoNavEnabled,
       activeClassName:
         activeTab === "admin" && isAdmin
           ? "bg-red-500 text-white shadow-sm"
           : "bg-primary text-primary-foreground shadow-sm",
     },
-  ].filter(Boolean) as Array<{
-    key: string;
-    href: string;
-    label: string;
-    Icon: React.ComponentType<{ className?: string }>;
-    activeClassName: string;
-    disabled?: boolean;
-  }>;
+  ].filter(Boolean) as Array<NavItem>;
 
-  // All nav items in order — primary first, then secondary.
-  type NavItem = {
-    key: string;
-    href: string;
-    label: string;
-    Icon: React.ComponentType<{ className?: string }>;
-    activeClassName: string;
-    disabled?: boolean;
-  };
-  const allNavItems: NavItem[] = [
-    { key: "home", href: "/", label: "Home", Icon: Home, activeClassName: "gradient-primary text-white shadow-sm" },
-    { key: "chat", href: "/chat", label: "Chat", Icon: ({ className }: { className?: string }) => <span className={className}>💬</span>, activeClassName: "bg-primary text-primary-foreground shadow-sm" },
-    { key: "skills", href: "/skills", label: "Skills", Icon: Zap, activeClassName: "gradient-primary text-white shadow-sm" },
-    ...secondaryNavItems,
-  ];
-
-  const [visibleCount, setVisibleCount] = React.useState<number>(allNavItems.length);
-  const navStripRef = React.useRef<HTMLDivElement>(null);
-  const leftContainerRef = React.useRef<HTMLDivElement>(null);
-  const logoRef = React.useRef<HTMLDivElement>(null);
-  // Cached per-item widths — read once when all items are rendered, never again.
-  const cachedWidthsRef = React.useRef<number[] | null>(null);
-  const MORE_WIDTH = 88;
-
-  // Phase 1: when item count changes, reset cache and show everything so we can measure.
-  React.useLayoutEffect(() => {
-    cachedWidthsRef.current = null;
-    setVisibleCount(allNavItems.length);
-  }, [allNavItems.length]);
-
-  // Phase 2: after full render, cache widths; on every container resize recompute
-  // using ONLY stable measurements (container width, logo width, cached item widths).
-  // Never reads strip.offsetWidth or strip children — that would create a feedback loop.
-  React.useLayoutEffect(() => {
-    const strip = navStripRef.current;
-    const container = leftContainerRef.current;
-    const logo = logoRef.current;
-    if (!strip || !container || !logo) return;
-
-    const recompute = () => {
-      if (!cachedWidthsRef.current) {
-        // Read item widths now, while visibleCount === allNavItems.length
-        cachedWidthsRef.current = (Array.from(strip.children) as HTMLElement[])
-          .filter((c) => !c.dataset.moreBtn)
-          .map((c) => c.getBoundingClientRect().width);
-      }
-      const widths = cachedWidthsRef.current;
-      // Available width = container minus logo minus the gap between them (16px).
-      const available = container.offsetWidth - logo.offsetWidth - 16;
-      let used = 0;
-      let count = 0;
-      for (let i = 0; i < widths.length; i++) {
-        const wouldNeedMore = i < widths.length - 1;
-        if (used + widths[i] + (wouldNeedMore ? MORE_WIDTH : 0) > available) break;
-        used += widths[i];
-        count++;
-      }
-      setVisibleCount(Math.max(count, 1));
-    };
-
-    const ro = new ResizeObserver(recompute);
-    ro.observe(container);
-    recompute();
-    return () => ro.disconnect();
-   
-  }, [allNavItems.length]);
-
-  const overflowItems = allNavItems.slice(visibleCount);
-  const visibleItems = allNavItems.slice(0, visibleCount);
+  // Unified, admin-ordered nav list: primary tabs + secondary tabs + pinned
+  // apps, then the admin's order/hidden config applied on top.
+  const navItems: NavItem[] = applyTopNavConfig(
+    [...primaryNavItems, ...secondaryNavItems],
+    topNavConfig,
+  );
+  // When collapsed, keep the first few tabs inline and push the rest into the
+  // "More" popover. When not collapsed, everything renders inline.
+  const INLINE_WHEN_COLLAPSED = 4;
+  const inlineNavItems = headerNavCollapsed
+    ? navItems.slice(0, INLINE_WHEN_COLLAPSED)
+    : navItems;
+  const moreNavItems = headerNavCollapsed
+    ? navItems.slice(INLINE_WHEN_COLLAPSED)
+    : [];
 
   const renderSecondaryNavItem = (
-    item: (typeof secondaryNavItems)[number],
+    item: NavItem,
     variant: "inline" | "menu",
   ) => {
     const Icon = item.Icon;
@@ -513,6 +673,9 @@ export function AppHeader() {
         ? "text-muted-foreground/50 opacity-50 cursor-not-allowed"
         : "text-muted-foreground/50 opacity-50 cursor-not-allowed";
     const className = cn(
+      // Chat's live badge is absolutely positioned, so its inline pill needs
+      // `relative` for the badge to anchor correctly.
+      item.badge === "chat" && variant === "inline" && "relative",
       baseClassName,
       item.disabled
         ? disabledClassName
@@ -523,8 +686,41 @@ export function AppHeader() {
 
     const content = (
       <>
-        <Icon className="h-3.5 w-3.5 shrink-0" />
+        {item.emoji ? (
+          <span aria-hidden className="shrink-0">
+            {item.emoji}
+          </span>
+        ) : (
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+        )}
         {item.label}
+        {item.badge === "chat" && variant === "inline" && (
+          <>
+            {streamingConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
+                  {streamingConversations.size}
+                </span>
+              </span>
+            )}
+            {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
+                  {inputRequiredConversations.size}
+                </span>
+              </span>
+            )}
+            {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
+                  {unviewedConversations.size}
+                </span>
+              </span>
+            )}
+          </>
+        )}
       </>
     );
 
@@ -545,83 +741,39 @@ export function AppHeader() {
 
   return (
     <>
-    <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50 relative">
-      <div ref={leftContainerRef} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
-        {/* Logo - clickable to home. Wrapped in div so logoRef gives a stable offsetWidth. */}
-        <div ref={logoRef} className="shrink-0">
-          <GuardedLink
-            href="/"
-            className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
-          >
-            <img
-              src={config.logoUrl}
-              alt={`${config.appName} Logo`}
-              className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
-            />
-            <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
-            {config.envBadge && (
-              <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
-                {config.envBadge}
-              </span>
-            )}
-          </GuardedLink>
-        </div>
+    <header className="relative h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
+        {/* Logo - clickable to home */}
+        <GuardedLink
+          href="/"
+          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity shrink-0"
+        >
+          <img
+            src={config.logoUrl}
+            alt={`${config.appName} Logo`}
+            className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
+          />
+          <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
+          {config.envBadge && (
+            <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+              {config.envBadge}
+            </span>
+          )}
+        </GuardedLink>
 
-        {/* Navigation Pills — overflow-aware: items that don't fit move to More */}
-        <div ref={navStripRef} className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
-          {visibleItems.map((item) => {
-            if (item.key === "chat") {
-              return (
-                <GuardedLink
-                  key="chat"
-                  href={chatHref}
-                  prefetch={true}
-                  className={cn(
-                    "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                    activeTab === "chat"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  💬 Chat
-                  {streamingConversations.size > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
-                        {streamingConversations.size}
-                      </span>
-                    </span>
-                  )}
-                  {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
-                        {inputRequiredConversations.size}
-                      </span>
-                    </span>
-                  )}
-                  {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
-                        {unviewedConversations.size}
-                      </span>
-                    </span>
-                  )}
-                </GuardedLink>
-              );
-            }
-            return renderSecondaryNavItem(item, "inline");
-          })}
-          {overflowItems.length > 0 && (
+        {/* Navigation Pills — unified, admin-ordered list (Admin → Settings →
+            Navigation). Collapses overflow into a "More" popover. */}
+        <div className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
+          {inlineNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
+          {moreNavItems.length > 0 && (
             <Popover>
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  data-more-btn="1"
                   aria-label="More navigation"
                   className={cn(
                     "flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-all",
-                    overflowItems.some((item) => activeTab === item.key)
+                    moreNavItems.some((item) => activeTab === item.key)
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
                   )}
@@ -632,7 +784,7 @@ export function AppHeader() {
               </PopoverTrigger>
               <PopoverContent side="bottom" align="start" className="w-56 p-2">
                 <div className="space-y-1">
-                  {overflowItems.map((item) => renderSecondaryNavItem(item, "menu"))}
+                  {moreNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
                 </div>
               </PopoverContent>
             </Popover>
@@ -641,9 +793,9 @@ export function AppHeader() {
       </div>
 
       {/* Status & Actions */}
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className={cn("flex shrink-0 items-center", headerNavCollapsed ? "gap-1.5" : "gap-3")}>
         {/* Combined Connection Status */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <button
@@ -669,9 +821,9 @@ export function AppHeader() {
                     combinedStatus === "degraded" && "bg-amber-400",
                     combinedStatus === "rag-disconnected" && "bg-amber-400",
                     combinedStatus === "disconnected" && "bg-red-400",
+                    isStreaming && "animate-pulse"
                   )} />
                 )}
-                {/* Label animates in only when not "connected" */}
                 <AnimatePresence initial={false}>
                   {combinedStatus !== "connected" && (
                     <motion.span
@@ -798,6 +950,115 @@ export function AppHeader() {
                       </div>
                     )}
                   </div>
+
+                  {/* RAG Server Section - only show if RAG is enabled */}
+                  {ragEnabled && (
+                    <>
+                      {/* Divider */}
+                      <div className="border-t border-border/50" />
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-bold text-foreground">RAG Server</div>
+                            <div className={cn(
+                              "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                              ragStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
+                              ragStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                              ragStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                            )}>
+                              {ragStatus === "connected" ? "ONLINE" : ragStatus === "checking" ? "CHECKING" : "OFFLINE"}
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground font-mono">
+                            Next check: {ragNextCheck}s
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
+                          {ragUrl}
+                        </div>
+
+                        {/* Graph RAG Status */}
+                        <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
+                          <div className="text-xs text-muted-foreground">Knowledge Graph</div>
+                          <div className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            graphRagEnabled
+                              ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                              : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
+                          )}>
+                            {graphRagEnabled ? "ON" : "OFF"}
+                          </div>
+                        </div>
+
+                        {/* Auto-Cleanup Status */}
+                        {cleanupConfig && (
+                          <div className="bg-muted/20 rounded px-2 py-1.5 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-muted-foreground">Auto-Cleanup</div>
+                              <div className={cn(
+                                "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                                cleanupConfig.enabled
+                                  ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                                  : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
+                              )}>
+                                {cleanupConfig.enabled ? formatInterval(cleanupConfig.interval_seconds) : "OFF"}
+                              </div>
+                            </div>
+                            {cleanupConfig.enabled && (
+                              <div className="text-[10px] text-muted-foreground">
+                                {cleanupConfig.last_cleanup ? (
+                                  <>
+                                    <div>Last: {formatRelativeTime(cleanupConfig.last_cleanup)}</div>
+                                    <div>Next: {formatRelativeTime(cleanupConfig.last_cleanup + cleanupConfig.interval_seconds)}</div>
+                                  </>
+                                ) : (
+                                  <>Waiting for first cleanup...</>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Agent Runtime Section */}
+                  <>
+                    {/* Divider */}
+                    <div className="border-t border-border/50" />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-bold text-foreground">Agent Runtime</div>
+                          <div className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            agentRuntimeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
+                            agentRuntimeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                            agentRuntimeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                          )}>
+                            {agentRuntimeStatus === "connected" ? "ONLINE" : agentRuntimeStatus === "checking" ? "CHECKING" : "OFFLINE"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dynamic Agents sub-item */}
+                      <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
+                        <div className="text-xs text-muted-foreground">CAIPE Dynamic Agents</div>
+                        <div className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                          agentRuntimeStatus === "connected"
+                            ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                            : agentRuntimeStatus === "checking"
+                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            : "bg-red-500/15 text-red-400 border border-red-500/30"
+                        )}>
+                          {agentRuntimeStatus === "connected" ? "ON" : agentRuntimeStatus === "checking" ? "..." : "OFF"}
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 </div>
 
                 <div className="space-y-1.5 border-t border-border/50 bg-muted/20 px-4 py-2.5">
@@ -838,10 +1099,13 @@ export function AppHeader() {
               <PopoverTrigger asChild>
                 <button
                   aria-label="No auth configured"
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20 hover:scale-105"
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20 hover:scale-105",
+                    headerNavCollapsed && "h-8 w-8 justify-center px-0",
+                  )}
                 >
                   <AlertTriangle className="h-3 w-3" />
-                  <span>No Auth</span>
+                  <span className={headerNavCollapsed ? "sr-only" : ""}>No Auth</span>
                 </button>
               </PopoverTrigger>
               <PopoverContent side="bottom" align="end" className="w-80 p-3">
@@ -983,46 +1247,56 @@ export function AppHeader() {
         </div>
 
         {/* Personalization, Links & User */}
-        <div className="flex items-center gap-1 border-l border-border pl-1.5">
+        <div className={cn("flex items-center gap-1 border-l border-border", headerNavCollapsed ? "pl-1.5" : "pl-3")}>
           {config.reportProblemEnabled && (
             <>
-              <button
+              <Button
+                variant="ghost"
+                size={headerNavCollapsed ? "icon" : "sm"}
                 aria-label="Report a Problem"
                 title="Report a Problem"
-                className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className={cn(
+                  "h-8 text-xs text-muted-foreground hover:text-foreground",
+                  headerNavCollapsed ? "w-8" : "gap-1.5",
+                )}
                 onClick={() => setReportDialogOpen(true)}
               >
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <motion.span
-                  initial={false}
-                  animate={{ opacity: 1, width: "auto" }}
-                  className="overflow-hidden whitespace-nowrap hidden sm:block"
-                >
-                  Report a Problem
-                </motion.span>
-              </button>
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {!headerNavCollapsed && "Report a Problem"}
+              </Button>
               <ReportProblemDialog
                 open={reportDialogOpen}
                 onOpenChange={setReportDialogOpen}
               />
             </>
           )}
-          <SettingsPanel />
+          <SettingsPanel compact={headerNavCollapsed} />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-              <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" title="Documentation">
+              <a
+                href={config.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Documentation"
+              >
                 <BookOpen className="h-4 w-4" />
               </a>
             </Button>
           )}
           {config.sourceUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-              <a href={config.sourceUrl} target="_blank" rel="noopener noreferrer" title="Source Code">
+              <a
+                href={config.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Source Code"
+              >
                 <Github className="h-4 w-4" />
               </a>
             </Button>
           )}
-          <UserMenu />
+          {/* User Menu - Only shown when SSO is enabled */}
+          <UserMenu compact={headerNavCollapsed} />
         </div>
       </div>
     </header>

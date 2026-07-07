@@ -25,7 +25,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
   // Initialize authChecked to true if already authenticated to avoid spinner on navigation
   const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [loadingTimeout, setLoadingTimeout] = useState(false);
-  const [autoResetInitiated, setAutoResetInitiated] = useState(false);
 
   /**
    * Build a login URL that preserves the current page as callbackUrl so the
@@ -59,43 +58,19 @@ export function AuthGuard({ children }: AuthGuardProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Enhanced timeout mechanism - if stuck for more than 5 seconds, show cancel button
-  // If stuck for more than 15 seconds, auto-reset and redirect
+  // Show a manual-reset cancel button after 5 seconds if auth check is stuck.
+  // Auto-resetting is intentionally omitted: it clears cookies on valid sessions
+  // during normal back-navigation remounts, causing a redirect loop.
   useEffect(() => {
     if ((status === "authenticated" || status === "loading") && !authChecked) {
-      // Show cancel button after 5 seconds
       const timeoutButton = setTimeout(() => {
         console.warn("[AuthGuard] Authorization check taking too long - showing reset option");
         setLoadingTimeout(true);
-      }, 5000); // 5 seconds
+      }, 5000);
 
-      // Auto-reset after 15 seconds if still stuck
-      const timeoutReset = setTimeout(() => {
-        if (!authChecked && !autoResetInitiated) {
-          console.error("[AuthGuard] Authorization stuck for 15s - auto-resetting session...");
-          setAutoResetInitiated(true);
-
-          // Clear everything
-          if (typeof window !== 'undefined') {
-            localStorage.clear();
-            sessionStorage.clear();
-            // Clear all cookies
-            document.cookie.split(";").forEach((c) => {
-              document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-            });
-          }
-
-          // Force redirect to login
-          window.location.href = loginUrl('session_reset=auto');
-        }
-      }, 15000); // 15 seconds
-
-      return () => {
-        clearTimeout(timeoutButton);
-        clearTimeout(timeoutReset);
-      };
+      return () => clearTimeout(timeoutButton);
     }
-  }, [status, authChecked, autoResetInitiated]);
+  }, [status, authChecked]);
 
   useEffect(() => {
     if (!getConfig('ssoEnabled')) {

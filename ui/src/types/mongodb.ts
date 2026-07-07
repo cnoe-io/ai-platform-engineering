@@ -213,6 +213,7 @@ export interface UserSettings {
     releaseNotesNotificationsEnabled?: boolean;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
+    favorite_agentic_apps?: string[];
   };
   notifications: {
     email_enabled: boolean;

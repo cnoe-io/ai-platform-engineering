@@ -21,6 +21,34 @@ export async function register() {
   // Start the IdP directory-sync scheduler so the "Enable background sync"
   // schedule (Identity Sync admin tab) actually fires. Idempotent and
   // replica-safe (per-minute fires are claimed atomically in Mongo).
-  const { startIdpSyncScheduler } = await import("./lib/rbac/idp-sync-scheduler");
-  startIdpSyncScheduler();
+  // A failure here (e.g. an optional connector SDK that can't load) must not
+  // take down the web server; log and continue serving requests.
+  try {
+    const { startIdpSyncScheduler } = await import(
+      "./lib/rbac/idp-sync-scheduler"
+    );
+    startIdpSyncScheduler();
+  } catch (err) {
+    console.warn("[instrumentation] IdP sync scheduler not started:", err);
+  }
+
+  // Start the Tome ingest queue worker so BHAG-cascade runs (status "queued")
+  // actually get drained. Idempotent; failures must not take down the server.
+  try {
+    const { startIngestQueue } = await import("./lib/tome/ingest-queue");
+    startIngestQueue();
+  } catch (err) {
+    console.warn("[instrumentation] Tome ingest queue not started:", err);
+  }
+
+  // Start the Tome source-activity feed poller. Opt-in via
+  // TOME_SOURCE_FEED_ENABLED. Polls connected GitHub sources and emits
+  // `source_event`s into each project's Talk room. Idempotent; failures here
+  // must not take down the server.
+  try {
+    const { startSourceFeedPoller } = await import("./lib/tome/source-feed/poller");
+    startSourceFeedPoller();
+  } catch (err) {
+    console.warn("[instrumentation] Tome source-feed poller not started:", err);
+  }
 }

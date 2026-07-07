@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1.7
+# caipe-agentic-app-runtime — Node.js runtime bundling all built agentic-app
+# server bundles. The startup command selects the specific app; each server.mjs
+# is already a self-contained esbuild/rollup output with no external deps.
+
+FROM node:22-alpine
+WORKDIR /app
+
+# Copy all agentic-app bundles and shared libs.
+# Each sub-directory contains a server.mjs (standalone bundle) and a
+# manifest.mjs (app metadata). The shared _lib/ holds the JWT verifier.
+COPY ui/apps/ ./apps/
+
+# Port is selected at runtime via $*_APP_PORT env vars; EXPOSE is illustrative.
+EXPOSE 3010 3020 3040 3041

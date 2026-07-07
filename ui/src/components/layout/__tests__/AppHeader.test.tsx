@@ -47,11 +47,22 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-// Controls the simulated container width in the ResizeObserver mock (jest.setup.js).
-// Pass true to simulate a narrow container (triggers nav overflow / More button).
-// Pass false to restore the default wide container (all items visible).
+// Controls whether useHeaderNavCollapsed returns true (narrow) or false (wide).
+// The hook uses window.matchMedia, so we mock it to return the desired matches value.
 function setHeaderNavConstrained(constrained: boolean) {
-  ;(global as any).__mockContainerWidth = constrained ? 0 : 2000
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches: constrained,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
 }
 
 // Mock admin role hook
@@ -199,6 +210,7 @@ jest.mock('@/components/ui/toast', () => ({
 
 // Mock config
 let mockReportProblemEnabled = false
+let mockDynamicAgentsEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -212,6 +224,7 @@ jest.mock('@/lib/config', () => ({
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
+    get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, any> = {
@@ -221,6 +234,7 @@ jest.mock('@/lib/config', () => ({
       get storageMode() { return mockStorageMode },
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
+      get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
     }
     return configs[key]
   }),
@@ -456,9 +470,9 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
-      // Right cluster: status stays icon-only circle, Report a Problem keeps its label
+      // Right cluster: status badge collapses to icon-only, Report a Problem is icon-only button
       expect(screen.getByRole('button', { name: /system status: healthy/i })).toHaveClass('w-8')
-      expect(screen.getByText('Report a Problem')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /report a problem/i })).toBeInTheDocument()
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
     })

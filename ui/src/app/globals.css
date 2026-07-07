@@ -823,3 +823,283 @@ pre code.hljs {
 [data-animating] > [data-panel] {
   transition: flex-grow 300ms ease-in-out;
 }
+
+/* ========================================
+   TOME - Milkdown (Crepe) editor chrome
+   Reconcile Crepe's bundled `frame` theme with CAIPE design tokens so the
+   wiki editor matches the app shell instead of Crepe's stock palette, and
+   style citation chips emitted by CrepeEditor's linkAttr hook.
+   ======================================== */
+.milkdown-host {
+  min-height: 100%;
+  /* Map Crepe theme variables → CAIPE tokens. */
+  --crepe-color-background: hsl(var(--background));
+  --crepe-color-on-background: hsl(var(--foreground));
+  --crepe-color-surface: hsl(var(--card));
+  --crepe-color-surface-low: hsl(var(--muted));
+  --crepe-color-on-surface: hsl(var(--card-foreground));
+  --crepe-color-on-surface-variant: hsl(var(--muted-foreground));
+  --crepe-color-outline: hsl(var(--border));
+  --crepe-color-primary: hsl(var(--primary));
+  --crepe-color-on-primary: hsl(var(--primary-foreground));
+  --crepe-color-secondary: hsl(var(--accent));
+  --crepe-color-on-secondary: hsl(var(--accent-foreground));
+  --crepe-color-inverse: hsl(var(--foreground));
+  --crepe-color-on-inverse: hsl(var(--background));
+  --crepe-color-hover: hsl(var(--muted));
+  --crepe-color-selected: hsl(var(--accent));
+  --crepe-shadow-1: none;
+  --crepe-shadow-2: none;
+  /* Crepe's title font is a serif stack (Georgia/Times) - the app has no serif
+     face, so it falls back to Times New Roman. Point every Crepe font at the
+     app's own families instead. */
+  --crepe-font-title: var(--font-sans);
+  --crepe-font-default: var(--font-sans);
+  --crepe-font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+.milkdown-host .milkdown {
+  min-height: 100%;
+  background: transparent;
+  /* Crepe re-declares its theme vars ON `.milkdown` (e.g.
+     `--crepe-color-primary: #333`), which shadows the mapping we set on the
+     parent `.milkdown-host`. Re-map the consumed ones here, at matching
+     specificity, so links/accents pick up the app theme (not near-black). */
+  --crepe-color-primary: hsl(var(--primary));
+  --crepe-color-on-primary: hsl(var(--primary-foreground));
+  --crepe-color-on-background: hsl(var(--foreground));
+  --crepe-color-selected: hsl(var(--accent));
+  /* Crepe also re-declares its font vars on `.milkdown` with a serif stack
+     (Georgia/Times), falling back to Times New Roman. Re-apply the sans-serif
+     override at this level so it wins. */
+  --crepe-font-title: var(--font-sans);
+  --crepe-font-default: var(--font-sans);
+  --crepe-font-code: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-family: var(--font-sans);
+}
+
+.milkdown-host .milkdown .ProseMirror {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 6rem;
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+}
+
+.milkdown-host .milkdown .ProseMirror h1,
+.milkdown-host .milkdown .ProseMirror h2,
+.milkdown-host .milkdown .ProseMirror h3,
+.milkdown-host .milkdown .ProseMirror h4,
+.milkdown-host .milkdown .ProseMirror h5,
+.milkdown-host .milkdown .ProseMirror h6 {
+  font-family: var(--font-sans);
+  line-height: 1.3;
+}
+
+/* Tame Crepe's oversized heading defaults with a modest scale that keeps a
+   clear h1 > … > h6 hierarchy against the wiki body text. */
+.milkdown-host .milkdown .ProseMirror h1 {
+  font-size: 1.7rem;
+}
+.milkdown-host .milkdown .ProseMirror h2 {
+  font-size: 1.4rem;
+}
+.milkdown-host .milkdown .ProseMirror h3 {
+  font-size: 1.2rem;
+}
+.milkdown-host .milkdown .ProseMirror h4 {
+  font-size: 1.05rem;
+}
+.milkdown-host .milkdown .ProseMirror h5 {
+  font-size: 0.95rem;
+}
+.milkdown-host .milkdown .ProseMirror h6 {
+  font-size: 0.85rem;
+}
+
+/* The global `*:focus-visible` rule applies a Tailwind box-shadow ring to
+   every focusable element - including the contenteditable surface, which then
+   shows an unwanted light-blue ring on click. The caret (and the amber
+   edit-mode frame on the wrapper) already signal focus, so suppress it here. */
+.milkdown-host .milkdown .ProseMirror:focus,
+.milkdown-host .milkdown .ProseMirror:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Inline code: Crepe's default is a hard red (rgb(186,26,26)) on a fixed grey,
+   which clashes with the app theme (and is unreadable in dark mode). Match the
+   app's prose inline-code instead - muted bg, foreground text. Scoped to inline
+   code only (`:not(pre) > code`) so CodeMirror code blocks are untouched. */
+.milkdown-host .milkdown .ProseMirror :not(pre) > code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
+  color: hsl(var(--foreground));
+}
+
+/* Links: Crepe's default resolves to a near-black that's invisible in dark
+   mode (black-on-black). Use the app's link color, like `.prose a`. The
+   citation-chip links below opt out (they carry their own pill styling). */
+.milkdown-host .milkdown .ProseMirror a:not(.md-citation) {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Citation chips: github issue/pr/commit/release/mention links rendered by
+   the linkAttr hook get `md-citation md-citation-<kind>`. Inline pill styling. */
+.milkdown-host .md-citation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.05em 0.45em;
+  margin: 0 0.05em;
+  border-radius: 9999px;
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.milkdown-host .md-citation:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.milkdown-host .md-citation-issue {
+  border-color: rgb(34 197 94 / 0.4);
+  color: rgb(22 163 74);
+}
+.milkdown-host .md-citation-pr {
+  border-color: rgb(168 85 247 / 0.4);
+  color: rgb(147 51 234);
+}
+.milkdown-host .md-citation-commit {
+  border-color: rgb(245 158 11 / 0.4);
+  color: rgb(217 119 6);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.milkdown-host .md-citation-release {
+  border-color: rgb(14 165 233 / 0.4);
+  color: rgb(2 132 199);
+}
+.milkdown-host .md-citation-mention {
+  border-color: hsl(var(--primary) / 0.4);
+  color: hsl(var(--primary));
+}
+
+/* Internal wiki links (`tome://` / bare *.md) get a "page reference" look —
+   a small page glyph + dashed underline that solidifies on hover — so they
+   read as in-app navigation, distinct from external anchors and citation pills.
+   Shared icon (a document glyph, tinted via currentColor mask). */
+:root {
+  --tome-link-icon: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M14%202H6a2%202%200%200%200-2%202v16a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2V8z'/%3E%3Cpath%20d='M14%202v6h6'/%3E%3C/svg%3E");
+  /* Feed-message link (#91): a chat-bubble glyph, same mask technique. */
+  --tome-feed-link-icon: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2.2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M21%2015a2%202%200%200%201-2%202H7l-4%204V5a2%202%200%200%201%202-2h14a2%202%200%200%201%202%202z'/%3E%3C/svg%3E");
+}
+.milkdown-host .milkdown .ProseMirror a.tome-link {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: hsl(var(--primary) / 0.45);
+  text-underline-offset: 3px;
+  border-radius: 3px;
+  padding: 0 0.12em;
+  transition: text-decoration-color 120ms ease, background-color 120ms ease;
+  cursor: pointer;
+}
+.milkdown-host .milkdown .ProseMirror a.tome-link::before {
+  content: "";
+  display: inline-block;
+  width: 0.82em;
+  height: 0.82em;
+  margin-right: 0.18em;
+  vertical-align: -0.08em;
+  background-color: currentColor;
+  opacity: 0.72;
+  -webkit-mask: var(--tome-link-icon) center / contain no-repeat;
+  mask: var(--tome-link-icon) center / contain no-repeat;
+}
+.milkdown-host .milkdown .ProseMirror a.tome-link:hover {
+  text-decoration-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+}
+
+/* Glossary term reference: a subtle inline reference, NOT a page link —
+   no document glyph, dotted underline, hover shows the definition card. */
+.milkdown-host .milkdown .ProseMirror a.tome-glossary-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.55);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: text-decoration-color 120ms ease;
+}
+.milkdown-host .milkdown .ProseMirror a.tome-glossary-link:hover {
+  text-decoration-color: hsl(var(--primary));
+}
+
+/* Floating definition card, appended to <body> on hover. */
+.tome-glossary-card {
+  position: fixed;
+  z-index: 60;
+  max-width: 340px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.tome-glossary-card-term {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.tome-glossary-card-def {
+  color: hsl(var(--muted-foreground));
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tome-glossary-card-def strong {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.tome-glossary-card-def em {
+  font-style: italic;
+}
+.tome-glossary-card-def code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+}
+.tome-glossary-card-def a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.4);
+}
+
+/* Dangling glossary reference: resolves to nothing (wrong project or missing
+   term). Distinct from a healthy term — muted, wavy amber underline. */
+.milkdown-host .milkdown .ProseMirror a.tome-glossary-dangling {
+  color: hsl(var(--muted-foreground));
+  text-decoration-style: wavy;
+  text-decoration-color: hsl(38 92% 50% / 0.7);
+}
+.tome-glossary-card-unresolved {
+  border-color: hsl(38 92% 50% / 0.5);
+}
+.tome-glossary-card-unresolved .tome-glossary-card-term {
+  color: hsl(38 92% 45%);
+}

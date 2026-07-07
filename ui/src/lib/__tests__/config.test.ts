@@ -137,6 +137,7 @@ describe('getServerConfig', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
+        'agenticAppsEnabled',
         'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
         'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
@@ -157,6 +158,8 @@ describe('getServerConfig', () => {
         'userInfoToolEnabled',
         'oidcRequiredGroup',
         'oktaSyncEnabled',
+        'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
+        'tomeEnabled',
         'scheduleEditorAgentId',
         'schedulerEnabled',
       ];
@@ -860,6 +863,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
+      'agenticAppsEnabled',
       'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
       'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
@@ -880,6 +884,8 @@ describe('getClientConfigScript (XSS safety)', () => {
       'userInfoToolEnabled',
       'oidcRequiredGroup',
       'oktaSyncEnabled',
+      'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
+      'tomeEnabled',
       'scheduleEditorAgentId',
       'schedulerEnabled',
     ];

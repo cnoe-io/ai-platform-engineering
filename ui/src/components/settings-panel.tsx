@@ -59,7 +59,7 @@ export function isMemoryEnabled(): boolean {
   return isFeatureEnabled("memory");
 }
 
-export function SettingsPanel() {
+export function SettingsPanel(_props?: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 

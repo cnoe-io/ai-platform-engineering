@@ -43,6 +43,13 @@ interface ChatPanelProps {
   agentId: string; // Mandatory for Dynamic Agents
   agent?: DynamicAgentConfig | null; // Full agent config object
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
+  clientContext?: Record<string, unknown>;
+  suggestedPrompts?: string[];
+  suggestedPromptsInitiallyHidden?: boolean;
+  emptyStateTitle?: string;
+  emptyStateSubtitle?: string;
+  surface?: "default" | "glass";
+  fontScale?: "compact" | "default" | "large";
 }
 
 export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {

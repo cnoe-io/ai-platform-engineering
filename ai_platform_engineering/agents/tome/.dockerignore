@@ -1,0 +1,9 @@
+.venv/
+.ruff_cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+run-agent.local.sh
+.env
+.env.*
+README.md

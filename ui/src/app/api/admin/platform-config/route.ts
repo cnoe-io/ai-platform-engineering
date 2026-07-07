@@ -18,6 +18,7 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from '@/lib/server-response-cache';
+import { normalizeTopNavConfig } from '@/lib/nav/top-nav-items';
 import { NextRequest,NextResponse } from 'next/server';
 
 const CONFIG_ID = 'platform_settings';
@@ -30,6 +31,7 @@ interface PlatformConfigDoc {
   slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
+  top_nav?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -120,6 +122,7 @@ async function getPlatformConfig(request: NextRequest) {
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
+        top_nav: normalizeTopNavConfig(doc?.top_nav),
       },
     });
   });
@@ -157,6 +160,10 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
 
     if (body.release_notes) {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'top_nav')) {
+      update.top_nav = normalizeTopNavConfig(body.top_nav);
     }
 
     // Slack/Webex discovery cache TTL. Accept an integer minute count.
@@ -247,6 +254,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')
           ? { discovery_cache_ttl_minutes: update.discovery_cache_ttl_minutes }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'top_nav')
+          ? { top_nav: update.top_nav }
           : {}),
       },
     });

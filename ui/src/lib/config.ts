@@ -152,6 +152,31 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
+  /**
+   * Whether the host shell exposes the Agentic Apps Hub.
+   * Controlled by AGENTIC_APPS_INSTALL_ENABLED.
+   */
+  agenticAppsEnabled: boolean;
+  /**
+   * Whether the Agentic SDLC (ship loop) UI is available.
+   * Set SHIP_LOOP_ENABLED=true to enable.
+   */
+  shipLoopEnabled: boolean;
+  /**
+   * Whether the Agentic SDLC assistant chat bubble is enabled.
+   * Set SHIP_LOOP_ASSISTANT_ENABLED=true (default false) to enable.
+   */
+  shipLoopAssistantEnabled: boolean;
+  /**
+   * Hours that recently resolved Agentic SDLC artifacts stay visible.
+   * Override with SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS (default 24).
+   */
+  shipLoopResolvedArtifactLookbackHours: number;
+  /**
+   * Whether the Tome wiki app is available.
+   * Set TOME_ENABLED=true to enable.
+   */
+  tomeEnabled: boolean;
   /** Optional default agent ID used to edit scheduled jobs */
   scheduleEditorAgentId: string | null;
   /** Whether the scheduled-agent workflow is enabled */
@@ -261,6 +286,11 @@ const DEFAULT_CONFIG: Config = {
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
+  agenticAppsEnabled: false,
+  shipLoopEnabled: false,
+  shipLoopAssistantEnabled: false,
+  shipLoopResolvedArtifactLookbackHours: 24,
+  tomeEnabled: false,
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
   agentProtocol: 'agui',
@@ -323,6 +353,13 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
   return _serverOnlyConfig;
 }
 
+const DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 24;
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const n = parseInt(value ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 /** Return value if it's in the allowed list, otherwise return fallback. */
 function validated(value: string | undefined, allowed: string[], fallback: string): string {
   return value && allowed.includes(value) ? value : fallback;
@@ -374,6 +411,14 @@ export function getServerConfig(): Config {
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
+  const agenticAppsEnabled = process.env.AGENTIC_APPS_INSTALL_ENABLED === 'true';
+  const shipLoopEnabled = env('SHIP_LOOP_ENABLED') === 'true';
+  const shipLoopAssistantEnabled = env('SHIP_LOOP_ASSISTANT_ENABLED') === 'true';
+  const shipLoopResolvedArtifactLookbackHours = positiveInteger(
+    env('SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS'),
+    DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
+  );
+  const tomeEnabled = env('TOME_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   // The user-facing Credentials surface is gated independently of the SA token
   // surface. It defaults to the master flag (backward-compatible) and can be
@@ -460,6 +505,11 @@ export function getServerConfig(): Config {
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
+    agenticAppsEnabled,
+    shipLoopEnabled,
+    shipLoopAssistantEnabled,
+    shipLoopResolvedArtifactLookbackHours,
+    tomeEnabled,
     scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
     agentProtocol,

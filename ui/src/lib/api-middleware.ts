@@ -7,13 +7,13 @@ import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
+import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import type { User } from '@/types/mongodb';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
-import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import {
   getDevAnonymousSession,
   getDevAnonymousUser,
@@ -1318,7 +1318,6 @@ export async function getUserTeamIds(userEmail: string): Promise<string[]> {
   if (!normalizedEmail) return [];
 
   try {
-    // assisted-by Codex Codex-sonnet-4-6
     // Chat team shares must follow the canonical membership store, not stale embedded team members.
     const sources = await getRbacCollection<TeamMembershipSource>('teamMembershipSources');
     const rows = await sources

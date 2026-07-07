@@ -76,6 +76,7 @@ export function isServiceAccountTokensEnabled(): boolean {
   return subFeatureEnabled("CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED");
 }
 
+
 export function getCredentialFeatureConfig(): CredentialFeatureConfig {
   return {
     enabled: isCredentialFeatureEnabled(),
