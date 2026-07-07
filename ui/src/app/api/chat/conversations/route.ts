@@ -94,7 +94,6 @@ async function resolveListConversationAccessLevel(
   userEmail: string,
   session?: { role?: unknown; sub?: unknown },
 ): Promise<ConversationAccessLevel> {
-  // assisted-by Codex Codex-sonnet-4-6
   // The list already passed ReBAC filtering; derive display-level access without refetching the row.
   if (isListConversationOwner(conversation, userEmail, session)) return 'owner';
 

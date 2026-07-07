@@ -25,7 +25,6 @@ from ai_platform_engineering.skills_middleware.entitlement import (
 
 logger = logging.getLogger(__name__)
 
-# assisted-by Codex Codex-sonnet-4-6
 CATALOG_API_KEY_HEADER = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key").strip() or "X-Caipe-Catalog-Key"
 
 

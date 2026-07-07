@@ -16,7 +16,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# assisted-by Codex Codex-sonnet-4-6
 permissions:
   contents: read
 

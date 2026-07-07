@@ -10,7 +10,6 @@
  *   - The dynamic area (input bar + status) is only ~4 lines, so its
  *     1 Hz elapsed-timer updates are imperceptible.
  */
-// assisted-by Codex Codex-sonnet-4-6
 
 import { Box, Static, Text, useApp, useInput } from "ink";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";

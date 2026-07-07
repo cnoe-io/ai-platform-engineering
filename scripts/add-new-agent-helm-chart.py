@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 from ruamel.yaml import YAML
 
-# assisted-by Codex Codex-sonnet-4-6
 yaml = YAML()
 yaml.preserve_quotes = True
 yaml.width = 4096  # Prevent line wrapping

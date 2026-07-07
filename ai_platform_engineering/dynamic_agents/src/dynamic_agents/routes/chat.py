@@ -112,7 +112,6 @@ def _validate_allowed_tools_subset(
                 )
 
 
-# assisted-by Codex Codex-sonnet-4-6
 router = APIRouter(prefix="/chat", tags=["chat"])
 GENERIC_AGENT_ERROR = "Agent execution failed. Check server logs for details."
 

@@ -9,7 +9,6 @@
  * All three paths store the resulting TokenSet via keychain.ts.
  * All endpoints are derived from the configured serverUrl.
  */
-// assisted-by Codex Codex-sonnet-4-6
 
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
