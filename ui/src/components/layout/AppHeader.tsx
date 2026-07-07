@@ -28,7 +28,7 @@ import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
@@ -53,18 +53,6 @@ import {
   type TopNavConfig,
 } from "@/lib/nav/top-nav-items";
 
-/** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
-function formatInterval(seconds: number): string {
-  if (seconds >= 3600) {
-    const hours = seconds / 3600;
-    return hours % 1 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
-  }
-  if (seconds >= 60) {
-    const minutes = Math.round(seconds / 60);
-    return `${minutes}m`;
-  }
-  return `${seconds}s`;
-}
 
 /**
  * Editor routes that participate in the unsaved-changes guard.
@@ -277,15 +265,8 @@ export function AppHeader() {
 
   // Health check for RAG server (polls every 30 seconds)
   const {
-    status: ragStatus,
-    url: ragUrl,
-    secondsUntilNextCheck: ragNextCheck,
-    graphRagEnabled,
-    cleanupConfig
+    status: ragStatus
   } = useRAGHealth();
-
-  // Health check for Agent Runtime (polls every 30 seconds)
-  const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
 
   // Platform health probes (polls all platform services: dynamic agents, auth, storage, RAG, migrations)
   const {
@@ -951,114 +932,6 @@ export function AppHeader() {
                     )}
                   </div>
 
-                  {/* RAG Server Section - only show if RAG is enabled */}
-                  {ragEnabled && (
-                    <>
-                      {/* Divider */}
-                      <div className="border-t border-border/50" />
-
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-bold text-foreground">RAG Server</div>
-                            <div className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                              ragStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                              ragStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                              ragStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
-                            )}>
-                              {ragStatus === "connected" ? "ONLINE" : ragStatus === "checking" ? "CHECKING" : "OFFLINE"}
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground font-mono">
-                            Next check: {ragNextCheck}s
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
-                          {ragUrl}
-                        </div>
-
-                        {/* Graph RAG Status */}
-                        <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
-                          <div className="text-xs text-muted-foreground">Knowledge Graph</div>
-                          <div className={cn(
-                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            graphRagEnabled
-                              ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                              : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
-                          )}>
-                            {graphRagEnabled ? "ON" : "OFF"}
-                          </div>
-                        </div>
-
-                        {/* Auto-Cleanup Status */}
-                        {cleanupConfig && (
-                          <div className="bg-muted/20 rounded px-2 py-1.5 space-y-1">
-                            <div className="flex items-center justify-between">
-                              <div className="text-xs text-muted-foreground">Auto-Cleanup</div>
-                              <div className={cn(
-                                "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                                cleanupConfig.enabled
-                                  ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                                  : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
-                              )}>
-                                {cleanupConfig.enabled ? formatInterval(cleanupConfig.interval_seconds) : "OFF"}
-                              </div>
-                            </div>
-                            {cleanupConfig.enabled && (
-                              <div className="text-[10px] text-muted-foreground">
-                                {cleanupConfig.last_cleanup ? (
-                                  <>
-                                    <div>Last: {formatRelativeTime(cleanupConfig.last_cleanup)}</div>
-                                    <div>Next: {formatRelativeTime(cleanupConfig.last_cleanup + cleanupConfig.interval_seconds)}</div>
-                                  </>
-                                ) : (
-                                  <>Waiting for first cleanup...</>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Agent Runtime Section */}
-                  <>
-                    {/* Divider */}
-                    <div className="border-t border-border/50" />
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm font-bold text-foreground">Agent Runtime</div>
-                          <div className={cn(
-                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            agentRuntimeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                            agentRuntimeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                            agentRuntimeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
-                          )}>
-                            {agentRuntimeStatus === "connected" ? "ONLINE" : agentRuntimeStatus === "checking" ? "CHECKING" : "OFFLINE"}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Dynamic Agents sub-item */}
-                      <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
-                        <div className="text-xs text-muted-foreground">CAIPE Dynamic Agents</div>
-                        <div className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                          agentRuntimeStatus === "connected"
-                            ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                            : agentRuntimeStatus === "checking"
-                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                            : "bg-red-500/15 text-red-400 border border-red-500/30"
-                        )}>
-                          {agentRuntimeStatus === "connected" ? "ON" : agentRuntimeStatus === "checking" ? "..." : "OFF"}
-                        </div>
-                      </div>
-                    </div>
-                  </>
                 </div>
 
                 <div className="space-y-1.5 border-t border-border/50 bg-muted/20 px-4 py-2.5">
