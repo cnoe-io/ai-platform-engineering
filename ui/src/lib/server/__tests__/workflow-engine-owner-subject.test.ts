@@ -13,7 +13,11 @@ jest.mock("@/lib/authz", () => ({ authorize: jest.fn() }));
 
 import { readEvents } from "@/lib/server/event-store";
 import type { StreamEvent } from "@/lib/streaming/types";
-import { resolveStepResponseText, runOwnerSubject } from "../workflow-engine";
+import {
+  buildWorkflowContextPrefix,
+  resolveStepResponseText,
+  runOwnerSubject,
+} from "../workflow-engine";
 
 const mockReadEvents = readEvents as jest.MockedFunction<typeof readEvents>;
 
@@ -89,6 +93,35 @@ describe("resolveStepResponseText", () => {
     ]);
 
     await expect(resolveStepResponseText("source-1", "")).resolves.toBe("Longer tool output");
+  });
+});
+
+describe("buildWorkflowContextPrefix", () => {
+  const prompt = buildWorkflowContextPrefix(
+    "Release workflow",
+    "Prepare and publish a release",
+    [],
+    1,
+    3,
+    "Publish the release notes",
+    "release-agent",
+  );
+
+  it("treats deterministically populated workflow-state files as read-only investigation context", () => {
+    expect(prompt).toContain("workflow engine deterministically populates `workflow-state/`");
+    expect(prompt).toContain("Treat the entire directory as read-only");
+    expect(prompt).toContain("provided only as reference material for investigation");
+  });
+
+  it("directs agents to inspect shared files at the filesystem root", () => {
+    expect(prompt).toContain("Other steps may write shared files at the filesystem root");
+    expect(prompt).toContain("Run `ls /`");
+  });
+
+  it("keeps all agent-written files outside workflow-state", () => {
+    expect(prompt).toContain("`/choices.txt`");
+    expect(prompt).toContain("`/workflow-step-2--release-agent-error.txt`");
+    expect(prompt).not.toContain("workflow-state/step-2--release-agent/error.txt");
   });
 });
 
