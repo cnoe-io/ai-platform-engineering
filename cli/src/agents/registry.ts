@@ -57,7 +57,7 @@ export async function fetchAgents(
     };
     const pickerEntries = body.data?.agents ?? [];
     const agents: Agent[] = pickerEntries.map((e) => ({
-      name: e.name || e.id,
+      name: e.id,
       displayName: e.name || e.id,
       description: e.description,
       endpoint: "",
@@ -79,10 +79,15 @@ export async function fetchAgents(
 }
 
 /**
- * Find an agent by name in the cached/fetched list.
+ * Find an agent by slug (name) or display name (case-insensitive).
  */
 export function getAgent(agents: Agent[], name: string): Agent | null {
-  return agents.find((a) => a.name === name) ?? null;
+  const lower = name.toLowerCase();
+  return (
+    agents.find((a) => a.name === name) ??
+    agents.find((a) => a.displayName.toLowerCase() === lower) ??
+    null
+  );
 }
 
 /**

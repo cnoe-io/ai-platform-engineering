@@ -7,7 +7,7 @@ export interface Agent {
   displayName: string;
   description: string;
   endpoint: string;
-  protocols: ("agui")[];
+  protocols: "agui"[];
   available: boolean;
   domain: string;
 }

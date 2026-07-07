@@ -125,7 +125,9 @@ export function memoryFilePaths(cwd: string): string[] {
           .filter((f) => f.endsWith(".md"))
           .sort()
           .forEach((f) => paths.push(join(managedDir, f)));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
   paths.push(globalMemoryFile());

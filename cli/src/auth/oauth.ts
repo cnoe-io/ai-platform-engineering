@@ -15,8 +15,8 @@ import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { promisify } from "node:util";
-import { discoverAgentConfig, resolveOAuthEndpoints } from "../platform/discovery.js";
 import { getIdpHint } from "../platform/config.js";
+import { discoverAgentConfig, resolveOAuthEndpoints } from "../platform/discovery.js";
 import { type TokenSet, storeTokens } from "./keychain.js";
 
 const execFileAsync = promisify(execFile);
@@ -238,15 +238,18 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
   process.stdout.write("Waiting for authorization…");
 
   if (process.env.CAIPE_AUTH_DEBUG === "1") {
-    process.stderr.write(`\n[caipe-auth] Browser opened — waiting for localhost:${CALLBACK_PORT} callback\n`);
+    process.stderr.write(
+      `\n[caipe-auth] Browser opened — waiting for localhost:${CALLBACK_PORT} callback\n`,
+    );
   }
 
   // Race the callback against a 5-minute timeout
   const TIMEOUT_MS = 5 * 60 * 1000;
-  const { code } = await Promise.race([
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const { code, state: returnedState } = await Promise.race([
     callbackResult,
-    new Promise<never>((_, reject) =>
-      setTimeout(
+    new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
         () =>
           reject(
             new Error(
@@ -256,9 +259,15 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
             ),
           ),
         TIMEOUT_MS,
-      ),
-    ),
+      );
+    }),
   ]);
+  clearTimeout(timeoutHandle);
+
+  if (returnedState !== state) {
+    throw new Error("OAuth state mismatch — possible CSRF attack. Aborting login.");
+  }
+
   const tokens = await exchangeCode(code, verifier, redirectUri, serverUrl, clientId);
   await storeTokens(tokens);
   return tokens;

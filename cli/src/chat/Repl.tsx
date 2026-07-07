@@ -15,11 +15,17 @@
 import { Box, Static, Text, useApp, useInput } from "ink";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-import { loginBrowser } from "../auth/oauth.js";
-import { getValidToken } from "../auth/tokens.js";
 import { fetchAgents } from "../agents/registry.js";
 import { type Agent, DEFAULT_AGENT } from "../agents/types.js";
-import { authEndpoints, getAuthUrl, getServerUrl, readSettings, settingsJsonPath } from "../platform/config.js";
+import { loginBrowser } from "../auth/oauth.js";
+import { getValidToken } from "../auth/tokens.js";
+import {
+  authEndpoints,
+  getAuthUrl,
+  getServerUrl,
+  readSettings,
+  settingsJsonPath,
+} from "../platform/config.js";
 import { StreamingSpinner } from "../platform/display.js";
 import { renderMarkdown } from "../platform/markdown.js";
 import { fetchSupervisorSkills } from "../skills/catalog.js";
@@ -705,9 +711,22 @@ export function Repl({
           setStatusText("Loading skills from supervisor…");
           try {
             let skillsUrl: string;
-            try { skillsUrl = getServerUrl(); } catch { skillsUrl = serverUrl ?? ""; }
-            const skillsAuthUrl = (() => { try { return getAuthUrl(); } catch { return skillsUrl; } })();
-            const { skills, meta } = await fetchSupervisorSkills(() => getValidToken(skillsAuthUrl), skillsUrl);
+            try {
+              skillsUrl = getServerUrl();
+            } catch {
+              skillsUrl = serverUrl ?? "";
+            }
+            const skillsAuthUrl = (() => {
+              try {
+                return getAuthUrl();
+              } catch {
+                return skillsUrl;
+              }
+            })();
+            const { skills, meta } = await fetchSupervisorSkills(
+              () => getValidToken(skillsAuthUrl),
+              skillsUrl,
+            );
             if (skills.length === 0) {
               pushAssistant("No skills loaded in supervisor.");
             } else {
@@ -731,20 +750,36 @@ export function Repl({
           setStatusText("Loading agents from registry…");
           try {
             let sv: string;
-            try { sv = getServerUrl(); } catch { sv = serverUrl ?? ""; }
-            const authUrl2 = (() => { try { return getAuthUrl(); } catch { return sv; } })();
+            try {
+              sv = getServerUrl();
+            } catch {
+              sv = serverUrl ?? "";
+            }
+            const authUrl2 = (() => {
+              try {
+                return getAuthUrl();
+              } catch {
+                return sv;
+              }
+            })();
             const agents = await fetchAgents(sv, () => getValidToken(authUrl2));
             const arg = cmd.split(" ")[1]?.trim();
             if (arg) {
               // /agents <name> — switch directly
               const target = agents.find((a) => a.name === arg);
               if (!target) {
-                pushAssistant(`Agent **${arg}** not found. Available: ${agents.map((a) => a.name).join(", ")}`);
+                pushAssistant(
+                  `Agent **${arg}** not found. Available: ${agents.map((a) => a.name).join(", ")}`,
+                );
               } else {
                 const ep = authEndpoints(sv);
-                adapterRef.current = createAdapter(target, ep.streamStart, () => getValidToken(authUrl2));
+                adapterRef.current = createAdapter(target, ep.streamStart, () =>
+                  getValidToken(authUrl2),
+                );
                 setCurrentAgent(target);
-                pushAssistant(`Switched to agent **${target.displayName ?? target.name}** — ${target.description}`);
+                pushAssistant(
+                  `Switched to agent **${target.displayName ?? target.name}** — ${target.description}`,
+                );
               }
             } else {
               // /agents — list with switch hint
@@ -752,7 +787,9 @@ export function Repl({
                 const active = a.name === currentAgent.name ? " _(active)_" : "";
                 return `- **${a.name}**${active} — ${a.description}`;
               });
-              pushAssistant(`**Available agents** (use \`/agents <name>\` to switch)\n\n${lines.join("\n")}`);
+              pushAssistant(
+                `**Available agents** (use \`/agents <name>\` to switch)\n\n${lines.join("\n")}`,
+              );
             }
           } catch (err) {
             pushAssistant(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
@@ -799,9 +836,8 @@ export function Repl({
               setStatusText(null);
             }
           } else {
-            const listed = paths.length > 0
-              ? paths.map((p) => `- \`${p}\``).join("\n")
-              : "_(none found)_";
+            const listed =
+              paths.length > 0 ? paths.map((p) => `- \`${p}\``).join("\n") : "_(none found)_";
             pushAssistant(
               `**Memory files** (loaded at session start):\n${listed}\n\nSet **EDITOR** to open inline, or edit files directly and restart the session.`,
             );
@@ -971,6 +1007,7 @@ export function Repl({
       adapter,
       session,
       systemContext,
+      currentAgent,
       executeSlashCommand,
       flushTokens,
       flushLineBuffer,
@@ -1117,7 +1154,9 @@ export function Repl({
           )}
         </Box>
         <Text dimColor>
-          {currentAgent.name !== "hello-world" && currentAgent.name !== "default" ? `${currentAgent.name} · ` : ""}
+          {currentAgent.name !== "hello-world" && currentAgent.name !== "default"
+            ? `${currentAgent.name} · `
+            : ""}
           {totalTokenDisplay > 0 ? `~${totalTokenDisplay} tokens · ` : ""}
           {serverHost ?? ""}
         </Text>

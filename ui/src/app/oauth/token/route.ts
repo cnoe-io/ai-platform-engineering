@@ -14,9 +14,13 @@ export async function POST(req: NextRequest) {
   if (!issuer) {
     return NextResponse.json({ error: "OIDC_ISSUER not configured" }, { status: 503 });
   }
+  // Use OIDC_DISCOVERY_URL when set so server-side fetch uses the Docker-internal
+  // hostname (e.g. http://keycloak:7080/realms/caipe) while OIDC_ISSUER stays as
+  // the browser-facing URL. Mirrors the pattern in lib/auth-config.ts:336.
+  const serverIssuer = (process.env.OIDC_DISCOVERY_URL ?? issuer).replace(/\/$/, "");
 
   const body = await req.text();
-  const upstream = `${issuer}/protocol/openid-connect/token`;
+  const upstream = `${serverIssuer}/protocol/openid-connect/token`;
 
   const res = await fetch(upstream, {
     method: "POST",
