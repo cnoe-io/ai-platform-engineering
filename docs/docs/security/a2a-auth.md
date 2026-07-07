@@ -2,14 +2,11 @@
 
 The A2A protocol supports two authentication methods for securing agent-to-agent communication:
 
-> **Tip:** Use the [CAIPE CLI](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli) for testing OAuth2 authentication. It handles the `Authorization: Bearer <token>` header automatically.
->
-> **Install and connect:**
+> **Tip:** To obtain an OAuth2 token for testing, use the utility script:
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh
-> caipe auth login
-> caipe
+> python ai_platform_engineering/utils/oauth/get_oauth_jwt_token.py
 > ```
+> Then pass it as `Authorization: Bearer <token>` in your requests.
 
 ## Public Endpoints
 
@@ -82,7 +79,7 @@ docker compose up
 1. Access admin console at http://localhost:7080
 2. Login with `admin/admin`
 3. Switch to the `caipe` realm
-4. Create a client called `caipe-cli`
+4. Create a confidential service-account client (e.g. `my-agent`) for A2A token generation
 5. Copy the client secret
 
 **Environment Variables for Local Keycloak:**
@@ -91,15 +88,15 @@ A2A_AUTH_OAUTH2=true
 JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs
 AUDIENCE=caipe
 ISSUER=http://localhost:7080/realms/caipe
-OAUTH2_CLIENT_ID=caipe-cli
+OAUTH2_CLIENT_ID=my-agent
 OAUTH2_CLIENT_SECRET=your-client-secret-from-keycloak
 TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
 ```
 
 **Generate JWT Token with Keycloak:**
 ```bash
-export OAUTH2_CLIENT_ID=caipe-cli
-export OAUTH2_CLIENT_SECRET=<YOUR CLIENT SECRET>  # randomly generated from Keycloak
+export OAUTH2_CLIENT_ID=my-agent
+export OAUTH2_CLIENT_SECRET=<YOUR CLIENT SECRET>  # from the Keycloak Credentials tab
 export TOKEN_ENDPOINT=http://localhost:7080/realms/caipe/protocol/openid-connect/token
 
 python ai_platform_engineering/utils/oauth/get_oauth_jwt_token.py
@@ -133,11 +130,11 @@ This section provides comprehensive instructions for setting up and configuring 
 1. In the Keycloak admin console, navigate to the `caipe` realm
 2. Go to **Clients** → **Create**
 3. Configure the client:
-   - **Client ID**: `caipe-cli`
+   - **Client ID**: choose a name for your agent (e.g. `my-agent`)
    - **Client Protocol**: `openid-connect`
    - **Access Type**: `confidential`
-   - **Standard Flow Enabled**: `ON`
-   - **Direct Access Grants Enabled**: `ON`
+   - **Standard Flow Enabled**: `OFF`
+   - **Direct Access Grants Enabled**: `OFF`
    - **Service Accounts Enabled**: `ON`
 
 4. Save the client and go to the **Credentials** tab
