@@ -11,7 +11,7 @@ dependencies = [
     "kubernetes==35.0.0",
     "croniter==6.2.2",
     "pytz==2025.2",
-    "python-dotenv==1.0.1",
+    "python-dotenv==1.2.2",
     "httpx==0.28.1",
     "pyjwt[crypto]==2.13.0",
 ]

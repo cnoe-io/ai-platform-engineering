@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.5.37 -f your-values.yaml';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.5.38 -f your-values.yaml';
 const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
 
 function DemoGif() {
@@ -91,7 +91,7 @@ const HOME_FEATURES = [
   {
     icon: '🧠',
     title: 'Integrated Knowledge Bases',
-    description: 'RAG + Graph RAG across ArgoCD, AWS, Jira, GitHub, Slack, and more.',
+    description: 'Hybrid RAG and optional Graph RAG across web, AWS, Kubernetes, Jira, GitHub, Slack, and more.',
     to: '/features',
   },
   {
@@ -115,7 +115,7 @@ const HOME_FEATURES = [
   {
     icon: '⚙️',
     title: 'Deterministic Workflows',
-    description: 'Sequential agent pipelines with no hallucinated steps.',
+    description: 'Multi-step dynamic-agent pipelines with persisted run history and artifacts.',
     to: '/features',
   },
   {
@@ -262,7 +262,7 @@ function HeroSection() {
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
                   {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-                  {'    --version 0.5.37 -f your-values.yaml'}
+                  {'    --version 0.5.38 -f your-values.yaml'}
                 </code>
               </pre>
             </div>
@@ -417,7 +417,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.5.37 -f your-values.yaml'}
+              {'    --version 0.5.38 -f your-values.yaml'}
             </code>
           </pre>
         </div>

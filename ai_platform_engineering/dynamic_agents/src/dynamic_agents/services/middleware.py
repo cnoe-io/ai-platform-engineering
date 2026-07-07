@@ -71,7 +71,7 @@ class MiddlewareSpec:
 MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
     "model_retry": MiddlewareSpec(
         cls=ModelRetryMiddleware,
-        default_params={"max_retries": 5, "backoff_factor": 2.0, "on_failure": "continue"},
+        default_params={"max_retries": 5, "backoff_factor": 2.0, "on_failure": "error"},
         enabled_by_default=True,
         allow_multiple=False,
         label="Model Retry",
@@ -84,7 +84,7 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
     ),
     "tool_retry": MiddlewareSpec(
         cls=ToolRetryMiddleware,
-        default_params={"max_retries": 3, "backoff_factor": 2.0, "initial_delay": 2.0, "on_failure": "return_message"},
+        default_params={"max_retries": 3, "backoff_factor": 2.0, "initial_delay": 2.0, "on_failure": "continue"},
         enabled_by_default=True,
         allow_multiple=False,
         label="Tool Retry",
@@ -123,7 +123,7 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
     "context_editing": MiddlewareSpec(
         cls=ContextEditingMiddleware,
         default_params={"trigger": 100_000, "keep": 3},
-        enabled_by_default=False,
+        enabled_by_default=True,
         allow_multiple=False,
         label="Context Editing",
         description="Clears older tool outputs when approaching token limits",
