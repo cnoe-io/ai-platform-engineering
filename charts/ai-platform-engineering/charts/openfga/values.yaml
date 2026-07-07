@@ -22,6 +22,7 @@ service:
   httpPort: 8080
   grpcPort: 8081
   playgroundPort: 3000
+  metricsPort: 2112
 
 datastore:
   # memory is convenient for demos. Use postgres for persistent environments.
@@ -35,6 +36,8 @@ datastore:
 migrate:
   enabled: true
   backoffLimit: 6
+  helmHookDeletePolicy: "before-hook-creation,hook-succeeded"
+  argocdHookDeletePolicy: "BeforeHookCreation,HookSucceeded"
 
 playground:
   enabled: false

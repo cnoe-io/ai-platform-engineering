@@ -720,10 +720,12 @@ export function ConnectorAdminPanel({
   }, []);
 
   const loadTeams = useCallback(async () => {
-    const res = await fetch("/api/admin/teams");
+    // /api/dynamic-agents/teams returns only name+slug (no OpenFGA fan-out),
+    // and for admins returns all teams — sufficient for the picker.
+    const res = await fetch("/api/dynamic-agents/teams");
     if (!res.ok) throw new Error(await res.text());
-    const data = apiData<{ teams: TeamOption[] }>(await res.json());
-    setTeams(data.teams ?? []);
+    const json = await res.json() as { success?: boolean; data?: TeamOption[] };
+    setTeams(Array.isArray(json.data) ? json.data : []);
   }, []);
 
   const loadOnboardingDefaults = useCallback(async () => {

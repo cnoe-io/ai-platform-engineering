@@ -6,7 +6,7 @@ sidebar_position: 1
 
 This guide gets you from zero to a running **CAIPE** (Community AI Platform Engineering) environment on your laptop using **KinD** (Kubernetes in Docker). No prior experience with CAIPE or Kubernetes is required.
 
-**What is CAIPE?** CAIPE is an open-source platform for building and running **AI agents** that can use tools, talk to LLMs (like Claude or GPT), and work together in multi-agent systems. This setup gives you a local environment where you can try agents, add RAG (retrieval-augmented generation), and observe traces—all on your machine.
+**What is CAIPE?** CAIPE is an open source platform for building and running **AI agents** that can use tools, talk to LLMs (like Claude or GPT), and work together in multi-agent systems. This setup gives you a local environment where you can try agents, add RAG (retrieval-augmented generation), and observe traces—all on your machine.
 
 ---
 

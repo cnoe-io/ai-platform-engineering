@@ -58,7 +58,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -163,6 +163,10 @@ interface Team {
   description?: string;
   owner_id: string;
   created_at: Date;
+  // Lifecycle status. "archived" teams (Okta group vanished, or admin-retired)
+  // are hidden by default and rendered with a dimmed card + ArchivedBadge; they
+  // grant no access (their resource-grant tuples are stripped on archive).
+  status?: string;
   // Commit 5/8 of the canonical-team-membership refactor (spec
   // 2026-05-26-canonical-team-membership): `member_count` is now the
   // authoritative source for the Members badge, aggregated server-side
@@ -355,7 +359,7 @@ function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
         return (
           <span
             key={t}
-            className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border whitespace-nowrap"
             title={title}
             aria-label={title}
           >
@@ -369,6 +373,27 @@ function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
           </span>
         );
       })}
+    </span>
+  );
+}
+
+// Shown on a team card when the team is archived — an identity-sync team whose
+// Okta group vanished, or a team an admin retired. Archived teams grant no
+// access (their resource tuples are stripped on archive), so the pill flags
+// that the card is inert. Styled to match IdpSyncedBadge but in a muted-warning
+// tone so it reads as a state, not an IdP source.
+function ArchivedBadge() {
+  const title = "Archived — grants no access";
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 border border-amber-500/30 whitespace-nowrap"
+      title={title}
+      aria-label={title}
+    >
+      <Archive className="h-3 w-3 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+      <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300">
+        Archived
+      </span>
     </span>
   );
 }
@@ -498,6 +523,9 @@ function AdminPage() {
   const [gridPage, setGridPage] = useState(1);
   const [gridLoading, setGridLoading] = useState(false);
   const [gridLoaded, setGridLoaded] = useState(false);
+  // Archived teams are hidden by default; this toggles the `include_archived`
+  // query param so admins can reveal retired / orphaned-from-Okta teams.
+  const [showArchivedTeams, setShowArchivedTeams] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
@@ -868,6 +896,7 @@ function AdminPage() {
         fresh: String(Date.now()),
       });
       if (search.trim()) params.set('search', search.trim());
+      if (showArchivedTeams) params.set('include_archived', 'true');
       const response = await fetch(`/api/admin/teams?${params.toString()}`, {
         cache: 'no-store',
       });
@@ -884,7 +913,7 @@ function AdminPage() {
     } finally {
       setGridLoading(false);
     }
-  }, []);
+  }, [showArchivedTeams]);
 
   // Debounced server-side search for the Teams grid. Typing resets to page 1
   // and re-queries the server (~250ms after the last keystroke), matching the
@@ -1516,6 +1545,7 @@ function AdminPage() {
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
                     readOnly={!isAdmin}
+                    teamOptions={teams.length > 0 ? teams.map((t) => ({ teamId: t.name, label: t.name })) : undefined}
                   />
                 )}
               </TabsContent>
@@ -1544,7 +1574,19 @@ function AdminPage() {
                       </button>
                     )}
                   </div>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <label
+                      className="flex cursor-pointer select-none items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+                      title="Archived teams (retired, or whose Okta group was removed) grant no access"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-input accent-primary"
+                        checked={showArchivedTeams}
+                        onChange={(event) => setShowArchivedTeams(event.target.checked)}
+                      />
+                      Show archived
+                    </label>
                     <Button
                       type="button"
                       variant="outline"
@@ -1602,12 +1644,13 @@ function AdminPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {gridTeams.map((team) => {
                       return (
-                      <Card key={team._id}>
+                      <Card key={team._id} className={cn(team.status === 'archived' && "opacity-60")}>
                         <CardHeader>
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="flex items-center gap-2">
-                                <CardTitle className="text-lg">{team.name}</CardTitle>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <CardTitle className="text-lg min-w-0 break-words">{team.name}</CardTitle>
+                                {team.status === 'archived' && <ArchivedBadge />}
                                 {(team.idp_source_types?.length ?? 0) > 0 && (
                                   <IdpSyncedBadge sourceTypes={team.idp_source_types!} />
                                 )}

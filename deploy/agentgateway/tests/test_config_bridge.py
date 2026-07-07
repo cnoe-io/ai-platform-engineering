@@ -444,6 +444,34 @@ def test_default_mcp_route_policies_forward_request_body() -> None:
     }
 
 
+def test_default_ext_authz_host_defaults_to_compose_service() -> None:
+    # The default matches the Docker Compose service name so local dev keeps
+    # working with no extra env. The Helm chart overrides it (see below).
+    assert bridge.DEFAULT_MCP_ROUTE_POLICIES["extAuthz"]["host"] == "openfga-authz-bridge:9100"
+
+
+def test_ext_authz_host_honors_env_override(monkeypatch) -> None:
+    # Regression: in a release-name-prefixed Helm deploy the authz bridge is
+    # `<release>-openfga-authz-bridge`. The bare default resolves to nothing, so
+    # the fail-closed `denyWithStatus: 403` rejected every discovered-server MCP
+    # call. The chart now passes AGENTGATEWAY_AUTHZ_HOST; the module must read it.
+    monkeypatch.setenv("AGENTGATEWAY_AUTHZ_HOST", "caipe-openfga-authz-bridge:9100")
+    module_name = "agentgateway_config_bridge_reload"
+    spec = importlib.util.spec_from_file_location(module_name, BRIDGE_PATH)
+    assert spec is not None and spec.loader is not None
+    reloaded = importlib.util.module_from_spec(spec)
+    # Register before exec so the module's dataclasses can resolve cls.__module__.
+    sys.modules[module_name] = reloaded
+    try:
+        spec.loader.exec_module(reloaded)
+        assert (
+            reloaded.DEFAULT_MCP_ROUTE_POLICIES["extAuthz"]["host"]
+            == "caipe-openfga-authz-bridge:9100"
+        )
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> None:
     # knowledge-base (RAG) enforces its own OIDC auth, so the bridge must apply the
     # same X-CAIPE-Provider-Token -> Authorization rewrite used by github/gitlab.
@@ -508,6 +536,36 @@ def test_merge_agentgateway_mcp_routes_uses_header_credential_sources() -> None:
     assert transform["x-api-key"] == 'default(request.headers["x-api-key"], "")'
     assert "secret_ref" not in str(route)
     assert "cred-custom-docs" not in str(route)
+
+
+def test_scheduler_route_forwards_opaque_caller_token_header() -> None:
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        _baseline_config(),
+        [
+            bridge.McpGatewayTarget(
+                id="scheduler",
+                upstream_url="http://mcp-scheduler:8000/mcp",
+                credential_sources=(
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Caller-Token",
+                    },
+                ),
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/scheduler"
+    )
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["x-caipe-caller-token"] == (
+        'default(request.headers["x-caipe-caller-token"], "")'
+    )
+    assert "authorization" not in transform
 
 
 def test_merge_agentgateway_mcp_routes_skips_credential_transforms_when_cleared() -> None:

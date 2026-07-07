@@ -233,6 +233,7 @@ export default function IngestView() {
   const [concurrentRequests, setConcurrentRequests] = useState(30)
   const [respectRobotsTxt, setRespectRobotsTxt] = useState(true)
   const [followExternalLinks, setFollowExternalLinks] = useState(true)  // Default true since crawlMode defaults to sitemap
+  const [allowNonPublicUrls, setAllowNonPublicUrls] = useState(false)
   const [allowedUrlPatterns, setAllowedUrlPatterns] = useState('')
   const [deniedUrlPatterns, setDeniedUrlPatterns] = useState('')
   const [chunkSize, setChunkSize] = useState(10000)
@@ -916,6 +917,7 @@ export default function IngestView() {
               denied_url_patterns: deniedUrlPatterns ? deniedUrlPatterns.split('\n').filter(p => p.trim()) : null,
               chunk_size: chunkSize,
               chunk_overlap: chunkOverlap,
+              allow_non_public_urls: allowNonPublicUrls,
             } : undefined,
             // Per-datasource reload interval (null = use global default)
             reload_interval: ingestType === 'web' ? reloadInterval : undefined,
@@ -1427,6 +1429,17 @@ export default function IngestView() {
                                 </span>
                               </label>
                             )}
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={allowNonPublicUrls}
+                                onChange={(e) => setAllowNonPublicUrls(e.target.checked)}
+                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                              />
+                              <span className="text-sm text-muted-foreground">
+                                Allow internal/private URLs (bypass SSRF protection)
+                              </span>
+                            </label>
                           </div>
 
                           {/* URL Patterns */}

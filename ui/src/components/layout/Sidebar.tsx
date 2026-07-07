@@ -47,6 +47,30 @@ interface SidebarProps {
   onUseCaseSaved?: () => void;
 }
 
+function getScheduleBadge(conv: Conversation): { label: string; title: string } | null {
+  const scheduleId = conv.metadata?.schedule_id;
+  const scheduleTitle = conv.metadata?.schedule_title;
+  if (typeof scheduleTitle === "string" && scheduleTitle.trim()) {
+    const label = scheduleTitle.trim();
+    return {
+      label,
+      title: typeof scheduleId === "string" && scheduleId.trim()
+        ? `Scheduled run ${scheduleId.trim()}: ${label}`
+        : `Scheduled run: ${label}`,
+    };
+  }
+
+  if (typeof scheduleId === "string" && scheduleId.trim()) {
+    const label = scheduleId.trim();
+    return { label, title: `Scheduled run ${label}` };
+  }
+
+  const legacyMatch = conv.id.match(/sched_[a-z0-9]+/i);
+  if (!legacyMatch) return null;
+
+  return { label: legacyMatch[0], title: `Scheduled run ${legacyMatch[0]}` };
+}
+
 export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
   const router = useRouter();
   const {
@@ -185,6 +209,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
           participants: conversation.participants || [],
+          metadata: conversation.metadata,
         };
 
         // Update store and wait for it to propagate
@@ -383,6 +408,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
+                  const scheduleBadge = getScheduleBadge(conv);
 
                   return (
                   <div
@@ -469,6 +495,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
+                            {scheduleBadge && (
+                              <span
+                                className="shrink-0 max-w-[132px] truncate rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-cyan-700 dark:text-cyan-300"
+                                title={scheduleBadge.title}
+                              >
+                                {truncateText(scheduleBadge.label, sidebarWidth > 350 ? 24 : 18)}
+                              </span>
+                            )}
                           </div>
                           <p className={cn(
                             "text-xs truncate",

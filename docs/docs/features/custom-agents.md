@@ -46,8 +46,8 @@ Idempotent: safe to apply on upgrades without duplicating entries. Removed confi
 ## Customizable System Prompts
 
 - Per-agent system prompts for Platform Engineer, SRE, Developer, or service-specific personas
-- Prompt changes are saved in MongoDB for UI-managed agents
-- Config-driven agents keep prompts in Helm values for GitOps review
+- Ready-to-use SRE agent included out of the box — customize prompts, tools, and workflows for your team
+- Prompt changes are saved in MongoDB for UI-managed agents; config-driven agents keep prompts in Helm values for GitOps review
 - Workflow-enabled agents receive an automatic prompt addendum listing approved workflows
 
 ## Multi-Model Support per Agent

@@ -41,6 +41,15 @@ tokenValidation:
   algorithms:
     - RS256
 
+callerToolCheck:
+  # When enabled, the bridge additionally verifies that the calling user/team
+  # holds an explicit grant for the tool being invoked (dual-gate).
+  enabled: false
+
+# MCP server IDs that require the caller to hold `can_invoke` on the matching
+# OpenFGA `mcp_server:<id>` object. This is independent of callerToolCheck.
+restrictedMcpServers: []
+
 audit:
   enabled: true
   # Release-name-derived default for the audit-service singleton. Rendered with

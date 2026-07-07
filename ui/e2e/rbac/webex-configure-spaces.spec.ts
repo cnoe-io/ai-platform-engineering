@@ -217,8 +217,8 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       return true;
     }
 
-    if (path === "/api/admin/teams" && method === "GET") {
-      await fulfillJson(route, { success: true, data: { teams } });
+    if (path === "/api/dynamic-agents/teams" && method === "GET") {
+      await fulfillJson(route, { success: true, data: teams });
       return true;
     }
 
@@ -288,7 +288,6 @@ async function gotoConfigureSpaces(page: Page) {
   await expect(
     page.getByRole("region", { name: "Configure spaces" }),
   ).toBeVisible();
-  await expect(page.getByText("Configure spaces")).toBeVisible();
 }
 
 async function pickTeam(page: Page, buttonName: RegExp, optionName: RegExp) {
@@ -354,9 +353,12 @@ test.describe("mocked Webex Configure spaces UI", () => {
     const state = await installWebexConfigureApp(page);
     await gotoConfigureSpaces(page);
 
-    await expect(
-      page.getByRole("tablist", { name: "Webex admin views" }),
-    ).toHaveCount(0);
+    // Webex admin uses the single-panel switcher: two tabs ("Configure spaces"
+    // ↔ "Configured spaces"), not the full three-view tab bar. Landing tab is
+    // Configure spaces.
+    const adminViews = page.getByRole("tablist", { name: "Webex admin views" });
+    await expect(adminViews.getByRole("tab", { name: "Configure spaces" })).toBeVisible();
+    await expect(adminViews.getByRole("tab", { name: "Configured spaces" })).toBeVisible();
     await expect(page.getByText("Incident Bridge")).toBeVisible();
     await expect(
       page.getByRole("status", { name: /Discovered: 1 .* Configured: 1/i }),

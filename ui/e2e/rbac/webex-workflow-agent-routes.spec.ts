@@ -94,13 +94,12 @@ function webexHandler(state: {
       return true;
     }
 
-    if (path === "/api/admin/teams" && method === "GET") {
+    if (path === "/api/dynamic-agents/teams" && method === "GET") {
       await fulfillJson(route, {
-        data: {
-          teams: [
-            { _id: "team-platform", slug: "platform", name: "Platform Team" },
-          ],
-        },
+        success: true,
+        data: [
+          { _id: "team-platform", slug: "platform", name: "Platform Team" },
+        ],
       });
       return true;
     }

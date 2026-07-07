@@ -6,22 +6,9 @@ import styles from './roadmap.module.css';
 
 const ROADMAP = [
   {
-    title: 'Dynamic Agents Platform',
-    description: 'YAML-based dynamic agent configuration — domain-centric personas (SRE, code review, incident), dynamic skills integration, and full Custom Agent infrastructure.',
-    status: 'in-progress',
-    subItems: [
-      'YAML-based agent configuration and runtime',
-      'Dynamic skills integration',
-      'Domain-centric personas: SRE Agent, Code Review Agent',
-      'Dynamic agent visibility & access control',
-      'Custom Agents as the default runtime',
-    ],
-    issueRefs: ['#963', '#964', '#965', '#966', '#967', '#968', '#970'],
-  },
-  {
-    title: 'Comprehensive RBAC/TBAC',
+    title: 'Comprehensive Human and Non-human Identity and RBAC',
     description: 'Role and team-based access control touching all features — OAuth 2.1, audit logs, and channel-to-agent assignment.',
-    status: 'planned',
+    status: 'in-progress',
     subItems: [
       'OAuth 2.1 features: DCR, Token Exchange, three-legged auth for remote MCP servers',
       'Manage RBAC user/teams/roles from UI',
@@ -29,6 +16,33 @@ const ROADMAP = [
       'Detailed authorization audit logs (OBO agent actor logs)',
       'Two-tier policy system for self-service workflow tool authorization',
     ],
+    issueRefs: ['#1742'],
+  },
+  {
+    title: 'Amazon Bedrock AgentCore Integration',
+    description: 'Integrate Amazon Bedrock AgentCore as a managed runtime backend for CAIPE Dynamic Agents — enabling AWS-native teams to run, scale, and observe agents using AgentCore\'s managed infrastructure, memory, and tool execution environment.',
+    status: 'planned',
+    subItems: [
+      'AgentCore runtime adapter for the Dynamic Agents harness',
+      'Agent lifecycle mapping: create / invoke / delete AgentCore agents from CAIPE UI',
+      'Memory bridge: sync AgentCore session memory with CAIPE conversation context',
+      'Tool execution: route MCP tool calls through AgentCore\'s tool executor',
+      'IAM role-based auth for AgentCore API calls',
+      'Surface AgentCore traces and logs in CAIPE AgentOps',
+    ],
+    issueRefs: ['#2109'],
+  },
+  {
+    title: 'Multiple Agentic Harness SDK Integration',
+    description: 'Support multiple agentic harness SDKs — ADK, Strands, Claude SDK — so teams can bring their preferred agent framework without being locked into a single runtime.',
+    status: 'planned',
+    subItems: [
+      'Google ADK (Agent Development Kit) adapter',
+      'AWS Strands SDK adapter',
+      'Anthropic Claude SDK adapter',
+      'Pluggable harness adapter architecture — swap frameworks per agent',
+    ],
+    issueRefs: ['#2079'],
   },
   {
     title: 'LLM Budget & Quota Management',
@@ -39,26 +53,69 @@ const ROADMAP = [
       'Dynamic LLM key creation for dynamic agents',
       'Budget dashboards and quota alerts in the admin UI',
     ],
+    issueRefs: ['#2080'],
   },
   {
-    title: 'Agent Evaluation & Sandboxing',
-    description: 'Sandboxed agent execution environments for safe testing, plus a deepeval-based evaluation pipeline for RAG precision/recall and agent response quality.',
+    title: 'Automatic Agentic Evaluation',
+    description: 'Automated evaluation pipeline for agent response quality — deepeval-based RAG precision/recall, F1 scoring, and a self-improving feedback loop that tightens agent accuracy over time.',
     status: 'planned',
     subItems: [
-      'Sandbox environment for agent testing without production impact',
       'deepeval pipeline: RAG precision, recall, F1 scoring',
-      'Self-improving architecture feedback loop',
+      'Agent response quality scoring (relevance, faithfulness, context recall)',
+      'CI quality gate: fail on regression below threshold',
+      'Self-improving feedback loop',
     ],
+    issueRefs: ['#2081'],
+  },
+  {
+    title: 'Agent Sandbox Execution',
+    description: 'Isolated sandbox environments that let teams test agents safely without touching production data, credentials, or systems.',
+    status: 'planned',
+    subItems: [
+      'Sandboxed agent execution with isolated credentials and tool stubs',
+      'UI toggle to launch any agent in sandbox mode',
+      'Sandbox audit log separate from production',
+      'Automatic sandbox teardown after session or TTL',
+    ],
+    issueRefs: ['#2082'],
+  },
+  {
+    title: 'Agentic Apps with UI Plugin Architecture',
+    description: 'A plugin architecture that lets teams ship custom agentic apps — dashboards, workflow surfaces, or full UI panels — and register them into the CAIPE shell without forking the core frontend.',
+    status: 'planned',
+    subItems: [
+      'Plugin manifest spec: name, entrypoint, permissions, nav placement',
+      'Sandboxed plugin host in the CAIPE shell (module federation or iframe)',
+      'Plugin SDK: invoke agents, stream results, access auth token',
+      'Plugin registry UI — install, enable/disable, configure per-team',
+      'Reference plugin: SRE Runbook app',
+    ],
+    issueRefs: ['#2085'],
   },
   {
     title: 'Autonomous Agents',
     description: 'Self-directed agents that proactively monitor, detect, and act on platform events without explicit user prompts.',
     status: 'planned',
+    subItems: [
+      'Event-driven activation from alerts, webhooks, and scheduled checks',
+      'Policy guardrails scoping what actions agents may take without approval',
+      'Human-in-the-loop escalation to Slack/Webex when confidence is low',
+      'Full autonomous run audit trail',
+    ],
+    issueRefs: ['#2083'],
   },
   {
-    title: 'Agentic SDLC',
+    title: 'Agentic SDLC Loops',
     description: 'AI agents integrated throughout the software development lifecycle — from planning and coding to review, testing, and deployment.',
     status: 'planned',
+    subItems: [
+      'Planning: agent-assisted epic and story decomposition',
+      'Coding: PR generation and code-review agent',
+      'Testing: test generation and coverage gap detection',
+      'Deployment: agent-driven GitOps promotion with health verification',
+      'Feedback loop: deployment outcome feeds back to planning metrics',
+    ],
+    issueRefs: ['#2084'],
   },
 ];
 
@@ -94,6 +151,9 @@ export default function RoadmapPage() {
               </Link>
               <Link className={styles.secondaryBtn} to="/community">
                 Join the Community
+              </Link>
+              <Link className={styles.secondaryBtn} to="/docs/repo-ops/issue-triage">
+                Live Issue Classification →
               </Link>
             </div>
           </div>

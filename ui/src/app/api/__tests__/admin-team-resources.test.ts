@@ -6,13 +6,13 @@
  *
  * What we're guarding against:
  *   1. Non-admins cannot reassign team resources (auth gates fire before
- *      any KC mutation).
+ *      any tuple mutation).
  *   2. Add/remove diffs are reconciled to OpenFGA tuples, not Keycloak roles.
  *      Previous state is read from OpenFGA (via TeamResourceListingCache), not
  *      the dropped `team.resources` array — so revocations diff real grants.
- *   3. Members who don't yet have a Keycloak account are reported in
- *      `members_skipped` and the rest of the operation still succeeds —
- *      otherwise inviting "future" emails would brick the whole panel.
+ *   3. Resource grants are keyed on the `team:<slug>` userset, so this path
+ *      never resolves member emails or writes per-member membership tuples —
+ *      member access is transitive via membership owned by the members route.
  *   4. The Mongo `updated_at` touch + legacy `resources` $unset happens AFTER
  *      OpenFGA reconciliation so it never gets ahead of the PDP state.
  */
@@ -49,11 +49,6 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
-}));
-
-const mockFindUserIdByEmail = jest.fn();
-jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
 }));
 
 const mockBuildTeamResourceTupleDiff = jest.fn();
@@ -239,8 +234,6 @@ beforeEach(() => {
   Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
   setDefaultPermissionMock(false);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
-  // Default: every email resolves to a fake KC id; tests override per-case.
-  mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
   mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
   mockReconcileTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
   // Default: team holds no OpenFGA grants. Tests that exercise revocation seed
@@ -258,10 +251,6 @@ beforeEach(() => {
 
 async function loadRoute() {
   jest.resetModules();
-  // Re-bind keycloak admin mocks after resetModules.
-  jest.doMock("@/lib/rbac/keycloak-admin", () => ({
-    findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
-  }));
   jest.doMock("@/lib/authz", () => ({
     reconcileTupleDiff: (...a: unknown[]) => mockReconcileTupleDiff(...a),
   }));
@@ -305,7 +294,6 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
     );
 
     expect(res.status).toBe(401);
-    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
     expect(mockReconcileTupleDiff).not.toHaveBeenCalled();
   });
 
@@ -313,8 +301,8 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
     // Issue #1509: the auth gate now runs AFTER the team document is loaded
     // so requireTeamMembershipManagementPermission can evaluate scoped team
     // admin membership. Seed a team where user@example.com is NOT an
-    // owner/admin to assert the deny path. The test still proves Keycloak
-    // mutations never fire before authz fails.
+    // owner/admin to assert the deny path. The test still proves resource
+    // tuple mutations never fire before authz fails.
     setDefaultPermissionMock(false);
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
     mockGetServerSession.mockResolvedValue(userSession());
@@ -337,7 +325,6 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
     );
 
     expect(res.status).toBe(403);
-    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
     expect(mockReconcileTupleDiff).not.toHaveBeenCalled();
   });
 });
@@ -374,11 +361,6 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
 
     expect(res.status).toBe(200);
 
-    // Resource changes resolve member subjects for OpenFGA tuples, but never
-    // create or assign per-resource Keycloak realm roles.
-    expect(mockFindUserIdByEmail).toHaveBeenCalledWith("alice@example.com");
-    expect(mockFindUserIdByEmail).toHaveBeenCalledWith("bob@example.com");
-
     // No `resources` array is written anymore; the route only touches
     // updated_at and unsets any legacy field.
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
@@ -394,22 +376,19 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       tools_added: ["github/*"],
       tools_removed: [],
     });
-    expect(body.data.members_resolved).toEqual(["alice@example.com", "bob@example.com"]);
-    expect(body.data.members_skipped).toEqual([]);
+    // Grants are keyed on the team userset, so saving resources reports only
+    // the resource diff — no per-member resolution fields anymore.
+    expect(body.data.members_resolved).toBeUndefined();
+    expect(body.data.members_skipped).toBeUndefined();
   });
 
-  it("reports missing Keycloak accounts while still saving OpenFGA resource grants", async () => {
+  it("does not resolve member emails or build membership tuples (team-userset grants)", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     setDefaultPermissionMock(true);
 
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue(teamWith({ agents: [], tools: [] }));
     mockCollections["teams"] = teamsCol;
-
-    // bob has not logged in yet → no KC account.
-    mockFindUserIdByEmail.mockImplementation(async (email: string) =>
-      email === "bob@example.com" ? null : `kc-${email}`
-    );
 
     const { PUT } = await loadRoute();
 
@@ -422,13 +401,18 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.members_resolved).toEqual(["alice@example.com"]);
-    expect(body.data.members_skipped).toEqual(["bob@example.com"]);
 
-    // Mongo persistence must still happen even when some members are skipped —
-    // otherwise re-saving on the next page load would re-trigger reconciliation
-    // with stale state.
+    // The tuple builder is invoked WITHOUT any memberUserIds — member access is
+    // resolved transitively from membership tuples owned by the members route,
+    // so this path must never re-resolve the roster against Keycloak.
+    const builderArg = mockBuildTeamResourceTupleDiff.mock.calls[0][0];
+    expect(builderArg).not.toHaveProperty("memberUserIds");
+
+    const body = await res.json();
+    expect(body.data.members_resolved).toBeUndefined();
+    expect(body.data.members_skipped).toBeUndefined();
+
+    // Mongo persistence still happens.
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
   });
 
@@ -470,7 +454,6 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     expect(res.status).toBe(200);
     expect(mockBuildTeamResourceTupleDiff).toHaveBeenCalledWith({
       teamSlug: "platform-engineering",
-      memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
       agents: { added: ["agent-new"], removed: ["agent-old"] },
       agentAdmins: { added: [], removed: [] },
       tools: { added: ["jira/*"], removed: [] },
@@ -528,7 +511,6 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     expect(res.status).toBe(200);
     expect(mockBuildTeamResourceTupleDiff).toHaveBeenCalledWith({
       teamSlug: "platform-engineering",
-      memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
       agents: { added: ["agent-keep"], removed: [] },
       agentAdmins: { added: ["agent-admin"], removed: [] },
       tools: { added: ["mcp-confluence-mcp/*"], removed: [] },
@@ -625,7 +607,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     );
 
     expect(res.status).toBe(400);
-    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
+    expect(mockBuildTeamResourceTupleDiff).not.toHaveBeenCalled();
   });
 });
 

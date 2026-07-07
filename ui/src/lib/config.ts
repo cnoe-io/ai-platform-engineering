@@ -152,6 +152,10 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
+  /** Optional default agent ID used to edit scheduled jobs */
+  scheduleEditorAgentId: string | null;
+  /** Whether the scheduled-agent workflow is enabled */
+  schedulerEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -257,6 +261,8 @@ const DEFAULT_CONFIG: Config = {
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
+  scheduleEditorAgentId: null,
+  schedulerEnabled: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -454,6 +460,8 @@ export function getServerConfig(): Config {
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
+    scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
+    schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,
