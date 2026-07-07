@@ -236,6 +236,7 @@ const sidebars: SidebarsConfig = {
       label: 'Features',
       items: [
         { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
+        { type: 'doc', id: 'features/workflows', label: 'Workflows' },
         {
           type: 'category',
           label: 'Rich Web UI',
