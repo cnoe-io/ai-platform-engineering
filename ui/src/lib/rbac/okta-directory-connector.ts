@@ -145,18 +145,26 @@ function oktaUserDisplayName(user: User): string | undefined {
 
 async function collectGroupMembers(client: Client, groupId: string): Promise<OktaExternalGroup["members"]> {
   const members: OktaExternalGroup["members"] = [];
-  // `.each` transparently follows Okta's pagination cursor.
-  const userCollection = await client.groupApi.listGroupUsers({ groupId });
-  await userCollection.each((user: User) => {
-    const email = user.profile?.email ?? user.profile?.login ?? user.id;
-    if (!email) return;
-    members.push({
-      subject: undefined,
-      email,
-      display_name: oktaUserDisplayName(user),
-      active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
+  try {
+    // `.each` transparently follows Okta's pagination cursor.
+    const userCollection = await client.groupApi.listGroupUsers({ groupId });
+    await userCollection.each((user: User) => {
+      const email = user.profile?.email ?? user.profile?.login ?? user.id;
+      if (!email) return;
+      members.push({
+        subject: undefined,
+        email,
+        display_name: oktaUserDisplayName(user),
+        active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
+      });
     });
-  });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = (err as { status?: number }).status;
+    throw new Error(
+      `Failed to list group users (groupId=${groupId}, status=${status ?? "unknown"}): ${message}`
+    );
+  }
   return members;
 }
 
@@ -206,7 +214,8 @@ export async function fetchOktaExternalGroups(
   input.onProgress?.(0, groups.length);
 
   const result: OktaExternalGroup[] = [];
-  for (const group of groups) {
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
     const displayName = group.profile?.name ?? group.id ?? "";
     // Members are fetched by Okta's group id, but `external_group_id` keys the
     // membership identity by group NAME to match the login/OIDC path (whose
@@ -231,6 +240,12 @@ export async function fetchOktaExternalGroups(
       members,
     });
     input.onProgress?.(result.length, groups.length);
+    // Small delay between group fetches to avoid overwhelming the Okta API.
+    // The SDK already handles rate limiting via X-Rate-Limit-* headers, but
+    // a light throttle helps prevent transient 400s with very large org syncs.
+    if (i < groups.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   const totalMembers = result.reduce((sum, g) => sum + (g.member_count ?? 0), 0);
