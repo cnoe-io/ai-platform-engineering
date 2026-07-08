@@ -314,7 +314,7 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
             {initiatives.slice(0, 3).map((l) => (
               <Tooltip key={l}>
                 <TooltipTrigger asChild>
-                  <span className="rounded-full border border-violet-500/30 px-2 py-0.5 text-[10px] text-violet-500/80">
+                  <span className="rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary/80">
                     {l}
                   </span>
                 </TooltipTrigger>
@@ -361,7 +361,7 @@ function ProjectGroup({
   const labelClass = isUngrouped
     ? "text-sm font-medium text-muted-foreground"
     : groupBy === "initiative"
-      ? "text-sm font-semibold text-violet-500"
+      ? "text-sm font-semibold text-primary"
       : "text-sm font-semibold text-sky-500";
 
   return (
@@ -377,7 +377,7 @@ function ProjectGroup({
           ) : (
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
-          {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-violet-500" />}
+          {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-primary" />}
           <span className={labelClass}>{label}</span>
           <span className="text-xs text-muted-foreground/50">{items.length}</span>
           <span className="ml-1 h-px flex-grow bg-border/40" />
@@ -389,7 +389,7 @@ function ProjectGroup({
           (bhag ? (
             <Link
               href={`/projects/${bhag.slug}`}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-500 transition hover:border-violet-500 hover:bg-violet-500/20"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:border-primary hover:bg-primary/20"
             >
               <BookOpen className="h-3.5 w-3.5" />
               Open {bhag.name} BHAG wiki
@@ -400,7 +400,7 @@ function ProjectGroup({
               type="button"
               onClick={() => onCreateBhag?.(label, items)}
               disabled={creating}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-violet-500/40 px-3 py-1.5 text-xs font-medium text-violet-500/80 transition hover:border-violet-500 hover:bg-violet-500/10 disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary/80 transition hover:border-primary hover:bg-primary/10 disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
               {creating ? "Creating…" : "Create BHAG wiki"}
@@ -569,12 +569,12 @@ export function ProjectsHub() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-10 p-6">
-      <section className="relative overflow-hidden rounded-3xl border border-primary/10 bg-gradient-to-br from-violet-950/40 via-background to-indigo-950/30 p-8 md:p-12">
-        <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-violet-600/20 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl border border-primary/10 bg-gradient-to-br from-primary/10 via-background to-primary/5 p-8 md:p-12">
+        <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
         <div className="relative grid gap-8 md:grid-cols-2 md:items-center">
           <div className="space-y-4">
             <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight md:text-4xl">
-              <FolderKanban className="h-8 w-8 shrink-0 text-violet-400 md:h-9 md:w-9" />
+              <FolderKanban className="h-8 w-8 shrink-0 text-primary md:h-9 md:w-9" />
               {hero.title}
             </h1>
             <p className="max-w-lg text-muted-foreground">{hero.description}</p>

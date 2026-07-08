@@ -240,12 +240,12 @@ export function BhagProjectsPanel({
             {projects.map((p) => (
               <div
                 key={String(p._id)}
-                className="group flex flex-col rounded-lg border border-border/60 bg-card/50 p-3 transition hover:border-violet-500/40"
+                className="group flex flex-col rounded-lg border border-border/60 bg-card/50 p-3 transition hover:border-primary/40"
               >
                 <div className="flex items-start justify-between gap-2">
                   <Link
                     href={`/projects/${p.slug}/tome`}
-                    className="font-medium leading-snug hover:text-violet-500"
+                    className="font-medium leading-snug hover:text-primary"
                   >
                     {p.title}
                   </Link>

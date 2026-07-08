@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
 import { cn } from "@/lib/utils";
 
@@ -566,7 +567,10 @@ export function IngestPanel({
                         </Tooltip>
                       </TooltipProvider>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{row.label}</p>
+                        <p className="flex items-center gap-1.5 text-sm font-medium">
+                          <ProviderLogo provider={row.connectorKey} className="h-3.5 w-3.5 shrink-0 object-contain" />
+                          {row.label}
+                        </p>
                         <p className="truncate text-xs text-muted-foreground">
                           {inaccessible.length > 0 ? (
                             <>

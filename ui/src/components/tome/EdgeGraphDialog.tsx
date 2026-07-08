@@ -138,6 +138,14 @@ export function EdgeGraphDialog({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<EdgesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [prefetchedData, setPrefetchedData] = useState<EdgesResponse | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/tome/projects/${slug}/edges`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((body) => setPrefetchedData(body?.data ?? { outgoing: [], incoming: [], titles: {} }))
+      .catch(() => {/* silent — count badge is best-effort */});
+  }, [slug]);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -150,15 +158,18 @@ export function EdgeGraphDialog({ slug }: { slug: string }) {
   const isDarkMode = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight";
   const labelDefault = isDarkMode ? "#e5e7eb" : "#1f2937"; // gray-200 / gray-800
 
-  // Fetch on open (an event handler, not an effect — this dialog's data is a
-  // one-shot load per open, not something to keep in sync with `open` as a
-  // dependency).
+  // Fetch on open — reuse prefetched data when available to avoid a second
+  // round-trip for the same slug.
   const handleOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
       setSelectedNode(null);
       setSearch("");
       if (!next) return;
+      if (prefetchedData) {
+        setData(prefetchedData);
+        return;
+      }
       setLoading(true);
       setError(null);
       fetch(`/api/tome/projects/${slug}/edges`)
@@ -167,8 +178,16 @@ export function EdgeGraphDialog({ slug }: { slug: string }) {
         .catch((e) => setError(e instanceof Error ? e.message : String(e)))
         .finally(() => setLoading(false));
     },
-    [slug],
+    [slug, prefetchedData],
   );
+
+  const nodeCount = prefetchedData
+    ? new Set([
+        slug,
+        ...prefetchedData.outgoing.map((e) => e.target_project_slug),
+        ...prefetchedData.incoming.map((e) => e.source_project_slug),
+      ]).size
+    : null;
 
   // A stable graph instance, mutated imperatively (not recomputed in render —
   // `Math.random` for the initial scatter layout is an impure call, so it has
@@ -261,6 +280,11 @@ export function EdgeGraphDialog({ slug }: { slug: string }) {
         <Button variant="outline" size="sm" className="h-auto gap-1.5 px-2 py-1">
           <Network className="h-3.5 w-3.5" />
           Graph
+          {nodeCount !== null && nodeCount > 1 && (
+            <span className="rounded-full bg-muted px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
+              {nodeCount} nodes
+            </span>
+          )}
         </Button>
       </DialogTrigger>
       <DialogContent className="flex h-[80vh] max-w-4xl flex-col">

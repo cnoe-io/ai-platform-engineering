@@ -513,7 +513,7 @@ function FeedDemo() {
 function TranscriptLine({ line }: { line: Line }) {
   const meta = {
     user: { label: "you", labelClass: "text-zinc-400", marker: "›", textClass: "text-zinc-100" },
-    mcp: { label: "mcp", labelClass: "text-violet-400", marker: "›", textClass: "text-amber-200" },
+    mcp: { label: "mcp", labelClass: "text-primary", marker: "›", textClass: "text-amber-200" },
     result: { label: "", labelClass: "", marker: "←", textClass: "text-zinc-500" },
     agent: { label: "claude", labelClass: "text-emerald-400", marker: "›", textClass: "text-zinc-100" },
   }[line.role];

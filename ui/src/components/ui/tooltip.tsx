@@ -114,7 +114,7 @@ export function Tooltip({
     <TooltipStateContext.Provider
       value={{ open, setOpen, triggerRef, hoverHoldRef, cancelPendingClose, scheduleClose }}
     >
-      <span className="relative inline-block">{children}</span>
+      <span className="relative inline-flex items-center align-middle">{children}</span>
     </TooltipStateContext.Provider>
   );
 }

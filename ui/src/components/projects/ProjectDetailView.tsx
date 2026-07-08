@@ -217,7 +217,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
 
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl gradient-primary-br text-white">
             <FolderKanban className="h-7 w-7" />
           </div>
           <div>

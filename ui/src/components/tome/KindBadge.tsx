@@ -58,8 +58,8 @@ const SPECS: Record<PageKind, Spec> = {
     label: "report",
     Icon: FileText,
     badgeClass:
-      "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-900/60 dark:bg-violet-900/30 dark:text-violet-300",
-    iconClass: "text-violet-700 dark:text-violet-400",
+      "border-primary bg-primary text-primary dark:border-primary/60 dark:bg-primary/30 dark:text-primary",
+    iconClass: "text-primary dark:text-primary",
     title: "Report",
     description:
       "A focused, structured surface, not a wiki page. Lives above the wiki and renders as its own UI element. Editable, but the agent rewrites it on each ingest like dynamic pages.",
