@@ -25,6 +25,7 @@ import type {
 import { withRebacAdminAuth,withRebacViewAuth } from "../_lib";
 
 const BULK_REVOKE_REVIEW_LIMIT = 5000;
+const REPAIR_BATCH_LIMIT = 10000;
 const DEFAULT_SLACK_WORKSPACE = "CAIPE";
 const DEFAULT_WEBEX_WORKSPACE = "Cisco";
 
@@ -504,7 +505,10 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       ? body.sources.filter((source): source is string => typeof source === "string" && source.trim().length > 0)
       : undefined;
 
-    const before = await runRbacSelfCheck({ checks });
+    const before = await runRbacSelfCheck({
+      checks,
+      maxFindings: REPAIR_BATCH_LIMIT,
+    });
     const writes = repairableMissingTuples(before, sources);
     const result = await writeOpenFgaTuples({ writes, deletes: [] });
     const after = await runRbacSelfCheck({ checks });
