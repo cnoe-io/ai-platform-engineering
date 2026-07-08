@@ -658,12 +658,6 @@ export function ProjectsHub() {
               Create a project with the onboarding wizard or import Systems from the Backstage
               catalog section above.
             </p>
-            <p className="mt-4 text-xs text-muted-foreground">
-              Already have projects elsewhere? Use them from your coding agent:
-            </p>
-            <div className="mt-2 flex justify-center">
-              <McpConnectDialog />
-            </div>
           </div>
         )}
 
