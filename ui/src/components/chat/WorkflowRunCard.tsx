@@ -24,7 +24,7 @@ interface StepInterrupt {
 interface RunStatus {
   _id: string;
   workflow_config_id: string;
-  status: "running" | "completed" | "failed" | "cancelled" | "waiting_for_input";
+  status: "pending" | "running" | "completed" | "failed" | "cancelled" | "waiting_for_input";
   started_at?: string;
   completed_at?: string;
   current_step_index?: number;
@@ -65,12 +65,17 @@ interface WorkflowRunCardProps {
 }
 
 const STATUS_CONFIG = {
+  pending: { icon: Clock, label: "Pending", className: "text-sky-400", bg: "border-sky-500/30 bg-sky-500/5" },
   running: { icon: Loader2, label: "Running", className: "text-sky-400 animate-spin", bg: "border-sky-500/30 bg-sky-500/5" },
   waiting_for_input: { icon: PauseCircle, label: "Input required", className: "text-amber-400", bg: "border-amber-500/30 bg-amber-500/5" },
   completed: { icon: CheckCircle2, label: "Completed", className: "text-emerald-400", bg: "border-emerald-500/30 bg-emerald-500/5" },
   failed: { icon: XCircle, label: "Failed", className: "text-red-400", bg: "border-red-500/30 bg-red-500/5" },
   cancelled: { icon: XCircle, label: "Cancelled", className: "text-muted-foreground", bg: "border-border bg-muted/30" },
 } as const;
+
+const TERMINAL_STATUSES = new Set<RunStatus["status"]>(["completed", "failed", "cancelled"]);
+const RUNNING_POLL_INTERVAL_MS = 2000;
+const IDLE_POLL_INTERVAL_MS = 10000;
 
 function RunCard({ runId }: { runId: string }) {
   const router = useRouter();
@@ -81,7 +86,9 @@ function RunCard({ runId }: { runId: string }) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`/api/workflow-runs?run_id=${encodeURIComponent(runId)}`);
+      const res = await fetch(`/api/workflow-runs?run_id=${encodeURIComponent(runId)}`, {
+        cache: "no-store",
+      });
       if (res.status === 401 || res.status === 404) {
         setHidden(true);
         return;
@@ -106,23 +113,19 @@ function RunCard({ runId }: { runId: string }) {
     })();
   }, [status?.workflow_config_id, configInfo]);
 
-  const [stopped, setStopped] = useState(false);
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchStatus is async; setState only called after awaited fetch completes
     void fetchStatus();
   }, [fetchStatus]);
 
   useEffect(() => {
-    if (stopped || hidden) return;
-    if (status && status.status !== "running" && status.status !== "waiting_for_input") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: conditional state update when status transitions to a terminal state
-      setStopped(true);
-      return;
-    }
-    const interval = setInterval(fetchStatus, status?.status === "running" ? 5000 : 10000);
+    if (hidden || (status && TERMINAL_STATUSES.has(status.status))) return;
+    const interval = setInterval(
+      fetchStatus,
+      status?.status === "running" ? RUNNING_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS,
+    );
     return () => clearInterval(interval);
-  }, [status, stopped, hidden, fetchStatus]);
+  }, [status, hidden, fetchStatus]);
 
   const handleResume = useCallback(async (resumeData: string) => {
     const waitingStepIndex = status?.steps?.findIndex((s) => s.status === "waiting_for_input") ?? -1;
@@ -314,6 +317,7 @@ function RunCard({ runId }: { runId: string }) {
 
 /**
  * Renders workflow run cards as a sidecar section in the chat timeline.
+ * Each card polls for status updates until the run reaches a terminal state.
  * When a run is waiting_for_input with an interrupt, the form renders
  * inline matching the agent HITL style — no page navigation required.
  */

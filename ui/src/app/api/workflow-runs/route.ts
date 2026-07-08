@@ -243,7 +243,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       eventsObj[stepIndex] = stepEvents;
     }
 
-    return NextResponse.json({ ...run, events: eventsObj }) as NextResponse;
+    return NextResponse.json(
+      { ...run, events: eventsObj },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    ) as NextResponse;
   }
 
   // Legacy: list runs for user
