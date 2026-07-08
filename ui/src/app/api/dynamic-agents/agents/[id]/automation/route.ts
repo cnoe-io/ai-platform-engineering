@@ -1,6 +1,7 @@
 import {
   ApiError, getAuthFromBearerOrSession, successResponse, withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireAgentPermission } from '@/lib/rbac/resource-authz';
 import { readOpenFgaTuples, writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
@@ -28,12 +29,29 @@ async function readTeamSlug(request: NextRequest): Promise<string> {
   if (!slug) throw new ApiError('team_slug is required', 400);
   return slug;
 }
+async function requireAgentOwnerTeam(agentId: string, requestedTeamSlug: string): Promise<string> {
+  const agents = await getCollection('dynamic_agents');
+  const agent = await agents.findOne(
+    { _id: agentId },
+    { projection: { owner_team_slug: 1 } },
+  ) as { owner_team_slug?: unknown } | null;
+  if (!agent) throw new ApiError('Agent not found', 404);
+  const ownerTeamSlug = typeof agent.owner_team_slug === 'string' ? agent.owner_team_slug.trim() : '';
+  if (!ownerTeamSlug) {
+    throw new ApiError('This agent has no owner team; autonomous scheduling requires an owner team.', 409);
+  }
+  if (requestedTeamSlug !== ownerTeamSlug) {
+    throw new ApiError('Autonomous scheduling can only be enabled for the agent owner team.', 403);
+  }
+  return ownerTeamSlug;
+}
 
 export const PUT = withErrorHandler(async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { session } = await getAuthFromBearerOrSession(request);
   const { id } = await context.params;
-  const teamSlug = await readTeamSlug(request);
+  const requestedTeamSlug = await readTeamSlug(request);
   await requireAgentPermission(session, id, 'manage');
+  const teamSlug = await requireAgentOwnerTeam(id, requestedTeamSlug);
   if (!(await hasTuple(eligibilityTuple(teamSlug)))) {
     throw new ApiError(
       'This team is not autonomous-eligible. A platform admin must enable autonomous for the team first.',
@@ -51,8 +69,9 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: { para
 export const DELETE = withErrorHandler(async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { session } = await getAuthFromBearerOrSession(request);
   const { id } = await context.params;
-  const teamSlug = await readTeamSlug(request);
+  const requestedTeamSlug = await readTeamSlug(request);
   await requireAgentPermission(session, id, 'manage');
+  const teamSlug = await requireAgentOwnerTeam(id, requestedTeamSlug);
   const tuple = agentAutomatorTuple(id, teamSlug);
   if (await hasTuple(tuple)) {
     const result = await writeOpenFgaTuples({ writes: [], deletes: [tuple] });

@@ -7,6 +7,7 @@ const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireAgentPermission = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
+const mockFindOne = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -34,6 +35,9 @@ jest.mock("@/lib/api-middleware", () => {
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireAgentPermission: (...a: unknown[]) => mockRequireAgentPermission(...a),
 }));
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: jest.fn().mockResolvedValue({ findOne: (...a: unknown[]) => mockFindOne(...a) }),
+}));
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...a: unknown[]) => mockWriteOpenFgaTuples(...a),
   readOpenFgaTuples: (...a: unknown[]) => mockReadOpenFgaTuples(...a),
@@ -59,6 +63,7 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
     mockRequireAgentPermission.mockResolvedValue(undefined);
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: ELIG_TUPLE }] });
+    mockFindOne.mockResolvedValue({ _id: AGENT_ID, owner_team_slug: TEAM_SLUG });
   });
 
   it("PUT enables the agent for the team (writes automator tuple)", async () => {
@@ -89,6 +94,12 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
   it("PUT is 400 when team_slug is missing", async () => {
     const res = await PUT(req({}), ctx());
     expect(res.status).toBe(400);
+  });
+
+  it("PUT rejects a team_slug that is not the agent owner team", async () => {
+    const res = await PUT(req({ team_slug: "other-team" }), ctx());
+    expect(res.status).toBe(403);
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
   it("DELETE disables the agent for the team (deletes automator tuple)", async () => {

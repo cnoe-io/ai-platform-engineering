@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
+from math import isfinite
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -230,7 +231,7 @@ class TaskDefinition(BaseModel):
         """Reject non-finite values that would break httpx timeouts at runtime."""
         if v is None:
             return v
-        if v != v or v in (float("inf"), float("-inf")):
+        if not isfinite(v):
             raise ValueError("timeout_seconds must be a finite number")
         return v
 

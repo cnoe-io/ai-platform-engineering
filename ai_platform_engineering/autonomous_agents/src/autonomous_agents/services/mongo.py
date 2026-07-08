@@ -72,12 +72,23 @@ class TaskStore(Protocol):
     every route or scheduler test.
     """
 
-    async def list_all(self) -> list[TaskDefinition]: ...
-    async def list_by_owner(self, owner_id: str) -> list[TaskDefinition]: ...
-    async def get(self, task_id: str) -> TaskDefinition | None: ...
-    async def create(self, task: TaskDefinition) -> TaskDefinition: ...
-    async def update(self, task_id: str, task: TaskDefinition) -> TaskDefinition: ...
-    async def delete(self, task_id: str) -> None: ...
+    async def list_all(self) -> list[TaskDefinition]:
+        pass
+
+    async def list_by_owner(self, owner_id: str) -> list[TaskDefinition]:
+        pass
+
+    async def get(self, task_id: str) -> TaskDefinition | None:
+        pass
+
+    async def create(self, task: TaskDefinition) -> TaskDefinition:
+        pass
+
+    async def update(self, task_id: str, task: TaskDefinition) -> TaskDefinition:
+        pass
+
+    async def delete(self, task_id: str) -> None:
+        pass
 
 
 @runtime_checkable
@@ -94,9 +105,14 @@ class RunStore(Protocol):
     inject in-file fakes for scheduler and route tests.
     """
 
-    async def record(self, run: TaskRun) -> None: ...
-    async def list_by_task(self, task_id: str, limit: int = 100) -> list[TaskRun]: ...
-    async def list_all(self, limit: int = 500) -> list[TaskRun]: ...
+    async def record(self, run: TaskRun) -> None:
+        pass
+
+    async def list_by_task(self, task_id: str, limit: int = 100) -> list[TaskRun]:
+        pass
+
+    async def list_all(self, limit: int = 500) -> list[TaskRun]:
+        pass
 
 
 # Collection name defaults shared by settings, tests, and index setup.

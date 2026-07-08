@@ -25,7 +25,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from autonomous_agents.models import Acknowledgement, TaskDefinition
+from apscheduler.triggers.cron import CronTrigger as APSCronTrigger
+
+from autonomous_agents.models import Acknowledgement, CronTrigger, TaskDefinition, TriggerType
 from autonomous_agents.services.dynamic_agents_client import preflight_dynamic_agent
 from autonomous_agents.services.mongo import (
     TaskNotFoundError,
@@ -88,6 +90,18 @@ async def sync_task_to_runtime(task: TaskDefinition) -> None:
     """
     register_scheduler_task(task)
     register_webhook_task(task)
+
+
+def validate_task_for_runtime(task: TaskDefinition) -> None:
+    """Validate trigger fields that runtime registration would reject.
+
+    This is intentionally side-effect free so update routes can reject malformed
+    trigger edits before replacing the stored task definition.
+    """
+    if not task.enabled:
+        return
+    if task.trigger.type == TriggerType.CRON and isinstance(task.trigger, CronTrigger):
+        APSCronTrigger.from_crontab(task.trigger.schedule, timezone="UTC")
 
 
 def detach_task_from_runtime(task_id: str) -> None:

@@ -382,6 +382,23 @@ class TestUpdate:
         assert job is not None
         assert "hour='18'" in str(job.trigger)
 
+    def test_rejects_malformed_cron_update_without_persisting(self, client: TestClient):
+        """PUT validates runtime trigger fields before replacing the stored row."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+
+        bad_payload = _cron_task("t1")
+        bad_payload["name"] = "Bad cron"
+        bad_payload["trigger"]["schedule"] = "not a cron expression"
+        response = client.put("/api/v1/tasks/t1", json=bad_payload)
+
+        assert response.status_code == 400
+        persisted = client.get("/api/v1/tasks/t1").json()
+        assert persisted["name"] == "Task t1"
+        assert persisted["trigger"]["schedule"] == "0 9 * * *"
+        job = get_scheduler().get_job("t1")
+        assert job is not None
+        assert "hour='9'" in str(job.trigger)
+
     def test_swap_from_cron_to_webhook_detaches_old_runtime(self, client: TestClient):
         """Cron => webhook swap removes the prior APScheduler job."""
         client.post("/api/v1/tasks", json=_cron_task("t1"))
@@ -623,7 +640,7 @@ class TestRunHistoryOwnership:
 
     async def test_list_all_runs_filters_to_caller_for_non_admin(self, _swap_run_store):
         """``/runs`` returns only the non-admin caller's own runs."""
-        store = _swap_run_store(
+        _swap_run_store(
             _RecordingStore(
                 [
                     _make_run("r-alice", task_id="t-alice", owner_id="alice@example.com"),
@@ -637,7 +654,6 @@ class TestRunHistoryOwnership:
         runs = await list_all_runs(_fake_request(_user_headers("bob@example.com")))
 
         assert [r.run_id for r in runs] == ["r-bob"]
-        assert store is store  # store retained for symmetry with sibling tests
 
     async def test_list_all_runs_returns_everything_for_admin(self, _swap_run_store):
         """Admins audit every task's runs, including orphaned ones."""

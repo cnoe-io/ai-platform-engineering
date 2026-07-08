@@ -21,6 +21,28 @@ describe("revokeTeamAutomatorGrants", () => {
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: A1 }, { key: A2 }] });
     const n = await revokeTeamAutomatorGrants(SLUG);
     expect(n).toBe(2);
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
+      tuple: { user: `team:${SLUG}#member`, relation: "automator" },
+      continuationToken: undefined,
+      pageSize: 100,
+    });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({ writes: [], deletes: [A1, A2] });
+  });
+
+  it("follows pagination while filtering to agent objects", async () => {
+    const nonAgent = { user: `team:${SLUG}#member`, relation: "automator", object: "workflow:w1" };
+    mockReadOpenFgaTuples
+      .mockResolvedValueOnce({ tuples: [{ key: A1 }, { key: nonAgent }], continuationToken: "next" })
+      .mockResolvedValueOnce({ tuples: [{ key: A2 }] });
+
+    const n = await revokeTeamAutomatorGrants(SLUG);
+
+    expect(n).toBe(2);
+    expect(mockReadOpenFgaTuples).toHaveBeenNthCalledWith(2, {
+      tuple: { user: `team:${SLUG}#member`, relation: "automator" },
+      continuationToken: "next",
+      pageSize: 100,
+    });
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({ writes: [], deletes: [A1, A2] });
   });
 

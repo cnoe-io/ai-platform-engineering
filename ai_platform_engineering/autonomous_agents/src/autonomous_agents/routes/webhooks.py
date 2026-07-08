@@ -234,7 +234,7 @@ async def receive_webhook(
     # this AFTER the adapter's compare_digest confirms the sender's
     # value matches; using an unverified signature would let an attacker
     # poison the dedup table.
-    secret, source = _resolve_secret(task)
+    secret, _source = _resolve_secret(task)
     settings = get_settings()
     result: VerificationResult = adapter.verify(
         secret=secret,
@@ -242,13 +242,6 @@ async def receive_webhook(
         headers=request.headers,
         replay_window_seconds=settings.webhook_replay_window_seconds,
     )
-    if secret:
-        logger.debug(
-            "Webhook signature OK for task '%s' (provider=%s, secret_source=%s)",
-            task_id,
-            adapter.provider_id,
-            source,
-        )
     verified_signature = result.canonical_signature
 
     if result.is_ping:

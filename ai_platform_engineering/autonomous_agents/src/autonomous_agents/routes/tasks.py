@@ -25,6 +25,7 @@ from autonomous_agents.services.task_lifecycle import (
     publish_creation_intent_safely,
     schedule_preflight,
     sync_task_to_runtime,
+    validate_task_for_runtime,
 )
 from autonomous_agents.services.task_runner import (
     execute_task,
@@ -321,6 +322,8 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
     # ``None`` for unknown ids -- the store update call below will
     # then raise TaskNotFoundError and we 404 cleanly.
     existing = await store.get(task_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
 
     # Ownership check: non-admin callers can only update their own tasks.
     if existing is not None:
@@ -369,6 +372,15 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
     # doesn't blank the badge while a fresh preflight is in flight.
     if existing is not None and not ack_relevant_changed(existing, task):
         task = task.model_copy(update={"last_ack": existing.last_ack})
+
+    try:
+        validate_task_for_runtime(task)
+    except Exception as exc:
+        logger.warning("[%s] Rejected update: %s", task_id, exc)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task definition could not be scheduled: {exc}",
+        ) from exc
 
     try:
         updated = await store.update(task_id, task)

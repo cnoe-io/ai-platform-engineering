@@ -133,14 +133,14 @@ class ChatHistoryPublisher(Protocol):
         conversation_id: str | None = None,
     ) -> None:
         """Append a (run_request, run_response|run_error) message pair."""
-        ...
+        pass
 
     async def publish_creation_intent(
         self,
         task: TaskDefinition,
     ) -> None:
         """Append a creation_intent message describing the operator's request."""
-        ...
+        pass
 
     async def publish_preflight_ack(
         self,
@@ -148,7 +148,7 @@ class ChatHistoryPublisher(Protocol):
         ack_payload: dict[str, Any],
     ) -> None:
         """Append a preflight_ack message with the supervisor's ack payload."""
-        ...
+        pass
 
 
 class NoopChatHistoryPublisher:

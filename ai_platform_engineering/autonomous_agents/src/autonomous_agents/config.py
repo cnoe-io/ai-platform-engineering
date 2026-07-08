@@ -2,6 +2,7 @@
 
 import json
 from functools import lru_cache
+from math import isfinite
 from typing import Any, Self
 
 from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
@@ -73,7 +74,7 @@ class Settings(BaseSettings):
         # bounds are enforced separately by the per-field ``gt=0`` /
         # ``ge=0`` constraints — this validator is *only* responsible
         # for the finiteness check.
-        if v != v or v in (float("inf"), float("-inf")):
+        if not isfinite(v):
             raise ValueError("must be a finite number")
         return v
 

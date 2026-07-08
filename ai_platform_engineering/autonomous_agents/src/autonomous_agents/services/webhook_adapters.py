@@ -253,9 +253,6 @@ class WebhookAdapter:
                 # the dedup namespace doesn't shift on header capitalisation
                 # or sender-side prefix variants.
                 canonical = self._canonical_signature(expected)
-                logger.debug(
-                    "Webhook signature OK (provider=%s)", self.provider_id
-                )
                 return VerificationResult(
                     ok=True,
                     canonical_signature=canonical,
