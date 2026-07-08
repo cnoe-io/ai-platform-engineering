@@ -103,7 +103,6 @@ class SlackChannelRebacEvaluator:
             return SlackChannelRebacDecision(
                 allowed=False,
                 channel_allowed=False,
-                user_allowed=False,
                 reason="pdp_unavailable",
             )
         return _http_post_check(self.base_url, path, payload, token)
@@ -130,7 +129,6 @@ class SlackChannelRebacEvaluator:
             return SlackChannelRebacDecision(
                 allowed=False,
                 channel_allowed=False,
-                user_allowed=False,
                 reason="pdp_unavailable",
             )
 
