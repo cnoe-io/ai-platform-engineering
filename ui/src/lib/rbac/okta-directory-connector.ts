@@ -158,11 +158,14 @@ async function collectGroupMembers(client: Client, groupId: string): Promise<Okt
         active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
       });
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch (err: unknown) {
     const status = (err as { status?: number }).status;
+    // OktaApiError includes an errorSummary field with the API error detail.
+    const errorSummary = (err as { errorSummary?: string }).errorSummary;
+    const message = err instanceof Error ? err.message : String(err);
+    const detail = errorSummary ? ` (${errorSummary})` : "";
     throw new Error(
-      `Failed to list group users (groupId=${groupId}, status=${status ?? "unknown"}): ${message}`
+      `Failed to list group users (groupId=${groupId}, status=${status ?? "unknown"}): ${message}${detail}`
     );
   }
   return members;
@@ -224,7 +227,17 @@ export async function fetchOktaExternalGroups(
     // login. The 1:1 model is name-based throughout (the catch-all rule slugs
     // off the name), so the name is the stable cross-path key.
     const externalGroupId = group.profile?.name ?? group.id ?? "";
-    const members = await collectGroupMembers(client, group.id ?? "");
+    let members: OktaExternalGroup["members"] = [];
+    try {
+      members = await collectGroupMembers(client, group.id ?? "");
+    } catch (err) {
+      // Log but don't fail the entire sync; transient API errors on individual
+      // groups shouldn't block the overall sync (e.g., a rate limit on one group).
+      console.warn(
+        `[OktaSync] skipping group ${displayName} (${group.id}): ` +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
     result.push({
       provider_id: input.providerId,
       external_group_id: externalGroupId,
