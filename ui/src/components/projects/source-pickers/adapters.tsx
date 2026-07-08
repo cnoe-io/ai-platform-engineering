@@ -13,6 +13,9 @@ const stripGh = (v: string) => v.replace(/^https?:\/\/github\.com\//i, "");
  */
 const github: SourceAdapter = {
   provider: "github",
+  title: "GitHub repos",
+  subtitle: "Scopes the project's read-only agent access",
+  chipClass: "bg-foreground text-background",
   multi: true,
   nounOne: "repo",
   nounMany: "repos",
@@ -27,16 +30,20 @@ const github: SourceAdapter = {
   selectedKeyOf: (v) => v,
   labelOf: stripGh,
   encodeOnAdd: (o) => o.value,
-  manualAdd: { placeholder: "org/name or repo URL", button: "Add", withIcon: true },
-  footer: (sel) => (
-    <p className="text-xs text-muted-foreground">
-      {`${sel.length} selected`} · these scope the project&apos;s read-only agent access.
-    </p>
-  ),
+  manualAdd: {
+    hint: "Know the repo? Paste it directly.",
+    placeholder: "org/name or repo URL",
+    button: "Add",
+    withIcon: true,
+  },
+  footer: (sel) => <p className="text-xs text-muted-foreground">{sel.length} selected</p>,
 };
 
 const confluence: SourceAdapter = {
   provider: "atlassian",
+  title: "Confluence space",
+  subtitle: "Single space, used as project context",
+  chipClass: "bg-[#2684FF]/10",
   multi: false,
   nounOne: "space",
   nounMany: "spaces",
@@ -49,10 +56,12 @@ const confluence: SourceAdapter = {
     <>Confluence not connected — link Atlassian in {link}, or paste a space URL below.</>
   ),
   notConnectedBare: "Paste a Confluence space URL below.",
+  slowLoadHint: "Confluence can take a few seconds to list your spaces — still working…",
   selectedKeyOf: (v) => v,
   labelOf: (v) => v,
   encodeOnAdd: (o) => o.value,
   manualAdd: {
+    hint: "Know the space? Paste its URL directly.",
     placeholder: "https://your.atlassian.net/wiki/spaces/PROJ",
     button: "Use",
   },
@@ -66,6 +75,9 @@ const confluence: SourceAdapter = {
 
 const webex: SourceAdapter = {
   provider: "webex",
+  title: "Webex",
+  subtitle: "Rooms the agent can read for context",
+  chipClass: "bg-[#616BFA]/10",
   multi: true,
   nounOne: "room",
   nounMany: "rooms",

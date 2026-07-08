@@ -1,22 +1,30 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Check, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Check, Plus, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { cn } from "@/lib/utils";
 import { useSourceOptions, type SourceOption } from "./useSourceOptions";
 
 /**
  * Per-source behavior the generic picker can't infer. The three connectors
- * (GitHub repos, Confluence space, Webex rooms) share all the chrome — status
- * header, search, scrollable checkmark list with selected pinned to the top,
- * optional manual-add, footer — and differ only on the axes below. Adding a new
- * source connector is now an adapter, not a new component.
+ * (GitHub repos, Confluence space, Webex rooms) share all the chrome — a
+ * bounded card with a branded header (icon chip, title, status), a merged
+ * search+list control, optional manual-add, footer — and differ only on the
+ * axes below. Adding a new source connector is now an adapter, not a new
+ * component.
  */
 export interface SourceAdapter {
-  /** Credentials provider id behind `useSourceOptions`. */
+  /** Credentials provider id behind `useSourceOptions` (also the `ProviderLogo` key). */
   provider: "github" | "atlassian" | "webex";
+  /** Card header title, e.g. "GitHub repos". */
+  title: string;
+  /** One-line context shown under the title, e.g. what these sources are used for. */
+  subtitle: string;
+  /** Header icon chip background — a brand-tinted wash or (GitHub) an inverted neutral. */
+  chipClass: string;
   /** Multi-select (repos/rooms) vs single-select (one Confluence space). */
   multi: boolean;
   /** Singular / plural noun for counts and copy ("repo"/"repos"). */
@@ -33,6 +41,11 @@ export interface SourceAdapter {
   /** Not-connected copy: rich (with a Connections link) and the bare fallback. */
   notConnectedHowTo: (connectionsLink: ReactNode) => ReactNode;
   notConnectedBare: string;
+  /**
+   * Shown under the loading skeleton once a first load runs past ~2.5s, so a
+   * slow provider (Confluence) reads as "expected" rather than "stuck".
+   */
+  slowLoadHint?: string;
 
   /** Stored selected value → stable key used to match options and dedupe. */
   selectedKeyOf: (value: string) => string;
@@ -43,11 +56,13 @@ export interface SourceAdapter {
   /** Option → the value stored on selection (identity, or webex blob encode). */
   encodeOnAdd: (option: SourceOption) => string;
 
-  /** Optional manual-add row. */
+  /** Optional manual-add row — rendered as its own prominent section, not an afterthought. */
   manualAdd?: {
     placeholder: string;
     button: string;
     withIcon?: boolean;
+    /** Short label above the input, e.g. "Know the URL? Paste it directly". */
+    hint: string;
     /** Normalize raw input → stored value (null/empty rejects). Defaults to trim. */
     parse?: (input: string) => string | null;
   };
@@ -75,6 +90,19 @@ export function SourceItemPicker({
     useSourceOptions(adapter.provider);
   const [query, setQuery] = useState("");
   const [manual, setManual] = useState("");
+
+  // A first load with no rows yet that runs past ~2.5s surfaces the adapter's
+  // slow-load copy (Confluence in particular), so it reads as expected rather
+  // than stuck.
+  const [showSlowHint, setShowSlowHint] = useState(false);
+  useEffect(() => {
+    if (!loading || options.length > 0 || !adapter.slowLoadHint) {
+      setShowSlowHint(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSlowHint(true), 2500);
+    return () => clearTimeout(t);
+  }, [loading, options.length, adapter.slowLoadHint]);
 
   const optionKeyOf = adapter.optionKeyOf ?? ((o: SourceOption) => o.value);
 
@@ -147,121 +175,157 @@ export function SourceItemPicker({
   ) : null;
 
   return (
-    <div className="space-y-3">
-      {/* Connection status */}
-      <div className="flex items-center justify-between text-sm">
-        {connected ? (
-          <span className="text-muted-foreground">
-            Connected
-            {connectedTo ? (
-              <>
-                {" "}
-                {adapter.connectedPreposition}{" "}
-                <span className="font-medium text-emerald-500">{connectedTo}</span>
-              </>
-            ) : null}
-            {" · "}
-            {countText}
-          </span>
-        ) : loading ? (
-          // First load: connection status is still unknown — don't claim "not
-          // connected" until we actually know.
-          <span className="text-muted-foreground">Checking connection…</span>
-        ) : (
-          <span className="text-muted-foreground">
-            {manageUrl ? adapter.notConnectedHowTo(connectionsLink) : adapter.notConnectedBare}
-          </span>
-        )}
-        <Button variant="ghost" size="sm" onClick={reload} title="Refresh">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      {/* Header: brand chip + title/subtitle + connection status + refresh — one
+          row, so each connector reads as its own distinct unit at a glance. */}
+      <div className="flex items-center gap-2.5 border-b border-border bg-muted/40 px-4 py-3">
+        <span className={cn("flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg", adapter.chipClass)}>
+          <ProviderLogo provider={adapter.provider} className="h-[15px] w-[15px] object-contain" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold leading-tight">{adapter.title}</div>
+          <div className="truncate text-xs text-muted-foreground">{adapter.subtitle}</div>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              connected ? "bg-emerald-500" : loading ? "bg-muted-foreground/40" : "bg-amber-500",
+            )}
+          />
+          {connected ? (
+            <>
+              Connected
+              {connectedTo ? (
+                <>
+                  {" "}
+                  {adapter.connectedPreposition} <span className="font-medium text-foreground">{connectedTo}</span>
+                </>
+              ) : null}
+            </>
+          ) : loading ? (
+            // First load: connection status is still unknown — don't claim "not
+            // connected" until we actually know.
+            "Checking…"
+          ) : (
+            "Not connected"
+          )}
+        </span>
+        <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0" onClick={reload} title="Refresh">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
       </div>
 
-      {/* Search — rendered during the first load too, so it doesn't pop in once
-          the connection resolves (the common case is connected). Only hidden
-          once we definitively know the provider is not connected. */}
-      {(connected || loading) && (
-        <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => {
-              const v = e.target.value;
-              setQuery(v);
-              search(v.trim());
-            }}
-            placeholder={adapter.searchPlaceholder}
-            disabled={!connected}
-            className="w-full bg-transparent py-2 text-sm outline-none disabled:cursor-default"
-          />
-        </div>
-      )}
-
-      {/* List */}
-      <div className="h-52 overflow-y-auto rounded-lg border border-border/60">
-        {rows.length === 0 ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading {adapter.nounMany}…
-              </>
-            ) : query.trim() ? (
-              adapter.emptyNoMatch ?? adapter.emptyNone
-            ) : (
-              adapter.emptyNone
-            )}
-          </div>
-        ) : (
-          <ul className="divide-y divide-border/40">
-            {rows.map((r) => (
-              <li key={r.key}>
-                <button
-                  type="button"
-                  onClick={r.onToggle}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition hover:bg-accent/50"
-                >
-                  <span
-                    className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center border",
-                      adapter.multi ? "rounded" : "rounded-full",
-                      r.selected
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border",
-                    )}
-                  >
-                    {r.selected && <Check className="h-3 w-3" />}
-                  </span>
-                  <span className="truncate">{r.label}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+      <div className="space-y-3 p-4">
+        {!connected && !loading && (
+          <p className="text-sm text-muted-foreground">
+            {manageUrl ? adapter.notConnectedHowTo(connectionsLink) : adapter.notConnectedBare}
+          </p>
         )}
+
+        {/* Picker: search + list merged into one bounded control, so the two
+            don't compete as separate peer boxes. */}
+        {(connected || loading) && (
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <input
+                value={query}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setQuery(v);
+                  search(v.trim());
+                }}
+                placeholder={adapter.searchPlaceholder}
+                disabled={!connected}
+                className="w-full bg-transparent py-2.5 text-sm outline-none disabled:cursor-default"
+              />
+              {connected && (
+                <span className="shrink-0 text-xs text-muted-foreground">{countText}</span>
+              )}
+            </div>
+            <div className="h-40 overflow-y-auto">
+              {rows.length === 0 && loading ? (
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
+                  <div className="w-full space-y-2" data-testid="skeleton">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2">
+                        <div className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted-foreground/20" />
+                        <div
+                          className="h-3.5 animate-pulse rounded bg-muted-foreground/20"
+                          style={{ width: `${60 - i * 8}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {showSlowHint && adapter.slowLoadHint && (
+                    <p className="max-w-[85%] text-center text-xs text-muted-foreground">
+                      {adapter.slowLoadHint}
+                    </p>
+                  )}
+                </div>
+              ) : rows.length === 0 ? (
+                <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                  {query.trim() ? adapter.emptyNoMatch ?? adapter.emptyNone : adapter.emptyNone}
+                </div>
+              ) : (
+                <ul className="divide-y divide-border/40">
+                  {rows.map((r) => (
+                    <li key={r.key}>
+                      <button
+                        type="button"
+                        onClick={r.onToggle}
+                        className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition hover:bg-accent/50"
+                      >
+                        <span
+                          className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center border",
+                            adapter.multi ? "rounded" : "rounded-full",
+                            r.selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border",
+                          )}
+                        >
+                          {r.selected && <Check className="h-3 w-3" />}
+                        </span>
+                        <span className="truncate">{r.label}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Manual add — the one intentionally-different (dashed) zone: the
+            explicit "alternate path" to search. */}
+        {adapter.manualAdd && (
+          <div className="rounded-lg border border-dashed border-border/60 p-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">{adapter.manualAdd.hint}</p>
+            <div className="flex items-center gap-2">
+              <input
+                value={manual}
+                onChange={(e) => setManual(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addManual();
+                  }
+                }}
+                placeholder={adapter.manualAdd.placeholder}
+                className="flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+              />
+              <Button size="sm" onClick={addManual} disabled={!manual.trim()}>
+                {adapter.manualAdd.withIcon && <Plus className="h-3.5 w-3.5" />}
+                {adapter.manualAdd.button}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {adapter.footer?.(selected)}
       </div>
-
-      {/* Manual add */}
-      {adapter.manualAdd && (
-        <div className="flex items-center gap-2">
-          <input
-            value={manual}
-            onChange={(e) => setManual(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addManual();
-              }
-            }}
-            placeholder={adapter.manualAdd.placeholder}
-            className="flex-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-          />
-          <Button variant="outline" size="sm" onClick={addManual} disabled={!manual.trim()}>
-            {adapter.manualAdd.withIcon && <Plus className="h-3.5 w-3.5" />}
-            {adapter.manualAdd.button}
-          </Button>
-        </div>
-      )}
-
-      {adapter.footer?.(selected)}
     </div>
   );
 }

@@ -85,26 +85,29 @@ export function SourcesEditor({
 
   return (
     <div className="space-y-5">
-      {kinds.map((kind) => (
-        <div key={kind} className="space-y-2">
-          <h4 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <ProviderLogo
-              provider={PROVIDER_FOR_KIND[kind]}
-              className="h-4 w-4 shrink-0 object-contain"
-            />
-            {LABELS[kind]}
-          </h4>
-          {readOnly ? (
+      {kinds.map((kind) =>
+        readOnly ? (
+          <div key={kind} className="space-y-2">
+            <h4 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <ProviderLogo
+                provider={PROVIDER_FOR_KIND[kind]}
+                className="h-4 w-4 shrink-0 object-contain"
+              />
+              {LABELS[kind]}
+            </h4>
             <ReadOnlyKind kind={kind} value={valueFor(kind, value)} />
-          ) : (
-            <SourcePicker
-              source={kind}
-              selected={valueFor(kind, value)}
-              onChange={(next) => onChange(applyTo(kind, next, value))}
-            />
-          )}
-        </div>
-      ))}
+          </div>
+        ) : (
+          // The picker renders its own bounded card + branded header — no
+          // wrapper needed here (see SourceItemPicker.tsx).
+          <SourcePicker
+            key={kind}
+            source={kind}
+            selected={valueFor(kind, value)}
+            onChange={(next) => onChange(applyTo(kind, next, value))}
+          />
+        ),
+      )}
     </div>
   );
 }
