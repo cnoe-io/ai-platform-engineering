@@ -55,8 +55,21 @@ function ownerMatchesSession(run: WorkflowRunDocument, session: WorkflowAuthzSes
   return run.owner_subject?.type === subject.type && run.owner_subject.id === subject.id;
 }
 
-function filterRunsForOwner<T extends WorkflowRunDocument>(runs: T[], session: WorkflowAuthzSession): T[] {
-  return runs.filter((run) => !run.owner_subject || ownerMatchesSession(run, session));
+function filterRunsForSession<T extends WorkflowRunDocument>(
+  runs: T[],
+  session: WorkflowAuthzSession,
+  userTeamSlugs: string[],
+): T[] {
+  const slugSet = new Set(userTeamSlugs.map((s) => s.trim().toLowerCase()));
+  return runs.filter((run) => {
+    if (!run.owner_subject) return true;
+    if (ownerMatchesSession(run, session)) return true;
+    const shared = run.shared_with_teams;
+    if (shared?.length) {
+      return shared.some((slug) => slugSet.has(slug.trim().toLowerCase()));
+    }
+    return false;
+  });
 }
 
 function workflowRunAccessConfig(config: WorkflowConfig): WorkflowConfigRebacSnapshot {
@@ -278,7 +291,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .sort({ started_at: -1 })
       .limit(100)
       .toArray();
-    return NextResponse.json(filterRunsForOwner(runs, session)) as NextResponse;
+    return NextResponse.json(filterRunsForSession(runs, session, userTeamSlugs)) as NextResponse;
   }
 
   // List all runs — filter to only those whose configs the user can read.
@@ -313,7 +326,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .sort({ started_at: -1 })
     .limit(100)
     .toArray();
-  return NextResponse.json(filterRunsForOwner(runs, session)) as NextResponse;
+  return NextResponse.json(filterRunsForSession(runs, session, userTeamSlugs)) as NextResponse;
 });
 
 // ═══════════════════════════════════════════════════════════════

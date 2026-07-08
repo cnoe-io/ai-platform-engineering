@@ -85,6 +85,8 @@ export interface WfRun {
   steps: WfStepRun[];
   user_context?: string | null;
   trigger_info?: { triggered_by: string; context?: Record<string, unknown> } | null;
+  owner_subject?: { type: string; id: string } | null;
+  shared_with_teams?: string[] | null;
 }
 
 // ---------------------------------------------------------------------------

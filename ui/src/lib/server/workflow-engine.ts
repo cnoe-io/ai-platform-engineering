@@ -98,6 +98,7 @@ export interface WorkflowRunDocument {
   trigger_info?: WorkflowRunTriggerInfo | null;
   started_at: Date;
   completed_at: Date | null;
+  shared_with_teams?: string[] | null;
 }
 
 const RUNS_COLLECTION = "workflow_runs";

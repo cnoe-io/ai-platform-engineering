@@ -182,6 +182,20 @@ export async function requireWorkflowRunAccess(
     return;
   }
   if (run.owner_subject) {
+    // Owner is set but doesn't match — check if this run has been team-shared via FGA.
+    // A share POST writes task:<run._id> tuples so CAS can grant run-level access
+    // independently from the config's own task:<config_id> grants.
+    const teamShareResult = await workflowAccessDecision(session, run._id, configAction);
+    if (teamShareResult.reason === "AUTHZ_UNAVAILABLE" || teamShareResult.retriable) {
+      throw unavailableError();
+    }
+    if (teamShareResult.decision === "ALLOW") {
+      auditWorkflowRunDecision(session, subject, run, configAction, {
+        ...teamShareResult,
+        via: "workflow_run_team_share",
+      });
+      return;
+    }
     auditWorkflowRunDecision(session, subject, run, configAction, {
       decision: "DENY",
       reason: "NO_CAPABILITY",
