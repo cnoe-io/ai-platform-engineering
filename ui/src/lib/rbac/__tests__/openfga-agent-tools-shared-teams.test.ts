@@ -19,7 +19,7 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     ownerTeamSlug: "platform",
   } as const;
 
-  it("writes member+admin tuples for every additional shared team (no member writer); owner team members also get manager", () => {
+  it("writes member+admin tuples for the owner team but use-only for shared teams (no member writer)", () => {
     const diff = buildAgentRelationshipTupleDiff({
       ...baseInput,
       nextSharedTeamSlugs: ["sre", "ops"],
@@ -32,16 +32,16 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
         { user: "team:platform#member", relation: "user", object: "agent:agent-test" },
         { user: "team:platform#member", relation: "manager", object: "agent:agent-test" },
         { user: "team:platform#admin", relation: "manager", object: "agent:agent-test" },
-        // shared team members only get user
+        // shared team members AND admins only get user — sharing is use-only
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
-        { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "user", object: "agent:agent-test" },
-        { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
     expect(diff.writes).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ relation: "writer" }),
+        { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
+        { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
     expect(diff.deletes).toEqual(
@@ -49,6 +49,10 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
         { user: "team:platform#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:sre#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "writer", object: "agent:agent-test" },
+        // stale/never-existed admin-manager grants for shared teams are
+        // always revoked defensively, whether or not they were ever written
+        { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
+        { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
   });
@@ -152,10 +156,10 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
         "team:platform#member", // user
         "team:platform#member", // manager (owner team)
         "team:platform#admin",
-        "team:sre#member",
-        "team:sre#admin",
+        "team:sre#member", // shared team: use-only, no #admin manager
       ]),
     );
+    expect(teamSubjects).not.toContain("team:sre#admin");
     for (const subject of teamSubjects) {
       expect(subject).not.toMatch(/team:\s/);
       expect(subject).not.toMatch(/team:!/);
