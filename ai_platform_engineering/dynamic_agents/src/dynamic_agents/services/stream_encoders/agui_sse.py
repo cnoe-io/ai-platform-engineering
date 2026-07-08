@@ -283,7 +283,10 @@ class AGUIStreamEncoder(StreamEncoder):
         if not isinstance(data, tuple) or len(data) != 2:
             return []
 
-        msg_chunk, _metadata = data
+        msg_chunk, metadata = data
+
+        if LangGraphStreamHelper.is_summarization_chunk(msg_chunk, metadata):
+            return []
 
         if LangGraphStreamHelper.is_tool_message(msg_chunk):
             return []

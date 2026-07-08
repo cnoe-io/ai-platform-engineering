@@ -75,6 +75,8 @@ export interface WfStepRun {
   } | null;
 }
 
+export type WfRunVisibility = "private" | "workspace" | "admin";
+
 export interface WfRun {
   _id: string;
   workflow_config_id: string;
@@ -85,6 +87,7 @@ export interface WfRun {
   steps: WfStepRun[];
   user_context?: string | null;
   trigger_info?: { triggered_by: string; context?: Record<string, unknown> } | null;
+  shared_with?: WfRunVisibility | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +137,8 @@ interface WorkflowExecState {
   cancelRun: (runId: string) => Promise<void>;
   /** Delete a workflow run (and its files/events) */
   deleteRun: (runId: string) => Promise<void>;
+  /** Set sharing visibility for a run (owner only) */
+  shareRun: (runId: string, visibility: WfRunVisibility) => Promise<void>;
   /** Clear state */
   clear: () => void;
 }
@@ -320,6 +325,20 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       set({ error: msg });
       throw err;
     }
+  },
+
+  shareRun: async (runId, visibility) => {
+    const res = await fetch(`/api/workflow-runs/${encodeURIComponent(runId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shared_with: visibility }),
+    });
+    if (!res.ok) {
+      throw new Error(await readWorkflowApiError(res));
+    }
+    set((s) => ({
+      run: s.run?._id === runId ? { ...s.run, shared_with: visibility } : s.run,
+    }));
   },
 
   clear: () => {

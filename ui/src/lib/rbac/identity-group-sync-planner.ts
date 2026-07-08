@@ -136,6 +136,20 @@ export function planIdentityGroupSync(input: PlanIdentityGroupSyncInput): Identi
   }
   const teams_to_create = Array.from(teamsToCreateBySlug.values());
 
+  const teams_to_update: Array<{ slug: string; name: string; source_group_id: string }> = [];
+  for (const match of ruleResult.matches) {
+    const existing = existingTeamBySlug.get(match.teamSlug);
+    if (existing && existing.name !== match.teamName) {
+      if (!teams_to_update.some((t) => t.slug === match.teamSlug)) {
+        teams_to_update.push({
+          slug: match.teamSlug,
+          name: match.teamName,
+          source_group_id: match.group.external_group_id,
+        });
+      }
+    }
+  }
+
   const skipped_users: IdentityGroupSyncDryRunResult["skipped_users"] = [];
   const desiredSources: TeamMembershipSource[] = [];
 
@@ -167,6 +181,7 @@ export function planIdentityGroupSync(input: PlanIdentityGroupSyncInput): Identi
         team_slug: match.teamSlug,
         user_subject: member.subject,
         user_email: member.email,
+        display_name: member.display_name,
         relationship: match.relationship,
         source_type: sourceTypeForProvider(match.group.provider_id),
         provider_id: match.group.provider_id,
@@ -192,6 +207,15 @@ export function planIdentityGroupSync(input: PlanIdentityGroupSyncInput): Identi
       ? new Set(input.groups.map((g) => g.external_group_id))
       : undefined,
   });
+  const existingActiveKeys = new Set(
+    input.existingMembershipSources
+      .filter((s) => s.status === "active")
+      .map((s) => sourceKey(s))
+  );
+  const membership_sources_to_refresh = desiredSources
+    .filter((s) => existingActiveKeys.has(sourceKey(s)))
+    .map((s) => ({ ...s, last_seen_at: input.now }));
+
   const safety_warnings = buildSafetyWarnings({
     existingSources: input.existingMembershipSources,
     desiredSources,
@@ -202,8 +226,10 @@ export function planIdentityGroupSync(input: PlanIdentityGroupSyncInput): Identi
     matched_groups: ruleResult.matches.map((match) => match.group),
     ignored_groups: ruleResult.ignored.map((ignored) => ignored.group),
     teams_to_create,
+    teams_to_update,
     membership_sources_to_add: reconciliation.sourcesToAdd,
     membership_sources_to_remove: reconciliation.sourcesToRemove,
+    membership_sources_to_refresh,
     tuple_writes: reconciliation.tupleWrites,
     tuple_deletes: reconciliation.tupleDeletes,
     skipped_users,

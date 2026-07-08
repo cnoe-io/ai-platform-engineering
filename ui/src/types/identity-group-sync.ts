@@ -92,6 +92,7 @@ export interface TeamMembershipSource {
   team_slug: string;
   user_subject?: string;
   user_email?: string;
+  display_name?: string;
   relationship: TeamRelationshipRole;
   source_type: TeamMembershipSourceType;
   provider_id?: string;
@@ -127,6 +128,8 @@ export interface IdentityGroupSyncDryRunResult {
   matched_groups: ExternalGroup[];
   ignored_groups: ExternalGroup[];
   teams_to_create: Array<{ slug: string; name: string; source_group_id: string }>;
+  teams_to_update: Array<{ slug: string; name: string; source_group_id: string }>;
+  membership_sources_to_refresh: TeamMembershipSource[];
   membership_sources_to_add: TeamMembershipSource[];
   membership_sources_to_remove: TeamMembershipSource[];
   tuple_writes: IdentityGroupSyncTuple[];

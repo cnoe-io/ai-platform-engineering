@@ -22,6 +22,7 @@ on:
           - mcp-agent
           - caipe-ui
           - audit-service
+          - scheduler
           - skill-scanner
           - dynamic-agents
           - slack-bot
@@ -46,6 +47,7 @@ jobs:
       mcp_agent_changed: ${{ steps.pr.outputs.mcp_agent_changed }}
       caipe_ui_changed: ${{ steps.pr.outputs.caipe_ui_changed }}
       audit_service_changed: ${{ steps.pr.outputs.audit_service_changed }}
+      scheduler_changed: ${{ steps.pr.outputs.scheduler_changed }}
       skill_scanner_changed: ${{ steps.pr.outputs.skill_scanner_changed }}
       dynamic_agents_changed: ${{ steps.pr.outputs.dynamic_agents_changed }}
       slack_bot_changed: ${{ steps.pr.outputs.slack_bot_changed }}
@@ -139,6 +141,12 @@ jobs:
               audit_service: [
                 'ai_platform_engineering/audit_service/**',
                 'build/Dockerfile.audit-service',
+              ],
+              scheduler: [
+                'ai_platform_engineering/scheduler/**',
+                'ai_platform_engineering/cron-runner/**',
+                'build/Dockerfile.scheduler',
+                'build/Dockerfile.cron-runner',
               ],
               skill_scanner: [
                 'build/Dockerfile.skill-scanner',
@@ -237,6 +245,23 @@ jobs:
       base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
     secrets: inherit
 
+  prebuild-scheduler:
+    name: Scheduler Images
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'scheduler' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.scheduler_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    uses: ./.github/workflows/prebuild-scheduler.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
   prebuild-dynamic-agents:
     name: Dynamic Agents Image
     needs: resolve-pr
@@ -293,9 +318,10 @@ jobs:
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'helm' || (needs.resolve-pr.outputs.target == 'all' && needs.resolve-pr.outputs.helm_changed == 'true') }}
     permissions:
+      actions: read
       contents: write
       packages: write
-      pull-requests: write
+      pull-requests: read
     uses: ./.github/workflows/prebuild-helm.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}

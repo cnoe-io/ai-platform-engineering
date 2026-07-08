@@ -135,6 +135,9 @@ describe("GET /api/admin/service-accounts (list)", () => {
   });
 
   it("?team= returns empty (no Mongo query) when the caller is NOT in that team", async () => {
+    // Regression guard: non-admin callers are still bounded by their own team
+    // memberships even when a ?team= filter is present — the admin bypass
+    // below must not weaken this default (non-admin) path.
     mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:team-sre"] });
 
     const res = await listGET(
@@ -144,6 +147,42 @@ describe("GET /api/admin/service-accounts (list)", () => {
     const body = await res.json();
     expect(body.data.items).toEqual([]);
     expect(mockListByOwningTeams).not.toHaveBeenCalled();
+  });
+
+  it("admin + ?team= bypasses the membership intersection entirely", async () => {
+    mockGetServerSession.mockResolvedValue({ ...SESSION, role: "admin" });
+    mockListByOwningTeams.mockResolvedValue([SA_DOC]);
+
+    const res = await listGET(
+      listRequest("http://localhost:3000/api/admin/service-accounts?team=team-sre"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0].id).toBe("sa-123");
+
+    // The bypass must skip the OpenFGA membership lookup altogether.
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
+  });
+
+  it("admin WITHOUT ?team= still uses normal membership-based listing", async () => {
+    mockGetServerSession.mockResolvedValue({ ...SESSION, role: "admin" });
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:team-sre"] });
+    mockListByOwningTeams.mockResolvedValue([SA_DOC]);
+
+    const res = await listGET(listRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.items).toHaveLength(1);
+
+    // No team filter means the bypass branch never triggers, even for an admin.
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: `user:${SESSION.sub}`,
+      relation: "member",
+      type: "team",
+    });
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
   });
 });
 

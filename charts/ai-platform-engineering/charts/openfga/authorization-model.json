@@ -1540,6 +1540,10 @@
               },
               {
                 "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
                 "relation": "admin"
               },
               {

@@ -1986,9 +1986,11 @@ def handle_message_events(body, say, client, context=None):
   if channel_config is None:
     return
 
-  # Skip thread replies; only root messages trigger the agent.
-  is_thread = event.get("thread_ts") is not None
-  if is_thread:
+  # Skip true thread replies (ts != thread_ts). Root messages can have
+  # thread_ts populated by Slack when a follow-up arrives before the socket
+  # event is delivered, so checking thread_ts is not None is too broad.
+  is_thread_reply = event.get("thread_ts") is not None and event.get("thread_ts") != event.get("ts")
+  if is_thread_reply:
     return
 
   # Skip @mentions — handled by handle_mention
@@ -2001,6 +2003,11 @@ def handle_message_events(body, say, client, context=None):
   sender_bot_user_id = None
   if is_bot:
     bot_username, sender_bot_user_id = utils.get_bot_info_by_id(bot_id)
+    if not bot_username:
+      logger.warning(f"bots.info lookup failed for bot_id={bot_id}, falling back to event username")
+      bot_username = event.get("username")
+      if not bot_username:
+        logger.warning(f"event.get('username') also returned nothing for bot_id={bot_id}; bot_list filtering may not work correctly")
 
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_channel_agents(
@@ -2326,7 +2333,6 @@ def handle_escalation_get_help(ack, body, client):
       user_id=user_id,
       escalation_config=esc_config,
       agent_id=vo_agent_id or "",
-      conversation_id=conversation_id,
     )
 
     # Mark conversation as escalated for admin dashboard resolution stats

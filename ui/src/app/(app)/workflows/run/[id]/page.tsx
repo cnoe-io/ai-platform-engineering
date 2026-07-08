@@ -7,7 +7,8 @@ import { cn,formatRelativeTime } from "@/lib/utils";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import type { WfRunStatus } from "@/store/workflow-exec-store";
 import { useWorkflowExecStore } from "@/store/workflow-exec-store";
-import { Ban,CheckCircle2,Clock,FolderOpen,Info,Loader2,MessageSquare,XCircle } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+import { Ban,CheckCircle2,Clock,FolderOpen,Info,Link,Loader2,MessageSquare,XCircle } from "lucide-react";
 import { useParams } from "next/navigation";
 import React,{ useCallback,useEffect,useRef,useState } from "react";
 
@@ -25,8 +26,9 @@ export default function WorkflowRunPage() {
   const runId = params.id as string;
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { run, stepEvents, isLoading, error, loadRun, startPolling, stopPolling, resumeStep, cancelRun } =
+  const { run, stepEvents, isLoading, error, loadRun, startPolling, stopPolling, resumeStep, cancelRun, shareRun } =
     useWorkflowExecStore();
+  const { toast } = useToast();
 
   // Workflow filesystem files (shared across all steps via fs_namespace)
   const [workflowFiles, setWorkflowFiles] = useState<string[]>([]);
@@ -111,6 +113,17 @@ export default function WorkflowRunPage() {
     }
   };
 
+  const handleShare = async () => {
+    if (!runId) return;
+    try {
+      await shareRun(runId, "workspace");
+      await navigator.clipboard.writeText(window.location.href);
+      toast("Link copied — anyone in your workspace can view this run", "success", 4000);
+    } catch {
+      toast("Failed to share run", "error", 4000);
+    }
+  };
+
   const handleStepClick = useCallback((stepIndex: number) => {
     const el = document.getElementById(`workflow-step-${stepIndex}`);
     if (el) {
@@ -138,28 +151,44 @@ export default function WorkflowRunPage() {
             {runId}
           </span>
         </div>
-        {run?.started_at && (
-          <span className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-            <span>Started {formatRelativeTime(run.started_at)}</span>
-            {run.completed_at && (
-              <span>| Completed {formatRelativeTime(run.completed_at)}</span>
-            )}
-            {run.trigger_info?.triggered_by && (
-              <span className="inline-flex items-center gap-1">
-                | Triggered by: <span className="font-medium">{run.trigger_info.triggered_by}</span>
-                <span className="relative group">
-                  <Info className="h-3 w-3 text-muted-foreground/60 cursor-help" />
-                  <div className="hidden group-hover:block absolute top-full right-0 mt-1 z-50 w-[28rem] p-4 bg-popover border border-border rounded-md shadow-lg">
-                    <p className="text-xs font-semibold text-foreground mb-2">Trigger Information</p>
-                    <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed text-muted-foreground overflow-auto max-h-72">
+        <div className="flex items-center gap-3">
+          {run?.started_at && (
+            <span className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+              <span>Started {formatRelativeTime(run.started_at)}</span>
+              {run.completed_at && (
+                <span>| Completed {formatRelativeTime(run.completed_at)}</span>
+              )}
+              {run.trigger_info?.triggered_by && (
+                <span className="inline-flex items-center gap-1">
+                  | Triggered by: <span className="font-medium">{run.trigger_info.triggered_by}</span>
+                  <span className="relative group">
+                    <Info className="h-3 w-3 text-muted-foreground/60 cursor-help" />
+                    <div className="hidden group-hover:block absolute top-full right-0 mt-1 z-50 w-[28rem] p-4 bg-popover border border-border rounded-md shadow-lg">
+                      <p className="text-xs font-semibold text-foreground mb-2">Trigger Information</p>
+                      <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed text-muted-foreground overflow-auto max-h-72">
 {JSON.stringify(run.trigger_info, null, 2)}
-                    </pre>
-                  </div>
+                      </pre>
+                    </div>
+                  </span>
                 </span>
-              </span>
-            )}
-          </span>
-        )}
+              )}
+            </span>
+          )}
+          {run && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className={cn(
+                "shrink-0 gap-1.5 text-xs",
+                run.shared_with === "workspace" && "border-green-500/50 text-green-600"
+              )}
+            >
+              <Link className="h-3.5 w-3.5" />
+              {run.shared_with === "workspace" ? "Shared" : "Share"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Content — scrollable */}

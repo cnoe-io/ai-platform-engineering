@@ -12,6 +12,8 @@ export interface UserDetailModalProps {
   onClose: () => void;
   onSaved: () => void;
   readOnly?: boolean;
+  /** Pre-loaded team list from the parent page — skips the /api/admin/teams fetch. */
+  teamOptions?: Array<{ teamId: string; label: string }>;
 }
 
 type ProfileUser = {
@@ -24,17 +26,16 @@ type ProfileUser = {
   createdAt?: number | null;
   attributes: Record<string, string[]>;
   slackLinkStatus: "linked" | "unlinked";
-  sessions: Array<{
-    id: string;
-    start?: number;
-    lastAccess?: number;
-  }>;
+  teams: Array<{ team_id: string; tenant_id: string }>;
+};
+
+type IdentityInfo = {
+  sessions: Array<{ id: string; start?: number; lastAccess?: number }>;
   federatedIdentities: Array<{
     identityProvider: string;
     userId: string;
     userName: string;
   }>;
-  teams: Array<{ team_id: string; tenant_id: string }>;
   lastAccess: number | null;
 };
 
@@ -164,25 +165,34 @@ export function UserDetailModal({
   onClose,
   onSaved,
   readOnly = false,
+  teamOptions: teamOptionsProp,
 }: UserDetailModalProps) {
   const { update: updateSession } = useSession();
   const [mounted, setMounted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Profile section
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [user, setUser] = useState<ProfileUser | null>(null);
-  const [teamOptions, setTeamOptions] = useState<
+  // Team picker options — use prop if provided, otherwise fetch
+  const [teamOptionsLoading, setTeamOptionsLoading] = useState(!readOnly && !teamOptionsProp);
+  const [teamOptionsFetched, setTeamOptionsFetched] = useState<
     Array<{ teamId: string; label: string }>
   >([]);
+  const teamOptions = teamOptionsProp ?? teamOptionsFetched;
   const [addTeamValue, setAddTeamValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Access section
   const [access, setAccess] = useState<AccessGroups | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [teamsExpanded, setTeamsExpanded] = useState(false);
+  // Identity section (lazy — sessions + federated identities from Keycloak)
+  const [identity, setIdentity] = useState<IdentityInfo | null>(null);
+  const [identityLoading, setIdentityLoading] = useState(true);
 
   const refreshProfile = useCallback(async () => {
-    setLoadError(null);
+    setProfileError(null);
     const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`);
     const json = (await readJson(res)) as {
       success?: boolean;
@@ -200,29 +210,45 @@ export function UserDetailModal({
   }, [userId]);
 
   const loadTeams = useCallback(async () => {
-    const teamsRes = await fetch("/api/admin/teams");
+    if (teamOptionsProp) return; // parent already supplied the list
+    // /api/dynamic-agents/teams is a single MongoDB query (no OpenFGA fan-out)
+    // and returns all teams for admins — sufficient for the picker.
+    const teamsRes = await fetch("/api/dynamic-agents/teams");
     const teamsJson = (await readJson(teamsRes)) as {
       success?: boolean;
-      data?: { teams?: Array<{ name?: string }> };
+      data?: Array<{ name?: string; slug?: string }>;
     } | null;
-    if (
-      teamsRes.ok &&
-      teamsJson?.success &&
-      Array.isArray(teamsJson.data?.teams)
-    ) {
-      setTeamOptions(
-        teamsJson.data.teams
+    if (teamsRes.ok && teamsJson?.success && Array.isArray(teamsJson.data)) {
+      setTeamOptionsFetched(
+        teamsJson.data
           .map((t) => {
             const name = typeof t.name === "string" ? t.name.trim() : "";
             if (!name) return null;
-            return { teamId: name, label: name };
+            return { teamId: t.slug ?? name, label: name };
           })
           .filter((x): x is { teamId: string; label: string } => x != null)
       );
     } else {
-      setTeamOptions([]);
+      setTeamOptionsFetched([]);
     }
-  }, []);
+  }, [teamOptionsProp]);
+
+  const loadIdentity = useCallback(async () => {
+    setIdentityLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/identity`);
+      const json = (await readJson(res)) as {
+        success?: boolean;
+        data?: IdentityInfo;
+        error?: string;
+      } | null;
+      if (res.ok && json?.success && json.data) {
+        setIdentity(json.data);
+      }
+    } finally {
+      setIdentityLoading(false);
+    }
+  }, [userId]);
 
   const loadAccess = useCallback(async () => {
     setAccessError(null);
@@ -264,31 +290,43 @@ export function UserDetailModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Fire all three loads in parallel — each section shows its own spinner
+  // rather than blocking the whole modal behind one top-level spinner.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        if (readOnly) {
-          await refreshProfile();
-        } else {
-          await Promise.all([refreshProfile(), loadTeams()]);
-        }
-        void loadAccess();
-      } catch (e) {
-        if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : "Load failed");
-          setUser(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+
+    setProfileLoading(true);
+    setProfileError(null);
+    setUser(null);
+    setAccess(null);
+    setAccessLoading(true);
+    setAccessError(null);
+    setIdentity(null);
+    setIdentityLoading(true);
+    if (!readOnly && !teamOptionsProp) setTeamOptionsLoading(true);
+
+    refreshProfile()
+      .catch((e) => {
+        if (!cancelled)
+          setProfileError(e instanceof Error ? e.message : "Load failed");
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+
+    if (!readOnly && !teamOptionsProp) {
+      loadTeams().finally(() => {
+        if (!cancelled) setTeamOptionsLoading(false);
+      });
+    }
+
+    loadAccess();
+    loadIdentity();
+
     return () => {
       cancelled = true;
     };
-  }, [refreshProfile, loadTeams, loadAccess, readOnly]);
+  }, [userId, readOnly, refreshProfile, loadTeams, loadAccess, loadIdentity]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {
@@ -348,10 +386,10 @@ export function UserDetailModal({
   }, [teamOptions, memberTeamIds]);
 
   const idpLabel = useMemo(() => {
-    const feds = user?.federatedIdentities ?? [];
+    const feds = identity?.federatedIdentities ?? [];
     if (feds.length === 0) return "Local";
     return feds.map((f) => f.identityProvider).join(", ") || "Local";
-  }, [user?.federatedIdentities]);
+  }, [identity?.federatedIdentities]);
 
   const accessTotal = useMemo(() => {
     if (!access) return 0;
@@ -366,8 +404,8 @@ export function UserDetailModal({
   const webexLinked = webexUserId.length > 0;
 
   const lastLoginLabel =
-    user?.lastAccess != null && user.lastAccess > 0
-      ? formatTs(user.lastAccess)
+    identity?.lastAccess != null && identity.lastAccess > 0
+      ? formatTs(identity.lastAccess)
       : "Never";
 
   const createdLabel =
@@ -467,14 +505,17 @@ export function UserDetailModal({
         aria-labelledby="user-detail-modal-title"
         onClick={(e) => e.stopPropagation()}
       >
-        {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
-            <span className="text-sm">Loading user…</span>
+        {profileLoading ? (
+          <div className="flex items-center gap-3 pb-4 border-b border-border">
+            <div className="h-12 w-12 shrink-0 rounded-full bg-muted animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+              <div className="h-3 w-56 rounded bg-muted animate-pulse" />
+            </div>
           </div>
-        ) : loadError ? (
+        ) : profileError ? (
           <div className="space-y-4">
-            <p className="text-sm text-destructive">{loadError}</p>
+            <p className="text-sm text-destructive">{profileError}</p>
             <button
               type="button"
               className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted"
@@ -602,23 +643,27 @@ export function UserDetailModal({
                   <label htmlFor="add-team" className="text-sm text-muted-foreground">
                     Add team
                   </label>
-                  <TeamPicker
-                    id="add-team"
-                    value={addTeamValue}
-                    onChange={(v) => {
-                      if (!v) return;
-                      addTeam(v);
-                      setAddTeamValue("");
-                    }}
-                    disabled={busy != null || addableTeams.length === 0}
-                    placeholder={addableTeams.length === 0 ? "No teams to add" : "Select a team…"}
-                    searchPlaceholder="Search teams..."
-                    triggerClassName="min-w-[12rem]"
-                    options={addableTeams.map<TeamPickerOption>((t) => ({
-                      slug: t.teamId,
-                      name: t.label,
-                    }))}
-                  />
+                  {teamOptionsLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+                  ) : (
+                    <TeamPicker
+                      id="add-team"
+                      value={addTeamValue}
+                      onChange={(v) => {
+                        if (!v) return;
+                        addTeam(v);
+                        setAddTeamValue("");
+                      }}
+                      disabled={busy != null || addableTeams.length === 0}
+                      placeholder={addableTeams.length === 0 ? "No teams to add" : "Select a team…"}
+                      searchPlaceholder="Search teams..."
+                      triggerClassName="min-w-[12rem]"
+                      options={addableTeams.map<TeamPickerOption>((t) => ({
+                        slug: t.teamId,
+                        name: t.label,
+                      }))}
+                    />
+                  )}
                 </div>
               )}
             </section>
@@ -661,7 +706,9 @@ export function UserDetailModal({
                 <div>
                   <dt className="text-muted-foreground">IdP source</dt>
                   <dd className="font-medium text-foreground mt-0.5">
-                    {idpLabel}
+                    {identityLoading ? (
+                      <span className="inline-block h-3 w-16 rounded bg-muted animate-pulse" />
+                    ) : idpLabel}
                   </dd>
                 </div>
                 <div>
@@ -727,7 +774,9 @@ export function UserDetailModal({
                 <div>
                   <dt className="text-muted-foreground">Last login</dt>
                   <dd className="font-medium text-foreground mt-0.5">
-                    {lastLoginLabel}
+                    {identityLoading ? (
+                      <span className="inline-block h-3 w-24 rounded bg-muted animate-pulse" />
+                    ) : lastLoginLabel}
                   </dd>
                 </div>
                 <div>

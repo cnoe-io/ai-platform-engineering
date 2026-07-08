@@ -102,6 +102,21 @@ mcp_servers:
         provider: pagerduty
         target: header
 
+  - description: Webex meeting, transcript, and recording tools
+    enabled: true
+    endpoint: ${WEBEX_MEETINGS_MCP_URL:-http://localhost:18013/mcp}
+    id: webex_meetings
+    name: Webex Meetings
+    transport: http
+    # Resolve the caller's Webex Connected App token. AgentGateway keeps the
+    # caller JWT in Authorization and rewrites this provider token into the
+    # Authorization header sent to the Webex Meetings MCP backend.
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: webex
+        target: header
+
   - description: Knowledge Base tools
     enabled: true
     endpoint: ${RAG_SERVER_MCP_URL:-http://localhost:9446/mcp}

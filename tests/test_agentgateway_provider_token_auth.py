@@ -97,6 +97,24 @@ def test_static_extra_mcp_target_derives_provider_token_auth_from_credentials() 
     ] == '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
 
 
+def test_static_webex_meetings_route_uses_webex_provider_token() -> None:
+    docs = _helm_template(
+        "global.agentgateway.routingMode=static",
+        "global.agentgateway.knowledgeBaseTarget.enabled=false",
+        "tags.mcp-webex-meetings=true",
+        "mcp-webex-meetings.mcp.agentgateway.enabled=true",
+    )
+
+    route = _static_route(_static_config(docs), "/mcp/webex_meetings")
+
+    assert route["backends"][0]["mcp"]["targets"][0]["mcp"]["host"] == (
+        "http://test-mcp-webex-meetings-mcp.default.svc.cluster.local:8000/mcp"
+    )
+    assert route["policies"]["transformations"]["request"]["set"][
+        "authorization"
+    ] == '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+
+
 def test_gateway_api_provider_token_policy_follows_declarative_flag() -> None:
     docs = _helm_template(
         "global.agentgateway.routingMode=gateway-api",
@@ -118,3 +136,24 @@ def test_gateway_api_provider_token_policy_follows_declarative_flag() -> None:
 
     assert "github-provider-token-auth" not in names
     assert "custom-provider-provider-token-auth" in names
+
+
+def test_gateway_api_webex_meetings_uses_public_route_id() -> None:
+    docs = _helm_template(
+        "global.agentgateway.routingMode=gateway-api",
+        "global.agentgateway.knowledgeBaseTarget.enabled=false",
+        "tags.mcp-webex-meetings=true",
+        "mcp-webex-meetings.mcp.agentgateway.enabled=true",
+    )
+
+    route = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "HTTPRoute"
+        and doc.get("metadata", {}).get("name") == "webex-meetings-mcp-route"
+    )
+
+    assert route["spec"]["rules"][0]["matches"][0]["path"]["value"] == (
+        "/mcp/webex_meetings"
+    )
+    assert "webex-meetings-provider-token-auth" in _policy_names(docs)

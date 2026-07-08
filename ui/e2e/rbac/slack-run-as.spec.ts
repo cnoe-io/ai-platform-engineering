@@ -98,6 +98,18 @@ test.describe("mocked Slack Run as browser regression", () => {
         return true;
       }
 
+      // ConnectorAdminPanel's team picker loads /api/dynamic-agents/teams
+      // ({ success, data: TeamOption[] }), not /api/admin/teams.
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { _id: "team-platform", slug: "platform-engineering", name: "Platform Engineering" },
+          ],
+        });
+        return true;
+      }
+
       if (path === "/api/admin/slack/runtime/status" && method === "GET") {
         await fulfillJson(route, {
           data: {
@@ -179,6 +191,18 @@ test.describe("mocked Slack Run as browser regression", () => {
               { _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" },
             ],
           },
+        });
+        return true;
+      }
+
+      // ConnectorAdminPanel's team picker loads /api/dynamic-agents/teams
+      // ({ success, data: TeamOption[] }), not /api/admin/teams.
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" },
+          ],
         });
         return true;
       }
@@ -347,6 +371,18 @@ test.describe("mocked Slack Run as browser regression", () => {
         return true;
       }
 
+      // ConnectorAdminPanel's team picker loads /api/dynamic-agents/teams
+      // ({ success, data: TeamOption[] }), not /api/admin/teams.
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
+          ],
+        });
+        return true;
+      }
+
       if (path === "/api/admin/slack/channels/CAIPE/C0B4QFN4Q21/routes" && method === "GET") {
         await fulfillJson(route, {
           data: { routes },
@@ -483,6 +519,18 @@ test.describe("mocked Slack Run as browser regression", () => {
               { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
             ],
           },
+        });
+        return true;
+      }
+
+      // ConnectorAdminPanel's team picker loads /api/dynamic-agents/teams
+      // ({ success, data: TeamOption[] }), not /api/admin/teams.
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
+          ],
         });
         return true;
       }
@@ -625,6 +673,18 @@ test.describe("mocked Slack Run as browser regression", () => {
               { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
             ],
           },
+        });
+        return true;
+      }
+
+      // ConnectorAdminPanel's team picker loads /api/dynamic-agents/teams
+      // ({ success, data: TeamOption[] }), not /api/admin/teams.
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
+          ],
         });
         return true;
       }
@@ -809,6 +869,18 @@ test.describe("mocked Slack Run as browser regression", () => {
               { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
             ],
           },
+        });
+        return true;
+      }
+
+      // ConnectorAdminPanel's team picker loads /api/dynamic-agents/teams
+      // ({ success, data: TeamOption[] }), not /api/admin/teams.
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
+          ],
         });
         return true;
       }

@@ -5,8 +5,8 @@
 # replay-protection timestamps, and identify ping/health-check deliveries
 # for each upstream that posts to /api/v1/hooks/{task_id}.
 #
-# A WebhookTrigger picks an adapter via the per-task ``provider`` field. 
-# At startup the service loads this file once via services.webhook_adapters.load_adapters; 
+# A WebhookTrigger picks an adapter via the per-task ``provider`` field.
+# At startup the service loads this file once via services.webhook_adapters.load_adapters;
 # the operator can override the file path with WEBHOOK_PROVIDERS_FILE.
 #
 # Schema reference (see services/webhook_adapters.py for the parser):

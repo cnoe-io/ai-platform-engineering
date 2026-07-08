@@ -17,6 +17,7 @@ tags:
   mcp-splunk: false
   mcp-victorops: false
   mcp-webex: false
+  mcp-webex-meetings: false
   mcp-netutils: false
   rag-stack: false
   slack-bot: false
@@ -35,6 +36,14 @@ global:
     # final release appVersions use the root published image repositories.
     # Set to `pre-release` or `release` to force either repository channel.
     channel: ""
+
+  # Scheduled Dynamic Agent runs. Enabling this installs the scheduler service,
+  # cron runner integration, scheduler MCP, and UI server-side token wiring.
+  # Dynamic Agents and Keycloak must also be enabled for executions to run.
+  scheduler:
+    enabled: false
+    serviceTokenSecretName: "caipe-scheduler-service-token"
+    serviceTokenSecretKey: "token"
 
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
@@ -628,6 +637,29 @@ mcp-webex:
       enabled: false
       protocol: StreamableHTTP
 
+mcp-webex-meetings:
+  nameOverride: "mcp-webex-meetings"
+  mcpSecrets:
+    requiresSecret: false
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-webex-meetings"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    mode: "http"
+    port: 8000
+    agentgateway:
+      enabled: true
+      id: webex_meetings
+      pathPrefix: /mcp/webex_meetings
+      protocol: StreamableHTTP
+      credential_sources:
+        - kind: provider_connection
+          name: X-CAIPE-Provider-Token
+          provider: webex
+          target: header
+
 mcp-komodor:
   nameOverride: "mcp-komodor"
   image:
@@ -680,6 +712,15 @@ caipe-ui:
     secretName: "caipe-platform-secret"
     secretKey: "OIDC_CLIENT_SECRET"
     clientId: "caipe-platform"
+  # Dedicated Keycloak client used to mint the schedule owner's bearer. When
+  # secretName is empty and global.scheduler.enabled=true, the chart derives
+  # "<release>-keycloak-scheduler-runner" from the bundled Keycloak chart.
+  # Operators using a custom Keycloak Secret name must override both this
+  # value and keycloak.schedulerTokenExchange.secretRef.
+  schedulerRunnerClient:
+    secretName: ""
+    secretKey: "KC_SCHEDULER_CLIENT_SECRET"
+    clientId: "caipe-scheduler-runner"
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"
     # tag defaults to .Chart.AppVersion when not specified
@@ -749,6 +790,8 @@ caipe-ui:
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL. Leave empty to use the chart default.
     # DYNAMIC_AGENTS_URL: ""
+    # Scheduler service used by the Schedules page and scheduled-run BFF path.
+    SCHEDULER_URL: "http://caipe-scheduler:8080"
     # Connections & Secrets credential store. Disabled by default. Use local-cmk
     # only for non-production testing; production must use aws-kms.
     CAIPE_CREDENTIALS_ENABLED: "false"
@@ -759,14 +802,16 @@ caipe-ui:
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     # Bootstrap global OAuth connectors from server env at startup. In
     # Kubernetes, provide provider client IDs/secrets/redirect URIs through
-    # externalSecrets; in Docker Compose, provide them through .env.
+    # externalSecrets; in Docker Compose, provide them through .env. This flag
+    # controls the legacy fixed-provider variables; oauthConnectors below is
+    # always bootstrapped when non-empty.
     CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
     # Autonomous Agents: set to "true" to enable the admin-gated Autonomous tab
     # (UI proxies to the service at /api/autonomous). Requires tags.autonomous-agents=true.
     ENABLE_AUTONOMOUS_AGENTS: "false"
     # Autonomous Agents service URL (only used when ENABLE_AUTONOMOUS_AGENTS is "true")
     # AUTONOMOUS_AGENTS_URL: "http://{{ .Release.Name }}-autonomous-agents:8002"
-    
+
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true. Leave empty to use the
     # in-cluster default (derived from .Release.Name in the deployment template).
@@ -835,6 +880,25 @@ caipe-ui:
     # SOURCE_URL: "https://github.com/your-org/your-repo"
     # Enable Prometheus metrics
     # PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+  # Arbitrary OAuth connectors to upsert at UI startup. Client secrets are not
+  # accepted inline: clientSecretEnv must reference a key supplied through
+  # caipe-ui.existingSecret or caipe-ui.externalSecrets. Entries are keyed by
+  # provider, and configured entries override the legacy fixed-env bootstrap.
+  # Removing an entry does not delete or disable an existing connector.
+  oauthConnectors: []
+    # - provider: "webex_secondary"
+    #   name: "Webex Secondary"
+    #   clientIdEnv: "WEBEX_SECONDARY_CLIENT_ID"
+    #   clientSecretEnv: "WEBEX_SECONDARY_CLIENT_SECRET"
+    #   authorizationUrl: "https://webexapis.com/v1/authorize"
+    #   tokenUrl: "https://webexapis.com/v1/access_token"
+    #   scopes:
+    #     - "spark:mcp"
+    #     - "meeting:schedules_read"
+    #     - "meeting:transcripts_read"
+    #   # Defaults to ${NEXTAUTH_URL}/api/credentials/oauth/<provider>/callback.
+    #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
 
   # ── Okta directory sync (Identity Sync admin tab) ──────────────────────────
   # Structured config modeled after the Backstage Okta entity provider. The
@@ -1113,6 +1177,63 @@ autonomous-agents:
       #     key: dev/autonomous-agents
       #     property: WEBHOOK_SECRET
 
+######### Scheduler service configuration #########
+# Enable with global.scheduler.enabled=true. Dynamic Agents and Keycloak are
+# required separately for authenticated scheduled execution.
+scheduler:
+  fullnameOverride: "caipe-scheduler"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-scheduler"
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  command: []
+  args: []
+  cronRunner:
+    image:
+      repository: "ghcr.io/cnoe-io/caipe-cron-runner"
+      tag: ""
+      pullPolicy: "IfNotPresent"
+  caipe:
+    apiUrl: 'http://{{ .Release.Name }}-caipe-ui:3000'
+    chatPath: "/api/v1/chat/invoke"
+  # Point this at the same MongoDB used by CAIPE UI and Dynamic Agents.
+  mongo:
+    uri: ""
+    database: "caipe"
+    existingSecret: ""
+    existingSecretKey: "uri"
+  serviceToken:
+    # To consume an operator-managed Secret, set existingSecret and mirror its
+    # name/key under global.scheduler so the UI and scheduler MCP use it too.
+    existingSecret: ""
+    existingSecretKey: "token"
+    value: ""
+# Scheduler MCP. Rendered whenever the scheduler feature is enabled unless this
+# narrower switch is disabled. It shares the scheduler service token Secret.
+schedulerMcp:
+  enabled: true
+  nameOverride: "mcp-scheduler"
+  image:
+    repository: "ghcr.io/cnoe-io/mcp-scheduler"
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  command: ["mcp-server-scheduler"]
+  service:
+    port: 8000
+  env:
+    MCP_MODE: "streamable-http"
+    MCP_HOST: "0.0.0.0"
+    MCP_PORT: "8000"
+    SCHEDULER_URL: "http://caipe-scheduler:8080"
+  auth:
+    # AgentGateway authenticates the caller. This MCP relays the caller JWT
+    # opaquely to caipe-scheduler, which validates it and derives ownership.
+    mode: "none"
+    jwksUri: ""
+    issuer: ""
+    audience: "caipe-platform"
+  resources: {}
+
 ######### Slack Bot Integration configuration #########
 # The Slack bot is a client integration (not an agent) that connects to the
 # CAIPE UI BFF (dynamic agents) over SSE, bringing AI assistance into Slack channels.
@@ -1309,6 +1430,10 @@ keycloak:
   webexTokenExchange:
     enabled: true
     botClientId: "caipe-webex-bot"
+  schedulerTokenExchange:
+    enabled: true
+    botClientId: "caipe-scheduler-runner"
+    secretRef: ""
 
   # CAIPE platform OIDC client. Keep this Secret name aligned with
   # `caipe-ui.keycloakAdminClient.secretName`; the BFF reads it as
@@ -1403,6 +1528,10 @@ openfga-authz-bridge:
     audiences: []
     algorithms:
       - RS256
+  # Require caller-level `mcp_server:<id>#can_invoke` authorization only for
+  # these AgentGateway MCP targets.
+  restrictedMcpServers:
+    - scheduler
   audit:
     enabled: true
     serviceUrl: ""

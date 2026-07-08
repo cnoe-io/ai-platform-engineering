@@ -177,13 +177,21 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- $mcp := $agentValues.mcp | default dict -}}
 {{- $sub := $mcp.agentgateway | default dict -}}
 {{- if $sub.enabled -}}
-{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-mcp-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
+{{- $targetId := $sub.id | default $name -}}
+{{- $pathPrefix := $sub.pathPrefix | default (printf "/mcp/%s" $targetId) -}}
+{{- $entry := dict "id" $targetId "pathPrefix" $pathPrefix "host" (printf "%s-mcp-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
 {{- if eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $sub) "true" -}}
 {{- $_ := set $entry "providerTokenAuth" true -}}
 {{- end -}}
 {{- $targets = append $targets $entry -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- $schedulerEnabled := dig "scheduler" "enabled" false ($root.Values.global | default dict) -}}
+{{- $schedulerMcp := $root.Values.schedulerMcp | default dict -}}
+{{- if and $schedulerEnabled ($schedulerMcp.enabled | default false) -}}
+{{- $schedulerService := $schedulerMcp.service | default dict -}}
+{{- $targets = append $targets (dict "id" "scheduler" "pathPrefix" "/mcp/scheduler" "host" (printf "%s.%s.svc.cluster.local" ($schedulerMcp.nameOverride | default "mcp-scheduler") $ns) "port" ($schedulerService.port | default 8000) "protocol" "StreamableHTTP") -}}
 {{- end -}}
 {{- $kb := $agw.knowledgeBaseTarget | default dict -}}
 {{- if or (not (hasKey $kb "enabled")) $kb.enabled -}}

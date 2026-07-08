@@ -20,7 +20,7 @@ export interface Team {
   slug: string;
   name: string;
   description?: string;
-  source?: 'manual' | 'identity_sync' | 'bootstrap' | 'migration';
+  source?: 'manual' | 'identity_sync' | 'identity_group_sync' | 'bootstrap' | 'migration';
   status?: 'active' | 'archived' | 'pending_review' | 'disabled';
   owner_id: string; // User email who created the team
   created_by?: string;

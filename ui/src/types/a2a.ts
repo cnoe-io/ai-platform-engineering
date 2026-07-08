@@ -48,6 +48,8 @@ export interface Conversation {
   task_id?: string;
   /** Autonomous run identifier (only when source === 'autonomous') */
   run_id?: string;
+  /** Server-side metadata for integrations such as scheduled runs. */
+  metadata?: Record<string, unknown>;
 }
 
 // ═══════════════════════════════════════════════════════════════

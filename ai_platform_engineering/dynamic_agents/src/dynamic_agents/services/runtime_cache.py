@@ -244,6 +244,49 @@ class AgentRuntimeCache:
             await runtime.cleanup()
             logger.debug("Ephemeral runtime cleaned up for agent %s", agent_config.id)
 
+    @asynccontextmanager
+    async def persistent(
+        self,
+        agent_config: "DynamicAgentConfig",
+        mcp_servers: list["MCPServerConfig"],
+        session_id: str,
+        *,
+        user: "UserContext | None" = None,
+        client_context: "ClientContext | None" = None,
+    ):
+        """Create a non-cached Mongo-backed runtime and clean it up on exit.
+
+        Scheduled invocations need durable LangGraph checkpoints so a user can
+        continue the resulting conversation, but should not enter the shared
+        runtime cache where an interactive request could race with the run.
+        """
+        runtime = AgentRuntime(
+            agent_config,
+            mcp_servers,
+            mongo_service=self._mongo_service,
+            user=user,
+            client_context=client_context,
+            session_id=session_id,
+        )
+        try:
+            await runtime.initialize()
+        except Exception as e:
+            logger.exception(
+                "Persistent runtime initialization failed for agent '%s'",
+                agent_config.id,
+            )
+            raise RuntimeInitError(agent_config.id, e) from e
+
+        logger.info("Created persistent one-shot runtime for agent %s", agent_config.id)
+        try:
+            yield runtime
+        finally:
+            await runtime.cleanup()
+            logger.debug(
+                "Persistent one-shot runtime cleaned up for agent %s",
+                agent_config.id,
+            )
+
     async def _create_runtime(
         self,
         key: str,

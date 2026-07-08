@@ -121,4 +121,3 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | vpa.minAllowed.cpu | string | `"50m"` |  |
 | vpa.minAllowed.memory | string | `"128Mi"` |  |
 | vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
-

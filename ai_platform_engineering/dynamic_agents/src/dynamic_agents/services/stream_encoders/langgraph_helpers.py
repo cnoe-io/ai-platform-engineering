@@ -204,6 +204,15 @@ class LangGraphStreamHelper:
         return bool(getattr(msg, "tool_calls", None))
 
     @staticmethod
+    def is_summarization_chunk(msg: Any, metadata: Any) -> bool:
+        """Check if a chunk is Deep Agents internal summarization content."""
+        if isinstance(metadata, dict) and metadata.get("lc_source") == "summarization":
+            return True
+
+        additional_kwargs = getattr(msg, "additional_kwargs", None)
+        return isinstance(additional_kwargs, dict) and additional_kwargs.get("lc_source") == "summarization"
+
+    @staticmethod
     def extract_content(msg: Any) -> str:
         """Extract and normalize content from a message chunk.
 

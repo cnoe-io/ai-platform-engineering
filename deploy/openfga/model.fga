@@ -166,7 +166,7 @@ type agent
     define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define writer: [user, service_account, team#member, team#admin]
-    define manager: [user, service_account, team#admin, organization#admin]
+    define manager: [user, service_account, team#member, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
     define automator: [team#member, team#admin]
     define can_discover: can_read

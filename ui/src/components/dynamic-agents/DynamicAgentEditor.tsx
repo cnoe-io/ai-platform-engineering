@@ -53,7 +53,8 @@ const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
   cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
-  readOnly?: boolean; // true for config-driven agents (view only)
+  readOnly?: boolean; // true for view-only mode
+  readOnlyReason?: "config" | "permissions"; // why readOnly is true
   onSave: () => void;
   onCancel: () => void;
 }
@@ -104,25 +105,25 @@ interface TeamOption {
 
 // Step definitions for the wizard
 const STEPS = [
-  { 
-    id: "basic" as const, 
-    label: "Basic Info", 
-    hint: "Define your agent's identity and access level" 
+  {
+    id: "basic" as const,
+    label: "Basic Info",
+    hint: "Define your agent's identity and access level"
   },
-  { 
-    id: "instructions" as const, 
-    label: "Instructions", 
-    hint: "Configure how your agent behaves" 
+  {
+    id: "instructions" as const,
+    label: "Instructions",
+    hint: "Configure how your agent behaves"
   },
-  { 
-    id: "tools" as const, 
-    label: "Tools", 
-    hint: "Select which tools your agent can use" 
+  {
+    id: "tools" as const,
+    label: "Tools",
+    hint: "Select which tools your agent can use"
   },
-  { 
-    id: "skills" as const, 
-    label: "Skills", 
-    hint: "Attach skills that guide your agent's behavior (optional)" 
+  {
+    id: "skills" as const,
+    label: "Skills",
+    hint: "Attach skills that guide your agent's behavior (optional)"
   },
   {
     id: "advanced" as const,
@@ -136,13 +137,13 @@ type StepId = typeof STEPS[number]["id"];
 /**
  * Horizontal step indicator component
  */
-function StepIndicator({ 
-  steps, 
-  currentStep, 
-  onStepClick 
-}: { 
+function StepIndicator({
+  steps,
+  currentStep,
+  onStepClick
+}: {
   steps: readonly (typeof STEPS[number])[];
-  currentStep: StepId; 
+  currentStep: StepId;
   onStepClick: (stepId: StepId) => void;
 }) {
   return (
@@ -157,15 +158,15 @@ function StepIndicator({
             onClick={() => onStepClick(step.id)}
             className={cn(
               "flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md transition-colors min-w-[64px]",
-              currentStep === step.id 
-                ? "bg-primary/10 text-primary" 
+              currentStep === step.id
+                ? "bg-primary/10 text-primary"
                 : "hover:bg-muted text-muted-foreground"
             )}
           >
             <div className={cn(
               "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
-              currentStep === step.id 
-                ? "bg-primary text-primary-foreground" 
+              currentStep === step.id
+                ? "bg-primary text-primary-foreground"
                 : "bg-muted"
             )}>
               {index + 1}
@@ -335,7 +336,7 @@ function AdvancedStep({
   );
 }
 
-export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCancel }: DynamicAgentEditorProps) {
+export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
@@ -574,12 +575,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
-          
+
           if (source?.model?.id) {
             // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
-              (m: { model_id: string; provider: string }) => 
+              (m: { model_id: string; provider: string }) =>
                 m.model_id === source.model.id && m.provider === source.model.provider
             );
             if (existingModel) {
@@ -1165,7 +1166,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </CardTitle>
             <CardDescription>
               {readOnly
-                ? "This agent is managed by configuration and cannot be edited"
+                ? readOnlyReason === "permissions"
+                  ? "You do not have permission to edit this agent"
+                  : "This agent is managed by configuration and cannot be edited"
                 : isEditing
                 ? "Update the agent configuration"
                 : isCloning
@@ -1191,10 +1194,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <h3 className="text-xl font-bold text-primary">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
             </div>
-            <StepIndicator 
+            <StepIndicator
               steps={visibleSteps}
-              currentStep={activeStep} 
-              onStepClick={setActiveStep} 
+              currentStep={activeStep}
+              onStepClick={setActiveStep}
             />
           </div>
 
@@ -1936,7 +1939,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-muted-foreground">
-                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior 
+                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior
                   for specific tasks. The agent reads skill content on demand via progressive disclosure.
                 </p>
               </div>
@@ -1993,9 +1996,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
           {/* Step Navigation - Right aligned */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={goToPreviousStep}
               disabled={currentStepIndex === 0 || loading}
               size="sm"
@@ -2003,9 +2006,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={goToNextStep}
               disabled={currentStepIndex === visibleSteps.length - 1 || loading}
               size="sm"

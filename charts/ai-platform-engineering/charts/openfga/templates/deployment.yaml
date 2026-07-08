@@ -59,6 +59,9 @@ spec:
             - name: playground
               containerPort: 3000
               protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+              protocol: TCP
           readinessProbe:
             httpGet:
               path: /stores
