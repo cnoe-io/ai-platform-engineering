@@ -30,7 +30,7 @@ async function readTeamSlug(request: NextRequest): Promise<string> {
   return slug;
 }
 async function requireAgentOwnerTeam(agentId: string, requestedTeamSlug: string): Promise<string> {
-  const agents = await getCollection('dynamic_agents');
+  const agents = await getCollection<{ _id: string; owner_team_slug?: unknown }>('dynamic_agents');
   const agent = await agents.findOne(
     { _id: agentId },
     { projection: { owner_team_slug: 1 } },
