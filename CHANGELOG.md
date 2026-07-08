@@ -1,4 +1,18 @@
-## 0.5.40-dev.2-chart.1 (2026-07-08)
+## 0.5.42 (2026-07-08)
+
+### Fix
+
+- **ui**: sharing a dynamic agent with a team is use-only, not manage
+- **slack-bot**: paginate accessible agents list beyond first page
+
+## 0.5.41-dev.1 (2026-07-08)
+
+### Fix
+
+- **okta-sync**: resilient large org syncs with better error diagnostics
+- **okta-sync**: add error handling and throttling for large org syncs
+
+## 0.5.41 (2026-07-08)
 
 ### Fix
 
