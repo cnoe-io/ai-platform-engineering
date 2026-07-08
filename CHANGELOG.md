@@ -1,4 +1,19 @@
-## 0.5.39-dev.1-chart.1 (2026-07-07)
+## 0.5.40-dev.2-chart.1 (2026-07-08)
+
+### Fix
+
+- **openfga**: add argocdHookDeletePolicy support to job-init.yaml (#2141)
+- **dynamic-agents**: restore subagent timeline correlation
+
+## 0.5.40-dev.1 (2026-07-07)
+
+### Fix
+
+- **workflows**: restore workflow error marker
+- **workflows**: describe workflow state as logs
+- **workflows**: keep workflow state read-only
+
+## 0.5.40 (2026-07-07)
 
 ### Feat
 
