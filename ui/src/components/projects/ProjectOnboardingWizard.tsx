@@ -72,7 +72,7 @@ interface WizardStepMeta {
   source?: SourceKind;
 }
 
-const DEFAULT_GRADIENT = "from-violet-600 via-indigo-600 to-blue-600";
+const DEFAULT_GRADIENT = "from-primary to-primary/70";
 
 function buildWizardSteps(
   configSteps: OnboardingStepConfig[],
@@ -404,10 +404,10 @@ export function ProjectOnboardingWizard({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-violet-600/20 via-indigo-600/10 to-blue-600/20 px-8 py-5 text-left shadow-lg transition hover:scale-[1.01] hover:shadow-xl"
+        className="group relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 px-8 py-5 text-left shadow-lg transition hover:scale-[1.01] hover:shadow-xl"
       >
         <div className="relative flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg">
+          <div className="flex h-14 w-14 items-center justify-center rounded-xl gradient-primary-br text-white shadow-lg">
             <Rocket className="h-7 w-7" />
           </div>
           <div>
@@ -428,25 +428,19 @@ export function ProjectOnboardingWizard({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="relative flex max-h-[95vh] w-full max-w-2xl sm:max-w-4xl lg:max-w-5xl flex-col overflow-hidden rounded-2xl sm:rounded-3xl border border-white/10 bg-background shadow-2xl"
       >
-        <div
-          className={cn(
-            "relative px-4 pt-6 pb-3 sm:px-8 sm:pt-10 sm:pb-6 text-white",
-            "bg-gradient-to-br",
-            phase.gradient,
-          )}
-        >
+        <div className="relative bg-muted px-4 pt-6 pb-3 sm:px-8 sm:pt-10 sm:pb-6 text-foreground">
           <div className="relative flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 Project Onboarding · Step {phaseIndex + 1} of {wizardSteps.length}
               </p>
               <h2 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight">{phase.title}</h2>
-              <p className="mt-2 max-w-xl text-sm text-white/85">{phase.subtitle}</p>
+              <p className="mt-2 max-w-xl text-sm text-muted-foreground">{phase.subtitle}</p>
             </div>
             <button
               type="button"
               onClick={close}
-              className="rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
+              className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition hover:bg-accent"
             >
               Close
             </button>
@@ -462,7 +456,7 @@ export function ProjectOnboardingWizard({
                   key={step.id}
                   className={cn(
                     "flex min-w-[4.5rem] flex-col items-center gap-1.5 rounded-lg px-2 py-2 transition",
-                    active && "bg-white/15",
+                    active && "bg-accent",
                     done && "opacity-90",
                     !active && !done && "opacity-40",
                   )}
@@ -473,17 +467,17 @@ export function ProjectOnboardingWizard({
                       done
                         ? "border-emerald-300 bg-emerald-500/30"
                         : active
-                          ? "border-white bg-white/20"
-                          : "border-white/30",
+                          ? "border-primary bg-primary/20"
+                          : "border-border",
                     )}
                   >
                     {done ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-100" />
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                     ) : (
                       <Icon className="h-4 w-4" />
                     )}
                   </div>
-                  <span className="w-20 text-[10px] font-medium text-center leading-tight text-white/80">
+                  <span className="w-20 text-[10px] font-medium text-center leading-tight text-muted-foreground">
                     {step.title}
                   </span>
                 </div>

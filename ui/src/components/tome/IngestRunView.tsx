@@ -357,7 +357,7 @@ const MARKER_COLORS: Record<string, string> = {
   "→": "text-sky-400",
   "←": "text-neutral-300",
   "~": "text-amber-300",
-  "✎": "text-violet-400",
+  "✎": "text-primary",
   "·": "text-neutral-500",
 };
 

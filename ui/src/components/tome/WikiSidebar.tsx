@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronRight, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { KindBadge } from "@/components/tome/KindBadge";
 import type { PageKind, PageTreeNode } from "@/types/tome";
 
@@ -39,6 +40,13 @@ const BASE_PX = 8;
 // Collection-root folders that start collapsed, so the rail leads with the
 // top-level synthesis pages rather than per-source subtrees or the glossary.
 const COLLAPSED_ROOTS = new Set(["repos", "webex", "confluence", "glossary", "edges"]);
+
+// Root source folders get their provider's brand mark instead of a bare label.
+const ROOT_PROVIDER: Record<string, string> = {
+  repos: "github",
+  confluence: "atlassian",
+  webex: "webex",
+};
 
 function NodeList({
   nodes,
@@ -101,6 +109,7 @@ function TreeNode({
 
   // Folder = a collapsible section header (the caret toggles its children).
   if (node.kind === "folder") {
+    const provider = depth === 0 ? ROOT_PROVIDER[leaf] : undefined;
     return (
       <>
         <button
@@ -116,6 +125,9 @@ function TreeNode({
               open && "rotate-90",
             )}
           />
+          {provider && (
+            <ProviderLogo provider={provider} className="h-3 w-3 shrink-0 object-contain" />
+          )}
           <span className="truncate">{node.title}</span>
           {hasChildren && (
             <span className="ml-auto shrink-0 pl-2 text-[10px] font-normal tabular-nums text-muted-foreground/70">

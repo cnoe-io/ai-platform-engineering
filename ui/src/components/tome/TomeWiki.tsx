@@ -19,8 +19,10 @@ import {
   Settings,
   Target,
   Upload,
+  Users,
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -179,6 +181,13 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [showHidden, setShowHidden] = useState(false);
   // First-run onboarding: project title (for the modal copy) + open state.
   const [projectTitle, setProjectTitle] = useState<string | null>(null);
+  const [projectMeta, setProjectMeta] = useState<{
+    description: string | null;
+    status: string | null;
+    teamName: string | null;
+    tags: string[];
+  }>({ description: null, status: null, teamName: null, tags: [] });
+  const [projectMetaLoading, setProjectMetaLoading] = useState(true);
   // BHAG awareness: this project's kind, the initiatives it's tagged with, and
   // the BHAG entities those initiatives resolve to (for the up-link chip).
   const [projectType, setProjectType] = useState<"project" | "bhag">("project");
@@ -259,8 +268,17 @@ export function TomeWiki({ slug }: { slug: string }) {
         setProjectName(p.name ?? p.title ?? "");
         setProjectType(p.type === "bhag" ? "bhag" : "project");
         setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
+        setProjectMeta({
+          description: typeof p.description === "string" ? p.description : null,
+          status: typeof p.status === "string" ? p.status : null,
+          teamName: typeof p.team_name === "string" ? p.team_name : null,
+          tags: Array.isArray(p.tags) ? p.tags.filter((t: unknown) => typeof t === "string") : [],
+        });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setProjectMetaLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -587,7 +605,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   return (
     <TooltipProvider>
       <div className="flex h-full min-h-[calc(100vh-4rem)] flex-col">
-        <header className="flex items-center gap-1 border-b px-4 py-3 text-sm">
+        <header className="flex items-center gap-1 px-4 py-2 text-sm">
           {/* Back to the projects list. The project's own detail/apps page is
               skipped (it redirects into Tome); reach it via `?apps=1` if needed. */}
           <Link href="/projects">
@@ -603,46 +621,6 @@ export function TomeWiki({ slug }: { slug: string }) {
               ...crumbs,
             ]}
           />
-          {isBhag && (
-            <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-500">
-              <Target className="h-3 w-3" />
-              BHAG
-            </span>
-          )}
-          {/* Up-links: a project can be tagged to many BHAGs (initiatives are
-              multi-value tags). Render a chip per tag; the ones promoted to a
-              BHAG wiki link to it, the rest show membership without a link. */}
-          {!isBhag &&
-            initiatives.map((init) => {
-              const b = bhagByInitiative.get(normLabel(init));
-              return b ? (
-                <Tooltip key={init}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={`/projects/${b.slug}/tome`}
-                      className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-500 transition hover:border-violet-500 hover:bg-violet-500/20"
-                    >
-                      <Target className="h-3 w-3" />
-                      {b.name}
-                      <ArrowUpRight className="h-3 w-3" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Open the BHAG wiki: {b.name}</TooltipContent>
-                </Tooltip>
-              ) : (
-                <Tooltip key={init}>
-                  <TooltipTrigger asChild>
-                    <span className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/25 px-2 py-0.5 text-[11px] font-medium text-violet-500/70">
-                      <Target className="h-3 w-3" />
-                      {init}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="w-56 whitespace-normal">
-                    Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet. Create one from the Projects hub.
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
@@ -663,6 +641,89 @@ export function TomeWiki({ slug }: { slug: string }) {
           </div>
         </header>
 
+        <div className="border-b pb-3 pl-6 pr-4 pt-0">
+          {projectMetaLoading ? (
+            <div className="flex flex-col gap-2" data-testid="skeleton">
+              <div className="h-5 w-48 animate-pulse rounded bg-muted/30" />
+              <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted/30" />
+              <div className="flex gap-1.5">
+                <div className="h-5 w-16 animate-pulse rounded-full bg-muted/30" />
+                <div className="h-5 w-20 animate-pulse rounded-full bg-muted/30" />
+                <div className="h-5 w-14 animate-pulse rounded-full bg-muted/30" />
+              </div>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-lg font-semibold leading-tight">
+                {projectTitle ?? slug}
+              </h1>
+              {projectMeta.description && (
+                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                  {projectMeta.description}
+                </p>
+              )}
+              {(isBhag ||
+              initiatives.length > 0 ||
+              projectMeta.teamName ||
+              projectMeta.tags.length > 0) && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {isBhag && (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-primary">
+                    <Target className="h-3 w-3" />
+                    BHAG
+                  </span>
+                )}
+                {/* Up-links: a project can be tagged to many BHAGs (initiatives are
+                    multi-value tags). Render a chip per tag; the ones promoted to a
+                    BHAG wiki link to it, the rest show membership without a link. */}
+                {!isBhag &&
+                  initiatives.map((init) => {
+                    const b = bhagByInitiative.get(normLabel(init));
+                    return b ? (
+                      <Tooltip key={init}>
+                        <TooltipTrigger asChild>
+                          <Link
+                            href={`/projects/${b.slug}/tome`}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary transition hover:border-primary hover:bg-primary/20"
+                          >
+                            <Target className="h-3 w-3" />
+                            {b.name}
+                            <ArrowUpRight className="h-3 w-3" />
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Open the BHAG wiki: {b.name}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip key={init}>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 px-2.5 py-0.5 text-xs font-medium text-primary/70">
+                            <Target className="h-3 w-3" />
+                            {init}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="w-56 whitespace-normal">
+                          Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet. Create one from the Projects hub.
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                {projectMeta.teamName && (
+                  <Badge variant="outline" className="gap-1">
+                    <Users className="h-3 w-3" />
+                    {projectMeta.teamName}
+                  </Badge>
+                )}
+                {projectMeta.tags.map((tag) => (
+                  <Badge key={tag} variant="outline">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+              )}
+            </>
+          )}
+        </div>
+
         {error && (
           <p className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
             {error}
@@ -671,7 +732,7 @@ export function TomeWiki({ slug }: { slug: string }) {
 
         <div className="flex flex-1 overflow-hidden">
           {/* Side nav: Chat + Ingest destinations, then the wiki page tree. */}
-          <aside className="w-64 shrink-0 border-r">
+          <aside className="w-80 shrink-0 border-r">
             <ScrollArea className="h-full">
               <div className="flex flex-col p-3">
                 <div className="flex flex-col gap-0.5">
@@ -893,7 +954,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                             href={`/projects/${child.slug}/tome`}
                             className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
                           >
-                            <Target className="h-4 w-4 shrink-0 text-violet-500" />
+                            <Target className="h-4 w-4 shrink-0 text-primary" />
                             <span className="truncate">{child.title}</span>
                             <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
                           </Link>

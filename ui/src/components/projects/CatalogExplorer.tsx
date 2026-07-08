@@ -179,7 +179,7 @@ export function CatalogExplorer() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <Boxes className="h-6 w-6 text-violet-400" />
+            <Boxes className="h-6 w-6 text-primary" />
             Software Catalog
           </h1>
           <p className="text-sm text-muted-foreground">
