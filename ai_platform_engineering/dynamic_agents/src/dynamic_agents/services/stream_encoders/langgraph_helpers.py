@@ -89,36 +89,57 @@ class LangGraphStreamHelper:
 
         return (namespace, mode, data)
 
+    @staticmethod
+    def _extract_task_tool_calls(task_input: Any) -> list[dict]:
+        """Return the tool calls from a ``tasks``-mode chunk input.
+
+        LangGraph has emitted two shapes for this field:
+
+        - Before 1.2, a dict containing one call under ``tool_call``.
+        - Since 1.2, a list of tool-call dicts.
+
+        Normalize both shapes so namespace correlation remains compatible
+        across LangGraph versions. Unknown shapes yield an empty list.
+        """
+        if isinstance(task_input, dict):
+            tool_call = task_input.get("tool_call")
+            return [tool_call] if isinstance(tool_call, dict) else []
+        if isinstance(task_input, list):
+            return [tool_call for tool_call in task_input if isinstance(tool_call, dict)]
+        return []
+
     def _handle_tasks_chunk(self, data: Any) -> None:
         """Extract namespace UUID -> tool_call_id mapping from tasks events.
 
         LangGraph's ``tasks`` stream mode emits task metadata when a tool is
         invoked. For the ``task`` tool (subagent invocation), this contains:
         - id: The task UUID (used in namespace as "tools:{id}")
-        - input.tool_call.id: The tool_call_id from the original invocation
+        - a tool call carrying the original ``tool_call_id`` and name
 
         We build this mapping so subagent events can be correlated to their
-        ``tool_start`` events, which clients already have.
+        ``tool_start`` events, which clients already have. The shape of the
+        ``input`` field varies across LangGraph versions.
         """
         # Tasks data comes as a single dict per event, not a list
         if not isinstance(data, dict):
             return
 
         task_id = data.get("id")
-        task_input = data.get("input", {})
+        if not task_id:
+            return
 
-        # The tool_call info is nested under input.tool_call for tool executions
-        tool_call = task_input.get("tool_call", {}) if isinstance(task_input, dict) else {}
-        tool_call_id = tool_call.get("id")
-        tool_name = tool_call.get("name")
-
-        # Only create mapping for "task" tool calls (subagent invocations)
-        # Other tools don't spawn subgraphs with their own namespace
-        if task_id and tool_call_id and tool_name == "task":
+        # Only task tool calls spawn subgraphs with their own namespace.
+        for tool_call in self._extract_task_tool_calls(data.get("input")):
+            if tool_call.get("name") != "task":
+                continue
+            tool_call_id = tool_call.get("id")
+            if not tool_call_id:
+                continue
             namespace_key = f"tools:{task_id}"
             if namespace_key not in self._namespace_mapping:
                 self._namespace_mapping[namespace_key] = tool_call_id
                 logger.debug(f"[sse:tasks] Mapped {namespace_key} → {tool_call_id}")
+            break
 
     def correlate_namespace(self, namespace: tuple[str, ...]) -> tuple[str, ...]:
         """Correlate using internal namespace_mapping.
