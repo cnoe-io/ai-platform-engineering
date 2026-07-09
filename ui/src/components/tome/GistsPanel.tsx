@@ -160,19 +160,19 @@ export function GistsPanel({
               {visible.map((gist) => (
                 <li
                   key={gist.id}
-                  className="group flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-colors hover:border-primary/40 hover:bg-muted/40"
+                  className="flex items-start justify-between gap-3 rounded-lg border px-4 py-3"
                 >
-                  <Link
-                    href={`/projects/${slug}/tome/gists/${gist.id}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onOpenGist(gist.id);
-                    }}
-                    className="min-w-0 flex-1"
-                  >
-                    <div className="font-medium text-foreground group-hover:underline">
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/projects/${slug}/tome/gists/${gist.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onOpenGist(gist.id);
+                      }}
+                      className="font-medium text-foreground hover:underline"
+                    >
                       {gist.title}
-                    </div>
+                    </Link>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {gist.author} · {timeLabel(gist.created_at)}
                     </div>
@@ -185,11 +185,11 @@ export function GistsPanel({
                         ))}
                       </div>
                     )}
-                  </Link>
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                    className="h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-destructive"
                     aria-label="Delete gist"
                     onClick={() => void remove(gist)}
                   >
