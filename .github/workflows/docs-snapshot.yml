@@ -123,6 +123,8 @@ jobs:
               exit 0
             fi
             echo "Push rejected (attempt ${attempt}/3) — rebasing on current main and retrying..."
+            # Random 5-15s backoff so two concurrent runners don't collide on retry
+            sleep $((RANDOM % 11 + 5))
             git fetch origin main
             git rebase origin/main
           done
