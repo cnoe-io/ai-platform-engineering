@@ -62,6 +62,11 @@ export const ingestTypeConfigs: Record<string, IngestTypeConfig> = {
         requiredIngestorType: 'confluence',
         icon: '/confluence.svg'
     },
+    'slack': {
+        label: 'Slack',
+        requiredIngestorType: 'slack',
+        icon: '/slack.svg'
+    },
     // Add future ingestor types here:
     // 'github': {
     //     label: 'GitHub',

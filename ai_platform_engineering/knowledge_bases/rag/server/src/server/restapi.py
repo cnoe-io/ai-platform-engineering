@@ -33,6 +33,9 @@ from common.models.server import (
   UrlReloadRequest,
   ConfluenceIngestRequest,
   ConfluenceReloadRequest,
+  SlackIngestorCommand,
+  SlackChannelIngestRequest,
+  SlackReloadRequest,
   JobsBatchRequest,
   MCPToolInvokeRequest,
   MCPToolInvokeResponse,
@@ -67,7 +70,19 @@ from server.rbac import (
 )
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
+from common.constants import (
+  DATASOURCE_ID_KEY,
+  WEBLOADER_INGESTOR_REDIS_QUEUE,
+  WEBLOADER_INGESTOR_NAME,
+  WEBLOADER_INGESTOR_TYPE,
+  CONFLUENCE_INGESTOR_REDIS_QUEUE,
+  CONFLUENCE_INGESTOR_NAME,
+  CONFLUENCE_INGESTOR_TYPE,
+  SLACK_INGESTOR_REDIS_QUEUE,
+  SLACK_INGESTOR_TYPE,
+  DEFAULT_DATA_LABEL,
+  DEFAULT_SCHEMA_LABEL,
+)
 from common.embeddings_factory import EmbeddingsFactory
 import redis.asyncio as redis
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -1806,6 +1821,163 @@ async def reload_all_confluence_pages(user: UserContext = Depends(require_role(R
   logger.info("Re-queued Confluence ingestion request for all datasources")
 
   return {"message": "Reload all Confluence pages request queued"}
+
+
+async def get_slack_ingestor_id() -> Optional[str]:
+  """Look up the ingestor_id of the most-recently-seen registered Slack ingestor.
+
+  Unlike webloader/confluence, the Slack ingestor's name is derived from the
+  SLACK_BOT_NAME env var at container startup, so there's no static
+  ingestor_id constant to build one from.
+  """
+  if not metadata_storage:
+    return None
+  ingestors = await metadata_storage.fetch_all_ingestor_info()
+  slack_ingestors = [i for i in ingestors if i.ingestor_type == SLACK_INGESTOR_TYPE]
+  if not slack_ingestors:
+    return None
+  slack_ingestors.sort(key=lambda i: i.last_seen or 0, reverse=True)
+  return slack_ingestors[0].ingestor_id
+
+
+@app.post("/v1/ingest/slack/channel", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_slack_channel(
+  slack_request: SlackChannelIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Queue a Slack channel for ingestion by the slack ingestor."""
+  if not metadata_storage or not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  logger.info(f"Received Slack channel ingestion request: {slack_request.channel_id}")
+
+  slack_ingestor_id = await get_slack_ingestor_id()
+  if not slack_ingestor_id:
+    raise HTTPException(status_code=503, detail="No Slack ingestor is currently registered. Ensure the slack ingestor service is running.")
+
+  datasource_id = f"slack-channel-{slack_request.channel_id}"
+
+  # Check if datasource already exists. Adding a channel that's already
+  # ingested is an "ingest into KB X" operation (per-KB check); creating a
+  # NEW channel datasource is the explicit org-level author capability +
+  # owning-team gate (spec 2026-06-03).
+  existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+  if existing_datasource:
+    await check_datasource_access(request, user, datasource_id, "ingest")
+  else:
+    await authorize_datasource_create(request, user, datasource_id, slack_request.owner_team_slug)
+
+  if not existing_datasource:
+    if not slack_request.description:
+      slack_request.description = f"Slack channel #{slack_request.channel_name or slack_request.channel_id}"
+
+    datasource_info = DataSourceInfo(
+      datasource_id=datasource_id,
+      name=utils.derive_friendly_name(source_type="slack", channel_name=slack_request.channel_name, fallback=datasource_id),
+      ingestor_id=slack_ingestor_id,
+      description=slack_request.description,
+      source_type="slack",
+      last_updated=int(time.time()),
+      default_chunk_size=1000,
+      default_chunk_overlap=200,
+      # Config is the source of truth for ownership; OpenFGA is the derived
+      # projection (spec 2026-06-03). Persist the same owner/creator the
+      # tuples below encode so the sharing panel reflects the owning team.
+      owner_team_slug=(slack_request.owner_team_slug or "").strip() or None,
+      creator_subject=user.subject,
+      owner_subject=user.subject if not (slack_request.owner_team_slug or "").strip() else None,
+      metadata={
+        "channel_id": slack_request.channel_id,
+        "channel_name": slack_request.channel_name,
+        "lookback_days": slack_request.lookback_days,
+        "include_bots": slack_request.include_bots,
+      },
+    )
+
+    await metadata_storage.store_datasource_info(datasource_info)
+    logger.info(f"Created datasource: {datasource_id}")
+
+    # Write ownership tuples for the brand-new Slack channel (spec
+    # 2026-06-03). Best-effort; non-fatal.
+    await write_datasource_ownership(datasource_id, slack_request.owner_team_slug, user)
+
+  # Check if there is already a job for this datasource in progress or pending
+  existing_jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
+  if existing_jobs:
+    existing_pending_jobs = [job for job in existing_jobs if job.status in (JobStatus.IN_PROGRESS, JobStatus.PENDING)]
+    if existing_pending_jobs:
+      logger.info(f"An ingestion job is already in progress or pending for datasource {datasource_id}, job ID: {existing_pending_jobs[0].job_id}")
+      raise HTTPException(status_code=400, detail=f"An ingestion job is already in progress or pending for this Slack channel (job ID: {existing_pending_jobs[0].job_id})")
+
+  # Create job with PENDING status
+  job_id = str(uuid.uuid4())
+  success = await jobmanager.upsert_job(
+    job_id,
+    status=JobStatus.PENDING,
+    message="Waiting for ingestor to process...",
+    total=0,  # Unknown until channel history is fetched
+    datasource_id=datasource_id,
+  )
+
+  if not success:
+    raise HTTPException(status_code=500, detail="Failed to create job")
+
+  logger.info(f"Created job {job_id} for datasource {datasource_id}")
+
+  # Queue the request for the ingestor
+  ingestor_request = IngestorRequest(ingestor_id=slack_ingestor_id, command=SlackIngestorCommand.INGEST_CHANNEL, payload=slack_request.model_dump())
+
+  # Push to Redis queue
+  await redis_client.rpush(SLACK_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+  logger.info(f"Queued Slack channel ingestion request for {slack_request.channel_id} to {SLACK_INGESTOR_REDIS_QUEUE}")
+
+  return {"datasource_id": datasource_id, "job_id": job_id, "message": "Slack channel ingestion request queued"}
+
+
+@app.post("/v1/ingest/slack/reload", status_code=status.HTTP_202_ACCEPTED)
+async def reload_slack_channel(
+  reload_request: SlackReloadRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Reloads a previously ingested Slack channel by re-queuing it for ingestion."""
+  if not metadata_storage or not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  # Fetch existing datasource
+  datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
+  if not datasource_info:
+    raise HTTPException(status_code=404, detail="Datasource not found")
+  await check_datasource_access(request, user, reload_request.datasource_id, "ingest")
+
+  # Queue the request for the ingestor
+  ingestor_request = IngestorRequest(ingestor_id=datasource_info.ingestor_id, command=SlackIngestorCommand.RELOAD_DATASOURCE, payload=reload_request.model_dump())
+
+  # Push to Redis queue
+  await redis_client.rpush(SLACK_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+  logger.info(f"Re-queued Slack channel ingestion request for {reload_request.datasource_id}")
+  return {"datasource_id": reload_request.datasource_id, "message": "Slack channel reload request queued"}
+
+
+@app.post("/v1/ingest/slack/reload-all", status_code=status.HTTP_202_ACCEPTED)
+async def reload_all_slack_channels(user: UserContext = Depends(require_role(Role.ADMIN))):
+  """Reloads all previously ingested Slack channels by re-queuing them for ingestion."""
+  if not metadata_storage or not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  slack_ingestor_id = await get_slack_ingestor_id()
+  if not slack_ingestor_id:
+    raise HTTPException(status_code=503, detail="No Slack ingestor is currently registered. Ensure the slack ingestor service is running.")
+
+  # Queue the request for the ingestor
+  ingestor_request = IngestorRequest(ingestor_id=slack_ingestor_id, command=SlackIngestorCommand.RELOAD_ALL, payload={})
+
+  # Push to Redis queue
+  await redis_client.rpush(SLACK_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+  logger.info("Re-queued Slack ingestion request for all datasources")
+
+  return {"message": "Reload all Slack channels request queued"}
 
 
 @app.post("/v1/ingest")

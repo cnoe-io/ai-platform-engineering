@@ -68,6 +68,9 @@ CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
 CONFLUENCE_INGESTOR_TYPE = "confluence"
 CONFLUENCE_INGESTOR_NAME = "default_confluence"
 
+SLACK_INGESTOR_REDIS_QUEUE = "ingestor:slack:requests"
+SLACK_INGESTOR_TYPE = "slack"
+
 # Default reload interval for datasources without an explicit reload_interval in metadata (in seconds)
 DEFAULT_RELOAD_INTERVAL = 86400  # 24 hours
 

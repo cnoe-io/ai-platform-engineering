@@ -8,15 +8,25 @@ Each channel becomes a datasource, and each thread becomes a document.
 import os
 import json
 import time
+import asyncio
+import traceback
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from langchain_core.documents import Document
+from redis.asyncio import Redis
 
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo, DocumentMetadata
-from common.job_manager import JobStatus
+from common.models.server import (
+  IngestorRequest,
+  SlackChannelIngestRequest,
+  SlackReloadRequest,
+  SlackIngestorCommand,
+)
+from common.job_manager import JobStatus, JobManager
+from common.constants import SLACK_INGESTOR_REDIS_QUEUE
 from common.utils import get_logger, get_fresh_until, derive_friendly_name
 
 logger = get_logger(__name__)
@@ -25,6 +35,13 @@ logger = get_logger(__name__)
 # Sync interval (also used to calculate fresh_until)
 sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
+max_ingestion_tasks = int(os.environ.get("SLACK_MAX_INGESTION_TASKS", "5"))
+
+# Redis configuration - used for the on-demand ingestion listener (mirrors
+# the webloader/confluence ingestors, which accept ad-hoc requests from the
+# RAG server's REST API in addition to their periodic env-configured sync).
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
 
 
 def get_message_fresh_until(message_ts: str, lookback_days: int) -> int:
@@ -295,6 +312,39 @@ class SlackChannelSyncer:
     return Document(page_content=content, metadata=metadata.model_dump())
 
 
+def get_slack_client_and_syncer() -> tuple[WebClient, "SlackChannelSyncer", str]:
+  """Build a Slack WebClient + channel syncer from env config.
+
+  Shared by the periodic env-configured sync and the on-demand (Redis-triggered)
+  ingestion paths so both use the same bot token / workspace URL.
+  """
+  slack_token = os.environ.get("SLACK_BOT_TOKEN")
+  if not slack_token:
+    raise ValueError("SLACK_BOT_TOKEN environment variable is required")
+  workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "https://slack.com")
+  slack_client = WebClient(token=slack_token)
+  syncer = SlackChannelSyncer(slack_client, workspace_url)
+  return slack_client, syncer, workspace_url
+
+
+def fetch_and_build_documents(
+  syncer: "SlackChannelSyncer",
+  channel_id: str,
+  channel_name: str,
+  lookback_days: int,
+  include_bots: bool,
+  last_ts: Optional[str],
+  datasource_id: str,
+  ingestor_id: str,
+) -> tuple[List[Document], str]:
+  """Fetch channel messages since last_ts and build thread/message documents."""
+  messages, newest_ts = syncer.fetch_channel_messages(channel_id, channel_name, lookback_days, last_ts)
+  if not messages:
+    return [], newest_ts
+  documents = syncer.group_messages_by_thread(messages, channel_id, channel_name, include_bots, datasource_id, ingestor_id, lookback_days)
+  return documents, newest_ts
+
+
 async def sync_slack_channels(client: Client):
   """Sync function that processes all configured Slack channels"""
 
@@ -303,23 +353,20 @@ async def sync_slack_channels(client: Client):
   if not bot_name:
     raise ValueError("SLACK_BOT_NAME environment variable is required")
 
-  workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "https://slack.com")
+  if not os.environ.get("SLACK_BOT_TOKEN"):
+    logger.warning("SLACK_BOT_TOKEN not set — skipping sync")
+    return
+
   channels_json = os.environ.get("SLACK_CHANNELS", "{}")
   try:
     channels = json.loads(channels_json)
   except json.JSONDecodeError:
     channels = {}
   if not channels:
-    logger.warning("No channels configured (SLACK_CHANNELS not set or empty) — skipping sync")
-    return
-  slack_token = os.environ.get("SLACK_BOT_TOKEN")
-  if not slack_token:
-    logger.warning("SLACK_BOT_TOKEN not set — skipping sync")
-    return
+    logger.info("No statically-configured channels (SLACK_CHANNELS not set or empty) — will still check on-demand channels")
 
   # Initialize Slack client and syncer
-  slack_client = WebClient(token=slack_token)
-  syncer = SlackChannelSyncer(slack_client, workspace_url)
+  slack_client, syncer, workspace_url = get_slack_client_and_syncer()
 
   # Load timestamps and lookback_days from previous runs (stored in datasource metadata)
   existing_datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
@@ -334,7 +381,7 @@ async def sync_slack_channels(client: Client):
       if "lookback_days" in ds.metadata:
         stored_lookback_map[ch_id] = ds.metadata["lookback_days"]
 
-  # Process each channel
+  # Process each statically-configured channel
   for channel_id, config in channels.items():
     channel_name = config.get("name", channel_id)
     lookback_days = config.get("lookback_days", 30)
@@ -408,6 +455,199 @@ async def sync_slack_channels(client: Client):
       await client.add_job_error(job_id, [str(e)])
       await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=f"Failed to ingest documents: {str(e)}")
 
+  # Also reload channels added on-demand via the REST API (not present in
+  # SLACK_CHANNELS) that haven't been refreshed within the sync interval —
+  # mirrors the confluence ingestor's periodic_reload behavior.
+  job_manager = JobManager(redis_client)
+  existing_datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+  current_time = int(time.time())
+  configured_channel_ids = set(channels.keys())
+  for ds in existing_datasources:
+    channel_id = (ds.metadata or {}).get("channel_id")
+    if not channel_id or channel_id in configured_channel_ids:
+      continue
+    if (current_time - ds.last_updated) < sync_interval:
+      continue
+    try:
+      await reload_slack_datasource(client, job_manager, ds)
+    except Exception as e:
+      logger.error(f"Error reloading on-demand datasource {ds.datasource_id}: {e}")
+
+
+async def process_channel_ingestion(client: Client, job_manager: JobManager, ingest_request: SlackChannelIngestRequest):
+  """Process on-demand channel ingestion from Redis (server already created datasource and job)."""
+  datasource_id = f"slack-channel-{ingest_request.channel_id}"
+  job_id = None
+  try:
+    datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+    datasource_info = next((ds for ds in datasources if ds.datasource_id == datasource_id), None)
+    if not datasource_info:
+      raise ValueError(f"Datasource not found: {datasource_id}")
+
+    jobs = await job_manager.get_jobs_by_datasource(datasource_id)
+    if not jobs:
+      raise ValueError(f"No job found for datasource: {datasource_id}")
+    job_id = jobs[0].job_id
+
+    if jobs[0].status == JobStatus.TERMINATED:
+      logger.info(f"Job {job_id} was already terminated, skipping processing")
+      return
+
+    await job_manager.upsert_job(job_id=job_id, status=JobStatus.IN_PROGRESS, message=f"Starting Slack channel ingestion for #{ingest_request.channel_name or ingest_request.channel_id}")
+
+    _, syncer, workspace_url = get_slack_client_and_syncer()
+    channel_name = ingest_request.channel_name or (datasource_info.metadata or {}).get("channel_name", ingest_request.channel_id)
+    last_ts = (datasource_info.metadata or {}).get("last_ts")
+
+    documents, newest_ts = fetch_and_build_documents(
+      syncer,
+      ingest_request.channel_id,
+      channel_name,
+      ingest_request.lookback_days,
+      ingest_request.include_bots,
+      last_ts,
+      datasource_id,
+      client.ingestor_id or "",
+    )
+
+    datasource_info.metadata = {
+      **(datasource_info.metadata or {}),
+      "channel_id": ingest_request.channel_id,
+      "channel_name": channel_name,
+      "last_ts": newest_ts if newest_ts else last_ts,
+      "workspace_url": workspace_url,
+      "lookback_days": ingest_request.lookback_days,
+    }
+    datasource_info.last_updated = int(time.time())
+    await client.upsert_datasource(datasource_info)
+
+    if not documents:
+      await job_manager.upsert_job(job_id=job_id, status=JobStatus.COMPLETED, message=f"No new messages for #{channel_name}")
+      return
+
+    await job_manager.upsert_job(job_id=job_id, total=len(documents), message=f"Ingesting {len(documents)} threads/messages from #{channel_name}")
+    fresh_until = get_fresh_until(sync_interval)
+    await client.ingest_documents(job_id=job_id, datasource_id=datasource_id, documents=documents, fresh_until=fresh_until)
+    await job_manager.upsert_job(job_id=job_id, status=JobStatus.COMPLETED, message=f"Successfully ingested {len(documents)} documents from #{channel_name}")
+
+  except Exception as e:
+    error_msg = f"Error processing Slack channel {ingest_request.channel_id}: {e}"
+    logger.error(error_msg)
+    logger.error(traceback.format_exc())
+    if job_id:
+      await job_manager.add_error_msg(job_id, error_msg)
+      await job_manager.upsert_job(job_id=job_id, status=JobStatus.FAILED, message=error_msg)
+    raise
+
+
+async def reload_slack_datasource(client: Client, job_manager: JobManager, datasource_info: DataSourceInfo):
+  """Reload a single Slack channel datasource, refetching its full lookback window."""
+  metadata = datasource_info.metadata or {}
+  channel_id = metadata.get("channel_id")
+  if not channel_id:
+    logger.warning(f"No channel_id in metadata for {datasource_info.datasource_id}")
+    return
+
+  channel_name = metadata.get("channel_name", channel_id)
+  lookback_days = metadata.get("lookback_days", 30)
+  include_bots = metadata.get("include_bots", False)
+
+  _, syncer, workspace_url = get_slack_client_and_syncer()
+  documents, newest_ts = fetch_and_build_documents(syncer, channel_id, channel_name, lookback_days, include_bots, None, datasource_info.datasource_id, client.ingestor_id or "")
+
+  job_response = await client.create_job(datasource_id=datasource_info.datasource_id, job_status=JobStatus.IN_PROGRESS, message=f"Reloading #{channel_name}", total=len(documents))
+  job_id = job_response["job_id"]
+
+  try:
+    if documents:
+      fresh_until = get_fresh_until(sync_interval)
+      await client.ingest_documents(job_id=job_id, datasource_id=datasource_info.datasource_id, documents=documents, fresh_until=fresh_until)
+    await job_manager.upsert_job(job_id=job_id, status=JobStatus.COMPLETED, message=f"Reloaded {len(documents)} documents from #{channel_name}")
+
+    datasource_info.metadata = {**metadata, "last_ts": newest_ts, "workspace_url": workspace_url}
+    datasource_info.last_updated = int(time.time())
+    await client.upsert_datasource(datasource_info)
+  except Exception as e:
+    logger.error(f"Error reloading {datasource_info.datasource_id}: {e}")
+    await job_manager.add_error_msg(job_id, str(e))
+    await job_manager.upsert_job(job_id=job_id, status=JobStatus.FAILED, message=str(e))
+    raise
+
+
+async def redis_listener(client: Client):
+  """Listen for Slack ingest requests on Redis queue (mirrors the confluence ingestor's listener)."""
+  job_manager = JobManager(redis_client)
+  active_tasks: Set[asyncio.Task] = set()
+
+  logger.info(f"Starting Redis listener on queue: {SLACK_INGESTOR_REDIS_QUEUE}")
+
+  async def handle_task(coro, task_name: str):
+    try:
+      await coro
+    except Exception as e:
+      logger.error(f"Error in {task_name}: {e}")
+      logger.error(traceback.format_exc())
+
+  try:
+    while True:
+      try:
+        done_tasks = {task for task in active_tasks if task.done()}
+        active_tasks -= done_tasks
+
+        if len(active_tasks) >= max_ingestion_tasks:
+          await asyncio.sleep(0.5)
+          continue
+
+        result = await redis_client.blpop([SLACK_INGESTOR_REDIS_QUEUE], timeout=1)
+        if result is None:
+          continue
+
+        _, message = result
+        try:
+          ingestor_request = IngestorRequest.model_validate_json(message)
+          if ingestor_request.ingestor_id != client.ingestor_id:
+            continue
+
+          if ingestor_request.command == SlackIngestorCommand.INGEST_CHANNEL:
+            ingest_request = SlackChannelIngestRequest.model_validate(ingestor_request.payload)
+            task = asyncio.create_task(handle_task(process_channel_ingestion(client, job_manager, ingest_request), f"Channel ingestion: {ingest_request.channel_id}"))
+            active_tasks.add(task)
+
+          elif ingestor_request.command == SlackIngestorCommand.RELOAD_ALL:
+            task = asyncio.create_task(handle_task(sync_slack_channels(client), "Reload all Slack datasources"))
+            active_tasks.add(task)
+
+          elif ingestor_request.command == SlackIngestorCommand.RELOAD_DATASOURCE:
+            reload_request = SlackReloadRequest.model_validate(ingestor_request.payload)
+            datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+            datasource_info = next((ds for ds in datasources if ds.datasource_id == reload_request.datasource_id), None)
+            if datasource_info:
+              task = asyncio.create_task(handle_task(reload_slack_datasource(client, job_manager, datasource_info), f"Reload datasource: {reload_request.datasource_id}"))
+              active_tasks.add(task)
+            else:
+              logger.warning(f"Datasource not found: {reload_request.datasource_id}")
+
+        except Exception as e:
+          logger.error(f"Error processing message: {e}")
+          logger.error(traceback.format_exc())
+
+      except asyncio.CancelledError:
+        logger.info("Redis listener cancelled, waiting for tasks...")
+        if active_tasks:
+          await asyncio.gather(*active_tasks, return_exceptions=True)
+        break
+      except Exception as e:
+        logger.error(f"Listener loop error: {e}")
+        logger.error(traceback.format_exc())
+        await asyncio.sleep(5)
+
+  finally:
+    if active_tasks:
+      for task in active_tasks:
+        task.cancel()
+      await asyncio.gather(*active_tasks, return_exceptions=True)
+    await redis_client.close()
+
 
 def main():
   """Main entry point for the Slack ingestor"""
@@ -421,9 +661,18 @@ def main():
     channels = {}
 
   # Build and run ingestor
-  IngestorBuilder().name(f"slack-{bot_name}").type("slack").description(f"Slack ingestor for {workspace_url}").metadata({"workspace_url": workspace_url, "bot_name": bot_name, "sync_interval": sync_interval, "init_delay": init_delay, "channels": channels}).sync_with_fn(sync_slack_channels).every(
-    sync_interval
-  ).with_init_delay(init_delay).run()
+  (
+    IngestorBuilder()
+    .name(f"slack-{bot_name}")
+    .type("slack")
+    .description(f"Slack ingestor for {workspace_url}")
+    .metadata({"workspace_url": workspace_url, "bot_name": bot_name, "sync_interval": sync_interval, "init_delay": init_delay, "channels": channels})
+    .sync_with_fn(sync_slack_channels)
+    .with_startup(redis_listener)
+    .every(sync_interval)
+    .with_init_delay(init_delay)
+    .run()
+  )
 
 
 if __name__ == "__main__":
