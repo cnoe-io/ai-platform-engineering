@@ -20,10 +20,11 @@ import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
 import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { TomeLoading } from "@/components/tome/TomeLoading";
 import type { ProjectDocument, ProjectSources } from "@/types/projects";
 
 /**
- * Project settings, surfaced as a Tome view (nav item under Feed) so a project
+ * Project settings, surfaced as a Tome view (nav item under Activity) so a project
  * can be reconfigured without leaving Tome. Edits title, description,
  * organization (team / BHAG / swim lane), and sources, persisting with
  * `PATCH /api/projects/<slug>`. `onSaved` lets the host refresh anything
@@ -267,12 +268,7 @@ export function ProjectSettingsPanel({
   }, [slug, router]);
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading settings…
-      </div>
-    );
+    return <TomeLoading />;
   }
 
   return (

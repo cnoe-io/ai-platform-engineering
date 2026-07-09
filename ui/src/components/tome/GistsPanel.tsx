@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { TomeLoading } from "@/components/tome/TomeLoading";
 import { cn } from "@/lib/utils";
 
 /**
@@ -105,7 +106,7 @@ export function GistsPanel({
 
       <div className="flex-1 overflow-auto">
         {gists === null ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">Loading gists…</p>
+          <TomeLoading variant="list" />
         ) : gists.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">

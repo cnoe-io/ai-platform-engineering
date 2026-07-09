@@ -42,6 +42,7 @@ import { ChatPanel } from "@/components/tome/ChatPanel";
 import { FeedPanel } from "@/components/tome/FeedPanel";
 import { GistsPanel } from "@/components/tome/GistsPanel";
 import { GistView } from "@/components/tome/GistView";
+import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
@@ -669,12 +670,12 @@ export function TomeWiki({ slug }: { slug: string }) {
         <div className="border-b pb-3 pl-6 pr-4 pt-0">
           {projectMetaLoading ? (
             <div className="flex flex-col gap-2" data-testid="skeleton">
-              <div className="h-5 w-48 animate-pulse rounded bg-muted/30" />
-              <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted/30" />
+              <div className="h-5 w-48 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted" />
               <div className="flex gap-1.5">
-                <div className="h-5 w-16 animate-pulse rounded-full bg-muted/30" />
-                <div className="h-5 w-20 animate-pulse rounded-full bg-muted/30" />
-                <div className="h-5 w-14 animate-pulse rounded-full bg-muted/30" />
+                <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
+                <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
+                <div className="h-5 w-14 animate-pulse rounded-full bg-muted" />
               </div>
             </div>
           ) : (
@@ -1056,7 +1057,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onRename={renamePage}
                       />
                     ) : (
-                      <ContentLoading />
+                      <TomeLoading />
                     )}
                   </div>
                 )}
@@ -1113,7 +1114,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               // page
               <div className="min-w-0 flex-1">
                 {loading ? (
-                  <ContentLoading />
+                  <TomeLoading />
                 ) : data && data.pages[view.path] !== undefined ? (
                   <WikiPageView
                     slug={slug}
@@ -1203,15 +1204,3 @@ function SidebarSkeleton() {
   );
 }
 
-function ContentLoading() {
-  return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-8 py-10" aria-hidden>
-      <div className="h-7 w-1/3 animate-pulse rounded bg-muted" />
-      <div className="space-y-2">
-        <div className="h-4 w-full animate-pulse rounded bg-muted" />
-        <div className="h-4 w-11/12 animate-pulse rounded bg-muted" />
-        <div className="h-4 w-4/5 animate-pulse rounded bg-muted" />
-      </div>
-    </div>
-  );
-}

@@ -31,6 +31,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { TomeLoading } from "@/components/tome/TomeLoading";
 import { useStickToBottom } from "@/hooks/use-auto-scroll";
 import { cn } from "@/lib/utils";
 
@@ -491,7 +492,7 @@ export function FeedPanel({
             </p>
           )}
           {loading && messages.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Loading the activity feed…</p>
+            <TomeLoading variant="list" />
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">

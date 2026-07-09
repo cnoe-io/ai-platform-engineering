@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { TomeLoading } from "@/components/tome/TomeLoading";
 
 interface Gist {
   id: string;
@@ -104,7 +105,7 @@ export function GistView({
 
       <ScrollArea className="flex-1">
         {!gist ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">Loading gist…</p>
+          <TomeLoading />
         ) : (
           <div className="mx-auto max-w-3xl px-8 py-8">
             <h1 className="text-2xl font-semibold leading-tight">{gist.title}</h1>
