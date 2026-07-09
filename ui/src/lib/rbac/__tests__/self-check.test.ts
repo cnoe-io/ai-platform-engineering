@@ -468,6 +468,50 @@ describe("deriveRbacSelfCheckReport", () => {
     expect(report.findings.filter((f) => f.severity === "orphan_candidate")).toHaveLength(0);
   });
 
+  it("does not expect #admin manager for a shared-only team on an agent (sharing is use-only)", () => {
+    // Sharing an agent with a team grants use (`#member user`) only, never
+    // manage rights — even to that team's admins. The self-check must not
+    // expect `team:<shared>#admin manager` and must flag a lingering one as
+    // a revocable orphan, matching the write-side filter in
+    // openfga-agent-tools.ts (isSharedOnlyAdminManagerTuple).
+    const report = deriveRbacSelfCheckReport(baseInput({
+      teams: [
+        { slug: "owner-team", name: "Owner Team" },
+        { slug: "everyone", name: "Everyone" },
+      ],
+      dynamicAgents: [
+        {
+          _id: "csec-critical-alerts",
+          name: "CSEC Critical Alerts",
+          visibility: "team",
+          owner_team_slug: "owner-team",
+          shared_with_teams: ["everyone"],
+        },
+      ],
+      actualTuples: [
+        { user: "organization:caipe#admin", relation: "manager", object: "agent:csec-critical-alerts" },
+        { user: "team:owner-team#member", relation: "user", object: "agent:csec-critical-alerts" },
+        { user: "team:owner-team#admin", relation: "manager", object: "agent:csec-critical-alerts" },
+        { user: "team:owner-team#member", relation: "manager", object: "agent:csec-critical-alerts" },
+        { user: "team:everyone#member", relation: "user", object: "agent:csec-critical-alerts" },
+        // Lingering grant from before the use-only fix shipped — must be
+        // flagged as revocable, not expected as missing.
+        { user: "team:everyone#admin", relation: "manager", object: "agent:csec-critical-alerts" },
+      ],
+    }));
+
+    expect(report.summary.missing_tuples).toBe(0);
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "orphan_candidate",
+          review_action: expect.objectContaining({ type: "revoke_tuple" }),
+          tuple: { user: "team:everyone#admin", relation: "manager", object: "agent:csec-critical-alerts" },
+        }),
+      ]),
+    );
+  });
+
   it("labels membership tuples for deleted teams as stale deleted-team memberships", () => {
     const report = deriveRbacSelfCheckReport(baseInput({
       actualTuples: [
