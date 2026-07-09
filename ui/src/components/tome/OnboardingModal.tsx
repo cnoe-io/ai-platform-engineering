@@ -5,10 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
+  FileText,
   MessageSquare,
   MessagesSquare,
   Network,
   Plug,
+  Send,
   Tags,
   Target,
 } from "lucide-react";
@@ -138,6 +141,7 @@ function buildSteps(projectName?: string): Step[] {
     { node: <EdgesStep /> },
     { node: <AgentStep /> },
     { node: <FeedStep /> },
+    { node: <GistsStep /> },
     { node: <McpStep /> },
   ];
 }
@@ -404,15 +408,175 @@ function FeedStep() {
     <div className="space-y-4">
       <StepHeader
         icon={<MessagesSquare className="h-5 w-5" />}
-        eyebrow="Feed"
+        eyebrow="Activity"
         title="Bring your agents into the mix"
       >
-        The Feed is the conversation about the project, plus its live activity,
-        powered by Mycelium. People post here, and so do agents:{" "}
+        Activity is the project&apos;s activity feed: GitHub and ingest events plus live
+        discussion, powered by Mycelium. People post here, and so do agents:{" "}
         <span className="font-medium text-foreground">connect a coding agent over MCP</span>{" "}
-        and it can read the wiki, post to the Feed, and update pages as it works.
+        and it can read the wiki, post to Activity, and update pages as it works.
       </StepHeader>
       <FeedDemo />
+    </div>
+  );
+}
+
+function GistsStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader icon={<FileText className="h-5 w-5" />} eyebrow="Gists" title="Save the scraps too">
+        A gist is a quick, non-committal chunk of context: a working prompt, an
+        agent memory, a deploy note. It skips the wiki entirely, so it&apos;s never
+        ingested, synthesized, or loaded into agent context by default.
+      </StepHeader>
+      <GistsDemo />
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Every gist you save is posted to the activity feed automatically, so a
+        teammate sees it right away, or their agent can pull it on demand with{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">tome_get_gist</code>.
+        Nothing lands in the curated wiki unless someone chooses to promote it.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A gist getting jotted down, saved (pointedly outside the wiki), then handed
+ * to the Feed — one small card animating through its own lifecycle rather
+ * than a terminal transcript, since gists are a UI-first, not CLI-first,
+ * feature. Loops through a few examples like FeedDemo's vignettes.
+ */
+const GIST_STAGES = ["title", "body", "saved", "shared"] as const;
+type GistStage = (typeof GIST_STAGES)[number] | "idle";
+
+function GistsDemo() {
+  const examples = [
+    { title: "deploy notes", body: "blue-green swap via ./deploy.sh --prod, ~4 min, watch /health" },
+    { title: "prompt: incident triage", body: "You are triaging a P1. Ask for blast radius first, then..." },
+    { title: "agent memory: flaky webhook", body: "Cold-start 500s on the first call. Retry 3x with backoff." },
+  ];
+  const [i, setI] = useState(0);
+  const [stage, setStage] = useState<GistStage>("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paused = useRef(false);
+
+  useEffect(() => {
+    const order: { stage: GistStage; after: number }[] = [
+      { stage: "title", after: 250 },
+      { stage: "body", after: 550 },
+      { stage: "saved", after: 900 },
+      { stage: "shared", after: 900 },
+    ];
+    let n = 0;
+    setStage("idle");
+    const step = () => {
+      if (paused.current) {
+        timer.current = setTimeout(step, 200);
+        return;
+      }
+      setStage(order[n].stage);
+      const delay = order[n].after;
+      n += 1;
+      if (n < order.length) {
+        timer.current = setTimeout(step, delay);
+      } else {
+        timer.current = setTimeout(() => setI((v) => (v + 1) % examples.length), 2000);
+      }
+    };
+    timer.current = setTimeout(step, 300);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i]);
+
+  const idx = GIST_STAGES.indexOf(stage as (typeof GIST_STAGES)[number]);
+  const showTitle = idx >= 0;
+  const showBody = idx >= 1;
+  const showSaved = idx >= 2;
+  const showShared = idx >= 3;
+  const ex = examples[i];
+
+  return (
+    <div
+      onMouseEnter={() => {
+        paused.current = true;
+      }}
+      onMouseLeave={() => {
+        paused.current = false;
+      }}
+    >
+      {/* Every row is a fixed-height slot holding either a skeleton or the
+          real content, and text is clamped to one line — so swapping between
+          stages/examples never reflows the card. */}
+      <div className="rounded-lg border bg-muted/30 px-4 py-3">
+        <div className="flex items-start gap-2.5">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <FileText className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex h-[18px] items-center text-sm font-medium text-foreground">
+              {showTitle ? (
+                <span
+                  key={`t-${i}`}
+                  className="fill-mode-both line-clamp-1 animate-in fade-in slide-in-from-left-1 duration-300"
+                >
+                  {ex.title}
+                  {!showBody && <Cursor className="text-primary" />}
+                </span>
+              ) : (
+                <span className="h-3 w-28 animate-pulse rounded bg-muted-foreground/20" aria-hidden />
+              )}
+            </div>
+            <div className="mt-1.5 flex h-[16px] items-center text-xs text-muted-foreground">
+              {showBody ? (
+                <span
+                  key={`b-${i}`}
+                  className="fill-mode-both line-clamp-1 animate-in fade-in slide-in-from-left-1 duration-300"
+                >
+                  {ex.body}
+                </span>
+              ) : (
+                <span className="h-2.5 w-44 animate-pulse rounded bg-muted-foreground/15" aria-hidden />
+              )}
+            </div>
+            <div className="mt-2 flex h-[20px] items-center">
+              {showSaved ? (
+                <span
+                  key={`s-${i}`}
+                  className="fill-mode-both inline-flex animate-in items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500 fade-in duration-300"
+                >
+                  <Check className="h-3 w-3" />
+                  Instant handoff
+                </span>
+              ) : (
+                <span className="h-3.5 w-32 animate-pulse rounded-full bg-muted-foreground/15" aria-hidden />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2 flex h-[28px] items-center gap-2 pl-3">
+        {showShared ? (
+          <>
+            <Send key={`icon-${i}`} className="fill-mode-both h-3 w-3 shrink-0 animate-in fade-in text-primary duration-300" />
+            <div className="h-px flex-1 bg-border" />
+            <span
+              key={`f-${i}`}
+              className="fill-mode-both line-clamp-1 animate-in rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground fade-in slide-in-from-top-1 duration-300"
+            >
+              shared gist &ldquo;{ex.title}&rdquo; → <span className="font-medium text-foreground">Activity</span>
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="h-3 w-3 shrink-0" aria-hidden />
+            <div className="h-px flex-1 bg-border/40" />
+            <span className="h-5 w-36 animate-pulse rounded-full bg-muted-foreground/10" aria-hidden />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -445,7 +609,7 @@ function FeedDemo() {
       { role: "user", text: "Mention in tome that we're blocked on the OIDC migration" },
       { role: "mcp", text: 'tome_feed_send("blocked on OIDC migration")' },
       { role: "result", text: "posted" },
-      { role: "agent", text: "Posted to the Feed." },
+      { role: "agent", text: "Posted to Activity." },
     ],
     [
       { role: "user", text: "How does Atlas relate to Beacon?" },
@@ -534,7 +698,7 @@ function McpStep() {
     <div className="space-y-4">
       <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring TOME into your coding agent">
         Connect Claude, Cursor, or Claude Code over MCP so your agent can read
-        this project&apos;s wiki and Feed right where you write code, with
+        this project&apos;s wiki and Activity right where you write code, with
         no copy-paste.
       </StepHeader>
       <Terminal>
@@ -547,7 +711,7 @@ function McpStep() {
         <Cursor />
       </Terminal>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        Your agent gets tools to list projects, read pages, and post to the Feed.
+        Your agent gets tools to list projects, read pages, and post to Activity.
         Grab your key and the exact command from{" "}
         <span className="font-medium text-foreground">Connect via MCP</span> in the TOME header.
       </p>

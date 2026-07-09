@@ -29,6 +29,8 @@ export const TOME_COLLECTIONS = {
   CHAT_MESSAGES: "tome_chat_messages",
   /** Backlink index over `edges/*.md` pages, keyed by resolved target project. */
   EDGES_INDEX: "tome_edges_index",
+  /** Gists — lightweight, non-wiki context chunks. */
+  GISTS: "tome_gists",
 } as const;
 
 export type TomeCollectionName =
@@ -188,6 +190,24 @@ export interface ChatMessage {
   /** Interleaved render model; absent on legacy/user rows (fall back to content). */
   parts?: ChatPart[];
   created_at: Date;
+}
+
+/**
+ * A gist: a quick, non-committal chunk of context (a prompt, an agent memory,
+ * a snippet) that's saved and shareable without becoming part of the curated
+ * wiki. NOT ingested, NOT synthesized, NOT loaded into agent context by
+ * default — a stored, linkable chunk a teammate pulls in only when relevant.
+ */
+export interface Gist {
+  _id?: string;
+  project_id: string;
+  title: string;
+  /** Markdown body. */
+  body: string;
+  author: string; // email of the creator
+  created_at: Date;
+  /** Freeform labels for lightweight filtering — no hierarchy, unlike wiki paths. */
+  tags?: string[];
 }
 
 // ---------------------------------------------------------------------------

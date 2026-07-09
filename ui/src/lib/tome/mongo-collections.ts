@@ -17,6 +17,7 @@ import {
   type ChatSession,
   type ChatMessage,
   type EdgeIndexRow,
+  type Gist,
 } from "@/types/tome";
 
 export async function getTomePageRevisionsCollection(): Promise<
@@ -51,4 +52,8 @@ export async function getTomeEdgesIndexCollection(): Promise<
   Collection<EdgeIndexRow>
 > {
   return getCollection<EdgeIndexRow>(TOME_COLLECTIONS.EDGES_INDEX);
+}
+
+export async function getTomeGistsCollection(): Promise<Collection<Gist>> {
+  return getCollection<Gist>(TOME_COLLECTIONS.GISTS);
 }

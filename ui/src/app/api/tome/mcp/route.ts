@@ -56,6 +56,14 @@ function selfOrigin(request: NextRequest): string {
   return (process.env.TOME_INTERNAL_ORIGIN || new URL(request.url).origin).replace(/\/$/, "");
 }
 
+/** The origin a human should actually open — `request.url`'s origin is the
+ *  internal Docker hostname the MCP forwarding hop sees, not the public URL.
+ *  `NEXTAUTH_URL` is already the app's public-base-URL env var (used the same
+ *  way for OAuth callbacks); reuse it rather than guessing from the request. */
+function publicOrigin(request: NextRequest): string {
+  return (process.env.NEXTAUTH_URL || selfOrigin(request)).replace(/\/$/, "");
+}
+
 /** Forward the caller's credentials so the target route re-authenticates as the
  *  same principal (per-user RBAC preserved). */
 function forwardHeaders(request: NextRequest): Record<string, string> {
@@ -188,6 +196,25 @@ function schema(
   required: string[] = [],
 ): Record<string, unknown> {
   return { type: "object", properties, required, additionalProperties: false };
+}
+
+/** Some MCP clients serialize an array-typed argument as a JSON string, or a
+ *  plain comma-separated string, rather than an actual array — tolerate all
+ *  three shapes instead of silently dropping the value. */
+function parseTagsArg(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      /* not JSON — fall through to comma-splitting */
+    }
+    return trimmed.split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  return [];
 }
 
 const TOOLS: ToolDef[] = [
@@ -635,6 +662,73 @@ const TOOLS: ToolDef[] = [
         `Promoted to the Feed (id=${id}). Tell the user, and link them to it with ` +
           `markdown like [view in the Feed](tome://@${args.project_slug}/feed/${id}) — ` +
           `that link scrolls to and highlights this exact message.`,
+      );
+    },
+  },
+  {
+    name: "tome_list_gists",
+    description:
+      "List a project's gists — lightweight, non-wiki context chunks (a prompt, a snippet, a deploy note) saved without becoming part of the curated wiki. Returns id, title, author, created_at, tags, and a url for each (not the full body — use tome_get_gist for that). `project_slug` is required; `tag` optionally filters to gists carrying that exact tag.",
+    inputSchema: schema({ project_slug: STR, tag: STR }, ["project_slug"]),
+    handler: async (request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const qs = args.tag ? `?tag=${encodeURIComponent(String(args.tag))}` : "";
+      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/gists${qs}`), "list gists");
+      const origin = publicOrigin(request);
+      const gists = (data?.gists ?? []).map((g: any) => ({
+        id: g.id,
+        title: g.title,
+        author: g.author,
+        created_at: g.created_at,
+        tags: g.tags ?? [],
+        url: g.path ? `${origin}${g.path}` : undefined,
+      }));
+      return toolText(JSON.stringify(gists, null, 2));
+    },
+  },
+  {
+    name: "tome_get_gist",
+    description:
+      "Fetch a gist's full body by id. Returns the body, tags, plus a url to view it in the app. `project_slug` and `gist_id` are required.",
+    inputSchema: schema({ project_slug: STR, gist_id: STR }, ["project_slug", "gist_id"]),
+    handler: async (request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const id = encodeURIComponent(String(args.gist_id));
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/gists/${id}`),
+        "get gist",
+      );
+      const gist = data?.gist ?? {};
+      const origin = publicOrigin(request);
+      return toolText(
+        JSON.stringify(
+          { ...gist, url: gist.path ? `${origin}${gist.path}` : undefined },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_create_gist",
+    description:
+      "Save a new gist to a project — a quick, non-committal chunk of context (an agent memory, a working prompt, a config incantation). It is NOT ingested into the wiki and NOT loaded into agent context by default; it's a stored, linkable chunk a teammate can pull in on demand. Automatically posted to the project's Feed as a linkable reference so it's discoverable — sharing isn't a separate step. Returns a url to view the gist; share that with the user. `project_slug`, `title`, and `body` (markdown) are required; `tags` is an optional array of freeform labels for filtering (no hierarchy).",
+    inputSchema: schema(
+      { project_slug: STR, title: STR, body: STR, tags: { type: "array", items: STR } },
+      ["project_slug", "title", "body"],
+    ),
+    handler: async (request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const r = await fwd("POST", `/api/tome/projects/${slug}/gists`, {
+        title: String(args.title),
+        body: String(args.body),
+        tags: parseTagsArg(args.tags),
+      });
+      const data = ensureOk(r, "create gist");
+      const url = data?.gist?.path ? `${publicOrigin(request)}${data.gist.path}` : null;
+      return toolText(
+        `Created gist "${data?.gist?.title}" (id=${data?.gist?.id}), posted to the Feed.` +
+          (url ? ` View it at ${url}` : ""),
       );
     },
   },

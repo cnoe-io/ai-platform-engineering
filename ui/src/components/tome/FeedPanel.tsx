@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -108,6 +110,13 @@ const ARTIFACT_ICON: Record<SourceArtifact, typeof GitPullRequest> = {
   commit: GitCommit,
 };
 
+/** Payload carried by a `gist_ref` feed item — a link to a shared gist. */
+interface GistRefPayload {
+  gist_id?: string;
+  title?: string;
+  tags?: string[];
+}
+
 /** Icon per ingest-run status. */
 const INGEST_ICON: Record<NonNullable<IngestEventPayload["status"]>, typeof RefreshCw> = {
   running: RefreshCw,
@@ -170,12 +179,15 @@ export function FeedPanel({
   slug,
   onOpenPage,
   onOpenIngestRun,
+  onOpenGist,
 }: {
   slug: string;
   /** Navigate to a wiki page when an internal `tome://` link is clicked. */
   onOpenPage?: (path: string) => void;
   /** Navigate to an ingest run's detail view from an `ingest_event` row. */
   onOpenIngestRun?: (runId: string) => void;
+  /** Navigate to a gist's full view from a `gist_ref` row. */
+  onOpenGist?: (id: string) => void;
 }) {
   const [messages, setMessages] = useState<FeedMessage[]>([]);
   // Mycelium's `total` is just the returned-page size, not a grand total, so we
@@ -408,7 +420,7 @@ export function FeedPanel({
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md text-center text-sm text-muted-foreground">
           <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-50" />
-          The Feed isn’t configured on this deployment.
+          The activity feed isn’t configured on this deployment.
           <div className="mt-1 text-xs">
             Set <code>MYCELIUM_URL</code> to enable it.
           </div>
@@ -437,18 +449,18 @@ export function FeedPanel({
             </p>
           )}
           {loading && messages.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Loading the feed…</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading the activity feed…</p>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                 <MessagesSquare className="h-6 w-6 text-primary" />
               </div>
-              <h2 className="text-lg font-semibold">The {slug} feed</h2>
+              <h2 className="text-lg font-semibold">The {slug} activity feed</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Conversation about <span className="font-medium">{slug}</span>, plus its live
-                activity, powered by Mycelium. People and agents post decisions, questions, and
-                updates; source activity and ingest runs show up here too. The wiki holds the
-                durable context; this holds the conversation and signal around it.
+                Source activity, ingest runs, and shared gists for <span className="font-medium">{slug}</span>,
+                plus live discussion, powered by Mycelium. People and agents post decisions,
+                questions, and updates here too. The wiki holds the durable context; this holds
+                the activity and signal around it.
               </p>
             </div>
           ) : (
@@ -470,6 +482,7 @@ export function FeedPanel({
                 return (
                   <IngestEventRow
                     key={m.id}
+                    slug={slug}
                     m={m}
                     payload={(evt.payload ?? {}) as IngestEventPayload}
                     onOpenIngestRun={onOpenIngestRun}
@@ -483,6 +496,18 @@ export function FeedPanel({
                     key={m.id}
                     m={m}
                     onOpenPage={onOpenPage}
+                    highlighted={m.id === highlightId}
+                  />
+                );
+              }
+              if (evt?.kind === "gist_ref") {
+                return (
+                  <GistRefRow
+                    key={m.id}
+                    slug={slug}
+                    m={m}
+                    payload={(evt.payload ?? {}) as GistRefPayload}
+                    onOpenGist={onOpenGist}
                     highlighted={m.id === highlightId}
                   />
                 );
@@ -575,7 +600,7 @@ export function FeedPanel({
             }}
             minRows={1}
             maxRows={10}
-            placeholder="Message the feed…"
+            placeholder="Message the activity feed…"
             className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
           <Button
@@ -599,7 +624,7 @@ export function FeedPanel({
             rel="noreferrer"
             className="transition-colors hover:text-foreground hover:underline"
           >
-            Powered by Mycelium
+            Multi-agent feed powered by mycelium.
           </a>
         </div>
       </div>
@@ -658,11 +683,13 @@ function SourceEventRow({
 /** An ingest/synthesize run's lifecycle transition, same bar treatment as a
  * source event — "View run" jumps to the run's live/finished log. */
 function IngestEventRow({
+  slug,
   m,
   payload,
   onOpenIngestRun,
   highlighted,
 }: {
+  slug: string;
   m: FeedMessage;
   payload: IngestEventPayload;
   onOpenIngestRun?: (runId: string) => void;
@@ -692,15 +719,20 @@ function IngestEventRow({
           <p className="truncate text-sm text-foreground/90">{m.content}</p>
           {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
         </div>
-        {payload.run_id && onOpenIngestRun && (
-          <button
-            type="button"
-            onClick={() => onOpenIngestRun(payload.run_id!)}
+        {payload.run_id && (
+          <Link
+            href={`/projects/${slug}/tome/ingest/${payload.run_id}`}
+            onClick={(e) => {
+              if (onOpenIngestRun) {
+                e.preventDefault();
+                onOpenIngestRun(payload.run_id!);
+              }
+            }}
             className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-foreground/80 transition hover:bg-background hover:text-foreground"
           >
             View run
             <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
+          </Link>
         )}
       </div>
     </div>
@@ -761,6 +793,80 @@ function PromotedActionRow({
       </div>
       <div className="break-words text-sm text-foreground/90">
         <MarkdownRenderer content={m.content} variant="final" onInternalLink={onOpenPage} />
+      </div>
+    </div>
+  );
+}
+
+/** A shared gist, the same flat-bar treatment and layout as a source/ingest
+ * event (bold title, category/byline underneath, a real button on the
+ * right) — only the leading icon differs, using the sharer's avatar in
+ * place of an asset-type icon since a gist has an owner, not an asset kind.
+ * Only the button is a link, matching how View run/View release work. */
+function GistRefRow({
+  slug,
+  m,
+  payload,
+  onOpenGist,
+  highlighted,
+}: {
+  slug: string;
+  m: FeedMessage;
+  payload: GistRefPayload;
+  onOpenGist?: (id: string) => void;
+  highlighted?: boolean;
+}) {
+  const isAgent = isAgentHandle(m.sender_handle);
+  const sub = ["Gist", m.display_name || displayName(m.sender_handle), relativeTime(m.created_at)]
+    .filter(Boolean)
+    .join(" · ");
+  if (!payload.gist_id) return null;
+  const gistId = payload.gist_id;
+  return (
+    <div id={`feed-message-${m.id}`} className="mt-2 first:mt-0">
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors",
+          highlighted && "border-primary/40 bg-primary/10",
+        )}
+      >
+        <div
+          className={cn(
+            "flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-medium text-white",
+            isAgent ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "gradient-primary-br",
+          )}
+        >
+          {initialsOf(m.display_name || m.sender_handle)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground/90">
+            {payload.title ?? "Untitled gist"}
+          </p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-[11px] text-muted-foreground">{sub}</p>
+            {payload.tags?.map((tag) => (
+              <Badge key={tag} variant="outline" className="shrink-0 px-1.5 py-0 text-[9px] font-normal">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        </div>
+        <Link
+          href={`/projects/${slug}/tome/gists/${gistId}`}
+          onClick={(e) => {
+            // Intercept for the fast in-app transition (no full page load);
+            // the real href still makes this a proper link for keyboard,
+            // middle-click/open-in-new-tab, and screen readers.
+            if (onOpenGist) {
+              e.preventDefault();
+              onOpenGist(gistId);
+            }
+          }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-foreground/80 transition hover:bg-background hover:text-foreground"
+        >
+          View gist
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
     </div>
   );
