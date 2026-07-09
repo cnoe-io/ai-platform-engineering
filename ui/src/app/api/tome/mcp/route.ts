@@ -673,7 +673,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_create_gist",
     description:
-      "Save a new gist to a project — a quick, non-committal chunk of context (an agent memory, a working prompt, a config incantation). It is NOT ingested into the wiki and NOT loaded into agent context by default; it's a stored, linkable chunk a teammate can pull in on demand. `project_slug`, `title`, and `body` (markdown) are required.",
+      "Save a new gist to a project — a quick, non-committal chunk of context (an agent memory, a working prompt, a config incantation). It is NOT ingested into the wiki and NOT loaded into agent context by default; it's a stored, linkable chunk a teammate can pull in on demand. Automatically posted to the project's Feed as a linkable reference so it's discoverable — sharing isn't a separate step. `project_slug`, `title`, and `body` (markdown) are required.",
     inputSchema: schema(
       { project_slug: STR, title: STR, body: STR },
       ["project_slug", "title", "body"],
@@ -685,20 +685,7 @@ const TOOLS: ToolDef[] = [
         body: String(args.body),
       });
       const data = ensureOk(r, "create gist");
-      return toolText(`Created gist "${data?.gist?.title}" (id=${data?.gist?.id}).`);
-    },
-  },
-  {
-    name: "tome_share_gist",
-    description:
-      "Share an existing gist into the project's Feed as a linkable reference message (\"shared gist ...\"). Use after tome_create_gist, or to re-share one a teammate already saved. `project_slug` and `gist_id` are required.",
-    inputSchema: schema({ project_slug: STR, gist_id: STR }, ["project_slug", "gist_id"]),
-    handler: async (_req, fwd, args) => {
-      const slug = encodeURIComponent(String(args.project_slug));
-      const id = encodeURIComponent(String(args.gist_id));
-      const r = await fwd("POST", `/api/tome/projects/${slug}/gists/${id}/share`);
-      const data = ensureOk(r, "share gist");
-      return toolText(`Shared gist to the Feed (message id=${data?.message?.id}).`);
+      return toolText(`Created gist "${data?.gist?.title}" (id=${data?.gist?.id}), posted to the Feed.`);
     },
   },
 ];

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Loader2, Plus, Send, Trash2 } from "lucide-react";
+import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +15,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MarkdownRenderer } from "@/components/shared/timeline";
 
 /**
  * Gists: quick, non-committal chunks of context (a prompt, an agent memory, a
- * snippet) saved without becoming part of the curated wiki — not ingested, not
- * synthesized, not loaded into agent context by default. Share one into the
- * Feed when a teammate should see it; otherwise it just sits here, pullable
- * on demand (also reachable via the tome_list_gists/tome_get_gist MCP tools).
+ * snippet) saved without becoming part of the curated wiki, not ingested, not
+ * synthesized, not loaded into agent context by default. Every gist is posted
+ * to the Feed automatically at creation (also reachable via the
+ * tome_list_gists/tome_get_gist MCP tools).
  */
 
 interface Gist {
@@ -38,12 +37,15 @@ function timeLabel(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
 }
 
-export function GistsPanel({ slug }: { slug: string }) {
+export function GistsPanel({
+  slug,
+  onOpenGist,
+}: {
+  slug: string;
+  onOpenGist: (id: string) => void;
+}) {
   const [gists, setGists] = useState<Gist[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [sharing, setSharing] = useState<string | null>(null);
-  const [sharedIds, setSharedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -60,25 +62,6 @@ export function GistsPanel({ slug }: { slug: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const share = useCallback(
-    async (id: string) => {
-      setSharing(id);
-      try {
-        const res = await fetch(`/api/tome/projects/${slug}/gists/${id}/share`, { method: "POST" });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error?.message || `Share failed (${res.status})`);
-        }
-        setSharedIds((prev) => new Set(prev).add(id));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setSharing(null);
-      }
-    },
-    [slug],
-  );
 
   const remove = useCallback(
     async (gist: Gist) => {
@@ -99,20 +82,6 @@ export function GistsPanel({ slug }: { slug: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-2">
-        <div>
-          <h2 className="text-sm font-semibold">Gists</h2>
-          <p className="text-xs text-muted-foreground">
-            Quick, non-committal context — not part of the wiki, not loaded into agent context
-            unless someone pulls it in.
-          </p>
-        </div>
-        <NewGistDialog
-          slug={slug}
-          onCreated={(gist) => setGists((prev) => [gist, ...(prev ?? [])])}
-        />
-      </div>
-
       {error && (
         <p className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">{error}</p>
       )}
@@ -127,72 +96,44 @@ export function GistsPanel({ slug }: { slug: string }) {
             </div>
             <h3 className="text-base font-semibold">No gists yet</h3>
             <p className="max-w-md text-sm text-muted-foreground">
-              Save a working prompt, a deploy note, or an agent memory here — it stays out of the
+              Save a working prompt, a deploy note, or an agent memory here, it stays out of the
               wiki until someone chooses to pull it in.
             </p>
+            <NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />
           </div>
         ) : (
-          <ul className="mx-auto flex max-w-4xl flex-col gap-3 p-4">
-            {gists.map((gist) => {
-              const isOpen = expanded === gist.id;
-              return (
+          <div className="mx-auto max-w-4xl p-4">
+            <div className="mb-3 flex justify-end">
+              <NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />
+            </div>
+            <ul className="flex flex-col gap-2">
+              {gists.map((gist) => (
                 <li key={gist.id} className="rounded-lg border">
-                  {/* A clickable row, not a <button> — it contains Button elements
-                      (Share/Delete), and nesting <button> inside <button> is invalid
-                      HTML that the browser auto-corrects, breaking hydration. */}
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setExpanded(isOpen ? null : gist.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setExpanded(isOpen ? null : gist.id);
-                      }
-                    }}
-                    className="flex w-full cursor-pointer items-start justify-between gap-3 px-4 py-3 text-left"
-                  >
-                    <div className="min-w-0">
+                  <div className="flex w-full items-start justify-between gap-3 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onOpenGist(gist.id)}
+                      className="min-w-0 flex-1 text-left"
+                    >
                       <div className="font-medium text-foreground">{gist.title}</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {gist.author} · {timeLabel(gist.created_at)}
                       </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto gap-1.5 px-2 py-1 text-xs"
-                        disabled={sharing === gist.id}
-                        onClick={() => void share(gist.id)}
-                      >
-                        {sharing === gist.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Send className="h-3.5 w-3.5" />
-                        )}
-                        {sharedIds.has(gist.id) ? "Shared" : "Share to Feed"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        aria-label="Delete gist"
-                        onClick={() => void remove(gist)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label="Delete gist"
+                      onClick={() => void remove(gist)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  {isOpen && (
-                    <div className="border-t px-4 py-3 text-sm">
-                      <MarkdownRenderer content={gist.body} variant="final" />
-                    </div>
-                  )}
                 </li>
-              );
-            })}
-          </ul>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
     </div>
@@ -259,7 +200,7 @@ function NewGistDialog({
           <DialogTitle>New gist</DialogTitle>
           <DialogDescription>
             A quick, non-committal chunk of context. It won&apos;t be ingested into the wiki or
-            loaded into agent context — share it to the Feed when someone should see it.
+            loaded into agent context, and it&apos;s posted to the Feed as soon as you create it.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

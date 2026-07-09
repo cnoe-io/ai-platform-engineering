@@ -41,6 +41,7 @@ import {
 import { ChatPanel } from "@/components/tome/ChatPanel";
 import { FeedPanel } from "@/components/tome/FeedPanel";
 import { GistsPanel } from "@/components/tome/GistsPanel";
+import { GistView } from "@/components/tome/GistView";
 import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
@@ -84,6 +85,7 @@ type MainView =
   | { kind: "standup" }
   | { kind: "feed" }
   | { kind: "gists" }
+  | { kind: "gist"; id: string }
   | { kind: "settings" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
@@ -108,6 +110,8 @@ function viewToPath(slug: string, view: MainView): string {
       return `${base}/feed`;
     case "gists":
       return `${base}/gists`;
+    case "gist":
+      return `${base}/gists/${encodeURIComponent(view.id)}`;
     case "settings":
       return `${base}/settings`;
     case "ingest":
@@ -132,7 +136,7 @@ function pathToView(segments: string[]): MainView {
     case "feed":
       return { kind: "feed" };
     case "gists":
-      return { kind: "gists" };
+      return rest[0] ? { kind: "gist", id: rest[0] } : { kind: "gists" };
     case "settings":
       return { kind: "settings" };
     case "ingest":
@@ -546,6 +550,11 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Feed" }];
       case "gists":
         return [{ label: "Gists" }];
+      case "gist":
+        return [
+          { label: "Gists", onClick: () => navigate({ kind: "gists" }) },
+          { label: "Gist" },
+        ];
       case "settings":
         return [{ label: "Settings" }];
       case "page": {
@@ -611,7 +620,7 @@ export function TomeWiki({ slug }: { slug: string }) {
     agent: view.kind === "agent",
     standup: view.kind === "standup",
     feed: view.kind === "feed",
-    gists: view.kind === "gists",
+    gists: view.kind === "gists" || view.kind === "gist",
     settings: view.kind === "settings",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
@@ -1067,11 +1076,16 @@ export function TomeWiki({ slug }: { slug: string }) {
                   slug={slug}
                   onOpenPage={(path) => navigate({ kind: "page", path })}
                   onOpenIngestRun={(runId) => navigate({ kind: "ingestRun", runId })}
+                  onOpenGist={(id) => navigate({ kind: "gist", id })}
                 />
               </div>
             ) : view.kind === "gists" ? (
               <div className="min-w-0 flex-1">
-                <GistsPanel slug={slug} />
+                <GistsPanel slug={slug} onOpenGist={(id) => navigate({ kind: "gist", id })} />
+              </div>
+            ) : view.kind === "gist" ? (
+              <div className="min-w-0 flex-1">
+                <GistView key={view.id} slug={slug} id={view.id} onBack={() => navigate({ kind: "gists" })} />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
