@@ -42,7 +42,6 @@ FileText,
 FolderKanban,
 Home,
 KeyRound,
-LayoutGrid,
 Loader2,
 Shield,
 Workflow,
@@ -440,50 +439,14 @@ export function AppHeader() {
   // into overflow. Keep the existing breakpoint behavior by treating
   // the unified pill the same as the old per-source banners.
   const hasMigrationBanner = adminAlerts.length > 0;
-  // Pinned agentic apps: any installed app whose manifest sets
-  // surfaces.showInTopNav renders as a top-nav tab (sorted by navOrder by the
-  // API). Lets admins promote apps into the nav via the app manifest.
-  const [pinnedAppNavItems, setPinnedAppNavItems] = React.useState<
-    Array<{
-      key: string;
-      href: string;
-      label: string;
-      Icon: React.ComponentType<{ className?: string }>;
-      activeClassName: string;
-    }>
-  >([]);
-  React.useEffect(() => {
-    if (!(config.agenticAppsEnabled)) return;
-    let cancelled = false;
-    fetch("/api/agentic-apps")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => {
-        if (cancelled || !body) return;
-        const items = (body.items ?? body.data?.items ?? []) as Array<{
-          appId: string;
-          href?: string;
-          displayName?: string;
-          surfaces?: { showInTopNav?: boolean };
-        }>;
-        setPinnedAppNavItems(
-          items
-            .filter(
-              (a) => a?.surfaces?.showInTopNav === true && typeof a.href === "string",
-            )
-            .map((a) => ({
-              key: `app-${a.appId}`,
-              href: a.href as string,
-              label: a.displayName ?? a.appId,
-              Icon: LayoutGrid,
-              activeClassName: "bg-cyan-600 text-white shadow-sm",
-            })),
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // No pinned agentic app nav items in CAIPE (mirror-only feature).
+  const pinnedAppNavItems: Array<{
+    key: string;
+    href: string;
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    activeClassName: string;
+  }> = [];
   // Admin-customized top-nav order + enabled/disabled set (Admin → Settings →
   // Navigation), stored in platform_config.top_nav and readable by any
   // authenticated user. Applied to the unified nav list below.
