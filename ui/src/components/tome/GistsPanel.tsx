@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 
@@ -108,28 +109,34 @@ export function GistsPanel({
             </div>
             <ul className="flex flex-col gap-2">
               {gists.map((gist) => (
-                <li key={gist.id} className="rounded-lg border">
-                  <div className="flex w-full items-start justify-between gap-3 px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => onOpenGist(gist.id)}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <div className="font-medium text-foreground">{gist.title}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {gist.author} · {timeLabel(gist.created_at)}
-                      </div>
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                      aria-label="Delete gist"
-                      onClick={() => void remove(gist)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+                <li
+                  key={gist.id}
+                  className="group flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-colors hover:border-primary/40 hover:bg-muted/40"
+                >
+                  <Link
+                    href={`/projects/${slug}/tome/gists/${gist.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpenGist(gist.id);
+                    }}
+                    className="min-w-0 flex-1"
+                  >
+                    <div className="font-medium text-foreground group-hover:underline">
+                      {gist.title}
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {gist.author} · {timeLabel(gist.created_at)}
+                    </div>
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                    aria-label="Delete gist"
+                    onClick={() => void remove(gist)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </li>
               ))}
             </ul>

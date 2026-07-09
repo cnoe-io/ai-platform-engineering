@@ -796,11 +796,11 @@ function PromotedActionRow({
   );
 }
 
-/** A shared gist reference — a linkable pointer to a non-wiki context chunk,
- * distinct from a promoted action (never part of the curated wiki context). */
 /** A shared gist, same flat-bar treatment as a source/ingest event, but with
  * the sharer's own avatar as the leading icon instead of an asset-type icon,
- * since a gist has an owner rather than an asset kind. */
+ * since a gist has an owner rather than an asset kind. The whole bar is the
+ * link (not just a corner button), with a hover state so it reads as
+ * clickable at a glance. */
 function GistRefRow({
   slug,
   m,
@@ -818,11 +818,23 @@ function GistRefRow({
   const sub = [m.display_name || displayName(m.sender_handle), relativeTime(m.created_at)]
     .filter(Boolean)
     .join(" · ");
+  if (!payload.gist_id) return null;
+  const gistId = payload.gist_id;
   return (
     <div id={`feed-message-${m.id}`} className="mt-2 first:mt-0">
-      <div
+      <Link
+        href={`/projects/${slug}/tome/gists/${gistId}`}
+        onClick={(e) => {
+          // Intercept for the fast in-app transition (no full page load); the
+          // real href still makes this a proper link for keyboard, middle-
+          // click/open-in-new-tab, and screen readers.
+          if (onOpenGist) {
+            e.preventDefault();
+            onOpenGist(gistId);
+          }
+        }}
         className={cn(
-          "flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors",
+          "group flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-background",
           highlighted && "border-primary/40 bg-primary/10",
         )}
       >
@@ -836,29 +848,18 @@ function GistRefRow({
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-foreground/90">
-            shared gist <span className="font-medium">{payload.title ?? "untitled"}</span>
+            shared gist{" "}
+            <span className="font-medium text-foreground group-hover:underline">
+              {payload.title ?? "untitled"}
+            </span>
           </p>
           {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
         </div>
-        {payload.gist_id && (
-          <Link
-            href={`/projects/${slug}/tome/gists/${payload.gist_id}`}
-            onClick={(e) => {
-              // Intercept for the fast in-app transition (no full page load);
-              // the real href still makes this a proper link for keyboard,
-              // middle-click/open-in-new-tab, and screen readers.
-              if (onOpenGist) {
-                e.preventDefault();
-                onOpenGist(payload.gist_id!);
-              }
-            }}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-foreground/80 transition hover:bg-background hover:text-foreground"
-          >
-            View gist
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </Link>
-        )}
-      </div>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
+          View gist
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        </span>
+      </Link>
     </div>
   );
 }
