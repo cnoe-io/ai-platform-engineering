@@ -19,7 +19,7 @@ test.describe("mocked admin settings browser regression", () => {
     );
   });
 
-  test("defaults bare admin route to Settings General", async ({ page }) => {
+  test("defaults bare admin route to Settings Default Agent tab", async ({ page }) => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
@@ -29,11 +29,11 @@ test.describe("mocked admin settings browser regression", () => {
 
     await expect(page).toHaveURL(/\/admin\?cat=settings&tab=settings$/);
     await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveClass(/bg-primary/);
-    await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute(
+    await expect(page.getByRole("tab", { name: "Default Agent" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    await expect(page.getByRole("tab", { name: "Default Agent" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "General" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Manage Unlinked Access" })).toBeVisible();
   });
 
@@ -49,7 +49,7 @@ test.describe("mocked admin settings browser regression", () => {
 
     await expect(page).toHaveURL(/\/admin\?cat=settings&tab=settings$/);
     await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveClass(/bg-primary/);
-    await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute(
+    await expect(page.getByRole("tab", { name: "Default Agent" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

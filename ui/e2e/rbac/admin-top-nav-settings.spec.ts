@@ -52,16 +52,20 @@ test.describe("admin top-nav settings tab", () => {
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
     // The card heading
-    await expect(page.getByText("Top Navigation")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Top Navigation" })).toBeVisible();
 
-    // Each default nav item appears in the list
-    await expect(page.getByText("Home")).toBeVisible();
-    await expect(page.getByText("Chat")).toBeVisible();
-    await expect(page.getByText("Skills")).toBeVisible();
+    // Wait for the list to load (not the loading spinner)
+    const navList = page.locator("ul").filter({ has: page.getByRole("button", { name: /move/i }) });
+    await expect(navList).toBeVisible();
+
+    // Each default nav item appears in the list — scope to list items to avoid header nav ambiguity
+    await expect(navList.getByText("Home")).toBeVisible();
+    await expect(navList.getByText("Chat")).toBeVisible();
+    await expect(navList.getByText("Skills")).toBeVisible();
 
     // Move-up/down buttons and visibility toggles are present
     await expect(page.getByRole("button", { name: /move down/i }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /hide|show/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /enable|disable/i }).first()).toBeVisible();
   });
 
   test("Saving top_nav config calls PATCH /api/admin/platform-config", async ({ page }) => {
@@ -89,17 +93,19 @@ test.describe("admin top-nav settings tab", () => {
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
     // Wait for the list to render
-    await expect(page.getByText("Top Navigation")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Top Navigation" })).toBeVisible();
+    // Wait for nav list (not loading state)
+    await expect(page.getByRole("button", { name: /move down/i }).first()).toBeVisible();
 
-    // Click Save
-    await page.getByRole("button", { name: /^save$/i }).click();
+    // Click Save — the SaveButton has aria-label "Save navigation settings"
+    await page.getByRole("button", { name: "Save navigation settings" }).click();
 
     // PATCH was called with a top_nav payload
     await expect.poll(() => patchBody).not.toBeNull();
     expect((patchBody as Record<string, unknown>)?.top_nav).toBeDefined();
   });
 
-  test("Restore Defaults resets the order and re-enables hidden items", async ({ page }) => {
+  test("Reset to default marks the form dirty", async ({ page }) => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
@@ -110,10 +116,8 @@ test.describe("admin top-nav settings tab", () => {
             await fulfillJson(route, {
               data: {
                 top_nav: {
-                  items: [
-                    { key: "chat", enabled: false },
-                    { key: "home", enabled: true },
-                  ],
+                  order: ["chat", "home"],
+                  hidden: ["chat"],
                 },
               },
             });
@@ -130,17 +134,19 @@ test.describe("admin top-nav settings tab", () => {
 
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByText("Top Navigation")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Top Navigation" })).toBeVisible();
+    // Wait for nav list to be rendered
+    await expect(page.getByRole("button", { name: /move down/i }).first()).toBeVisible();
 
-    // Restore Defaults button should be present
-    await expect(page.getByRole("button", { name: /restore defaults/i })).toBeVisible();
-    await page.getByRole("button", { name: /restore defaults/i }).click();
+    // "Reset to default" button is present (lowercase d)
+    await expect(page.getByRole("button", { name: /reset to default/i })).toBeVisible();
+    await page.getByRole("button", { name: /reset to default/i }).click();
 
-    // After restore, the Save button should show "Unsaved changes" indicating state changed
+    // After reset, the Save button should be enabled (dirty=true shows "Unsaved changes")
     await expect(page.getByText(/unsaved changes/i)).toBeVisible();
   });
 
-  test("Navigation tab is not shown to non-admin users", async ({ page }) => {
+  test("Navigation tab shows access-denied message for non-admin users", async ({ page }) => {
     await installMockedRbacApp(page, {
       isAdmin: false,
       session: { email: "user@caipe.local", name: "Regular User", role: "user", canViewAdmin: false },
@@ -149,7 +155,7 @@ test.describe("admin top-nav settings tab", () => {
     // Non-admin redirect away from admin
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
-    // Should not see the Navigation tab content
-    await expect(page.getByText("Top Navigation")).not.toBeVisible();
+    // Should not see the "Top Navigation" card heading (admin-only content)
+    await expect(page.getByRole("heading", { name: "Top Navigation" })).toHaveCount(0);
   });
 });
