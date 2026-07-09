@@ -544,6 +544,8 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Standup" }];
       case "feed":
         return [{ label: "Feed" }];
+      case "gists":
+        return [{ label: "Gists" }];
       case "settings":
         return [{ label: "Settings" }];
       case "page": {
@@ -590,6 +592,12 @@ export function TomeWiki({ slug }: { slug: string }) {
           },
           { label: "Run" },
         ];
+      default: {
+        // Exhaustiveness check: a MainView variant with no case here is a
+        // compile error, not a silent `undefined` return.
+        const exhaustive: never = view;
+        return exhaustive;
+      }
     }
   }, [view, data, navigate]);
 
