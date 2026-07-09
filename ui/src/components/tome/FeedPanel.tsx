@@ -830,7 +830,7 @@ function GistRefRow({
       >
         <div
           className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-medium text-white",
+            "flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-medium text-white",
             isAgent ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "gradient-primary-br",
           )}
         >
