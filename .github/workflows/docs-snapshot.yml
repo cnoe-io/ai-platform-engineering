@@ -91,9 +91,14 @@ jobs:
       - name: Commit and push to main
         env:
           NEW_VERSION: ${{ steps.versions.outputs.new_version }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name  "caipe-ci-release[bot]"
           git config user.email "287317642+caipe-ci-release[bot]@users.noreply.github.com"
+
+          # persist-credentials: false means the checkout step does not configure
+          # git credentials. Wire the App token into the remote URL so git push works.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/cnoe-io/ai-platform-engineering.git"
 
           # Only the published-versions list (and any current-version helm docs that
           # legitimately changed) are committed — versioned_docs is never committed.
