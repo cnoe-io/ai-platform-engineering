@@ -47,11 +47,23 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-// Controls the simulated container width in the ResizeObserver mock (jest.setup.js).
+// Controls the simulated container width (ResizeObserver mock) and the matchMedia
+// mock. AppHeader uses matchMedia via useHeaderNavCollapsed for the "More" button.
 // Pass true to simulate a narrow container (triggers nav overflow / More button).
 // Pass false to restore the default wide container (all items visible).
 function setHeaderNavConstrained(constrained: boolean) {
   ;(global as any).__mockContainerWidth = constrained ? 0 : 2000
+  // useHeaderNavCollapsed uses matchMedia; make it return matches=true when constrained.
+  ;(window.matchMedia as jest.Mock).mockImplementation((query: string) => ({
+    matches: constrained,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }))
 }
 
 // Mock admin role hook
