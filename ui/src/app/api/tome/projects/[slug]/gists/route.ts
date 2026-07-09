@@ -20,13 +20,28 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ slug: string }> };
 
+/** Trim, drop empties/dupes. No hierarchy, no casing rules — gists are
+ *  deliberately lightweight, unlike wiki paths. */
+function normalizeTags(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  for (const t of input) {
+    if (typeof t !== "string") continue;
+    const trimmed = t.trim();
+    if (trimmed) seen.add(trimmed);
+  }
+  return [...seen];
+}
+
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const { projectId } = await loadTomeProject(request, slug);
 
+  const tagFilter = new URL(request.url).searchParams.get("tag");
+
   const gists = await getTomeGistsCollection();
   const rows = await gists
-    .find({ project_id: projectId })
+    .find({ project_id: projectId, ...(tagFilter ? { tags: tagFilter } : {}) })
     .sort({ created_at: -1 })
     .toArray();
 
@@ -37,6 +52,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       body: g.body,
       author: g.author,
       created_at: g.created_at,
+      tags: g.tags ?? [],
       path: `/projects/${slug}/tome/gists/${g._id}`,
     })),
   });
@@ -50,6 +66,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const body = (await request.json().catch(() => ({}))) as {
     title?: string;
     body?: string;
+    tags?: unknown;
   };
   if (!body.title || typeof body.title !== "string" || !body.title.trim()) {
     throw new ApiError("`title` (string) is required", 400, "BAD_REQUEST");
@@ -59,6 +76,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   }
 
   const gists = await getTomeGistsCollection();
+  const tags = normalizeTags(body.tags);
   const gist = {
     _id: randomUUID(),
     project_id: tctx.projectId,
@@ -66,6 +84,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     body: body.body,
     author: tctx.user.email || "unknown",
     created_at: new Date(),
+    ...(tags.length ? { tags } : {}),
   };
   await gists.insertOne(gist);
 
@@ -100,7 +119,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   }
 
   return successResponse(
-    { gist: { ...gist, id: gist._id, path: `/projects/${slug}/tome/gists/${gist._id}` } },
+    { gist: { ...gist, id: gist._id, tags, path: `/projects/${slug}/tome/gists/${gist._id}` } },
     201,
   );
 });

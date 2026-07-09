@@ -206,6 +206,8 @@ export interface Gist {
   body: string;
   author: string; // email of the creator
   created_at: Date;
+  /** Freeform labels for lightweight filtering — no hierarchy, unlike wiki paths. */
+  tags?: string[];
 }
 
 // ---------------------------------------------------------------------------

@@ -198,6 +198,25 @@ function schema(
   return { type: "object", properties, required, additionalProperties: false };
 }
 
+/** Some MCP clients serialize an array-typed argument as a JSON string, or a
+ *  plain comma-separated string, rather than an actual array — tolerate all
+ *  three shapes instead of silently dropping the value. */
+function parseTagsArg(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      /* not JSON — fall through to comma-splitting */
+    }
+    return trimmed.split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 const TOOLS: ToolDef[] = [
   {
     name: "tome_list_projects",
@@ -649,17 +668,19 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_list_gists",
     description:
-      "List a project's gists — lightweight, non-wiki context chunks (a prompt, a snippet, a deploy note) saved without becoming part of the curated wiki. Returns id, title, author, created_at, and a url for each (not the full body — use tome_get_gist for that). `project_slug` is required.",
-    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+      "List a project's gists — lightweight, non-wiki context chunks (a prompt, a snippet, a deploy note) saved without becoming part of the curated wiki. Returns id, title, author, created_at, tags, and a url for each (not the full body — use tome_get_gist for that). `project_slug` is required; `tag` optionally filters to gists carrying that exact tag.",
+    inputSchema: schema({ project_slug: STR, tag: STR }, ["project_slug"]),
     handler: async (request, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
-      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/gists`), "list gists");
+      const qs = args.tag ? `?tag=${encodeURIComponent(String(args.tag))}` : "";
+      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/gists${qs}`), "list gists");
       const origin = publicOrigin(request);
       const gists = (data?.gists ?? []).map((g: any) => ({
         id: g.id,
         title: g.title,
         author: g.author,
         created_at: g.created_at,
+        tags: g.tags ?? [],
         url: g.path ? `${origin}${g.path}` : undefined,
       }));
       return toolText(JSON.stringify(gists, null, 2));
@@ -668,7 +689,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_get_gist",
     description:
-      "Fetch a gist's full body by id. Returns the body plus a url to view it in the app. `project_slug` and `gist_id` are required.",
+      "Fetch a gist's full body by id. Returns the body, tags, plus a url to view it in the app. `project_slug` and `gist_id` are required.",
     inputSchema: schema({ project_slug: STR, gist_id: STR }, ["project_slug", "gist_id"]),
     handler: async (request, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
@@ -691,9 +712,9 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_create_gist",
     description:
-      "Save a new gist to a project — a quick, non-committal chunk of context (an agent memory, a working prompt, a config incantation). It is NOT ingested into the wiki and NOT loaded into agent context by default; it's a stored, linkable chunk a teammate can pull in on demand. Automatically posted to the project's Feed as a linkable reference so it's discoverable — sharing isn't a separate step. Returns a url to view the gist; share that with the user. `project_slug`, `title`, and `body` (markdown) are required.",
+      "Save a new gist to a project — a quick, non-committal chunk of context (an agent memory, a working prompt, a config incantation). It is NOT ingested into the wiki and NOT loaded into agent context by default; it's a stored, linkable chunk a teammate can pull in on demand. Automatically posted to the project's Feed as a linkable reference so it's discoverable — sharing isn't a separate step. Returns a url to view the gist; share that with the user. `project_slug`, `title`, and `body` (markdown) are required; `tags` is an optional array of freeform labels for filtering (no hierarchy).",
     inputSchema: schema(
-      { project_slug: STR, title: STR, body: STR },
+      { project_slug: STR, title: STR, body: STR, tags: { type: "array", items: STR } },
       ["project_slug", "title", "body"],
     ),
     handler: async (request, fwd, args) => {
@@ -701,6 +722,7 @@ const TOOLS: ToolDef[] = [
       const r = await fwd("POST", `/api/tome/projects/${slug}/gists`, {
         title: String(args.title),
         body: String(args.body),
+        tags: parseTagsArg(args.tags),
       });
       const data = ensureOk(r, "create gist");
       const url = data?.gist?.path ? `${publicOrigin(request)}${data.gist.path}` : null;

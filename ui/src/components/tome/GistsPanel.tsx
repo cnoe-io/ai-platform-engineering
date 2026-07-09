@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, Loader2, Plus, Trash2, X } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,13 +17,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 /**
  * Gists: quick, non-committal chunks of context (a prompt, an agent memory, a
  * snippet) saved without becoming part of the curated wiki, not ingested, not
  * synthesized, not loaded into agent context by default. Every gist is posted
  * to the Feed automatically at creation (also reachable via the
- * tome_list_gists/tome_get_gist MCP tools).
+ * tome_list_gists/tome_get_gist MCP tools). Tags are freeform labels for
+ * lightweight filtering, no folder hierarchy.
  */
 
 interface Gist {
@@ -31,6 +34,7 @@ interface Gist {
   body: string;
   author: string;
   created_at: string;
+  tags?: string[];
 }
 
 function timeLabel(iso: string): string {
@@ -47,6 +51,7 @@ export function GistsPanel({
 }) {
   const [gists, setGists] = useState<Gist[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +86,17 @@ export function GistsPanel({
     [slug],
   );
 
+  const allTags = useMemo(() => {
+    const seen = new Set<string>();
+    for (const g of gists ?? []) for (const t of g.tags ?? []) seen.add(t);
+    return [...seen].sort();
+  }, [gists]);
+
+  const visible = useMemo(() => {
+    if (!activeTag) return gists ?? [];
+    return (gists ?? []).filter((g) => g.tags?.includes(activeTag));
+  }, [gists, activeTag]);
+
   return (
     <div className="flex h-full flex-col">
       {error && (
@@ -104,11 +120,44 @@ export function GistsPanel({
           </div>
         ) : (
           <div className="mx-auto max-w-4xl p-4">
-            <div className="mb-3 flex justify-end">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              {allTags.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTag(null)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                      !activeTag
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    All
+                  </button>
+                  {allTags.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => setActiveTag(tag === activeTag ? null : tag)}
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        tag === activeTag
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div />
+              )}
               <NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />
             </div>
             <ul className="flex flex-col gap-2">
-              {gists.map((gist) => (
+              {visible.map((gist) => (
                 <li
                   key={gist.id}
                   className="group flex items-start justify-between gap-3 rounded-lg border px-4 py-3 transition-colors hover:border-primary/40 hover:bg-muted/40"
@@ -127,6 +176,15 @@ export function GistsPanel({
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {gist.author} · {timeLabel(gist.created_at)}
                     </div>
+                    {gist.tags && gist.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {gist.tags.map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-[10px]">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </Link>
                   <Button
                     variant="ghost"
@@ -157,13 +215,23 @@ function NewGistDialog({
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setTitle("");
     setBody("");
+    setTags([]);
+    setTagDraft("");
     setError(null);
+  };
+
+  const commitTagDraft = () => {
+    const t = tagDraft.trim();
+    setTagDraft("");
+    if (t && !tags.includes(t)) setTags((prev) => [...prev, t]);
   };
 
   const create = async () => {
@@ -174,7 +242,7 @@ function NewGistDialog({
       const res = await fetch(`/api/tome/projects/${slug}/gists`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), body }),
+        body: JSON.stringify({ title: title.trim(), body, tags }),
       });
       const resBody = await res.json();
       if (!res.ok) throw new Error(resBody?.error?.message || `Failed to create gist (${res.status})`);
@@ -224,6 +292,36 @@ function NewGistDialog({
             rows={10}
             className="font-mono text-sm"
           />
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {tags.map((tag) => (
+                <Badge key={tag} variant="outline" className="gap-1 pr-1 text-xs">
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                    className="rounded-full hover:bg-muted"
+                    aria-label={`Remove tag ${tag}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+              <Input
+                placeholder="Add tag, press Enter"
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    commitTagDraft();
+                  }
+                }}
+                onBlur={commitTagDraft}
+                className="h-7 w-36 border-none px-1 shadow-none focus-visible:ring-0"
+              />
+            </div>
+          </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
@@ -13,6 +14,7 @@ interface Gist {
   body: string;
   author: string;
   created_at: string;
+  tags?: string[];
 }
 
 function timeLabel(iso: string): string {
@@ -109,6 +111,15 @@ export function GistView({
             <p className="mt-1.5 text-sm text-muted-foreground">
               {gist.author} · {timeLabel(gist.created_at)}
             </p>
+            {gist.tags && gist.tags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {gist.tags.map((tag) => (
+                  <Badge key={tag} variant="outline">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
             <div className="mt-6 text-sm">
               <MarkdownRenderer content={gist.body} variant="final" />
             </div>
