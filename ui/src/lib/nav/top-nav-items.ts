@@ -22,7 +22,6 @@ export interface TopNavItemMeta {
 export const BUILT_IN_TOP_NAV_ITEMS: TopNavItemMeta[] = [
   { key: "home", label: "Home" },
   { key: "chat", label: "Chat" },
-  { key: "projects", label: "Projects" },
   { key: "skills", label: "Skills" },
   { key: "workflows", label: "Workflows" },
   { key: "knowledge", label: "Knowledge Bases" },
