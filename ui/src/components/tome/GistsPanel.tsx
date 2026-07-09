@@ -137,10 +137,20 @@ export function GistsPanel({ slug }: { slug: string }) {
               const isOpen = expanded === gist.id;
               return (
                 <li key={gist.id} className="rounded-lg border">
-                  <button
-                    type="button"
+                  {/* A clickable row, not a <button> — it contains Button elements
+                      (Share/Delete), and nesting <button> inside <button> is invalid
+                      HTML that the browser auto-corrects, breaking hydration. */}
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpanded(isOpen ? null : gist.id)}
-                    className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setExpanded(isOpen ? null : gist.id);
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-start justify-between gap-3 px-4 py-3 text-left"
                   >
                     <div className="min-w-0">
                       <div className="font-medium text-foreground">{gist.title}</div>
@@ -173,7 +183,7 @@ export function GistsPanel({ slug }: { slug: string }) {
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                  </button>
+                  </div>
                   {isOpen && (
                     <div className="border-t px-4 py-3 text-sm">
                       <MarkdownRenderer content={gist.body} variant="final" />
