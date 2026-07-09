@@ -52,7 +52,7 @@ test.describe("admin top-nav settings tab", () => {
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
     // The card heading
-    await expect(page.getByRole("heading", { name: "Top Navigation" })).toBeVisible();
+    await expect(page.getByText("Top Navigation", { exact: true })).toBeVisible();
 
     // Wait for the list to load (not the loading spinner)
     const navList = page.locator("ul").filter({ has: page.getByRole("button", { name: /move/i }) });
@@ -93,7 +93,7 @@ test.describe("admin top-nav settings tab", () => {
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
     // Wait for the list to render
-    await expect(page.getByRole("heading", { name: "Top Navigation" })).toBeVisible();
+    await expect(page.getByText("Top Navigation", { exact: true })).toBeVisible();
     // Wait for nav list (not loading state)
     await expect(page.getByRole("button", { name: /move down/i }).first()).toBeVisible();
 
@@ -134,7 +134,7 @@ test.describe("admin top-nav settings tab", () => {
 
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("heading", { name: "Top Navigation" })).toBeVisible();
+    await expect(page.getByText("Top Navigation", { exact: true })).toBeVisible();
     // Wait for nav list to be rendered
     await expect(page.getByRole("button", { name: /move down/i }).first()).toBeVisible();
 
@@ -156,6 +156,6 @@ test.describe("admin top-nav settings tab", () => {
     await page.goto("/admin?cat=settings&tab=navigation", { waitUntil: "domcontentloaded" });
 
     // Should not see the "Top Navigation" card heading (admin-only content)
-    await expect(page.getByRole("heading", { name: "Top Navigation" })).toHaveCount(0);
+    await expect(page.getByText("Top Navigation", { exact: true })).toHaveCount(0);
   });
 });
