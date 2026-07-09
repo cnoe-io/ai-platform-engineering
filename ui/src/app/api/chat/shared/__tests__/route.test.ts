@@ -14,7 +14,7 @@
  * Tests:
  * - Security: private conversations never appear in the MongoDB query
  * - Security: query always includes a sharing pre-filter ($or)
- * - Security: pre-filter covers is_public, shared_with, share_link_enabled, shared_with_teams
+ * - Security: pre-filter covers direct shares, share links, and team shares
  * - Security: query scope is non-owner only (owner_id $ne)
  * - Pagination: returns paginatedResponse with correct items
  * - Pagination: total reflects pre-filtered count, not all non-owner conversations
@@ -45,9 +45,12 @@ jest.mock('@/lib/config', () => ({
 }));
 
 const mockFilterConversations = jest.fn();
+const mockGetDirectSharingAccessConversationIds = jest.fn();
 jest.mock('@/lib/rbac/conversation-implicit-authz', () => ({
   filterConversationsByImplicitOrExplicitPermission: (...args: any[]) =>
     mockFilterConversations(...args),
+  getDirectSharingAccessConversationIds: (...args: any[]) =>
+    mockGetDirectSharingAccessConversationIds(...args),
 }));
 
 const mockCollections: Record<string, any> = {};
@@ -132,6 +135,7 @@ beforeEach(async () => {
   mockFilterConversations.mockImplementation((_session: any, _email: string, items: any[]) =>
     Promise.resolve(items)
   );
+  mockGetDirectSharingAccessConversationIds.mockResolvedValue([]);
   jest.resetModules();
   const mod = await import('@/app/api/chat/shared/route');
   GET = mod.GET;
@@ -183,7 +187,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
     expect(Array.isArray(findCall.$or)).toBe(true);
   });
 
-  it('pre-filter includes is_public to surface public conversations', async () => {
+  it('pre-filter does not include is_public because everyone sharing is disabled', async () => {
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
     mockCollections['conversations'] = convsCol;
@@ -192,7 +196,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
 
     const findCall = convsCol.find.mock.calls[0][0];
     const clauses = JSON.stringify(findCall.$or);
-    expect(clauses).toContain('sharing.is_public');
+    expect(clauses).not.toContain('sharing.is_public');
   });
 
   it('pre-filter includes caller email in shared_with to surface direct shares', async () => {
@@ -208,6 +212,25 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
       (c) => c['sharing.shared_with'] === CALLER
     );
     expect(directShareClause).toBeDefined();
+  });
+
+  it('pre-filter includes direct SharingAccess conversation ids to surface old direct shares', async () => {
+    mockGetDirectSharingAccessConversationIds.mockResolvedValue(['legacy-share']);
+    const convsCol = createMockCollection();
+    convsCol.countDocuments.mockResolvedValue(0);
+    mockCollections['conversations'] = convsCol;
+
+    await GET(makeRequest('/api/chat/shared'));
+
+    const findCall = convsCol.find.mock.calls[0][0];
+    expect(findCall.$or).toContainEqual({ _id: { $in: ['legacy-share'] } });
+    expect(mockFilterConversations).toHaveBeenCalledWith(
+      expect.anything(),
+      CALLER,
+      expect.any(Array),
+      'discover',
+      ['legacy-share'],
+    );
   });
 
   it('pre-filter includes share_link_enabled to surface link-shared conversations', async () => {
@@ -235,9 +258,6 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
   });
 
   it('does NOT expose private conversations (no sharing config) via the query', async () => {
-    const privateConv = makeConversation({ owner_id: 'other@example.com' });
-    // sharing.is_public = false, no shared_with, no teams, no link
-
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(0);
     // find returns nothing (the pre-filter would exclude privateConv)
@@ -252,7 +272,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
     // the query must require some sharing signal
     const orClauses: any[] = findCall.$or;
     const hasUnguardedClause = orClauses.some(
-      (c) => !Object.keys(c).some((k) => k.startsWith('sharing.'))
+      (c) => !Object.keys(c).some((k) => k.startsWith('sharing.')) && !('_id' in c)
     );
     expect(hasUnguardedClause).toBe(false);
   });
@@ -269,7 +289,7 @@ describe('visibility — OpenFGA post-filter', () => {
 
   it('passes items through filterConversationsByImplicitOrExplicitPermission', async () => {
     const sharedConv = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(1);
@@ -288,10 +308,10 @@ describe('visibility — OpenFGA post-filter', () => {
 
   it('excludes conversations rejected by OpenFGA even if they pass the pre-filter', async () => {
     const conv1 = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const conv2 = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(2);
@@ -310,7 +330,7 @@ describe('visibility — OpenFGA post-filter', () => {
 
   it('returns empty list when OpenFGA rejects all pre-filtered candidates', async () => {
     const conv = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     convsCol.countDocuments.mockResolvedValue(1);
@@ -348,7 +368,7 @@ describe('pagination', () => {
 
   it('uses pre-filtered count for total (not all non-owner conversations)', async () => {
     const conv = makeConversation({
-      sharing: { is_public: true, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+      sharing: { is_public: false, shared_with: [CALLER], shared_with_teams: [], share_link_enabled: false },
     });
     const convsCol = createMockCollection();
     // pre-filtered count = 5, not the full non-owner count

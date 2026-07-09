@@ -25,8 +25,6 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const [defaultAgentName, setDefaultAgentName] = useState<string>("New Chat");
   const [defaultAgentResolved, setDefaultAgentResolved] = useState(false);
 
-  const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
-
   // Fetch configured default agent on mount
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +41,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
         setDefaultAgentId(agentId);
 
-        if (agentId && dynamicAgentsEnabled) {
+        if (agentId) {
           try {
             const agentResponse = await fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`);
             if (agentResponse.ok) {
@@ -72,11 +70,11 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     return () => {
       cancelled = true;
     };
-  }, [dynamicAgentsEnabled]);
+  }, []);
 
   // Fetch available dynamic agents when dropdown opens
   useEffect(() => {
-    if (!dropdownOpen || !dynamicAgentsEnabled) return;
+    if (!dropdownOpen) return;
 
     const fetchAgents = async () => {
       setLoading(true);
@@ -103,7 +101,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     };
 
     fetchAgents();
-  }, [dropdownOpen, dynamicAgentsEnabled, defaultAgentId]);
+  }, [dropdownOpen, defaultAgentId]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -135,7 +133,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   }, [dropdownOpen]);
 
   const handleMainClick = () => {
-    // Route to configured default agent (or supervisor when none configured)
+    // Route to the configured default agent (undefined → resolved downstream).
     onNewChat(defaultAgentId ?? undefined);
   };
 
@@ -159,7 +157,6 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   }, [dropdownOpen]);
 
   const query = searchQuery.toLowerCase();
-  const showPlatformEngineer = "platform engineer".includes(query) || "default ai assistant".includes(query);
   const filteredAgents = agents.filter(
     (a) =>
       a.name.toLowerCase().includes(query) ||
@@ -177,22 +174,6 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
         size="icon"
       >
         <Plus className="h-4 w-4 shrink-0" />
-      </Button>
-    );
-  }
-
-  // If dynamic agents not enabled, show simple button
-  if (!dynamicAgentsEnabled) {
-    return (
-      <Button
-        onClick={handleMainClick}
-        disabled={!defaultAgentResolved}
-        className="w-full gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow"
-        variant="ghost"
-        size="default"
-      >
-        <Plus className="h-4 w-4 shrink-0" />
-        <span className="whitespace-nowrap">{defaultAgentName}</span>
       </Button>
     );
   }
@@ -257,29 +238,6 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
           {/* Scrollable agent list */}
           <div className="overflow-y-auto max-h-96 py-1">
-            {/* Platform Engineer option */}
-            {showPlatformEngineer && (
-              <button
-                onClick={() => handleSelectAgent(undefined)}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
-                  <Bot className="h-4 w-4 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">Platform Engineer</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    Default AI assistant
-                  </div>
-                </div>
-              </button>
-            )}
-
-            {/* Divider if there are dynamic agents */}
-            {showPlatformEngineer && (loading || filteredAgents.length > 0 || error) && (
-              <div className="h-px bg-border my-1" />
-            )}
-
             {/* Loading state */}
             {loading && (
               <div className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-muted-foreground">
@@ -322,7 +280,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
             })}
 
             {/* No results */}
-            {!loading && !error && !showPlatformEngineer && filteredAgents.length === 0 && (
+            {!loading && !error && filteredAgents.length === 0 && (
               <div className="px-3 py-2 text-sm text-muted-foreground">
                 No agents match &quot;{searchQuery}&quot;
               </div>

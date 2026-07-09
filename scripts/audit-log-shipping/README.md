@@ -10,11 +10,11 @@ SIEM ingestion, dashboards, anomaly alerts — operators usually
 want the same stream in their log pipeline.
 
 Setting `AUDIT_STDOUT_ENABLED=true` on any service that calls
-`log_authz_decision` (supervisor, dynamic-agents, ui BFF future) makes
+`log_authz_decision` (dynamic-agents and UI BFF) makes
 each decision additionally write a single line to stdout in the form:
 
 ```
-AUDIT {"userId":"u-123","userEmail":"alice@example.com","resource":"rag","scope":"query","allowed":true,"reason":"OK","source":"py","service":"supervisor","ts":"2026-04-22T15:34:12.482103+00:00","route":"POST /tasks","pdp":"keycloak"}
+AUDIT {"userId":"u-123","userEmail":"alice@example.com","resource":"rag","scope":"query","allowed":true,"reason":"OK","source":"py","service":"dynamic_agents","ts":"2026-04-22T15:34:12.482103+00:00","route":"POST /tasks","pdp":"keycloak"}
 ```
 
 The `AUDIT ` marker prefix is grep-friendly and lets log aggregators

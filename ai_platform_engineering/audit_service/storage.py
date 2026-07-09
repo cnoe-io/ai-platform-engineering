@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,15 @@ _PARQUET_INDEX_FIELDS = (
 )
 _AUDIT_KEY_TS_RE = re.compile(r"audit-(\d{8}T\d{6}Z)-")
 _KEY_TIME_PRUNE_TOLERANCE = timedelta(minutes=2)
+
+
+def _format_bytes(value: int) -> str:
+    amount = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return f"{amount:.1f} TiB"
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -196,17 +206,42 @@ class LocalAuditStore:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink(missing_ok=True)
 
+    def storage_health(self, *, warning_percent: float = 85.0, critical_percent: float = 95.0) -> dict[str, Any]:
+        # assisted-by Codex Codex-sonnet-4-6
+        self.readiness_check()
+        usage = shutil.disk_usage(self.root)
+        used_percent = round((usage.used / usage.total) * 100, 2) if usage.total else 100.0
+        if used_percent >= critical_percent:
+            status = "down"
+        elif used_percent >= warning_percent:
+            status = "warning"
+        else:
+            status = "healthy"
+
+        return {
+            "backend": self.backend_name,
+            "status": status,
+            "detail": f"local disk {used_percent:.1f}% used ({_format_bytes(usage.free)} free)",
+            "local_path": str(self.root),
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+            "used_percent": used_percent,
+            "warning_percent": warning_percent,
+            "critical_percent": critical_percent,
+        }
+
     def write_batch(self, records: list[dict[str, Any]]) -> str | None:
         if not records:
             return None
 
-        now = datetime.now(timezone.utc)
-        yyyy, mm, dd = _day_parts(now)
+        partition_time = _batch_partition_time(records)
+        yyyy, mm, dd = _day_parts(partition_time)
         day_dir = self.root / yyyy / mm / dd
         day_dir.mkdir(parents=True, exist_ok=True)
 
         suffix = ".ndjson.gz" if self.gzip_enabled else ".ndjson"
-        filename = f"audit-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:12]}{suffix}"
+        filename = f"audit-{partition_time.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:12]}{suffix}"
         path = day_dir / filename
         tmp_path = day_dir / f".{filename}.tmp"
 
@@ -281,6 +316,16 @@ class LocalAuditStore:
             except OSError:
                 continue
 
+    def audit_dir_bytes(self) -> int:
+        """Return total bytes used by all audit files in the store directory."""
+        total = 0
+        for file_path in self._local_files():
+            try:
+                total += file_path.stat().st_size
+            except OSError:
+                continue
+        return total
+
     def _read_file(self, file_path: Path) -> Iterable[dict[str, Any]]:
         opener = gzip.open if file_path.suffix == ".gz" else open
         try:
@@ -332,6 +377,111 @@ class S3AuditStore:
 
     def readiness_check(self) -> None:
         self._client.head_bucket(Bucket=self.bucket)
+
+    def storage_health(self) -> dict[str, Any]:
+        # assisted-by Codex Codex-sonnet-4-6
+        self.readiness_check()
+        target = f"s3://{self.bucket}/{self.prefix}".rstrip("/")
+        return {
+            "backend": self.backend_name,
+            "status": "healthy",
+            "detail": f"S3 bucket reachable at {target}",
+            "bucket": self.bucket,
+            "prefix": self.prefix,
+            "region": self.region,
+            "endpoint_url": self.endpoint_url,
+        }
+
+    def get_s3_retention_days(self) -> int:
+        """Return the lifecycle-rule expiration in days, or 0 if none is set."""
+        try:
+            response = self._client.get_bucket_lifecycle_configuration(Bucket=self.bucket)
+        except Exception as exc:  # noqa: BLE001
+            if getattr(exc, "response", {}).get("Error", {}).get("Code") in (
+                "NoSuchLifecycleConfiguration",
+                "NoSuchBucketPolicy",
+            ):
+                return 0
+            return 0
+        for rule in response.get("Rules", []):
+            if rule.get("ID") == "caipe-audit-retention" and rule.get("Status") == "Enabled":
+                return int(rule.get("Expiration", {}).get("Days", 0))
+        return 0
+
+    def set_s3_retention_days(self, days: int) -> None:
+        """Set (or remove) the S3 lifecycle expiration rule for this prefix.
+
+        Pass days=0 to remove the rule entirely.
+        """
+        if days <= 0:
+            try:
+                existing = self._client.get_bucket_lifecycle_configuration(Bucket=self.bucket)
+                rules = [r for r in existing.get("Rules", []) if r.get("ID") != "caipe-audit-retention"]
+                if rules:
+                    self._client.put_bucket_lifecycle_configuration(
+                        Bucket=self.bucket,
+                        LifecycleConfiguration={"Rules": rules},
+                    )
+                else:
+                    self._client.delete_bucket_lifecycle(Bucket=self.bucket)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+
+        prefix_filter = f"{self.prefix}/" if self.prefix else ""
+        new_rule: dict[str, Any] = {
+            "ID": "caipe-audit-retention",
+            "Status": "Enabled",
+            "Filter": {"Prefix": prefix_filter},
+            "Expiration": {"Days": days},
+        }
+        try:
+            existing = self._client.get_bucket_lifecycle_configuration(Bucket=self.bucket)
+            rules = [r for r in existing.get("Rules", []) if r.get("ID") != "caipe-audit-retention"]
+        except Exception:  # noqa: BLE001
+            rules = []
+        rules.append(new_rule)
+        self._client.put_bucket_lifecycle_configuration(
+            Bucket=self.bucket,
+            LifecycleConfiguration={"Rules": rules},
+        )
+
+    def storage_usage(self, *, max_objects: int = 10_000) -> dict[str, Any]:
+        """Return approximate storage usage under this prefix.
+
+        Scans up to *max_objects* objects so the call doesn't block for
+        very large buckets.  Sets ``capped=True`` when the scan was cut short.
+        """
+        prefix = f"{self.prefix}/" if self.prefix else ""
+        total_bytes = 0
+        total_objects = 0
+        capped = False
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"Bucket": self.bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            try:
+                response = self._client.list_objects_v2(**kwargs)
+            except Exception:  # noqa: BLE001
+                break
+            for obj in response.get("Contents", []):
+                total_bytes += obj.get("Size", 0)
+                total_objects += 1
+                if total_objects >= max_objects:
+                    capped = True
+                    break
+            if capped or not response.get("IsTruncated"):
+                break
+            token = response.get("NextContinuationToken")
+            if not token:
+                break
+        return {
+            "object_count": total_objects,
+            "total_bytes": total_bytes,
+            "total_bytes_human": _format_bytes(total_bytes),
+            "capped": capped,
+        }
 
     def write_batch(self, records: list[dict[str, Any]]) -> str | None:
         if not records:

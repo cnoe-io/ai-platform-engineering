@@ -20,7 +20,7 @@ export interface Team {
   slug: string;
   name: string;
   description?: string;
-  source?: 'manual' | 'identity_sync' | 'bootstrap' | 'migration';
+  source?: 'manual' | 'identity_sync' | 'identity_group_sync' | 'bootstrap' | 'migration';
   status?: 'active' | 'archived' | 'pending_review' | 'disabled';
   owner_id: string; // User email who created the team
   created_by?: string;
@@ -35,6 +35,15 @@ export interface Team {
    * Team objects (pre server round-trip) won't have it.
    */
   member_count?: number;
+  /**
+   * Owned + shared resource counts decorated by GET /api/admin/teams, read
+   * live from OpenFGA (the single source of truth for team↔resource grants).
+   * Optional for the same reason as `member_count`.
+   */
+  agent_count?: number;
+  skill_count?: number;
+  workflow_count?: number;
+  kb_count?: number;
   keycloak_roles?: string[];
   /**
    * Optional Baseline FGA profile overrides. When present, login and admin
@@ -44,21 +53,6 @@ export interface Team {
   baseline_profile_overrides?: {
     member_profile_id?: string;
     admin_profile_id?: string;
-  };
-  /**
-   * Spec 104 team-scoped RBAC: agents the team can chat with and tools the
-   * team can invoke. Persisted on the team document and materialized into
-   * OpenFGA team-resource tuples. Keycloak no longer mirrors per-resource roles
-   * such as `agent_user:<id>` or `tool_user:<id>`.
-   */
-  resources?: {
-    agents?: string[];        // dynamic_agents._id values → team can_use agent:<id>
-    agent_admins?: string[];  // dynamic_agents._id values → team can_manage agent:<id>
-    tools?: string[];         // tool prefixes (e.g. `jira_*`) → team can_call tool:<prefix>
-    knowledge_bases?: string[];
-    skills?: string[];
-    tasks?: string[];
-    tool_wildcard?: boolean;  // true -> expand all registered MCP servers to tool:<server>/* grants
   };
   /**
    * Spec 098 US9 — Slack channels assigned to this team. Each row mirrors a

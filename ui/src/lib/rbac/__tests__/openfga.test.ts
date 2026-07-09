@@ -108,7 +108,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
   it("maps team members and resource diffs to OpenFGA tuples", () => {
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
-      memberUserIds: ["sub-alice", "sub-bob"],
       agents: { added: ["agent-1"], removed: ["agent-old"] },
       agentAdmins: { added: ["agent-admin"], removed: [] },
       tools: { added: ["jira_*"], removed: ["github_*"] },
@@ -118,8 +117,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
     expect(diff.writes).toEqual(
       expect.arrayContaining([
-        { user: "user:sub-alice", relation: "member", object: "team:platform-engineering" },
-        { user: "user:sub-bob", relation: "member", object: "team:platform-engineering" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-1" },
         {
           user: "team:platform-engineering#admin",
@@ -174,7 +171,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     // assisted-by Codex Codex-sonnet-4-6
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
-      memberUserIds: [],
       agents: { added: [], removed: [] },
       agentAdmins: { added: [], removed: [] },
       tools: { added: ["mcp-confluence-mcp_*"], removed: ["mcp-litellm_*"] },
@@ -224,7 +220,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
   it("writes manager grants with admin usersets that match the OpenFGA model", () => {
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
-      memberUserIds: [],
       agents: { added: [], removed: [] },
       agentAdmins: { added: ["agent-admin"], removed: ["agent-admin-old"] },
       tools: { added: [], removed: [] },
@@ -317,7 +312,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         type: "team",
         relation: "admin",
       });
-      expect(directlyRelatedUserTypes(modelPath, "agent", "manager")).not.toContainEqual({
+      expect(directlyRelatedUserTypes(modelPath, "agent", "manager")).toContainEqual({
         type: "team",
         relation: "member",
       });
@@ -779,6 +774,8 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       { user: "organization:default#admin", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "team:platform#member", relation: "user", object: "agent:agent-platform-helper" },
       { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
+      // owner team members get full management access
+      { user: "team:platform#member", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
     ]);
     expect(diff.deletes).toEqual([

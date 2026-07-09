@@ -151,7 +151,7 @@ def test_get_workflow_run_status_includes_step_output_summary() -> None:
             {
                 "index": 0,
                 "display_text": "List projects",
-                "agent_id": "agent-argocd",
+                "agent_id": "sre-agent",
                 "status": "completed",
                 "response": "Found 3 ArgoCD projects.",
             }

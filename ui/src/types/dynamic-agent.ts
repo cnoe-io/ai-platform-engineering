@@ -84,7 +84,12 @@ export interface MCPCredentialSource {
   secret_ref?: string;
   provider_connection_id?: string;
   provider?: string;
-  /** Custom MCP servers: pinned uses provider_connection_id for all callers; caller resolves per JWT sub. */
+  /**
+   * Provider connections are always caller-scoped (each caller resolves their
+   * OWN connection per JWT sub). The legacy `'pinned'` scope — one connection
+   * reused for all callers — was removed for security; the value is still
+   * accepted on the wire so old documents parse, but it is ignored.
+   */
   connection_scope?: 'caller' | 'pinned';
   /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
   fallback_env?: string;
@@ -410,6 +415,15 @@ export interface DynamicAgentConfig {
   owner_team_id?: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  /**
+   * Set by the "Import from YAML" admin flow. Once true, seed-config.ts's
+   * seedAgents()/cleanupStaleConfigDriven() skip this agent ID entirely —
+   * the YAML seed file becomes a no-op for it, even if the entry is still
+   * present there. Lets an imported agent's `config_driven` flag flip to
+   * `false` (making it editable/deletable in the UI) without being wiped
+   * or resurrected on the next server restart.
+   */
+  config_import_adopted?: boolean;
   /** Compact AI Review verdict from the last save. Drives the Grade column
    *  in the agent list. Optional — agents created before AI Review was wired
    *  up have this missing. */

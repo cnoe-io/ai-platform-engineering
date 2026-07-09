@@ -6,9 +6,10 @@
 //
 // The MongoDB query MUST include an $or pre-filter that restricts candidates to
 // conversations with at least one sharing signal before passing them to
-// filterConversationsByImplicitOrExplicitPermission. OpenFGA is the
-// authoritative visibility check; the pre-filter is the privacy guard.
-// Both layers are required — removing either breaks the security model.
+// filterConversationsByImplicitOrExplicitPermission. That filter accepts
+// Mongo direct-share grants for backward compatibility and OpenFGA grants for
+// ReBAC-managed sharing. Both layers are required — removing either breaks the
+// security model.
 
 import {
 getPaginationParams,
@@ -17,7 +18,10 @@ withAuth,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
-import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
+import {
+  filterConversationsByImplicitOrExplicitPermission,
+  getDirectSharingAccessConversationIds,
+} from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 import { NextRequest } from 'next/server';
 
@@ -27,17 +31,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { page, pageSize, skip } = getPaginationParams(request);
 
     const conversations = await getCollection<Conversation>('conversations');
+    const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
+    const directShareCandidate =
+      directShareConversationIds.length > 0 ? [{ _id: { $in: directShareConversationIds } }] : [];
 
     // Pre-filter to conversations that carry some sharing configuration.
     // This prevents private conversations from other users from leaking into
-    // the OpenFGA permission pipeline and from inflating the total count.
-    // OpenFGA / filterConversationsByImplicitOrExplicitPermission remains the
-    // authoritative check — it runs after this pre-filter.
+    // the authorization pipeline and from inflating the total count.
     const query = {
       owner_id: { $ne: user.email },
       $or: [
-        { 'sharing.is_public': true },
         { 'sharing.shared_with': user.email },
+        ...directShareCandidate,
         { 'sharing.share_link_enabled': true },
         // Array has at least one element — user's team membership is checked by OpenFGA below
         { 'sharing.shared_with_teams.0': { $exists: true } },
@@ -53,7 +58,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(
+      session,
+      user.email,
+      items,
+      'discover',
+      directShareConversationIds,
+    );
 
     return paginatedResponse(
       visibleItems,

@@ -96,7 +96,7 @@ function serviceAuditRecords(): AuditRecord[] {
       action: "invoke",
       outcome: "success",
       correlation_id: "corr-tool-action",
-      source: "supervisor",
+      source: "dynamic_agents",
       component: "dynamic_agents",
       agent_name: "argocd-agent",
       tool_name: "argocd_list_applications",

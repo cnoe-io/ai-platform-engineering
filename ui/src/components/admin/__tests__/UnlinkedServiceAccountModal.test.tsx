@@ -99,6 +99,24 @@ describe("UnlinkedServiceAccountModal", () => {
     expect(screen.getByTestId("scope-tool-jira/search")).toBeInTheDocument();
   });
 
+  it("keeps long scope refs from overflowing the list item (min-w-0/shrink-0/truncate)", async () => {
+    render(
+      <UnlinkedServiceAccountModal open isAdmin onOpenChange={jest.fn()} />,
+    );
+
+    const code = await screen.findByTestId("scope-agent-hello-world");
+    expect(code).toHaveClass("truncate");
+
+    const item = code.closest("li");
+    expect(item).toHaveClass("min-w-0");
+
+    const label = code.closest("span");
+    expect(label).toHaveClass("min-w-0");
+
+    const icon = label?.querySelector("svg");
+    expect(icon).toHaveClass("shrink-0");
+  });
+
   it("shows the Add a scope section for admins", async () => {
     render(
       <UnlinkedServiceAccountModal open isAdmin onOpenChange={jest.fn()} />,

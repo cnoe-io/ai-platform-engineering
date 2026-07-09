@@ -185,7 +185,7 @@ def test_invalid_space_id_is_malformed() -> None:
 class CapturingRebacChecker:
     workspace_ids: list[str] = field(default_factory=list)
 
-    def check_agent_access(self, **kwargs: Any):
+    def check_space_grant(self, **kwargs: Any):
         self.workspace_ids.append(kwargs["workspace_id"])
         from ai_platform_engineering.integrations.webex_bot.utils.webex_rebac import (
             WebexSpaceRebacDecision,
@@ -194,7 +194,6 @@ class CapturingRebacChecker:
         return WebexSpaceRebacDecision(
             allowed=True,
             space_allowed=True,
-            user_allowed=True,
             reason="allowed",
         )
 

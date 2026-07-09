@@ -10,6 +10,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockReconcileLlmModelRelationships = jest.fn();
+const mockDeleteAllLlmModelRelationshipTuples = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -78,6 +79,8 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
+  deleteAllLlmModelRelationshipTuples: (...args: unknown[]) =>
+    mockDeleteAllLlmModelRelationshipTuples(...args),
   reconcileLlmModelRelationships: (...args: unknown[]) =>
     mockReconcileLlmModelRelationships(...args),
 }));
@@ -379,6 +382,10 @@ describe("/api/llm-models", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       { sub: "admin-sub", user: { email: "admin@example.com" } },
       { type: "llm_model", id: "custom", action: "delete" },
+    );
+    expect(mockDeleteAllLlmModelRelationshipTuples).toHaveBeenCalledWith(
+      "custom",
+      { caller: { type: "user", id: "admin-sub" }, source: "llm_model_delete" },
     );
     expect(collection.deleteOne).toHaveBeenCalledWith({ _id: "custom" });
     expect(body).toEqual({ success: true, data: { deleted: true } });

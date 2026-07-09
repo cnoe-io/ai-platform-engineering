@@ -9,16 +9,15 @@ write ``from ai_platform_engineering.utils.auth import require_rbac_permission``
 Why lazy ``__getattr__`` (PEP 562)?
 -----------------------------------
 The eager form ``from .jwks_validate import …`` triggers ``import jwt`` (PyJWT)
-at *package* import time. Some sibling packages — most notably
-``ai_platform_engineering.utils.a2a_common`` — pull this package in just to get
-``jwt_context`` (which has no PyJWT dependency). When pytest collects under
+at *package* import time. Some sibling packages pull this package in just to get
+``token_context`` (which has no PyJWT dependency). When pytest collects under
 ``--import-mode=prepend`` (the project default) with multiple ``pytest.ini``
 files in the tree, that eager chain reaches a state where Python's namespace
 package resolution flips ``jwt`` to ``unknown location`` and raises
 ``ImportError: cannot import name 'InvalidTokenError' from 'jwt'``.
 
 Lazy ``__getattr__`` defers the heavy imports until a caller actually
-references one of the symbols, so ``from … .jwt_context import …`` continues
+references one of the symbols, so ``from … .token_context import …`` continues
 to work even in the broken-pytest-collection scenario.
 
 The public API is unchanged — both ``from ai_platform_engineering.utils.auth

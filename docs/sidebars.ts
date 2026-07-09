@@ -16,11 +16,6 @@ const sidebars: SidebarsConfig = {
   // By default, Docusaurus generates a sidebar from the docs folder structure
   docsSidebar: [
     {
-      type: 'doc',
-      id: 'index', // docs/index.md
-      label: 'Introduction',
-    },
-    {
       type: 'category',
       label: 'Getting Started',
       items: [
@@ -28,14 +23,6 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'getting-started/quick-start',
         },
-        {
-          type: 'doc',
-          id: 'getting-started/user-interfaces',
-        },
-        {
-          type: 'doc',
-          id: 'getting-started/next-steps',
-        }
       ],
     },
     {
@@ -84,6 +71,11 @@ const sidebars: SidebarsConfig = {
           items: [
             {
               type: 'doc',
+              id: 'getting-started/helm/cluster-setup',
+              label: 'Cluster Setup',
+            },
+            {
+              type: 'doc',
               id: 'getting-started/helm/setup',
             },
             {
@@ -101,13 +93,8 @@ const sidebars: SidebarsConfig = {
                     },
                     {
                       type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/supervisor-agent-chart',
-                      label: 'supervisor-agent',
-                    },
-                    {
-                      type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/agent-chart',
-                      label: 'agent',
+                      id: 'installation/helm-charts/ai-platform-engineering/mcp-server-chart',
+                      label: 'mcp-server',
                     },
                     {
                       type: 'doc',
@@ -123,11 +110,6 @@ const sidebars: SidebarsConfig = {
                       type: 'doc',
                       id: 'installation/helm-charts/ai-platform-engineering/dynamic-agents-chart',
                       label: 'dynamic-agents',
-                    },
-                    {
-                      type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/langgraph-redis-chart',
-                      label: 'langgraph-redis',
                     },
                     {
                       type: 'doc',
@@ -168,43 +150,6 @@ const sidebars: SidebarsConfig = {
                   ],
                 },
               ],
-            },
-          ],
-        },
-        {
-          type: 'category',
-          label: 'IDP Builder',
-          items: [
-            {
-              type: 'doc',
-              id: 'getting-started/idpbuilder/setup',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/idpbuilder/ubuntu-prerequisites',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/idpbuilder/manual-vault-secret-setup',
-              label: 'Manual Vault Secret Setup',
-            },
-          ],
-        },
-        {
-          type: 'category',
-          label: 'EKS',
-          items: [
-            {
-              type: 'doc',
-              id: 'getting-started/eks/setup',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/eks/configure-agent-secrets',
-            },
-            {
-              type: 'doc',
-              id: 'getting-started/eks/configure-llms',
             },
           ],
         },
@@ -284,11 +229,6 @@ const sidebars: SidebarsConfig = {
           id: 'architecture/slack-bot-authorization',
           label: 'Slack Bot Authorization',
         },
-        {
-          type: 'doc',
-          id: 'architecture/slack-io-guardrails',
-          label: 'Slack I/O Guardrails',
-        }
       ],
     },
     {
@@ -296,7 +236,7 @@ const sidebars: SidebarsConfig = {
       label: 'Features',
       items: [
         { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
-        { type: 'doc', id: 'features/byo-agents', label: 'BYO A2A & MCP Servers' },
+        { type: 'doc', id: 'features/workflows', label: 'Workflows' },
         {
           type: 'category',
           label: 'Rich Web UI',
@@ -304,7 +244,6 @@ const sidebars: SidebarsConfig = {
             { type: 'doc', id: 'ui/index', label: 'Overview' },
             { type: 'doc', id: 'ui/features', label: 'Features' },
             { type: 'doc', id: 'features/admin-settings', label: 'Admin Settings' },
-            { type: 'doc', id: 'ui/auth-flow', label: 'Authentication Flow' },
             { type: 'doc', id: 'ui/configuration', label: 'Configuration' },
             { type: 'doc', id: 'ui/customization', label: 'Customization & Branding' },
             { type: 'doc', id: 'ui/development', label: 'Development Guide' },
@@ -338,8 +277,8 @@ const sidebars: SidebarsConfig = {
           label: 'Integrations',
           items: [
             { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
-            { type: 'doc', id: 'integrations/backstage-plugin', label: 'Agent Forge (Backstage)' },
             { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
+            { type: 'doc', id: 'integrations/webex-meetings-mcp', label: 'Webex Meetings MCP' },
             { type: 'doc', id: 'api/webex-integration', label: 'Webex Bot RBAC API' },
             { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
           ],
@@ -349,7 +288,8 @@ const sidebars: SidebarsConfig = {
           label: 'Security',
           items: [
             { type: 'doc', id: 'security/index', label: 'Overview' },
-            { type: 'doc', id: 'security/a2a-auth', label: 'A2A Authentication' },
+            { type: 'doc', id: 'security/auth-flow', label: 'Authentication Flow' },
+            { type: 'doc', id: 'security/agent-context-hmac', label: 'Agent Context HMAC' },
             {
               type: 'category',
               label: 'RBAC',
@@ -379,12 +319,8 @@ const sidebars: SidebarsConfig = {
           label: 'Tracing & Evaluations',
           items: [
             { type: 'doc', id: 'evaluations/index', label: 'Overview' },
-            { type: 'doc', id: 'evaluations/distributed-tracing-info', label: 'Distributed Tracing' },
-            { type: 'doc', id: 'evaluations/tracing-implementation-guide', label: 'Tracing Implementation Guide' },
-            { type: 'doc', id: 'evaluations/slack-streaming-conformance', label: 'Slack Streaming Conformance' },
             // assisted-by Codex Codex-sonnet-4-6
             { type: 'doc', id: 'evaluations/ui-performance-benchmark-results', label: 'UI Performance Benchmarks' },
-            { type: 'doc', id: 'evaluations/persistence-backend-benchmark', label: 'Persistence Backend Benchmark' },
           ],
         },
         { type: 'doc', id: 'agent-ops/index', label: 'AgentOps' },
@@ -392,73 +328,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Agents & MCP Servers',
+      label: 'MCP Servers',
       items: [
         {
           type: 'doc',
           id: 'agents/README',
           label: 'Overview',
         },
-        {
-          type: 'doc',
-          id: 'agents/argocd',
-        },
-        {
-          type: 'doc',
-          id: 'agents/aws',
-        },
-        {
-          type: 'doc',
-          id: 'agents/backstage',
-        },
-        {
-          type: 'doc',
-          id: 'agents/confluence',
-        },
-        {
-          type: 'doc',
-          id: 'agents/github',
-        },
-        {
-          type: 'doc',
-          id: 'agents/gitlab',
-        },
-        {
-          type: 'doc',
-          id: 'agents/jira',
-        },
-        {
-          type: 'doc',
-          id: 'agents/komodor',
-        },
-        {
-          type: 'doc',
-          id: 'agents/pagerduty',
-        },
-        {
-          type: 'doc',
-          id: 'agents/slack',
-        },
-        {
-          type: 'doc',
-          id: 'agents/splunk',
-        },
-        {
-          type: 'doc',
-          id: 'agents/template',
-        },
-        {
-          type: 'doc',
-          id: 'agents/weather',
-        },
-        {
-          type: 'doc',
-          id: 'agents/victorops',
-        },
-        {
-          type: 'doc',
-          id: 'agents/webex',
-        }
       ],
     },
     {

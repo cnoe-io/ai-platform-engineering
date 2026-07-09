@@ -56,6 +56,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "migration",
     description: "Keycloak RBAC reconciliation migration target.",
   },
+  legacy_runtime_cleanup: {
+    classification: "migration",
+    description:
+      "Drops checkpoint collections and message metadata fields outside the current Dynamic Agents runtime contract. Not backed by a single collection — a virtual schema area tracked only by the migration framework.",
+  },
   llm_models: {
     classification: "baseline_v1",
     description: "LLM model configuration records.",
@@ -149,7 +154,7 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   team_kb_ownership: {
     classification: "migration",
     description:
-      "Team knowledge base ownership records. The `knowledge_base_shared_team_grants_backfill_v1` migration writes the canonical OpenFGA team↔KB tuples for every existing row.",
+      "Retired team knowledge base ownership records. `knowledge_base_shared_team_grants_backfill_v1` wrote the canonical OpenFGA team↔KB tuples for every row, then `drop_team_kb_ownership_v1` backfills any stragglers and drops the collection — OpenFGA is now the single source of truth.",
   },
   team_membership_sources: {
     classification: "baseline_v1",

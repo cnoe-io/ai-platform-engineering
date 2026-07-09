@@ -11,18 +11,16 @@
 export type RbacResource =
   | "ai_assist"
   | "admin_ui"
-  | "chat_supervisor"
+  | "chat"
   | "credential_vault"
   | "feedback"
   | "slack"
-  | "supervisor"
   | "rag"
   | "self_profile"
   | "sub_agent"
   | "system_config"
   | "tool"
   | "skill"
-  | "a2a"
   | "mcp"
   | "team"
   | "user_directory"
@@ -139,7 +137,6 @@ export type UnifiedAuditOutcome = "allow" | "deny" | "success" | "error";
 export type AuditEventSource =
   | "webui_backend"
   | "bff"
-  | "supervisor"
   | "slack"
   | "webex"
   | "dynamic_agents"
@@ -274,17 +271,10 @@ export interface KbTabGatesMap {
   can_search: boolean;
 }
 
-/** Per-KB permission level for team-KB ownership (FR-038) */
+/**
+ * Per-KB permission level for a team's knowledge-base grant. OpenFGA is the
+ * single source of truth for team↔KB access (the legacy `team_kb_ownership`
+ * Mongo collection was dropped by `drop_team_kb_ownership_v1`); this type still
+ * labels the strongest permission a team holds, derived from the FGA relation.
+ */
 export type KbPermission = 'read' | 'ingest' | 'admin';
-
-/** Team-KB ownership record stored in `team_kb_ownership` MongoDB collection (FR-038) */
-export interface TeamKbOwnership {
-  team_id: string;
-  tenant_id: string;
-  kb_ids: string[];
-  allowed_datasource_ids: string[];
-  kb_permissions: Record<string, KbPermission>;
-  keycloak_role: string;
-  updated_at: Date;
-  updated_by: string;
-}

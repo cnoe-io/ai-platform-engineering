@@ -14,8 +14,13 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  # Match ALL ai-platform-engineering services in this release, EXCEPT services
-  # that don't expose /metrics endpoints (mcp, rag-server, agent-ontology, skill-scanner, caipe-ui)
+  # Match services that expose /metrics on their http port. Services excluded
+  # by name have dedicated per-component ServiceMonitors targeting the correct
+  # port for their metrics endpoint:
+  #   - agentgateway: servicemonitor-agentgateway.yaml (admin port 15000)
+  #   - keycloak: servicemonitor-keycloak.yaml (management port 9000)
+  #   - openfga: servicemonitor-openfga.yaml (metrics port 2112)
+  # audit-service has no /metrics endpoint and is excluded entirely.
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
@@ -28,6 +33,13 @@ spec:
           - agent-ontology
           - skill-scanner
           - caipe-ui
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values:
+          - agentgateway
+          - keycloak
+          - openfga
+          - audit-service
   endpoints:
     - port: http
       path: {{ .Values.metrics.path | default "/metrics" }}

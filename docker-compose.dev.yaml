@@ -5,254 +5,18 @@
 # For setup instructions and agent orchestration details, refer to:
 #   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
 #
-# Unified supervisor service controlled by DISTRIBUTED_AGENTS env var:
+# The runtime is the CAIPE UI (BFF) + dynamic-agents. Each tool integration runs
+# as a standalone MCP server container (mcp-*); start the ones you need via their
+# profile, e.g.:
 #
-#   All-in-one (all-in-one) — MCP tools in-process, all agents in one container:
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb up --build
-#     Set: DISTRIBUTED_AGENTS= (empty, default)
-#
-#   Fully distributed — separate A2A agent containers:
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
-#     Set: DISTRIBUTED_AGENTS=all
-#
-#   Hybrid — mix of in-process and distributed agents:
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
-#     Set: DISTRIBUTED_AGENTS=argocd,github  (only listed agents are remote)
-#
-#   Single-node MCP-only — supervisor runs agents in-process and only external MCP
-#   server containers are started:
-#     DISTRIBUTED_AGENTS= docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile mcp-servers up --build
+#   docker compose -f docker-compose.dev.yaml --profile caipe-ui --profile caipe-mongodb up --build
+#   docker compose -f docker-compose.dev.yaml --profile mcp-servers up --build   # all MCP servers
 #
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
 # ============================================================================
 
 services:
-
-  ####################################################################################################
-  #                              CAIPE Supervisor Deep Agent (Unified)                              #
-  ####################################################################################################
-  # Unified supervisor: mode is controlled by DISTRIBUTED_AGENTS env var, not separate services.
-  #
-  #   All-in-one:     DISTRIBUTED_AGENTS= (empty)            — all agents run in-process via MCP
-  #   Fully distributed:  DISTRIBUTED_AGENTS=all             — all agents run as remote A2A containers
-  #   Hybrid:         DISTRIBUTED_AGENTS=argocd,jira         — only listed agents are remote
-  #
-  # Start with: docker compose --profile caipe-supervisor [--profile <agent-profiles>] up --build
-  caipe-supervisor:
-    build:
-      context: .
-      dockerfile: build/Dockerfile
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-localtag}
-    container_name: caipe-supervisor
-    volumes:
-      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
-      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
-      - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
-      - ${HOME}/.aws:/home/appuser/.aws:ro
-      # Spec 102 — PDP-unavailable fallback. Defaults to /dev/null so the mount
-      # is a harmless no-op in dev; the e2e lane sets RBAC_FALLBACK_FILE to the
-      # real path on the host (./deploy/keycloak/realm-config-extras.json) AND
-      # sets RBAC_FALLBACK_CONFIG_PATH so the helper actually reads it.
-      - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
-    env_file:
-      - .env
-    ports:
-      # Host port is parameterized so the e2e lane (spec 102) can publish on a
-      # non-conflicting port without a separate compose override file.
-      # Default keeps dev behavior unchanged (8000); e2e sets SUPERVISOR_HOST_PORT=28000.
-      - "${SUPERVISOR_HOST_PORT:-8000}:8000"
-    environment:
-      # Dev-only: set DEV_HOT_RELOAD=true to enable uvicorn --reload on the
-      # bind-mounted source under /app/ai_platform_engineering. Default off.
-      - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
-      - AWS_CONFIG_FILE=/home/appuser/.aws/config
-      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
-      # Spec 102 — PDP-unavailable fallback. Path is a no-op unless the e2e lane
-      # mounts /etc/keycloak/realm-config-extras.json (see volumes below).
-      - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
-      # Prompt configuration file path
-      - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
-      # Task config file path (self-service workflows)
-      - TASK_CONFIG_PATH=/app/task_config.yaml
-
-      # MongoDB - primary source for task configs (UI writes here, backend reads)
-      - MONGODB_URI=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
-      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
-      # Disable cache so UI edits are reflected immediately in the agent
-      - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
-
-      # A2A transport configuration
-      - A2A_TRANSPORT=p2p
-
-      # Agent connectivity configuration
-      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
-      - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
-      - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
-      # OBO token exchange — supervisor exchanges user JWT for OBO JWT via Keycloak (FR-038d).
-      # Use the correctly-namespaced KEYCLOAK_SUPERVISOR_CLIENT_SECRET interpolation (NOT
-      # KEYCLOAK_ADMIN_CLIENT_SECRET — that's the UI BFF's var and sharing it would create
-      # the same kind of namespace collision that broke slack-bot in 098).
-      - KEYCLOAK_SUPERVISOR_CLIENT_ID=${KEYCLOAK_SUPERVISOR_CLIENT_ID:-caipe-platform}
-      - KEYCLOAK_SUPERVISOR_CLIENT_SECRET=${KEYCLOAK_SUPERVISOR_CLIENT_SECRET:-caipe-platform-dev-secret}
-
-      # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
-      # Leave empty for all-in-one mode (all agents in-process via MCP).
-      # Examples: DISTRIBUTED_AGENTS=argocd,aws  or  DISTRIBUTED_AGENTS=all
-      - DISTRIBUTED_AGENTS=${DISTRIBUTED_AGENTS:-}
-
-      # Remote A2A agent hostname mappings (used when agents are distributed)
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - AWS_AGENT_HOST=agent-aws
-      - BACKSTAGE_AGENT_HOST=agent-backstage
-      - CONFLUENCE_AGENT_HOST=agent-confluence
-      - GITLAB_AGENT_HOST=agent-gitlab
-      - GITHUB_AGENT_HOST=agent-github
-      - JIRA_AGENT_HOST=agent-jira
-      - KOMODOR_AGENT_HOST=agent-komodor
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PETSTORE_AGENT_HOST=agent-petstore
-      - SLACK_AGENT_HOST=agent-slack
-      - SPLUNK_AGENT_HOST=agent-splunk
-      - WEATHER_AGENT_HOST=agent-weather
-      - WEATHER_AGENT_PORT=8000
-      - VICTOROPS_AGENT_HOST=agent-victorops
-      - WEBEX_AGENT_HOST=agent-webex
-      - NETUTILS_AGENT_HOST=agent-netutils
-      - JARVIS_AGENT_HOST=agent-jarvis
-      - JARVIS_AGENT_PORT=58000
-
-      # MCP server hostname mappings for in-process (all-in-one) mode.
-      # When agents run in-process, they connect to MCP servers by container name.
-      - ARGOCD_MCP_HOST=mcp-argocd
-      - BACKSTAGE_MCP_HOST=mcp-backstage
-      - CONFLUENCE_MCP_HOST=mcp-confluence
-      - JIRA_MCP_HOST=mcp-jira
-      - KOMODOR_MCP_HOST=mcp-komodor
-      - PAGERDUTY_MCP_HOST=mcp-pagerduty
-      - SLACK_MCP_HOST=mcp-slack
-      - SLACK_MCP_PORT=3001
-      - SPLUNK_MCP_HOST=mcp-splunk
-      - WEBEX_MCP_HOST=mcp-webex
-
-      # AWS multi-account support
-      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-}
-      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
-      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-}
-
-      # The following ENABLE_* environment variables control which agents are active.
-      # In .env file, set each variable to 'true' to enable the corresponding agent.
-      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
-      - ENABLE_AWS=${ENABLE_AWS:-false}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
-      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
-      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
-      - ENABLE_JIRA=${ENABLE_JIRA:-false}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
-      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
-      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
-      - ENABLE_SLACK=${ENABLE_SLACK:-false}
-      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
-      - ENABLE_VICTOROPS=${ENABLE_VICTOROPS:-false}
-      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
-      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
-      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
-      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
-
-      # RAG Service Configuration
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
-      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
-      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
-      - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
-      - RAG_MAX_SEARCH_RESULTS=${RAG_MAX_SEARCH_RESULTS:-3}
-      - LANGGRAPH_RECURSION_LIMIT=${LANGGRAPH_RECURSION_LIMIT:-500}
-
-      # GitHub Token for git operations
-      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
-
-      # Cross-Thread Store Configuration
-      - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
-      - LANGGRAPH_STORE_REDIS_URL=${LANGGRAPH_STORE_REDIS_URL:-}
-      - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
-      - LANGGRAPH_STORE_MONGODB_URI=${LANGGRAPH_STORE_MONGODB_URI:-}
-      - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
-      # Embeddings for semantic memory search (shared with RAG stack via EMBEDDINGS_*)
-      # LANGGRAPH_STORE_EMBEDDINGS_* overrides take precedence over EMBEDDINGS_*
-      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-}
-      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-}
-      - LANGGRAPH_STORE_EMBEDDINGS_DIMS=${LANGGRAPH_STORE_EMBEDDINGS_DIMS:-}
-      - ENABLE_FACT_EXTRACTION=${ENABLE_FACT_EXTRACTION:-false}
-      - FACT_EXTRACTION_MODEL=${FACT_EXTRACTION_MODEL:-}
-
-      # In-Thread Checkpoint Persistence Configuration
-      - LANGGRAPH_CHECKPOINT_TYPE=${LANGGRAPH_CHECKPOINT_TYPE:-memory}
-      - LANGGRAPH_CHECKPOINT_REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
-      - LANGGRAPH_CHECKPOINT_POSTGRES_DSN=${LANGGRAPH_CHECKPOINT_POSTGRES_DSN:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${LANGGRAPH_CHECKPOINT_MONGODB_URI:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=${LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
-      - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
-      # REDIS_URL is required by redisvl (used internally by langgraph-checkpoint-redis)
-      - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
-
-      # Self-service task configuration
-      - DEFAULT_GITHUB_ORG=${DEFAULT_GITHUB_ORG:-}
-      - GITHUB_ORGS=${GITHUB_ORGS:-}
-      - GROUPS_AUTOMATION_REPO=${GROUPS_AUTOMATION_REPO:-}
-      - GROUPS_TEAMS_PATH=${GROUPS_TEAMS_PATH:-}
-      - ORG_MEMBERSHIP_FILE_PATTERN=${ORG_MEMBERSHIP_FILE_PATTERN:-}
-      - EMAIL_DOMAIN=${EMAIL_DOMAIN:-}
-      - JARVIS_WORKFLOWS_REPO=${JARVIS_WORKFLOWS_REPO:-}
-      - ADMIN_REPO=${ADMIN_REPO:-}
-      - TERRAFORM_INFRA_REPO=${TERRAFORM_INFRA_REPO:-}
-      - JIRA_ASSIGNEE=${JIRA_ASSIGNEE:-}
-      - WEBEX_ROOM_ID=${WEBEX_ROOM_ID:-}
-      - DEFAULT_CLUSTER_NAME=${DEFAULT_CLUSTER_NAME:-}
-      - DEFAULT_CLUSTER_ADDRESS=${DEFAULT_CLUSTER_ADDRESS:-}
-
-      # Per-subagent LLM model overrides (provider:model-name format)
-      - OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
-
-      # Vault configuration for secure LLM key storage
-      - VAULT_ADDR=${VAULT_ADDR:-}
-      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
-      - VAULT_ROLE_ID=${VAULT_ROLE_ID:-}
-      - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
-      - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
-      - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
-      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
-
-      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      # Skill payloads are scrubbed in-process by
-      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
-      # (attached to the TracerProvider on agent boot). That keeps
-      # SKILL.md bodies + ancillary file contents out of every span
-      # without redacting normal chat / tool I/O. Set
-      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
-      # session.
-      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
-      # Defensive per-attribute cap (256 KiB) so one oversized
-      # attribute can't push the OTel batch past Langfuse's 1 MiB
-      # nginx body limit. Set to 0 to disable.
-      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-    depends_on:
-      caipe-mongodb:
-        condition: service_healthy
-    command: platform-engineer
-    profiles:
-      - caipe-supervisor
 
   ####################################################################################################
   #                                          MongoDB                                                 #
@@ -283,7 +47,7 @@ services:
       start_period: 40s
     profiles:
       - caipe-mongodb
-      - caipe-supervisor
+      - caipe-ui
       - deps
 
   # MongoDB Admin UI
@@ -299,210 +63,6 @@ services:
       - ME_CONFIG_BASICAUTH=false
     profiles:
       - caipe-ui-mongo-express
-
-  ####################################################################################################
-  #                                         Sub-Agents                                               #
-  ####################################################################################################
-  # Shared Dockerfile.a2a / Dockerfile.mcp no longer install aws-cli / kubectl /
-  # gh / glab by default to keep agent images small and free of transitive CVEs
-  # (e.g. Python bundled inside aws-cli). Per-agent opt-ins live in
-  # .github/agents.json under `agent_build_args` for CI; each service below
-  # mirrors the same flags in its `args:` block so `docker compose build`
-  # produces the same image. Valid flags: INSTALL_AWS_CLI, INSTALL_KUBECTL,
-  # INSTALL_GH_CLI, INSTALL_GLAB_CLI — all default to false.
-  #
-  # AWS Agent
-  agent-aws:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=aws
-        - INSTALL_AWS_CLI=true
-        - INSTALL_KUBECTL=true
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-localtag}
-    container_name: agent-aws
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
-      # Mount only agent_aws subdirectory to preserve .venv from build
-      - ./ai_platform_engineering/agents/aws/agent_aws:/app/ai_platform_engineering/agents/agent/agent_aws
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8012:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      # Skill payloads are scrubbed in-process by
-      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
-      # (attached to the TracerProvider on agent boot). That keeps
-      # SKILL.md bodies + ancillary file contents out of every span
-      # without redacting normal chat / tool I/O. Set
-      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
-      # session.
-      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
-      # Defensive per-attribute cap (256 KiB) so one oversized
-      # attribute can't push the OTel batch past Langfuse's 1 MiB
-      # nginx body limit. Set to 0 to disable.
-      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-      - AWS_REGION=${AWS_REGION}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-false}
-      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-false}
-      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-false}
-      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
-      - USE_AWS_CLI_AS_TOOL=${USE_AWS_CLI_AS_TOOL:-true}
-      # Multi-account support - format: "name1:id1,name2:id2" or just "id1,id2"
-      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-common-dev:123456789012}
-      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-account1:123456789012,account2:123456789013}
-      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
-      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
-      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
-    profiles:
-      - aws
-      - all-agents
-
-  # Petstore Agent
-  agent-petstore:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=template
-        - AGENT_PACKAGE=petstore
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-localtag}
-    container_name: agent-petstore
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
-      # Mount template agent directory (petstore uses template)
-      - ./ai_platform_engineering/agents/template/agent_petstore:/app/ai_platform_engineering/agents/agent/agent_petstore
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8013:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_PORT=443
-      - MCP_HOST=petstore.outshift.io
-      - PETSTORE_API_KEY=${PETSTORE_API_KEY}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      # Skill payloads are scrubbed in-process by
-      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
-      # (attached to the TracerProvider on agent boot). That keeps
-      # SKILL.md bodies + ancillary file contents out of every span
-      # without redacting normal chat / tool I/O. Set
-      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
-      # session.
-      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
-      # Defensive per-attribute cap (256 KiB) so one oversized
-      # attribute can't push the OTel batch past Langfuse's 1 MiB
-      # nginx body limit. Set to 0 to disable.
-      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-    profiles:
-      - petstore
-      - all-agents
-
-  agent-github:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=github
-        - INSTALL_GH_CLI=true
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-localtag}
-    container_name: agent-github
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
-      - ./ai_platform_engineering/agents/github/agent_github:/app/ai_platform_engineering/agents/agent/agent_github
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8001:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      # Skill payloads are scrubbed in-process by
-      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
-      # (attached to the TracerProvider on agent boot). That keeps
-      # SKILL.md bodies + ancillary file contents out of every span
-      # without redacting normal chat / tool I/O. Set
-      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
-      # session.
-      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
-      # Defensive per-attribute cap (256 KiB) so one oversized
-      # attribute can't push the OTel batch past Langfuse's 1 MiB
-      # nginx body limit. Set to 0 to disable.
-      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication (PAT fallback)
-      # GitHub App authentication (recommended - auto-refreshing tokens)
-      - GITHUB_APP_ID=${GITHUB_APP_ID:-}
-      - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
-      - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
-      - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
-    profiles:
-      - github
-      - all-agents
-
-  # GitLab
-  agent-gitlab:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=gitlab # key for tracing
-        - INSTALL_GLAB_CLI=true
-    image: ghcr.io/cnoe-io/agent-gitlab:${IMAGE_TAG:-localtag}
-    container_name: agent-gitlab
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.gitlab_agent.yaml:/app/prompt_config.gitlab_agent.yaml
-      - ./ai_platform_engineering/agents/gitlab/agent_gitlab:/app/ai_platform_engineering/agents/agent/agent_gitlab
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8014:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=stdio
-      - MCP_HOST=mcp-gitlab
-      - MCP_PORT=8000
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      # Skill payloads are scrubbed in-process by
-      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
-      # (attached to the TracerProvider on agent boot). That keeps
-      # SKILL.md bodies + ancillary file contents out of every span
-      # without redacting normal chat / tool I/O. Set
-      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
-      # session.
-      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
-      # Defensive per-attribute cap (256 KiB) so one oversized
-      # attribute can't push the OTel batch past Langfuse's 1 MiB
-      # nginx body limit. Set to 0 to disable.
-      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-AI Agent}
-      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-ai-agent@cnoe.io}
-      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-AI Agent}
-      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-ai-agent@cnoe.io}
-    depends_on:
-      mcp-gitlab:
-        condition: service_started
-    profiles:
-      - gitlab
 
   # GitLab MCP Server (@zereight/mcp-gitlab)
   # Tool filtering is controlled via GITLAB_DENIED_TOOLS_REGEX using prefix matching (^prefix_)
@@ -550,57 +110,6 @@ services:
       - all-agents
       - mcp-servers
 
-  # Weather Agent
-  agent-weather:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=weather
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-localtag}
-    container_name: agent-weather
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
-      - ./ai_platform_engineering/agents/weather/agent_weather:/app/ai_platform_engineering/agents/agent/agent_weather
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8002:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=weather.outshift.io
-      - MCP_PORT=8000
-    profiles:
-      - weather
-      - all-agents
-
-  # Backstage Agent
-  agent-backstage:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=backstage
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-localtag}
-    container_name: agent-backstage
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
-      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/ai_platform_engineering/agents/agent/agent_backstage
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8003:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-backstage
-      - MCP_PORT=8000
-    depends_on:
-      mcp-backstage:
-        condition: service_healthy
-    profiles:
-      - backstage
-      - all-agents
-
   mcp-backstage:
     build:
       context: .
@@ -612,7 +121,7 @@ services:
     env_file: [.env]
     ports: ["18001:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/backstage/mcp/mcp_backstage:/app/mcp_backstage
+      - ./ai_platform_engineering/mcp/backstage:/app/ai_platform_engineering/mcp/backstage
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -627,33 +136,6 @@ services:
       - backstage
       - all-agents
       - mcp-servers
-
-  # ArgoCD Agents
-  agent-argocd:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=argocd
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-localtag}
-    container_name: agent-argocd
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
-      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/ai_platform_engineering/agents/agent/agent_argocd
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8004:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-argocd
-      - MCP_PORT=8000
-    depends_on:
-      mcp-argocd:
-        condition: service_healthy
-    profiles:
-      - argocd
-      - all-agents
 
   mcp-argocd:
     build:
@@ -666,7 +148,7 @@ services:
     env_file: [.env]
     ports: ["18002:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
+      - ./ai_platform_engineering/mcp/argocd:/app/ai_platform_engineering/mcp/argocd
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -681,33 +163,6 @@ services:
       - argocd
       - all-agents
       - mcp-servers
-
-  # Confluence Agents
-  agent-confluence:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=confluence
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-localtag}
-    container_name: agent-confluence
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
-      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/ai_platform_engineering/agents/agent/agent_confluence
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8005:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-confluence
-      - MCP_PORT=8000
-    depends_on:
-      mcp-confluence:
-        condition: service_started
-    profiles:
-      - confluence
-      - all-agents
 
   mcp-confluence:
     image: ghcr.io/sooperset/mcp-atlassian:latest
@@ -723,33 +178,6 @@ services:
       - all-agents
       - mcp-servers
 
-  # Jira Agent
-  agent-jira:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=jira
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-localtag}
-    container_name: agent-jira
-    env_file: [.env]
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
-      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/agent/agent_jira
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    ports: ["8006:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-jira
-      - MCP_PORT=8000
-    depends_on:
-      mcp-jira:
-        condition: service_healthy
-    profiles:
-      - jira
-      - all-agents
-
   mcp-jira:
     build:
       context: .
@@ -761,7 +189,7 @@ services:
     env_file: [.env]
     ports: ["18004:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/ai_platform_engineering/agents/jira/mcp/mcp_jira
+      - ./ai_platform_engineering/mcp/jira:/app/ai_platform_engineering/mcp/jira
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -793,31 +221,6 @@ services:
       - all-agents
       - mcp-servers
 
-  # Komodor Agent
-  agent-komodor:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=komodor
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-localtag}
-    container_name: agent-komodor
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
-      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/ai_platform_engineering/agents/agent/agent_komodor
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8007:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-komodor
-      - MCP_PORT=8000
-    depends_on:
-      mcp-komodor:
-        condition: service_healthy
-    profiles:
-      - komodor
   mcp-komodor:
     build:
       context: .
@@ -829,7 +232,7 @@ services:
     env_file: [.env]
     ports: ["18005:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/komodor/mcp/mcp_komodor:/app/mcp_komodor
+      - ./ai_platform_engineering/mcp/komodor:/app/ai_platform_engineering/mcp/komodor
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -843,33 +246,6 @@ services:
     profiles:
       - komodor
       - mcp-servers
-
-  # PagerDuty Agent
-  agent-pagerduty:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=pagerduty
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-localtag}
-    container_name: agent-pagerduty
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
-      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/ai_platform_engineering/agents/agent/agent_pagerduty
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8008:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-pagerduty
-      - MCP_PORT=8000
-    depends_on:
-      mcp-pagerduty:
-        condition: service_healthy
-    profiles:
-      - pagerduty
-      - all-agents
 
   mcp-pagerduty:
     build:
@@ -882,7 +258,7 @@ services:
     env_file: [.env]
     ports: ["18006:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty:/app/mcp_pagerduty
+      - ./ai_platform_engineering/mcp/pagerduty:/app/ai_platform_engineering/mcp/pagerduty
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -897,33 +273,6 @@ services:
       - pagerduty
       - all-agents
       - mcp-servers
-
-  # Slack Agent
-  agent-slack:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=slack
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-localtag}
-    container_name: agent-slack
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
-      - ./ai_platform_engineering/agents/slack/agent_slack:/app/ai_platform_engineering/agents/agent/agent_slack
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8009:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-slack
-      - MCP_PORT=3001
-    depends_on:
-      mcp-slack:
-        condition: service_healthy
-    profiles:
-      - slack
-      - all-agents
 
   # OSS Slack MCP Server (https://github.com/korotovsky/slack-mcp-server)
   mcp-slack:
@@ -952,33 +301,6 @@ services:
       - all-agents
       - mcp-servers
 
-  # Splunk
-  agent-splunk:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=splunk
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-localtag}
-    container_name: agent-splunk
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
-      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/ai_platform_engineering/agents/agent/agent_splunk
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8010:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-splunk
-      - MCP_PORT=8000
-    depends_on:
-      mcp-splunk:
-        condition: service_healthy
-    profiles:
-      - splunk
-      - all-agents
-
   mcp-splunk:
     build:
       context: .
@@ -990,7 +312,7 @@ services:
     env_file: [.env]
     ports: ["18008:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
+      - ./ai_platform_engineering/mcp/splunk:/app/ai_platform_engineering/mcp/splunk
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1005,33 +327,6 @@ services:
       - splunk
       - all-agents
       - mcp-servers
-
-  # Webex
-  agent-webex:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=webex
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-localtag}
-    container_name: agent-webex
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
-      - ./ai_platform_engineering/agents/webex/agent_webex:/app/ai_platform_engineering/agents/agent/agent_webex
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8011:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-webex
-      - MCP_PORT=8000
-    depends_on:
-      mcp-webex:
-        condition: service_healthy
-    profiles:
-      - webex
-      - all-agents
 
   mcp-webex:
     build:
@@ -1044,7 +339,7 @@ services:
     env_file: [.env]
     ports: ["18009:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/webex/mcp/mcp_webex:/app/mcp_webex
+      - ./ai_platform_engineering/mcp/webex:/app/ai_platform_engineering/mcp/webex
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1060,32 +355,32 @@ services:
       - all-agents
       - mcp-servers
 
-  # VictorOps Agent
-  agent-victorops:
+  mcp-webex-meetings:
     build:
       context: .
-      dockerfile: build/agents/Dockerfile.a2a
+      dockerfile: build/agents/Dockerfile.mcp
       args:
-        - AGENT_NAME=victorops
-    image: ghcr.io/cnoe-io/agent-victorops:${IMAGE_TAG:-localtag}
-    container_name: agent-victorops
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.victorops_agent.yaml:/app/prompt_config.victorops_agent.yaml
-      - ./ai_platform_engineering/agents/victorops/agent_victorops:/app/ai_platform_engineering/agents/agent/agent_victorops
-      - ./ai_platform_engineering/agents/victorops/mcp/mcp_victorops:/app/ai_platform_engineering/agents/agent/mcp/mcp_victorops
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+        - AGENT_NAME=webex-meetings
+    image: ghcr.io/cnoe-io/mcp-webex-meetings:${IMAGE_TAG:-localtag}
+    container_name: mcp-webex-meetings
     env_file: [.env]
-    ports: ["8016:8000"]
+    ports: ["18013:8000"]
+    volumes:
+      - ./ai_platform_engineering/mcp/webex-meetings:/app/ai_platform_engineering/mcp/webex-meetings
     environment:
-      - A2A_TRANSPORT=p2p
       - MCP_MODE=http
-      - MCP_HOST=mcp-victorops
+      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-    depends_on:
-      mcp-victorops:
-        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
-      - victorops
+      - webex-meetings
+      - all-agents
+      - mcp-servers
 
   mcp-victorops:
     build:
@@ -1098,7 +393,7 @@ services:
     env_file: [.env]
     ports: ["18012:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/victorops/mcp/mcp_victorops:/app/mcp_victorops
+      - ./ai_platform_engineering/mcp/victorops:/app/ai_platform_engineering/mcp/victorops
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1112,37 +407,6 @@ services:
     profiles:
       - victorops
       - mcp-servers
-
-  ####################################################################################################
-  #                                      NETUTILS AGENT (NetUtils)                                    #
-  ####################################################################################################
-  # NetUtils agent: DNS, DHCP, dnsmasq management, ping, traceroute, port checks
-  # Uses a custom MCP Dockerfile with network diagnostic tools pre-installed
-  # Optionally connects to a dnsmasq sidecar for DHCP/DNS server management
-  agent-netutils:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.a2a
-      args:
-        - AGENT_NAME=netutils
-    image: ghcr.io/cnoe-io/agent-netutils:${IMAGE_TAG:-localtag}
-    container_name: agent-netutils
-    volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.netutils_agent.yaml:/app/prompt_config.netutils_agent.yaml
-      - ./ai_platform_engineering/agents/netutils/agent_netutils:/app/ai_platform_engineering/agents/agent/agent_netutils
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
-    env_file: [.env]
-    ports: ["8015:8000"]
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_HOST=mcp-netutils
-      - MCP_PORT=8000
-    depends_on:
-      mcp-netutils:
-        condition: service_healthy
-    profiles:
-      - netutils-agent
 
   mcp-netutils:
     build:
@@ -1156,7 +420,7 @@ services:
     env_file: [.env]
     ports: ["18011:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/netutils/mcp/mcp_netutils:/app/mcp_netutils
+      - ./ai_platform_engineering/mcp/netutils:/app/ai_platform_engineering/mcp/netutils
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
@@ -1172,53 +436,12 @@ services:
       - mcp-servers
 
   ####################################################################################################
-  #                                      AGENT JARVIS A2A P2P                                        #
-  ####################################################################################################
-  # Jarvis is an external A2A agent (pre-built image). It exposes two ports:
-  #   - 8000: FastAPI health/agent-card endpoint
-  #   - 58000: A2A protocol endpoint (used by the supervisor via JARVIS_AGENT_PORT)
-  #
-  # Configuration lives in .env.jarvis (NOT committed to git — contains credentials).
-  # See docker-compose.jarvis.yaml for the canonical reference.
-  agent-jarvis:
-    image: jarvis-agent:dev
-    container_name: agent-jarvis
-    restart: unless-stopped
-    env_file:
-      - .env.jarvis
-    ports:
-      - "48000:8000"   # FastAPI port (health, agent-card)
-      - "58000:58000"  # A2A protocol port
-    environment:
-      - A2A_TRANSPORT=p2p
-      - ALLOWED_ORIGINS=*
-      - LANGGRAPH_CHECKPOINT_MEMORY_SAVER=memory
-      - ENABLE_KNOWLEDGE_GRAPH=false
-      - ENABLE_K8S_AGENT=false
-      - AIGATEWAY_SERVER_URL=${AIGATEWAY_SERVER_URL:-NOT_SET}
-      # Tracing (inherits from .env if ENABLE_TRACING=true)
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-    command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
-    profiles:
-      - jarvis
-
-  ####################################################################################################
   #                                      CAIPE UI                                                    #
   ####################################################################################################
-  # CAIPE UI - A2A Message Visualizer with 3-panel layout
-  # Features: Chat history, Chat UI with final output, A2A message stream visualization
-  # Includes Use Cases gallery inspired by ag-ui composer
+  # CAIPE UI — Next.js app + BFF for chat, history, and admin.
+  # Talks to dynamic-agents over AG-UI/SSE and to per-tool MCP servers.
   #
   # Build: Uses build/Dockerfile.caipe-ui (Next.js standalone with Node.js server)
-  #
-  # Configuration:
-  #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
-  #   - Default (dev): http://localhost:8000
-  #   - Default (docker): http://caipe-supervisor:8000
-  #   - Override with: CAIPE_URL=http://your-host:port
   # ---------------------------------------------------------------------------
   # caipe-ui (hot/dev) and caipe-ui-prod (prod-parity) are TWO first-class
   # services that share most env/volumes/depends_on but differ in:
@@ -1260,12 +483,13 @@ services:
       - .env
     environment:
       - NODE_ENV=development
+      # Pass the active Compose profile set through to the UI so product
+      # health can show profile-enabled integrations as degraded/down even
+      # when their container crashes before serving traffic.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
       # Spec 102 — Playwright sets E2E_RUN=true to enable test-only fixtures
       # (see ui/src/lib/test-fixtures.ts). Defaults to false in dev.
       - E2E_RUN=${E2E_RUN:-false}
-      # CAIPE supervisor A2A endpoint URL
-      # Override with A2A_BASE_URL environment variable
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
@@ -1349,6 +573,8 @@ services:
       - WORKFLOWS_ENABLED=${WORKFLOWS_ENABLED:-false}
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
+      # Chat runtime health endpoint URL
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://dynamic-agents:8001}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
       # Skill Scanner — when the `skill-scanner` profile is enabled, the UI
       # uploads ZIP'd skill packages to this service for security scanning.
@@ -1462,9 +688,6 @@ services:
     # Hot-reload command: next dev rebuilds on edits to bind-mounted ./ui/src.
     command: npm run dev
     depends_on:
-      caipe-supervisor:
-        condition: service_started
-        required: false
       # RBAC profile: wait for realm/JWKS readiness before UI startup seed/scope sync
       # calls Keycloak Admin APIs. Non-RBAC UI runs keep working because this
       # dependency is optional when the keycloak service is not selected.
@@ -1516,8 +739,11 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+      # Pass the active Compose profile set through to the UI so product
+      # health can show profile-enabled integrations as degraded/down even
+      # when their container crashes before serving traffic.
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
       - E2E_RUN=${E2E_RUN:-false}
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       - RAG_ENABLED=${RAG_ENABLED:-true}
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - RAG_URL=${RAG_URL:-http://localhost:9446}
@@ -1570,6 +796,8 @@ services:
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
       - WORKFLOWS_ENABLED=${WORKFLOWS_ENABLED:-false}
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
+      # Chat runtime health endpoint URL
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://dynamic-agents:8001}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
       - SKILL_SCANNER_URL=${SKILL_SCANNER_URL:-http://skill-scanner:8000}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}
@@ -1639,9 +867,6 @@ services:
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     command: /app/entrypoint.sh
     depends_on:
-      caipe-supervisor:
-        condition: service_started
-        required: false
       keycloak:
         condition: service_healthy
         required: false
@@ -1674,6 +899,8 @@ services:
       AUDIT_SERVICE_S3_PREFIX: ${AUDIT_SERVICE_S3_PREFIX:-audit}
       AUDIT_SERVICE_S3_REGION: ${AUDIT_SERVICE_S3_REGION:-us-east-2}
       AUDIT_SERVICE_S3_ENDPOINT_URL: ${AUDIT_SERVICE_S3_ENDPOINT_URL:-}
+      AUDIT_SERVICE_S3_RETENTION_DAYS: ${AUDIT_SERVICE_S3_RETENTION_DAYS:-0}
+      AUDIT_LOG_VERBOSITY: ${AUDIT_LOG_VERBOSITY:-minimal}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
@@ -1727,7 +954,7 @@ services:
       # Mount source for hot reload in development
       - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
       - ${HOME}/.aws:/home/app/.aws:ro
-      # Spec 102 — PDP-unavailable fallback (no-op in dev; see caipe-supervisor).
+      # Spec 102 — PDP-unavailable fallback (no-op in dev).
       - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     env_file: [.env]
     environment:
@@ -1799,6 +1026,10 @@ services:
       - OAUTH2_AUDIENCE=${OAUTH2_AUDIENCE:-}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
+      # Persist conversation history across /invoke calls (ephemeral by default).
+      # Required for the chat-as-sa.sh script and any non-streaming caller that
+      # expects multi-turn context.
+      - INVOKE_PERSIST_HISTORY=${INVOKE_PERSIST_HISTORY:-false}
       # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
       # When a caller has NOT connected their personal provider account, DA injects
       # these org PATs on X-CAIPE-Provider-Token so those tools stay backward
@@ -1819,9 +1050,6 @@ services:
       - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
 
-      # Checkpoint configuration
-      - LANGGRAPH_CHECKPOINT_TYPE=mongodb
-      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
     healthcheck:
       # Use /healthz (matches FastAPI route in routes/health.py and the Helm chart probes).
       # Parse the JSON body: a 200 response with {"status": "unhealthy"} (e.g. Mongo down)
@@ -1860,7 +1088,7 @@ services:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
       - ${HOME}/.aws:/home/app/.aws:ro
-      # Spec 102 — PDP-unavailable fallback (no-op in dev; see caipe-supervisor).
+      # Spec 102 — PDP-unavailable fallback (no-op in dev).
       - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     ports: ["9446:9446"]
     environment:
@@ -2508,49 +1736,6 @@ services:
     profiles:
       - tracing
 
-  # Evaluation Webhook Service
-  evaluation-webhook:
-    build:
-      context: ./evals
-      dockerfile: Dockerfile
-    container_name: evaluation-webhook
-    restart: unless-stopped
-    depends_on:
-      langfuse-web:
-        condition: service_started
-    ports: ["8024:8000"]
-    env_file: [.env]
-    environment:
-      - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-      # Skill payloads are scrubbed in-process by
-      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
-      # (attached to the TracerProvider on agent boot). That keeps
-      # SKILL.md bodies + ancillary file contents out of every span
-      # without redacting normal chat / tool I/O. Set
-      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
-      # session.
-      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
-      # Defensive per-attribute cap (256 KiB) so one oversized
-      # attribute can't push the OTel batch past Langfuse's 1 MiB
-      # nginx body limit. Set to 0 to disable.
-      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    volumes:
-      - ./evals/datasets:/app/datasets
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    profiles:
-      - evaluation
-
   ####################################################################################################
   #                                 Slack Bot Integration                                            #
   ####################################################################################################
@@ -2615,7 +1800,7 @@ services:
       - SLACK_DEFAULT_TEAM_SLUG=${SLACK_DEFAULT_TEAM_SLUG:-}
       - SLACK_DEFAULT_AGENT_ID=${SLACK_DEFAULT_AGENT_ID:-}
       # Internal admin API used by the Web UI BFF for route status/reload/config sync.
-      - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-false}
+      - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-true}
       - SLACK_ADMIN_API_HOST=${SLACK_ADMIN_API_HOST:-0.0.0.0}
       - SLACK_ADMIN_API_PORT=${SLACK_ADMIN_API_PORT:-3001}
       - SLACK_ADMIN_DEV_AUTH_ENABLED=${SLACK_ADMIN_DEV_AUTH_ENABLED:-false}
@@ -2695,7 +1880,7 @@ services:
       - WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=${WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES:-false}
       - WEBEX_DEFAULT_TEAM_SLUG=${WEBEX_DEFAULT_TEAM_SLUG:-}
       - WEBEX_DEFAULT_AGENT_ID=${WEBEX_DEFAULT_AGENT_ID:-}
-      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-true}
+      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-false}
       - WEBEX_ADMIN_API_HOST=${WEBEX_ADMIN_API_HOST:-0.0.0.0}
       - WEBEX_ADMIN_API_PORT=${WEBEX_ADMIN_API_PORT:-3002}
       - WEBEX_ADMIN_JWT_ISSUER=${WEBEX_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}
@@ -2728,7 +1913,7 @@ services:
   ####################################################################################################
   # Keycloak + OpenFGA + AgentGateway for Enterprise RBAC.
   # Usage (Slack + RAG RBAC — copy deploy/rbac/.env.rbac.example into .env and set embeddings keys):
-  #   COMPOSE_PROFILES=rbac,rag,slack-bot,caipe-supervisor,caipe-mongodb \
+  #   COMPOSE_PROFILES=rbac,rag,slack-bot,caipe-ui,caipe-mongodb \
   #     docker compose -f docker-compose.dev.yaml up -d
   #
   # RAG: http://localhost:9446  (requires Milvus stack + embedding provider env, e.g. AZURE_OPENAI_*)
@@ -2810,8 +1995,9 @@ services:
       # Cap JVM heap so KC plays nicely on a busy dev laptop. Default
       # `start-dev` lets the JVM scale to 25% of host memory, which on a
       # heavily-loaded compose stack can trip Docker Desktop's OOM killer
-      # during schema init (exit 137). 768m headroom is plenty for dev.
-      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=256m"
+      # during schema init (exit 137). Keep a bounded heap, but leave enough
+      # room for RBAC/AuthZ warmup so admin pages do not stall on Keycloak.
+      JAVA_OPTS_KC_HEAP: "${KEYCLOAK_JAVA_OPTS_KC_HEAP:--Xms256m -Xmx1024m -XX:MaxMetaspaceSize=384m}"
     # `--import-realm` is still safe with a durable DB: KC only imports on
     # an empty realm, so subsequent boots become idempotent no-ops and your
     # runtime mutations (teams, role assignments, identity links) survive.
@@ -3168,104 +2354,14 @@ services:
       disable: true
 
   ####################################################################################################
-  #                       LangGraph Persistence Backends                                         #
-  ####################################################################################################
-  # Redis Stack, PostgreSQL, and MongoDB for testing LangGraph checkpointer + store persistence.
-  #
-  # Usage (pick ONE backend):
-  #
-  #   Redis Stack:
-  #     LANGGRAPH_CHECKPOINT_TYPE=redis \
-  #     LANGGRAPH_CHECKPOINT_REDIS_URL=redis://langgraph-redis:6379 \
-  #     LANGGRAPH_STORE_TYPE=redis \
-  #     LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379 \
-  #     docker compose -f docker-compose.dev.yaml --profile langgraph-redis up
-  #
-  #   PostgreSQL:
-  #     LANGGRAPH_CHECKPOINT_TYPE=postgres \
-  #     LANGGRAPH_CHECKPOINT_POSTGRES_DSN=postgresql://langgraph:langgraph@langgraph-postgres:5432/langgraph \
-  #     LANGGRAPH_STORE_TYPE=postgres \
-  #     LANGGRAPH_STORE_POSTGRES_DSN=postgresql://langgraph:langgraph@langgraph-postgres:5432/langgraph \
-  #     docker compose -f docker-compose.dev.yaml --profile langgraph-postgres up
-  #
-  #   MongoDB:
-  #     LANGGRAPH_CHECKPOINT_TYPE=mongodb \
-  #     LANGGRAPH_CHECKPOINT_MONGODB_URI=mongodb://langgraph-mongodb:27017 \
-  #     LANGGRAPH_STORE_TYPE=mongodb \
-  #     LANGGRAPH_STORE_MONGODB_URI=mongodb://langgraph-mongodb:27017 \
-  #     docker compose -f docker-compose.dev.yaml --profile langgraph-mongodb up
-  #
-  #   Mixed (MongoDB checkpointer + Redis store, sharing UI MongoDB):
-  #     LANGGRAPH_CHECKPOINT_TYPE=mongodb \
-  #     LANGGRAPH_CHECKPOINT_MONGODB_URI="mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin" \
-  #     LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=caipe \
-  #     LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=checkpoints_conversation \
-  #     LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=checkpoint_writes_conversation \
-  #     LANGGRAPH_STORE_TYPE=redis \
-  #     LANGGRAPH_STORE_REDIS_URL=redis://langgraph-redis:6379 \
-  #     docker compose -f docker-compose.dev.yaml --profile deps --profile langgraph-redis up
-
-  langgraph-redis:
-    image: redis:8.0-alpine
-    container_name: langgraph-redis
-    ports:
-      - "6381:6379"
-    volumes:
-      - langgraph_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    profiles:
-      - langgraph-redis
-
-  langgraph-postgres:
-    image: postgres:16-alpine
-    container_name: langgraph-postgres
-    ports:
-      - "5433:5432"
-    environment:
-      - POSTGRES_USER=langgraph
-      - POSTGRES_PASSWORD=langgraph
-      - POSTGRES_DB=langgraph
-    volumes:
-      - langgraph_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U langgraph"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    profiles:
-      - langgraph-postgres
-
-  langgraph-mongodb:
-    image: mongo:7
-    container_name: langgraph-mongodb
-    ports:
-      - "27018:27017"
-    volumes:
-      - langgraph_mongodb_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    profiles:
-      - langgraph-mongodb
-
-  ####################################################################################################
   #                                      Skill Scanner                                               #
   ####################################################################################################
   # cisco-ai-defense/skill-scanner running its built-in REST API server. The
   # CAIPE UI POSTs zipped SKILL packages to /scan-upload to get static +
   # (optionally) LLM-driven safety findings.
   #
-  # Why standalone (not co-located with caipe-supervisor):
-  #   - Avoid coupling MAS lifecycle to scanner pip installs.
+  # Why standalone (not co-located with the UI/dynamic-agents):
+  #   - Avoid coupling their lifecycle to scanner pip installs.
   #   - Independent upgrade path (scanner releases ship frequently).
   #   - Stays unauthenticated only on the internal docker network — never
   #     map this port on a public interface.
@@ -3328,12 +2424,6 @@ volumes:
   milvus_minio:
     driver: local
   milvus_data:
-    driver: local
-  langgraph_redis_data:
-    driver: local
-  langgraph_postgres_data:
-    driver: local
-  langgraph_mongodb_data:
     driver: local
   openfga_postgres_data:
     driver: local

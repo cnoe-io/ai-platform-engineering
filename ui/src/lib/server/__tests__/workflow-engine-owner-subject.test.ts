@@ -11,7 +11,19 @@ jest.mock("@/lib/streaming/clients/server-agui-consumer", () => ({ consumeAgentS
 jest.mock("@/lib/server/event-store", () => ({ readEvents: jest.fn() }));
 jest.mock("@/lib/authz", () => ({ authorize: jest.fn() }));
 
-import { runOwnerSubject } from "../workflow-engine";
+import { readEvents } from "@/lib/server/event-store";
+import type { StreamEvent } from "@/lib/streaming/types";
+import {
+  buildWorkflowContextPrefix,
+  resolveStepResponseText,
+  runOwnerSubject,
+} from "../workflow-engine";
+
+const mockReadEvents = readEvents as jest.MockedFunction<typeof readEvents>;
+
+beforeEach(() => {
+  mockReadEvents.mockReset();
+});
 
 /** Build a JWT (`header.payload.signature`) with a base64url-encoded payload. */
 function jwt(payload: Record<string, unknown>): string {
@@ -61,3 +73,82 @@ describe("runOwnerSubject", () => {
     expect(runOwnerSubject({ Authorization: `Bearer ${jwt({ sub: 12345 })}` })).toBeNull();
   });
 });
+
+describe("resolveStepResponseText", () => {
+  it("prefers assistant text over longer raw tool results", async () => {
+    mockReadEvents.mockResolvedValue([
+      contentEvent("Short assistant answer."),
+      toolEndEvent("tool-1", JSON.stringify({ raw: "x".repeat(200) })),
+    ]);
+
+    await expect(resolveStepResponseText("source-1", "Short assistant answer.")).resolves.toBe(
+      "Short assistant answer.",
+    );
+  });
+
+  it("falls back to tool results when the step produced no assistant text", async () => {
+    mockReadEvents.mockResolvedValue([
+      toolEndEvent("tool-1", "Only tool output"),
+      toolEndEvent("tool-2", "Longer tool output"),
+    ]);
+
+    await expect(resolveStepResponseText("source-1", "")).resolves.toBe("Longer tool output");
+  });
+});
+
+describe("buildWorkflowContextPrefix", () => {
+  const prompt = buildWorkflowContextPrefix(
+    "Release workflow",
+    "Prepare and publish a release",
+    [],
+    1,
+    3,
+    "Publish the release notes",
+    "release-agent",
+  );
+
+  it("treats deterministically populated workflow-state files as read-only investigation context", () => {
+    expect(prompt).toContain("workflow engine deterministically populates `workflow-state/`");
+    expect(prompt).toContain("Treat the entire directory as read-only");
+    expect(prompt).toContain("read-only reference material for investigation");
+    expect(prompt).toContain(
+      "Previous-step logs are stored under `workflow-state/step-{N}--{agent-id}/`",
+    );
+  });
+
+  it("directs agents to inspect shared files at the filesystem root", () => {
+    expect(prompt).toContain("Other steps may write shared files at the filesystem root");
+    expect(prompt).toContain("Run `ls /`");
+  });
+
+  it("allows only the failure marker to be written under workflow-state", () => {
+    expect(prompt).toContain("`/choices.txt`");
+    expect(prompt).toContain("`workflow-state/step-2--release-agent/error.txt`");
+    expect(prompt).toContain("only path you may write under `workflow-state/`");
+  });
+});
+
+function contentEvent(content: string): StreamEvent {
+  return {
+    id: `content-${content.length}`,
+    timestamp: new Date("2026-06-29T10:00:00.000Z"),
+    type: "content",
+    raw: {},
+    namespace: [],
+    content,
+  };
+}
+
+function toolEndEvent(toolCallId: string, result: string): StreamEvent {
+  return {
+    id: `tool-${toolCallId}`,
+    timestamp: new Date("2026-06-29T10:00:01.000Z"),
+    type: "tool_end",
+    raw: {},
+    namespace: [],
+    toolData: {
+      tool_call_id: toolCallId,
+      result,
+    },
+  };
+}

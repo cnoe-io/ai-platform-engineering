@@ -38,7 +38,7 @@ jobs:
           permission-contents: write
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: main
           fetch-depth: 0
@@ -97,12 +97,12 @@ jobs:
           echo "✅ Tag '$NEW_VERSION' does not exist"
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
       - name: 📦 Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
 
       - name: 📦 Prepare release (update files + changelog + verify)
         uses: ./.github/actions/prepare-release
@@ -210,15 +210,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### CI (triggered by tag push) ⏳" >> $GITHUB_STEP_SUMMARY
           echo "CI workflows run from the pushed \`$NEW_VERSION\` tag and publish matching artifacts when complete:" >> $GITHUB_STEP_SUMMARY
-          echo "- Supervisor agent" >> $GITHUB_STEP_SUMMARY
           echo "- Dynamic agents" >> $GITHUB_STEP_SUMMARY
-          echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
+          echo "- MCP servers" >> $GITHUB_STEP_SUMMARY
           echo "- RAG components" >> $GITHUB_STEP_SUMMARY
           echo "- CAIPE UI" >> $GITHUB_STEP_SUMMARY
           echo "- Slack bot" >> $GITHUB_STEP_SUMMARY
+          echo "- Webex bot" >> $GITHUB_STEP_SUMMARY
           echo "- Helm charts" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "A2A sub-agent images are skipped by default. Set repository variable \`CAIPE_BUILD_A2A_AGENT_IMAGES=true\` before the tag push, or run \`ci-a2a-sub-agent.yml\` manually with \`build_a2a_agents=true\`, when those images are required." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GitHub Release (Draft) 📝" >> $GITHUB_STEP_SUMMARY
           echo "🔗 [Release $NEW_VERSION](https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION)" >> $GITHUB_STEP_SUMMARY

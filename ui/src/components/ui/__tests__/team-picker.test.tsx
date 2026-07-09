@@ -21,7 +21,8 @@ describe("TeamPicker (single)", () => {
     // NOT rendering the full 600+ team list straight into the form.
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Select team/ }));
+    // The trigger is a combobox (role=combobox) so aria-invalid is honored.
+    fireEvent.click(screen.getByRole("combobox"));
     expect(screen.getByRole("listbox")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Platform/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /SRE/ })).toBeInTheDocument();
@@ -29,7 +30,7 @@ describe("TeamPicker (single)", () => {
 
   it("filters by typed name or slug substring", () => {
     render(<TeamPicker options={TEAMS} value="" onChange={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /Select team/ }));
+    fireEvent.click(screen.getByRole("combobox"));
 
     const input = screen.getByPlaceholderText("Search teams...");
     fireEvent.change(input, { target: { value: "aws" } });
@@ -42,7 +43,7 @@ describe("TeamPicker (single)", () => {
   it("emits the slug when an option is picked and closes the popover", () => {
     const onChange = jest.fn();
     render(<TeamPicker options={TEAMS} value="" onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: /Select team/ }));
+    fireEvent.click(screen.getByRole("combobox"));
     fireEvent.click(screen.getByRole("option", { name: /SRE/ }));
 
     expect(onChange).toHaveBeenCalledWith("sre");

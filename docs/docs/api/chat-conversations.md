@@ -87,9 +87,9 @@ _Not applicable_
 
 ### POST `/api/chat/conversations`
 
-**Auth:** NextAuth session + Keycloak UMA **`supervisor#invoke`**. | **Since:** v1.0
+**Auth:** NextAuth session or service bearer token + dynamic-agent `can_use`. | **Since:** v1.0
 
-Creates a conversation. Server sets `owner_id` from the session, timestamps, default `metadata`, `sharing`, `is_archived`, and `is_pinned`. Optional client `id` (UUID) is accepted so client and server share the same `_id`.
+Creates a conversation for a specific dynamic agent. Server sets `owner_id` from the session, timestamps, default `metadata`, `sharing`, `is_archived`, and `is_pinned`. Optional client `id` (UUID) is accepted so client and server share the same `_id`.
 
 **Path Parameters:**
 
@@ -449,7 +449,7 @@ _Not applicable_
           "agent_name": "Platform Engineer",
           "is_final": true
         },
-        "a2a_events": [],
+        "stream_events": [],
         "artifacts": []
       }
     ],
@@ -474,7 +474,7 @@ _Not applicable_
 
 ### POST `/api/chat/conversations/[id]/messages`
 
-**Auth:** NextAuth session + Keycloak UMA **`supervisor#invoke`**. | **Since:** v1.0
+**Auth:** NextAuth session + conversation write access. | **Since:** v1.0
 
 Upserts a message by `(message_id, conversation_id)`. If the row exists, content/metadata/events are updated and `200` is returned; on first insert, `201` and `metadata.total_messages` on the conversation may increment. **Blocked** for `access_level` `admin_audit` or `shared_readonly` (`403`). For `role: "user"`, sender fields default from the session if omitted.
 
@@ -508,12 +508,12 @@ Upserts a message by `(message_id, conversation_id)`. If the row exists, content
     "is_final": false,
     "timeline_segments": []
   },
-  "a2a_events": [],
+  "stream_events": [],
   "artifacts": []
 }
 ```
 
-Required: `role`, `content`. Optional: `message_id`, sender fields, `metadata`, `a2a_events`, `artifacts`.
+Required: `role`, `content`. Optional: `message_id`, sender fields, `metadata`, `stream_events`, `artifacts`.
 
 **Response `201` (new message):**
 
@@ -588,7 +588,7 @@ Updates a message by MongoDB `_id` (24-hex ObjectId) **or** client `message_id` 
     "is_interrupted": false,
     "task_id": "task-abc-123"
   },
-  "a2a_events": []
+  "stream_events": []
 }
 ```
 
@@ -1146,7 +1146,7 @@ Creates a bookmark for a conversation (optional `message_id` and `note`).
 | Shape | Fields (high level) |
 |-------|---------------------|
 | **Conversation** | `_id` (UUID string), `title`, `owner_id`, `agent_id?`, `created_at`, `updated_at`, `metadata`, `sharing`, `tags`, `is_archived`, `is_pinned`, `deleted_at?` |
-| **Message** | `_id?` (ObjectId), `message_id?`, `conversation_id`, `owner_id?`, `role`, `content`, `sender_*?`, `created_at`, `updated_at`, `metadata`, `artifacts?`, `a2a_events?`, `feedback?` |
+| **Message** | `_id?` (ObjectId), `message_id?`, `conversation_id`, `owner_id?`, `role`, `content`, `sender_*?`, `created_at`, `updated_at`, `metadata`, `artifacts?`, `stream_events?`, `feedback?` |
 | **SharingAccess** | `conversation_id`, `granted_by`, `granted_to`, `permission`, `granted_at`, `accessed_at?`, `revoked_at?` |
 | **ConversationBookmark** | `user_id`, `conversation_id`, `message_id?`, `note?`, `created_at` |
 

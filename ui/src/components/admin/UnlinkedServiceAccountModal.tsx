@@ -250,11 +250,11 @@ export function UnlinkedServiceAccountModal({
                         return (
                           <li
                             key={`${scope.type}:${scope.ref}`}
-                            className="flex items-center justify-between gap-2 rounded-md border border-input px-2.5 py-1.5"
+                            className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-input px-2.5 py-1.5"
                           >
-                            <span className="inline-flex items-center gap-1.5 text-sm">
-                              <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-                              <code className="text-xs" data-testid={`scope-${scope.type}-${scope.ref}`}>
+                            <span className="inline-flex min-w-0 items-center gap-1.5 text-sm">
+                              <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              <code className="truncate text-xs" data-testid={`scope-${scope.type}-${scope.ref}`}>
                                 {scope.type}/{scope.ref}
                               </code>
                             </span>

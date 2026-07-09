@@ -46,8 +46,8 @@ def _call_log(**overrides):
         "scope": "query",
         "allowed": True,
         "reason": "OK",
-        "service": "supervisor",
-        "route": "POST /tasks",
+        "service": "bff",
+        "route": "POST /api/chat/conversations",
         "request_id": "rq-9",
         "pdp": "keycloak",
     }

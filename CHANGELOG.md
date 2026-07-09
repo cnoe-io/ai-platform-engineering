@@ -1,3 +1,456 @@
+## 0.5.43 (2026-07-09)
+
+### Feat
+
+- **caipe-ui**: show HITL input form inline in chat WorkflowRunCard (#2148)
+
+### Fix
+
+- **slack-bot**: remove stale user_allowed kwarg from SlackChannelRebacDecision (#2152)
+
+## 0.5.42 (2026-07-08)
+
+### Fix
+
+- **ui**: sharing a dynamic agent with a team is use-only, not manage
+- **slack-bot**: paginate accessible agents list beyond first page
+
+## 0.5.41-dev.1 (2026-07-08)
+
+### Fix
+
+- **okta-sync**: resilient large org syncs with better error diagnostics
+- **okta-sync**: add error handling and throttling for large org syncs
+
+## 0.5.41 (2026-07-08)
+
+### Fix
+
+- **openfga**: add argocdHookDeletePolicy support to job-init.yaml (#2141)
+- **dynamic-agents**: restore subagent timeline correlation
+
+## 0.5.40-dev.1 (2026-07-07)
+
+### Fix
+
+- **workflows**: restore workflow error marker
+- **workflows**: describe workflow state as logs
+- **workflows**: keep workflow state read-only
+
+## 0.5.40 (2026-07-07)
+
+### Feat
+
+- **agentgateway**: optional explicit stats/readiness bind addresses
+
+## 0.5.39-dev.1 (2026-07-07)
+
+### Fix
+
+- **keycloak**: fix two more compact-JSON id lookups; add shared helper
+- **keycloak**: make init-idp.sh role-id and redirector parsing robust
+
+## 0.5.39 (2026-07-07)
+
+## 0.5.38-dev.4 (2026-07-07)
+
+### Fix
+
+- **webex**: allow markdown-only messages (#2127)
+
+## 0.5.38-dev.3 (2026-07-07)
+
+### Fix
+
+- **workflows**: use exact match for Completed text in sharing e2e tests
+- **workflows**: remove unused buildDefaultWorkflowCatalog import
+
+## 0.5.38-dev.2 (2026-07-07)
+
+### Fix
+
+- **openfga**: make migrate job hook delete policy configurable (#2130)
+
+## 0.5.38-dev.1 (2026-07-06)
+
+### Feat
+
+- **rag**: add opt-in bypass for SSRF protection on web ingestion
+
+### Fix
+
+- **dynamic-agents**: filter Deep Agents internal summarization chunks from SSE stream
+- **dynamic-agents**: harden default middleware stack from 0.4.18-hotfix
+- **slack-bot**: port thread-reply, bot-fallback, and VictorOps fixes from 0.4.18-hotfix
+
+## 0.5.38 (2026-07-06)
+
+### Feat
+
+- **dynamic-agents**: add Import from YAML config adoption flow
+
+### Fix
+
+- **keycloak**: reconcile CLI client on the always-on token-exchange job
+- **keycloak**: reconcile public CLI client on upgrade, not just first boot
+
+## 0.5.37 (2026-07-06)
+
+## 0.5.36-dev.1 (2026-07-06)
+
+### Feat
+
+- **doc**: add new doc page for webex meetings mcp
+- **webex-meetings**: add new mcp server for webex-meetings
+
+### Fix
+
+- **chart**: add to tags and disable by default
+- put existing email
+
+## 0.5.36 (2026-07-04)
+
+## 0.5.35-dev.1 (2026-07-04)
+
+### Feat
+
+- **docs**: clean up comments and add a docs page
+- **openfga-authz-bridge**: add restrictedMcpServers for admin access only
+
+### Fix
+
+- **ci**: helm prebuild
+- **ci**: optimise reconcile-prebuild-artifacts.py to filter on pr head sha
+- further attempt to fix prebuild-artifact-comment.yml
+- fix ci
+
+## 0.5.35 (2026-07-02)
+
+### Feat
+
+- **rbac**: archived teams grant no access, with self-check repair
+- **idp-sync**: upsert user names and team/membership data from Okta
+- **dynamic-agents**: add search and pagination to agents list
+- **keycloak**: add configurable caipe-cli public client for local dev tokens
+- **scheduler**: JWT to be passed to mcp-scheduler (relay) and then to scheduler service which validates and derives owner_sub
+- 5.6-sol is too much and out of control
+- **workflows**: make workflow runs shareable for collaborative debugging
+
+### Fix
+
+- **admin**: fix PrometheusCharts Tooltip content type cast
+- **admin**: fix PrometheusCharts TS cast to satisfy strict type check
+- **rbac**: expect owner-team #member manager tuple in self-check audit
+- **ui**: prevent scope refs from overflowing modal bounds in unlinked access dialog
+- **admin**: cap metrics legend to top 5 and tooltip to top 3 series
+- **identity-sync**: chunk orphan sweep updateMany to avoid $in size limit
+- **identity-sync**: sweep for already-orphaned sync teams on full sync
+- **service-accounts**: admins bypass team membership filter on GET
+- **slack**: guard SA empty-state on displayName too
+- **admin**: wrap team name + IDP badge so long names don't hide pill
+- **slack**: show saved SA name when caller lacks team membership
+- **identity-sync**: archive orphaned identity_group_sync teams on full sync
+- **credentials**: preserve renewable flag after token refresh and guard needsAutoRefresh
+- **admin**: prevent Okta pill text from overflowing rounded border
+- **rebac**: search channels by ID in onboarding tab
+- fix ci
+- ci mcp wtf
+- **metrics**: correct agentgateway stats port and openfga SM init pod exclusion
+- **servicemonitor**: exclude openfga init job pods from openfga ServiceMonitor
+- **docs**: remove /docs redirect that conflicts with docs plugin root page
+- security
+- **ui**: show schedule run title on the chat
+- reconcile all cron runner image upon deploy and indicate on the schedule modified history
+- dockerfile migration to build/
+- missing changes
+- **workflows**: org-admins can always access any run for troubleshooting
+
+## 0.5.34-dev.1 (2026-07-02)
+
+### Fix
+
+- **metrics**: exclude per-component services from umbrella ServiceMonitor and expose openfga metrics port
+- **setup**: make setup-caipe.sh cleanup orphan-safe, and extend Keycloak install timeout (#2096)
+
+### Refactor
+
+- **setup-caipe**: More to nuke (#2099)
+
+## 0.5.34 (2026-07-01)
+
+### Feat
+
+- **conversations**: open Slack conversations to all thread participants
+
+### Perf
+
+- **admin**: use fast teams endpoint in user detail modal fallback
+- **admin**: use fast teams endpoint in connector onboarding wizard
+- **admin**: lazy-load sessions and federated identities in user detail modal
+- **admin**: reuse parent teams list in user detail modal
+- **admin**: parallelize user detail loading and progressive-render modal
+
+## 0.5.33-dev.2 (2026-07-01)
+
+### Fix
+
+- **metrics**: expose keycloak management port and add per-component ServiceMonitors
+- **rbac**: add team#member to agent manager relation in OpenFGA model
+- **agents**: show correct read-only message when user lacks edit permission
+- **agents**: grant owner team members full manage access on agents
+
+## 0.5.33 (2026-06-30)
+
+### Perf
+
+- **teams**: stop rewriting membership tuples on resource save
+
+## 0.5.32-dev.1 (2026-06-30)
+
+### Feat
+
+- **openfga-authz-bridge**: add callerToolCheck.enabled value to subchart
+
+## 0.5.32 (2026-06-30)
+
+## 0.5.31-dev.1 (2026-06-30)
+
+### Fix
+
+- **agentgateway**: make config-bridge ext_authz host release-aware
+- **docs**: correct broken cross-link in architecture/gateway.md (#2075)
+
+### Refactor
+
+- **agentgateway**: drop authzHostSecret, keep plain authzHost
+
+## 0.5.31 (2026-06-30)
+
+### Fix
+
+- **webex**: suppress duplicate wizard title and update tests
+- **webex**: add two-tab nav between Configure and Configured spaces
+
+## 0.5.30 (2026-06-29)
+
+### Fix
+
+- **ui**: restore scroll in team dialog lists (#2074)
+
+## 0.5.29 (2026-06-29)
+
+## 0.5.28-dev.3 (2026-06-29)
+
+### Feat
+
+- **credentials**: PKCE public-client OAuth connectors; remove pinned MCP connection scope (#2071)
+- **credentials**: add hash tabs for secrets (#2065)
+
+### Fix
+
+- **workflows**: avoid raw step response rendering
+- **health**: probe self API routes via internal base URL, not request origin (#2067)
+- signed agent context goes stale after 5min (#2069)
+
+## 0.5.28-dev.1 (2026-06-29)
+
+### Fix
+
+- **chart**: A2A_BASE_URL default points to dynamic-agents:8001
+- **health**: update tests and chart template for localhost self-call fix
+- **health**: use localhost for self-referential capability probes
+
+## 0.5.28 (2026-06-29)
+
+### Fix
+
+- **health**: restore AppHeader capability status
+
+## 0.5.27 (2026-06-28)
+
+### Feat
+
+- **audit**: S3 retention controls, storage usage visibility, and configurable verbosity
+
+### Fix
+
+- **lint**: move verbosity import to top of test file (ruff E402/F401)
+- **audit**: mock /api/admin/audit-storage in UnifiedAuditTab download test
+- **rbac**: clean up deleted principals and grants
+
+## 0.5.26-dev.7 (2026-06-28)
+
+### Feat
+
+- **admin**: make OpenFGA the source of truth for team resource access and declutter team UI (#2021)
+
+### Fix
+
+- **setup-caipe**: update configBridge.bff to configBridge.ui secret path (#2058)
+- **ui-admin**: remove knowledge bases settings tab
+
+## 0.5.26-dev.6 (2026-06-27)
+
+## 0.5.26-dev.5 (2026-06-27)
+
+### Feat
+
+- **audit**: S3 retention controls, storage usage visibility, and configurable verbosity
+
+## 0.5.26-dev.4 (2026-06-27)
+
+### Fix
+
+- **dynamic-agents**: remove stale agent CRUD router (#2054)
+
+## 0.5.26-dev.3 (2026-06-27)
+
+### Fix
+
+- **security**: address audit and pnpm alerts
+
+### Refactor
+
+- **ui**: collapse credentials tabs into a single scrollable pane (#2044)
+
+## 0.5.26-dev.2 (2026-06-27)
+
+## 0.5.26-dev.1 (2026-06-26)
+
+### Fix
+
+- **keycloak**: align init hook cleanup for argocd
+- **keycloak**: make init-idp hook delete policy configurable
+- **ci**: make auto-tag idempotent and authenticated (#2046)
+- **ui**: make custom popover dropdowns work inside dialogs (#2048)
+
+## 0.5.26 (2026-06-26)
+
+### Fix
+
+- **slack**: suppress ephemeral nudges for passive channel posts (#2045)
+
+## 0.5.25 (2026-06-26)
+
+### Feat
+
+- **health**: refactor platform health probes to capabilities with profile-aware integration status (#2005)
+
+### Fix
+
+- **ui**: improve sharing/transfer UX and consolidate KB ownership (#2041)
+- **slack**: batch configured channel health audit lookup (#2043)
+- **ui**: cache session auth for repeated api calls
+- **keycloak**: add memory headroom for slack admin loads (#2038)
+- **ui**: actually use the seedConfig source for mcp
+- **webex**: simplify space onboarding and direct routing
+- **mcp**: stabilize tool schema and health scans
+- **chat**: restore user and team share visibility (#2031)
+- **admin**: collapse long user team lists (#2034)
+
+## 0.5.24 (2026-06-26)
+
+### Feat
+
+- **mcp**: add mcpSecrets alias with deprecation of agentSecrets
+- **admin**: add access explorer and rbac self check
+
+### Fix
+
+- **mcp**: set mcpSecrets default to empty map, guard against nil
+- **mcp**: guard ExternalSecret data/dataFrom to prevent empty-list rejection
+- **chart**: wire AGENTGATEWAY_TARGETS_TOKEN into caipe-ui and add dev-mode default (#2007)
+- **chat**: stabilize shared conversation list access
+- **chat**: show recipient share permissions
+- **chat**: use shared icon for share control
+- **chat**: preserve owner share controls
+- **chat**: respect shared conversation edit affordance
+- **chat**: show shared-by affordance to recipients
+- **chat**: mark shared recipients in sidebar
+- **chat**: enable team conversation sharing
+- **chat**: show shared badge to recipients
+- **chat**: preserve shared chat UI indicators
+- **chat**: prevent private conversation visibility leak
+- **slack-bot**: log SA name alongside sub in dispatch_identity (SDPL-1984)
+- **slack-bot**: use None fallback for event ts (SDPL-1984)
+- **slack-bot**: match bot allowlist by name OR user ID (SDPL-1984)
+- **slack-bot**: skip Keycloak identity resolution in middleware for bot messages (SDPL-1984)
+
+## 0.5.23 (2026-06-25)
+
+### Feat
+
+- **admin**: drop team_kb_ownership for OpenFGA-sourced KB grants and split Agents/MCPs tabs
+- **admin**: make OpenFGA the source of truth for team resource access and declutter team UI
+
+### Fix
+
+- **audit**: run store.query in thread and narrow health-check lookback to 24h (#2026)
+- **okta-sync**: handle DPoP nonce requirement automatically (#2023)
+- **ci**: use github token for ui ghcr push (#2024)
+- **ci**: use github token for ui tag detection (#2022)
+
+## 0.5.22 (2026-06-25)
+
+### Feat
+
+- **ui**: make release notes user-scoped under General and simplify config (#2017)
+
+### Fix
+
+- **ci**: resolve remaining zizmor findings (#2010)
+
+## 0.5.21-dev.4 (2026-06-25)
+
+### Feat
+
+- **admin**: replace low-level FGA admin tools with team-based user access view (#2016)
+
+### Fix
+
+- **webex**: gate space access on agent assignment, not team membership (#1763)
+
+## 0.5.21-dev.3 (2026-06-24)
+
+### Fix
+
+- **ai-review**: persist grade on create, align AI Suggest to rubric, and fix blocking-message UX (#2014)
+
+## 0.5.21-dev.2 (2026-06-24)
+
+### Feat
+
+- **core**: remove legacy supervisor model and A2A standalone agents (#1728)
+
+## 0.5.21-dev.1 (2026-06-24)
+
+### Feat
+
+- **slack-bot**: bold-italic footer hint and env.example comment cleanup (#2011)
+
+### Fix
+
+- **rbac**: filter OpenFGA tuples server-side in slack channel diagnostics (#2009)
+- **ci**: scope sync-release-branches write perms to the sync job
+- **ci**: scope overly-broad workflow permissions to jobs
+- **ci**: resolve zizmor template-injection and unpinned-action findings
+
+## 0.5.21 (2026-06-23)
+
+### Feat
+
+- **dynamic-agents**: add INVOKE_PERSIST_HISTORY env var to compose
+
+### Fix
+
+- **tests**: update tests to match new fallback and wildcard behaviour
+- **rbac**: add findOneAndUpdate to migration lock test mock
+- **mcp**: allow fallback_env when provider connection is unavailable
+- **service-accounts**: always show wildcard in SA tool picker
+- **rbac**: atomically acquire migration lock to prevent multi-replica race
+
+## 0.5.20 (2026-06-23)
+
 ## 0.5.19-dev.3 (2026-06-23)
 
 ### Feat

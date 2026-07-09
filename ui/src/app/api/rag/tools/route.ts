@@ -3,6 +3,8 @@ import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import { extractRealmRolesFromSession } from "@/lib/rbac/task-skill-realm-access";
+import { listTeamKbGrants } from "@/lib/rbac/team-resource-listing";
+import { ObjectId } from "mongodb";
 import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth";
 import { NextRequest,NextResponse } from "next/server";
@@ -30,13 +32,28 @@ interface TeamRagToolDoc {
   status: string;
 }
 
-interface TeamKbOwnershipDoc {
-  team_id: string;
-  tenant_id: string;
-  kb_ids: string[];
-  allowed_datasource_ids: string[];
-  keycloak_role: string;
-  updated_at: Date;
+/**
+ * The set of datasource ids a team is allowed to bind RAG tools to, derived
+ * from OpenFGA `knowledge_base` grants (the single source of truth — there is
+ * no `team_kb_ownership` store anymore).
+ *
+ * `teamId` is the team's Mongo `_id` string (the `team_member(<id>)` realm
+ * role payload), which we resolve to the team slug FGA grants are keyed under.
+ * Returns `null` when the team can't be resolved or holds no KB grants, which
+ * the callers treat as "no restriction recorded" — matching the prior
+ * behavior where a missing ownership row skipped the check.
+ */
+export async function loadTeamAllowedDatasourceIds(
+  teamId: string,
+): Promise<Set<string> | null> {
+  if (!ObjectId.isValid(teamId)) return null;
+  const teams = await getCollection<{ _id: ObjectId; slug?: string }>("teams");
+  const team = await teams.findOne({ _id: new ObjectId(teamId) } as never);
+  const slug = typeof team?.slug === "string" ? team.slug.trim() : "";
+  if (!slug) return null;
+  const grants = await listTeamKbGrants(slug);
+  if (grants.kbIds.length === 0) return null;
+  return new Set(grants.kbIds);
 }
 
 function extractTeamIds(realmRoles: string[] | undefined): string[] {
@@ -147,14 +164,8 @@ export async function POST(request: NextRequest) {
 
     const requestedDatasources = datasource_ids || [];
     if (requestedDatasources.length > 0) {
-      const ownership = await getCollection<TeamKbOwnershipDoc>("team_kb_ownership");
-      const teamOwnership = await ownership.findOne({
-        team_id,
-        ...(session.org ? { tenant_id: session.org } : {}),
-      });
-
-      if (teamOwnership) {
-        const allowed = new Set(teamOwnership.allowed_datasource_ids);
+      const allowed = await loadTeamAllowedDatasourceIds(team_id);
+      if (allowed) {
         const violations = requestedDatasources.filter((ds) => !allowed.has(ds));
         if (violations.length > 0) {
           throw new ApiError(

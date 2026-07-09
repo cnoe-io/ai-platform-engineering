@@ -29,10 +29,6 @@ interface TeamDoc extends Document {
   _id: unknown;
   slug?: string;
   name?: string;
-  resources?: {
-    agents?: string[];
-    [key: string]: unknown;
-  };
 }
 
 interface DynamicAgentDoc extends Document {
@@ -95,10 +91,6 @@ function readRequiredString(value: string | undefined, field: string): string {
     throw new ApiError(`${field} is required`, 400);
   }
   return trimmed;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 export function canonicalizeWebexSpaceId(spaceId: string): string {
@@ -232,20 +224,9 @@ export async function onboardWebexSpace(
     { upsert: true }
   );
 
-  const teamResources = team.resources ?? {};
-  await teams.updateOne(
-    { _id: team._id } as never,
-    {
-      $set: {
-        resources: {
-          ...teamResources,
-          agents: uniqueStrings([...(teamResources.agents ?? []), agentId]),
-        },
-        updated_by: actor,
-        updated_at: now,
-      },
-    } as never
-  );
+  // The team→agent grant is written to OpenFGA below (the canonical
+  // `team:<slug>#member use agent:<id>` tuple in `writes`), which is the single
+  // source of truth for team↔resource access.
 
   await grants.updateOne(
     {

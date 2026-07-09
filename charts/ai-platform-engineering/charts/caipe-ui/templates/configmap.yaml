@@ -1,3 +1,52 @@
+{{- $schedulerEnabled := dig "scheduler" "enabled" false (.Values.global | default dict) -}}
+{{- $schedulerRunnerSecretName := .Values.schedulerRunnerClient.secretName | default "" -}}
+{{- if and $schedulerEnabled (not $schedulerRunnerSecretName) -}}
+{{- $schedulerRunnerBase := printf "%s-keycloak" .Release.Name | trunc 46 | trimSuffix "-" -}}
+{{- $schedulerRunnerSecretName = printf "%s-scheduler-runner" $schedulerRunnerBase -}}
+{{- end -}}
+{{- $oauthConnectors := .Values.oauthConnectors | default list -}}
+{{- $oauthProviders := dict -}}
+{{- range $index, $connector := $oauthConnectors -}}
+{{- if not (kindIs "map" $connector) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d] must be an object" $index) -}}
+{{- end -}}
+{{- if hasKey $connector "clientSecret" -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].clientSecret is not allowed; use clientSecretEnv with existingSecret or externalSecrets" $index) -}}
+{{- end -}}
+{{- $provider := required (printf "caipe-ui.oauthConnectors[%d].provider is required" $index) $connector.provider -}}
+{{- if hasKey $oauthProviders $provider -}}
+{{- fail (printf "caipe-ui.oauthConnectors provider %q is configured more than once" $provider) -}}
+{{- end -}}
+{{- $_ := set $oauthProviders $provider true -}}
+{{- $_ := required (printf "caipe-ui.oauthConnectors[%d].name is required" $index) $connector.name -}}
+{{- $_ := required (printf "caipe-ui.oauthConnectors[%d].authorizationUrl is required" $index) $connector.authorizationUrl -}}
+{{- $_ := required (printf "caipe-ui.oauthConnectors[%d].tokenUrl is required" $index) $connector.tokenUrl -}}
+{{- if not (hasKey $connector "scopes") -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].scopes is required" $index) -}}
+{{- end -}}
+{{- if not (kindIs "slice" $connector.scopes) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].scopes must be a list" $index) -}}
+{{- end -}}
+{{- if and (hasKey $connector "pkce") (not (kindIs "bool" $connector.pkce)) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].pkce must be a boolean" $index) -}}
+{{- end -}}
+{{- $pkce := $connector.pkce | default false -}}
+{{- if and (not $connector.clientId) (not $connector.clientIdEnv) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d] requires clientId or clientIdEnv" $index) -}}
+{{- end -}}
+{{- if and $connector.clientId $connector.clientIdEnv -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d] must set only one of clientId or clientIdEnv" $index) -}}
+{{- end -}}
+{{- if and (not $pkce) (not $connector.clientSecretEnv) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].clientSecretEnv is required unless pkce is true" $index) -}}
+{{- end -}}
+{{- range $field := list "clientIdEnv" "clientSecretEnv" -}}
+{{- $envName := index $connector $field | default "" -}}
+{{- if and $envName (not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $envName)) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].%s must be a valid environment variable name" $index $field) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,6 +72,17 @@ data:
          See values.yaml `keycloakAdminClient` for the full contract. */}}
   {{- if and .Values.keycloakAdminClient.secretName (not (hasKey .Values.config "KEYCLOAK_ADMIN_CLIENT_ID")) }}
   KEYCLOAK_ADMIN_CLIENT_ID: {{ .Values.keycloakAdminClient.clientId | default "caipe-platform" | quote }}
+  {{- end }}
+  {{- /* Scheduled-run minting client id. Its
+         client_secret is injected via secretKeyRef in deployment.yaml. */}}
+  {{- if and $schedulerRunnerSecretName (not (hasKey .Values.config "KEYCLOAK_SCHEDULER_CLIENT_ID")) }}
+  KEYCLOAK_SCHEDULER_CLIENT_ID: {{ .Values.schedulerRunnerClient.clientId | default "caipe-scheduler-runner" | quote }}
+  {{- end }}
+  {{- if and $schedulerEnabled (not (hasKey .Values.config "SCHEDULER_ENABLED")) }}
+  SCHEDULER_ENABLED: "true"
+  {{- end }}
+  {{- if and (gt (len $oauthConnectors) 0) (not (hasKey .Values.config "CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON")) }}
+  CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: {{ mustToJson $oauthConnectors | quote }}
   {{- end }}
   {{- /* Okta directory sync — flatten the structured `oktaSync:` block
          (Backstage-style) into IDENTITY_SYNC_OKTA_* env vars. Only the

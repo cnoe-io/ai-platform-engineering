@@ -13,7 +13,6 @@ getPaginationParams,
 paginatedResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
-import { getServerConfig } from "@/lib/config";
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
@@ -25,11 +24,6 @@ import { NextRequest } from "next/server";
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
-    return paginatedResponse([], 0, 1, 20);
-  }
-
-  const config = getServerConfig();
-  if (!config.dynamicAgentsEnabled) {
     return paginatedResponse([], 0, 1, 20);
   }
 

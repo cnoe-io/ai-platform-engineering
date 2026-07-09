@@ -113,31 +113,11 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 
 {{/*
 Returns the enabledSubAgents dict as YAML.
-In single-node mode reads from supervisor-agent.singleNode.enabledSubAgents.
-In multi-node mode reads from global.enabledSubAgents for non-A2A exports such as RAG.
+Reads from global.enabledSubAgents, populated by Chart.yaml import-values
+(e.g. global.enabledSubAgents.backstage.enabled: true).
 */}}
 {{- define "ai-platform-engineering.enabledSubAgents" -}}
-{{- if eq .Values.global.deploymentMode "single-node" -}}
-{{- (index .Values "supervisor-agent").singleNode.enabledSubAgents | default dict | toYaml -}}
-{{- else -}}
 {{- .Values.global.enabledSubAgents | default dict | toYaml -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Prefix for single-node in-cluster MCP Kubernetes names: {prefix}-agent-<name>[-mcp].
-When global.singleNode.mcpResourcePrefix is non-empty, use it (e.g. "single-node" for readable kubectl).
-When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays stable.
-*/}}
-{{- define "ai-platform-engineering.singleNodeMcpResourcePrefix" -}}
-{{- $g := .Values.global | default dict }}
-{{- $sn := index $g "singleNode" | default dict }}
-{{- $p := index $sn "mcpResourcePrefix" | default "" }}
-{{- if ne $p "" -}}
-{{- $p -}}
-{{- else -}}
-{{- .Release.Name -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "ai-platform-engineering.appVersion" -}}
@@ -193,17 +173,25 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- $targets := list -}}
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" $root | fromYaml) -}}
 {{- if $enabled -}}
-{{- $agentValues := index $root.Values (printf "agent-%s" $name) | default dict -}}
+{{- $agentValues := index $root.Values (printf "mcp-%s" $name) | default dict -}}
 {{- $mcp := $agentValues.mcp | default dict -}}
 {{- $sub := $mcp.agentgateway | default dict -}}
 {{- if $sub.enabled -}}
-{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-agent-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
+{{- $targetId := $sub.id | default $name -}}
+{{- $pathPrefix := $sub.pathPrefix | default (printf "/mcp/%s" $targetId) -}}
+{{- $entry := dict "id" $targetId "pathPrefix" $pathPrefix "host" (printf "%s-mcp-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
 {{- if eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $sub) "true" -}}
 {{- $_ := set $entry "providerTokenAuth" true -}}
 {{- end -}}
 {{- $targets = append $targets $entry -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- $schedulerEnabled := dig "scheduler" "enabled" false ($root.Values.global | default dict) -}}
+{{- $schedulerMcp := $root.Values.schedulerMcp | default dict -}}
+{{- if and $schedulerEnabled ($schedulerMcp.enabled | default false) -}}
+{{- $schedulerService := $schedulerMcp.service | default dict -}}
+{{- $targets = append $targets (dict "id" "scheduler" "pathPrefix" "/mcp/scheduler" "host" (printf "%s.%s.svc.cluster.local" ($schedulerMcp.nameOverride | default "mcp-scheduler") $ns) "port" ($schedulerService.port | default 8000) "protocol" "StreamableHTTP") -}}
 {{- end -}}
 {{- $kb := $agw.knowledgeBaseTarget | default dict -}}
 {{- if or (not (hasKey $kb "enabled")) $kb.enabled -}}

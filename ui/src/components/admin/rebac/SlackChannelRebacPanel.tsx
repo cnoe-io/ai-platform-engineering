@@ -179,10 +179,12 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     advancedRegion: "Advanced Setup - Import/Sync with Slackbot",
   },
 
-  discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) =>
-    discoveredCount > 0
-      ? `${discoveredCount} bot-member found · ${newCount} new · ${configuredCount} in CAIPE · ${unassignedCount} missing team`
-      : `${configuredCount} in CAIPE · ${unassignedCount} missing team`,
+  discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) => [
+    `Discovered: ${discoveredCount}`,
+    `Configured: ${configuredCount}`,
+    ...(newCount > 0 ? [`New: ${newCount}`] : []),
+    ...(unassignedCount > 0 ? [`Missing team: ${unassignedCount}`] : []),
+  ].join(" · "),
 
   staticConfigLabel: ({ items, routes }) => `${items} channels / ${routes} routes`,
   routeCacheLabel: (count) => `${count} cached channel${count === 1 ? "" : "s"}`,

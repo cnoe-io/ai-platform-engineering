@@ -29,7 +29,6 @@ export interface ResourceBooleanDiff {
 
 export interface TeamResourceTupleDiffInput {
   teamSlug: string;
-  memberUserIds: string[];
   agents: ResourceStringDiff;
   agentAdmins: ResourceStringDiff;
   tools: ResourceStringDiff;
@@ -147,6 +146,23 @@ function resourceTuples(
 
 const MCP_TOOL_WILDCARD_SUFFIX = "_*";
 const MCP_TOOL_SLASH_WILDCARD_SUFFIX = "/*";
+
+/**
+ * Marker object recording that a team opted into the "all MCP servers" tool
+ * wildcard. AgentGateway only ever checks per-server objects (`tool:<server>/*`)
+ * so this `tool:*` object is never consulted at runtime — it exists purely so
+ * `tool_wildcard` intent lives in OpenFGA (the single source of truth) rather
+ * than the dropped `team.resources` array. A `team:<slug>#member caller tool:*`
+ * tuple is the authoritative "wildcard on" signal: the per-team resources route
+ * writes/clears it, and the MCP-server reconciler reads its callers to know
+ * which teams a freshly-added server must be auto-granted to.
+ */
+export const TEAM_TOOL_WILDCARD_SENTINEL_OBJECT = "tool:*";
+
+/** The `team:<slug>#member caller tool:*` sentinel tuple for a team. */
+export function teamToolWildcardSentinelTuple(teamSlug: string): OpenFgaTupleKey {
+  return { user: `team:${teamSlug}#member`, relation: "caller", object: TEAM_TOOL_WILDCARD_SENTINEL_OBJECT };
+}
 
 function mcpServerIdFromToolPrefix(toolId: string): string | null {
   let serverId: string | null = null;
@@ -297,20 +313,18 @@ function mcpServerLegacyToolGrantDeletes(teamSlug: string, toolIds: string[]): O
 }
 
 export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): TeamResourceTupleDiff {
-  const teamObject = `team:${input.teamSlug}`;
-  const memberTuples = input.memberUserIds.map((userId) => ({
-    user: `user:${userId}`,
-    relation: "member",
-    object: teamObject,
-  }));
-
+  // Resource grants are keyed on the `team:<slug>#member` / `#admin` userset, so
+  // a member's access is resolved transitively at check time via their
+  // `user:<id> member team:<slug>` membership tuple. Those membership tuples are
+  // owned exclusively by the team-membership writers (members route + sync/audit
+  // reconcilers), NOT this resource-save path — re-writing them here forced an
+  // O(members) Keycloak email→id lookup on every save for no authorization gain.
   const addedTools = splitTeamToolSelections(input.tools.added);
   const removedTools = splitTeamToolSelections(input.tools.removed);
   const wildcardServerSelections = mcpServerSelectionsFromIds(input.allMcpServerIds ?? []);
   const combinedToolIds = combinedTeamToolIds(input.tools.added, input.tools.removed);
 
   const writes = uniqueTuples([
-    ...memberTuples,
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", addedTools.directToolIds),
@@ -881,7 +895,7 @@ async function compensateAppliedChunks(
  */
 const DEFAULT_OPENFGA_READ_CONCURRENCY = 32;
 
-function openFgaReadConcurrency(): number {
+export function openFgaReadConcurrency(): number {
   const fromEnv = Number(process.env.OPENFGA_READ_CONCURRENCY);
   if (Number.isFinite(fromEnv) && fromEnv >= 1) {
     return Math.floor(fromEnv);
@@ -895,7 +909,7 @@ function openFgaReadConcurrency(): number {
  * call (same semantics as `Promise.all`), so callers' error handling is
  * unchanged from the previous unbounded implementation.
  */
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,

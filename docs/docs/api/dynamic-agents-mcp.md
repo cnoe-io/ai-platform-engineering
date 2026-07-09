@@ -73,9 +73,9 @@ Lists dynamic agent documents from MongoDB (`dynamic_agents`) with visibility ru
 
 ### POST `/api/dynamic-agents`
 
-**Auth:** Session (**admin**) | **Service:** UI Backend API → `POST {DYNAMIC_AGENTS_URL}/api/v1/agents`
+**Auth:** Session (**admin**) | **Service:** UI Backend API (MongoDB + OpenFGA)
 
-Creates an agent. The backend generates `_id` (e.g. `dynamic-agent-<timestamp>`). Body is forwarded to FastAPI as JSON.
+Creates an agent. The BFF generates `_id` (e.g. `dynamic-agent-<timestamp>`) and owns configuration persistence plus OpenFGA relationship reconciliation.
 
 **Request body:**
 
@@ -123,7 +123,7 @@ Creates an agent. The backend generates `_id` (e.g. `dynamic-agent-<timestamp>`)
 
 ### PUT `/api/dynamic-agents?id={agent_id}`
 
-**Auth:** Session (**admin**) | **Service:** UI Backend API → `PATCH /api/v1/agents/{id}`
+**Auth:** Session (**admin**) | **Service:** UI Backend API (MongoDB + OpenFGA)
 
 Partial update. Query param `id` is required.
 
@@ -156,7 +156,7 @@ Partial update. Query param `id` is required.
 
 ### DELETE `/api/dynamic-agents?id={agent_id}`
 
-**Auth:** Session (**admin**) | **Service:** UI Backend API → `DELETE /api/v1/agents/{id}`
+**Auth:** Session (**admin**) | **Service:** UI Backend API (MongoDB + OpenFGA)
 
 **Response `200`:**
 
@@ -802,85 +802,7 @@ If MongoDB is not configured, `needsSeeding` is `false` and a message explains i
 
 ---
 
-## Task Configurations
-
-MongoDB `task_configs`. Requires MongoDB.
-
-### GET `/api/task-configs`
-
-**Auth:** Session (authenticated) | **Service:** UI Backend API
-
-- No query: **raw array** of visible task configs.
-- `?id={id}`: **raw** single config.
-- `?format=yaml`: aggregated YAML-friendly JSON object for export.
-
-**Errors:** `503` MongoDB not configured; `404`.
-
----
-
-### POST `/api/task-configs`
-
-**Auth:** Session (authenticated) | **Service:** UI Backend API
-
-**Request body:** Same shape as agent-configs tasks (`name`, `category`, `tasks[]` with `display_text`, `llm_prompt`, `subagent`), plus optional `visibility`, `shared_with_teams`, `metadata`.
-
-**Response `201`:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "task-config-1730000000-abcd",
-    "message": "Task config created successfully"
-  }
-}
-```
-
----
-
-### PUT `/api/task-configs?id={id}` / DELETE `/api/task-configs?id={id}`
-
-**Auth:** Session (authenticated; system configs admin-only for modify/delete) | **Service:** UI Backend API
-
-**Response `200`:** `{ "success": true, "data": { "id", "message" } }`.
-
----
-
-### GET `/api/task-configs/seed`
-
-**Auth:** Session (authenticated) | **Service:** UI Backend API
-
-If system configs already exist, skips file seed.
-
-**Response `200`:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "seeded": false,
-    "message": "Skipped seeding — 12 system task configs already exist",
-    "count": 12
-  }
-}
-```
-
----
-
-### POST `/api/task-configs/seed`
-
-**Auth:** Session (authenticated); **`?action=reset` requires admin** | **Service:** UI Backend API
-
-- **Default body:** `{ "yaml_content": "..." }` **or** `{ "configs": { ... } }` — inserts configs whose `name` is not already present.
-- **`?action=reset`:** Re-upserts system task configs from mounted `task_config.yaml` (admin only).
-
-**Response `200`:** e.g. `{ "success": true, "data": { "seeded": true, "message", "count", "total" } }` or reset stats (`updated`, `inserted`, `total`).
-
-**Errors:** `400` body; `404` YAML file missing on reset; `403` non-admin reset.
-
----
-
-## Tools & Models (builtin tools, LLM models, supervisor tools)
+## Tools & Models
 
 ### GET `/api/dynamic-agents/builtin-tools`
 
@@ -912,7 +834,7 @@ If system configs already exist, skips file seed.
 }
 ```
 
-**Errors:** `403` dynamic agents disabled; `500` URL not configured / backend error.
+**Errors:** `500` URL not configured / backend error.
 
 ---
 
@@ -935,30 +857,6 @@ If system configs already exist, skips file seed.
   ]
 }
 ```
-
----
-
-### GET `/api/agents/tools`
-
-**Auth:** Session (optional — forwards `Authorization` when present) | **Service:** UI Backend API → `{caipeUrl}/tools` (supervisor)
-
-Returns supervisor tool map (not Dynamic Agents).
-
-**Response `200`:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "tools": {
-      "github": ["gh_create_pr", "gh_list_repos"],
-      "aws": ["aws_describe_instances"]
-    }
-  }
-}
-```
-
-**Errors:** `502` supervisor error or unreachable.
 
 ---
 
@@ -1016,28 +914,13 @@ Service banner.
 
 ---
 
-### Agents (`/api/v1/agents`)
+### Agents configuration
 
-| Method | Path | Auth | Notes |
-|--------|------|------|--------|
-| GET | `/api/v1/agents` | User | Paginated: `page`, `limit` — `items`, `total`, `page`, `limit`, `total_pages` |
-| POST | `/api/v1/agents` | Admin | Body: `DynamicAgentConfigCreate` |
-| GET | `/api/v1/agents/{agent_id}` | User | `ApiResponse` with agent |
-| PATCH | `/api/v1/agents/{agent_id}` | Admin | Partial update |
-| DELETE | `/api/v1/agents/{agent_id}` | Admin | System / config-driven rules apply |
-| GET | `/api/v1/agents/{agent_id}/available-subagents` | Admin | `{ "agents": [...] }` inside `data` |
-
-**Example paginated response:**
-
-```json
-{
-  "items": [{ "_id": "dynamic-agent-1730000000000", "name": "Helper" }],
-  "total": 1,
-  "page": 1,
-  "limit": 20,
-  "total_pages": 1
-}
-```
+Dynamic Agents no longer exposes `/api/v1/agents` CRUD routes. The Web UI BFF owns agent
+configuration writes through `/api/dynamic-agents` and persists agent metadata directly,
+including OpenFGA relationship reconciliation. The Dynamic Agents service remains the
+runtime reader for chat, conversation, file, MCP, built-in tool, assistant, and middleware
+routes.
 
 ---
 

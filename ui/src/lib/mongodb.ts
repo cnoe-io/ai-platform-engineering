@@ -292,14 +292,6 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'workflow_runs', { status: 1 }),
     safeCreateIndex(db, 'workflow_runs', { started_at: -1 }),
 
-    // Task configs collection (Task Builder)
-    safeCreateIndex(db, 'task_configs', { id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'task_configs', { name: 1 }, { unique: true }),
-    safeCreateIndex(db, 'task_configs', { category: 1 }),
-    safeCreateIndex(db, 'task_configs', { owner_id: 1 }),
-    safeCreateIndex(db, 'task_configs', { is_system: 1 }),
-    safeCreateIndex(db, 'task_configs', { created_at: -1 }),
-
     // Policies collection (global ASP policy for system workflows)
     safeCreateIndex(db, 'policies', { name: 1 }, { unique: true }),
     safeCreateIndex(db, 'policies', { is_system: 1 }),
@@ -319,11 +311,6 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
-
-    // 098 RBAC: Team/KB ownership assignments
-    safeCreateIndex(db, 'team_kb_ownership', { team_id: 1, tenant_id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'team_kb_ownership', { tenant_id: 1 }),
-    safeCreateIndex(db, 'team_kb_ownership', { keycloak_role: 1 }),
 
     // 098 RBAC: Team-scoped RAG tool configurations
     safeCreateIndex(db, 'team_rag_tools', { tool_id: 1 }, { unique: true }),

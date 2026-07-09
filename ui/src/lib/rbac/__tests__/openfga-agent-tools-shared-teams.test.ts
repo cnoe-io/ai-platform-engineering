@@ -19,7 +19,7 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     ownerTeamSlug: "platform",
   } as const;
 
-  it("writes member+admin tuples for every additional shared team (no member writer)", () => {
+  it("writes member+admin tuples for the owner team but use-only for shared teams (no member writer)", () => {
     const diff = buildAgentRelationshipTupleDiff({
       ...baseInput,
       nextSharedTeamSlugs: ["sre", "ops"],
@@ -28,17 +28,20 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
 
     expect(diff.writes).toEqual(
       expect.arrayContaining([
+        // owner team members get both user and manager
         { user: "team:platform#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:platform#member", relation: "manager", object: "agent:agent-test" },
         { user: "team:platform#admin", relation: "manager", object: "agent:agent-test" },
+        // shared team members AND admins only get user — sharing is use-only
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
-        { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "user", object: "agent:agent-test" },
-        { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
     expect(diff.writes).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ relation: "writer" }),
+        { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
+        { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
     expect(diff.deletes).toEqual(
@@ -46,6 +49,10 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
         { user: "team:platform#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:sre#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "writer", object: "agent:agent-test" },
+        // stale/never-existed admin-manager grants for shared teams are
+        // always revoked defensively, whether or not they were ever written
+        { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
+        { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
   });
@@ -61,10 +68,12 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     const platformMemberWrites = diff.writes.filter(
       (t) => t.user === "team:platform#member" && t.object === "agent:agent-test",
     );
-    expect(platformMemberWrites.map((t) => t.relation).sort()).toEqual(["user"]);
+    // owner team members get user + manager (no duplicates)
+    expect(platformMemberWrites.map((t) => t.relation).sort()).toEqual(["manager", "user"]);
     const sreMemberWrites = diff.writes.filter(
       (t) => t.user === "team:sre#member" && t.object === "agent:agent-test",
     );
+    // shared-only team members get just user
     expect(sreMemberWrites.map((t) => t.relation).sort()).toEqual(["user"]);
   });
 
@@ -103,10 +112,12 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
       previousSharedTeamSlugs: ["sre"],
     });
 
+    // old owner team loses its user grant (from teamGrants diff) and its member manager grant
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "user", object: "agent:agent-test" },
         { user: "team:platform#member", relation: "writer", object: "agent:agent-test" },
+        { user: "team:platform#member", relation: "manager", object: "agent:agent-test" },
         { user: "team:platform#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
@@ -115,9 +126,11 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
         expect.objectContaining({ user: "team:sre#member", relation: "user" }),
       ]),
     );
+    // new owner team gets user + manager for members
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:sre#member", relation: "manager", object: "agent:agent-test" },
         { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
@@ -140,12 +153,13 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
       .filter((u) => u.startsWith("team:"));
     expect(teamSubjects).toEqual(
       expect.arrayContaining([
-        "team:platform#member",
+        "team:platform#member", // user
+        "team:platform#member", // manager (owner team)
         "team:platform#admin",
-        "team:sre#member",
-        "team:sre#admin",
+        "team:sre#member", // shared team: use-only, no #admin manager
       ]),
     );
+    expect(teamSubjects).not.toContain("team:sre#admin");
     for (const subject of teamSubjects) {
       expect(subject).not.toMatch(/team:\s/);
       expect(subject).not.toMatch(/team:!/);
@@ -168,6 +182,8 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     );
     expect(diff.writes).toEqual(
       expect.arrayContaining([
+        // owner team members get manager
+        { user: "team:platform#member", relation: "manager", object: "agent:agent-test" },
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "user", object: "agent:agent-test" },
       ]),
@@ -175,6 +191,62 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     expect(diff.writes).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ relation: "writer" }),
+      ]),
+    );
+    // shared-only teams must NOT receive the member manager grant
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        { user: "team:sre#member", relation: "manager", object: "agent:agent-test" },
+      ]),
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        { user: "team:ops#member", relation: "manager", object: "agent:agent-test" },
+      ]),
+    );
+  });
+
+  it("emits no member manager write when ownerTeamSlug is absent", () => {
+    const diff = buildAgentRelationshipTupleDiff({
+      agentId: "agent-test",
+      previousAllowedTools: {},
+      nextAllowedTools: {},
+      ownerSubject: "alice-sub",
+      organizationId: "caipe",
+      // no ownerTeamSlug
+    });
+
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: "manager", user: expect.stringContaining("#member") }),
+      ]),
+    );
+    expect(diff.deletes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: "manager", user: expect.stringContaining("#member") }),
+      ]),
+    );
+  });
+
+  it("deletes member manager grant when owner team is removed (transfer to no team)", () => {
+    const diff = buildAgentRelationshipTupleDiff({
+      agentId: "agent-test",
+      previousAllowedTools: {},
+      nextAllowedTools: {},
+      ownerSubject: "alice-sub",
+      organizationId: "caipe",
+      ownerTeamSlug: undefined,
+      previousOwnerTeamSlug: "platform",
+    });
+
+    expect(diff.deletes).toEqual(
+      expect.arrayContaining([
+        { user: "team:platform#member", relation: "manager", object: "agent:agent-test" },
+      ]),
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: "manager", user: expect.stringContaining("#member") }),
       ]),
     );
   });

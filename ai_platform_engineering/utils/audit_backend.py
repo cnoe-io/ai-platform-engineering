@@ -41,7 +41,6 @@ class NoopAuditBackend:
     """Drop audit events when audit collection is intentionally disabled."""
 
     def write(self, event: Dict[str, Any]) -> None:
-        # assisted-by Codex Codex-sonnet-4-6
         return None
 
 

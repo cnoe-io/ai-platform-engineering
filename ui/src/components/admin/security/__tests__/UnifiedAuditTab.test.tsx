@@ -499,6 +499,12 @@ describe('UnifiedAuditTab', () => {
           }),
         });
       }
+      if (url.includes('/api/admin/audit-storage')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ storage: null, retention: null, verbosity: null, errors: [] }),
+        });
+      }
       auditEventUrls.push(url);
       return Promise.resolve(
         auditResponses.shift() ?? {

@@ -124,25 +124,44 @@ async function loadTeamSlugs(now: string, warnings: string[]): Promise<string[]>
   return [...slugs].sort();
 }
 
-async function recordRunning(actor: string, now: string): Promise<void> {
+// Pods that lose the race or find a completed migration return immediately.
+// A lock older than LOCK_TTL_MS is treated as stale (crashed pod) and overwritten.
+const LOCK_TTL_MS = 5 * 60 * 1000;
+
+async function acquireMigrationLock(actor: string, now: string): Promise<boolean> {
+  const staleThreshold = new Date(Date.now() - LOCK_TTL_MS).toISOString();
   const migrations = await getCollection<StringIdRow>("schema_migrations");
-  await migrations.updateOne(
-    { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
-    {
-      $set: {
-        release: KEYCLOAK_RBAC_MIGRATION_DEFINITION.release,
-        schema_area: KEYCLOAK_RBAC_SCHEMA_AREA,
-        from_version: 0,
-        to_version: KEYCLOAK_RBAC_SCHEMA_VERSION,
-        kind: "implicit",
-        status: "running",
-        updated_at: now,
-        updated_by: actor,
+  try {
+    const result = await migrations.findOneAndUpdate(
+      {
+        _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
+        $or: [
+          { status: { $nin: ["running", "completed"] } },
+          { status: "running", locked_at: { $lt: staleThreshold } },
+        ],
       },
-      $setOnInsert: { created_at: now, created_by: actor },
-    },
-    { upsert: true }
-  );
+      {
+        $set: {
+          release: KEYCLOAK_RBAC_MIGRATION_DEFINITION.release,
+          schema_area: KEYCLOAK_RBAC_SCHEMA_AREA,
+          from_version: 0,
+          to_version: KEYCLOAK_RBAC_SCHEMA_VERSION,
+          kind: "implicit",
+          status: "running",
+          locked_at: now,
+          updated_at: now,
+          updated_by: actor,
+        },
+        $setOnInsert: { created_at: now, created_by: actor },
+      },
+      { upsert: true, returnDocument: "after" }
+    );
+    return result !== null;
+  } catch (e: unknown) {
+    // E11000: document exists with status running/completed — another pod won the race.
+    if ((e as { code?: number }).code === 11000) return false;
+    throw e;
+  }
 }
 
 async function recordCompleted(input: {
@@ -290,9 +309,18 @@ export async function runKeycloakRbacStartupMigration(input: {
     };
   }
 
+  const acquired = await acquireMigrationLock(actor, now);
+  if (!acquired) {
+    return {
+      migration_id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
+      status: "skipped",
+      counts,
+      warnings: ["Migration already running or completed on another pod; skipped."],
+    };
+  }
+
   try {
     await seedManifest(now);
-    await recordRunning(actor, now);
     const teamSlugs = await loadTeamSlugs(now, warnings);
     counts.mongo_teams_seen = teamSlugs.length;
 

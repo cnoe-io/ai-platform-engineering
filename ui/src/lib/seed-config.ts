@@ -118,7 +118,7 @@ function expandEnvVars(value: unknown): unknown {
 // YAML loading
 // ═══════════════════════════════════════════════════════════════
 
-function loadSeedConfig(configPath: string): SeedConfig {
+export function loadSeedConfig(configPath: string): SeedConfig {
   console.log(`[seed-config] Loading configuration from: ${configPath}`);
 
   if (!fs.existsSync(configPath)) {
@@ -219,6 +219,14 @@ async function seedAgents(
 
     // Preserve created_at if document already exists
     const existing = await collection.findOne({ _id: agentId });
+
+    if (existing?.config_import_adopted === true) {
+      console.log(
+        `[seed-config] Skipping agent ${agentId}: adopted via import, YAML seed ignored`,
+      );
+      continue;
+    }
+
     const createdAt = existing?.created_at ?? now;
 
     // Optional `owner_team` (slug) in the config makes the seeded agent owned by
@@ -291,6 +299,77 @@ async function seedAgents(
   return count;
 }
 
+/**
+ * Adopt a set of config-driven agents into the DB as the source of truth.
+ *
+ * Sets `config_import_adopted: true` (so `seedAgents()`/`cleanupStaleConfigDriven()`
+ * skip these IDs on every future restart, even while they remain in the YAML
+ * seed file) and `config_driven: false` (so the admin UI treats them as
+ * editable/deletable, matching every other DB-native agent). Applies the
+ * given owner/shared team assignment to each adopted agent and reconciles
+ * the corresponding OpenFGA tuples.
+ *
+ * Only agents currently present with `config_driven: true` are eligible —
+ * already-adopted or DB-native agents are skipped so a re-run (or an
+ * overlapping id list) can't silently reassign teams on agents outside the
+ * batch the admin picked.
+ */
+export async function adoptConfigImportedAgents(
+  agentIds: string[],
+  teamAssignment: { ownerTeamSlug: string | null; sharedTeamSlugs: string[] },
+): Promise<{ adopted: string[]; skipped: string[] }> {
+  const collection = await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const ownerTeamSlug = teamAssignment.ownerTeamSlug;
+  const sharedTeamSlugs = teamAssignment.sharedTeamSlugs.filter(
+    (slug) => slug !== ownerTeamSlug,
+  );
+  const adopted: string[] = [];
+  const skipped: string[] = [];
+
+  for (const agentId of agentIds) {
+    const existing = await collection.findOne({ _id: agentId });
+    if (!existing || existing.config_driven !== true || existing.config_import_adopted === true) {
+      skipped.push(agentId);
+      continue;
+    }
+
+    const nextVisibility: VisibilityType = ownerTeamSlug ? "team" : existing.visibility;
+    const now = new Date().toISOString();
+
+    await collection.updateOne(
+      { _id: agentId },
+      {
+        $set: {
+          config_driven: false,
+          config_import_adopted: true,
+          visibility: nextVisibility,
+          owner_team_slug: ownerTeamSlug ?? undefined,
+          shared_with_teams: sharedTeamSlugs.length > 0 ? sharedTeamSlugs : undefined,
+          updated_at: now,
+        },
+      },
+    );
+
+    await reconcileSeededAgentRelationships({
+      agentId,
+      previousAllowedTools: existing.allowed_tools,
+      nextAllowedTools: existing.allowed_tools,
+      ownerTeamSlug,
+      previousOwnerTeamSlug: existing.owner_team_slug ?? null,
+      nextSharedTeamSlugs: sharedTeamSlugs,
+      previousSharedTeamSlugs: normalizeStringArray(existing.shared_with_teams),
+      globalUserAccess: nextVisibility === "global",
+      previousGlobalUserAccess: existing.visibility === "global",
+      logContext: "config import adopt",
+    });
+
+    console.log(`[seed-config] Adopted config-imported agent: ${agentId}`);
+    adopted.push(agentId);
+  }
+
+  return { adopted, skipped };
+}
+
 async function seedMCPServers(
   servers: Record<string, unknown>[],
 ): Promise<number> {
@@ -313,8 +392,22 @@ async function seedMCPServers(
     // Preserve created_at if document already exists
     const existing = await collection.findOne({ _id: serverId });
     const createdAt = existing?.created_at ?? now;
+    const source: MCPServerConfig["source"] | undefined =
+      serverData.source === "manual" ||
+      serverData.source === "config" ||
+      serverData.source === "agentgateway"
+        ? serverData.source
+        : undefined;
+    const agentgatewayEndpoint =
+      typeof serverData.agentgateway_endpoint === "string"
+        ? serverData.agentgateway_endpoint
+        : undefined;
+    const agentgatewayTargetEndpoint =
+      typeof serverData.agentgateway_target_endpoint === "string"
+        ? serverData.agentgateway_target_endpoint
+        : undefined;
 
-    const doc = {
+    const doc: MCPServerConfig = {
       _id: serverId,
       name: (serverData.name as string) ?? serverId,
       description: (serverData.description as string) ?? "",
@@ -323,8 +416,18 @@ async function seedMCPServers(
       command: (serverData.command as string) ?? undefined,
       args: (serverData.args as string[]) ?? undefined,
       env: (serverData.env as Record<string, string>) ?? undefined,
+      credential_sources: Array.isArray(serverData.credential_sources)
+        ? (serverData.credential_sources as MCPServerConfig["credential_sources"])
+        : undefined,
       enabled: (serverData.enabled as boolean) ?? true,
       config_driven: true,
+      source,
+      agentgateway_discovered:
+        typeof serverData.agentgateway_discovered === "boolean"
+          ? serverData.agentgateway_discovered
+          : undefined,
+      agentgateway_endpoint: agentgatewayEndpoint,
+      agentgateway_target_endpoint: agentgatewayTargetEndpoint,
       created_at: createdAt,
       updated_at: now,
     };
@@ -500,7 +603,7 @@ export async function cleanupStaleConfigDriven(
   const agentCollection =
     await getCollection<DynamicAgentConfig>("dynamic_agents");
   const staleAgents = await agentCollection
-    .find({ config_driven: true })
+    .find({ config_driven: true, config_import_adopted: { $ne: true } } as never)
     .toArray();
   let agentsDeleted = 0;
   for (const agent of staleAgents) {

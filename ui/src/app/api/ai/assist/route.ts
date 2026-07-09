@@ -31,6 +31,7 @@ getAiAssistTask,
 type AiAssistContext,
 } from "@/lib/server/ai-assist-tasks";
 import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
+import { loadRubricGuidance } from "@/lib/server/ai-review/rubric-guidance";
 import { NextRequest } from "next/server";
 
 /**
@@ -162,6 +163,19 @@ export async function POST(request: NextRequest) {
   const userMessage = task.buildUserMessage(context);
   const model = await resolveModel(body.model, task.defaultModel(process.env));
 
+  // When the task feeds a graded surface, append the live AI Review rubric to
+  // the system prompt so generated content clears the grader on the first try.
+  // A failed rubric load is non-fatal: fall back to the base system prompt.
+  let systemPrompt = task.systemPrompt;
+  if (task.reviewTarget) {
+    try {
+      const guidance = await loadRubricGuidance(task.reviewTarget);
+      if (guidance) systemPrompt = `${systemPrompt}\n\n${guidance}`;
+    } catch {
+      // Rubric unavailable — generate against the base prompt unchanged.
+    }
+  }
+
   // Forward bearer + trace headers in addition to X-User-Context so the
   // dynamic-agents `JwtAuthMiddleware` accepts the call. Without this the
   // backend returns 401 ("Backend error: Unauthorized") even for signed-in
@@ -195,7 +209,7 @@ export async function POST(request: NextRequest) {
         });
 
         const result = await fetchAssistantSuggest(headers, {
-          system_prompt: task.systemPrompt,
+          system_prompt: systemPrompt,
           user_message: userMessage,
           model,
         });

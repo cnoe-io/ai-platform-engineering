@@ -36,11 +36,10 @@ on:
         default: ''
 
 permissions:
-  contents: write
-  issues: write
-  packages: write
-  pull-requests: write
   actions: read
+  contents: write
+  packages: write
+  pull-requests: read
 
 jobs:
   publish-prebuild:
@@ -60,6 +59,11 @@ jobs:
       - name: 🔍 Get PR details
         id: pr-info
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          INPUT_HEAD_REF: ${{ inputs.head_ref }}
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_BASE_REF: ${{ inputs.base_ref }}
+          INPUT_BASE_SHA: ${{ inputs.base_sha }}
         with:
           script: |
             const prNumber = '${{ steps.bump-status.outputs.pr_number }}';
@@ -74,12 +78,12 @@ jobs:
               pull_number: parseInt(prNumber)
             });
 
-            const inputHeadRef = '${{ inputs.head_ref }}';
-            const inputHeadSha = '${{ inputs.head_sha }}';
+            const inputHeadRef = process.env.INPUT_HEAD_REF || '';
+            const inputHeadSha = process.env.INPUT_HEAD_SHA || '';
             const headRef = inputHeadRef || pr.head.ref;
             const headSha = inputHeadSha || pr.head.sha;
-            const inputBaseRef = '${{ inputs.base_ref }}';
-            const inputBaseSha = '${{ inputs.base_sha }}';
+            const inputBaseRef = process.env.INPUT_BASE_REF || '';
+            const inputBaseSha = process.env.INPUT_BASE_SHA || '';
             const baseRef = inputBaseRef || pr.base.ref;
             const baseSha = inputBaseSha || pr.base.sha;
 
@@ -97,7 +101,7 @@ jobs:
             console.log(`Labels: ${pr.labels.map(l => l.name).join(', ')}`);
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
         with:
           ref: ${{ steps.pr-info.outputs.head_sha }}
           fetch-depth: 0
@@ -185,14 +189,17 @@ jobs:
 
       - name: ⚙️ Set up Helm
         if: steps.version-check.outputs.skip != 'true'
-        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.14.0
 
       - name: 🔐 Login to GHCR
         if: steps.version-check.outputs.skip != 'true'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
         run: |
-          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
 
       - name: 🔍 Detect Changed Charts
         if: steps.version-check.outputs.skip != 'true'

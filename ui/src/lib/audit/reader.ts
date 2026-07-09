@@ -28,6 +28,8 @@ export interface AuditQueryOptions {
   userEmail?: string;
   /** Maximum rows to return. Defaults to 1000. */
   limit?: number;
+  /** Optional client-side timeout for advisory reads. */
+  timeoutMs?: number;
 }
 
 export interface AuditReader {

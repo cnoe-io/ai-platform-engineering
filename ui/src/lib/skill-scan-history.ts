@@ -42,7 +42,7 @@ export interface SkillScanHistoryDoc {
   actor?: string;
   scan_status: ScanStatus;
   scan_summary?: string;
-  /** True when the supervisor was unreachable / SKILL.md was empty. */
+  /** True when the scanner was unreachable / SKILL.md was empty. */
   scanner_unavailable?: boolean;
   /** Wall time of the scan call in ms. */
   duration_ms?: number;

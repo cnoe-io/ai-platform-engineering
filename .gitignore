@@ -206,6 +206,7 @@ charts/*/tmp/*
 ## Only allow svg
 *.png
 !ai_platform_engineering/knowledge_bases/rag/webui/src/assets/icons/*.png
+!docs/screenshots/*.png
 *.jpg
 *.jpeg
 
@@ -318,6 +319,10 @@ app-config.local.yaml
 config/*.local.yaml
 config/*.local.yml
 
+# Webex recording exports
+*.vtt
+*.har
+
 # Scratch files commonly created by coding agents when drafting PR descriptions.
 # These should be passed to `gh pr edit --body-file` and then deleted, never committed.
 PR_BODY.md
@@ -328,3 +333,5 @@ COMMIT_BODY.md
 # GitHub App credentials (never commit)
 .github-apps-credentials/
 reports/
+
+*.drawio

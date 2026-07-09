@@ -9,7 +9,6 @@ authors = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "a2a-sdk==0.3.0",
     "cnoe-agent-utils==0.4.0",
     "httpx==0.28.1",
     "langchain-core==1.4.8",

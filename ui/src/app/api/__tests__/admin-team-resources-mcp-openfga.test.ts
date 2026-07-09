@@ -48,6 +48,23 @@ jest.mock("@/lib/authz", () => ({
   reconcileTupleDiff: (...a: unknown[]) => mockReconcileTupleDiff(...a),
 }));
 
+// Previous-state reads now come from OpenFGA (single source of truth). These
+// integration tests assert the WRITE tuples, so default to no prior grants
+// (every selection is an add); the writer dedups already-present tuples.
+const mockListTeamResourceObjectIds = jest.fn().mockResolvedValue([]);
+const mockListTeamAdminResourceObjectIds = jest.fn().mockResolvedValue([]);
+class MockTeamResourceListingCache {
+  listTeamResourceObjectIds(...a: unknown[]) {
+    return mockListTeamResourceObjectIds(...a);
+  }
+  listTeamAdminResourceObjectIds(...a: unknown[]) {
+    return mockListTeamAdminResourceObjectIds(...a);
+  }
+}
+jest.mock("@/lib/rbac/team-resource-listing", () => ({
+  TeamResourceListingCache: MockTeamResourceListingCache,
+}));
+
 function createMockCollection() {
   return {
     find: jest.fn().mockReturnValue({
@@ -104,6 +121,8 @@ beforeEach(() => {
   });
   mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
   mockReconcileTupleDiff.mockResolvedValue({ enabled: true, writes: 4, deletes: 0 });
+  mockListTeamResourceObjectIds.mockResolvedValue([]);
+  mockListTeamAdminResourceObjectIds.mockResolvedValue([]);
   seedCanonicalMembers([{ user_email: "alice@example.com", relationship: "admin" }]);
 });
 

@@ -200,16 +200,17 @@ async function listFullPlatformCatalog(
     .map((server) => server._id);
   const hydratedToolsByServer = await hydrateMissingMcpToolCatalog(request, missingToolServerIds);
   const tools = allServers.flatMap((server) => {
+    const wildcardRef = `${server._id}/*`;
+    const wildcardItem = { ref: wildcardRef, name: humanizeToolRef(wildcardRef) };
     const cached = cachedToolCatalog.toolsByServer.get(server._id);
     if (cached && cached.length > 0) {
-      return cached.map((tool) => ({ ref: tool.ref, name: tool.name }));
+      return [wildcardItem, ...cached.map((tool) => ({ ref: tool.ref, name: tool.name }))];
     }
     const hydrated = hydratedToolsByServer.get(server._id);
     if (hydrated && hydrated.length > 0) {
-      return hydrated;
+      return [wildcardItem, ...hydrated];
     }
-    const ref = `${server._id}/*`;
-    return [{ ref, name: humanizeToolRef(ref) }];
+    return [wildcardItem];
   });
 
   agents.sort((a, b) => a.name.localeCompare(b.name));

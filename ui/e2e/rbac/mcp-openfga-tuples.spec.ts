@@ -59,12 +59,42 @@ const platformTeam = {
   owner_id: adminSession.email,
   description: "Platform team fixture",
   member_count: 2,
-  resources: {
-    agents: ["agent-keep"],
-    agent_admins: [],
-    tools: ["mcp-confluence-mcp_*"],
-    tool_wildcard: false,
-  },
+  // The team-card chips read server-decorated counts (OpenFGA-sourced) now that
+  // the legacy `resources` array is gone. The grant lists themselves come from
+  // the per-team resources GET below.
+  agent_count: 1,
+  tool_count: 1,
+  tool_wildcard: false,
+};
+
+const visibilityTeam = {
+  _id: "team-visibility",
+  name: "Visibility Team",
+  slug: "visibility-team",
+  owner_id: adminSession.email,
+  description: "OpenFGA-backed team visibility fixture",
+  member_count: 4,
+  agent_count: 2,
+  skill_count: 1,
+  workflow_count: 1,
+  kb_count: 3,
+  tool_count: 2,
+  tool_wildcard: false,
+};
+
+const wildcardTeam = {
+  _id: "team-wildcard",
+  name: "Wildcard Team",
+  slug: "wildcard-team",
+  owner_id: adminSession.email,
+  description: "OpenFGA wildcard fixture",
+  member_count: 1,
+  agent_count: 1,
+  skill_count: 0,
+  workflow_count: 0,
+  kb_count: 0,
+  tool_count: 0,
+  tool_wildcard: true,
 };
 
 type TeamResourcePutBody = {
@@ -78,8 +108,60 @@ type InstalledTeamMocks = {
   resourcePutBodies: TeamResourcePutBody[];
 };
 
-async function installTeamResourceMocks(page: Page): Promise<InstalledTeamMocks> {
+type TeamResourceMockOptions = {
+  getResourcesStatus?: number;
+  getResourcesError?: string;
+  putResourcesStatus?: number;
+  putResourcesError?: string;
+  putResourcesData?: {
+    members_updated?: string[];
+    members_skipped?: string[];
+  };
+};
+
+type TeamResourceFixture = {
+  team: typeof platformTeam;
+  resources: {
+    agents: string[];
+    agent_admins: string[];
+    tools: string[];
+    tool_wildcard: boolean;
+    skills?: Array<{ id: string; name: string; description?: string }>;
+    workflows?: Array<{ id: string; name: string; description?: string }>;
+  };
+  available: {
+    agents: Array<{ id: string; name: string; description?: string }>;
+    tools: Array<{ id: string; name: string; description?: string }>;
+  };
+};
+
+async function installTeamResourceMocks(
+  page: Page,
+  fixtures: TeamResourceFixture[] = [
+    {
+      team: platformTeam,
+      resources: {
+        agents: ["agent-keep"],
+        agent_admins: [],
+        tools: ["mcp-confluence-mcp_*"],
+        tool_wildcard: false,
+      },
+      available: {
+        agents: [{ id: "agent-keep", name: "Keep Agent", description: "" }],
+        tools: [
+          {
+            id: "mcp-confluence-mcp_*",
+            name: "mcp-confluence-mcp_*",
+            description: "Confluence MCP",
+          },
+        ],
+      },
+    },
+  ],
+  options: TeamResourceMockOptions = {},
+): Promise<InstalledTeamMocks> {
   const resourcePutBodies: TeamResourcePutBody[] = [];
+  const fixturesById = new Map(fixtures.map((fixture) => [fixture.team._id, fixture]));
 
   await installMockedRbacApp(page, {
     isAdmin: true,
@@ -87,30 +169,27 @@ async function installTeamResourceMocks(page: Page): Promise<InstalledTeamMocks>
     handlers: [
       async ({ route, path, method }) => {
         if (path.startsWith("/api/admin/teams") && method === "GET" && !path.includes("/resources")) {
-          await fulfillJson(route, { success: true, data: { teams: [platformTeam] } });
+          await fulfillJson(route, { success: true, data: { teams: fixtures.map((fixture) => fixture.team) } });
           return true;
         }
 
         if (method === "GET" && /\/api\/admin\/teams\/[^/]+\/resources$/.test(path)) {
+          if (options.getResourcesStatus && options.getResourcesStatus >= 400) {
+            await fulfillJson(
+              route,
+              { success: false, error: options.getResourcesError ?? "OpenFGA list-objects failed" },
+              options.getResourcesStatus,
+            );
+            return true;
+          }
+          const teamId = path.match(/\/api\/admin\/teams\/([^/]+)\/resources$/)?.[1] ?? "";
+          const fixture = fixturesById.get(teamId) ?? fixtures[0];
           await fulfillJson(route, {
             success: true,
             data: {
-              resources: {
-                agents: ["agent-keep"],
-                agent_admins: [],
-                tools: ["mcp-confluence-mcp_*"],
-                tool_wildcard: false,
-              },
-              available: {
-                agents: [{ id: "agent-keep", name: "Keep Agent", description: "" }],
-                tools: [
-                  {
-                    id: "mcp-confluence-mcp_*",
-                    name: "mcp-confluence-mcp_*",
-                    description: "Confluence MCP",
-                  },
-                ],
-              },
+              team_id: fixture.team._id,
+              resources: fixture.resources,
+              available: fixture.available,
             },
           });
           return true;
@@ -118,9 +197,17 @@ async function installTeamResourceMocks(page: Page): Promise<InstalledTeamMocks>
 
         if (method === "PUT" && /\/api\/admin\/teams\/[^/]+\/resources$/.test(path)) {
           resourcePutBodies.push((await postJson(route)) as TeamResourcePutBody);
+          if (options.putResourcesStatus && options.putResourcesStatus >= 400) {
+            await fulfillJson(
+              route,
+              { success: false, error: options.putResourcesError ?? "OpenFGA reconcile failed" },
+              options.putResourcesStatus,
+            );
+            return true;
+          }
           await fulfillJson(route, {
             success: true,
-            data: {
+            data: options.putResourcesData ?? {
               members_updated: ["alice@example.com"],
               members_skipped: [],
             },
@@ -134,6 +221,26 @@ async function installTeamResourceMocks(page: Page): Promise<InstalledTeamMocks>
   });
 
   return { resourcePutBodies };
+}
+
+function teamCard(page: Page, teamName: string) {
+  return page
+    .locator("div", { hasText: teamName })
+    .filter({ has: page.getByRole("button", { name: /Manage team/i }) })
+    .first();
+}
+
+function resourceRow(page: Page, text: string) {
+  return page.getByRole("dialog").locator("li", { hasText: text }).first();
+}
+
+async function openTeamDialogFromChip(page: Page, teamName: string, chipLabel: string | RegExp) {
+  const card = teamCard(page, teamName);
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: chipLabel }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(teamName)).toBeVisible();
+  return card;
 }
 
 type InstalledMcpMocks = {
@@ -537,15 +644,497 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     );
   });
 
+  test("team cards and details use OpenFGA-derived resource counts instead of legacy team.resources", async ({
+    page,
+  }) => {
+    await installTeamResourceMocks(page, [
+      {
+        team: {
+          ...visibilityTeam,
+          // Deliberately provide no `resources` field. The old UI path would
+          // render zeros here; the branch must trust the server-decorated
+          // OpenFGA counts instead.
+        },
+        resources: {
+          agents: ["agent-sre", "agent-kb"],
+          agent_admins: ["agent-sre"],
+          tools: ["mcp-jira/*", "mcp-confluence/*"],
+          tool_wildcard: false,
+          skills: [
+            {
+              id: "skill-incident-summary",
+              name: "Incident Summary",
+              description: "Summarize active incidents",
+            },
+          ],
+          workflows: [
+            {
+              id: "workflow-release-check",
+              name: "Release Check",
+              description: "Validate release readiness",
+            },
+          ],
+        },
+        available: {
+          agents: [
+            { id: "agent-sre", name: "SRE Agent", description: "Ops automation" },
+            { id: "agent-kb", name: "KB Agent", description: "Knowledge search" },
+          ],
+          tools: [
+            { id: "mcp-jira/*", name: "mcp-jira/*", description: "Jira" },
+            { id: "mcp-confluence/*", name: "mcp-confluence/*", description: "Confluence" },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+
+    const card = teamCard(page, visibilityTeam.name);
+    await expect(card).toBeVisible();
+    await expect(card.getByRole("button", { name: /4\s+Members/i })).toBeVisible();
+    await expect(card.getByRole("button", { name: /2\s+Agents/i })).toBeVisible();
+    await expect(card.getByRole("button", { name: /2\s+MCPs/i })).toBeVisible();
+    await expect(card.getByRole("button", { name: /3\s+KBs/i })).toBeVisible();
+
+    await card.getByRole("button", { name: /2\s+Agents/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByText("Dynamic agents (2 / 2)")).toBeVisible();
+    await expect(page.getByText("SRE Agent")).toBeVisible();
+    await expect(page.getByText("KB Agent")).toBeVisible();
+
+    await page.getByRole("button", { name: "MCPs", exact: true }).click();
+    await expect(page.getByText("MCP servers (2 / 2)")).toBeVisible();
+    await expect(page.getByText("mcp-jira/*")).toBeVisible();
+    await expect(page.getByText("mcp-confluence/*")).toBeVisible();
+  });
+
+  test("team stat chips deep-link into resource tabs without refetching away unsaved OpenFGA state", async ({
+    page,
+  }) => {
+    await installTeamResourceMocks(page, [
+      {
+        team: visibilityTeam,
+        resources: {
+          agents: ["agent-sre"],
+          agent_admins: [],
+          tools: ["mcp-jira/*"],
+          tool_wildcard: false,
+          skills: [],
+          workflows: [],
+        },
+        available: {
+          agents: [
+            { id: "agent-sre", name: "SRE Agent", description: "Ops automation" },
+            { id: "agent-kb", name: "KB Agent", description: "Knowledge search" },
+          ],
+          tools: [
+            { id: "mcp-jira/*", name: "mcp-jira/*", description: "Jira" },
+            { id: "mcp-confluence/*", name: "mcp-confluence/*", description: "Confluence" },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    const resourcesResponses: string[] = [];
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (/\/api\/admin\/teams\/[^/]+\/resources$/.test(url.pathname)) {
+        resourcesResponses.push(url.pathname);
+      }
+    });
+
+    const card = teamCard(page, visibilityTeam.name);
+    await card.getByRole("button", { name: /2\s+Agents/i }).click();
+    await expect(page.getByText("Dynamic agents (1 / 2)")).toBeVisible();
+    await expect(resourceRow(page, "SRE Agent").locator("input").first()).toBeChecked();
+    await expect(resourceRow(page, "KB Agent").locator("input").first()).not.toBeChecked();
+
+    await page.getByRole("button", { name: "MCPs", exact: true }).click();
+    await expect(page.getByText("MCP servers (1 / 2)")).toBeVisible();
+    await expect(resourceRow(page, "mcp-jira/*").locator("input").first()).toBeChecked();
+    await expect(resourceRow(page, "mcp-confluence/*").locator("input").first()).not.toBeChecked();
+
+    await expect.poll(() => resourcesResponses.length).toBe(1);
+  });
+
+  test("agent manage implies use and one save preserves edited agents plus MCP choices across tabs", async ({
+    page,
+  }) => {
+    const mocks = await installTeamResourceMocks(page, [
+      {
+        team: visibilityTeam,
+        resources: {
+          agents: ["agent-sre"],
+          agent_admins: [],
+          tools: ["mcp-jira/*"],
+          tool_wildcard: false,
+          skills: [],
+          workflows: [],
+        },
+        available: {
+          agents: [
+            { id: "agent-sre", name: "SRE Agent", description: "Ops automation" },
+            { id: "agent-kb", name: "KB Agent", description: "Knowledge search" },
+          ],
+          tools: [
+            { id: "mcp-jira/*", name: "mcp-jira/*", description: "Jira" },
+            { id: "mcp-confluence/*", name: "mcp-confluence/*", description: "Confluence" },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await openTeamDialogFromChip(page, visibilityTeam.name, /2\s+Agents/i);
+
+    const kbAgentInputs = resourceRow(page, "KB Agent").locator("input");
+    await kbAgentInputs.nth(1).check();
+    await expect(kbAgentInputs.nth(0)).toBeChecked();
+    await expect(kbAgentInputs.nth(0)).toBeDisabled();
+    await expect(kbAgentInputs.nth(1)).toBeChecked();
+
+    await page.getByRole("button", { name: "MCPs", exact: true }).click();
+    await resourceRow(page, "mcp-confluence/*").locator("input").first().check();
+
+    const putResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
+    );
+    await page.getByRole("button", { name: "Save MCP access" }).click();
+    await putResponse;
+
+    await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
+    expect(mocks.resourcePutBodies[0]).toEqual({
+      agents: ["agent-sre", "agent-kb"],
+      agent_admins: ["agent-kb"],
+      tools: ["mcp-jira/*", "mcp-confluence/*"],
+      tool_wildcard: false,
+    });
+  });
+
+  test("team skills and workflows are visible from OpenFGA but read-only in the team dialog", async ({
+    page,
+  }) => {
+    await installTeamResourceMocks(page, [
+      {
+        team: visibilityTeam,
+        resources: {
+          agents: [],
+          agent_admins: [],
+          tools: [],
+          tool_wildcard: false,
+          skills: [
+            {
+              id: "skill-incident-summary",
+              name: "Incident Summary",
+              description: "Summarize active incidents",
+            },
+          ],
+          workflows: [
+            {
+              id: "workflow-release-check",
+              name: "Release Check",
+              description: "Validate release readiness",
+            },
+          ],
+        },
+        available: {
+          agents: [],
+          tools: [],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await openTeamDialogFromChip(page, visibilityTeam.name, /2\s+Agents/i);
+
+    await page.getByRole("button", { name: "Skills", exact: true }).click();
+    await expect(page.getByText("Skills shared with this team (owned + shared).")).toBeVisible();
+    await expect(page.getByText("Incident Summary")).toBeVisible();
+    await expect(page.getByText("Summarize active incidents")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Save skill/i })).toHaveCount(0);
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Workflows", exact: true }).click();
+    await expect(page.getByText("Workflows shared with this team (owned + shared).")).toBeVisible();
+    await expect(page.getByText("Release Check")).toBeVisible();
+    await expect(page.getByText("Validate release readiness")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Save workflow/i })).toHaveCount(0);
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+  });
+
+  test("read-only skill and workflow tabs show explicit empty states when OpenFGA returns no grants", async ({
+    page,
+  }) => {
+    await installTeamResourceMocks(page, [
+      {
+        team: {
+          ...visibilityTeam,
+          skill_count: 0,
+          workflow_count: 0,
+        },
+        resources: {
+          agents: [],
+          agent_admins: [],
+          tools: [],
+          tool_wildcard: false,
+          skills: [],
+          workflows: [],
+        },
+        available: {
+          agents: [],
+          tools: [],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await teamCard(page, visibilityTeam.name).getByRole("button", { name: /Manage team/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+
+    await page.getByRole("button", { name: "Skills", exact: true }).click();
+    await expect(page.getByText("No skills are shared with this team yet.")).toBeVisible();
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Workflows", exact: true }).click();
+    await expect(page.getByText("No workflows are shared with this team yet.")).toBeVisible();
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+  });
+
+  test("wildcard MCP grants show as star counts and save the wildcard intent with selected agents", async ({
+    page,
+  }) => {
+    const mocks = await installTeamResourceMocks(page, [
+      {
+        team: wildcardTeam,
+        resources: {
+          agents: ["agent-sre"],
+          agent_admins: [],
+          tools: [],
+          tool_wildcard: true,
+          skills: [],
+          workflows: [],
+        },
+        available: {
+          agents: [{ id: "agent-sre", name: "SRE Agent", description: "" }],
+          tools: [
+            { id: "mcp-jira/*", name: "mcp-jira/*", description: "Jira" },
+            { id: "mcp-confluence/*", name: "mcp-confluence/*", description: "Confluence" },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    const card = teamCard(page, wildcardTeam.name);
+    await expect(card.getByRole("button", { name: /\*\s+MCPs/i })).toBeVisible();
+
+    await card.getByRole("button", { name: /\*\s+MCPs/i }).click();
+    await expect(page.getByText("MCP servers (0 / 2)")).toBeVisible();
+    await expect(page.getByText("wildcard", { exact: true })).toBeVisible();
+    await expect(page.getByLabel(/All MCP servers \(wildcard\)/i)).toBeChecked();
+
+    await page.getByLabel(/mcp-jira\/\*/i).check();
+    const putResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
+    );
+    await page.getByRole("button", { name: "Save MCP access" }).click();
+    await putResponse;
+
+    await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
+    expect(mocks.resourcePutBodies[0]).toEqual({
+      agents: ["agent-sre"],
+      agent_admins: [],
+      tools: ["mcp-jira/*"],
+      tool_wildcard: true,
+    });
+  });
+
+  test("turning off wildcard keeps explicit server grants and sends tool_wildcard false", async ({
+    page,
+  }) => {
+    const mocks = await installTeamResourceMocks(page, [
+      {
+        team: wildcardTeam,
+        resources: {
+          agents: ["agent-sre"],
+          agent_admins: [],
+          tools: ["mcp-jira/*", "mcp-confluence/*"],
+          tool_wildcard: true,
+          skills: [],
+          workflows: [],
+        },
+        available: {
+          agents: [{ id: "agent-sre", name: "SRE Agent", description: "" }],
+          tools: [
+            { id: "mcp-jira/*", name: "mcp-jira/*", description: "Jira" },
+            { id: "mcp-confluence/*", name: "mcp-confluence/*", description: "Confluence" },
+          ],
+        },
+      },
+    ]);
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await openTeamDialogFromChip(page, wildcardTeam.name, /\*\s+MCPs/i);
+
+    await expect(page.getByLabel(/All MCP servers \(wildcard\)/i)).toBeChecked();
+    await expect(resourceRow(page, "mcp-jira/*").locator("input").first()).toBeChecked();
+    await expect(resourceRow(page, "mcp-confluence/*").locator("input").first()).toBeChecked();
+    await page.getByLabel(/All MCP servers \(wildcard\)/i).uncheck();
+
+    const putResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
+    );
+    await page.getByRole("button", { name: "Save MCP access" }).click();
+    await putResponse;
+
+    await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
+    expect(mocks.resourcePutBodies[0]).toEqual({
+      agents: ["agent-sre"],
+      agent_admins: [],
+      tools: ["mcp-jira/*", "mcp-confluence/*"],
+      tool_wildcard: false,
+    });
+  });
+
+  test("resource load failures surface the OpenFGA error and do not show stale empty pickers", async ({
+    page,
+  }) => {
+    await installTeamResourceMocks(
+      page,
+      [
+        {
+          team: visibilityTeam,
+          resources: {
+            agents: [],
+            agent_admins: [],
+            tools: [],
+            tool_wildcard: false,
+          },
+          available: { agents: [], tools: [] },
+        },
+      ],
+      {
+        getResourcesStatus: 503,
+        getResourcesError: "OpenFGA list-objects failed",
+      },
+    );
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await openTeamDialogFromChip(page, visibilityTeam.name, /2\s+Agents/i);
+
+    await expect(page.getByText("OpenFGA list-objects failed")).toBeVisible();
+    await expect(page.getByText("No agents available")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save agent access" })).toBeDisabled();
+  });
+
+  test("resource save failures keep the dialog open, surface the error, and retain the attempted selection", async ({
+    page,
+  }) => {
+    const mocks = await installTeamResourceMocks(
+      page,
+      [
+        {
+          team: visibilityTeam,
+          resources: {
+            agents: [],
+            agent_admins: [],
+            tools: [],
+            tool_wildcard: false,
+          },
+          available: {
+            agents: [{ id: "agent-sre", name: "SRE Agent", description: "" }],
+            tools: [],
+          },
+        },
+      ],
+      {
+        putResourcesStatus: 500,
+        putResourcesError: "OpenFGA reconcile failed",
+      },
+    );
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await teamCard(page, visibilityTeam.name).getByRole("button", { name: /Manage team/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await resourceRow(page, "SRE Agent").locator("input").first().check();
+
+    const putResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
+    );
+    await page.getByRole("button", { name: "Save agent access" }).click();
+    await putResponse;
+
+    await expect(page.getByText("OpenFGA reconcile failed")).toBeVisible();
+    await expect(resourceRow(page, "SRE Agent").locator("input").first()).toBeChecked();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
+  });
+
+  test("save success shows Saved notice without dropping the selected grants", async ({
+    page,
+  }) => {
+    const mocks = await installTeamResourceMocks(
+      page,
+      [
+        {
+          team: visibilityTeam,
+          resources: {
+            agents: [],
+            agent_admins: [],
+            tools: [],
+            tool_wildcard: false,
+          },
+          available: {
+            agents: [{ id: "agent-sre", name: "SRE Agent", description: "" }],
+            tools: [],
+          },
+        },
+      ],
+    );
+
+    await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
+    await teamCard(page, visibilityTeam.name).getByRole("button", { name: /Manage team/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await resourceRow(page, "SRE Agent").locator("input").first().check();
+
+    const putResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
+    );
+    await page.getByRole("button", { name: "Save agent access" }).click();
+    await putResponse;
+
+    await expect(page.getByText(/Saved\./)).toBeVisible();
+    await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
+    expect(mocks.resourcePutBodies[0]).toMatchObject({
+      agents: ["agent-sre"],
+      tools: [],
+      tool_wildcard: false,
+    });
+  });
+
   test("team resources save sends the full selected MCP tool list for drift repair", async ({ page }) => {
     const mocks = await installTeamResourceMocks(page);
 
     await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(platformTeam.name)).toBeVisible();
 
-    await page.getByRole("button", { name: /1\s+MCP/i }).click();
+    await page.getByRole("button", { name: /1\s+MCPs/i }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Agents & MCP", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "MCPs", exact: true })).toBeVisible();
     await expect(page.getByText("mcp-confluence-mcp_*")).toBeVisible();
 
     const putResponse = page.waitForResponse(
@@ -553,7 +1142,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
         response.request().method() === "PUT" &&
         /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
     );
-    await page.getByRole("button", { name: "Save agents and MCP access" }).click();
+    await page.getByRole("button", { name: "Save MCP access" }).click();
     await putResponse;
 
     await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);
@@ -772,8 +1361,12 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
-    await expect(page.getByLabel(/Provider connection/i)).toContainText("Atlassian Cloud");
-    await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
+    // Provider connections are always caller-scoped now: admins pick the OAuth
+    // provider (by connector name) and each caller resolves their OWN
+    // connection at runtime. The shared all-callers "pinned" scope and the
+    // per-connection picker were removed because they enabled impersonation.
+    await expect(page.getByLabel(/^Provider$/i)).toContainText("Atlassian Cloud");
+    await page.getByLabel(/^Provider$/i).selectOption("atlassian");
 
     await page.getByRole("button", { name: "Create Server" }).click();
 
@@ -783,8 +1376,8 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
         kind: "provider_connection",
         target: "header",
         name: "X-CAIPE-Provider-Token",
-        connection_scope: "pinned",
-        provider_connection_id: "conn-atlassian",
+        connection_scope: "caller",
+        provider: "atlassian",
       },
     ]);
   });

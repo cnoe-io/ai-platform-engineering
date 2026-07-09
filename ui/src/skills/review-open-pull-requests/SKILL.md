@@ -44,7 +44,7 @@ Retrieve all open pull requests across configured repositories and present an or
 ### Needs Attention (2)
 | PR | Repository | Issue | Age |
 |----|-----------|-------|-----|
-| #456 fix: streaming bug | agent-argocd | CI Failing | 8d |
+| #456 fix: streaming bug | mcp-argocd | CI Failing | 8d |
 
 ### In Progress (5)
 ...

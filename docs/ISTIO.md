@@ -6,10 +6,10 @@ When running in an Istio service mesh, you need to configure port exclusions to 
 
 Add the following `podAnnotations` to your values file for components that need Istio port exclusions:
 
-### Supervisor Agent
+### Dynamic Agents
 
 ```yaml
-supervisor-agent:
+dynamic-agents:
   podAnnotations:
     traffic.sidecar.istio.io/excludeInboundPorts: "15020"
     traffic.sidecar.istio.io/excludeOutboundPorts: "8098,8099,9446,19530,2379,2380,7687,7474,6379"
@@ -23,11 +23,6 @@ rag-stack:
     podAnnotations:
       traffic.sidecar.istio.io/excludeInboundPorts: "9446,9091,15020"
       traffic.sidecar.istio.io/excludeOutboundPorts: "19530,2379,2380,9091,53100,21123,21124,22222,9000,7687,7474,6379,8098,8099,8000"
-
-  agent-rag:
-    podAnnotations:
-      traffic.sidecar.istio.io/excludeInboundPorts: "8099,15020"
-      traffic.sidecar.istio.io/excludeOutboundPorts: "19530,2379,2380,9091,53100,21123,21124,22222,9000,7687,7474,6379,9446"
 
   agent-ontology:
     podAnnotations:

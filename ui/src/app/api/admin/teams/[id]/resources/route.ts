@@ -2,18 +2,27 @@
  * Spec 104 — Team-scoped RBAC: resource assignment endpoint.
  *
  * GET  /api/admin/teams/[id]/resources
- *   → returns the agents and tools currently assigned to the team plus the
- *     full picker catalog (`available.agents`, `available.tools`) so the UI
- *     can render checkboxes without a second round-trip.
+ *   → returns the agents/tools the team is currently granted (read live from
+ *     OpenFGA, the single source of truth — NOT the dropped `team.resources`
+ *     array), the read-only set of workflows the team owns/is-shared, plus the
+ *     full picker catalog (`available.agents`, `available.tools`) so the UI can
+ *     render checkboxes without a second round-trip.
  *
  * PUT  /api/admin/teams/[id]/resources
- *   body: { agents: string[]; tools: string[] }
- *   - Persists the selection on the team document (`team.resources`).
+ *   body: { agents, agent_admins, tools, tool_wildcard }
  *   - Reconciles OpenFGA relationship tuples for team → resource access.
+ *   - Previous state is read from OpenFGA (so revocations are computed against
+ *     real grants), not from a Mongo array. The team document is NOT used to
+ *     store the selection anymore; any legacy `resources` field is unset.
  *
  * Keycloak is intentionally not updated for per-resource grants. Realm roles
  * such as `agent_user:<id>` and `tool_user:<prefix>` are legacy artifacts; the
  * OpenFGA tuple store is the resource PDP.
+ *
+ * Note: workflows (OpenFGA `task:` type) are surfaced read-only here. They are
+ * shared from the workflow editor (`visibility=team` + `shared_with_teams`,
+ * reconciled by workflow-config-rebac.ts) — that is the single writer for
+ * workflow team grants, so this endpoint never writes `task:` tuples.
  */
 
 import {
@@ -26,13 +35,12 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { reconcileTupleDiff } from "@/lib/authz";
 import {
-findUserIdByEmail,
-} from "@/lib/rbac/keycloak-admin";
-import {
 buildTeamResourceTupleDiff,
+teamToolWildcardSentinelTuple,
+TEAM_TOOL_WILDCARD_SENTINEL_OBJECT,
 } from "@/lib/rbac/openfga";
+import { TeamResourceListingCache } from "@/lib/rbac/team-resource-listing";
 import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
-import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
 import { ObjectId } from "mongodb";
 import { NextRequest,NextResponse } from "next/server";
@@ -73,13 +81,11 @@ interface HubSkillLite {
   description?: string;
 }
 
-interface TaskLite {
+interface WorkflowConfigLite {
   _id?: string;
-  id?: string;
   name?: string;
   title?: string;
   description?: string;
-  enabled?: boolean;
 }
 
 function requireMongoDB() {
@@ -112,8 +118,35 @@ function diff(prev: string[], next: string[]): { added: string[]; removed: strin
   };
 }
 
+/**
+ * Expand a `tool_wildcard` selection into the explicit `<server>/*` prefixes
+ * for every enabled MCP server. The wildcard and a manual "select all servers"
+ * choice write byte-identical OpenFGA tuples (both flow through
+ * mcpServerAccessTuples / gateway caller / agent-runtime caller with the same
+ * server set), so we never need a dedicated wildcard tuple shape: expanding it
+ * here lets reads (which can't tell wildcard from select-all) round-trip
+ * losslessly, and lets revocation diff plain per-server prefixes.
+ */
+function expandToolWildcard(
+  tools: string[],
+  wildcard: boolean,
+  allMcpServerIds: string[],
+): string[] {
+  if (!wildcard) return tools;
+  const merged = new Set(tools);
+  for (const serverId of allMcpServerIds) merged.add(`${serverId}/*`);
+  return Array.from(merged);
+}
+
+/** Whether the granted tool prefixes cover every enabled MCP server. */
+function allServersGranted(grantedTools: string[], allServerPrefixes: string[]): boolean {
+  if (allServerPrefixes.length === 0) return false;
+  const granted = new Set(grantedTools);
+  return allServerPrefixes.every((prefix) => granted.has(prefix));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// GET — current selection + available picker catalog
+// GET — current selection (OpenFGA-derived) + available picker catalog
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const GET = withErrorHandler(
@@ -130,18 +163,15 @@ export const GET = withErrorHandler(
       const teamsCol = await getCollection<Team>("teams");
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
+      const slug = team.slug || id;
 
       const agentsCol = await getCollection<DynamicAgentLite>("dynamic_agents");
       const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
       const skillsCol = await getCollection<SkillLite>("skills");
       const skillHubsCol = await getCollection<SkillHubLite>("skill_hubs");
       const hubSkillsCol = await getCollection<HubSkillLite>("hub_skills");
-      const tasksCol = await getCollection<TaskLite>("task_configs");
-      const ownershipCol = await getCollection<{ kb_ids?: string[]; kb_permissions?: Record<string, string> }>(
-        "team_kb_ownership"
-      );
 
-      const [allAgents, allServers, allSkills, enabledHubs, allHubSkills, allTasks, ownership] = await Promise.all([
+      const [allAgents, allServers, allSkills, enabledHubs, allHubSkills] = await Promise.all([
         agentsCol
           .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1, description: 1, visibility: 1 } })
           .sort({ name: 1 })
@@ -167,12 +197,6 @@ export const GET = withErrorHandler(
           .sort({ name: 1 })
           .toArray()
           .catch(() => [] as HubSkillLite[]),
-        tasksCol
-          .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, id: 1, name: 1, title: 1, description: 1 } })
-          .sort({ name: 1 })
-          .toArray()
-          .catch(() => [] as TaskLite[]),
-        ownershipCol.find({}).sort({}).toArray().catch(() => []),
       ]);
 
       // We render tools by MCP server wildcard (e.g. `jira/*`) because the
@@ -182,11 +206,6 @@ export const GET = withErrorHandler(
       // then materializes concrete `mcp_server:<server>` and `tool:<server>/*`
       // OpenFGA tuples.
       const toolPrefixes = allServers.map((s) => `${s._id}/*`);
-      const kbIds = new Set<string>();
-      for (const row of ownership) {
-        for (const id of row.kb_ids ?? []) kbIds.add(id);
-        for (const id of Object.keys(row.kb_permissions ?? {})) kbIds.add(id);
-      }
       const enabledHubIds = new Set(
         enabledHubs.map((hub) => hub.id).filter((id): id is string => Boolean(id))
       );
@@ -205,22 +224,73 @@ export const GET = withErrorHandler(
         a.name.localeCompare(b.name)
       );
 
-      const resources = team.resources ?? {};
+      // ── Live grants from OpenFGA (single source of truth). The reconcilers
+      //    write the same `team:<slug>#member <rel>` tuple for both the owner
+      //    team and every shared team, so each list-objects returns owned +
+      //    shared together.
+      const cache = new TeamResourceListingCache();
+      const [grantedAgents, grantedAgentAdmins, grantedToolsRaw, grantedWorkflows, grantedSkills] =
+        await Promise.all([
+          cache.listTeamResourceObjectIds({ teamSlug: slug, type: "agent", relation: "user" }),
+          cache.listTeamAdminResourceObjectIds({ teamSlug: slug, type: "agent", relation: "manager" }),
+          cache.listTeamResourceObjectIds({ teamSlug: slug, type: "tool", relation: "caller" }),
+          cache.listTeamResourceObjectIds({ teamSlug: slug, type: "task", relation: "user" }),
+          cache.listTeamResourceObjectIds({ teamSlug: slug, type: "skill", relation: "user" }),
+        ]);
+
+      // The `tool:*` sentinel (stripped to `*`) records wildcard intent — it is
+      // not a real per-server grant, so keep it out of the editable tools list.
+      const sentinelId = TEAM_TOOL_WILDCARD_SENTINEL_OBJECT.slice("tool:".length);
+      const hasWildcardSentinel = grantedToolsRaw.includes(sentinelId);
+      const grantedTools = grantedToolsRaw.filter((id) => id !== sentinelId);
+
+      // Wildcard is on when the sentinel is set, or (self-heal for teams granted
+      // before the sentinel existed) every enabled `<server>/*` prefix is
+      // granted. A server added after the wildcard was set still shows the box
+      // checked via the sentinel.
+      const toolWildcard = hasWildcardSentinel || allServersGranted(grantedTools, toolPrefixes);
+
+      // Resolve workflow names for read-only display.
+      const workflowsCol = await getCollection<WorkflowConfigLite>("workflow_configs");
+      const workflowDocs = grantedWorkflows.length
+        ? await workflowsCol
+            .find({ _id: { $in: grantedWorkflows } } as never, {
+              projection: { _id: 1, name: 1, title: 1, description: 1 },
+            })
+            .toArray()
+            .catch(() => [] as WorkflowConfigLite[])
+        : [];
+      const workflowById = new Map(workflowDocs.map((w) => [String(w._id), w]));
+      const workflows = grantedWorkflows.map((wfId) => {
+        const doc = workflowById.get(wfId);
+        return { id: wfId, name: doc?.name ?? doc?.title ?? wfId, description: doc?.description ?? "" };
+      });
+
+      // Resolve skill names from the picker catalog (configured + hub skills)
+      // for read-only display; fall back to the id when a grant points at a
+      // skill no longer in the catalog.
+      const skillOptionById = new Map(skillOptions.map((s) => [s.id, s]));
+      const skills = grantedSkills.map((skillId) => {
+        const opt = skillOptionById.get(skillId);
+        return { id: skillId, name: opt?.name ?? skillId, description: opt?.description ?? "" };
+      });
 
       console.log(
-        `[Admin TeamResources] GET team=${id} agents=${(resources.agents ?? []).length} agent_admins=${(resources.agent_admins ?? []).length} tools=${(resources.tools ?? []).length} wildcard=${resources.tool_wildcard ? "yes" : "no"} by=${user.email}`
+        `[Admin TeamResources] GET team=${id} agents=${grantedAgents.length} agent_admins=${grantedAgentAdmins.length} tools=${grantedTools.length} workflows=${grantedWorkflows.length} skills=${grantedSkills.length} wildcard=${toolWildcard ? "yes" : "no"} by=${user.email}`
       );
 
       return successResponse({
         team_id: id,
         resources: {
-          agents: resources.agents ?? [],
-          agent_admins: resources.agent_admins ?? [],
-          tools: resources.tools ?? [],
-          knowledge_bases: resources.knowledge_bases ?? [],
-          skills: resources.skills ?? [],
-          tasks: resources.tasks ?? [],
-          tool_wildcard: Boolean(resources.tool_wildcard),
+          agents: grantedAgents,
+          agent_admins: grantedAgentAdmins,
+          tools: grantedTools,
+          tool_wildcard: toolWildcard,
+          // Read-only: shared from the workflow editor, not editable here.
+          workflows,
+          // Read-only: shared from the skill editor (skill-team-grants.ts is the
+          // single writer for skill team grants), surfaced here for visibility.
+          skills,
         },
         available: {
           agents: allAgents.map((a) => ({ id: a._id, name: a.name ?? a._id, description: a.description ?? "" })),
@@ -229,28 +299,24 @@ export const GET = withErrorHandler(
             name: id,
             description: allServers[i].description ?? "",
           })),
-          knowledge_bases: Array.from(kbIds).sort().map((id) => ({ id, name: id, description: "" })),
+          // NOTE: no `knowledge_bases` here. KB assignment uses its own picker
+          // (`TeamKbAssignmentPanel`), backed by the RAG datasource catalog +
+          // OpenFGA grants; the resources tab never rendered a KB option list,
+          // so the field was vestigial and is dropped with `team_kb_ownership`.
           skills: skillOptions,
-          tasks: allTasks.map((t) => {
-            const id = String(t.id ?? t._id ?? t.name);
-            return { id, name: t.name ?? t.title ?? id, description: t.description ?? "" };
-          }),
         },
       });
   }
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUT — persist selection + reconcile OpenFGA tuples
+// PUT — reconcile OpenFGA tuples (previous state read from OpenFGA)
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PutBody {
   agents?: unknown;
   agent_admins?: unknown;
   tools?: unknown;
-  knowledge_bases?: unknown;
-  skills?: unknown;
-  tasks?: unknown;
   tool_wildcard?: unknown;
 }
 
@@ -266,7 +332,7 @@ function parseStringArray(value: unknown, field: string): string[] {
     out.push(item.trim());
   }
   // Dedup while preserving order — the UI sends checkbox state that is
-  // already unique, but defence-in-depth keeps Mongo+KC clean.
+  // already unique, but defence-in-depth keeps the tuple writes clean.
   return Array.from(new Set(out));
 }
 
@@ -289,40 +355,17 @@ export const PUT = withErrorHandler(
 
       const nextAgents = parseStringArray(body.agents ?? [], "agents");
       const nextAgentAdmins = parseStringArray(body.agent_admins ?? [], "agent_admins");
-      const nextTools = parseStringArray(body.tools ?? [], "tools");
-      const nextToolWildcard = Boolean(body.tool_wildcard);
+      const selectedTools = parseStringArray(body.tools ?? [], "tools");
+      const wildcard = Boolean(body.tool_wildcard);
 
       const teamsCol = await getCollection<Team>("teams");
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
+      const slug = team.slug || id;
 
       // Issue #1509: scoped team admins can manage resources on their own
       // team without platform-wide `organization:<org>#admin`.
       await requireTeamMembershipManagementPermission(session, user.email, team);
-
-      const prevAgents = team.resources?.agents ?? [];
-      const prevAgentAdmins = team.resources?.agent_admins ?? [];
-      const prevTools = team.resources?.tools ?? [];
-      const prevKnowledgeBases = team.resources?.knowledge_bases ?? [];
-      const prevSkills = team.resources?.skills ?? [];
-      const prevTasks = team.resources?.tasks ?? [];
-      const prevToolWildcard = Boolean(team.resources?.tool_wildcard);
-      const nextKnowledgeBases =
-        body.knowledge_bases === undefined
-          ? prevKnowledgeBases
-          : parseStringArray(body.knowledge_bases, "knowledge_bases");
-      const nextSkills =
-        body.skills === undefined ? prevSkills : parseStringArray(body.skills, "skills");
-      const nextTasks = body.tasks === undefined ? prevTasks : parseStringArray(body.tasks, "tasks");
-
-      const agentDiff = diff(prevAgents, nextAgents);
-      const agentAdminDiff = diff(prevAgentAdmins, nextAgentAdmins);
-      const toolDiff = diff(prevTools, nextTools);
-      const knowledgeBaseDiff = diff(prevKnowledgeBases, nextKnowledgeBases);
-      const skillDiff = diff(prevSkills, nextSkills);
-      const taskDiff = diff(prevTasks, nextTasks);
-      const wildcardAdded = !prevToolWildcard && nextToolWildcard;
-      const wildcardRemoved = prevToolWildcard && !nextToolWildcard;
 
       const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
       const allMcpServers = await mcpCol
@@ -331,110 +374,93 @@ export const PUT = withErrorHandler(
         .catch(() => [] as MCPServerLite[]);
       const allMcpServerIds = allMcpServers.map((server) => String(server._id));
 
-      // ── 1. Resolve current member subjects for OpenFGA team membership.
-      //
-      //    Member list comes from the canonical team_membership_sources
-      //    store (post 2026-05-26 canonical-membership refactor); deduped
-      //    by identity, status:"active" only. A team can have a member
-      //    email that doesn't have a Keycloak account yet (e.g. invited
-      //    but never logged in). We log + skip those rather than failing
-      //    the whole PUT — the UI flags them in the response. Subject-
-      //    only rows (no email) are also skipped because Keycloak lookup
-      //    is by email.
-      const canonicalMembers = await loadActiveTeamMembers(team.slug ?? "");
-      const memberEmails: string[] = canonicalMembers
-        .map((m) => m.user_email)
-        .filter((email): email is string => typeof email === "string" && email.length > 0);
-      const skippedMembers: string[] = [];
-      const resolvedMembers: string[] = [];
-      const resolvedMemberUserIds: string[] = [];
+      // Wildcard == select-all-servers (identical tuples), so expand it into
+      // explicit `<server>/*` prefixes and reconcile plain per-server grants.
+      const nextTools = expandToolWildcard(selectedTools, wildcard, allMcpServerIds);
 
-      for (const memberEmail of memberEmails) {
-        const userId = await findUserIdByEmail(memberEmail);
-        if (!userId) {
-          skippedMembers.push(memberEmail);
-          continue;
-        }
-        resolvedMemberUserIds.push(userId);
-        resolvedMembers.push(memberEmail);
-      }
+      // ── 1. Previous state from OpenFGA (single source of truth). Reading the
+      //    real grants is what makes revocation correct now that the
+      //    `team.resources` array is gone. Over-reporting is safe: the OpenFGA
+      //    writer drops deletes whose tuple does not actually exist.
+      const cache = new TeamResourceListingCache();
+      const [prevAgents, prevAgentAdmins, prevToolsRaw] = await Promise.all([
+        cache.listTeamResourceObjectIds({ teamSlug: slug, type: "agent", relation: "user" }),
+        cache.listTeamAdminResourceObjectIds({ teamSlug: slug, type: "agent", relation: "manager" }),
+        cache.listTeamResourceObjectIds({ teamSlug: slug, type: "tool", relation: "caller" }),
+      ]);
 
-      // ── 2. Reconcile OpenFGA ReBAC tuples before Mongo persistence.
+      // The `tool:*` sentinel (stripped to `*`) is wildcard intent, not a real
+      // per-server grant — exclude it from the per-server tool diff and track it
+      // separately so it isn't mistaken for a tool the admin deselected.
+      const sentinelId = TEAM_TOOL_WILDCARD_SENTINEL_OBJECT.slice("tool:".length);
+      const prevWildcardSentinel = prevToolsRaw.includes(sentinelId);
+      const prevTools = prevToolsRaw.filter((id) => id !== sentinelId);
+
+      const agentDiff = diff(prevAgents, nextAgents);
+      const agentAdminDiff = diff(prevAgentAdmins, nextAgentAdmins);
+      const toolDiff = diff(prevTools, nextTools);
+
+      // ── 2. Reconcile OpenFGA ReBAC tuples. OpenFGA owns relationship facts;
+      //    there is no Mongo authz array to persist anymore.
       //
-      //    OpenFGA owns relationship facts. Fail before Mongo if the remote
-      //    PDP state cannot be reconciled.
-      // assisted-by Codex Codex-sonnet-4-6
-      // Treat Save as authoritative: selected resources are desired writes,
-      // and the OpenFGA writer filters tuples that already exist.
+      //    Grants are keyed on the `team:<slug>#member` / `#admin` userset, so a
+      //    member's access resolves transitively at check time via their
+      //    `user:<id> member team:<slug>` membership tuple. Those membership
+      //    tuples are owned by the team-membership writers (members route +
+      //    sync/audit reconcilers), so this path deliberately does NOT touch
+      //    them — it used to re-resolve every member email→id against Keycloak
+      //    (an O(members) serial lookup) on every save for no authorization gain.
+      //
+      //    Treat Save as authoritative: selected resources are desired writes
+      //    (the writer filters tuples that already exist), and removals come
+      //    from diffing the live OpenFGA grants. toolWildcard is always
+      //    {added:false, removed:false} because wildcard is expanded into
+      //    explicit per-server prefixes above.
       const tupleDiffInput = {
-        teamSlug: team.slug || id,
-        memberUserIds: resolvedMemberUserIds,
+        teamSlug: slug,
         agents: { added: nextAgents, removed: agentDiff.removed },
         agentAdmins: { added: nextAgentAdmins, removed: agentAdminDiff.removed },
         tools: { added: nextTools, removed: toolDiff.removed },
-        toolWildcard: {
-          added: nextToolWildcard,
-          removed: wildcardRemoved,
-        },
+        toolWildcard: { added: false, removed: false },
         allMcpServerIds,
       };
-      if (
-        body.knowledge_bases !== undefined ||
-        prevKnowledgeBases.length > 0 ||
-        nextKnowledgeBases.length > 0
-      ) {
-        Object.assign(tupleDiffInput, {
-          knowledgeBases: { added: nextKnowledgeBases, removed: knowledgeBaseDiff.removed },
-        });
-      }
-      if (body.skills !== undefined || prevSkills.length > 0 || nextSkills.length > 0) {
-        Object.assign(tupleDiffInput, {
-          skills: { added: nextSkills, removed: skillDiff.removed },
-        });
-      }
-      if (body.tasks !== undefined || prevTasks.length > 0 || nextTasks.length > 0) {
-        Object.assign(tupleDiffInput, {
-          tasks: { added: nextTasks, removed: taskDiff.removed },
-        });
-      }
       const openFgaTupleDiff = buildTeamResourceTupleDiff(tupleDiffInput);
+
+      // Persist wildcard INTENT via the `tool:*` sentinel so the MCP-server
+      // reconciler can auto-grant servers added later. The per-server grants are
+      // already expanded into `nextTools` above; the sentinel only flips when the
+      // wildcard checkbox changes, so flipping it off doesn't strip the explicit
+      // per-server prefixes (the diff handles those).
+      if (wildcard && !prevWildcardSentinel) {
+        openFgaTupleDiff.writes.push(teamToolWildcardSentinelTuple(slug));
+      } else if (!wildcard && prevWildcardSentinel) {
+        openFgaTupleDiff.deletes.push(teamToolWildcardSentinelTuple(slug));
+      }
+
       const openfga = await reconcileTupleDiff(openFgaTupleDiff, {
         caller: { type: "user", id: session.sub! },
         source: "team_resources",
         tenantId: session.org,
       });
 
-      // ── 3. Persist selection on the team document.
+      // ── 3. Touch updated_at and drop any legacy `resources` array (FGA is the
+      //    single source of truth; the migration backfills + unsets in bulk,
+      //    this keeps re-saved teams clean immediately).
       const now = new Date();
-      const nextResources = {
-        agents: nextAgents,
-        agent_admins: nextAgentAdmins,
-        tools: nextTools,
-        ...(body.knowledge_bases !== undefined || prevKnowledgeBases.length > 0
-          ? { knowledge_bases: nextKnowledgeBases }
-          : {}),
-        ...(body.skills !== undefined || prevSkills.length > 0 ? { skills: nextSkills } : {}),
-        ...(body.tasks !== undefined || prevTasks.length > 0 ? { tasks: nextTasks } : {}),
-        tool_wildcard: nextToolWildcard,
-      };
-
       await teamsCol.updateOne(
         { _id: teamId } as never,
         {
-          $set: {
-            resources: nextResources,
-            updated_at: now,
-          },
-        }
+          $set: { updated_at: now },
+          $unset: { resources: "" },
+        } as never
       );
 
       console.log(
-        `[Admin TeamResources] PUT team=${id} agents+=${agentDiff.added.length}/-${agentDiff.removed.length} agent_admins+=${agentAdminDiff.added.length}/-${agentAdminDiff.removed.length} tools+=${toolDiff.added.length}/-${toolDiff.removed.length} wildcard=${nextToolWildcard ? "on" : "off"} members_resolved=${resolvedMembers.length} members_skipped=${skippedMembers.length} by=${user.email}`
+        `[Admin TeamResources] PUT team=${id} agents+=${agentDiff.added.length}/-${agentDiff.removed.length} agent_admins+=${agentAdminDiff.added.length}/-${agentAdminDiff.removed.length} tools+=${toolDiff.added.length}/-${toolDiff.removed.length} wildcard=${wildcard ? "on" : "off"} by=${user.email}`
       );
 
       return successResponse({
         team_id: id,
-        resources: nextResources,
         diff: {
           agents_added: agentDiff.added,
           agents_removed: agentDiff.removed,
@@ -442,12 +468,7 @@ export const PUT = withErrorHandler(
           agent_admins_removed: agentAdminDiff.removed,
           tools_added: toolDiff.added,
           tools_removed: toolDiff.removed,
-          tool_wildcard_added: wildcardAdded,
-          tool_wildcard_removed: wildcardRemoved,
         },
-        members_resolved: resolvedMembers,
-        members_updated: resolvedMembers,
-        members_skipped: skippedMembers,
         openfga,
       });
   }

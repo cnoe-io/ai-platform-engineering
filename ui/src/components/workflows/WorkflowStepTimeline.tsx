@@ -11,6 +11,7 @@ import { AgentTimeline } from "@/components/chat/DynamicAgentTimeline";
 import { MetadataInputForm,type InputField } from "@/components/chat/MetadataInputForm";
 import { ToolApprovalCard } from "@/components/chat/ToolApprovalCard";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { MarkdownRenderer } from "@/components/shared/timeline";
 import {
 Tooltip,
 TooltipContent,
@@ -99,6 +100,7 @@ export function WorkflowStepTimeline({
 
   const isStreaming = step.status === "running" && isActive;
   const { data } = useAgentTimeline(events, isStreaming, turnStatus);
+  const showResponseFallback = events.length === 0 && Boolean(step.response?.trim());
 
   // Duration calculation — capture mount time via lazy useState initializer
   // so the React compiler does not flag Date.now() as an impure call.
@@ -192,12 +194,12 @@ export function WorkflowStepTimeline({
             </div>
           )}
 
-          {step.response?.trim() && (
+          {showResponseFallback && step.response?.trim() && (
             <div
               className="px-3 py-2 mb-2 text-sm text-foreground bg-muted/40 rounded-lg border border-border whitespace-pre-wrap"
               data-testid="workflow-step-response"
             >
-              {step.response.trim()}
+              <MarkdownRenderer content={step.response.trim()} />
             </div>
           )}
 

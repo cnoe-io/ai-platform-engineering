@@ -323,11 +323,15 @@ The `requested_issuer` parameter tells Keycloak to return the stored external ID
 
 ### The Problem with Flat Tokens
 
-If every agent in a CAIPE task execution receives the same broad token, a PagerDuty-reading agent has unnecessary GitHub write access. In CAIPE's multi-agent architecture where agents are dynamically composed from task configs and SKILLS.md files, this is a significant attack surface.
+If every Dynamic Agents invocation receives the same broad token, a PagerDuty
+read tool has unnecessary GitHub write access. Agents are composed from model
+configuration, skills, and MCP tool access, so each downstream call should only
+receive the scopes needed for that call.
 
 ### Chained Token Exchange with Progressive Scope Reduction
 
-Each agent in the execution chain receives a **progressively narrower token**, following the principle of least privilege:
+The Dynamic Agents runtime requests **progressively narrower tokens** for
+downstream MCP/tool calls, following the principle of least privilege:
 
 ```mermaid
 graph TB
@@ -335,91 +339,89 @@ graph TB
         UT["Keycloak Token<br/>scope: github:repo github:workflow<br/>jira:write argocd:sync pagerduty:read"]
     end
 
-    subgraph "Orchestrator"
-        ORCH["Orchestrator Agent<br/>(retains full scope for delegation)"]
+    subgraph "CAIPE Runtime"
+        DA["Dynamic Agents Runtime<br/>(delegates to allowed tools)"]
     end
 
-    subgraph "Downscoped Agent Tokens"
-        T_GH["GitHub PR Agent<br/>scope: github:repo:read<br/>github:pr:write<br/>TTL: 5 min"]
-        T_JIRA["Jira Commenter Agent<br/>scope: jira:comment:write<br/>TTL: 5 min"]
-        T_ARGO["ArgoCD Viewer Agent<br/>scope: argocd:app:get<br/>TTL: 5 min"]
-        T_PD["PagerDuty Agent<br/>scope: pagerduty:incidents:read<br/>TTL: 3 min"]
+    subgraph "Downscoped Tool Tokens"
+        T_GH["GitHub MCP Call<br/>scope: github:repo:read<br/>github:pr:write<br/>TTL: 5 min"]
+        T_JIRA["Jira MCP Call<br/>scope: jira:comment:write<br/>TTL: 5 min"]
+        T_ARGO["ArgoCD MCP Call<br/>scope: argocd:app:get<br/>TTL: 5 min"]
+        T_PD["PagerDuty MCP Call<br/>scope: pagerduty:incidents:read<br/>TTL: 3 min"]
     end
 
-    UT --> ORCH
-    ORCH -->|"OBO Exchange<br/>scope=github:repo:read,github:pr:write"| T_GH
-    ORCH -->|"OBO Exchange<br/>scope=jira:comment:write"| T_JIRA
-    ORCH -->|"OBO Exchange<br/>scope=argocd:app:get"| T_ARGO
-    ORCH -->|"OBO Exchange<br/>scope=pagerduty:incidents:read"| T_PD
+    UT --> DA
+    DA -->|"OBO Exchange<br/>scope=github:repo:read,github:pr:write"| T_GH
+    DA -->|"OBO Exchange<br/>scope=jira:comment:write"| T_JIRA
+    DA -->|"OBO Exchange<br/>scope=argocd:app:get"| T_ARGO
+    DA -->|"OBO Exchange<br/>scope=pagerduty:incidents:read"| T_PD
 
     style UT fill:#E74C3C,color:#fff
-    style ORCH fill:#F39C12,color:#fff
+    style DA fill:#F39C12,color:#fff
     style T_GH fill:#2ECC71,color:#fff
     style T_JIRA fill:#2ECC71,color:#fff
     style T_ARGO fill:#2ECC71,color:#fff
     style T_PD fill:#2ECC71,color:#fff
 ```
 
-**Critical guarantee**: Keycloak will never issue a token with broader scope than the parent. If the orchestrator's token has `github:repo:read` and an agent requests `github:repo:write`, the exchange fails. Scope can only narrow, never widen.
+**Critical guarantee**: Keycloak will never issue a token with broader scope
+than the parent. If the runtime token has `github:repo:read` and a tool call
+requests `github:repo:write`, the exchange fails. Scope can only narrow, never
+widen.
 
-### Deriving Scopes from Task Configs
+### Deriving Scopes from Tool Access
 
-Each CAIPE task config declares what permissions its agents need. The orchestrator reads the task config and mints a token with exactly the declared scopes:
+Dynamic agent and MCP server configuration define which tools are available.
+The runtime maps the selected MCP tool to the downstream scopes needed for that
+call, then mints a token with exactly those scopes:
 
 ```yaml
-# task_config: github-pr-review-and-jira-update
-name: "Review PR and Update Jira"
-agents:
-  - id: pr-reader
-    mcp_tools: ["github_get_pull_request", "github_list_files"]
-    required_scopes:
-      github: ["repo:read", "pull_request:read"]
-    max_token_ttl_seconds: 300
+dynamic-agents:
+  agents:
+    - id: platform-engineer
+      tools:
+        - mcp-github.github_get_pull_request
+        - mcp-github.github_create_review_comment
+        - mcp-jira.jira_add_comment
 
-  - id: pr-commenter
-    mcp_tools: ["github_create_review_comment"]
+mcp-github:
+  auth:
     required_scopes:
-      github: ["pull_request:write"]
-    max_token_ttl_seconds: 300
-
-  - id: jira-linker
-    mcp_tools: ["jira_add_comment", "jira_get_issue"]
-    required_scopes:
-      jira: ["comment:write", "issue:read"]
-    max_token_ttl_seconds: 300
+      github_get_pull_request: ["github:repo:read", "github:pull_request:read"]
+      github_create_review_comment: ["github:pull_request:write"]
 ```
 
-### Implementation: Impersonating Tool Executor
+### Implementation: Scoped Tool Token Provider
 
 ```python
-class ImpersonatingToolExecutor:
+class ScopedToolTokenProvider:
     """
-    Manages token exchange and scope narrowing for CAIPE agent impersonation.
-    Each agent receives the minimum token scope required for its task.
+    Manages token exchange and scope narrowing for Dynamic Agents tool calls.
+    Each call receives the minimum token scope required for its backend.
     """
 
     def __init__(self, keycloak_client: KeycloakClient):
         self.kc = keycloak_client
 
-    async def get_scoped_agent_token(
+    async def get_scoped_tool_token(
         self,
         user_token: str,
-        agent_id: str,
+        tool_id: str,
         required_scopes: list[str],
         max_ttl_seconds: int = 300,
     ) -> str:
         """
-        Mint a narrowly-scoped token for a specific dynamic agent.
+        Mint a narrowly-scoped token for a specific tool call.
         Keycloak will reject if requested scopes exceed the parent token's scopes.
         """
         response = await self.kc.token_exchange(
             grant_type="urn:ietf:params:oauth:grant-type:token-exchange",
             subject_token=user_token,
             subject_token_type="urn:ietf:params:oauth:token-type:access_token",
-            client_id=f"caipe-agent-{agent_id}",
-            client_secret=self.get_agent_secret(agent_id),
+            client_id="dynamic-agents",
+            client_secret=self.get_runtime_secret(),
             scope=" ".join(required_scopes),
-            audience=f"caipe-agent-{agent_id}",
+            audience="agentgateway",
         )
         return response["access_token"]
 
@@ -445,30 +447,23 @@ class ImpersonatingToolExecutor:
         )
         return response["access_token"]
 
-    async def execute_task(
-        self, user_token: str, task_config: dict
+    async def execute_tool_call(
+        self, user_token: str, tool_call: dict
     ) -> dict:
         """
-        Execute a CAIPE task with per-agent scope narrowing.
+        Execute one MCP tool call with scoped downstream credentials.
         """
-        results = {}
-        for agent_cfg in task_config["agents"]:
-            # Step 1: Mint narrowly-scoped token for this agent
-            scoped_token = await self.get_scoped_agent_token(
-                user_token=user_token,
-                agent_id=agent_cfg["id"],
-                required_scopes=self._flatten_scopes(agent_cfg["required_scopes"]),
-                max_ttl_seconds=agent_cfg.get("max_token_ttl_seconds", 300),
-            )
-
-            # Step 2: For each downstream service, retrieve the service-specific token
-            for service in agent_cfg["required_scopes"]:
-                svc_token = await self.get_user_token_for_service(scoped_token, service)
-                # Step 3: Execute agent with service-specific token
-                result = await self._run_agent(agent_cfg["id"], svc_token, service)
-                results[agent_cfg["id"]] = result
-
-        return results
+        scoped_token = await self.get_scoped_tool_token(
+            user_token=user_token,
+            tool_id=tool_call["tool_id"],
+            required_scopes=tool_call["required_scopes"],
+            max_ttl_seconds=tool_call.get("max_token_ttl_seconds", 300),
+        )
+        service_token = await self.get_user_token_for_service(
+            scoped_token,
+            tool_call["service"],
+        )
+        return await self._call_mcp_tool(tool_call["tool_id"], service_token)
 
     def _flatten_scopes(self, scopes_by_service: dict) -> list[str]:
         """Flatten {service: [scopes]} to [service:scope, ...]"""
@@ -487,10 +482,10 @@ The resulting token carries the full audit trail as nested `act` claims:
 {
   "sub": "user@example.com",
   "scope": "github:repo:read github:pull_request:read",
-  "aud": "caipe-agent-pr-reader",
+  "aud": "agentgateway",
   "groups": ["sre-team", "caipe-admins"],
   "act": {
-    "sub": "caipe-orchestrator",
+    "sub": "dynamic-agents",
     "act": {
       "sub": "caipe-slack-bot"
     }
@@ -1112,7 +1107,7 @@ Build a `/disconnect` command in the Slack bot and a "Disconnect" button in the 
 
 ### Audit Trail
 
-Every token exchange must be logged. Keycloak's event system captures these events natively. Forward them to your observability stack (OpenTelemetry, Splunk, etc.). The CAIPE agent should also log which user identity it is acting under for each downstream call.
+Every token exchange must be logged. Keycloak's event system captures these events natively. Forward them to your observability stack (OpenTelemetry, Splunk, etc.). The CAIPE runtime should also log which user identity it is acting under for each downstream call.
 
 ### Token Lifetime Alignment
 
@@ -1125,14 +1120,14 @@ Different services have different token lifetime characteristics:
 | ArgoCD | Keycloak JWT | Configurable (e.g., 30 min) | Re-exchange from parent token |
 | PagerDuty | API key | No expiry (until revoked) | N/A |
 
-Agent code must handle both long-lived and short-lived token patterns gracefully, including the case where a refresh token itself has expired.
+Runtime and MCP client code must handle both long-lived and short-lived token patterns gracefully, including the case where a refresh token itself has expired.
 
 ### Failed Exchange Handling
 
 When a token exchange fails (scope exceeded, connection revoked, refresh token expired), the agent should:
 
 1. Not retry with escalated privileges
-2. Report the failure to the orchestrator
+2. Report the failure through the runtime stream to the UI or bot caller
 3. Trigger a re-consent flow via Slack or UI notification
 4. Log the failure with full context for debugging
 

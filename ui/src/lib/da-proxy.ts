@@ -166,18 +166,11 @@ export interface DynamicAgentsConfig {
 }
 
 /**
- * Validate that dynamic agents are enabled and return the URL.
+ * Resolve the dynamic agents service URL.
  * Returns a NextResponse error on failure, or config on success.
  */
 export function getDynamicAgentsConfig(): DynamicAgentsConfig | NextResponse {
   const config = getServerConfig();
-
-  if (!config.dynamicAgentsEnabled) {
-    return NextResponse.json(
-      { success: false, error: "Dynamic agents are not enabled" },
-      { status: 403 },
-    );
-  }
 
   if (!config.dynamicAgentsUrl) {
     return NextResponse.json(

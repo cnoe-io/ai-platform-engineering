@@ -4,6 +4,7 @@ IdentityGroupSyncDryRunResult,
 TeamMembershipSource,
 } from "@/types/identity-group-sync";
 
+import { stripArchivedTeamResourceGrants } from "./archived-team-grants";
 import {
 OpenFgaWriteError,
 writeOpenFgaTuples,
@@ -32,9 +33,11 @@ export interface ApplyIdentityGroupSyncPlanResult {
   teamsCreated: number;
   membershipSourcesAdded: number;
   membershipSourcesRemoved: number;
+  membershipSourcesRefreshed: number;
   tupleWrites: number;
   tupleDeletes: number;
   openFgaEnabled: boolean;
+  teamsArchived: number;
 }
 
 /**
@@ -105,6 +108,16 @@ export async function applyIdentityGroupSyncPlan(
       // left to keep in sync.
       upsertedSources.push(resolved);
     }
+    for (const source of input.plan.membership_sources_to_refresh ?? []) {
+      const resolved = {
+        ...source,
+        team_id: teamIdsBySlug.get(source.team_slug) ?? source.team_id,
+        last_applied_at: input.now,
+      };
+      await upsertTeamMembershipSource(resolved);
+      // Refresh operations are idempotent — do NOT add to upsertedSources
+      // so they are excluded from rollback tracking.
+    }
     for (const source of input.plan.membership_sources_to_remove) {
       await markTeamMembershipSourceRemoved(source, input.actor, input.now);
       // See above — no longer mirror the removal into teams.members[].
@@ -116,13 +129,59 @@ export async function applyIdentityGroupSyncPlan(
       deletes: input.plan.tuple_deletes,
     });
 
+    // ── Phase 3: archive orphaned identity-sync teams ──────────────────────
+    // After memberships are removed, any identity_group_sync team that the
+    // planner flagged as "orphaned_team_membership" (no remaining managed
+    // memberships) gets archived. We only do this for teams the sync owns
+    // (source: "identity_group_sync") so manually-created teams are never
+    // touched. Failures here are logged but never thrown — the membership
+    // reconcile already succeeded; archival is best-effort cleanup.
+    const orphanedSlugs = new Set(
+      (input.plan.safety_warnings ?? [])
+        .filter((w) => w.code === "orphaned_team_membership" && w.team_slug)
+        .map((w) => w.team_slug as string),
+    );
+    let teamsArchived = 0;
+    if (orphanedSlugs.size > 0) {
+      try {
+        teamsArchived = await archiveOrphanedSyncTeams({
+          slugs: orphanedSlugs,
+          actor: input.actor,
+          now: input.now,
+        });
+        // Archiving the Mongo doc is cosmetic on its own — OpenFGA never
+        // consults team.status. Strip the team's resource-grant tuples so an
+        // archived team stops granting `team:<slug>#member can_use ...`. Only
+        // strips teams we actually archived this run; the roster is kept so
+        // un-archiving can replay grants. Best-effort: the membership reconcile
+        // already committed, and the self-check can repair any grant that
+        // survives here.
+        if (teamsArchived > 0) {
+          const strip = await stripArchivedTeamResourceGrants(orphanedSlugs);
+          if (strip.tuplesDeleted > 0) {
+            console.log(
+              `[identity-group-sync] stripped ${strip.tuplesDeleted} resource-grant tuple(s) ` +
+                `from ${orphanedSlugs.size} archived team(s)`,
+            );
+          }
+        }
+      } catch (archiveErr) {
+        console.error(
+          "[identity-group-sync] phase 3 team archival/grant-strip failed; orphaned teams may remain active",
+          archiveErr,
+        );
+      }
+    }
+
     return {
       teamsCreated: phase1.teamsCreated,
       membershipSourcesAdded: input.plan.membership_sources_to_add.length,
       membershipSourcesRemoved: input.plan.membership_sources_to_remove.length,
+      membershipSourcesRefreshed: (input.plan.membership_sources_to_refresh ?? []).length,
       tupleWrites: openFgaResult.writes,
       tupleDeletes: openFgaResult.deletes,
       openFgaEnabled: openFgaResult.enabled,
+      teamsArchived,
     };
   } catch (err) {
     // Best-effort rollback. The Mongo team docs and membership-source
@@ -176,12 +235,15 @@ async function ensureIdentitySyncTeams(
 ): Promise<EnsureTeamsResult> {
   const teamIdsBySlug = new Map<string, string>();
   const createdTeamSlugsThisCall = new Set<string>();
-  if (input.plan.teams_to_create.length === 0) {
+  if (input.plan.teams_to_create.length === 0 && (!input.plan.teams_to_update || input.plan.teams_to_update.length === 0)) {
     return { teamsCreated: 0, teamIdsBySlug, createdTeamSlugsThisCall };
   }
 
   const teams = await getCollection<IdentitySyncTeam & Record<string, unknown>>("teams");
-  const slugs = Array.from(new Set(input.plan.teams_to_create.map((team) => team.slug)));
+  const slugs = Array.from(new Set([
+    ...input.plan.teams_to_create.map((team) => team.slug),
+    ...(input.plan.teams_to_update ?? []).map((team) => team.slug),
+  ]));
   const existing = await teams
     .find({ slug: { $in: slugs } })
     .project({ _id: 1, id: 1, slug: 1, name: 1 })
@@ -214,8 +276,18 @@ async function ensureIdentitySyncTeams(
       createdTeamSlugsThisCall.add(team.slug);
       teamsCreated += 1;
     }
+    // Update name for teams where Okta's name differs from stored name.
+    // This is inside the same try-catch so that if an updateOne throws,
+    // any teams inserted earlier in this call are rolled back before
+    // rethrowing (Phase 1 all-or-nothing guarantee).
+    for (const team of input.plan.teams_to_update ?? []) {
+      await teams.updateOne(
+        { slug: team.slug },
+        { $set: { name: team.name, updated_by: input.actor, updated_at: new Date(input.now) } }
+      );
+    }
   } catch (err) {
-    // Phase 1 self-rollback: a single insert failed mid-loop. Delete
+    // Phase 1 self-rollback: a single insert or update failed mid-loop. Delete
     // anything we already inserted in this call before rethrowing.
     await rollbackPhase1({ createdTeamSlugs: createdTeamSlugsThisCall }).catch(
       (rollbackErr) => {
@@ -280,6 +352,26 @@ async function rollbackPhase1(input: {
   for (const slug of input.createdTeamSlugs) {
     await teams.deleteOne({ slug });
   }
+}
+
+/**
+ * Archive identity_group_sync teams that have no remaining active managed
+ * membership sources. Only touches teams with source "identity_group_sync"
+ * so manually-created teams are never auto-archived. Returns the count of
+ * teams actually updated.
+ */
+async function archiveOrphanedSyncTeams(input: {
+  slugs: Set<string>;
+  actor: string;
+  now: string;
+}): Promise<number> {
+  if (input.slugs.size === 0) return 0;
+  const teams = await getCollection<IdentitySyncTeam & Record<string, unknown>>("teams");
+  const result = await teams.updateMany(
+    { slug: { $in: Array.from(input.slugs) }, source: "identity_group_sync", status: { $ne: "archived" } },
+    { $set: { status: "archived", updated_by: input.actor, updated_at: new Date(input.now) } },
+  );
+  return result.modifiedCount;
 }
 
 // Re-export tuple types so callers that build plans don't have to

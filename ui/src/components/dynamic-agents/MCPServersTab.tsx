@@ -56,6 +56,8 @@ interface ProbeResult {
   error?: string;
 }
 
+type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled";
+
 interface AgentGatewayMigrationWarning {
   id: string;
   endpoint: string;
@@ -106,6 +108,86 @@ function serverCanProbe(server: MCPServerConfigWithPermissions | null | undefine
 
 function serverCanTest(server: MCPServerConfigWithPermissions | null | undefined): boolean {
   return serverCanInvoke(server) || serverCanManage(server);
+}
+
+function toolHealthStatus(
+  server: MCPServerConfigWithPermissions,
+  probe: ProbeResult | undefined,
+): { status: ToolHealthStatus; label: string; title: string } {
+  if (!server.enabled) {
+    return {
+      status: "disabled",
+      label: "Disabled",
+      title: "Disabled servers are not scanned for tools",
+    };
+  }
+  if (probe?.loading) {
+    return {
+      status: "checking",
+      label: "Checking",
+      title: "Listing MCP tools",
+    };
+  }
+  if (probe?.error || (probe?.tools && probe.tools.length === 0)) {
+    return {
+      status: "degraded",
+      label: "Degraded",
+      title: probe.error || "tools/list returned no tools",
+    };
+  }
+  if (probe?.tools && probe.tools.length > 0) {
+    return {
+      status: "healthy",
+      label: "Healthy",
+      title: `${probe.tools.length} tool${probe.tools.length === 1 ? "" : "s"} available`,
+    };
+  }
+  if (!serverCanProbe(server)) {
+    return {
+      status: "unknown",
+      label: "Not scanned",
+      title: "You do not have permission to scan this MCP server",
+    };
+  }
+  if (server.transport !== "http") {
+    return {
+      status: "unknown",
+      label: "Not scanned",
+      title: "Tool health scans currently support HTTP MCP servers",
+    };
+  }
+  return {
+    status: "unknown",
+    label: "Not scanned",
+    title: "Run the tool probe to check tools/list health",
+  };
+}
+
+function toolHealthClass(status: ToolHealthStatus): string {
+  switch (status) {
+    case "healthy":
+      return "text-green-600 dark:text-green-400";
+    case "degraded":
+      return "text-amber-600 dark:text-amber-400";
+    case "checking":
+    case "unknown":
+    case "disabled":
+      return "text-muted-foreground";
+  }
+}
+
+function toolHealthDotClass(status: ToolHealthStatus): string {
+  switch (status) {
+    case "healthy":
+      return "bg-green-500";
+    case "degraded":
+      return "bg-amber-500";
+    case "checking":
+      return "bg-blue-500";
+    case "unknown":
+    case "disabled":
+      return "bg-muted-foreground/60";
+  }
 }
 
 export function MCPServersTab() {
@@ -550,6 +632,7 @@ export function MCPServersTab() {
             {servers.map((server) => {
               const probe = probeResults[server._id];
               const rowActionError = rowActionErrors[server._id];
+              const toolHealth = toolHealthStatus(server, probe);
               return (
                 <div key={server._id} className="space-y-2">
                   <div
@@ -606,7 +689,7 @@ export function MCPServersTab() {
                       )}
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="col-span-2 space-y-1">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -641,6 +724,17 @@ export function MCPServersTab() {
                           </>
                         )}
                       </button>
+                      <div
+                        className={`flex items-center gap-1.5 text-xs ${toolHealthClass(toolHealth.status)}`}
+                        title={toolHealth.title}
+                      >
+                        {toolHealth.status === "checking" ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <span className={`h-2 w-2 rounded-full ${toolHealthDotClass(toolHealth.status)}`} />
+                        )}
+                        <span>{toolHealth.label}</span>
+                      </div>
                     </div>
 
                     <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
@@ -772,11 +866,11 @@ export function MCPServersTab() {
                   {probe && !probe.loading && (
                     <div className="ml-12 pl-4 border-l-2 border-muted">
                       {probe.error ? (
-                        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                          <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+                        <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3">
+                          <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                           <div className="space-y-1">
-                            <p className="text-sm font-medium text-destructive">Probe Failed</p>
-                            <p className="text-sm text-destructive/80">{probe.error}</p>
+                            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Tool Scan Degraded</p>
+                            <p className="text-sm text-amber-700 dark:text-amber-400">{probe.error}</p>
                           </div>
                         </div>
                       ) : probe.tools && probe.tools.length > 0 ? (
@@ -801,9 +895,9 @@ export function MCPServersTab() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2 text-muted-foreground">
+                        <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-amber-700 dark:text-amber-400">
                           <AlertCircle className="h-4 w-4" />
-                          <p className="text-sm">No tools found on this server</p>
+                          <p className="text-sm">Tool scan returned no tools</p>
                         </div>
                       )}
                     </div>

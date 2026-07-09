@@ -1,41 +1,6 @@
 {
   "_comment": "Central configuration for agent lists used by CI/CD workflows",
   "_assisted_by": "assisted-by Codex Codex-sonnet-4-6",
-  "a2a_agents": [
-    "argocd",
-    "aws",
-    "backstage",
-    "confluence",
-    "github",
-    "gitlab",
-    "jira",
-    "komodor",
-    "netutils",
-    "pagerduty",
-    "slack",
-    "splunk",
-    "template",
-    "victorops",
-    "webex",
-    "weather"
-  ],
-  "_agent_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.a2a. Valid keys: INSTALL_AWS_CLI, INSTALL_KUBECTL, INSTALL_GH_CLI, INSTALL_GLAB_CLI, INSTALL_NODE_NPM. Add an entry only when the agent genuinely invokes the CLI at runtime.",
-  "agent_build_args": {
-    "aws": {
-      "INSTALL_AWS_CLI": "true",
-      "INSTALL_KUBECTL": "true"
-    },
-    "github": {
-      "INSTALL_GH_CLI": "true"
-    },
-    "gitlab": {
-      "INSTALL_GLAB_CLI": "true",
-      "INSTALL_NODE_NPM": "true"
-    },
-    "slack": {
-      "INSTALL_NODE_NPM": "true"
-    }
-  },
   "_mcp_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.mcp. Valid keys: INSTALL_NETUTILS, INSTALL_AWS_CLI, INSTALL_KUBECTL. Add an entry only when the MCP agent genuinely invokes the tool at runtime.",
   "mcp_build_args": {
     "aws": {
@@ -56,9 +21,11 @@
     "litellm",
     "netutils",
     "pagerduty",
+    "scheduler",
     "splunk",
     "victorops",
-    "webex"
+    "webex",
+    "webex-meetings"
   ],
   "rag_components": [
     "agent-ontology",

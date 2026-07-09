@@ -88,7 +88,7 @@ def _write_service_event(doc: dict[str, Any]) -> None:
         "outcome": "allow" if doc["allowed"] else "deny",
         "correlation_id": doc.get("requestId") or str(uuid.uuid4()),
         "component": doc["resource"],
-        "source": "supervisor",
+        "source": doc["service"],
     }
     if "userEmail" in doc:
         event["user_email"] = doc["userEmail"]

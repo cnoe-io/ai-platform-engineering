@@ -80,6 +80,36 @@ function oktaConfig(): OktaConnectorConfig {
 }
 
 /**
+ * The SDK's OAuth.getAccessToken always sends a DPoP header on the token
+ * request, but its use_dpop_nonce retry is unreachable: Http.errorFilter
+ * throws on 400 before the nonce check runs. This patch catches the thrown
+ * error, reads the dpop-nonce header Okta returns, and retries once with it.
+ * The guard `!dpop_nonce` prevents infinite retry if the second attempt also
+ * fails (it re-throws so the caller sees the real error).
+ */
+function patchOAuthDpopNonce(client: Client): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oauth = (client as any).oauth;
+  if (!oauth) return;
+  const original = oauth.getAccessToken.bind(oauth) as (nonce?: string | null) => Promise<unknown>;
+  oauth.getAccessToken = async function (dpop_nonce: string | null = null): Promise<unknown> {
+    if (this.accessToken) return this.accessToken;
+    try {
+      return await original(dpop_nonce);
+    } catch (err: unknown) {
+      // OktaApiError surfaces status + headers from the raw fetch response.
+      const e = err as { status?: number; headers?: { get?: (k: string) => string | null } };
+      const nonce = e?.status === 400 ? (e?.headers?.get?.("dpop-nonce") ?? null) : null;
+      if (nonce && !dpop_nonce) {
+        this.isDPoP = true;
+        return await original(nonce);
+      }
+      throw err;
+    }
+  };
+}
+
+/**
  * Build an Okta SDK client for the configured auth mode. The SDK owns
  * pagination AND rate-limit handling (it honors Okta's X-Rate-Limit-* headers
  * and retries/queues internally), which is why we no longer hand-roll backoff
@@ -92,7 +122,7 @@ function buildOktaClient(config: OktaConnectorConfig): Client {
     const privateKey: string | Record<string, unknown> = trimmed.startsWith("{")
       ? (JSON.parse(trimmed) as Record<string, unknown>)
       : trimmed;
-    return new Client({
+    const client = new Client({
       orgUrl: config.orgUrl,
       authorizationMode: "PrivateKey",
       clientId: config.oauth.clientId,
@@ -100,6 +130,8 @@ function buildOktaClient(config: OktaConnectorConfig): Client {
       privateKey,
       ...(config.oauth.keyId ? { keyId: config.oauth.keyId } : {}),
     });
+    patchOAuthDpopNonce(client);
+    return client;
   }
   return new Client({ orgUrl: config.orgUrl, token: config.apiToken });
 }
@@ -113,18 +145,29 @@ function oktaUserDisplayName(user: User): string | undefined {
 
 async function collectGroupMembers(client: Client, groupId: string): Promise<OktaExternalGroup["members"]> {
   const members: OktaExternalGroup["members"] = [];
-  // `.each` transparently follows Okta's pagination cursor.
-  const userCollection = await client.groupApi.listGroupUsers({ groupId });
-  await userCollection.each((user: User) => {
-    const email = user.profile?.email ?? user.profile?.login ?? user.id;
-    if (!email) return;
-    members.push({
-      subject: undefined,
-      email,
-      display_name: oktaUserDisplayName(user),
-      active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
+  try {
+    // `.each` transparently follows Okta's pagination cursor.
+    const userCollection = await client.groupApi.listGroupUsers({ groupId });
+    await userCollection.each((user: User) => {
+      const email = user.profile?.email ?? user.profile?.login ?? user.id;
+      if (!email) return;
+      members.push({
+        subject: undefined,
+        email,
+        display_name: oktaUserDisplayName(user),
+        active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
+      });
     });
-  });
+  } catch (err: unknown) {
+    const status = (err as { status?: number }).status;
+    // OktaApiError includes an errorSummary field with the API error detail.
+    const errorSummary = (err as { errorSummary?: string }).errorSummary;
+    const message = err instanceof Error ? err.message : String(err);
+    const detail = errorSummary ? ` (${errorSummary})` : "";
+    throw new Error(
+      `Failed to list group users (groupId=${groupId}, status=${status ?? "unknown"}): ${message}${detail}`
+    );
+  }
   return members;
 }
 
@@ -174,7 +217,8 @@ export async function fetchOktaExternalGroups(
   input.onProgress?.(0, groups.length);
 
   const result: OktaExternalGroup[] = [];
-  for (const group of groups) {
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
     const displayName = group.profile?.name ?? group.id ?? "";
     // Members are fetched by Okta's group id, but `external_group_id` keys the
     // membership identity by group NAME to match the login/OIDC path (whose
@@ -183,7 +227,17 @@ export async function fetchOktaExternalGroups(
     // login. The 1:1 model is name-based throughout (the catch-all rule slugs
     // off the name), so the name is the stable cross-path key.
     const externalGroupId = group.profile?.name ?? group.id ?? "";
-    const members = await collectGroupMembers(client, group.id ?? "");
+    let members: OktaExternalGroup["members"] = [];
+    try {
+      members = await collectGroupMembers(client, group.id ?? "");
+    } catch (err) {
+      // Log but don't fail the entire sync; transient API errors on individual
+      // groups shouldn't block the overall sync (e.g., a rate limit on one group).
+      console.warn(
+        `[OktaSync] skipping group ${displayName} (${group.id}): ` +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
     result.push({
       provider_id: input.providerId,
       external_group_id: externalGroupId,
@@ -199,6 +253,12 @@ export async function fetchOktaExternalGroups(
       members,
     });
     input.onProgress?.(result.length, groups.length);
+    // Small delay between group fetches to avoid overwhelming the Okta API.
+    // The SDK already handles rate limiting via X-Rate-Limit-* headers, but
+    // a light throttle helps prevent transient 400s with very large org syncs.
+    if (i < groups.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   const totalMembers = result.reduce((sum, g) => sum + (g.member_count ?? 0), 0);

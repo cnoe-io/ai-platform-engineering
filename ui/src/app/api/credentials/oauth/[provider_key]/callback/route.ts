@@ -6,8 +6,11 @@ getAuthFromBearerOrSession,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
-import { relinkPinnedMcpCredentialSources } from "@/lib/credentials/relink-pinned-mcp-credentials";
-import { oauthStateCookieName,parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
+import {
+  oauthStateCookieName,
+  parseOAuthStateCookie,
+  type OAuthStatePayload,
+} from "@/lib/credentials/oauth-state";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
 function assertFeatureEnabled(): void {
@@ -16,13 +19,33 @@ function assertFeatureEnabled(): void {
   }
 }
 
-function cookieValue(headers: Headers, name: string): string | null {
+function resolveCallbackState(
+  headers: Headers,
+  callbackProviderKey: string,
+  state: string,
+): { providerKey: string; parsedState: OAuthStatePayload } | null {
   const cookie = headers.get("cookie");
   if (!cookie) return null;
-  for (const part of cookie.split(";")) {
-    const [key, ...value] = part.trim().split("=");
-    if (key === name) {
-      return value.join("=");
+
+  const directCookieName = oauthStateCookieName(callbackProviderKey);
+  const candidates = cookie
+    .split(";")
+    .map((part) => {
+      const [name, ...rawValue] = part.trim().split("=");
+      return { name, value: rawValue.join("=") };
+    })
+    .filter(({ name, value }) => name.startsWith("caipe_oauth_state_") && Boolean(value))
+    .sort((left, right) => Number(right.name === directCookieName) - Number(left.name === directCookieName));
+
+  for (const candidate of candidates) {
+    try {
+      const parsedState = parseOAuthStateCookie(candidate.value);
+      if (parsedState.state === state) {
+        return { providerKey: parsedState.providerKey, parsedState };
+      }
+    } catch {
+      // Ignore stale or invalid state cookies and continue looking for the
+      // signed state that matches this callback response.
     }
   }
   return null;
@@ -138,7 +161,7 @@ function completionPage(input: {
 
 export const GET = withErrorHandler(async (request: NextRequest, context?: { params: Promise<{ provider_key: string }> }) => {
   assertFeatureEnabled();
-  const { provider_key: providerKey } = await context!.params;
+  const { provider_key: callbackProviderKey } = await context!.params;
   const { session, user } = await getAuthFromBearerOrSession(request);
   const ownerId = typeof session.sub === "string" ? session.sub : "";
   if (!ownerId) {
@@ -148,9 +171,9 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   const url = new URL(request.url);
   const providerError = url.searchParams.get("error");
   if (providerError) {
-    const provider = providerBranding(providerKey);
+    const provider = providerBranding(callbackProviderKey);
     return completionPage({
-      providerKey,
+      providerKey: callbackProviderKey,
       status: "error",
       title: "Connection failed",
       message: `${provider.name} returned ${providerError}. You can close this window.`,
@@ -158,13 +181,15 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   }
   const code = url.searchParams.get("code") ?? "";
   const state = url.searchParams.get("state") ?? "";
-  const stateCookie = cookieValue(request.headers, oauthStateCookieName(providerKey));
-  if (!code || !state || !stateCookie) {
+  if (!code || !state) {
     throw new ApiError("OAuth callback is missing state or code", 400, "INVALID_OAUTH_CALLBACK");
   }
-  const parsedState = parseOAuthStateCookie(stateCookie);
+  const resolvedState = resolveCallbackState(request.headers, callbackProviderKey, state);
+  if (!resolvedState) {
+    throw new ApiError("OAuth callback is missing state or code", 400, "INVALID_OAUTH_CALLBACK");
+  }
+  const { providerKey, parsedState } = resolvedState;
   if (
-    parsedState.providerKey !== providerKey ||
     parsedState.ownerId !== ownerId ||
     parsedState.state !== state
   ) {
@@ -173,7 +198,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
 
   const service = await getProviderConnectionService();
   try {
-    const connection = await service.completeConnection({
+    await service.completeConnection({
       providerKey,
       owner: {
         type: "user",
@@ -185,17 +210,6 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
       codeVerifier: parsedState.codeVerifier,
       requestedScopes: parsedState.requestedScopes,
     });
-    if (connection.supersededConnectionIds?.length) {
-      try {
-        await relinkPinnedMcpCredentialSources({
-          owner: { type: "user", id: ownerId },
-          supersededConnectionIds: connection.supersededConnectionIds,
-          newConnectionId: connection.id,
-        });
-      } catch (relinkError) {
-        console.warn("[credentials/oauth/callback] failed to relink pinned MCP credentials:", relinkError);
-      }
-    }
   } catch (error) {
     return completionPage({
       providerKey,

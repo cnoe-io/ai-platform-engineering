@@ -66,6 +66,14 @@ type GrantIntent = {
 
 type Cleanup = () => Promise<void>;
 
+type SelfCheckAssertion = {
+  id: string;
+  actor: { type: "user" | "service_account"; id: string; label?: string };
+  resource: { type: ResourceType; id: string; label?: string };
+  action: Action;
+  expect: "ALLOW" | "DENY";
+};
+
 async function fetchJson<T = unknown>(
   page: Page,
   path: string,
@@ -221,6 +229,20 @@ async function expectDecisionEventually(
       { timeout: 20_000, intervals: [250, 500, 1_000, 2_000, 5_000] },
     )
     .toBe(expected);
+}
+
+async function expectSelfCheckAssertions(page: Page, assertions: SelfCheckAssertion[]): Promise<void> {
+  const result = await postJson(page, "/api/admin/rebac/self-check/tests", {
+    suites: ["custom_assertions"],
+    assertions,
+  });
+  expect(result.status, JSON.stringify(result.body)).toBe(200);
+  const data = dataRecord(result);
+  const summary = data.summary as { failed?: number; blocked?: number };
+  expect(summary.failed, JSON.stringify(result.body)).toBe(0);
+  expect(summary.blocked, JSON.stringify(result.body)).toBe(0);
+  const suites = Array.isArray(data.suites) ? data.suites as Array<{ id?: string; status?: string }> : [];
+  expect(suites.find((suite) => suite.id === "custom_assertions")?.status, JSON.stringify(result.body)).toBe("pass");
 }
 
 async function grant(page: Page, intent: GrantIntent): Promise<void> {
@@ -525,6 +547,22 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceId: agentId,
         action: "write",
       }, "DENY");
+      await expectSelfCheckAssertions(page, [
+        {
+          id: "team-member-can-use-agent",
+          actor: { type: "user", id: teamMemberSubject, label: "team member" },
+          resource: { type: "agent", id: agentId },
+          action: "use",
+          expect: "ALLOW",
+        },
+        {
+          id: "outsider-cannot-use-agent",
+          actor: { type: "user", id: outsiderSubject, label: "outsider" },
+          resource: { type: "agent", id: agentId },
+          action: "use",
+          expect: "DENY",
+        },
+      ]);
 
       await installSession(page, env, {
         email: teamMemberEmail,
@@ -563,6 +601,22 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceId: mcpServerId,
         action: "read",
       }, "DENY");
+      await expectSelfCheckAssertions(page, [
+        {
+          id: "team-member-can-read-mcp",
+          actor: { type: "user", id: teamMemberSubject },
+          resource: { type: "mcp_server", id: mcpServerId },
+          action: "read",
+          expect: "ALLOW",
+        },
+        {
+          id: "outsider-cannot-read-mcp",
+          actor: { type: "user", id: outsiderSubject },
+          resource: { type: "mcp_server", id: mcpServerId },
+          action: "read",
+          expect: "DENY",
+        },
+      ]);
 
       await installSession(page, env, {
         email: delegatedManagerEmail,
@@ -601,6 +655,22 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceId: modelId,
         action: "read",
       }, "DENY");
+      await expectSelfCheckAssertions(page, [
+        {
+          id: "team-member-can-read-model",
+          actor: { type: "user", id: teamMemberSubject },
+          resource: { type: "llm_model", id: modelId },
+          action: "read",
+          expect: "ALLOW",
+        },
+        {
+          id: "outsider-cannot-read-model",
+          actor: { type: "user", id: outsiderSubject },
+          resource: { type: "llm_model", id: modelId },
+          action: "read",
+          expect: "DENY",
+        },
+      ]);
 
       await installSession(page, env, {
         email: delegatedManagerEmail,
@@ -636,6 +706,29 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceId: datasourceId,
         action: "read",
       }, "DENY");
+      await expectSelfCheckAssertions(page, [
+        {
+          id: "team-member-can-ingest-kb",
+          actor: { type: "user", id: teamMemberSubject },
+          resource: { type: "knowledge_base", id: datasourceId },
+          action: "ingest",
+          expect: "ALLOW",
+        },
+        {
+          id: "team-member-can-read-data-source",
+          actor: { type: "user", id: teamMemberSubject },
+          resource: { type: "data_source", id: datasourceId },
+          action: "read",
+          expect: "ALLOW",
+        },
+        {
+          id: "outsider-cannot-read-kb",
+          actor: { type: "user", id: outsiderSubject },
+          resource: { type: "knowledge_base", id: datasourceId },
+          action: "read",
+          expect: "DENY",
+        },
+      ]);
 
       const ragCreate = await postJson(page, "/api/rag/v1/datasource", {
         datasource_id: datasourceId,
