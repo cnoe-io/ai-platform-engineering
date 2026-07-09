@@ -26,7 +26,8 @@ export const BUILT_IN_TOP_NAV_ITEMS: TopNavItemMeta[] = [
   { key: "workflows", label: "Workflows" },
   { key: "knowledge", label: "Knowledge Bases" },
   { key: "dynamic-agents", label: "Agents" },
-  { key: "credentials", label: "Connections" },
+  { key: "schedules", label: "Schedules" },
+  { key: "credentials", label: "Credentials" },
   { key: "admin", label: "Admin" },
 ];
 
