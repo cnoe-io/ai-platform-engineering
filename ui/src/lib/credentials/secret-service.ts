@@ -116,6 +116,18 @@ export interface CreateSecretInput {
   description?: string;
 }
 
+export interface BootstrapSecretInput {
+  id: string;
+  owner: CredentialOwnerRef;
+  name: string;
+  type: CredentialSecretType;
+  plaintext: string;
+  description?: string;
+  sharedWithTeams?: string[];
+}
+
+export type BootstrapSecretResult = "created" | "updated" | "unchanged";
+
 export interface ListSecretsInput {
   session: ResourceAuthzSession;
   owner: CredentialOwnerRef;
@@ -143,6 +155,7 @@ export interface AdminUpdateSecretMetadataInput {
 }
 
 const MASKED_PREVIEW_UNAVAILABLE = "unavailable";
+const SECRET_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
 function requireNonEmptyString(value: string, field: string): string {
   const trimmed = value.trim();
@@ -150,6 +163,22 @@ function requireNonEmptyString(value: string, field: string): string {
     throw new ApiError(`${field} is required`, 400, "VALIDATION_ERROR");
   }
   return trimmed;
+}
+
+function normalizedTeamIds(values: string[] | undefined): string[] {
+  return Array.from(
+    new Set((values ?? []).map((value) => value.trim()).filter(Boolean)),
+  ).sort();
+}
+
+function sameOwner(left: CredentialOwnerRef, right: CredentialOwnerRef): boolean {
+  return left.type === right.type && left.id === right.id;
+}
+
+function sameStrings(left: string[] | undefined, right: string[]): boolean {
+  const normalizedLeft = normalizedTeamIds(left);
+  return normalizedLeft.length === right.length
+    && normalizedLeft.every((value, index) => value === right[index]);
 }
 
 function actorFromSession(session: ResourceAuthzSession): SecretActorRef | undefined {
@@ -271,6 +300,112 @@ export class SecretService {
     });
 
     return this.metadataFor(doc, maskedPreview);
+  }
+
+  async upsertBootstrapSecret(input: BootstrapSecretInput): Promise<BootstrapSecretResult> {
+    const id = requireNonEmptyString(input.id, "id");
+    if (!SECRET_ID_PATTERN.test(id)) {
+      throw new ApiError("id is not a valid secret reference identifier", 400, "VALIDATION_ERROR");
+    }
+    if (input.owner.type !== "team" && input.owner.type !== "user") {
+      throw new ApiError(
+        "bootstrap secret owner.type must be team or user",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    const ownerId = requireNonEmptyString(input.owner.id, "owner.id");
+    if (!SECRET_ID_PATTERN.test(ownerId)) {
+      throw new ApiError("owner.id is not a valid identifier", 400, "VALIDATION_ERROR");
+    }
+    const owner: CredentialOwnerRef = { type: input.owner.type, id: ownerId };
+    const name = requireNonEmptyString(input.name, "name");
+    const plaintext = requireNonEmptyString(input.plaintext, "plaintext");
+    const description = input.description?.trim() || undefined;
+    const sharedWithTeams = normalizedTeamIds(input.sharedWithTeams);
+    if (sharedWithTeams.some((teamId) => !SECRET_ID_PATTERN.test(teamId))) {
+      throw new ApiError(
+        "sharedWithTeams contains an invalid team identifier",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    const existing = await this.secretRefsCollection.findOne({ id });
+    const now = this.now();
+
+    let storedPlaintext: string | null = null;
+    if (this.payloadStore.getSecret) {
+      try {
+        storedPlaintext = await this.payloadStore.getSecret(id);
+      } catch {
+        storedPlaintext = null;
+      }
+    }
+    const secretChanged = storedPlaintext !== plaintext;
+    if (secretChanged) {
+      await this.payloadStore.putSecret({
+        secretRefId: id,
+        plaintext,
+        maskedPreview: maskCredentialValue(plaintext),
+      });
+    }
+
+    const relationshipsChanged = Boolean(
+      existing
+      && (!sameOwner(existing.owner, owner)
+        || !sameStrings(existing.sharedWithTeams, sharedWithTeams)),
+    );
+    if (relationshipsChanged) {
+      await this.deleteAllRelationships(id);
+    }
+    await this.reconcileOwnerRelationships({
+      secretId: id,
+      owner,
+      ownerSubject: owner.type === "user" ? owner.id : null,
+    });
+    for (const teamId of sharedWithTeams) {
+      await this.reconcileShare(id, teamId);
+    }
+
+    const metadataChanged = !existing
+      || !sameOwner(existing.owner, owner)
+      || existing.name !== name
+      || existing.type !== input.type
+      || existing.description !== description
+      || !sameStrings(existing.sharedWithTeams, sharedWithTeams);
+    const doc: SecretRefDocument = {
+      id,
+      owner,
+      createdBy: existing?.createdBy ?? {
+        type: "service_account",
+        id: "credential-bootstrap",
+        name: "Credential bootstrap",
+      },
+      name,
+      type: input.type,
+      description,
+      sharedWithTeams,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: metadataChanged || secretChanged ? now : existing?.updatedAt ?? now,
+      rotatedAt: secretChanged ? now : existing?.rotatedAt,
+    };
+
+    if (!existing) {
+      await this.secretRefsCollection.insertOne(doc);
+      return "created";
+    }
+    if (metadataChanged || secretChanged) {
+      const { description: _description, ...requiredDoc } = doc;
+      await this.secretRefsCollection.updateOne(
+        { id },
+        {
+          $set: description ? doc : requiredDoc,
+          ...(!description ? { $unset: { description: "" } } : {}),
+        },
+      );
+      return "updated";
+    }
+    return "unchanged";
   }
 
   async listSecrets(input: ListSecretsInput): Promise<SecretMetadata[]> {

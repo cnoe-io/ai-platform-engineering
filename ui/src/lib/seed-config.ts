@@ -1270,6 +1270,15 @@ export async function applySeedConfig(): Promise<void> {
     console.error("[seed-config] credential OAuth bootstrap threw:", err);
   }
 
+  try {
+    const { bootstrapSecretsFromEnv } = await import(
+      "@/lib/credentials/secret-bootstrap"
+    );
+    await bootstrapSecretsFromEnv();
+  } catch (err) {
+    console.error("[seed-config] credential secret bootstrap threw:", err);
+  }
+
   // Spec 104: provision per-team Keycloak client scopes for any teams
   // that pre-date the slug field. Lives inside applySeedConfig because
   // Turbopack's instrumentation chunk tree-shakes a separate dynamic

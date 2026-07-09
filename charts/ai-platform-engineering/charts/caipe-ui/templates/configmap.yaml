@@ -5,6 +5,7 @@
 {{- $schedulerRunnerSecretName = printf "%s-scheduler-runner" $schedulerRunnerBase -}}
 {{- end -}}
 {{- $oauthConnectors := .Values.oauthConnectors | default list -}}
+{{- $credentialSecretRefs := .Values.credentialSecretRefs | default list -}}
 {{- $oauthProviders := dict -}}
 {{- range $index, $connector := $oauthConnectors -}}
 {{- if not (kindIs "map" $connector) -}}
@@ -47,6 +48,51 @@
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- $credentialSecretIds := dict -}}
+{{- range $index, $secret := $credentialSecretRefs -}}
+{{- if not (kindIs "map" $secret) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d] must be an object" $index) -}}
+{{- end -}}
+{{- if or (hasKey $secret "value") (hasKey $secret "plaintext") -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d] cannot contain an inline secret; use valueEnv with existingSecret or externalSecrets" $index) -}}
+{{- end -}}
+{{- $secretId := required (printf "caipe-ui.credentialSecretRefs[%d].id is required" $index) $secret.id -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$" $secretId) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].id is invalid" $index) -}}
+{{- end -}}
+{{- if hasKey $credentialSecretIds $secretId -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs id %q is configured more than once" $secretId) -}}
+{{- end -}}
+{{- $_ := set $credentialSecretIds $secretId true -}}
+{{- $_ := required (printf "caipe-ui.credentialSecretRefs[%d].name is required" $index) $secret.name -}}
+{{- $secretType := required (printf "caipe-ui.credentialSecretRefs[%d].type is required" $index) $secret.type -}}
+{{- if not (has $secretType (list "api_key" "basic_auth" "bearer_token" "custom")) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].type is invalid" $index) -}}
+{{- end -}}
+{{- $valueEnv := required (printf "caipe-ui.credentialSecretRefs[%d].valueEnv is required" $index) $secret.valueEnv -}}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $valueEnv) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].valueEnv must be a valid environment variable name" $index) -}}
+{{- end -}}
+{{- if not (kindIs "map" $secret.owner) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].owner must be an object" $index) -}}
+{{- end -}}
+{{- $ownerType := required (printf "caipe-ui.credentialSecretRefs[%d].owner.type is required" $index) $secret.owner.type -}}
+{{- if not (has $ownerType (list "team" "user")) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].owner.type must be team or user" $index) -}}
+{{- end -}}
+{{- $ownerId := required (printf "caipe-ui.credentialSecretRefs[%d].owner.id is required" $index) $secret.owner.id -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$" $ownerId) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].owner.id is invalid" $index) -}}
+{{- end -}}
+{{- if and (hasKey $secret "sharedWithTeams") (not (kindIs "slice" $secret.sharedWithTeams)) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].sharedWithTeams must be a list" $index) -}}
+{{- end -}}
+{{- range $teamIndex, $teamId := $secret.sharedWithTeams | default list -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$" $teamId) -}}
+{{- fail (printf "caipe-ui.credentialSecretRefs[%d].sharedWithTeams[%d] is invalid" $index $teamIndex) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -83,6 +129,9 @@ data:
   {{- end }}
   {{- if and (gt (len $oauthConnectors) 0) (not (hasKey .Values.config "CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON")) }}
   CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: {{ mustToJson $oauthConnectors | quote }}
+  {{- end }}
+  {{- if and (gt (len $credentialSecretRefs) 0) (not (hasKey .Values.config "CREDENTIAL_BOOTSTRAP_SECRET_REFS_JSON")) }}
+  CREDENTIAL_BOOTSTRAP_SECRET_REFS_JSON: {{ mustToJson $credentialSecretRefs | quote }}
   {{- end }}
   {{- /* Okta directory sync — flatten the structured `oktaSync:` block
          (Backstage-style) into IDENTITY_SYNC_OKTA_* env vars. Only the

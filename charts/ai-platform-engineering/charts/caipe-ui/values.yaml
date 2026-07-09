@@ -365,6 +365,24 @@ oauthConnectors: []
   #     - "meeting:transcripts_read"
   #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
 
+# Declarative encrypted secrets to upsert into the credential store at UI
+# startup. `id` is stable and can be referenced by an MCP server's
+# `credential_sources[].secret_ref`. `valueEnv` names an environment variable
+# supplied through `existingSecret` or `externalSecrets`; plaintext must never
+# be placed in values. Team/user ownership and optional team shares are
+# reconciled into OpenFGA on every startup.
+credentialSecretRefs: []
+  # - id: "shared-webex-bot-token"
+  #   name: "Shared Webex bot token"
+  #   type: "bearer_token"
+  #   valueEnv: "SHARED_WEBEX_BOT_TOKEN"
+  #   description: "Shared bot identity used by a Webex MCP route"
+  #   owner:
+  #     type: "team"
+  #     id: "platform-admins"
+  #   sharedWithTeams:
+  #     - "platform-users"
+
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
 # The secret is mounted via envFrom.secretRef alongside the config ConfigMap.
