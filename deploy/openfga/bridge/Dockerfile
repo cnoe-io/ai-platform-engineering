@@ -26,7 +26,7 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 
 # Install runtime: python 3.13 + shadow (groupadd/useradd).
 RUN for i in 1 2 3; do \
-        apk add --no-cache python-3.13 shadow && break; \
+        apk add --no-cache python3 shadow && break; \
         [ $i -lt 3 ] && sleep $((i * 10)); \
     done && \
     apk upgrade --no-cache
