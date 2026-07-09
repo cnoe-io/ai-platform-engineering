@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  FileText,
   HelpCircle,
   Link2,
   MessageSquare,
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ChatPanel } from "@/components/tome/ChatPanel";
 import { FeedPanel } from "@/components/tome/FeedPanel";
+import { GistsPanel } from "@/components/tome/GistsPanel";
 import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
@@ -81,6 +83,7 @@ type MainView =
   | { kind: "agent" }
   | { kind: "standup" }
   | { kind: "feed" }
+  | { kind: "gists" }
   | { kind: "settings" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
@@ -103,6 +106,8 @@ function viewToPath(slug: string, view: MainView): string {
       return `${base}/standup`;
     case "feed":
       return `${base}/feed`;
+    case "gists":
+      return `${base}/gists`;
     case "settings":
       return `${base}/settings`;
     case "ingest":
@@ -126,6 +131,8 @@ function pathToView(segments: string[]): MainView {
       return { kind: "standup" };
     case "feed":
       return { kind: "feed" };
+    case "gists":
+      return { kind: "gists" };
     case "settings":
       return { kind: "settings" };
     case "ingest":
@@ -596,6 +603,7 @@ export function TomeWiki({ slug }: { slug: string }) {
     agent: view.kind === "agent",
     standup: view.kind === "standup",
     feed: view.kind === "feed",
+    gists: view.kind === "gists",
     settings: view.kind === "settings",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
@@ -763,6 +771,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "feed" })}
                     tipTitle="Feed"
                     tipDescription="The project's feed: discussion about the context, plus live activity (source events, ingest runs), powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation and the signal around it."
+                  />
+                  <NavItem
+                    icon={<FileText className="h-4 w-4" />}
+                    label="Gists"
+                    active={navActive.gists}
+                    onClick={() => navigate({ kind: "gists" })}
+                    tipTitle="Gists"
+                    tipDescription="Quick, non-committal chunks of context (a prompt, an agent memory, a snippet) saved without becoming part of the curated wiki. Share one into the Feed when a teammate should see it."
                   />
                   <NavItem
                     icon={<Settings className="h-4 w-4" />}
@@ -1044,6 +1060,10 @@ export function TomeWiki({ slug }: { slug: string }) {
                   onOpenPage={(path) => navigate({ kind: "page", path })}
                   onOpenIngestRun={(runId) => navigate({ kind: "ingestRun", runId })}
                 />
+              </div>
+            ) : view.kind === "gists" ? (
+              <div className="min-w-0 flex-1">
+                <GistsPanel slug={slug} />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">

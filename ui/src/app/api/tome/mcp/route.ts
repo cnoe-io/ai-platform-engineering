@@ -638,6 +638,69 @@ const TOOLS: ToolDef[] = [
       );
     },
   },
+  {
+    name: "tome_list_gists",
+    description:
+      "List a project's gists — lightweight, non-wiki context chunks (a prompt, a snippet, a deploy note) saved without becoming part of the curated wiki. Returns id, title, author, and created_at for each (not the full body — use tome_get_gist for that). `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(await fwd("GET", `/api/tome/projects/${slug}/gists`), "list gists");
+      const gists = (data?.gists ?? []).map((g: any) => ({
+        id: g.id,
+        title: g.title,
+        author: g.author,
+        created_at: g.created_at,
+      }));
+      return toolText(JSON.stringify(gists, null, 2));
+    },
+  },
+  {
+    name: "tome_get_gist",
+    description:
+      "Fetch a gist's full body by id. `project_slug` and `gist_id` are required.",
+    inputSchema: schema({ project_slug: STR, gist_id: STR }, ["project_slug", "gist_id"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const id = encodeURIComponent(String(args.gist_id));
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/gists/${id}`),
+        "get gist",
+      );
+      return toolText(JSON.stringify(data?.gist ?? {}, null, 2));
+    },
+  },
+  {
+    name: "tome_create_gist",
+    description:
+      "Save a new gist to a project — a quick, non-committal chunk of context (an agent memory, a working prompt, a config incantation). It is NOT ingested into the wiki and NOT loaded into agent context by default; it's a stored, linkable chunk a teammate can pull in on demand. `project_slug`, `title`, and `body` (markdown) are required.",
+    inputSchema: schema(
+      { project_slug: STR, title: STR, body: STR },
+      ["project_slug", "title", "body"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const r = await fwd("POST", `/api/tome/projects/${slug}/gists`, {
+        title: String(args.title),
+        body: String(args.body),
+      });
+      const data = ensureOk(r, "create gist");
+      return toolText(`Created gist "${data?.gist?.title}" (id=${data?.gist?.id}).`);
+    },
+  },
+  {
+    name: "tome_share_gist",
+    description:
+      "Share an existing gist into the project's Feed as a linkable reference message (\"shared gist ...\"). Use after tome_create_gist, or to re-share one a teammate already saved. `project_slug` and `gist_id` are required.",
+    inputSchema: schema({ project_slug: STR, gist_id: STR }, ["project_slug", "gist_id"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const id = encodeURIComponent(String(args.gist_id));
+      const r = await fwd("POST", `/api/tome/projects/${slug}/gists/${id}/share`);
+      const data = ensureOk(r, "share gist");
+      return toolText(`Shared gist to the Feed (message id=${data?.message?.id}).`);
+    },
+  },
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

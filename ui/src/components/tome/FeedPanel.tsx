@@ -9,6 +9,7 @@ import {
   CircleCheck,
   CircleDot,
   CircleX,
+  FileText,
   GitCommit,
   GitPullRequest,
   Loader2,
@@ -107,6 +108,12 @@ const ARTIFACT_ICON: Record<SourceArtifact, typeof GitPullRequest> = {
   release: Tag,
   commit: GitCommit,
 };
+
+/** Payload carried by a `gist_ref` feed item — a link to a shared gist. */
+interface GistRefPayload {
+  gist_id?: string;
+  title?: string;
+}
 
 /** Icon per ingest-run status. */
 const INGEST_ICON: Record<NonNullable<IngestEventPayload["status"]>, typeof RefreshCw> = {
@@ -487,6 +494,16 @@ export function FeedPanel({
                   />
                 );
               }
+              if (evt?.kind === "gist_ref") {
+                return (
+                  <GistRefRow
+                    key={m.id}
+                    m={m}
+                    payload={(evt.payload ?? {}) as GistRefPayload}
+                    highlighted={m.id === highlightId}
+                  />
+                );
+              }
               if (evt) return null; // unrecognized event kind — skip rather than mis-render
               const prev = i > 0 ? messages[i - 1] : null;
               // Posted via the MCP (agent acting as the user) vs typed in the UI.
@@ -761,6 +778,56 @@ function PromotedActionRow({
       </div>
       <div className="break-words text-sm text-foreground/90">
         <MarkdownRenderer content={m.content} variant="final" onInternalLink={onOpenPage} />
+      </div>
+    </div>
+  );
+}
+
+/** A shared gist reference — a linkable pointer to a non-wiki context chunk,
+ * distinct from a promoted action (never part of the curated wiki context). */
+function GistRefRow({
+  m,
+  payload,
+  highlighted,
+}: {
+  m: FeedMessage;
+  payload: GistRefPayload;
+  highlighted?: boolean;
+}) {
+  const isAgent = isAgentHandle(m.sender_handle);
+  return (
+    <div
+      id={`feed-message-${m.id}`}
+      className={cn(
+        "relative mt-4 flex items-start gap-3 rounded-lg border bg-muted/30 py-3 pl-14 pr-3 transition-colors first:mt-0",
+        highlighted && "border-primary/50 bg-primary/10",
+      )}
+    >
+      <div
+        className={cn(
+          "absolute left-3 top-3 flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-medium text-white",
+          isAgent ? "bg-gradient-to-br from-violet-500 to-indigo-600" : "gradient-primary-br",
+        )}
+      >
+        {initialsOf(m.display_name || m.sender_handle)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">
+            {m.display_name || displayName(m.sender_handle)}
+          </span>
+          {isAgent && (
+            <span className="inline-flex items-center gap-0.5 rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-px text-[10px] font-medium text-violet-500">
+              <Bot className="h-3 w-3" />
+              agent
+            </span>
+          )}
+          <span className="text-[11px] text-muted-foreground">{timeLabel(m.created_at)}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-foreground/90">
+          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          shared gist <span className="font-medium">{payload.title ?? "untitled"}</span>
+        </div>
       </div>
     </div>
   );

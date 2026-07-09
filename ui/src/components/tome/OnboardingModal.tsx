@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  FileText,
   MessageSquare,
   MessagesSquare,
   Network,
@@ -138,6 +139,7 @@ function buildSteps(projectName?: string): Step[] {
     { node: <EdgesStep /> },
     { node: <AgentStep /> },
     { node: <FeedStep /> },
+    { node: <GistsStep /> },
     { node: <McpStep /> },
   ];
 }
@@ -413,6 +415,23 @@ function FeedStep() {
         and it can read the wiki, post to the Feed, and update pages as it works.
       </StepHeader>
       <FeedDemo />
+    </div>
+  );
+}
+
+function GistsStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader icon={<FileText className="h-5 w-5" />} eyebrow="Gists" title="Save the scraps too">
+        A gist is a quick, non-committal chunk of context: a working prompt, an
+        agent memory, a deploy note. It skips the wiki entirely, so it&apos;s never
+        ingested, synthesized, or loaded into agent context by default.
+      </StepHeader>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Share one into the Feed to hand it to a teammate, or let their agent pull
+        it on demand with <code className="rounded bg-muted px-1 py-0.5 text-xs">tome_get_gist</code>.
+        Nothing lands in the curated wiki unless someone chooses to promote it.
+      </p>
     </div>
   );
 }
