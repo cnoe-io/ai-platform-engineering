@@ -24,11 +24,9 @@ export const BUILT_IN_TOP_NAV_ITEMS: TopNavItemMeta[] = [
   { key: "chat", label: "Chat" },
   { key: "projects", label: "Projects" },
   { key: "skills", label: "Skills" },
-  { key: "task-builder", label: "Task Builder" },
   { key: "workflows", label: "Workflows" },
   { key: "knowledge", label: "Knowledge Bases" },
   { key: "dynamic-agents", label: "Agents" },
-  { key: "apps", label: "Apps" },
   { key: "credentials", label: "Connections" },
   { key: "admin", label: "Admin" },
 ];
