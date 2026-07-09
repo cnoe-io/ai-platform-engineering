@@ -498,7 +498,6 @@ function GistsDemo() {
 
   return (
     <div
-      className="min-h-[132px]"
       onMouseEnter={() => {
         paused.current = true;
       }}
@@ -506,32 +505,42 @@ function GistsDemo() {
         paused.current = false;
       }}
     >
+      {/* Every row is a fixed-height slot holding either a skeleton or the
+          real content, and text is clamped to one line — so swapping between
+          stages/examples never reflows the card. */}
       <div className="rounded-lg border bg-muted/30 px-4 py-3">
         <div className="flex items-start gap-2.5">
           <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
             <FileText className="h-3.5 w-3.5" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="min-h-[18px] text-sm font-medium text-foreground">
-              {showTitle && (
-                <span key={`t-${i}`} className="fill-mode-both animate-in fade-in slide-in-from-left-1 duration-300">
+            <div className="flex h-[18px] items-center text-sm font-medium text-foreground">
+              {showTitle ? (
+                <span
+                  key={`t-${i}`}
+                  className="fill-mode-both line-clamp-1 animate-in fade-in slide-in-from-left-1 duration-300"
+                >
                   {ex.title}
                   {!showBody && <Cursor className="text-primary" />}
                 </span>
+              ) : (
+                <span className="h-3 w-28 animate-pulse rounded bg-muted-foreground/20" aria-hidden />
               )}
             </div>
-            <div className="mt-1 min-h-[16px] text-xs text-muted-foreground">
-              {showBody && (
+            <div className="mt-1.5 flex h-[16px] items-center text-xs text-muted-foreground">
+              {showBody ? (
                 <span
                   key={`b-${i}`}
-                  className="fill-mode-both animate-in fade-in slide-in-from-left-1 duration-300"
+                  className="fill-mode-both line-clamp-1 animate-in fade-in slide-in-from-left-1 duration-300"
                 >
                   {ex.body}
                 </span>
+              ) : (
+                <span className="h-2.5 w-44 animate-pulse rounded bg-muted-foreground/15" aria-hidden />
               )}
             </div>
-            <div className="mt-2 min-h-[20px]">
-              {showSaved && (
+            <div className="mt-2 flex h-[20px] items-center">
+              {showSaved ? (
                 <span
                   key={`s-${i}`}
                   className="fill-mode-both inline-flex animate-in items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500 fade-in duration-300"
@@ -539,24 +548,34 @@ function GistsDemo() {
                   <Check className="h-3 w-3" />
                   Saved — not in the wiki
                 </span>
+              ) : (
+                <span className="h-3.5 w-32 animate-pulse rounded-full bg-muted-foreground/15" aria-hidden />
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {showShared && (
-        <div
-          key={`f-${i}`}
-          className="fill-mode-both mt-2 flex animate-in items-center gap-2 pl-3 fade-in slide-in-from-top-1 duration-300"
-        >
-          <Send className="h-3 w-3 shrink-0 text-primary" />
-          <div className="h-px flex-1 bg-border" />
-          <span className="rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
-            shared gist &ldquo;{ex.title}&rdquo; → <span className="font-medium text-foreground">Feed</span>
-          </span>
-        </div>
-      )}
+      <div className="mt-2 flex h-[28px] items-center gap-2 pl-3">
+        {showShared ? (
+          <>
+            <Send key={`icon-${i}`} className="fill-mode-both h-3 w-3 shrink-0 animate-in fade-in text-primary duration-300" />
+            <div className="h-px flex-1 bg-border" />
+            <span
+              key={`f-${i}`}
+              className="fill-mode-both line-clamp-1 animate-in rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground fade-in slide-in-from-top-1 duration-300"
+            >
+              shared gist &ldquo;{ex.title}&rdquo; → <span className="font-medium text-foreground">Feed</span>
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="h-3 w-3 shrink-0" aria-hidden />
+            <div className="h-px flex-1 bg-border/40" />
+            <span className="h-5 w-36 animate-pulse rounded-full bg-muted-foreground/10" aria-hidden />
+          </>
+        )}
+      </div>
     </div>
   );
 }
