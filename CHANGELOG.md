@@ -1,3 +1,15 @@
+## 0.5.43-dev.2 (2026-07-09)
+
+### Fix
+
+- **caipe-ui**: use X-CAIPE-Provider-Token for Webex MCP credential source (#2150)
+
+## 0.5.43-dev.1 (2026-07-09)
+
+### Fix
+
+- **workflows**: restore subagent HITL and live run status (#2142)
+
 ## 0.5.43 (2026-07-09)
 
 ### Feat
