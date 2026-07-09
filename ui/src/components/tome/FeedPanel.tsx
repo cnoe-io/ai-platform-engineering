@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -113,6 +114,7 @@ const ARTIFACT_ICON: Record<SourceArtifact, typeof GitPullRequest> = {
 interface GistRefPayload {
   gist_id?: string;
   title?: string;
+  tags?: string[];
 }
 
 /** Icon per ingest-run status. */
@@ -837,9 +839,20 @@ function GistRefRow({
           {initialsOf(m.display_name || m.sender_handle)}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground/90">
-            {payload.title ?? "Untitled gist"}
-          </p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">
+              {payload.title ?? "Untitled gist"}
+            </p>
+            {payload.tags && payload.tags.length > 0 && (
+              <div className="flex shrink-0 items-center gap-1">
+                {payload.tags.map((tag) => (
+                  <Badge key={tag} variant="outline" className="px-1.5 py-0 text-[9px] font-normal">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
           <p className="truncate text-[11px] text-muted-foreground">{sub}</p>
         </div>
         <Link

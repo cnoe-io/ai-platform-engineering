@@ -105,7 +105,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
         sender_handle: gist.author,
         content: `shared gist "${gist.title}"`,
         kind: "gist_ref",
-        payload: { gist_id: gist._id, title: gist.title },
+        payload: { gist_id: gist._id, title: gist.title, tags },
       });
       auditTome({
         action: "tome.gist.share",
