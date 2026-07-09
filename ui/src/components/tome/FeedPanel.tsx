@@ -58,12 +58,22 @@ interface FeedMessage {
   metadata?: Record<string, unknown> | null;
 }
 
-/** Any typed `event` message's kind + payload, before we know which one. */
-function feedEventMeta(m: FeedMessage): { kind: string; payload?: Record<string, unknown> } | null {
+/** Any typed `event` message's kind + payload, before we know which one.
+ * `correlationId` (Mycelium's generic `correlation_id`) is the idempotency
+ * key for "this event updates a prior row instead of adding a new one" -
+ * an ingest run reuses it across started/succeeded/failed, and any future
+ * producer (e.g. a PR's created → CI-succeeded events) can do the same
+ * without any kind-specific grouping logic here. */
+function feedEventMeta(
+  m: FeedMessage,
+): { kind: string; payload?: Record<string, unknown>; correlationId?: string } | null {
   if (m.message_type !== "event") return null;
-  const md = m.metadata as { kind?: string; payload?: Record<string, unknown> } | null | undefined;
+  const md = m.metadata as
+    | { kind?: string; payload?: Record<string, unknown>; correlation_id?: string }
+    | null
+    | undefined;
   if (!md?.kind) return null;
-  return { kind: md.kind, payload: md.payload };
+  return { kind: md.kind, payload: md.payload, correlationId: md.correlation_id };
 }
 
 /** The asset an event concerns (mirrors the producer's SourceArtifact). */
@@ -239,6 +249,37 @@ export function FeedPanel({
       (a, b) =>
         Number(b.isAgent) - Number(a.isAgent) || a.name.localeCompare(b.name),
     );
+  }, [messages]);
+
+  /** Collapse any event messages sharing a `correlation_id` into one row, in
+   * place at the id's first-seen position, carrying the latest message's
+   * content. Generic across event kinds: an ingest run's started/succeeded
+   * events collapse today; a future PR-created/CI-succeeded pair would too,
+   * just by reusing the same correlation_id when posting. Events without a
+   * correlation_id (most of them, today) pass through untouched. */
+  const displayMessages = useMemo(() => {
+    const latestById = new Map<string, FeedMessage>();
+    for (const m of messages) {
+      const id = feedEventMeta(m)?.correlationId;
+      if (!id) continue;
+      const existing = latestById.get(id);
+      if (!existing || Date.parse(m.created_at) >= Date.parse(existing.created_at)) {
+        latestById.set(id, m);
+      }
+    }
+    const seen = new Set<string>();
+    const out: FeedMessage[] = [];
+    for (const m of messages) {
+      const id = feedEventMeta(m)?.correlationId;
+      if (id) {
+        if (seen.has(id)) continue; // a later event for this id replaces, not appends
+        seen.add(id);
+        out.push(latestById.get(id) ?? m);
+        continue;
+      }
+      out.push(m);
+    }
+    return out;
   }, [messages]);
 
   const merge = useCallback((batch: FeedMessage[]) => {
@@ -464,14 +505,18 @@ export function FeedPanel({
               </p>
             </div>
           ) : (
-            messages.map((m, i) => {
+            displayMessages.map((m, i) => {
               const evt = feedEventMeta(m);
+              // A stable key across content swaps for correlation-grouped
+              // events (e.g. an ingest run's row shouldn't remount when its
+              // content changes from "started" to "succeeded").
+              const rowKey = evt?.correlationId ?? m.id;
               // Activity events render as a distinct full-width bar interleaved
               // in the stream, not a chat bubble.
               if (evt?.kind === "source_event") {
                 return (
                   <SourceEventRow
-                    key={m.id}
+                    key={rowKey}
                     m={m}
                     payload={(evt.payload ?? {}) as SourceEventPayload}
                     highlighted={m.id === highlightId}
@@ -481,7 +526,7 @@ export function FeedPanel({
               if (evt?.kind === "ingest_event") {
                 return (
                   <IngestEventRow
-                    key={m.id}
+                    key={rowKey}
                     slug={slug}
                     m={m}
                     payload={(evt.payload ?? {}) as IngestEventPayload}
@@ -493,7 +538,7 @@ export function FeedPanel({
               if (evt?.kind === "promoted_action") {
                 return (
                   <PromotedActionRow
-                    key={m.id}
+                    key={rowKey}
                     m={m}
                     onOpenPage={onOpenPage}
                     highlighted={m.id === highlightId}
@@ -503,7 +548,7 @@ export function FeedPanel({
               if (evt?.kind === "gist_ref") {
                 return (
                   <GistRefRow
-                    key={m.id}
+                    key={rowKey}
                     slug={slug}
                     m={m}
                     payload={(evt.payload ?? {}) as GistRefPayload}
@@ -513,7 +558,7 @@ export function FeedPanel({
                 );
               }
               if (evt) return null; // unrecognized event kind — skip rather than mis-render
-              const prev = i > 0 ? messages[i - 1] : null;
+              const prev = i > 0 ? displayMessages[i - 1] : null;
               // Posted via the MCP (agent acting as the user) vs typed in the UI.
               // Agents post with message_type "announce" (the only valid
               // room-wide Mycelium type we use for this); humans use "broadcast".

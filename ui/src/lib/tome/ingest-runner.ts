@@ -447,6 +447,9 @@ async function auditRunLifecycle(
         content,
         kind: "ingest_event",
         payload: { run_id: runId, mode, status },
+        // Same id across started/succeeded/failed so the Feed collapses them
+        // into one row instead of three, showing the latest status.
+        correlation_id: runId,
         ttl_seconds: 60 * 60 * 24 * 7, // a week — ephemeral like source events
       });
     }
