@@ -1491,19 +1491,23 @@ function AdminPage() {
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
                   <PlatformSettingsTab isAdmin={isAdmin} />
-                  <ReleaseNotesSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
+              )}
+
+              {tabGateValues.settings && (
+                <>
+                  <TabsContent value="release-notes" className="space-y-4">
+                    <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                  </TabsContent>
+                  <TabsContent value="navigation" className="space-y-4">
+                    <TopNavSettingsTab isAdmin={isAdmin} />
+                  </TabsContent>
+                </>
               )}
 
               {tabGateValues.service_accounts && (
                 <TabsContent value="service-accounts" className="space-y-4">
                   <ServiceAccountsTab />
-                </TabsContent>
-              )}
-
-              {tabGateValues.settings && (
-                <TabsContent value="navigation" className="space-y-4">
-                  <TopNavSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

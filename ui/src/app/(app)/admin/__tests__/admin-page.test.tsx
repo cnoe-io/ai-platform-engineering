@@ -89,6 +89,10 @@ jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
 }));
 
+jest.mock('@/components/admin/TopNavSettingsTab', () => ({
+  TopNavSettingsTab: () => <div data-testid="top-nav-settings-tab">TopNavSettingsTab</div>,
+}));
+
 jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div />,
   CategoryBreakdown: () => <div />,
@@ -750,15 +754,17 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'General',
+        'Default Agent',
+        'Release notes',
+        'Navigation',
         'AI Review',
         'Credentials',
         'Skills',
         'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      // Release notes lives under General, not as a standalone tab.
-      expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /release notes/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /navigation/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /knowledge bases/i })).not.toBeInTheDocument();
@@ -819,13 +825,13 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
 
-    it('defaults bare /admin to Settings General tab', async () => {
+    it('defaults bare /admin to Settings Default Agent tab', async () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Default Agent$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
@@ -836,26 +842,27 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('falls back to the General settings tab for the removed release-notes tab', async () => {
+    it('navigates directly to the Release notes tab via cat=settings tab=release-notes', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=release-notes');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      // An unknown tab value falls through to the first visible Settings tab
-      // (General), which renders both the platform settings and the release
-      // notes preference/config sections.
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      // release-notes is now a first-class tab in its own TabsContent.
+      expect(screen.getByRole('tab', { name: /^Release notes$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(screen.getByTestId('release-notes-settings-tab')).toBeInTheDocument();
+      // platform-settings tab content is not shown when release-notes is active.
+      expect(screen.queryByTestId('platform-settings-tab')).not.toBeInTheDocument();
     });
 
     it.each([
-      ['settings', 'settings', /^General$/i],
+      ['settings', 'settings', /^Default Agent$/i],
+      ['settings', 'release-notes', /^Release notes$/i],
+      ['settings', 'navigation', /^Navigation$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
@@ -911,14 +918,14 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
 
-    it('falls back from removed Settings Knowledge Bases links to General', async () => {
+    it('falls back from removed Settings Knowledge Bases links to Default Agent tab', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Default Agent$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
@@ -954,14 +961,14 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('canonicalizes legacy Resources Knowledge Base links to Settings General', async () => {
+    it('canonicalizes legacy Resources Knowledge Base links to Settings Default Agent tab', async () => {
       currentSearchParams = new URLSearchParams('cat=resources&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Default Agent$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
