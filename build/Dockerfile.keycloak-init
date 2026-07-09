@@ -25,7 +25,7 @@
 FROM cgr.dev/chainguard/wolfi-base:latest
 
 RUN apk add --no-cache \
-      python-3.13 \
+      python3 \
       curl \
       ca-certificates-bundle \
       grep \
