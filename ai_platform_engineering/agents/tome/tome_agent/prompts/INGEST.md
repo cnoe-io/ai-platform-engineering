@@ -86,6 +86,14 @@ information, and a stable wiki is a feature, not a failure.
   fold relevant decisions and themes into the right pages. It is discussion,
   not a source of record — weave it in, don't transcribe it, and let the
   GitHub/Confluence/Webex evidence win on facts.
+  - Some rows are typed system events, not chat — you'll see plain text like
+    "shared gist \"foo\"" or a promoted-action line rather than a question or
+    reply. A `gist_ref` row means someone shared a gist: a quick, uncurated
+    scrap (a prompt, a memory, a deploy note) that is deliberately outside the
+    wiki. Do not fetch or fold its body into a page — you have no tool to read
+    a gist's content, and that's intentional. Treat the row only as a signal
+    that a gist exists; if it seems wiki-worthy, note it in your summary as
+    something a human may want to promote, don't promote it yourself.
 - Other Projects (`mcp__tome__list_projects`, `list_project_pages`,
   `read_project_page`): your Read/Glob tools only see this project's own
   working copy. Use these three read-only tools to look outside it — required
