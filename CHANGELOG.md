@@ -1,3 +1,18 @@
+## 0.5.47 (2026-07-09)
+
+### Fix
+
+- **rbac**: chunk OpenFGA batch-check calls over the 50-check limit
+- **ui**: paginate dynamic agents fetch in slack integration pickers
+
+## 0.5.46-dev.1 (2026-07-09)
+
+### Fix
+
+- **rbac**: self-check should not expect manager grant for shared-only teams on agents
+
+## 0.5.46 (2026-07-09)
+
 ## 0.5.45-dev.2 (2026-07-09)
 
 ### Fix
