@@ -1,8 +1,18 @@
-## 0.5.45 (2026-07-09)
+## 0.5.45-dev.2 (2026-07-09)
 
 ### Fix
 
-- **ci**: replace bitshift backoff with multiply to avoid heredoc parse error in Docker builds (#2153)
+- **workflows**: resume subagent HITL timelines
+- **ci**: fix docs-snapshot push auth + retry on race (#2154)
+
+## 0.5.45-dev.1 (2026-07-09)
+
+### Fix
+
+- **ci**: exclude docs/src/pages/index.tsx from proprietary content check
+- **deps**: bump uv constraint 0.11.6 to 0.11.18 in scheduler and webex-meetings
+
+## 0.5.45 (2026-07-09)
 
 ## 0.5.44-dev.1 (2026-07-09)
 
@@ -11,16 +21,6 @@
 - **ci**: add exponential backoff for apk retries; add missing workflows doc (#2153)
 
 ## 0.5.44 (2026-07-09)
-
-### Feat
-
-- **workflows**: restore subagent HITL and live run status (#2142)
-
-### Fix
-
-- **caipe-ui**: use X-CAIPE-Provider-Token for Webex MCP credential source (#2150)
-- **ci**: add exponential backoff for apk retries in all Wolfi Dockerfiles (#2153)
-- **docs**: add missing workflows feature doc to fix Docusaurus broken link (#2153)
 
 ## 0.5.43-dev.2 (2026-07-09)
 
