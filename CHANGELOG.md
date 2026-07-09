@@ -4,6 +4,12 @@
 
 - **ci**: replace bitshift backoff with multiply to avoid heredoc parse error in Docker builds (#2153)
 
+## 0.5.44-dev.1 (2026-07-09)
+
+### Fix
+
+- **ci**: add exponential backoff for apk retries; add missing workflows doc (#2153)
+
 ## 0.5.44 (2026-07-09)
 
 ### Feat
