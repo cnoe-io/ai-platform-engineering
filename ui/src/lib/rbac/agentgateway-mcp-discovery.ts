@@ -58,6 +58,19 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       target: "header",
     },
   ],
+  // assisted-by claude code claude-sonnet-4-6
+  // webex (messaging) must use X-CAIPE-Provider-Token, not Authorization.
+  // Agentgateway jwtAuth validates Authorization as Keycloak JWT; the bridge
+  // then rewrites it to the resolved provider token for the upstream MCP pod.
+  webex: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "webex",
+      target: "header",
+      fallback_env: "WEBEX_TOKEN",
+    },
+  ],
   webex_meetings: [
     {
       kind: "provider_connection",
