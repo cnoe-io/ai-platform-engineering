@@ -62,7 +62,7 @@ function setupFetchMock() {
         },
       });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: {
           items: [
@@ -248,7 +248,7 @@ it("shows the onboarding loading state while configured spaces seed the table", 
     ) {
       return spacesPromise;
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({ data: { items: [] } });
     }
     return response({});
