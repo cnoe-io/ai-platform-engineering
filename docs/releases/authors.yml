@@ -6,3 +6,11 @@ sriaradhyula:
   socials:
     linkedin: aradhyula
     github: sriaradhyula
+
+suwhang-cisco:
+  name: Sunny Whang
+  url: https://github.com/suwhang-cisco
+  image_url: https://github.com/suwhang-cisco.png
+  page: true
+  socials:
+    github: suwhang-cisco
