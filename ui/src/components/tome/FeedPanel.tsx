@@ -420,7 +420,7 @@ export function FeedPanel({
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md text-center text-sm text-muted-foreground">
           <MessagesSquare className="mx-auto mb-3 h-8 w-8 opacity-50" />
-          The Feed isn’t configured on this deployment.
+          The activity feed isn’t configured on this deployment.
           <div className="mt-1 text-xs">
             Set <code>MYCELIUM_URL</code> to enable it.
           </div>
@@ -449,18 +449,18 @@ export function FeedPanel({
             </p>
           )}
           {loading && messages.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Loading the feed…</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading the activity feed…</p>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                 <MessagesSquare className="h-6 w-6 text-primary" />
               </div>
-              <h2 className="text-lg font-semibold">The {slug} feed</h2>
+              <h2 className="text-lg font-semibold">The {slug} activity feed</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Conversation about <span className="font-medium">{slug}</span>, plus its live
-                activity, powered by Mycelium. People and agents post decisions, questions, and
-                updates; source activity and ingest runs show up here too. The wiki holds the
-                durable context; this holds the conversation and signal around it.
+                Source activity, ingest runs, and shared gists for <span className="font-medium">{slug}</span>,
+                plus live discussion, powered by Mycelium. People and agents post decisions,
+                questions, and updates here too. The wiki holds the durable context; this holds
+                the activity and signal around it.
               </p>
             </div>
           ) : (
@@ -600,7 +600,7 @@ export function FeedPanel({
             }}
             minRows={1}
             maxRows={10}
-            placeholder="Message the feed…"
+            placeholder="Message the activity feed…"
             className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
           <Button
@@ -624,7 +624,7 @@ export function FeedPanel({
             rel="noreferrer"
             className="transition-colors hover:text-foreground hover:underline"
           >
-            Powered by Mycelium
+            Multi-agent feed powered by mycelium.
           </a>
         </div>
       </div>

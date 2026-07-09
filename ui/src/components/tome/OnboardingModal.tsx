@@ -408,13 +408,13 @@ function FeedStep() {
     <div className="space-y-4">
       <StepHeader
         icon={<MessagesSquare className="h-5 w-5" />}
-        eyebrow="Feed"
+        eyebrow="Activity"
         title="Bring your agents into the mix"
       >
-        The Feed is the conversation about the project, plus its live activity,
-        powered by Mycelium. People post here, and so do agents:{" "}
+        Activity is the project&apos;s activity feed: GitHub and ingest events plus live
+        discussion, powered by Mycelium. People post here, and so do agents:{" "}
         <span className="font-medium text-foreground">connect a coding agent over MCP</span>{" "}
-        and it can read the wiki, post to the Feed, and update pages as it works.
+        and it can read the wiki, post to Activity, and update pages as it works.
       </StepHeader>
       <FeedDemo />
     </div>
@@ -431,8 +431,9 @@ function GistsStep() {
       </StepHeader>
       <GistsDemo />
       <p className="text-sm leading-relaxed text-muted-foreground">
-        Share one into the Feed to hand it to a teammate, or let their agent pull
-        it on demand with <code className="rounded bg-muted px-1 py-0.5 text-xs">tome_get_gist</code>.
+        Every gist you save is posted to the activity feed automatically, so a
+        teammate sees it right away, or their agent can pull it on demand with{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">tome_get_gist</code>.
         Nothing lands in the curated wiki unless someone chooses to promote it.
       </p>
     </div>
@@ -546,7 +547,7 @@ function GistsDemo() {
                   className="fill-mode-both inline-flex animate-in items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500 fade-in duration-300"
                 >
                   <Check className="h-3 w-3" />
-                  Saved — not in the wiki
+                  Instant handoff
                 </span>
               ) : (
                 <span className="h-3.5 w-32 animate-pulse rounded-full bg-muted-foreground/15" aria-hidden />
@@ -565,7 +566,7 @@ function GistsDemo() {
               key={`f-${i}`}
               className="fill-mode-both line-clamp-1 animate-in rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground fade-in slide-in-from-top-1 duration-300"
             >
-              shared gist &ldquo;{ex.title}&rdquo; → <span className="font-medium text-foreground">Feed</span>
+              shared gist &ldquo;{ex.title}&rdquo; → <span className="font-medium text-foreground">Activity</span>
             </span>
           </>
         ) : (
@@ -608,7 +609,7 @@ function FeedDemo() {
       { role: "user", text: "Mention in tome that we're blocked on the OIDC migration" },
       { role: "mcp", text: 'tome_feed_send("blocked on OIDC migration")' },
       { role: "result", text: "posted" },
-      { role: "agent", text: "Posted to the Feed." },
+      { role: "agent", text: "Posted to Activity." },
     ],
     [
       { role: "user", text: "How does Atlas relate to Beacon?" },
@@ -697,7 +698,7 @@ function McpStep() {
     <div className="space-y-4">
       <StepHeader icon={<Plug className="h-5 w-5" />} eyebrow="MCP" title="Bring TOME into your coding agent">
         Connect Claude, Cursor, or Claude Code over MCP so your agent can read
-        this project&apos;s wiki and Feed right where you write code, with
+        this project&apos;s wiki and Activity right where you write code, with
         no copy-paste.
       </StepHeader>
       <Terminal>
@@ -710,7 +711,7 @@ function McpStep() {
         <Cursor />
       </Terminal>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        Your agent gets tools to list projects, read pages, and post to the Feed.
+        Your agent gets tools to list projects, read pages, and post to Activity.
         Grab your key and the exact command from{" "}
         <span className="font-medium text-foreground">Connect via MCP</span> in the TOME header.
       </p>

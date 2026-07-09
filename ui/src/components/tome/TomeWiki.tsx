@@ -547,7 +547,7 @@ export function TomeWiki({ slug }: { slug: string }) {
       case "standup":
         return [{ label: "Standup" }];
       case "feed":
-        return [{ label: "Feed" }];
+        return [{ label: "Activity" }];
       case "gists":
         return [{ label: "Gists" }];
       case "gist":
@@ -783,11 +783,11 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
-                    label="Feed"
+                    label="Activity"
                     active={navActive.feed}
                     onClick={() => navigate({ kind: "feed" })}
-                    tipTitle="Feed"
-                    tipDescription="The project's feed: discussion about the context, plus live activity (source events, ingest runs), powered by Mycelium. People and agents post here; the wiki holds the context, this holds the conversation and the signal around it."
+                    tipTitle="Activity"
+                    tipDescription="The project's activity feed: GitHub and ingest events, shared gists, plus live discussion, powered by Mycelium. People and agents post here; the wiki holds the context, this holds the activity and signal around it."
                   />
                   <NavItem
                     icon={<FileText className="h-4 w-4" />}
@@ -795,7 +795,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     active={navActive.gists}
                     onClick={() => navigate({ kind: "gists" })}
                     tipTitle="Gists"
-                    tipDescription="Quick, non-committal chunks of context (a prompt, an agent memory, a snippet) saved without becoming part of the curated wiki. Share one into the Feed when a teammate should see it."
+                    tipDescription="Quick, non-committal chunks of context (a prompt, an agent memory, a snippet) saved without becoming part of the curated wiki. Share one into the activity feed when a teammate should see it."
                   />
                   <NavItem
                     icon={<Settings className="h-4 w-4" />}
