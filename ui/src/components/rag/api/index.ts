@@ -189,6 +189,24 @@ export const ingestUrl = async (params: {
     }
 };
 
+export const ingestSlackChannel = async (params: {
+    channel_id: string;
+    channel_name?: string;
+    description?: string;
+    lookback_days?: number;
+    include_bots?: boolean;
+    owner_team_slug?: string;
+}): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
+    return apiPost('/v1/ingest/slack/channel', {
+        channel_id: params.channel_id,
+        channel_name: params.channel_name || null,
+        description: params.description || '',
+        lookback_days: params.lookback_days ?? 30,
+        include_bots: params.include_bots || false,
+        owner_team_slug: params.owner_team_slug || null
+    });
+};
+
 export const ingestLocalFile = async (params: {
     files: File[];
     description?: string;
@@ -209,6 +227,8 @@ export const reloadDataSource = async (datasourceId: string): Promise<{ datasour
     // Determine endpoint based on datasource ID pattern
     if (datasourceId.includes('src_confluence___')) {
         return apiPost('/v1/ingest/confluence/reload', { datasource_id: datasourceId });
+    } else if (datasourceId.startsWith('slack-channel-')) {
+        return apiPost('/v1/ingest/slack/reload', { datasource_id: datasourceId });
     } else {
         return apiPost('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
     }

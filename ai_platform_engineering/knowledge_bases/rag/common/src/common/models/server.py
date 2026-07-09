@@ -147,6 +147,31 @@ class ConfluenceIngestorCommand(str, Enum):
 
 
 # ============================================================================
+# Models specific for Slack Ingestor
+# ============================================================================
+
+
+class SlackChannelIngestRequest(BaseModel):
+  channel_id: str = Field(..., description="Slack channel ID (e.g., 'C0123456789')")
+  channel_name: Optional[str] = Field(None, description="Human-readable channel name (without leading '#'), used for display and message links")
+  description: str = Field("", description="Description for this data source")
+  lookback_days: int = Field(30, description="How many days of channel history to fetch. 0 fetches all history.", ge=0)
+  include_bots: bool = Field(False, description="Whether to include messages posted by bots")
+  # Owning team for a NEW Slack channel data source (spec 2026-06-03).
+  owner_team_slug: Optional[str] = Field(None, description="Slug of the team that will own this new data source. Required for non-org-admin authors adding a new Slack channel.")
+
+
+class SlackReloadRequest(BaseModel):
+  datasource_id: str = Field(..., description="ID of the Slack datasource to reload")
+
+
+class SlackIngestorCommand(str, Enum):
+  INGEST_CHANNEL = "ingest-channel"
+  RELOAD_ALL = "reload-all"
+  RELOAD_DATASOURCE = "reload-datasource"
+
+
+# ============================================================================
 # Models for Graph Exploration and Querying
 # ============================================================================
 class ExploreNeighborhoodRequest(BaseModel):

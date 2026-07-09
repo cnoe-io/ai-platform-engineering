@@ -74,6 +74,7 @@ getJobsBatch,
 getJobsByDataSource,
 getJobStatus,
 ingestLocalFile,
+ingestSlackChannel,
 ingestUrl,
 JIRA_INGESTOR_ID,
 reloadDataSource,
@@ -222,6 +223,12 @@ export default function IngestView() {
   const [description, setDescription] = useState('')
   const [includeSubPages, setIncludeSubPages] = useState(false)
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+
+  // Slack-specific ingest state
+  const [slackChannelId, setSlackChannelId] = useState('')
+  const [slackChannelName, setSlackChannelName] = useState('')
+  const [slackLookbackDays, setSlackLookbackDays] = useState(30)
+  const [slackIncludeBots, setSlackIncludeBots] = useState(false)
   
   // Scrapy settings state (for web ingest type)
   const [crawlMode, setCrawlMode] = useState<'single' | 'sitemap' | 'recursive'>('sitemap')
@@ -881,7 +888,8 @@ export default function IngestView() {
 
   const handleIngest = async () => {
     if (ingestType === 'file' && selectedFiles.length === 0) return
-    if (ingestType !== 'file' && !url) return
+    if (ingestType === 'slack' && !slackChannelId) return
+    if (ingestType !== 'file' && ingestType !== 'slack' && !url) return
     if (ingestOwnerTeamMissing) {
       toast('Select an owning team for this data source', 'error')
       return
@@ -895,6 +903,15 @@ export default function IngestView() {
             owner_team_slug: ingestOwnerTeamSlug || undefined,
             chunk_size: chunkSize,
             chunk_overlap: chunkOverlap,
+          })
+        : ingestType === 'slack'
+        ? await ingestSlackChannel({
+            channel_id: slackChannelId,
+            channel_name: slackChannelName || undefined,
+            description,
+            lookback_days: slackLookbackDays,
+            include_bots: slackIncludeBots,
+            owner_team_slug: ingestOwnerTeamSlug || undefined,
           })
         : await ingestUrl({
             url,
@@ -933,6 +950,8 @@ export default function IngestView() {
       setSelectedFiles([])
       setDescription('')
       setIngestOwnerTeamSlug('')
+      setSlackChannelId('')
+      setSlackChannelName('')
     } catch (error: any) {
       console.error('Error ingesting data:', error)
       toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
@@ -1116,7 +1135,7 @@ export default function IngestView() {
             {/* Source Input */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-muted-foreground mb-2">
-                {ingestType === 'file' ? 'Files' : 'URL'}
+                {ingestType === 'file' ? 'Files' : ingestType === 'slack' ? 'Channel' : 'URL'}
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -1138,6 +1157,29 @@ export default function IngestView() {
                         </p>
                       )}
                     </>
+                  ) : ingestType === 'slack' ? (
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="Channel ID (e.g. C0123456789)"
+                          value={slackChannelId}
+                          onChange={(e) => setSlackChannelId(e.target.value)}
+                          className="pl-10"
+                          onKeyDown={(e) => e.key === 'Enter' && handleIngest()}
+                        />
+                      </div>
+                      <div className="relative flex-1">
+                        <Input
+                          type="text"
+                          placeholder="Channel name (optional, e.g. engineering)"
+                          value={slackChannelName}
+                          onChange={(e) => setSlackChannelName(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleIngest()}
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1155,7 +1197,7 @@ export default function IngestView() {
                 <Button
                   onClick={handleIngest}
                   disabled={
-                    (ingestType === 'file' ? selectedFiles.length === 0 : !url) ||
+                    (ingestType === 'file' ? selectedFiles.length === 0 : ingestType === 'slack' ? !slackChannelId : !url) ||
                     !hasPermission(Permission.INGEST) ||
                     ingestOwnerTeamMissing
                   }
@@ -1168,7 +1210,9 @@ export default function IngestView() {
                           ? selectedFiles.length > 1
                             ? `Ingest ${selectedFiles.length} files`
                             : 'Ingest this file'
-                          : 'Ingest this URL'
+                          : ingestType === 'slack'
+                            ? 'Ingest this Slack channel'
+                            : 'Ingest this URL'
                   }
                 >
                   Ingest
@@ -1254,6 +1298,29 @@ export default function IngestView() {
                   />
                   <span className="text-sm text-muted-foreground">Include child pages</span>
                 </label>
+              )}
+              {ingestType === 'slack' && (
+                <div className="flex items-center gap-4 mt-2 ml-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Lookback days:</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={slackLookbackDays}
+                      onChange={(e) => setSlackLookbackDays(Number(e.target.value))}
+                      className="w-20 h-8"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={slackIncludeBots}
+                      onChange={(e) => setSlackIncludeBots(e.target.checked)}
+                      className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                    />
+                    <span className="text-sm text-muted-foreground">Include bot messages</span>
+                  </label>
+                </div>
               )}
 
               {/* Description - outside advanced options */}
@@ -1769,8 +1836,9 @@ export default function IngestView() {
                       const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
                       const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
                       const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
+                      const isSlackDatasource = ds.source_type === 'slack'
                       const isJiraDatasource = ds.ingestor_id === JIRA_INGESTOR_ID
-                      const supportsReload = isWebloaderDatasource || isConfluenceDatasource
+                      const supportsReload = isWebloaderDatasource || isConfluenceDatasource || isSlackDatasource
                       const isConfigDriven = isJiraDatasource
                       const icon = getIconForType(ds.source_type)
                       
