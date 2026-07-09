@@ -278,7 +278,7 @@ export function ProjectSettingsPanel({
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-2xl space-y-5 p-6">
+        <div className="mx-auto max-w-3xl space-y-5 p-6">
           <div>
             <h1 className="text-lg font-semibold">Project settings</h1>
             <p className="text-sm text-muted-foreground">
@@ -532,7 +532,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border p-4">
+    <section>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold">{title}</h2>
         {action}

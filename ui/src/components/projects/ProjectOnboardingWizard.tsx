@@ -29,6 +29,7 @@ import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { SourcePicker } from "@/components/projects/source-pickers";
+import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
 import type { ProjectDocument } from "@/types/projects";
@@ -163,6 +164,13 @@ export function ProjectOnboardingWizard({
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Deployment-configured catchall team (e.g. DEFAULT_TEAM_SLUG=backstage-access),
+  // used both to pre-select on load and to explain the pre-selection in copy.
+  const defaultTeam = useMemo(() => {
+    const slug = getConfig("defaultTeamSlug");
+    return slug ? teams.find((t) => t.slug === slug) ?? null : null;
+  }, [teams]);
+
   const wizardSteps = useMemo(
     () => buildWizardSteps(configSteps),
     [configSteps],
@@ -264,6 +272,14 @@ export function ProjectOnboardingWizard({
             _id: t._id,
           })),
         );
+        // Deployment-configured catchall (e.g. an everyone-gets-added team) —
+        // pre-select it so most users never have to search ~100 teams. Only
+        // applies if nothing's picked yet (functional update: doesn't clobber
+        // a Backstage-prefilled or otherwise already-chosen team).
+        const defaultSlug = getConfig("defaultTeamSlug");
+        if (defaultSlug && list.some((t) => (t.slug ?? t._id) === defaultSlug)) {
+          setTeamId((prev) => prev || defaultSlug);
+        }
       })
       .catch(() => setTeams([]))
       .finally(() => setTeamsLoading(false));
@@ -496,9 +512,9 @@ export function ProjectOnboardingWizard({
               transition={{ duration: 0.25 }}
             >
               {phase.id === "create" ? (
-                <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
+                <div className="space-y-6">
                   {bsConfigured ? (
-                    <div className="md:col-span-2">
+                    <div>
                       <button
                         type="button"
                         onClick={() => {
@@ -569,6 +585,9 @@ export function ProjectOnboardingWizard({
                     </div>
                   ) : null}
                   <div className="space-y-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      General
+                    </h3>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Project name <span className="text-red-500">*</span></span>
                       <input
@@ -588,71 +607,76 @@ export function ProjectOnboardingWizard({
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                     </label>
-                    <div className="space-y-1.5 pt-2">
-                      <span className="block text-sm font-medium">Team <span className="text-red-500">*</span></span>
-                      <TeamPicker
-                        options={teams}
-                        value={teamId}
-                        onChange={setTeamId}
-                        placeholder="Select owning team"
-                        hideSlugSuffix
-                        triggerClassName="flex"
-                      />
-                      {!teamsLoading && teams.length === 0 && (
-                        <span className="block text-xs text-muted-foreground">
-                          No teams available. Ask an admin to add you to one (a
-                          project must belong to a team).
-                        </span>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className="block text-sm font-medium">Data steward</span>
-                      <UserEmailPicker
-                        value={stewardEmail}
-                        onChange={setStewardEmail}
-                        placeholder="Defaults to you (the creator)"
-                      />
-                      <span className="block text-xs text-muted-foreground">
-                        The person (by email) whose GitHub connection powers this
-                        project&apos;s source activity feed. Defaults to you. This role will
-                        do more later. Changeable in settings.
-                      </span>
+                    <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
+                      <label className="block space-y-1.5">
+                        <span className="text-sm font-medium">BHAG / Initiatives</span>
+                        <LabelComboBox
+                          ariaLabel="BHAG / Initiatives"
+                          value={initiativesRaw}
+                          onChange={setInitiativesRaw}
+                          options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
+                          placeholder="Agentic-2026, Platform Modernization"
+                          multi
+                          inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        />
+                        <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
+                      </label>
+                      <label className="block space-y-1.5">
+                        <span className="text-sm font-medium">Swim Lanes</span>
+                        <LabelComboBox
+                          ariaLabel="Swim Lanes"
+                          value={swimlanesRaw}
+                          onChange={setSwimlanesRaw}
+                          options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
+                          placeholder="Now, Next, Later"
+                          multi
+                          inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        />
+                        <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
+                      </label>
                     </div>
                   </div>
-                  <div className="space-y-4">
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium">BHAG / Initiatives</span>
-                      <LabelComboBox
-                        ariaLabel="BHAG / Initiatives"
-                        value={initiativesRaw}
-                        onChange={setInitiativesRaw}
-                        options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
-                        placeholder="Agentic-2026, Platform Modernization"
-                        multi
-                        inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                      />
-                      <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
-                    </label>
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium">Swim Lanes</span>
-                      <LabelComboBox
-                        ariaLabel="Swim Lanes"
-                        value={swimlanesRaw}
-                        onChange={setSwimlanesRaw}
-                        options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
-                        placeholder="Now, Next, Later"
-                        multi
-                        inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                      />
-                      <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
-                    </label>
-                    {/* Sources are strictly YAML-driven: they live in their own
-                        `source` wizard steps when the onboarding config defines
-                        them, and are not collected on the create step. */}
-                    <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 text-xs text-muted-foreground">
-                      Projects belong to teams and can sync to Backstage as{" "}
-                      <code className="text-primary">kind: System</code>. Labels (Domain ·
-                      BHAG · Swim Lane) power the executive dashboard.
+
+                  <div className="space-y-4 border-t border-border/60 pt-6">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Ownership
+                    </h3>
+                    <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <span className="block text-sm font-medium">Team <span className="text-red-500">*</span></span>
+                        <TeamPicker
+                          options={teams}
+                          value={teamId}
+                          onChange={setTeamId}
+                          placeholder="Select owning team"
+                          hideSlugSuffix
+                          triggerClassName="flex"
+                        />
+                        {!teamsLoading && teams.length === 0 && (
+                          <span className="block text-xs text-muted-foreground">
+                            No teams available. Ask an admin to add you to one (a
+                            project must belong to a team).
+                          </span>
+                        )}
+                        {defaultTeam && teamId === defaultTeam.slug && (
+                          <span className="block text-xs text-muted-foreground">
+                            Defaulted to {defaultTeam.name} — most projects belong here. Change it if this one is different.
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <span className="block text-sm font-medium">Data steward</span>
+                        <UserEmailPicker
+                          value={stewardEmail}
+                          onChange={setStewardEmail}
+                          placeholder="Defaults to you (the creator)"
+                        />
+                        <span className="block text-xs text-muted-foreground">
+                          The person (by email) whose GitHub connection powers this
+                          project&apos;s source activity feed. Defaults to you. This role will
+                          do more later. Changeable in settings.
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
