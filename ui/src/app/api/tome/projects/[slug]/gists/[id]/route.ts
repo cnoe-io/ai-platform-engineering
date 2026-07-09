@@ -29,6 +29,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       body: gist.body,
       author: gist.author,
       created_at: gist.created_at,
+      path: `/projects/${slug}/tome/gists/${gist._id}`,
     },
   });
 });

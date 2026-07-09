@@ -37,6 +37,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       body: g.body,
       author: g.author,
       created_at: g.created_at,
+      path: `/projects/${slug}/tome/gists/${g._id}`,
     })),
   });
 });
@@ -98,5 +99,8 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     }
   }
 
-  return successResponse({ gist: { ...gist, id: gist._id } }, 201);
+  return successResponse(
+    { gist: { ...gist, id: gist._id, path: `/projects/${slug}/tome/gists/${gist._id}` } },
+    201,
+  );
 });
