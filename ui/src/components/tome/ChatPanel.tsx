@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import type { ChatPart as Part } from "@/types/tome";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 
 /**
  * Tome chat — the primary surface of a project's tome. Talks to the tome chat
@@ -53,10 +54,9 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   const sessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Keep the transcript pinned to the latest turn.
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages]);
+  // Keep the transcript pinned to the latest turn, but only if the user
+  // hasn't scrolled up to read earlier messages.
+  useAutoScroll(scrollRef, [messages]);
 
   // Initial-load jump-to-bottom: the `[messages]` effect above fires on the
   // sync render right after history hydrates, but markdown/code blocks haven't

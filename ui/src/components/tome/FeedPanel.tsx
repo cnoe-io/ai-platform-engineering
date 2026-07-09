@@ -31,6 +31,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { useStickToBottom } from "@/hooks/use-auto-scroll";
 import { cn } from "@/lib/utils";
 
 /**
@@ -222,8 +223,10 @@ export function FeedPanel({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   // Set before a prepend so the layout effect can keep the viewport anchored.
   const restoreRef = useRef<{ height: number; top: number } | null>(null);
-  // Whether to pin to the bottom after the next render (new message + at bottom).
-  const stickBottomRef = useRef(true);
+  // Whether to pin to the bottom after the next render (new message + at
+  // bottom), tracked live via a scroll listener rather than recomputed
+  // per-poll - the shared primitive Chat/Ingest also use (#107).
+  const stickBottomRef = useStickToBottom(viewportRef, NEAR_BOTTOM_PX);
   // First visit to the panel should land on the newest message (unless a
   // `to_message` deep link takes over). Resets on remount (i.e. each time the
   // Feed view is opened).
@@ -316,10 +319,8 @@ export function FeedPanel({
     try {
       const page = await fetchPage(0);
       if (!page) return;
-      const vp = viewportRef.current;
-      stickBottomRef.current = vp
-        ? vp.scrollHeight - vp.scrollTop - vp.clientHeight < NEAR_BOTTOM_PX
-        : true;
+      // stickBottomRef is kept live by useStickToBottom's scroll listener,
+      // no need to recompute it here before merging.
       // First newest-page fetch: a short page means the whole room fits, no older.
       if (firstLoadRef.current) {
         firstLoadRef.current = false;
@@ -429,7 +430,7 @@ export function FeedPanel({
     if (stickBottomRef.current && !targetMessageId) {
       vp.scrollTop = vp.scrollHeight;
     }
-  }, [messages, targetMessageId]);
+  }, [messages, targetMessageId, stickBottomRef]);
 
   const send = useCallback(async () => {
     const message = draft.trim();
@@ -454,7 +455,7 @@ export function FeedPanel({
     } finally {
       setSending(false);
     }
-  }, [draft, sending, slug, poll]);
+  }, [draft, sending, slug, poll, stickBottomRef]);
 
   if (notConfigured) {
     return (
