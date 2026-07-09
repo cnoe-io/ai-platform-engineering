@@ -5,6 +5,7 @@ import { ChevronLeft, Square } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { formatTokens } from "@/lib/tome/ingest-format";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 
 /**
  * Live (and historical) ingest log — a Docker-style tail of one run. Polls the
@@ -128,7 +129,6 @@ function RunLogPane({
   const [run, setRun] = useState<RunDetail | null>(null);
   const [stopping, setStopping] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const prevLines = useRef(0);
   const firedFinished = useRef(false);
   // Keep the latest callbacks without resubscribing the poll effect.
   const onStatusRef = useRef(onStatus);
@@ -186,13 +186,9 @@ function RunLogPane({
   const active = status === "running" || status === "queued";
   const tokens = run?.usage ? formatTokens(run.usage) : "";
 
-  // Auto-scroll to bottom while the run is active.
-  useEffect(() => {
-    if (active && lines.length !== prevLines.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-    prevLines.current = lines.length;
-  }, [lines.length, active]);
+  // Auto-scroll to bottom on new log lines, but only if the user hasn't
+  // scrolled up to read earlier output.
+  useAutoScroll(scrollRef, [lines.length]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-100 shadow">
