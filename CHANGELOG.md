@@ -1,3 +1,13 @@
+## 0.5.43 (2026-07-09)
+
+### Feat
+
+- **caipe-ui**: show HITL input form inline in chat WorkflowRunCard (#2148)
+
+### Fix
+
+- **slack-bot**: remove stale user_allowed kwarg from SlackChannelRebacDecision (#2152)
+
 ## 0.5.42 (2026-07-08)
 
 ### Fix
