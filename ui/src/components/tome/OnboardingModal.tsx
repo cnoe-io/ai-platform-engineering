@@ -5,11 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
   FileText,
   MessageSquare,
   MessagesSquare,
   Network,
   Plug,
+  Send,
   Tags,
   Target,
 } from "lucide-react";
@@ -427,11 +429,134 @@ function GistsStep() {
         agent memory, a deploy note. It skips the wiki entirely, so it&apos;s never
         ingested, synthesized, or loaded into agent context by default.
       </StepHeader>
+      <GistsDemo />
       <p className="text-sm leading-relaxed text-muted-foreground">
         Share one into the Feed to hand it to a teammate, or let their agent pull
         it on demand with <code className="rounded bg-muted px-1 py-0.5 text-xs">tome_get_gist</code>.
         Nothing lands in the curated wiki unless someone chooses to promote it.
       </p>
+    </div>
+  );
+}
+
+/**
+ * A gist getting jotted down, saved (pointedly outside the wiki), then handed
+ * to the Feed — one small card animating through its own lifecycle rather
+ * than a terminal transcript, since gists are a UI-first, not CLI-first,
+ * feature. Loops through a few examples like FeedDemo's vignettes.
+ */
+const GIST_STAGES = ["title", "body", "saved", "shared"] as const;
+type GistStage = (typeof GIST_STAGES)[number] | "idle";
+
+function GistsDemo() {
+  const examples = [
+    { title: "deploy notes", body: "blue-green swap via ./deploy.sh --prod, ~4 min, watch /health" },
+    { title: "prompt: incident triage", body: "You are triaging a P1. Ask for blast radius first, then..." },
+    { title: "agent memory: flaky webhook", body: "Cold-start 500s on the first call. Retry 3x with backoff." },
+  ];
+  const [i, setI] = useState(0);
+  const [stage, setStage] = useState<GistStage>("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paused = useRef(false);
+
+  useEffect(() => {
+    const order: { stage: GistStage; after: number }[] = [
+      { stage: "title", after: 250 },
+      { stage: "body", after: 550 },
+      { stage: "saved", after: 900 },
+      { stage: "shared", after: 900 },
+    ];
+    let n = 0;
+    setStage("idle");
+    const step = () => {
+      if (paused.current) {
+        timer.current = setTimeout(step, 200);
+        return;
+      }
+      setStage(order[n].stage);
+      const delay = order[n].after;
+      n += 1;
+      if (n < order.length) {
+        timer.current = setTimeout(step, delay);
+      } else {
+        timer.current = setTimeout(() => setI((v) => (v + 1) % examples.length), 2000);
+      }
+    };
+    timer.current = setTimeout(step, 300);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i]);
+
+  const idx = GIST_STAGES.indexOf(stage as (typeof GIST_STAGES)[number]);
+  const showTitle = idx >= 0;
+  const showBody = idx >= 1;
+  const showSaved = idx >= 2;
+  const showShared = idx >= 3;
+  const ex = examples[i];
+
+  return (
+    <div
+      className="min-h-[132px]"
+      onMouseEnter={() => {
+        paused.current = true;
+      }}
+      onMouseLeave={() => {
+        paused.current = false;
+      }}
+    >
+      <div className="rounded-lg border bg-muted/30 px-4 py-3">
+        <div className="flex items-start gap-2.5">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <FileText className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="min-h-[18px] text-sm font-medium text-foreground">
+              {showTitle && (
+                <span key={`t-${i}`} className="fill-mode-both animate-in fade-in slide-in-from-left-1 duration-300">
+                  {ex.title}
+                  {!showBody && <Cursor className="text-primary" />}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 min-h-[16px] text-xs text-muted-foreground">
+              {showBody && (
+                <span
+                  key={`b-${i}`}
+                  className="fill-mode-both animate-in fade-in slide-in-from-left-1 duration-300"
+                >
+                  {ex.body}
+                </span>
+              )}
+            </div>
+            <div className="mt-2 min-h-[20px]">
+              {showSaved && (
+                <span
+                  key={`s-${i}`}
+                  className="fill-mode-both inline-flex animate-in items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500 fade-in duration-300"
+                >
+                  <Check className="h-3 w-3" />
+                  Saved — not in the wiki
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showShared && (
+        <div
+          key={`f-${i}`}
+          className="fill-mode-both mt-2 flex animate-in items-center gap-2 pl-3 fade-in slide-in-from-top-1 duration-300"
+        >
+          <Send className="h-3 w-3 shrink-0 text-primary" />
+          <div className="h-px flex-1 bg-border" />
+          <span className="rounded-full border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
+            shared gist &ldquo;{ex.title}&rdquo; → <span className="font-medium text-foreground">Feed</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
