@@ -37,7 +37,7 @@ async def test_list_applications_with_none_data():
         result = await list_applications(summary_only=True)
         print(f"Result: {result}")
         assert result["items"] == [], "Should return empty list for None items"
-        assert result["pagination"]["total_items"] == 0, "Should return 0 total for None items"
+        assert not result["pagination"]["has_next"], "Should have no next page for None items"
         assert result["summary_only"], "Should preserve summary_only flag"
         print("✓ None items handled correctly")
 
@@ -49,7 +49,7 @@ async def test_list_applications_with_none_data():
         result = await list_applications(summary_only=True)
         print(f"Result: {result}")
         assert result["items"] == [], "Should return empty list for empty items"
-        assert result["pagination"]["total_items"] == 0, "Should return 0 total for empty items"
+        assert not result["pagination"]["has_next"], "Should have no next page for empty items"
         print("✓ Empty items list handled correctly")
 
     # Test 4: Valid data with applications
@@ -78,7 +78,7 @@ async def test_list_applications_with_none_data():
         result = await list_applications(summary_only=True)
         print(f"Result: {result}")
         assert len(result["items"]) == 1, "Should return one application"
-        assert result["pagination"]["total_items"] == 1, "Should return correct total"
+        assert not result["pagination"]["has_next"], "Should have no next page for single item"
         assert result["items"][0]["name"] == "test-app", "Should extract application name correctly"
         print("✓ Valid data handled correctly")
 

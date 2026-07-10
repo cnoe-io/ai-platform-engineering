@@ -131,11 +131,14 @@ async def list_applications(
     namespace: str = "",
     refresh: str = "",
     summary_only: bool = True,
-    page: int = 1,
     page_size: int = 20,
+    continue_token: str = "",
 ) -> Dict[str, Any]:
     """
-    List applications in ArgoCD with filtering and pagination options
+    List applications in ArgoCD with filtering and server-side pagination.
+
+    Uses ArgoCD's native limit/continue pagination so only one page of apps is
+    fetched per call — avoids transferring hundreds of apps in a single response.
 
     Args:
         project: Filter applications by project name
@@ -144,24 +147,27 @@ async def list_applications(
         namespace: Filter applications by namespace
         refresh: Forces application reconciliation if set to 'hard' or 'normal'
         summary_only: If True, return only summary information (default: True)
-        page: Page number (1-indexed, default: 1)
         page_size: Number of items per page (default: 20, max: 100)
+        continue_token: Opaque token from a previous response's pagination.continue_token
+                        to fetch the next page. Omit (or pass "") for the first page.
 
     Returns:
         Paginated list of applications with metadata:
         {
             "items": [...],
             "pagination": {
-                "page": 1,
                 "page_size": 20,
-                "total_items": 819,
-                "total_pages": 41,
                 "has_next": true,
-                "has_prev": false
+                "continue_token": "<opaque>"  // pass this to get the next page; absent on last page
             }
         }
     """
-    params = {}
+    page_size = min(100, max(1, page_size))
+
+    params: Dict[str, Any] = {"limit": page_size}
+
+    if continue_token:
+        params["continue"] = continue_token
 
     if project:
         params["project"] = project
@@ -183,72 +189,30 @@ async def list_applications(
     if not success:
         return {"error": data.get("error", "Failed to retrieve applications")}
 
-    # Handle None data
     if data is None:
         return {"error": "No data received from API"}
 
-    # Handle None items
-    if data.get("items") is None:
-        response = {
-            "items": [],
-            "pagination": {
-                "page": page,
-                "page_size": page_size,
-                "total_items": 0,
-                "total_pages": 0,
-                "has_next": False,
-                "has_prev": False
-            }
-        }
-        if summary_only:
-            response["summary_only"] = True
-        return response
+    items = data.get("items") or []
 
-    # Enforce pagination limits
-    page = max(1, page)  # Ensure page is at least 1
-    page_size = min(100, max(1, page_size))  # Enforce max 100 items per page
+    # ArgoCD returns metadata.continue when there are more pages
+    next_token = (data.get("metadata") or {}).get("continue", "")
 
-    all_items = data.get("items", [])
-    total_items = len(all_items)
-    total_pages = (total_items + page_size - 1) // page_size  # Ceiling division
+    remaining = (data.get("metadata") or {}).get("remainingItemCount")
 
-    # Calculate pagination slice
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-
-    # Check if page is out of bounds
-    if start_idx >= total_items and total_items > 0:
-        return {
-            "error": f"Page {page} out of bounds. Total pages: {total_pages}",
-            "pagination": {
-                "page": page,
-                "page_size": page_size,
-                "total_items": total_items,
-                "total_pages": total_pages,
-                "has_next": False,
-                "has_prev": page > 1
-            }
-        }
-
-    paginated_items = all_items[start_idx:end_idx]
-
-    # Build pagination metadata
-    pagination_meta = {
-        "page": page,
+    pagination_meta: Dict[str, Any] = {
         "page_size": page_size,
-        "total_items": total_items,
-        "total_pages": total_pages,
-        "has_next": page < total_pages,
-        "has_prev": page > 1,
-        "showing_from": start_idx + 1 if paginated_items else 0,
-        "showing_to": start_idx + len(paginated_items)
+        "has_next": bool(next_token),
     }
+    if next_token:
+        pagination_meta["continue_token"] = next_token
+    if remaining is not None:
+        pagination_meta["remaining_items"] = remaining
 
-    # If summary_only is True, return only essential information
+    argocd_base_url = _get_argocd_base_url()
+
     if summary_only:
         summary_items = []
-        argocd_base_url = _get_argocd_base_url()
-        for app in paginated_items:
+        for app in items:
             app_name = app.get("metadata", {}).get("name", "")
             app_namespace = app.get("metadata", {}).get("namespace", "")
             summary_item = {
@@ -262,28 +226,23 @@ async def list_applications(
                 "health_status": app.get("status", {}).get("health", {}).get("status", ""),
                 "phase": app.get("status", {}).get("phase", ""),
             }
-            # Add ArgoCD link using common helper
             summary_item = _add_argocd_link_to_app(summary_item)
             summary_items.append(summary_item)
 
-        # Ensure base URL is in response
         return {
             "items": summary_items,
             "pagination": pagination_meta,
             "summary_only": True,
-            "argocd_base_url": argocd_base_url
+            "argocd_base_url": argocd_base_url,
         }
 
-    # Add ArgoCD links to full items using common helper
-    argocd_base_url = _get_argocd_base_url()
-    for app in paginated_items:
+    for app in items:
         _add_argocd_link_to_app(app)
 
-    # Ensure base URL is in response
     return {
-        "items": paginated_items,
+        "items": items,
         "pagination": pagination_meta,
-        "argocd_base_url": argocd_base_url
+        "argocd_base_url": argocd_base_url,
     }
 
 
