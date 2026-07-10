@@ -22,6 +22,7 @@ from deepagents import create_deep_agent
 from deepagents.backends.state import StateBackend
 from deepagents.backends.store import StoreBackend
 from deepagents.middleware.skills import SkillsMiddleware
+from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
 from langgraph.checkpoint.memory import MemorySaver
@@ -66,7 +67,7 @@ from dynamic_agents.services.mcp_client import (
     resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
-from dynamic_agents.services.middleware import build_middleware
+from dynamic_agents.services.middleware import ToolResultInvariantMiddleware, build_middleware
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 
 if TYPE_CHECKING:
@@ -87,6 +88,34 @@ def _sanitize_agent_name(name: str) -> str:
     We replace disallowed characters with underscores.
     """
     return re.sub(r"[\s<|\\/>]+", "_", name)
+
+
+def _with_general_purpose_tool_result_recovery(
+    subagents: list[dict[str, Any]],
+    *,
+    model: Any,
+    tools: list[Any],
+    interrupt_on: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Override Deep Agents' built-in subagent with request-time history repair.
+
+    Deep Agents does not apply the parent agent's custom middleware to its
+    built-in ``general-purpose`` subagent. An explicit same-name specification
+    suppresses that default while preserving the public ``task`` tool contract.
+    """
+    recovered_general_purpose = {
+        **GENERAL_PURPOSE_SUBAGENT,
+        "tools": tools,
+        "model": model,
+        "interrupt_on": interrupt_on,
+        "middleware": [ToolResultInvariantMiddleware()],
+    }
+    configured_subagents = [
+        subagent
+        for subagent in subagents
+        if subagent.get("name") != GENERAL_PURPOSE_SUBAGENT["name"]
+    ]
+    return [*configured_subagents, recovered_general_purpose]
 
 
 # Module-level restricted Jinja2 sandbox for system prompt rendering.
@@ -734,6 +763,13 @@ class AgentRuntime:
         else:
             backend = None  # defaults to StateBackend
 
+        deep_agent_subagents = _with_general_purpose_tool_result_recovery(
+            subagents,
+            model=llm,
+            tools=tools,
+            interrupt_on=interrupt_config,
+        )
+
         self._graph = create_deep_agent(
             model=llm,
             tools=tools,
@@ -743,7 +779,7 @@ class AgentRuntime:
             store=self._store,
             backend=backend,
             name=safe_name,
-            subagents=subagents if subagents else None,
+            subagents=deep_agent_subagents,
             interrupt_on=interrupt_config,
             middleware=middleware_stack,
         )
