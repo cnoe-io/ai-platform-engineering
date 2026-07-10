@@ -82,7 +82,7 @@ async def test_project_list():
         result = await project_list(summary_only=True)
         print(f"Result: {result}")
         assert result["items"] == [], "Should return empty list"
-        assert result["pagination"]["has_next"] == False, "Should have no next page"
+        assert not result["pagination"]["has_next"], "Should have no next page"
         print("✓ Empty projects list handled correctly")
 
     print("\n✅ All project list tests passed!")
