@@ -523,11 +523,11 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
               enabled: true,
               priority: 100,
               // Admin explicitly ran "Setup Slack channel association" for this
-              // channel, which is itself the opt-in signal — so route both
-              // @mentions AND plain channel messages by default. Admins can
-              // narrow to mention-only later via the Step-2a route picker.
-              // assisted-by Cursor claude-opus-4-7
-              users: { enabled: true, listen: "all" },
+              // channel, which is itself the opt-in signal — but default to
+              // mention-only so the bot doesn't respond to every plain
+              // channel message. Admins can widen to "all" later via the
+              // Step-2a route picker.
+              users: { enabled: true, listen: "mention" },
               source_type: "bootstrap",
               status: "active",
               created_by: actor,
