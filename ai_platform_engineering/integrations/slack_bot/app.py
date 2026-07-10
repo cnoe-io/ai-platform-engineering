@@ -1243,11 +1243,11 @@ def handle_mention(event, say, client, context=None):
     mention_bot_id = event.get("bot_id")
     is_bot = mention_bot_id is not None
     if is_bot:
-      bot_username, bot_user_id = utils.get_bot_info_by_id(mention_bot_id)
-      user_id = bot_user_id or mention_bot_id
+      bot_username, sender_bot_user_id = utils.get_bot_info_by_id(mention_bot_id)
+      user_id = sender_bot_user_id or mention_bot_id
     else:
       bot_username = None
-      bot_user_id = None
+      sender_bot_user_id = None
       user_id = event.get("user")
 
     if not utils.verify_thread_exists(client, channel_id, thread_ts):
@@ -1277,7 +1277,7 @@ def handle_mention(event, say, client, context=None):
       channel_config,
       is_bot=is_bot,
       bot_username=bot_username,
-      bot_user_id=bot_user_id,
+      bot_user_id=sender_bot_user_id,
       user_id=user_id,
       listen="mention",
       workspace_id=_event_workspace_id(event),
