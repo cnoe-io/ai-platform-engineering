@@ -1,3 +1,16 @@
+## 0.5.48 (2026-07-10)
+
+### Fix
+
+- **rbac**: register real Keycloak federated identity for Okta-sync users (#2181)
+- **rbac**: stop splitting Slack bot/user names on spaces (#2180)
+
+## 0.5.47-dev.1 (2026-07-10)
+
+### Fix
+
+- **security**: NoSQL injection, playwright Node CVEs, ingestors apk upgrade (#2160)
+
 ## 0.5.47 (2026-07-09)
 
 ### Fix
