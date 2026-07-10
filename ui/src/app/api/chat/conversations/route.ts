@@ -303,11 +303,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // Dynamic agent conversation — gate on agent-level can_use.
   // Service-account callers are graphed as `service_account:<sub>` (their grants
   // live under that type); see requireAgentUsePermission (spec 2026-06-05).
+  // For Slack-bot SA callers, also pass channel context so the channel-level
+  // FGA grant can authorize the request (FR-040).
+  const slackChannelId = typeof body.metadata?.channel_id === "string" ? body.metadata.channel_id : undefined;
   const denial = await requireAgentUsePermission({
     subject: session.sub,
     agentId: body.agent_id,
     email: user.email,
     isServiceAccount: session.isServiceAccount,
+    slackChannelId,
   });
   if (denial) {
     return denial;

@@ -4,6 +4,7 @@ import { logOpenFgaRebacAuditEvent } from "./audit";
 import { withAuthzSpan } from "./authz-tracing";
 import { checkOpenFgaTuple } from "./openfga";
 import { listUserTeamSlugs } from "./openfga-team-membership";
+import { slackChannelSubjectId } from "./slack-channel-grant-store";
 
 export interface AgentUsePermissionInput {
   subject?: string;
@@ -23,6 +24,18 @@ export interface AgentUsePermissionInput {
    * time (FR-020 static access). assisted-by Claude claude-opus-4-8
    */
   isServiceAccount?: boolean;
+  /**
+   * Slack channel ID from the conversation metadata (e.g. "C0BGLJ9JU73").
+   * When provided alongside slackWorkspaceId, allows the authz check to
+   * verify the channel-level grant (`slack_channel:<workspace>--<channel>
+   * user agent:<agentId>`) for service-account callers. This covers the case
+   * where a channel has an agent route configured but the SA itself has no
+   * direct agent grant — the channel-level tuple is authoritative.
+   * assisted-by claude code claude-sonnet-4-6
+   */
+  slackChannelId?: string;
+  /** Slack workspace identifier (e.g. "CAIPE"). Paired with slackChannelId. */
+  slackWorkspaceId?: string;
 }
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -58,6 +71,8 @@ export async function requireAgentUsePermission({
   correlationId,
   traceparent,
   isServiceAccount = false,
+  slackChannelId,
+  slackWorkspaceId,
 }: AgentUsePermissionInput): Promise<NextResponse | null> {
   if (!isValidOpenFgaId(subject)) {
     return authzResponse(
@@ -130,6 +145,26 @@ export async function requireAgentUsePermission({
             break;
           }
         }
+        // For service-account callers that include a Slack channel in the
+        // request context (e.g. the Slack bot calling on behalf of a channel
+        // that has an agent route configured), check the channel-level FGA
+        // grant: `slack_channel:<workspace>--<channelId> user agent:<agentId>`.
+        // This covers the common case where the channel has an explicit grant
+        // but the SA itself has no direct agent grant (FR-040).
+        // assisted-by claude code claude-sonnet-4-6
+        if (!allowed && isServiceAccount && slackChannelId) {
+          const channelSubjectId = slackChannelSubjectId(slackWorkspaceId || "", slackChannelId);
+          const channelDecision = await checkOpenFgaTuple({
+            user: `slack_channel:${channelSubjectId}`,
+            relation: "can_use",
+            object: `agent:${agentId}`,
+          });
+          if (channelDecision.allowed) {
+            allowed = true;
+            reasonCode = "ALLOW_DIRECT";
+          }
+        }
+
         // Phase 2.7 of spec 2026-05-24-derive-team-from-channel
         // (FR-038): if no direct grant exists, fall back to a
         // team-union probe. Today the Web UI only honors direct
