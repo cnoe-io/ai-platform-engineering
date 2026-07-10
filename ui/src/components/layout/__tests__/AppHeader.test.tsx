@@ -47,22 +47,11 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-// Controls whether useHeaderNavCollapsed returns true (narrow) or false (wide).
-// The hook uses window.matchMedia, so we mock it to return the desired matches value.
+// Controls whether the ResizeObserver-based nav overflow collapses items into
+// "More" (narrow) or shows everything inline (wide). See jest.setup.js —
+// AppHeader measures container/logo/item widths off global.__mockContainerWidth.
 function setHeaderNavConstrained(constrained: boolean) {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: jest.fn().mockImplementation((query: string) => ({
-      matches: constrained,
-      media: query,
-      onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      dispatchEvent: jest.fn(),
-    })),
-  })
+  global.__mockContainerWidth = constrained ? 0 : 2000
 }
 
 // Mock admin role hook
@@ -210,7 +199,7 @@ jest.mock('@/components/ui/toast', () => ({
 
 // Mock config
 let mockReportProblemEnabled = false
-let mockDynamicAgentsEnabled = true
+const mockDynamicAgentsEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
