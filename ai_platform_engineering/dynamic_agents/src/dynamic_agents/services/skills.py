@@ -339,7 +339,6 @@ def _create_file_data(content: str) -> dict[str, Any]:
     Mirrors ``deepagents.backends.utils.create_file_data``.
     """
     now = datetime.now(UTC).isoformat()
-    # assisted-by Codex Codex-sonnet-4-6
     return {
         "content": content,
         "encoding": "utf-8",

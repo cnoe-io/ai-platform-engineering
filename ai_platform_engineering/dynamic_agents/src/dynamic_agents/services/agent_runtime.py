@@ -560,7 +560,6 @@ class AgentRuntime:
                         if self._resolve_backend_type() == BACKEND_STORE:
                             fs_ns = self._resolve_fs_namespace()
 
-                            # assisted-by Codex Codex-sonnet-4-6
                             skills_backend = StoreBackend(
                                 store=self._store,
                                 namespace=lambda runtime: fs_ns,

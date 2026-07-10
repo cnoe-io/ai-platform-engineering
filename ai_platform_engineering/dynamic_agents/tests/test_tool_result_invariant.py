@@ -182,7 +182,6 @@ def test_repaired_history_serializes_to_valid_bedrock_tool_result() -> None:
 
 
 def test_global_bedrock_profile_has_context_window_metadata() -> None:
-    # assisted-by Codex Codex-sonnet-4-6
     profile = _PROFILES["global.anthropic.claude-sonnet-4-5-20250929-v1:0"]
 
     assert profile["max_input_tokens"] == 200_000

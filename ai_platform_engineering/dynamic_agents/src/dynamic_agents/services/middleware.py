@@ -118,7 +118,6 @@ class ToolResultInvariantMiddleware(AgentMiddleware):
                     patched_messages.append(tool_result)
                     continue
 
-                # assisted-by Codex Codex-sonnet-4-6
                 patched_messages.append(
                     ToolMessage(
                         content=(
