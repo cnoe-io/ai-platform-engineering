@@ -338,7 +338,9 @@ describe('GET /api/admin/stats — Overview', () => {
     // Promise.all order (no filters):
     // users: totalUsers, dau, mau
     // conversations: totalConversations, conversationsToday, sharedConversations
-    // messages: webTotalMessages, slackTotalMessages, webMessagesToday, slackMessagesToday
+    // messages: totalMessages, messagesToday — a single unfiltered count each,
+    // covering every metadata.source (not just 'web'/'slack'), so message
+    // counts stay in sync with conversation counts.
     usersCol.countDocuments
       .mockResolvedValueOnce(15)   // totalUsers
       .mockResolvedValueOnce(3)    // dau
@@ -350,10 +352,8 @@ describe('GET /api/admin/stats — Overview', () => {
       .mockResolvedValueOnce(2);   // sharedConversations
 
     msgCol.countDocuments
-      .mockResolvedValueOnce(180)  // webTotalMessages
-      .mockResolvedValueOnce(20)   // slackTotalMessages
-      .mockResolvedValueOnce(15)   // webMessagesToday
-      .mockResolvedValueOnce(5);   // slackMessagesToday
+      .mockResolvedValueOnce(200)  // totalMessages
+      .mockResolvedValueOnce(20);  // messagesToday
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
@@ -365,11 +365,11 @@ describe('GET /api/admin/stats — Overview', () => {
       expect.objectContaining({
         total_users: 15,
         total_conversations: 50,
-        total_messages: 200,        // 180 web + 20 slack
+        total_messages: 200,
         dau: 3,
         mau: 10,
         conversations_today: 5,
-        messages_today: 20,         // 15 web + 5 slack
+        messages_today: 20,
         shared_conversations: 2,
       })
     );
@@ -384,16 +384,14 @@ describe('GET /api/admin/stats — Overview', () => {
       .mockResolvedValueOnce(0)   // conversationsToday
       .mockResolvedValueOnce(0);  // sharedConversations
     msgCol.countDocuments
-      .mockResolvedValueOnce(8)   // webTotalMessages
-      .mockResolvedValueOnce(2)   // slackTotalMessages
-      .mockResolvedValueOnce(0)   // webMessagesToday
-      .mockResolvedValueOnce(0);  // slackMessagesToday
+      .mockResolvedValueOnce(10)  // totalMessages
+      .mockResolvedValueOnce(0);  // messagesToday
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     const body = await res.json();
 
-    // (8 + 2) / 4 = 2.5
+    // 10 / 4 = 2.5
     expect(body.data.overview.avg_messages_per_conversation).toBe(2.5);
   });
 
@@ -997,7 +995,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     expect(usersCol.countDocuments).not.toHaveBeenCalledWith({});
   });
 
-  it('scopes slack message counts by owner_id (messages carry no channel_name)', async () => {
+  it('scopes message counts by owner_id / channel (messages carry no channel_name)', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
     const { msgCol } = setupNonAdminCollections();
@@ -1005,14 +1003,13 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     const req = makeRequest('/api/admin/stats');
     await GET(req);
 
-    // Every slack-message query must carry the owner scope; none may run a bare
-    // { 'metadata.source': 'slack' } across the whole platform.
-    const slackMsgCalls = msgCol.countDocuments.mock.calls.filter(
-      (call: any[]) => call[0]?.['metadata.source'] === 'slack'
-    );
-    expect(slackMsgCalls.length).toBeGreaterThan(0);
-    for (const call of slackMsgCalls) {
-      expect(JSON.stringify(call[0])).toContain('user@example.com');
+    // Every message count query must carry the caller's scope (their own
+    // owner_id or their readable slack channel); none may run unscoped
+    // across the whole platform.
+    expect(msgCol.countDocuments.mock.calls.length).toBeGreaterThan(0);
+    for (const call of msgCol.countDocuments.mock.calls) {
+      const inspect = JSON.stringify(call[0] ?? {});
+      expect(inspect.includes('user@example.com') || inspect.includes('ops-help')).toBe(true);
     }
   });
 
