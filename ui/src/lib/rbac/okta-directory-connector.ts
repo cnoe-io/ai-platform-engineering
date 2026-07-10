@@ -6,6 +6,14 @@ export type OktaExternalGroup = ExternalGroup & {
   members: Array<{
     subject?: string;
     email: string;
+    /**
+     * Okta's internal user id (the Users API `id` field). This is the same
+     * value Keycloak's OIDC broker stores as `federatedIdentities[].userId`
+     * after a real SSO login (Okta's default `sub` claim = the Users API
+     * `id`), so the sync runner can use it to register a live federated
+     * identity at provisioning time without waiting for an interactive login.
+     */
+    okta_user_id?: string;
     display_name?: string;
     active: boolean;
   }>;
@@ -154,6 +162,7 @@ async function collectGroupMembers(client: Client, groupId: string): Promise<Okt
       members.push({
         subject: undefined,
         email,
+        okta_user_id: user.id,
         display_name: oktaUserDisplayName(user),
         active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
       });

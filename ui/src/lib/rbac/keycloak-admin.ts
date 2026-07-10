@@ -581,6 +581,32 @@ export async function getUserFederatedIdentities(
   }));
 }
 
+/**
+ * Register a federated-identity link for `userId` against IdP `alias`, using
+ * the same shape Keycloak's OIDC broker writes on a real SSO login
+ * (`federatedIdentities[].userId` = the broker's `sub`). Idempotent: Keycloak
+ * replaces any existing link for the same alias rather than erroring, so this
+ * is safe to call on every sync run. A 404 (user doesn't exist) is not
+ * swallowed — the caller has a stale id and should surface the error.
+ */
+export async function linkFederatedIdentity(
+  userId: string,
+  alias: string,
+  identity: { userId: string; userName: string }
+): Promise<void> {
+  const encUser = encodeURIComponent(userId);
+  const encAlias = encodeURIComponent(alias);
+  const response = await adminFetch(`/users/${encUser}/federated-identity/${encAlias}`, {
+    method: "POST",
+    body: JSON.stringify({
+      identityProvider: alias,
+      userId: identity.userId,
+      userName: identity.userName,
+    }),
+  });
+  await assertOk(response, `linkFederatedIdentity(${userId}, ${alias})`);
+}
+
 export async function assignRealmRolesToUser(
   userId: string,
   roles: KeycloakRole[]
