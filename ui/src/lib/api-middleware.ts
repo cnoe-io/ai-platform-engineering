@@ -280,6 +280,7 @@ async function persistKeycloakSubMapping(
         $set: {
           keycloak_sub: keycloakSub,
           'metadata.keycloak_sub': keycloakSub,
+          'metadata.role': user.role === 'admin' ? 'admin' : 'user',
           updated_at: now,
         },
         $setOnInsert: {
@@ -289,7 +290,6 @@ async function persistKeycloakSubMapping(
           last_login: now,
           'metadata.sso_provider': 'keycloak',
           'metadata.sso_id': keycloakSub,
-          'metadata.role': user.role === 'admin' ? 'admin' : 'user',
         },
       },
       { upsert: true }
