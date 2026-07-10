@@ -55,7 +55,11 @@ AI agents operating in this repository **must** follow these rules on every comm
 
 This project uses **GitHub Issues** for issue tracking.
 
-- Create follow-up work as GitHub Issues in `cnoe-io/ai-platform-engineering`.
+- Create follow-up work as GitHub Issues in `cisco-eti/ai-platform-engineering-mirror`
+  (this repo's `origin` remote — where our PRs and merges actually land).
+  - `cnoe-io/ai-platform-engineering` is `upstream`: the public OSS repo we pull
+    changes from. Only file issues/PRs there for changes intended to go
+    upstream, not for fork-local follow-up work.
 - Reference related issues in PR descriptions when applicable.
 - Do not use repo-local Beads or `bd` issue tracking.
 
