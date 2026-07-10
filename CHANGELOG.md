@@ -1,3 +1,19 @@
+## 0.5.49-dev.2 (2026-07-10)
+
+### Fix
+
+- **dynamic-agents**: repair general-purpose tool results (#2196)
+
+## 0.5.49-dev.1 (2026-07-10)
+
+### Fix
+
+- **slack-bot**: mint unlinked SA token for bot_message-subtype mentions
+- **slack-bot**: resolve bot identity for Workflow Builder @mentions
+- **slack-bot**: resolve bot identity for Workflow Builder @mentions
+
+## 0.5.49 (2026-07-10)
+
 ## 0.5.48-dev.3 (2026-07-10)
 
 ### Fix
