@@ -1235,7 +1235,20 @@ def handle_mention(event, say, client, context=None):
       return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
-    user_id = event.get("user")
+
+    # A Workflow Builder step that @mentions the bot delivers an app_mention
+    # with `bot_id` set and no `user` — resolve the same way _route_to_agent /
+    # handle_message_events do for bot-authored messages, so routing/filtering
+    # and RBAC still see a real identity instead of `user_id=None`.
+    mention_bot_id = event.get("bot_id")
+    is_bot = mention_bot_id is not None
+    if is_bot:
+      bot_username, bot_user_id = utils.get_bot_info_by_id(mention_bot_id)
+      user_id = bot_user_id or mention_bot_id
+    else:
+      bot_username = None
+      bot_user_id = None
+      user_id = event.get("user")
 
     if not utils.verify_thread_exists(client, channel_id, thread_ts):
       logger.warning(f"[{thread_ts}] Ignoring @mention — parent message was deleted")
@@ -1248,6 +1261,9 @@ def handle_mention(event, say, client, context=None):
     logger.info(f"[{thread_ts}] CAIPE was invoked by User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Thread: {thread_ts}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text:
+      if is_bot:
+        logger.info(f"[{thread_ts}] Ignoring bot/workflow @mention with no message text — silently dropping")
+        return
       say(text="Please include a question or message!", thread_ts=thread_ts)
       return
 
@@ -1259,7 +1275,9 @@ def handle_mention(event, say, client, context=None):
     matches = _match_channel_agents(
       channel_id,
       channel_config,
-      is_bot=False,
+      is_bot=is_bot,
+      bot_username=bot_username,
+      bot_user_id=bot_user_id,
       user_id=user_id,
       listen="mention",
       workspace_id=_event_workspace_id(event),
@@ -1272,7 +1290,14 @@ def handle_mention(event, say, client, context=None):
     # already established — the grant on the initial agent is sufficient.
     denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
-      _post_ephemeral_for_event(client, event, channel_id, user_id, denial)
+      if is_bot:
+        logger.warning(
+          "Slack channel grant denied for bot/workflow @mention channel={} agent={} — silently dropping",
+          channel_id,
+          agent_id,
+        )
+      else:
+        _post_ephemeral_for_event(client, event, channel_id, user_id, denial)
       return
 
     # Apply the route's execution identity BEFORE create_conversation — the
@@ -1293,7 +1318,7 @@ def handle_mention(event, say, client, context=None):
           event=event,
           client=client,
           say=say,
-          is_bot=False,
+          is_bot=is_bot,
           impersonate_fn=impersonate_service_account,
         )
         if not should_proceed:
@@ -1327,10 +1352,17 @@ def handle_mention(event, say, client, context=None):
         },
       )
     except AgentAccessDeniedError as e:
-      _post_ephemeral_for_event(
-        client, event, channel_id, user_id,
-        _agent_access_denied_text(e.agent_id, context, agent_match),
-      )
+      if is_bot:
+        logger.warning(
+          "Agent access denied for bot/workflow @mention channel={} agent={} — silently dropping",
+          channel_id,
+          e.agent_id,
+        )
+      else:
+        _post_ephemeral_for_event(
+          client, event, channel_id, user_id,
+          _agent_access_denied_text(e.agent_id, context, agent_match),
+        )
       return
 
     conversation_id = conv_result["conversation_id"]
