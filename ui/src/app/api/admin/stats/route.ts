@@ -17,30 +17,52 @@ import { NextRequest,NextResponse } from 'next/server';
 
 const adminStatsCache = createJsonResponseCacheStore();
 
-type BucketUnit = 'hour' | 'day';
+type BucketUnit = 'minute' | 'hour' | 'day';
 
-const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
+
+// Ranges this short bucket by 5-minute intervals so 1h/12h-style short
+// windows show more than a single point (a single hourly bucket would
+// otherwise collapse a 1h range to exactly one data point).
+const MINUTE_BUCKET_THRESHOLD_MS = 2 * HOUR_MS;
+const MINUTE_BUCKET_STEP_MIN = 5;
 
 /** Mongo $dateToString format for a bucket granularity (UTC, matches Date#toISOString below). */
 const BUCKET_DATE_FORMAT: Record<BucketUnit, string> = {
+  minute: '%Y-%m-%dT%H:%M',
   hour: '%Y-%m-%dT%H:00',
   day: '%Y-%m-%d',
 };
 
 /** Render a bucket start Date into the same key format $dateToString produces above. */
 function bucketDateKey(d: Date, unit: BucketUnit): string {
-  return unit === 'hour' ? `${d.toISOString().slice(0, 13)}:00` : d.toISOString().split('T')[0];
+  if (unit === 'minute') return d.toISOString().slice(0, 16);
+  if (unit === 'hour') return `${d.toISOString().slice(0, 13)}:00`;
+  return d.toISOString().split('T')[0];
+}
+
+/** Floor `d` down to the start of the bucket it falls in, mutating a copy. */
+function floorToBucket(d: Date, unit: BucketUnit): Date {
+  const floored = new Date(d);
+  if (unit === 'minute') {
+    floored.setSeconds(0, 0);
+    floored.setMinutes(Math.floor(floored.getMinutes() / MINUTE_BUCKET_STEP_MIN) * MINUTE_BUCKET_STEP_MIN);
+  } else if (unit === 'hour') {
+    floored.setMinutes(0, 0, 0);
+  } else {
+    floored.setHours(0, 0, 0, 0);
+  }
+  return floored;
 }
 
 /** Generate the ordered (oldest → newest) list of bucket keys covering `now` back `count` buckets of `unit` size. */
 function generateBucketKeys(now: Date, count: number, unit: BucketUnit): string[] {
-  const stepMs = unit === 'hour' ? HOUR_MS : DAY_MS;
+  const stepMs = unit === 'minute' ? MINUTE_BUCKET_STEP_MIN * MINUTE_MS : unit === 'hour' ? HOUR_MS : DAY_MS;
   const keys: string[] = [];
   for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * stepMs);
-    if (unit === 'hour') d.setMinutes(0, 0, 0);
-    else d.setHours(0, 0, 0, 0);
+    const d = floorToBucket(new Date(now.getTime() - i * stepMs), unit);
     keys.push(bucketDateKey(d, unit));
   }
   return keys;
@@ -48,9 +70,9 @@ function generateBucketKeys(now: Date, count: number, unit: BucketUnit): string[
 
 /**
  * Parse range params into { rangeStart, days, bucketUnit, bucketCount }. Supports preset
- * strings and explicit from/to ISO dates. Ranges of a day or less bucket by hour (rather
- * than clamping to a single day-granularity bucket) so 1h/12h/24h charts show more than
- * one data point.
+ * strings and explicit from/to ISO dates. Short ranges bucket at finer granularity (minute
+ * for ≤2h, hour for ≤1d) rather than clamping to day-granularity, so 1h/12h/24h charts show
+ * more than one data point.
  */
 function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number; bucketUnit: BucketUnit; bucketCount: number } {
   const now = new Date();
@@ -81,8 +103,11 @@ function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: nu
   }
 
   const days = Math.max(1, Math.round(ms / DAY_MS));
-  const bucketUnit: BucketUnit = ms <= DAY_MS ? 'hour' : 'day';
-  const bucketCount = bucketUnit === 'hour' ? Math.max(1, Math.round(ms / HOUR_MS)) : days;
+  const bucketUnit: BucketUnit = ms <= MINUTE_BUCKET_THRESHOLD_MS ? 'minute' : ms <= DAY_MS ? 'hour' : 'day';
+  const bucketCount =
+    bucketUnit === 'minute' ? Math.max(1, Math.round(ms / (MINUTE_BUCKET_STEP_MIN * MINUTE_MS))) :
+    bucketUnit === 'hour' ? Math.max(1, Math.round(ms / HOUR_MS)) :
+    days;
   return { rangeStart, days, bucketUnit, bucketCount };
 }
 

@@ -808,15 +808,15 @@ describe('GET /api/admin/stats — Custom Date Range (from/to)', () => {
     expect(body.data.days).toBe(10);
   });
 
-  it('supports sub-day presets like 1h and 12h (clamped to minimum 1 day of activity)', async () => {
+  it('supports sub-day presets like 1h and 12h (bucketed by 5-minute intervals)', async () => {
     setupAdminWithCollections();
 
     const req = makeRequest('/api/admin/stats?range=1h');
     const res = await GET(req);
     const body = await res.json();
 
-    // 1h = 1 day minimum for daily_activity
-    expect(body.data.daily_activity).toHaveLength(1);
+    // 1h range buckets by 5-minute steps so the chart isn't a single point.
+    expect(body.data.daily_activity).toHaveLength(12);
     expect(body.data.days).toBe(1);
   });
 });

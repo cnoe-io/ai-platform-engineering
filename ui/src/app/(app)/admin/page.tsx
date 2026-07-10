@@ -415,6 +415,16 @@ function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
   return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
+// Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
+// buckets and are date-only ("2026-07-10") for day buckets — use that to
+// decide whether to label chart points by time-of-day or by calendar date.
+function formatBucketLabel(dateStr: string): string {
+  if (dateStr.includes('T')) {
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | null }) {
   if (!overview) return null;
 
@@ -507,7 +517,6 @@ function AdminPage() {
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
-  const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   // `teams` is the FULL team list, used only by the shared Stats/Feedback
   // team-filter dropdowns and the access-simulation team picker (which need
@@ -1005,14 +1014,10 @@ function AdminPage() {
     setLoading(true);
     setError(null);
     try {
-      const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
       const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
       if (sourceFilter !== 'all') p.set('source', sourceFilter);
       if (userFilter.length > 0) p.set('user', userFilter.join(','));
-      const [statsRes, globalStatsRes] = await Promise.all([
-        fetch(`/api/admin/stats?${p}`),
-        hasStatsFilters ? fetch('/api/admin/stats') : null,
-      ]);
+      const statsRes = await fetch(`/api/admin/stats?${p}`);
 
       if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
@@ -1025,16 +1030,11 @@ function AdminPage() {
         return;
       }
 
-      const [statsResponse, globalStatsResponse] = await Promise.all([
-        statsForbidden ? Promise.resolve({ success: false }) : statsRes.json(),
-        globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
-      ]);
+      const statsResponse = statsForbidden ? { success: false } : await statsRes.json();
 
       if (statsResponse.success) {
         setStats(statsResponse.data);
         if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
-        const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
-        setGlobalOverview(overviewData);
       } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
@@ -2152,8 +2152,6 @@ function AdminPage() {
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
-                <OverviewStatsCards overview={globalOverview} />
-
                 {/* Stats Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -2249,6 +2247,7 @@ function AdminPage() {
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
                     )}
+                    <OverviewStatsCards overview={stats.overview} />
                     {/* Platform Summary Cards */}
                     {stats.platform_summary && (
                       <div className="grid grid-cols-2 gap-4">
@@ -2307,7 +2306,7 @@ function AdminPage() {
                         <CardContent>
                           <SimpleLineChart
                             data={stats.daily_activity.map((day) => ({
-                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                              label: formatBucketLabel(day.date),
                               value: day.active_users,
                             }))}
                             height={250}
@@ -2340,7 +2339,7 @@ function AdminPage() {
                         <CardContent>
                           <SimpleLineChart
                             data={stats.daily_activity.map((day) => ({
-                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                              label: formatBucketLabel(day.date),
                               value: day.conversations,
                             }))}
                             height={250}
@@ -2375,7 +2374,7 @@ function AdminPage() {
                       <CardContent>
                         <SimpleLineChart
                           data={stats.daily_activity.map((day) => ({
-                            label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            label: formatBucketLabel(day.date),
                             value: day.messages,
                           }))}
                           height={200}
@@ -2594,7 +2593,7 @@ function AdminPage() {
                         <CardContent>
                           <SimpleLineChart
                             data={stats.feedback_summary.daily.map((day) => ({
-                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                              label: formatBucketLabel(day.date),
                               value: day.positive + day.negative,
                             }))}
                             height={180}
