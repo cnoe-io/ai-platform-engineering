@@ -7,6 +7,7 @@ successResponse,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { connectToDatabase,isMongoDBConfigured } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 // Limits to prevent overloading MongoDB
@@ -14,30 +15,64 @@ const MAX_PEEK_DOCS = 2;          // documents per agent in data peek
 const MAX_PEEK_DOC_SIZE = 2000;   // max chars per serialized document
 const MAX_DISTINCT_THREADS = 500; // cap on distinct() results
 
-/** Compute a { from, to } date range from query params.
- *  Accepts either `from`/`to` ISO strings or a `range` shorthand like "7d". */
-function resolveRange(searchParams: URLSearchParams): { from: Date; to: Date; days: number } {
+type BucketUnit = 'hour' | 'day';
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** Mongo $dateToString format for a bucket granularity (UTC, matches bucketDateKey below). */
+const BUCKET_DATE_FORMAT: Record<BucketUnit, string> = {
+  hour: '%Y-%m-%dT%H:00',
+  day: '%Y-%m-%d',
+};
+
+function bucketDateKey(d: Date, unit: BucketUnit): string {
+  return unit === 'hour' ? `${d.toISOString().slice(0, 13)}:00` : d.toISOString().split('T')[0];
+}
+
+/** Generate the ordered (oldest → newest) list of bucket keys covering `to` back `count` buckets of `unit` size. */
+function generateBucketKeys(to: Date, count: number, unit: BucketUnit): string[] {
+  const stepMs = unit === 'hour' ? HOUR_MS : DAY_MS;
+  const keys: string[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(to.getTime() - i * stepMs);
+    if (unit === 'hour') d.setMinutes(0, 0, 0);
+    else d.setHours(0, 0, 0, 0);
+    keys.push(bucketDateKey(d, unit));
+  }
+  return keys;
+}
+
+/** Compute a { from, to, bucketUnit, bucketCount } date range from query params.
+ *  Accepts either `from`/`to` ISO strings or a `range` shorthand like "7d". Ranges of a
+ *  day or less bucket by hour so 1h/12h/24h charts show more than one data point. */
+function resolveRange(searchParams: URLSearchParams): { from: Date; to: Date; days: number; bucketUnit: BucketUnit; bucketCount: number } {
   const fromParam = searchParams.get('from');
   const toParam = searchParams.get('to');
   const to = toParam ? new Date(toParam) : new Date();
+
+  let from: Date;
+  let ms: number;
   if (fromParam) {
-    const from = new Date(fromParam);
-    const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86400000));
-    return { from, to, days };
+    from = new Date(fromParam);
+    ms = to.getTime() - from.getTime();
+  } else {
+    const range = searchParams.get('range');
+    switch (range) {
+      case '1h': ms = HOUR_MS; break;
+      case '12h': ms = 12 * HOUR_MS; break;
+      case '1d': case '24h': ms = DAY_MS; break;
+      case '7d': ms = 7 * DAY_MS; break;
+      case '30d': ms = 30 * DAY_MS; break;
+      case '90d': ms = 90 * DAY_MS; break;
+      default: ms = 7 * DAY_MS;
+    }
+    from = new Date(to.getTime() - ms);
   }
-  const range = searchParams.get('range');
-  let days: number;
-  switch (range) {
-    case '1h': days = 1; break;   // 1 hour still shows 1 day of chart data
-    case '12h': days = 1; break;
-    case '1d': case '24h': days = 1; break;
-    case '7d': days = 7; break;
-    case '30d': days = 30; break;
-    case '90d': days = 90; break;
-    default: days = 7;
-  }
-  const from = new Date(to.getTime() - days * 86400000);
-  return { from, to, days };
+
+  const days = Math.max(1, Math.round(ms / DAY_MS));
+  const bucketUnit: BucketUnit = ms <= DAY_MS ? 'hour' : 'day';
+  const bucketCount = bucketUnit === 'hour' ? Math.max(1, Math.round(ms / HOUR_MS)) : days;
+  return { from, to, days, bucketUnit, bucketCount };
 }
 
 /** Safely serialize a MongoDB doc for JSON, truncating large values. */
@@ -77,7 +112,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const { searchParams } = new URL(request.url);
     const includePeek = searchParams.get('peek') !== 'false'; // default: include
-    const { days } = resolveRange(searchParams);
+    const { from, to, days, bucketUnit, bucketCount } = resolveRange(searchParams);
 
     const { db } = await connectToDatabase();
 
@@ -191,21 +226,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     // ── Daily activity ───────────────────────────────────────────────────
-    const dailyMap = new Map<string, number>();
-    const now = new Date();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      d.setHours(0, 0, 0, 0);
-      dailyMap.set(d.toISOString().split('T')[0], 0);
-    }
+    // checkpoint_writes_* docs only carry `created_at` when TTL is configured,
+    // so bucket by the write's ObjectId timestamp instead — every doc has one.
+    const dailyMap = new Map<string, number>(generateBucketKeys(to, bucketCount, bucketUnit).map((k) => [k, 0]));
 
     const wrCollNames = cpCollNames.map((c: string) => c.replace(/^checkpoints_/, 'checkpoint_writes_'));
+    const fromId = ObjectId.createFromTime(Math.floor(from.getTime() / 1000));
+    const toId = ObjectId.createFromTime(Math.ceil(to.getTime() / 1000));
     for (const wrColl of wrCollNames) {
       try {
-        const count = await db.collection(wrColl).estimatedDocumentCount();
-        if (count > 0) {
-          const today = now.toISOString().split('T')[0];
-          dailyMap.set(today, (dailyMap.get(today) || 0) + count);
+        const buckets = await db.collection(wrColl).aggregate([
+          { $match: { _id: { $gte: fromId, $lte: toId } } },
+          { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: { $toDate: '$_id' } } }, count: { $sum: 1 } } },
+        ]).toArray();
+        for (const b of buckets) {
+          dailyMap.set(b._id, (dailyMap.get(b._id) || 0) + b.count);
         }
       } catch {
         // collection may not exist
