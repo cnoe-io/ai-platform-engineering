@@ -207,4 +207,85 @@ describe("Keycloak admin user helpers", () => {
       linkFederatedIdentity("user-sub", "okta", { userId: "okta-id", userName: "jane@example.com" })
     ).rejects.toThrow(/linkFederatedIdentity/);
   });
+
+  it("resolves an existing mapper on 409 from createGroupRoleMapper instead of throwing", async () => {
+    const existingMapper = {
+      id: "mapper-1",
+      name: "okta-engineering-to-admin",
+      identityProviderAlias: "okta",
+      identityProviderMapper: "oidc-advanced-role-idp-mapper",
+    };
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(response({ access_token: "token", expires_in: 300 }))
+      .mockResolvedValueOnce(response({ errorMessage: "already exists" }, { status: 409 }))
+      .mockResolvedValueOnce(response([existingMapper]));
+
+    const { createGroupRoleMapper } = await import("../keycloak-admin");
+
+    const result = await createGroupRoleMapper("okta", "engineering", "admin");
+
+    expect(result).toEqual(existingMapper);
+  });
+
+  it("throws when createGroupRoleMapper gets a 409 but the mapper can't be found on re-query", async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(response({ access_token: "token", expires_in: 300 }))
+      .mockResolvedValueOnce(response({ errorMessage: "already exists" }, { status: 409 }))
+      .mockResolvedValueOnce(response([]));
+
+    const { createGroupRoleMapper } = await import("../keycloak-admin");
+
+    await expect(createGroupRoleMapper("okta", "engineering", "admin")).rejects.toThrow(
+      /409 but mapper not found/
+    );
+  });
+
+  it("sanitizes an Okta display name before patching an existing user's missing name", async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(response({ access_token: "token", expires_in: 300 }))
+      .mockResolvedValueOnce(
+        response([{ id: "existing-sub", email: "jane@example.com", username: "jane@example.com" }])
+      )
+      .mockResolvedValueOnce(response({ id: "existing-sub", email: "jane@example.com" }))
+      .mockResolvedValueOnce(response("", { status: 204 }));
+
+    const { resolveOrProvisionUserSub } = await import("../keycloak-admin");
+
+    await resolveOrProvisionUserSub("jane@example.com", {}, {
+      firstName: "Jane",
+      lastName: "Doe (Contractor)",
+    });
+
+    const patchCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([input, init]: [string | URL, RequestInit | undefined]) =>
+        String(input).endsWith("/users/existing-sub") && init?.method === "PUT"
+    );
+    expect(patchCall).toBeDefined();
+    expect(JSON.parse(patchCall![1]!.body as string)).toEqual(
+      expect.objectContaining({ firstName: "Jane", lastName: "Doe Contractor" })
+    );
+  });
+
+  it("does not patch an existing user whose sanitized name already matches", async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(response({ access_token: "token", expires_in: 300 }))
+      .mockResolvedValueOnce(
+        response([{ id: "existing-sub", email: "jane@example.com", username: "jane@example.com" }])
+      )
+      .mockResolvedValueOnce(
+        response({ id: "existing-sub", email: "jane@example.com", firstName: "Jane", lastName: "Doe Contractor" })
+      );
+
+    const { resolveOrProvisionUserSub } = await import("../keycloak-admin");
+
+    await resolveOrProvisionUserSub("jane@example.com", {}, {
+      firstName: "Jane",
+      lastName: "Doe (Contractor)",
+    });
+
+    const patchCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([, init]: [string | URL, RequestInit | undefined]) => init?.method === "PUT"
+    );
+    expect(patchCall).toBeUndefined();
+  });
 });

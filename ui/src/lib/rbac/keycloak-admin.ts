@@ -374,6 +374,15 @@ export async function createGroupRoleMapper(
     method: "POST",
     body: JSON.stringify(payload),
   });
+
+  if (response.status === 409) {
+    // Mapper name is deterministic (alias-group-to-role), so a retry or a
+    // repeat sync of the same group→role mapping hits this every time — the
+    // desired state (the mapping exists) already holds. Resolve and return it.
+    const existing = (await listIdpMappers(alias)).find((m) => m.name === mapperName);
+    if (existing) return existing;
+    throw new Error(`createGroupRoleMapper(${mapperName}): 409 but mapper not found on re-query`);
+  }
   await assertOk(response, "createGroupRoleMapper");
   const text = await response.text();
   if (!text) {
