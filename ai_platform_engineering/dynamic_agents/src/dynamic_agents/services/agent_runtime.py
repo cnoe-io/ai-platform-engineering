@@ -560,11 +560,10 @@ class AgentRuntime:
                         if self._resolve_backend_type() == BACKEND_STORE:
                             fs_ns = self._resolve_fs_namespace()
 
-                            def skills_backend(rt):
-                                return StoreBackend(
-                                    rt,
-                                    namespace=lambda ctx: fs_ns,
-                                )
+                            skills_backend = StoreBackend(
+                                store=self._store,
+                                namespace=lambda runtime: fs_ns,
+                            )
 
                             # Seed skill files into GridFS so SkillsMiddleware and
                             # read_file can find them via StoreBackend.
@@ -578,7 +577,7 @@ class AgentRuntime:
                                     f"{len(self._skills_files)} skill files in GridFS"
                                 )
                         else:
-                            skills_backend = StateBackend
+                            skills_backend = StateBackend()
                         skills_middleware = SkillsMiddleware(backend=skills_backend, sources=skills_sources)
                         logger.info(
                             f"Agent '{self.config.name}': loaded {len(skills_data)} skills "
@@ -728,12 +727,10 @@ class AgentRuntime:
         backend_type = self._resolve_backend_type()
         logger.info(f"resolved backend_type={backend_type}")
         if backend_type == BACKEND_STORE:
-
-            def backend(rt):
-                return StoreBackend(
-                    rt,
-                    namespace=lambda ctx: fs_ns,
-                )
+            backend = StoreBackend(
+                store=self._store,
+                namespace=lambda runtime: fs_ns,
+            )
         else:
             backend = None  # defaults to StateBackend
 

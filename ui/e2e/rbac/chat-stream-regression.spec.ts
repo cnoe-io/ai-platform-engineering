@@ -16,6 +16,9 @@ const USER_EMAIL = "schema-e2e@caipe.local";
 const OLD_BEDROCK_SCHEMA_ERROR =
   "Model call failed after 6 attempts with ValidationException: " +
   "tools.454.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at the top level";
+const MISSING_TOOL_RESULT_ERROR =
+  "An error occurred (ValidationException) when calling the ConverseStream operation: " +
+  "Expected toolResult blocks at messages.0.content for the following Ids: tooluse_missing_result";
 
 type StreamStartPayload = {
   message?: string;
@@ -25,7 +28,8 @@ type StreamStartPayload = {
   client_context?: { source?: string };
 };
 
-type StreamMode = "success" | "bedrock-schema-error";
+type StreamMode = "success" | "bedrock-schema-error" | "tool-result-error";
+type StreamScenario = StreamMode | "tool-result-error-then-success";
 
 function minimalSessionEnv() {
   return {
@@ -50,6 +54,15 @@ async function fulfillStream(route: Route, mode: StreamMode): Promise<void> {
     return;
   }
 
+  if (mode === "tool-result-error") {
+    await route.fulfill({
+      status: 500,
+      contentType: "text/plain",
+      body: MISSING_TOOL_RESULT_ERROR,
+    });
+    return;
+  }
+
   await route.fulfill({
     status: 200,
     contentType: "text/event-stream",
@@ -68,11 +81,12 @@ async function fulfillStream(route: Route, mode: StreamMode): Promise<void> {
 async function installQuickChatMocks(
   page: Page,
   options: {
-    mode: StreamMode;
+    mode: StreamScenario;
     streamStartRequests?: StreamStartPayload[];
   },
 ): Promise<void> {
   const env = minimalSessionEnv();
+  let streamAttempt = 0;
 
   await installChatBootMocks(page, env, {
     conversationId: CHAT_CONVERSATION_ID,
@@ -208,7 +222,14 @@ async function installQuickChatMocks(
       return;
     }
     options.streamStartRequests?.push(JSON.parse(route.request().postData() ?? "{}"));
-    await fulfillStream(route, options.mode);
+    streamAttempt += 1;
+    const mode =
+      options.mode === "tool-result-error-then-success"
+        ? streamAttempt === 1
+          ? "tool-result-error"
+          : "success"
+        : options.mode;
+    await fulfillStream(route, mode);
   });
 
   await installTestSession(page, env, {
@@ -269,5 +290,32 @@ test.describe("mocked RBAC e2e — chat stream regression", () => {
     await expect(page.getByText(/ValidationException/i)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/input_schema does not support oneOf, allOf, or anyOf/i)).toBeVisible();
     await expect(page.getByText(/Quick chat is healthy after MCP schemas were sanitized/i)).toHaveCount(0);
+  });
+
+  test("can submit a follow-up after a missing toolResult stream failure", async ({ page }) => {
+    const streamStartRequests: StreamStartPayload[] = [];
+    await installQuickChatMocks(page, {
+      mode: "tool-result-error-then-success",
+      streamStartRequests,
+    });
+
+    await submitPrompt(page, "inspect the conversation history");
+
+    await expect.poll(() => streamStartRequests.length).toBe(1);
+    await expect(page.getByText(/Expected toolResult blocks/i)).toBeVisible({ timeout: 15_000 });
+
+    await expectChatComposerReady(page);
+    const composer = page.locator("textarea").first();
+    await composer.fill("try again");
+    await composer.press("Enter");
+
+    await expect.poll(() => streamStartRequests.length).toBe(2);
+    expect(streamStartRequests.map((request) => request.conversation_id)).toEqual([
+      CHAT_CONVERSATION_ID,
+      CHAT_CONVERSATION_ID,
+    ]);
+    await expect(page.getByText(/Quick chat is healthy after MCP schemas were sanitized/i)).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

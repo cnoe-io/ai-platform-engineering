@@ -26,6 +26,7 @@ CAIPE + Keycloak stack:
 | `mcp-empty-credential-sources.spec.ts` | Mocked upstream-only credential regression (test modal without credential resolution) and live AgentGateway bridge contract for `credential_sources: []`. |
 | `mcp-test-modal-and-agentgateway.spec.ts` | Mocked regression for AgentGateway target picker, MCP test modal, schema-driven tools, and team-shared `secret_ref` resolution for generic users. |
 | `chat-navigation-regression.spec.ts` | Mocked regression for chat tab navigation: resume last conversation, slow-list race, localStorage pointer, single create when empty. |
+| `chat-stream-regression.spec.ts` | Mocked AG-UI streaming regression for Bedrock schema errors and same-conversation recovery after a missing `toolResult` failure. |
 | `chat-workflow-run-card.spec.ts` | Mocked regression for workflow run cards in chat showing step outputs when terminal. |
 | `workflow-run-detail.spec.ts` | Mocked regression for workflow run detail page: failed/completed status, step errors, and `step.response` in the timeline. |
 | `chat-auto-create.spec.ts` | Live-stack regression: `/chat` must not create duplicate conversations when one already exists (requires `RUN_RBAC_E2E=1`). |
