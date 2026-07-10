@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "jest",
     "test:e2e": "playwright test",
+    "test:e2e:grid": "RUN_GRID_PROD=true playwright test e2e/grid-prod-chat.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

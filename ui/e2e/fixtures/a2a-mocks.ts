@@ -7,6 +7,19 @@ interface CapturedMessage {
   prompt: string;
 }
 
+interface JsonRpcBody {
+  id?: number;
+  method?: string;
+  params?: {
+    message?: {
+      parts?: Array<{
+        kind?: string;
+        text?: string;
+      }>;
+    };
+  };
+}
+
 interface MockOptions {
   savedUseCases?: Array<Record<string, unknown>>;
 }
@@ -155,7 +168,7 @@ function handleA2ARoute(route: Route, capturedMessages: CapturedMessage[]) {
     return route.fulfill({ status: 404, headers: corsHeaders, body: "Not found" });
   }
 
-  const body = request.postDataJSON() as { id?: number; method?: string; params?: any };
+  const body = request.postDataJSON() as JsonRpcBody;
   const prompt = extractPrompt(body);
   capturedMessages.push({ method: body.method ?? "", prompt });
 
@@ -180,7 +193,7 @@ function handleA2ARoute(route: Route, capturedMessages: CapturedMessage[]) {
   });
 }
 
-function extractPrompt(body: { params?: any }) {
+function extractPrompt(body: JsonRpcBody) {
   const parts = body.params?.message?.parts;
   if (!Array.isArray(parts)) return "";
 
