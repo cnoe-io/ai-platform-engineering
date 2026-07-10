@@ -91,9 +91,14 @@ jobs:
       - name: Commit and push to main
         env:
           NEW_VERSION: ${{ steps.versions.outputs.new_version }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name  "caipe-ci-release[bot]"
           git config user.email "287317642+caipe-ci-release[bot]@users.noreply.github.com"
+
+          # persist-credentials: false means the checkout step does not configure
+          # git credentials. Wire the App token into the remote URL so git push works.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/cnoe-io/ai-platform-engineering.git"
 
           # Only the published-versions list (and any current-version helm docs that
           # legitimately changed) are committed — versioned_docs is never committed.
@@ -112,6 +117,21 @@ jobs:
           # or review. The Docusaurus build was already validated above, so the only
           # change landing here is the validated published-versions list (and any
           # legitimately-changed current-version Helm reference pages).
-          git push origin HEAD:main
-
-          echo "Pushed docs version ${NEW_VERSION} to main."
+          #
+          # Retry loop: two concurrent tag-triggered runs (e.g. 0.5.44 and a dev tag)
+          # can both reach this step at the same time. The second push will be rejected
+          # because main moved. Rebasing and retrying is safe — the only files touched
+          # are published-versions.json and helm-docs, both idempotent on the same tag.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed docs version ${NEW_VERSION} to main (attempt ${attempt})."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}/3) — rebasing on current main and retrying..."
+            # Random 5-15s backoff so two concurrent runners don't collide on retry
+            sleep $((RANDOM % 11 + 5))
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "Failed to push after 3 attempts."
+          exit 1

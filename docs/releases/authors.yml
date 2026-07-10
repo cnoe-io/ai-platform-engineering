@@ -6,3 +6,35 @@ sriaradhyula:
   socials:
     linkedin: aradhyula
     github: sriaradhyula
+
+suwhang-cisco:
+  name: Sunny Whang
+  url: https://github.com/suwhang-cisco
+  image_url: https://github.com/suwhang-cisco.png
+  page: true
+  socials:
+    github: suwhang-cisco
+
+cisco-erilutz:
+  name: Erik Lutz
+  url: https://github.com/cisco-erilutz
+  image_url: https://github.com/cisco-erilutz.png
+  page: true
+  socials:
+    github: cisco-erilutz
+
+dabcoder:
+  name: David Bouchare
+  url: https://github.com/dabcoder
+  image_url: https://github.com/dabcoder.png
+  page: true
+  socials:
+    github: dabcoder
+
+subbaksh:
+  name: Shubham Bakshi
+  url: https://github.com/subbaksh
+  image_url: https://github.com/subbaksh.png
+  page: true
+  socials:
+    github: subbaksh

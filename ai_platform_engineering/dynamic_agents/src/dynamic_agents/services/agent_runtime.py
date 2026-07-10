@@ -860,7 +860,12 @@ class AgentRuntime:
 
         return tools
 
-    def _build_interrupt_config(self, tools: list, builtin_tool_names: set[str]) -> dict[str, Any]:
+    def _build_interrupt_config(
+        self,
+        tools: list,
+        builtin_tool_names: set[str],
+        agent_config: DynamicAgentConfig | None = None,
+    ) -> dict[str, Any]:
         """Build flattened interrupt_on config for deepagents.
 
         Converts the namespaced storage format (server_id -> {tool: config})
@@ -868,9 +873,16 @@ class AgentRuntime:
 
         Supports "*" wildcard to gate all tools in a namespace.
         "builtin" is the reserved namespace for non-MCP tools (no prefix).
+
+        Args:
+            tools: Tools available to the agent whose interrupt config is built.
+            builtin_tool_names: Names of built-in tools in ``tools``.
+            agent_config: Agent config that owns the tools. Defaults to the
+                parent runtime config; subagents must pass their own config.
         """
+        config = agent_config or self.config
         interrupt_config: dict[str, Any] = {}
-        for server_id, tools_map in self.config.interrupt_on.items():
+        for server_id, tools_map in (config.interrupt_on or {}).items():
             for tool_name, cfg in tools_map.items():
                 resolved_cfg = cfg.model_dump() if isinstance(cfg, InterruptConfig) else cfg
                 if tool_name == "*":
@@ -939,7 +951,12 @@ class AgentRuntime:
                 continue
 
             # Build MCP tools for subagent
-            subagent_tools = await self._build_subagent_tools(subagent_config)
+            subagent_tools, builtin_tool_names = await self._build_subagent_tools(subagent_config)
+            interrupt_config = self._build_interrupt_config(
+                subagent_tools,
+                builtin_tool_names,
+                agent_config=subagent_config,
+            )
 
             # System prompt from subagent config
             subagent_prompt = subagent_config.system_prompt
@@ -956,6 +973,7 @@ class AgentRuntime:
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
                 "model": subagent_llm,
+                "interrupt_on": interrupt_config,
                 "middleware": build_middleware(
                     subagent_config.features,
                     self._session_id,
@@ -976,14 +994,17 @@ class AgentRuntime:
 
         return subagents
 
-    async def _build_subagent_tools(self, subagent_config: DynamicAgentConfig) -> list:
+    async def _build_subagent_tools(
+        self,
+        subagent_config: DynamicAgentConfig,
+    ) -> tuple[list, set[str]]:
         """Build tools for a subagent (MCP tools + built-in tools).
 
         Args:
             subagent_config: The subagent's configuration
 
         Returns:
-            List of LangChain tools (MCP + built-in based on subagent config)
+            Tuple containing the LangChain tools and the names of built-in tools.
         """
         tools: list = []
 
@@ -1030,6 +1051,7 @@ class AgentRuntime:
         # 2. Add built-in tools based on subagent's config
         client_ctx = self._client_context.model_dump() if self._client_context else None
         builtin_tools = self._build_builtin_tools(self._user, subagent_config, client_context=client_ctx)
+        builtin_tool_names = {tool.name for tool in builtin_tools}
         if builtin_tools:
             tools.extend(builtin_tools)
 
@@ -1037,7 +1059,7 @@ class AgentRuntime:
         if tools:
             tools = wrap_tools_with_error_handling(tools, agent_name=subagent_config.name)
 
-        return tools
+        return tools, builtin_tool_names
 
     async def cleanup(self) -> None:
         """Cleanup all resources held by this runtime.

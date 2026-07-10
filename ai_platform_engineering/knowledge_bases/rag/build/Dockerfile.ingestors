@@ -67,6 +67,7 @@ ARG VARIANT=default
 #                            so the long manual Debian lib list is no longer needed.
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
     apk update && \
+    apk upgrade --no-cache && \
     apk add --no-cache \
         python-3.13 \
         ca-certificates-bundle \

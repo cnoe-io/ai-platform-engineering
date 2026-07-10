@@ -60,7 +60,7 @@ ARG INSTALL_AWS_CLI=false
 ARG INSTALL_KUBECTL=false
 
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
-    for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+    for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 5)); done && \
     if [ "$INSTALL_NETUTILS" = "true" ]; then \
         for i in 1 2 3; do \
             apk add --no-cache \

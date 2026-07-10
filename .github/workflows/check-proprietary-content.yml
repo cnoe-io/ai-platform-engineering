@@ -47,6 +47,7 @@ jobs:
             **/uv.lock
             **/yarn.lock
             **/package-lock.json
+            docs/src/pages/index.tsx
 
       - name: Check for Cisco/Outshift content
         id: check-content

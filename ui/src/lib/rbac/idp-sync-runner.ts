@@ -20,7 +20,7 @@ import {
   reapStaleIdpSyncRuns,
   updateIdpSyncRun,
 } from "@/lib/rbac/idp-sync-store";
-import { provisionShellUser } from "@/lib/rbac/keycloak-admin";
+import { linkFederatedIdentity, provisionShellUser } from "@/lib/rbac/keycloak-admin";
 import { stripArchivedTeamResourceGrants } from "@/lib/rbac/archived-team-grants";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
@@ -162,8 +162,21 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // subject (they only know the directory identity); without this the planner
     // skips everyone as `missing_subject`. Cached per run so a user appearing in
     // many groups is resolved once.
+    //
+    // For Okta specifically, also register a real Keycloak federated-identity
+    // link using the member's Okta user id — identical to what Keycloak's OIDC
+    // broker would write on an actual SSO login (Okta's default `sub` claim is
+    // its Users API `id`). Without this, sync-provisioned users have no
+    // federatedIdentities entry until they sign in once, which is what makes
+    // consumers that gate on "is this user federated" (e.g. the Slack bot's
+    // unlinked-fallback check) treat them as unlinked even though the directory
+    // sync already vouches for their identity.
+    const idpAlias = process.env.IDENTITY_SYNC_OKTA_KEYCLOAK_IDP_ALIAS?.trim() || "okta";
     const subCache = new Map<string, string | null>();
-    for (const group of groups as Array<{ members?: Array<{ email?: string; active?: boolean; subject?: string; display_name?: string }> }>) {
+    const linkedCache = new Set<string>();
+    for (const group of groups as Array<{
+      members?: Array<{ email?: string; active?: boolean; subject?: string; display_name?: string; okta_user_id?: string }>;
+    }>) {
       for (const member of group.members ?? []) {
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
@@ -194,6 +207,23 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
         }
         const sub = subCache.get(email);
         if (sub) member.subject = sub;
+        if (provider === "okta" && sub && member.okta_user_id && !linkedCache.has(email)) {
+          linkedCache.add(email);
+          try {
+            await linkFederatedIdentity(sub, idpAlias, {
+              userId: member.okta_user_id,
+              userName: email,
+            });
+          } catch (err) {
+            // Non-fatal: a federated-identity link failure must not block RBAC
+            // provisioning for this sync run. The user simply stays unlinked
+            // until the next successful sync or a real SSO login.
+            console.warn(
+              `[IdpSync] run ${runId}: failed to link federated identity for ${email} (sub=${sub}): ` +
+                (err instanceof Error ? err.message : String(err))
+            );
+          }
+        }
       }
     }
 

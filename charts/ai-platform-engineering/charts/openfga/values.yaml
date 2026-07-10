@@ -52,6 +52,8 @@ init:
   seedSub: ""
   seedTuples: []
   backoffLimit: 6
+  helmHookDeletePolicy: "before-hook-creation"
+  argocdHookDeletePolicy: "BeforeHookCreation"
 
 resources:
   requests:

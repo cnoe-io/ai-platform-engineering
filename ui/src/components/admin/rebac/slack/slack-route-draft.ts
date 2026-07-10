@@ -11,7 +11,7 @@ export const DEFAULT_OVERTHINK_SKIP_MARKERS = "DEFER, LOW_CONFIDENCE";
 export interface RouteSideDraft {
   enabled: boolean;
   listen: ListenMode;
-  allowList: string;
+  allowList: string[];
   overthinkEnabled: boolean;
   overthinkSkipMarkers: string;
   overthinkFollowupPrompt: string;
@@ -22,8 +22,8 @@ export interface RouteEscalationDraft {
   victoropsTeam: string;
   emojiEnabled: boolean;
   emojiName: string;
-  users: string;
-  deleteAdmins: string;
+  users: string[];
+  deleteAdmins: string[];
 }
 
 export interface RouteDraft {
@@ -44,7 +44,7 @@ export interface RouteDraft {
 }
 
 export function splitList(value: string): string[] {
-  return Array.from(new Set(value.split(/[\s,]+/).map((v) => v.trim()).filter(Boolean)));
+  return Array.from(new Set(value.split(",").map((v) => v.trim()).filter(Boolean)));
 }
 
 export function joinList(value: string[] | undefined): string {
@@ -55,7 +55,7 @@ export function emptySideDraft(listen: ListenMode = "mention"): RouteSideDraft {
   return {
     enabled: false,
     listen,
-    allowList: "",
+    allowList: [],
     overthinkEnabled: false,
     overthinkSkipMarkers: DEFAULT_OVERTHINK_SKIP_MARKERS,
     overthinkFollowupPrompt: "",
@@ -76,8 +76,8 @@ export function emptyRouteDraft(): RouteDraft {
       victoropsTeam: "",
       emojiEnabled: false,
       emojiName: "eyes",
-      users: "",
-      deleteAdmins: "",
+      users: [],
+      deleteAdmins: [],
     },
     executionMode: "obo_user",
     executionServiceAccountSub: "",
@@ -94,7 +94,7 @@ function sideToDraft(
   return {
     enabled: side.enabled !== false,
     listen: side.listen ?? fallbackListen,
-    allowList: joinList(side[listKey]),
+    allowList: side[listKey] ?? [],
     overthinkEnabled: Boolean(side.overthink?.enabled),
     overthinkSkipMarkers: joinList(side.overthink?.skip_markers) || DEFAULT_OVERTHINK_SKIP_MARKERS,
     overthinkFollowupPrompt: side.overthink?.followup_prompt ?? "",
@@ -120,8 +120,8 @@ export function routeToDraft(route: ItemAgentRoute): RouteDraft {
       victoropsTeam: esc?.victorops?.team ?? "",
       emojiEnabled: Boolean(esc?.emoji?.enabled),
       emojiName: esc?.emoji?.name ?? "eyes",
-      users: joinList(esc?.users),
-      deleteAdmins: joinList(esc?.delete_admins),
+      users: esc?.users ?? [],
+      deleteAdmins: esc?.delete_admins ?? [],
     },
     executionMode,
     executionServiceAccountSub: eid?.service_account_sub ?? "",
@@ -130,7 +130,7 @@ export function routeToDraft(route: ItemAgentRoute): RouteDraft {
 }
 
 function sideDraftToConfig(draft: RouteSideDraft, enabled: boolean, listKey: "user_list" | "bot_list"): RouteSideConfig {
-  const list = splitList(draft.allowList);
+  const list = draft.allowList;
   const overthink = draft.overthinkEnabled || draft.overthinkSkipMarkers || draft.overthinkFollowupPrompt
     ? {
         enabled: draft.overthinkEnabled,
@@ -151,8 +151,8 @@ export type DraftRoutePayload = ItemAgentRoute & { execution_identity?: SlackRou
 
 export function draftToRoute(draft: RouteDraft): DraftRoutePayload {
   const esc = draft.escalation;
-  const escalationUsers = splitList(esc.users);
-  const deleteAdmins = splitList(esc.deleteAdmins);
+  const escalationUsers = esc.users;
+  const deleteAdmins = esc.deleteAdmins;
   const escalation: RouteEscalationConfig | undefined = draft.escalationEnabled
     ? {
         ...(esc.victoropsEnabled || esc.victoropsTeam
@@ -205,8 +205,8 @@ export function routeDraftErrorMap(draft: RouteDraft): Record<string, string> {
     const esc = draft.escalation;
     const hasVictorops = esc.victoropsEnabled || esc.victoropsTeam.trim();
     const hasEmoji = esc.emojiEnabled || esc.emojiName.trim();
-    const hasUsers = splitList(esc.users).length > 0;
-    const hasDeleteAdmins = splitList(esc.deleteAdmins).length > 0;
+    const hasUsers = esc.users.length > 0;
+    const hasDeleteAdmins = esc.deleteAdmins.length > 0;
     if (!hasVictorops && !hasEmoji && !hasUsers && !hasDeleteAdmins) errors.escalation = "Configure at least one escalation action, or turn Escalation off.";
     if (esc.victoropsEnabled && !esc.victoropsTeam.trim()) errors.victoropsTeam = "VictorOps team is required.";
     if (esc.emojiEnabled && !esc.emojiName.trim()) errors.emojiName = "Emoji name is required.";

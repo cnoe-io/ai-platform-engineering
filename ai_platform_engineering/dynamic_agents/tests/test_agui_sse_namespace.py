@@ -194,3 +194,77 @@ class TestHandleMessagesNamespace:
 
             frames_2 = enc._handle_messages((chunk, {}), ("agent-A",))
             assert _namespace_values(frames_2) == []  # no redundant emit
+
+
+class TestTasksChunkNamespaceMapping:
+    """Cover task-input shapes emitted before and after LangGraph 1.2."""
+
+    TASK_ID = "abc123-def456"
+    TOOL_CALL_ID = "toolu_subagent_1"
+
+    def _legacy_dict_chunk(self) -> dict:
+        """LangGraph before 1.2 nests the tool call in an input dict."""
+        return {
+            "id": self.TASK_ID,
+            "name": "tools",
+            "input": {
+                "__type": "tool_call_with_context",
+                "tool_call": {
+                    "name": "task",
+                    "args": {"subagent_type": "worker", "description": "do work"},
+                    "id": self.TOOL_CALL_ID,
+                    "type": "tool_call",
+                },
+                "state": {"messages": []},
+            },
+        }
+
+    def _list_chunk(self) -> dict:
+        """LangGraph 1.2 and later emit a list of tool-call dicts."""
+        return {
+            "id": self.TASK_ID,
+            "name": "tools",
+            "input": [
+                {
+                    "name": "task",
+                    "args": {"subagent_type": "worker", "description": "do work"},
+                    "id": self.TOOL_CALL_ID,
+                    "type": "tool_call",
+                }
+            ],
+        }
+
+    def test_legacy_dict_shape_populates_mapping(self):
+        enc = AGUIStreamEncoder()
+        enc._helper._handle_tasks_chunk(self._legacy_dict_chunk())
+        assert enc._helper._namespace_mapping == {f"tools:{self.TASK_ID}": self.TOOL_CALL_ID}
+
+    def test_list_shape_populates_mapping(self):
+        enc = AGUIStreamEncoder()
+        enc._helper._handle_tasks_chunk(self._list_chunk())
+        assert enc._helper._namespace_mapping == {f"tools:{self.TASK_ID}": self.TOOL_CALL_ID}
+
+    def test_subagent_namespace_correlates_after_list_chunk(self):
+        enc = AGUIStreamEncoder()
+        enc._helper._handle_tasks_chunk(self._list_chunk())
+        correlated = enc._helper.correlate_namespace((f"tools:{self.TASK_ID}",))
+        assert correlated == (self.TOOL_CALL_ID,)
+
+    def test_uncorrelated_subagent_namespace_falls_back_to_parent(self):
+        enc = AGUIStreamEncoder()
+        correlated = enc._helper.correlate_namespace((f"tools:{self.TASK_ID}",))
+        assert correlated == ()
+
+    def test_non_task_tool_calls_are_ignored(self):
+        enc = AGUIStreamEncoder()
+        chunk = self._list_chunk()
+        chunk["input"][0]["name"] = "get_weather"
+        enc._helper._handle_tasks_chunk(chunk)
+        assert enc._helper._namespace_mapping == {}
+
+    def test_result_chunk_without_tool_call_is_ignored(self):
+        enc = AGUIStreamEncoder()
+        enc._helper._handle_tasks_chunk(
+            {"id": self.TASK_ID, "name": "tools", "result": {"messages": []}, "interrupts": []}
+        )
+        assert enc._helper._namespace_mapping == {}

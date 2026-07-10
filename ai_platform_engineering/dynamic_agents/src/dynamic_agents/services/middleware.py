@@ -30,6 +30,7 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
+from langgraph.errors import GraphBubbleUp
 
 from dynamic_agents.services.llm import get_configured_llm
 
@@ -42,6 +43,30 @@ from dynamic_agents.metrics import MetricsAgentMiddleware
 from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
 
 logger = logging.getLogger(__name__)
+
+
+class InterruptAwareToolRetryMiddleware(ToolRetryMiddleware):
+    """Retry ordinary tool failures without swallowing LangGraph control flow.
+
+    Nested subagent interrupts bubble through the parent ``task`` tool as
+    ``GraphBubbleUp`` exceptions. The stock retry middleware treats those as
+    failures, relaunches the subagent, and eventually converts the interrupt
+    into an error ``ToolMessage``. Raising from the retry predicate preserves
+    LangGraph's checkpoint-and-resume behavior while retaining the configured
+    retry policy for real tool exceptions.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        retry_on = kwargs.pop("retry_on", (Exception,))
+
+        def retry_non_control_flow(exc: Exception) -> bool:
+            if isinstance(exc, GraphBubbleUp):
+                raise exc
+            if callable(retry_on):
+                return retry_on(exc)
+            return isinstance(exc, retry_on)
+
+        super().__init__(retry_on=retry_non_control_flow, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +108,7 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
         },
     ),
     "tool_retry": MiddlewareSpec(
-        cls=ToolRetryMiddleware,
+        cls=InterruptAwareToolRetryMiddleware,
         default_params={"max_retries": 3, "backoff_factor": 2.0, "initial_delay": 2.0, "on_failure": "continue"},
         enabled_by_default=True,
         allow_multiple=False,
