@@ -197,12 +197,16 @@ async def list_applications(
     # ArgoCD returns metadata.continue when there are more pages
     next_token = (data.get("metadata") or {}).get("continue", "")
 
+    remaining = (data.get("metadata") or {}).get("remainingItemCount")
+
     pagination_meta: Dict[str, Any] = {
         "page_size": page_size,
         "has_next": bool(next_token),
     }
     if next_token:
         pagination_meta["continue_token"] = next_token
+    if remaining is not None:
+        pagination_meta["remaining_items"] = remaining
 
     argocd_base_url = _get_argocd_base_url()
 

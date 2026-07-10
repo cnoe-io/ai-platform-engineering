@@ -14,10 +14,10 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def project_list(
-    param_name: str = None, 
-    summary_only: bool = True, 
-    page: int = 1,
-    page_size: int = 20
+    param_name: str = None,
+    summary_only: bool = True,
+    page_size: int = 20,
+    continue_token: str = "",
 ) -> Dict[str, Any]:
     '''
     List returns a paginated list of projects.
@@ -25,33 +25,32 @@ async def project_list(
     Args:
         param_name (str, optional): Filter by project name. Defaults to None.
         summary_only (bool, optional): If True, return only summary information (default: True).
-        page (int, optional): Page number (1-indexed, default: 1).
         page_size (int, optional): Number of items per page (default: 20, max: 100).
+        continue_token (str, optional): Opaque token from a previous response's
+            pagination.continue_token to fetch the next page. Omit for the first page.
 
     Returns:
         Dict[str, Any]: Paginated list of projects with metadata:
         {
             "items": [...],
             "pagination": {
-                "page": 1,
                 "page_size": 20,
-                "total_items": 50,
-                "total_pages": 3,
                 "has_next": true,
-                "has_prev": false
+                "continue_token": "<opaque>"  // absent on last page
             }
         }
     '''
     logger.debug("Making GET request to /api/v1/projects")
 
-    params = {}
-    data = {}
+    page_size = min(100, max(1, page_size))
+    params: Dict[str, Any] = {"limit": page_size}
+    if continue_token:
+        params["continue"] = continue_token
 
     if param_name is not None:
         params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
 
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
+    data = assemble_nested_body({})
 
     success, response = await make_api_request("/api/v1/projects", method="GET", params=params, data=data)
 
@@ -59,51 +58,24 @@ async def project_list(
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
 
-    # Enforce pagination limits
-    page = max(1, page)
-    page_size = min(100, max(1, page_size))
+    items = response.get("items") or []
+    next_token = (response.get("metadata") or {}).get("continue", "")
 
-    all_items = response.get("items", [])
-    total_items = len(all_items)
-    total_pages = (total_items + page_size - 1) // page_size
+    remaining = (response.get("metadata") or {}).get("remainingItemCount")
 
-    # Calculate pagination slice
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-    
-    # Check if page is out of bounds
-    if start_idx >= total_items and total_items > 0:
-        return {
-            "error": f"Page {page} out of bounds. Total pages: {total_pages}",
-            "pagination": {
-                "page": page,
-                "page_size": page_size,
-                "total_items": total_items,
-                "total_pages": total_pages,
-                "has_next": False,
-                "has_prev": page > 1
-            }
-        }
-
-    paginated_items = all_items[start_idx:end_idx]
-
-    # Build pagination metadata
-    pagination_meta = {
-        "page": page,
+    pagination_meta: Dict[str, Any] = {
         "page_size": page_size,
-        "total_items": total_items,
-        "total_pages": total_pages,
-        "has_next": page < total_pages,
-        "has_prev": page > 1,
-        "showing_from": start_idx + 1 if paginated_items else 0,
-        "showing_to": start_idx + len(paginated_items)
+        "has_next": bool(next_token),
     }
+    if next_token:
+        pagination_meta["continue_token"] = next_token
+    if remaining is not None:
+        pagination_meta["remaining_items"] = remaining
 
-    # If summary_only is True, return only essential information
     if summary_only:
         summary_items = []
-        for project in paginated_items:
-            summary_item = {
+        for project in items:
+            summary_items.append({
                 "name": project.get("metadata", {}).get("name", ""),
                 "description": project.get("spec", {}).get("description", ""),
                 "source_repos": project.get("spec", {}).get("sourceRepos", []),
@@ -117,18 +89,17 @@ async def project_list(
                 "creation_timestamp": project.get("metadata", {}).get("creationTimestamp", ""),
                 "generation": project.get("metadata", {}).get("generation", ""),
                 "resource_version": project.get("metadata", {}).get("resourceVersion", ""),
-            }
-            summary_items.append(summary_item)
+            })
 
         return {
             "items": summary_items,
             "pagination": pagination_meta,
-            "summary_only": True
+            "summary_only": True,
         }
 
     return {
-        "items": paginated_items,
-        "pagination": pagination_meta
+        "items": items,
+        "pagination": pagination_meta,
     }
 
 
