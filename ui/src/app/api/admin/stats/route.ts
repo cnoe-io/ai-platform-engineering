@@ -17,32 +17,73 @@ import { NextRequest,NextResponse } from 'next/server';
 
 const adminStatsCache = createJsonResponseCacheStore();
 
-/** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
-function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {
+type BucketUnit = 'hour' | 'day';
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** Mongo $dateToString format for a bucket granularity (UTC, matches Date#toISOString below). */
+const BUCKET_DATE_FORMAT: Record<BucketUnit, string> = {
+  hour: '%Y-%m-%dT%H:00',
+  day: '%Y-%m-%d',
+};
+
+/** Render a bucket start Date into the same key format $dateToString produces above. */
+function bucketDateKey(d: Date, unit: BucketUnit): string {
+  return unit === 'hour' ? `${d.toISOString().slice(0, 13)}:00` : d.toISOString().split('T')[0];
+}
+
+/** Generate the ordered (oldest → newest) list of bucket keys covering `now` back `count` buckets of `unit` size. */
+function generateBucketKeys(now: Date, count: number, unit: BucketUnit): string[] {
+  const stepMs = unit === 'hour' ? HOUR_MS : DAY_MS;
+  const keys: string[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * stepMs);
+    if (unit === 'hour') d.setMinutes(0, 0, 0);
+    else d.setHours(0, 0, 0, 0);
+    keys.push(bucketDateKey(d, unit));
+  }
+  return keys;
+}
+
+/**
+ * Parse range params into { rangeStart, days, bucketUnit, bucketCount }. Supports preset
+ * strings and explicit from/to ISO dates. Ranges of a day or less bucket by hour (rather
+ * than clamping to a single day-granularity bucket) so 1h/12h/24h charts show more than
+ * one data point.
+ */
+function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number; bucketUnit: BucketUnit; bucketCount: number } {
   const now = new Date();
   const fromParam = searchParams.get('from');
   const toParam = searchParams.get('to');
 
+  let rangeStart: Date;
+  let ms: number;
+
   if (fromParam) {
     const from = new Date(fromParam);
     const to = toParam ? new Date(toParam) : now;
-    const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
-    return { rangeStart: from, days };
+    ms = to.getTime() - from.getTime();
+    rangeStart = from;
+  } else {
+    const range = searchParams.get('range');
+    switch (range) {
+      case '1h':  ms = HOUR_MS; break;
+      case '12h': ms = 12 * HOUR_MS; break;
+      case '24h':
+      case '1d':  ms = DAY_MS; break;
+      case '7d':  ms = 7 * DAY_MS; break;
+      case '90d': ms = 90 * DAY_MS; break;
+      case '30d':
+      default:    ms = 30 * DAY_MS; break;
+    }
+    rangeStart = new Date(now.getTime() - ms);
   }
 
-  const range = searchParams.get('range');
-  let ms: number;
-  switch (range) {
-    case '1h':  ms = 60 * 60 * 1000; break;
-    case '12h': ms = 12 * 60 * 60 * 1000; break;
-    case '24h':
-    case '1d':  ms = 24 * 60 * 60 * 1000; break;
-    case '7d':  ms = 7 * 24 * 60 * 60 * 1000; break;
-    case '90d': ms = 90 * 24 * 60 * 60 * 1000; break;
-    case '30d':
-    default:    ms = 30 * 24 * 60 * 60 * 1000; break;
-  }
-  return { rangeStart: new Date(now.getTime() - ms), days: Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000))) };
+  const days = Math.max(1, Math.round(ms / DAY_MS));
+  const bucketUnit: BucketUnit = ms <= DAY_MS ? 'hour' : 'day';
+  const bucketCount = bucketUnit === 'hour' ? Math.max(1, Math.round(ms / HOUR_MS)) : days;
+  return { rangeStart, days, bucketUnit, bucketCount };
 }
 
 /**
@@ -100,7 +141,7 @@ async function getAdminStats(request: NextRequest) {
   }
 
     const { searchParams } = new URL(request.url);
-    const { rangeStart, days } = parseRange(searchParams);
+    const { rangeStart, days, bucketUnit, bucketCount } = parseRange(searchParams);
 
     // Optional filters
     const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | null (all)
@@ -232,13 +273,11 @@ async function getAdminStats(request: NextRequest) {
     const [
       totalUsers,
       totalConversations,
-      webTotalMessages,
-      slackTotalMessages,
+      totalMessages,
       dau,
       mau,
       conversationsToday,
-      webMessagesToday,
-      slackMessagesToday,
+      messagesToday,
       sharedConversations,
     ] = await Promise.all([
       // Non-admins must not see platform-wide headcount — derive their
@@ -250,13 +289,16 @@ async function getAdminStats(request: NextRequest) {
             { $count: 'total' },
           ]).toArray().then((r) => r[0]?.total || 0)
         : users.countDocuments({}),
-      conversations.countDocuments({ ...convSourceFilter }),
-      sourceFilter !== 'slack'
-        ? messages.countDocuments({ 'metadata.source': 'web', ...msgOwnerFilter })
-        : Promise.resolve(0),
-      sourceFilter !== 'web'
-        ? messages.countDocuments({ 'metadata.source': 'slack', ...msgOwnerFilter })
-        : Promise.resolve(0),
+      // Scoped to the selected date range (rangeStart), matching daily_activity
+      // and every other range-aware metric below — previously these were
+      // always lifetime totals regardless of the selected range.
+      conversations.countDocuments({ created_at: { $gte: rangeStart }, ...convSourceFilter }),
+      // msgOwnerFilter already carries 'metadata.source' when the caller
+      // explicitly filtered by source=web|slack; unfiltered, this counts
+      // every message regardless of metadata.source (including messages
+      // missing that field or tagged with other values, e.g. 'scheduler'),
+      // matching how totalConversations counts every conversation.
+      messages.countDocuments({ created_at: { $gte: rangeStart }, ...msgOwnerFilter }),
       // DAU/MAU: derive from conversations when filters are applied, otherwise from users
       hasFilters
         ? conversations.aggregate([
@@ -273,12 +315,7 @@ async function getAdminStats(request: NextRequest) {
           ]).toArray().then((r) => r[0]?.total || 0)
         : users.countDocuments({ last_login: { $gte: thisMonth } }),
       conversations.countDocuments({ created_at: { $gte: today }, ...convSourceFilter }),
-      sourceFilter !== 'slack'
-        ? messages.countDocuments({ 'metadata.source': 'web', created_at: { $gte: today }, ...msgOwnerFilter })
-        : Promise.resolve(0),
-      sourceFilter !== 'web'
-        ? messages.countDocuments({ 'metadata.source': 'slack', created_at: { $gte: today }, ...msgOwnerFilter })
-        : Promise.resolve(0),
+      messages.countDocuments({ created_at: { $gte: today }, ...msgOwnerFilter }),
       // `andInto` rather than spreading a literal `$or` — the non-admin scope
       // can itself be an `$or`, which a spread would clobber (leaking shared
       // conversation counts outside the caller's scope).
@@ -296,9 +333,6 @@ async function getAdminStats(request: NextRequest) {
         })()
       ),
     ]);
-
-    const totalMessages = webTotalMessages + slackTotalMessages;
-    const messagesToday = webMessagesToday + slackMessagesToday;
 
     // ═══════════════════════════════════════════════════════════════
     // PARALLEL BATCH — all independent aggregations in one shot
@@ -337,8 +371,7 @@ async function getAdminStats(request: NextRequest) {
     const [
       dailyUserActivity,
       dailyConvActivity,
-      dailyWebMsgActivity,
-      dailySlackMsgActivity,
+      dailyMsgActivity,
       rawTopByConvs,
       rawTopByMsgs,
       topAgents,
@@ -350,8 +383,7 @@ async function getAdminStats(request: NextRequest) {
       completedWorkflows,
       completedToday,
       conversationsWithAssistant,
-      hourlyWebActivity,
-      hourlySlackActivity,
+      hourlyActivity,
       availableChannelsResult,
       webAgentMsgCount,
     ] = await Promise.all([
@@ -359,35 +391,27 @@ async function getAdminStats(request: NextRequest) {
       hasFilters
         ? conversations.aggregate([
             { $match: { updated_at: { $gte: rangeStart }, ...convSourceFilter } },
-            { $group: { _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$updated_at' } }, user: '$owner_id' } } },
+            { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$updated_at' } }, user: '$owner_id' } } },
             { $group: { _id: '$_id.date', active_users: { $sum: 1 } } },
           ]).toArray()
         : users.aggregate([
             { $match: { last_login: { $gte: rangeStart } } },
-            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$last_login' } }, active_users: { $sum: 1 } } },
+            { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$last_login' } }, active_users: { $sum: 1 } } },
           ]).toArray(),
 
       // Daily conversations
       conversations.aggregate([
         { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
-        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, conversations: { $sum: 1 } } },
+        { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, conversations: { $sum: 1 } } },
       ]).toArray(),
 
-      // Daily web messages
-      sourceFilter !== 'slack'
-        ? messages.aggregate([
-            { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, messages: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
-
-      // Daily slack messages
-      sourceFilter !== 'web'
-        ? messages.aggregate([
-            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, messages: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
+      // Daily messages — msgOwnerFilter already carries metadata.source
+      // when source=web|slack was explicitly requested; unfiltered, this
+      // counts every message regardless of metadata.source.
+      messages.aggregate([
+        { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, messages: { $sum: 1 } } },
+      ]).toArray(),
 
       // Top users by conversations
       conversations.aggregate([
@@ -438,7 +462,7 @@ async function getAdminStats(request: NextRequest) {
       // Feedback: daily trend
       feedbackColl.aggregate([
         { $match: fbFilter },
-        { $group: { _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, rating: '$rating' }, count: { $sum: 1 } } },
+        { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, rating: '$rating' }, count: { $sum: 1 } } },
       ]).toArray(),
 
       // Response latency
@@ -468,23 +492,14 @@ async function getAdminStats(request: NextRequest) {
         { $sort: { last_msg_at: -1 } },
       ]).toArray(),
 
-      // Hourly heatmap: web
-      sourceFilter !== 'slack'
-        ? messages.aggregate([
-            { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $addFields: { _ts: { $toDate: '$created_at' } } },
-            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
-
-      // Hourly heatmap: slack
-      sourceFilter !== 'web'
-        ? messages.aggregate([
-            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $addFields: { _ts: { $toDate: '$created_at' } } },
-            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
+      // Hourly heatmap — msgOwnerFilter already carries metadata.source
+      // when source=web|slack was explicitly requested; unfiltered, this
+      // counts every message regardless of metadata.source.
+      messages.aggregate([
+        { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $addFields: { _ts: { $toDate: '$created_at' } } },
+        { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
+      ]).toArray(),
 
       // Available channel names (both schema variants). Non-admins get exactly
       // their readable channels (resolved after this batch) — a platform-wide
@@ -509,24 +524,17 @@ async function getAdminStats(request: NextRequest) {
 
     // ── Post-process daily activity ─────────────────────────────────
     const msgMap = new Map<string, number>();
-    for (const d of dailyWebMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
-    for (const d of dailySlackMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
+    for (const d of dailyMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
 
     const userMap = new Map(dailyUserActivity.map((d) => [d._id, d.active_users]));
     const convMap = new Map(dailyConvActivity.map((d) => [d._id, d.conversations]));
 
-    const dailyActivity = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      dayStart.setHours(0, 0, 0, 0);
-      const dateKey = dayStart.toISOString().split('T')[0];
-      dailyActivity.push({
-        date: dateKey,
-        active_users: userMap.get(dateKey) || 0,
-        conversations: convMap.get(dateKey) || 0,
-        messages: msgMap.get(dateKey) || 0,
-      });
-    }
+    const dailyActivity = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => ({
+      date: dateKey,
+      active_users: userMap.get(dateKey) || 0,
+      conversations: convMap.get(dateKey) || 0,
+      messages: msgMap.get(dateKey) || 0,
+    }));
 
     // ── Top users: resolve display names ───────────────────────────
     const topOwnerIds = [...new Set([
@@ -580,18 +588,14 @@ async function getAdminStats(request: NextRequest) {
       if (!dailyFbMap.has(date)) dailyFbMap.set(date, { positive: 0, negative: 0 });
       dailyFbMap.get(date)![row._id.rating as 'positive' | 'negative'] = row.count;
     }
-    const dailyFeedback = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      dayStart.setHours(0, 0, 0, 0);
-      const dateKey = dayStart.toISOString().split('T')[0];
+    const dailyFeedback = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => {
       const entry = dailyFbMap.get(dateKey);
-      dailyFeedback.push({
+      return {
         date: dateKey,
         positive: entry?.positive || 0,
         negative: entry?.negative || 0,
-      });
-    }
+      };
+    });
 
     const feedbackSummary = {
       positive,
@@ -631,8 +635,7 @@ async function getAdminStats(request: NextRequest) {
       : 0;
 
     const hourlyMap = new Map<number, number>();
-    for (const h of hourlyWebActivity) hourlyMap.set(h._id, (hourlyMap.get(h._id) || 0) + h.count);
-    for (const h of hourlySlackActivity) hourlyMap.set(h._id, (hourlyMap.get(h._id) || 0) + (h.count || 0));
+    for (const h of hourlyActivity) hourlyMap.set(h._id, (hourlyMap.get(h._id) || 0) + h.count);
 
     const hourlyHeatmap = Array.from({ length: 24 }, (_, hour) => ({
       hour,
@@ -702,7 +705,7 @@ async function getAdminStats(request: NextRequest) {
               { $match: slackFilter },
               {
                 $group: {
-                  _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
+                  _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } },
                   interactions: { $sum: 1 },
                   unique_users: { $addToSet: userId },
                   resolved: { $sum: { $cond: [{ $not: [escalated] }, 1, 0] } },
@@ -803,20 +806,16 @@ async function getAdminStats(request: NextRequest) {
             escalated: d.escalated,
           }])
         );
-        const slackDaily = [];
-        for (let i = days - 1; i >= 0; i--) {
-          const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-          dayStart.setHours(0, 0, 0, 0);
-          const dateKey = dayStart.toISOString().split('T')[0];
+        const slackDaily = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => {
           const entry = slackDailyMap.get(dateKey);
-          slackDaily.push({
+          return {
             date: dateKey,
             interactions: entry?.interactions || 0,
             unique_users: entry?.unique_users || 0,
             resolved: entry?.resolved || 0,
             escalated: entry?.escalated || 0,
-          });
-        }
+          };
+        });
 
         slack = {
           channels: configDoc
