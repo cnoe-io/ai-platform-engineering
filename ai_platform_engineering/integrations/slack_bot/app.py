@@ -1026,12 +1026,17 @@ def rbac_global_middleware(body, context, next, logger):
         next()
         return
 
-    # Skip system/bot messages (joins, leaves, topic changes, etc.)
+    # Skip system messages (joins, leaves, topic changes, etc.). NOTE:
+    # "bot_message" is deliberately NOT in this list — bot-authored messages
+    # need the event.get("bot_id") branch below to mint the unlinked SA
+    # token; skipping them here would return via next() with no obo_token
+    # ever set, so _slack_agent_channel_grant_check always denies with
+    # reason=pdp_unavailable for bot/workflow senders.
     event = body.get("event", {})
     subtype = event.get("subtype", "")
     if subtype in (
         "channel_join", "channel_leave", "channel_topic", "channel_purpose",
-        "channel_name", "bot_message", "message_changed", "message_deleted",
+        "channel_name", "message_changed", "message_deleted",
         "group_join", "group_leave",
     ):
         next()
