@@ -18,18 +18,19 @@ import { cn } from "@/lib/utils";
 import { routeStatusLabel } from "@/lib/rbac/connector-diagnostic-messages";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
-ConnectorAdminAdapter,
-DiagnosticRoute,
-DiscoveredItem,
-DynamicAgentOption,
-ItemAgentRoute,
-ItemDiagnostics,
-ItemSummary,
-RuntimeStatus,
-RuntimeSyncSummary,
-SyncPreviewAgent,
-SyncPreviewChannel,
-TeamOption,
+  ConnectorAdminAdapter,
+  DiagnosticRoute,
+  DiscoveredItem,
+  DiscoveryIdentityOption,
+  DynamicAgentOption,
+  ItemAgentRoute,
+  ItemDiagnostics,
+  ItemSummary,
+  RuntimeStatus,
+  RuntimeSyncSummary,
+  SyncPreviewAgent,
+  SyncPreviewChannel,
+  TeamOption,
 } from "./connector-admin-adapter";
 
 type PanelView = "channels" | "onboard" | "advanced";
@@ -600,6 +601,12 @@ export function ConnectorAdminPanel({
   const [discoveryLoadingMore, setDiscoveryLoadingMore] = useState(false);
   const [discoveryTotalMatches, setDiscoveryTotalMatches] = useState<number | null>(null);
   const [discoveryLiveFetched, setDiscoveryLiveFetched] = useState(false);
+  const [discoveryIdentities, setDiscoveryIdentities] = useState<DiscoveryIdentityOption[]>([]);
+  const [selectedDiscoveryIdentityId, setSelectedDiscoveryIdentityId] = useState("");
+  const [discoveryIdentitiesLoading, setDiscoveryIdentitiesLoading] = useState(
+    Boolean(adapter.api.discoveryIdentities),
+  );
+  const [discoveryIdentitiesError, setDiscoveryIdentitiesError] = useState<string | null>(null);
   const discoveryFetchedRef = useRef(false);
   const [onboardingDefaults, setOnboardingDefaults] = useState<OnboardingDefaultSelection>({
     team_slug: "",
@@ -627,6 +634,10 @@ export function ConnectorAdminPanel({
   const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
   const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
+  const switchPanelView = (next: PanelView) => {
+    if (singlePanelView) setLocalSingleView(next);
+    else setView(next);
+  };
 
   const selected = useMemo(
     () => items.find((item) => adapter.itemKey(item) === selectedKey),
@@ -728,6 +739,30 @@ export function ConnectorAdminPanel({
     setTeams(Array.isArray(json.data) ? json.data : []);
   }, []);
 
+  const loadDiscoveryIdentities = useCallback(async () => {
+    if (!adapter.api.discoveryIdentities || !adapter.discoveryIdentity) return;
+    setDiscoveryIdentitiesLoading(true);
+    setDiscoveryIdentitiesError(null);
+    try {
+      const res = await fetch(adapter.api.discoveryIdentities, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const parsed = adapter.discoveryIdentity.parseResponse(await res.json());
+      setDiscoveryIdentities(parsed);
+      setSelectedDiscoveryIdentityId((current) => {
+        if (parsed.some((identity) => identity.id === current && identity.available)) return current;
+        return parsed.find((identity) => identity.available)?.id ?? "";
+      });
+    } catch (error) {
+      setDiscoveryIdentities([]);
+      setSelectedDiscoveryIdentityId("");
+      setDiscoveryIdentitiesError(
+        error instanceof Error ? error.message : `Failed to load ${adapter.connectorName} bots`,
+      );
+    } finally {
+      setDiscoveryIdentitiesLoading(false);
+    }
+  }, [adapter.api.discoveryIdentities, adapter.connectorName, adapter.discoveryIdentity]);
+
   const loadOnboardingDefaults = useCallback(async () => {
     try {
       const res = await fetch(adapter.api.defaults);
@@ -825,6 +860,10 @@ export function ConnectorAdminPanel({
     if (selfService) return;
     void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
   }, [loadTeams, selfService]);
+  useEffect(() => {
+    if (selfService || !adapter.api.discoveryIdentities) return;
+    void loadDiscoveryIdentities();
+  }, [adapter.api.discoveryIdentities, loadDiscoveryIdentities, selfService]);
   useEffect(() => {
     if (!hasAdvancedView) return;
     void loadRuntimeStatus().catch((e) =>
@@ -965,7 +1004,12 @@ export function ConnectorAdminPanel({
       }
       setDiscoverError(null);
       try {
-        const url = adapter.api.discoveryUrl(0, opts.cursor ?? null, opts.q);
+        const url = adapter.api.discoveryUrl(
+          0,
+          opts.cursor ?? null,
+          opts.q,
+          selectedDiscoveryIdentityId || undefined,
+        );
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(await res.text());
         const pageData = adapter.parseDiscoveryPage(await res.json());
@@ -1022,8 +1066,22 @@ export function ConnectorAdminPanel({
         }
       }
     },
-    [adapter, buildDiscoveredRows, items, toast, loadLegacyChannelHints],
+    [adapter, buildDiscoveredRows, items, toast, loadLegacyChannelHints, selectedDiscoveryIdentityId],
   );
+
+  const selectDiscoveryIdentity = (identityId: string) => {
+    setSelectedDiscoveryIdentityId(identityId);
+    discoveryFetchedRef.current = false;
+    setDiscoveryLiveFetched(false);
+    setDiscoveryNextCursor(null);
+    setDiscoveryHasMore(false);
+    setDiscoveryTotalMatches(null);
+    setDiscoverySearch("");
+    setDiscoverError(null);
+    const seeded = itemsToDiscovered(items);
+    setDiscoveredItems(seeded);
+    setDiscoveredRows(buildDiscoveredRows(seeded, []));
+  };
 
   useEffect(() => {
     if (panelView !== "onboard" || !paginatedDiscovery) return;
@@ -1056,7 +1114,12 @@ export function ConnectorAdminPanel({
       let cursor: string | null = null;
       let page = 0;
       do {
-        const url = adapter.api.discoveryUrl(page, cursor);
+        const url = adapter.api.discoveryUrl(
+          page,
+          cursor,
+          undefined,
+          selectedDiscoveryIdentityId || undefined,
+        );
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(await res.text());
         const pageData = adapter.parseDiscoveryPage(await res.json());
@@ -1352,7 +1415,7 @@ export function ConnectorAdminPanel({
               ) : (
                 <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
                   <p className="font-medium text-foreground">No {adapter.itemPlural} configured yet.</p>
-                  <p className="mt-1">Switch to <button type="button" className="underline underline-offset-2" onClick={() => setView("onboard")}>Onboard {adapter.itemPlural}</button> to find {adapter.connectorName} {adapter.itemPlural} where the bot is installed and set them up.</p>
+                  <p className="mt-1">Switch to <button type="button" className="underline underline-offset-2" onClick={() => switchPanelView("onboard")}>Onboard {adapter.itemPlural}</button> to find {adapter.connectorName} {adapter.itemPlural} where the bot is installed and set them up.</p>
                 </div>
               )
             ) : (
@@ -1488,10 +1551,25 @@ export function ConnectorAdminPanel({
           <ConnectorOnboardingWizard
             connectorName={adapter.connectorName}
             provider={adapter.discoveryCacheProvider}
+            discoveryCacheQuery={selectedDiscoveryIdentityId ? {
+              bot_id: selectedDiscoveryIdentityId,
+            } : undefined}
             isAdmin={!selfService}
             itemSingular={adapter.itemSingular}
             itemPlural={adapter.itemPlural}
             header={onboardingHeader}
+            discoveryIdentity={adapter.discoveryIdentity ? {
+              label: adapter.discoveryIdentity.label,
+              value: selectedDiscoveryIdentityId,
+              options: discoveryIdentities.map((identity) => ({
+                value: identity.id,
+                label: identity.available ? identity.name : `${identity.name} (unavailable)`,
+                disabled: !identity.available,
+              })),
+              loading: discoveryIdentitiesLoading,
+              error: discoveryIdentitiesError,
+              onChange: selectDiscoveryIdentity,
+            } : undefined}
             discoveredLabel={adapter.copy.discoveryDiscoveredLabel}
             findLabel={adapter.copy.discoveryFindLabel}
             refreshLabel={adapter.copy.discoveryRefreshLabel}

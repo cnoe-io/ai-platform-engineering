@@ -6,6 +6,7 @@
 {{- end -}}
 {{- $oauthConnectors := .Values.oauthConnectors | default list -}}
 {{- $credentialSecretRefs := .Values.credentialSecretRefs | default list -}}
+{{- $webexBots := .Values.webexBots | default list -}}
 {{- $oauthProviders := dict -}}
 {{- range $index, $connector := $oauthConnectors -}}
 {{- if not (kindIs "map" $connector) -}}
@@ -93,6 +94,28 @@
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- $webexBotIds := dict -}}
+{{- range $index, $bot := $webexBots -}}
+{{- if not (kindIs "map" $bot) -}}
+{{- fail (printf "caipe-ui.webexBots[%d] must be an object" $index) -}}
+{{- end -}}
+{{- if or (hasKey $bot "token") (hasKey $bot "accessToken") -}}
+{{- fail (printf "caipe-ui.webexBots[%d] cannot contain an inline token; use tokenEnv with existingSecret or externalSecrets" $index) -}}
+{{- end -}}
+{{- $botId := required (printf "caipe-ui.webexBots[%d].id is required" $index) $bot.id -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" $botId) -}}
+{{- fail (printf "caipe-ui.webexBots[%d].id is invalid" $index) -}}
+{{- end -}}
+{{- if hasKey $webexBotIds $botId -}}
+{{- fail (printf "caipe-ui.webexBots id %q is configured more than once" $botId) -}}
+{{- end -}}
+{{- $_ := set $webexBotIds $botId true -}}
+{{- $_ := required (printf "caipe-ui.webexBots[%d].name is required" $index) $bot.name -}}
+{{- $tokenEnv := required (printf "caipe-ui.webexBots[%d].tokenEnv is required" $index) $bot.tokenEnv -}}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $tokenEnv) -}}
+{{- fail (printf "caipe-ui.webexBots[%d].tokenEnv must be a valid environment variable name" $index) -}}
+{{- end -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -132,6 +155,9 @@ data:
   {{- end }}
   {{- if and (gt (len $credentialSecretRefs) 0) (not (hasKey .Values.config "CREDENTIAL_BOOTSTRAP_SECRET_REFS_JSON")) }}
   CREDENTIAL_BOOTSTRAP_SECRET_REFS_JSON: {{ mustToJson $credentialSecretRefs | quote }}
+  {{- end }}
+  {{- if and (gt (len $webexBots) 0) (not (hasKey .Values.config "WEBEX_INTEGRATION_BOTS_JSON")) }}
+  WEBEX_INTEGRATION_BOTS_JSON: {{ mustToJson $webexBots | quote }}
   {{- end }}
   {{- /* Okta directory sync — flatten the structured `oktaSync:` block
          (Backstage-style) into IDENTITY_SYNC_OKTA_* env vars. Only the

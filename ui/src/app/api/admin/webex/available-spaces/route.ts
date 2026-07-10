@@ -2,9 +2,9 @@
  * Webex space discovery for the team-assignment UI.
  *
  * GET /api/admin/webex/available-spaces
- *   Returns Webex rooms/spaces the bot can see when WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is configured.
+ *   Returns Webex rooms/spaces visible to the selected configured bot.
  *
- * When WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is unset, returns 503 so admins can paste space IDs manually.
+ * When the selected bot token is unavailable, returns 503 so admins can paste space IDs manually.
  */
 
 import {
@@ -15,6 +15,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
+import { resolveWebexBotToken } from "@/lib/webex-bot-catalog";
 import { NextRequest } from "next/server";
 
 interface WebexRoom {
@@ -227,15 +228,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
 
-  const token = process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN?.trim();
-  if (!token) {
-    throw new ApiError(
-      "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is not configured on the UI service. Space discovery is unavailable; admins can still paste space IDs manually.",
-      503
-    );
-  }
-
   const params = request.nextUrl.searchParams;
+  const bot = resolveWebexBotToken(params.get("bot_id"));
+  const token = bot.token;
   const refresh = params.get("refresh") === "1";
   const q = (params.get("q") ?? "").trim().toLowerCase();
   const cursor = params.get("cursor") ?? undefined;
@@ -281,7 +276,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const nextCursor = hasMore ? page[page.length - 1].name : null;
 
   console.log(
-    `[Admin WebexSpaces] discovery ok total=${allSpaces.length} matches=${totalMatches} returned=${page.length} q="${q}" cache=${cacheHit ? "hit" : "miss"} by=${user.email}`
+    `[Admin WebexSpaces] discovery ok bot=${bot.id} total=${allSpaces.length} matches=${totalMatches} returned=${page.length} q="${q}" cache=${cacheHit ? "hit" : "miss"} by=${user.email}`
   );
 
   return successResponse({
@@ -293,5 +288,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     cached: cacheHit,
     fetched_at: fetchedAt,
     query: { q, limit },
+    bot: { id: bot.id, name: bot.name },
   });
 });

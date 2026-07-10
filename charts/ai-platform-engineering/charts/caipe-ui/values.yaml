@@ -365,6 +365,19 @@ oauthConnectors: []
   #     - "meeting:transcripts_read"
   #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
 
+# Webex bot identities available to Admin -> Integrations -> Webex space
+# discovery. `tokenEnv` references a key supplied through `existingSecret` or
+# `externalSecrets`; token values must never be placed in this list. When empty,
+# the UI exposes one legacy `default` bot backed by
+# WEBEX_INTEGRATION_BOT_ACCESS_TOKEN.
+webexBots: []
+  # - id: "primary"
+  #   name: "Primary Webex bot"
+  #   tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN"
+  # - id: "secondary"
+  #   name: "Secondary Webex bot"
+  #   tokenEnv: "WEBEX_SECONDARY_BOT_TOKEN"
+
 # Declarative encrypted secrets to upsert into the credential store at UI
 # startup. `id` is stable and can be referenced by an MCP server's
 # `credential_sources[].secret_ref`. `valueEnv` names an environment variable

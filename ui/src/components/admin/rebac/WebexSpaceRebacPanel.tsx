@@ -38,12 +38,14 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
 
   api: {
     list: "/api/admin/webex/spaces",
-    discoveryUrl: (_page, cursor, q) => {
+    discoveryUrl: (_page, cursor, q, identityId) => {
       const p = new URLSearchParams({ limit: "200" });
       if (cursor) p.set("cursor", cursor);
       if (q) p.set("q", q);
+      if (identityId) p.set("bot_id", identityId);
       return `/api/admin/webex/available-spaces?${p.toString()}`;
     },
+    discoveryIdentities: "/api/admin/webex/bots",
     defaults: "/api/admin/webex/spaces/defaults",
     runtimeStatus: "/api/admin/webex/runtime/status",
     runtimeReload: "/api/admin/webex/runtime/reload",
@@ -117,6 +119,21 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   },
 
   discoveryCacheProvider: "webex",
+  discoveryIdentity: {
+    label: "Bot",
+    parseResponse: (json) => {
+      const data = apiData<{ bots?: Array<{ id?: unknown; name?: unknown; available?: unknown }> }>(
+        json as { bots?: Array<{ id?: unknown; name?: unknown; available?: unknown }> },
+      );
+      return (data.bots ?? [])
+        .map((bot) => ({
+          id: String(bot.id ?? "").trim(),
+          name: String(bot.name ?? bot.id ?? "").trim(),
+          available: bot.available === true,
+        }))
+        .filter((bot) => bot.id && bot.name);
+    },
+  },
 
   copy: {
     configuredTabTitle: "Configured spaces",

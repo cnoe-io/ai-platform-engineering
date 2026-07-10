@@ -32,6 +32,15 @@ export interface ConnectorOnboardingOption {
   label: string;
 }
 
+interface DiscoveryIdentityControl {
+  label: string;
+  value: string;
+  options: Array<ConnectorOnboardingOption & { disabled?: boolean }>;
+  loading: boolean;
+  error?: string | null;
+  onChange: (value: string) => void;
+}
+
 export interface ConnectorOnboardingRow {
   id: string;
   name: string;
@@ -61,12 +70,14 @@ interface ConnectorOnboardingWizardProps {
    * Find button.
    */
   provider?: DiscoveryCacheProvider;
+  discoveryCacheQuery?: Record<string, string>;
   /** Whether the current viewer can edit platform config. Falls back to
    * read-only mode in the popover when false. */
   isAdmin?: boolean;
   itemSingular: string;
   itemPlural: string;
   header?: ReactNode;
+  discoveryIdentity?: DiscoveryIdentityControl;
   discoveredLabel: string;
   findLabel: string;
   refreshLabel: string;
@@ -186,10 +197,12 @@ function ReadinessIcon({ state }: { state: ReadinessState }) {
 
 export function ConnectorOnboardingWizard({
   provider,
+  discoveryCacheQuery,
   isAdmin = false,
   itemSingular,
   itemPlural,
   header,
+  discoveryIdentity,
   findLabel,
   refreshLabel,
   loadingLabel,
@@ -304,12 +317,38 @@ export function ConnectorOnboardingWizard({
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          {discoveryIdentity && (
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span>{discoveryIdentity.label}</span>
+              <select
+                aria-label={discoveryIdentity.label}
+                value={discoveryIdentity.value}
+                onChange={(event) => discoveryIdentity.onChange(event.target.value)}
+                disabled={disabled || discoveryBusy || discoveryIdentity.loading}
+                className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {discoveryIdentity.loading && <option value="">Loading…</option>}
+                {!discoveryIdentity.loading && discoveryIdentity.options.length === 0 && (
+                  <option value="">No bots available</option>
+                )}
+                {discoveryIdentity.options.map((option) => (
+                  <option key={option.value} value={option.value} disabled={option.disabled}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={onDiscover}
-            disabled={disabled || discoveryBusy}
+            disabled={
+              disabled ||
+              discoveryBusy ||
+              Boolean(discoveryIdentity && (!discoveryIdentity.value || discoveryIdentity.loading))
+            }
           >
             {discovering ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -330,6 +369,7 @@ export function ConnectorOnboardingWizard({
               // the wizard reflects the fresh server-side snapshot without
               // the admin having to click "Find ..." again.
               onAfterRefresh={onDiscover}
+              refreshQuery={discoveryCacheQuery}
             />
           )}
           <span
@@ -341,6 +381,12 @@ export function ConnectorOnboardingWizard({
           </span>
         </div>
       </div>
+
+      {discoveryIdentity?.error && (
+        <div role="alert" className="text-xs text-destructive">
+          {discoveryIdentity.error}
+        </div>
+      )}
 
       {showFullDiscoveryLoading && (
         <div

@@ -55,6 +55,8 @@ jest.mock("@/lib/auth-config", () => ({
 
 describe("GET /api/admin/webex/available-spaces", () => {
   const originalIntegrationToken = process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN;
+  const originalBotsConfig = process.env.WEBEX_INTEGRATION_BOTS_JSON;
+  const originalSecondaryToken = process.env.WEBEX_SECONDARY_BOT_TOKEN;
 
   afterEach(() => {
     if (originalIntegrationToken === undefined) {
@@ -62,6 +64,10 @@ describe("GET /api/admin/webex/available-spaces", () => {
     } else {
       process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN = originalIntegrationToken;
     }
+    if (originalBotsConfig === undefined) delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
+    else process.env.WEBEX_INTEGRATION_BOTS_JSON = originalBotsConfig;
+    if (originalSecondaryToken === undefined) delete process.env.WEBEX_SECONDARY_BOT_TOKEN;
+    else process.env.WEBEX_SECONDARY_BOT_TOKEN = originalSecondaryToken;
     jest.restoreAllMocks();
   });
 
@@ -115,5 +121,39 @@ describe("GET /api/admin/webex/available-spaces", () => {
     );
 
     expect(response.status).toBe(503);
+  });
+
+  it("uses the bot selected by bot_id", async () => {
+    process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
+      { id: "primary", name: "Primary", tokenEnv: "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN" },
+      { id: "secondary", name: "Secondary", tokenEnv: "WEBEX_SECONDARY_BOT_TOKEN" },
+    ]);
+    process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN = "primary-token";
+    process.env.WEBEX_SECONDARY_BOT_TOKEN = "secondary-token";
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ items: [] }),
+      headers: { get: () => null },
+    } as unknown as Response);
+
+    const { GET } = await import("../available-spaces/route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3000/api/admin/webex/available-spaces?bot_id=secondary",
+        { headers: { Authorization: "Bearer test-token" } },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://webexapis.com/v1/rooms?max=100&sortBy=lastactivity",
+      expect.objectContaining({ headers: { Authorization: "Bearer secondary-token" } }),
+    );
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({ bot: { id: "secondary", name: "Secondary" } }),
+      }),
+    );
   });
 });

@@ -163,6 +163,12 @@ export interface DiscoveryPage {
   totalMatches?: number;
 }
 
+export interface DiscoveryIdentityOption {
+  id: string;
+  name: string;
+  available: boolean;
+}
+
 export interface ConnectorAdminAdapter {
   // ── Branding ──────────────────────────────────────────────────────────
   connectorName: string;    // "Slack" | "Webex"
@@ -176,7 +182,8 @@ export interface ConnectorAdminAdapter {
     // Returns the paged discovery URL for the given page index + cursor.
     // Slack: /api/admin/slack/available-channels?member_only=1&limit=500[&cursor=…]
     // Webex: /api/admin/webex/available-spaces?limit=200[&cursor=…][&q=…]
-    discoveryUrl: (page: number, cursor: string | null, q?: string) => string;
+    discoveryUrl: (page: number, cursor: string | null, q?: string, identityId?: string) => string;
+    discoveryIdentities?: string;
     defaults: string;                                                // GET / PUT / POST
     runtimeStatus: string;
     runtimeReload: string;
@@ -253,6 +260,11 @@ export interface ConnectorAdminAdapter {
   discoveryPaginated?: boolean;
   /** When true, debounced search queries the BFF `q=` param instead of client filtering. Webex only. */
   discoveryServerSearch?: boolean;
+
+  discoveryIdentity?: {
+    label: string;
+    parseResponse: (json: unknown) => DiscoveryIdentityOption[];
+  };
 
   // ── Onboarding apply ─────────────────────────────────────────────────
   // Different connectors send different POST payloads and fire different

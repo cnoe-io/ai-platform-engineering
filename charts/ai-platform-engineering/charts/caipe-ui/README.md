@@ -13,6 +13,7 @@ Common values:
 - `existingSecret`: existing Secret mounted with `envFrom`
 - `externalSecrets`: optional ExternalSecret integration
 - `oauthConnectors`: arbitrary OAuth connectors bootstrapped into the credential store
+- `webexBots`: deployment-managed Webex bot identities available to space discovery
 - `credentialSecretRefs`: encrypted secrets bootstrapped from mounted environment variables
 - `appConfig.models`: model selector entries
 - `appConfig.mcp_servers`: dynamic-agent MCP server bootstrap entries

@@ -62,6 +62,20 @@ function setupFetchMock() {
         },
       });
     }
+    if (url === "/api/admin/webex/bots") {
+      return response({
+        data: {
+          bots: [
+            { id: "primary", name: "Primary bot", available: true },
+            {
+              id: "secondary",
+              name: "Secondary bot",
+              available: true,
+            },
+          ],
+        },
+      });
+    }
     if (url === "/api/dynamic-agents?enabled_only=true") {
       return response({
         data: {
@@ -298,6 +312,26 @@ it("renders Webex with a two-tab bar (Configure / Configured) but no Advanced ta
   ).not.toBeInTheDocument();
 });
 
+it("opens Configure spaces from the empty configured-spaces action", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/webex/spaces?health=1") {
+      return response({ data: { spaces: [] } });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Configured spaces" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Onboard spaces" }));
+
+  expect(screen.getByRole("tab", { name: "Configure spaces" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "Find spaces" })).toBeInTheDocument();
+});
+
 it("ignores stale Webex subtab URL params and stays on onboarding", async () => {
   currentSearchParams = new URLSearchParams("subtab=advanced");
   render(<WebexSpaceRebacPanel />);
@@ -425,6 +459,25 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
   );
   expect(screen.queryByText("Ready to set up")).not.toBeInTheDocument();
   expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
+});
+
+it("discovers spaces with the selected Webex bot", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  const botSelect = await screen.findByRole("combobox", { name: "Bot" });
+  await waitFor(() => expect(botSelect).toHaveValue("primary"));
+  fireEvent.change(botSelect, { target: { value: "secondary" } });
+  await clickFindSpaces();
+
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        const parsed = new URL(String(url), "http://localhost");
+        return parsed.pathname === "/api/admin/webex/available-spaces" &&
+          parsed.searchParams.get("bot_id") === "secondary";
+      }),
+    ).toBe(true),
+  );
 });
 
 it("shows direct Webex rooms as personal DMs and excludes them from team setup", async () => {
