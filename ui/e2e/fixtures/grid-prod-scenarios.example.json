@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Basic Outshift SRE triage",
+    "prompt": "Run basic Outshift SRE triage across GitHub, ArgoCD, AWS, PagerDuty, and Splunk",
+    "expected": ["Outshift", "SRE"]
+  },
+  {
+    "name": "ArgoCD deployment debugging",
+    "prompt": "Check ArgoCD deployment status for GRID prod 0.5.x and identify unhealthy or out-of-sync applications",
+    "expected": ["ArgoCD"]
+  },
+  {
+    "name": "GitHub release readiness",
+    "prompt": "Check GitHub pull requests and workflow checks related to the GRID prod 0.5.x deployment",
+    "expected": ["GitHub"]
+  },
+  {
+    "name": "AWS infrastructure health",
+    "prompt": "Check AWS and EKS health signals for the GRID prod 0.5.x deployment",
+    "expected": ["AWS"]
+  },
+  {
+    "name": "PagerDuty incident check",
+    "prompt": "Check PagerDuty for active incidents or on-call issues during GRID prod 0.5.x deployment testing",
+    "expected": ["PagerDuty"]
+  },
+  {
+    "name": "Splunk log check",
+    "prompt": "Search Splunk for recent errors related to GRID prod 0.5.x deployment testing",
+    "expected": ["Splunk"]
+  },
+  {
+    "name": "Webex team-space update",
+    "prompt": "Post a GRID prod 0.5.x deployment testing summary to the team Webex space",
+    "expected": ["Webex"]
+  }
+]
