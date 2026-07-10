@@ -584,10 +584,15 @@ export async function getUserFederatedIdentities(
 /**
  * Register a federated-identity link for `userId` against IdP `alias`, using
  * the same shape Keycloak's OIDC broker writes on a real SSO login
- * (`federatedIdentities[].userId` = the broker's `sub`). Idempotent: Keycloak
- * replaces any existing link for the same alias rather than erroring, so this
- * is safe to call on every sync run. A 404 (user doesn't exist) is not
- * swallowed — the caller has a stale id and should surface the error.
+ * (`federatedIdentities[].userId` = the broker's `sub`). Despite the docs, in
+ * practice Keycloak's link endpoint does not replace an existing link for the
+ * same alias — it 409s with "User is already linked with provider" instead.
+ * That means the desired end state (the user is linked) already holds, so it
+ * is treated as a no-op success rather than an error, matching the 409/404
+ * "already in desired state" handling used elsewhere in this file (e.g.
+ * {@link createFederatedShellUser}, {@link deleteRealmUser}). A 404 (user
+ * doesn't exist) is not swallowed — the caller has a stale id and should
+ * surface the error.
  */
 export async function linkFederatedIdentity(
   userId: string,
@@ -604,6 +609,7 @@ export async function linkFederatedIdentity(
       userName: identity.userName,
     }),
   });
+  if (response.status === 409) return;
   await assertOk(response, `linkFederatedIdentity(${userId}, ${alias})`);
 }
 
@@ -731,6 +737,21 @@ function parseUserIdFromLocation(location: string | null): string | null {
   return id || null;
 }
 
+// Keycloak's built-in `person-name-prohibited-characters` validator rejects
+// firstName/lastName containing any of these characters with
+// `error-person-name-invalid-character` (see
+// PersonNameProhibitedCharactersValidator.PATTERN upstream). Directory-sourced
+// names (e.g. Okta display names like "Jane Doe (Contractor)") can legitimately
+// contain them, so strip rather than reject — losing a stray character is
+// better than failing provisioning outright.
+const PERSON_NAME_PROHIBITED_CHARS = /[<>&"\v$%!#?§;*~/\\|^=[\]{}()\x00-\x1f\x7f]/g;
+
+function sanitizePersonNamePart(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const cleaned = value.replace(PERSON_NAME_PROHIBITED_CHARS, "").replace(/\s+/g, " ").trim();
+  return cleaned || undefined;
+}
+
 /**
  * Create a federated-only "shell" Keycloak user from an email so RBAC can be
  * granted before the person ever logs into CAIPE. Mirrors the Slack bot's
@@ -749,6 +770,8 @@ export async function createFederatedShellUser(
   name?: { firstName?: string; lastName?: string }
 ): Promise<string> {
   const emailLower = email.trim().toLowerCase();
+  const firstName = sanitizePersonNamePart(name?.firstName);
+  const lastName = sanitizePersonNamePart(name?.lastName);
   const body: Record<string, unknown> = {
     username: emailLower,
     email: emailLower,
@@ -756,8 +779,8 @@ export async function createFederatedShellUser(
     enabled: true,
     requiredActions: [],
     attributes,
-    ...(name?.firstName && { firstName: name.firstName }),
-    ...(name?.lastName && { lastName: name.lastName }),
+    ...(firstName && { firstName }),
+    ...(lastName && { lastName }),
   };
   const response = await adminFetch(`/users`, { method: "POST", body: JSON.stringify(body) });
 
@@ -783,17 +806,18 @@ async function maybeUpdateUserName(
 ): Promise<void> {
   const existing = await getRealmUserByIdOrNull(userId);
   if (!existing) return;
+  const firstName = sanitizePersonNamePart(name.firstName);
+  const lastName = sanitizePersonNamePart(name.lastName);
   // Only patch if the user is missing a name entirely (shell user never had one set)
   // OR if Okta has a different name
   const needsUpdate =
-    (name.firstName && existing.firstName !== name.firstName) ||
-    (name.lastName && existing.lastName !== name.lastName);
+    (firstName && existing.firstName !== firstName) || (lastName && existing.lastName !== lastName);
   if (!needsUpdate) return;
   // Don't overwrite a manually-set name with nothing
-  if (!name.firstName && !name.lastName) return;
+  if (!firstName && !lastName) return;
   await updateUser(userId, {
-    ...(name.firstName && { firstName: name.firstName }),
-    ...(name.lastName && { lastName: name.lastName }),
+    ...(firstName && { firstName }),
+    ...(lastName && { lastName }),
   });
 }
 
