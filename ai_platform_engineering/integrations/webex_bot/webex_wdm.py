@@ -9,14 +9,16 @@ import inspect
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from collections import deque
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
 from .app import handle_webex_message
-from .webex_responder import WebexResponder, WebexThreadedStreamDispatcher
+from .webex_responder import WebexResponder, WebexRestApi, WebexThreadedStreamDispatcher
 from .webex_websocket import WebexWebSocketRuntime
 
 logger = logging.getLogger("caipe.webex_bot.webex_wdm")
@@ -27,6 +29,76 @@ WEBEX_WDM_DEVICES_URL = "https://wdm-a.wbx2.com/wdm/api/v1/devices"
 # the WebSocket upgrade; delete and re-register the WDM device before retrying.
 WDM_HANDSHAKE_REFRESH_STATUSES = frozenset({401, 403, 404, 429})
 MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS = 3
+_BOT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_TOKEN_ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+@dataclass(frozen=True)
+class WebexBotListenerConfig:
+    id: str
+    name: str
+    token_env: str
+    access_token: str
+
+
+def configured_webex_bot_listeners(
+    env: Mapping[str, str] | None = None,
+) -> list[WebexBotListenerConfig]:
+    """Resolve configured bot identities without exposing token values."""
+
+    source = os.environ if env is None else env
+    raw = source.get("WEBEX_INTEGRATION_BOTS_JSON", "").strip()
+    if not raw:
+        token = source.get("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN", "").strip()
+        return (
+            [
+                WebexBotListenerConfig(
+                    "default",
+                    "Webex bot",
+                    "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN",
+                    token,
+                )
+            ]
+            if token
+            else []
+        )
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("WEBEX_INTEGRATION_BOTS_JSON must be valid JSON") from exc
+    if not isinstance(payload, list):
+        raise ValueError("WEBEX_INTEGRATION_BOTS_JSON must be a JSON array")
+
+    listeners: list[WebexBotListenerConfig] = []
+    seen_ids: set[str] = set()
+    for index, candidate in enumerate(payload):
+        if not isinstance(candidate, dict):
+            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}] must be an object")
+        if "token" in candidate or "accessToken" in candidate:
+            raise ValueError("Webex bot tokens must be supplied through tokenEnv")
+        bot_id = str(candidate.get("id") or "").strip()
+        name = str(candidate.get("name") or "").strip()
+        token_env = str(candidate.get("tokenEnv") or "").strip()
+        if not _BOT_ID_RE.fullmatch(bot_id):
+            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}].id is invalid")
+        if not name:
+            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}].name is required")
+        if not _TOKEN_ENV_RE.fullmatch(token_env):
+            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}].tokenEnv is invalid")
+        if bot_id in seen_ids:
+            raise ValueError(f"Duplicate Webex bot id: {bot_id}")
+        seen_ids.add(bot_id)
+        token = source.get(token_env, "").strip()
+        if not token:
+            logger.warning(
+                "Webex bot listener disabled id=%s: %s is not configured",
+                bot_id,
+                token_env,
+            )
+            continue
+        listeners.append(WebexBotListenerConfig(bot_id, name, token_env, token))
+    return listeners
 
 
 def websocket_handshake_status(exc: BaseException) -> int | None:
@@ -85,6 +157,8 @@ def webex_event_from_wdm_activity(
     *,
     message_detail: dict[str, Any],
     bot_person_id: str | None,
+    bot_id: str | None = None,
+    bot_name: str | None = None,
 ) -> dict[str, Any]:
     """Build the existing Webex gate payload from a WDM activity and message detail."""
 
@@ -94,21 +168,25 @@ def webex_event_from_wdm_activity(
     public_room_id = str(message_detail.get("roomId") or base64_encode_webex_id(raw_room_id, "ROOM"))
     canonical_space_id = canonicalize_webex_space_id(public_room_id or str(raw_room_id or ""))
 
+    data = {
+        "id": message_detail.get("id") or base64_encode_webex_id(raw_message_id, "MESSAGE"),
+        "parentId": message_detail.get("parentId"),
+        "roomId": canonical_space_id,
+        "webexRoomId": public_room_id,
+        "personId": person_id,
+        "personEmail": message_detail.get("personEmail"),
+        "roomType": message_detail.get("roomType"),
+        "text": message_detail.get("text") or message_detail.get("markdown") or "",
+        "mentionedPeople": message_detail.get("mentionedPeople") or [],
+        "isSelf": bool(bot_person_id and person_id == bot_person_id),
+    }
+    if bot_id:
+        data["botId"] = bot_id
+    if bot_name:
+        data["botName"] = bot_name
     return {
         "event": "message",
-        "data": {
-            "id": message_detail.get("id") or base64_encode_webex_id(raw_message_id, "MESSAGE"),
-            "parentId": message_detail.get("parentId"),
-            "roomId": canonical_space_id,
-            "webexRoomId": public_room_id,
-            "personId": person_id,
-            "personEmail": message_detail.get("personEmail"),
-            # assisted-by Codex Codex-sonnet-4-6: keep 1:1 WDM events on the direct-message path.
-            "roomType": message_detail.get("roomType"),
-            "text": message_detail.get("text") or message_detail.get("markdown") or "",
-            "mentionedPeople": message_detail.get("mentionedPeople") or [],
-            "isSelf": bool(bot_person_id and person_id == bot_person_id),
-        },
+        "data": data,
     }
 
 
@@ -122,9 +200,13 @@ class WebexWdmRuntime:
         runtime: WebexWebSocketRuntime | None = None,
         responder: WebexResponder | None = None,
         device_name: str = "CAIPE-Webex-Bot",
+        bot_id: str = "default",
+        bot_name: str = "Webex bot",
+        require_bot_mention: bool = False,
     ) -> None:
         self._access_token = access_token
-        dispatcher = WebexThreadedStreamDispatcher()
+        webex_api = WebexRestApi(access_token=access_token)
+        dispatcher = WebexThreadedStreamDispatcher(webex_api=webex_api)
         self._runtime = runtime or WebexWebSocketRuntime(
             message_handler=lambda event, **kwargs: handle_webex_message(
                 event,
@@ -132,8 +214,11 @@ class WebexWdmRuntime:
                 **kwargs,
             )
         )
-        self._responder = responder or WebexResponder()
+        self._responder = responder or WebexResponder(webex_api=webex_api)
         self._device_name = device_name
+        self._bot_id = bot_id
+        self._bot_name = bot_name
+        self._require_bot_mention = require_bot_mention
         self._bot_email: str | None = None
         self._bot_person_id: str | None = None
         # Self-link of the WDM device we are currently registered as, so we
@@ -367,11 +452,18 @@ class WebexWdmRuntime:
         message_detail = await self._fetch_message_detail(session, message_id)
         if message_detail is None:
             return
+        if self._require_bot_mention and not message_targets_bot(
+            message_detail, self._bot_person_id
+        ):
+            logger.debug("Ignoring group message not addressed to bot id=%s", self._bot_id)
+            return
 
         event = webex_event_from_wdm_activity(
             activity,
             message_detail=message_detail,
             bot_person_id=self._bot_person_id,
+            bot_id=self._bot_id,
+            bot_name=self._bot_name,
         )
         result = await self._runtime.handle_payload(event)
         await self._responder.reply_to_result(event, result)
@@ -403,7 +495,27 @@ class WebexWdmRuntime:
             return await response.json()
 
 
-def start_webex_wdm_listener(access_token: str | None = None) -> threading.Thread | None:
+def message_targets_bot(
+    message_detail: Mapping[str, Any], bot_person_id: str | None
+) -> bool:
+    """Require an explicit bot mention in shared rooms when listeners are multiplexed."""
+
+    if str(message_detail.get("roomType") or "").strip().lower() == "direct":
+        return True
+    mentions = message_detail.get("mentionedPeople")
+    if not bot_person_id or not isinstance(mentions, list):
+        return False
+    normalized = {str(value).strip() for value in mentions}
+    return bot_person_id in normalized or "all" in normalized
+
+
+def start_webex_wdm_listener(
+    access_token: str | None = None,
+    *,
+    bot_id: str = "default",
+    bot_name: str = "Webex bot",
+    require_bot_mention: bool = False,
+) -> threading.Thread | None:
     """Start the Webex WDM listener in a daemon thread when a bot token is configured."""
 
     token = (access_token or os.environ.get("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") or "").strip()
@@ -411,10 +523,37 @@ def start_webex_wdm_listener(access_token: str | None = None) -> threading.Threa
         logger.info("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is not configured; WDM listener disabled")
         return None
 
-    runtime = WebexWdmRuntime(access_token=token)
+    runtime = WebexWdmRuntime(
+        access_token=token,
+        bot_id=bot_id,
+        bot_name=bot_name,
+        device_name=f"CAIPE-Webex-Bot-{bot_id}",
+        require_bot_mention=require_bot_mention,
+    )
     thread = threading.Thread(target=lambda: asyncio.run(runtime.run_forever()), daemon=True)
     thread.start()
     return thread
+
+
+def start_webex_wdm_listeners(
+    env: Mapping[str, str] | None = None,
+) -> list[threading.Thread]:
+    """Start one isolated WDM listener per configured bot identity."""
+
+    listeners = configured_webex_bot_listeners(env)
+    multiplexed = len(listeners) > 1
+    threads: list[threading.Thread] = []
+    for listener in listeners:
+        thread = start_webex_wdm_listener(
+            listener.access_token,
+            bot_id=listener.id,
+            bot_name=listener.name,
+            require_bot_mention=multiplexed,
+        )
+        if thread is not None:
+            threads.append(thread)
+            logger.info("Webex WDM listener started id=%s name=%s", listener.id, listener.name)
+    return threads
 
 
 def _raw_message_id(activity: dict[str, Any]) -> str | None:

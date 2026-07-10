@@ -39,8 +39,8 @@ def test_bootstrap_starts_webex_wdm_transport_when_token_configured(monkeypatch)
     monkeypatch.setenv("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN", "test-token")
 
     with patch(
-        "ai_platform_engineering.integrations.webex_bot.webex_wdm.start_webex_wdm_listener",
-        return_value=object(),
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.start_webex_wdm_listeners",
+        return_value=[object()],
     ) as start_wdm:
         bootstrap_webex_bot_runtime()
 

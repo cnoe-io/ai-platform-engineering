@@ -5,6 +5,25 @@ metadata:
   labels:
     {{- include "webex-bot.labels" . | nindent 4 }}
 data:
+  {{- if .Values.bots }}
+  {{- if hasKey .Values.config "WEBEX_INTEGRATION_BOTS_JSON" }}
+  {{- fail "webex-bot.config.WEBEX_INTEGRATION_BOTS_JSON is managed by webex-bot.bots" }}
+  {{- end }}
+  {{- $ids := dict }}
+  {{- range $index, $bot := .Values.bots }}
+  {{- if or (hasKey $bot "token") (hasKey $bot "accessToken") }}
+  {{- fail (printf "webex-bot.bots[%d] must use tokenEnv; inline tokens are forbidden" $index) }}
+  {{- end }}
+  {{- $id := required (printf "webex-bot.bots[%d].id is required" $index) $bot.id }}
+  {{- $_ := required (printf "webex-bot.bots[%d].name is required" $index) $bot.name }}
+  {{- $_ := required (printf "webex-bot.bots[%d].tokenEnv is required" $index) $bot.tokenEnv }}
+  {{- if hasKey $ids $id }}
+  {{- fail (printf "duplicate webex-bot bot id: %s" $id) }}
+  {{- end }}
+  {{- $_ := set $ids $id true }}
+  {{- end }}
+  WEBEX_INTEGRATION_BOTS_JSON: {{ .Values.bots | toJson | quote }}
+  {{- end }}
   {{- range $key, $value := .Values.config }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}

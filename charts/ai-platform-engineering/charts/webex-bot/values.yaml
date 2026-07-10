@@ -42,6 +42,16 @@ config:
   OPENFGA_HTTP: ""
   OPENFGA_STORE_NAME: "caipe-openfga"
 
+# Bot identities multiplexed by one runtime pod. Tokens are resolved from
+# Secret-backed environment variables; never place token values here.
+bots: []
+  # - id: "primary"
+  #   name: "Primary bot"
+  #   tokenEnv: "PRIMARY_WEBEX_BOT_TOKEN"
+  # - id: "secondary"
+  #   name: "Secondary bot"
+  #   tokenEnv: "SECONDARY_WEBEX_BOT_TOKEN"
+
 # -- OBO client secret for caipe-webex-bot (Keycloak-managed; prefer keycloakBot below).
 # Deprecated alias: use keycloakBot.clientSecretFromSecret (same Secret/key as Keycloak chart).
 oauth2:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import patch
 from typing import Any
 
 import pytest
@@ -13,7 +14,10 @@ import pytest
 from ai_platform_engineering.integrations.webex_bot.webex_wdm import (
     MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS,
     WebexWdmRuntime,
+    configured_webex_bot_listeners,
+    message_targets_bot,
     should_refresh_wdm_device_on_handshake,
+    start_webex_wdm_listeners,
     webex_event_from_wdm_activity,
     websocket_connect_header_kwargs,
     websocket_handshake_status,
@@ -37,6 +41,62 @@ def test_public_webex_room_id_from_uuid_matches_api_shape() -> None:
 def test_canonicalize_webex_space_id_decodes_public_room_id() -> None:
     assert canonicalize_webex_space_id(PUBLIC_ROOM_ID) == RAW_ROOM_ID
     assert canonicalize_webex_space_id(RAW_ROOM_ID) == RAW_ROOM_ID
+
+
+def test_configured_webex_bot_listeners_resolves_multiple_token_envs() -> None:
+    listeners = configured_webex_bot_listeners(
+        {
+            "WEBEX_INTEGRATION_BOTS_JSON": json.dumps(
+                [
+                    {"id": "primary", "name": "Primary", "tokenEnv": "PRIMARY_BOT_TOKEN"},
+                    {"id": "secondary", "name": "Secondary", "tokenEnv": "SECONDARY_BOT_TOKEN"},
+                ]
+            ),
+            "PRIMARY_BOT_TOKEN": "token-a",
+            "SECONDARY_BOT_TOKEN": "token-b",
+        }
+    )
+
+    assert [(item.id, item.token_env, item.access_token) for item in listeners] == [
+        ("primary", "PRIMARY_BOT_TOKEN", "token-a"),
+        ("secondary", "SECONDARY_BOT_TOKEN", "token-b"),
+    ]
+
+
+def test_start_webex_wdm_listeners_isolates_each_bot_token() -> None:
+    env = {
+        "WEBEX_INTEGRATION_BOTS_JSON": json.dumps(
+            [
+                {"id": "primary", "name": "Primary", "tokenEnv": "PRIMARY_BOT_TOKEN"},
+                {"id": "secondary", "name": "Secondary", "tokenEnv": "SECONDARY_BOT_TOKEN"},
+            ]
+        ),
+        "PRIMARY_BOT_TOKEN": "token-a",
+        "SECONDARY_BOT_TOKEN": "token-b",
+    }
+    with patch(
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.start_webex_wdm_listener",
+        side_effect=[object(), object()],
+    ) as start:
+        threads = start_webex_wdm_listeners(env)
+
+    assert len(threads) == 2
+    assert start.call_count == 2
+    assert start.call_args_list[0].kwargs == {
+        "bot_id": "primary",
+        "bot_name": "Primary",
+        "require_bot_mention": True,
+    }
+    assert start.call_args_list[0].args == ("token-a",)
+    assert start.call_args_list[1].args == ("token-b",)
+
+
+def test_multiplexed_group_message_targets_only_the_mentioned_bot() -> None:
+    detail = {"roomType": "group", "mentionedPeople": ["secondary-person-id"]}
+
+    assert message_targets_bot(detail, "primary-person-id") is False
+    assert message_targets_bot(detail, "secondary-person-id") is True
+    assert message_targets_bot({"roomType": "direct"}, "primary-person-id") is True
 
 
 def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
