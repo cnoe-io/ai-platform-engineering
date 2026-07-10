@@ -216,6 +216,12 @@ function setupFetchMock() {
         },
       });
     }
+    if (
+      url === "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc" &&
+      init?.method === "DELETE"
+    ) {
+      return response({ data: { deleted: { space_id: "space-abc" } } });
+    }
     return response({});
   });
 }
@@ -575,4 +581,25 @@ it("allows discovery before global defaults are configured", async () => {
   expect(
     screen.getByRole("checkbox", { name: /Import Incident War Room/i }),
   ).toBeChecked();
+});
+
+it("deletes a configured Webex space after confirmation", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "Configured spaces" }));
+  fireEvent.click(await screen.findByText("Platform Alerts"));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete space Platform Alerts" }));
+
+  expect(screen.getByRole("heading", { name: "Delete space from CAIPE?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Delete space", exact: true }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc",
+      { method: "DELETE" },
+    ),
+  );
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith("Removed Platform Alerts from CAIPE.", "success"),
+  );
 });
