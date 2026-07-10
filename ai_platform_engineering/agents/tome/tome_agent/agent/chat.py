@@ -114,7 +114,12 @@ phase: {snapshot.phase or '(unset)'}    cadence: {snapshot.cadence or '(unset)'}
     if deep_research_section:
         project_header += f"\n\n{deep_research_section}"
 
+    write_root = project_root(snapshot.project_id)
     project_block = f"""{project_header}
+
+WRITE ROOT: `{write_root}` (this is also your cwd). Every Write/Edit path must
+be relative to this root (e.g. `overview.md`, `repos/<slug>/status.md`) —
+never an absolute path, and never another project's directory.
 
 WIKI TREE:
 {wiki_tree}
@@ -134,8 +139,10 @@ Project anchor (top-level overview — read repo-specific overviews under `repos
         )
         project_block += (
             "\n\nCHILD PROJECT WIKIS — this is a BHAG (a strategic goal spanning the "
-            "projects tagged to it). Read these child wikis with Read/Glob/Grep to "
-            "answer cross-project questions; they are read-only (never write to them):\n"
+            "projects tagged to it). These are READ-ONLY reference material — read them "
+            "with Read/Glob/Grep to answer cross-project questions, but NEVER write to "
+            f"them. Your own write root is `{write_root}`, stated above; that is the "
+            "only place you write:\n"
             f"{child_lines}"
         )
 

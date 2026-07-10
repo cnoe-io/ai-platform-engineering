@@ -38,12 +38,13 @@ def _build_compaction_system_prompt(snapshot: ProjectSnapshot) -> str:
     """System prompt for a compaction pass. COMPACT.md carries the behavior; this
     names the project and, for a BHAG, points at the child wikis it may read as
     ground truth while tightening."""
+    write_root = project_root(snapshot.project_id)
     project_block = (
-        f'You are compacting the wiki for "{snapshot.name}". Its pages are markdown '
-        "files in your cwd (the wiki root). Start by Globbing the tree to see every "
-        "page, then tighten the dynamic ones and fix stale internal links per the "
-        "rules above. Do not touch stable/hidden/report pages, and do not add or "
-        "remove pages."
+        f'You are compacting the wiki for "{snapshot.name}". YOUR WRITE ROOT (also '
+        f"your cwd): `{write_root}`. Its pages are markdown files directly in this "
+        "directory. Start by Globbing the tree to see every page, then tighten the "
+        "dynamic ones and fix stale internal links per the rules above. Do not touch "
+        "stable/hidden/report pages, and do not add or remove pages."
     )
 
     children = snapshot.child_projects or []
@@ -57,7 +58,8 @@ def _build_compaction_system_prompt(snapshot: ProjectSnapshot) -> str:
             "\n\nThis is a BHAG: its wiki is synthesized from the projects tagged to "
             "it. You MAY Read (never write) their on-disk wikis as ground truth when "
             "tightening this wiki's pages and checking references — their pages are "
-            "markdown files DIRECTLY in these directories (no `wiki/` subfolder):\n\n"
+            "markdown files DIRECTLY in these directories (no `wiki/` subfolder). "
+            f"Writing is NEVER allowed here — only `{write_root}` is writable:\n\n"
             f"{child_lines}\n\n"
             "Use them only to keep this wiki's claims accurate as you edit. You still "
             "edit only this wiki's own pages."

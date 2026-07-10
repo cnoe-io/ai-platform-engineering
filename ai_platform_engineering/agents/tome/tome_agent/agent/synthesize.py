@@ -48,6 +48,7 @@ def _build_synthesis_system_prompt(
 
     top_level = format_pages(report_schema.DEFAULT_PAGES)
 
+    write_root = project_root(snapshot.project_id)
     children = snapshot.child_projects or []
     if children:
         child_lines = "\n".join(
@@ -56,9 +57,13 @@ def _build_synthesis_system_prompt(
             for c in children
         )
         children_block = (
+            f"YOUR WRITE ROOT (this BHAG's own wiki, also your cwd): `{write_root}`. "
+            "Every Write/Edit path must be relative to THIS root — never absolute, "
+            "and never one of the child paths below even though they look like "
+            "real, writable project directories.\n\n"
             "PROJECTS UNDER THIS BHAG — read their wikis at these absolute paths "
-            "(READ-ONLY: you may Read/Glob/Grep them, but only Write within your own "
-            "wiki, which is your cwd):\n\n"
+            "(READ-ONLY: you may Read/Glob/Grep them, but writing here is never "
+            f"allowed — only `{write_root}` is writable):\n\n"
             f"{child_lines}\n\n"
             "Each child's pages are markdown files DIRECTLY in its directory — there "
             "is NO `wiki/` subfolder (e.g. `/project/<id>/overview.md`, not "
@@ -75,6 +80,7 @@ def _build_synthesis_system_prompt(
         )
     else:
         children_block = (
+            f"YOUR WRITE ROOT (this BHAG's own wiki, also your cwd): `{write_root}`.\n\n"
             "NO PROJECTS ARE TAGGED TO THIS BHAG YET. Do not invent child projects "
             "or their status. Write only what the charter/seed context supports, and "
             "note in overview.md that no projects are tagged yet (tag projects to this "

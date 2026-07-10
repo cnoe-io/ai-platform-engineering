@@ -24,6 +24,7 @@ from tome_agent.agent.connectors.base import format_pages
 from tome_agent.agent.connectors.github import GitHubExtra
 from tome_agent.agent.loop import (
     build_agent_options,
+    project_root,
     sources_for_connector,
 )
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
@@ -136,8 +137,13 @@ def _build_system_prompt(
     citation_section = "\n\n".join(citation_guidance_blocks)
     deep_research_section = "\n\n".join(deep_research_blocks)
 
+    write_root = project_root(snapshot.project_id)
     project_block = f"""PROJECT: "{snapshot.name}"
 phase: {phase}    cadence: {cadence}
+
+WRITE ROOT: `{write_root}` (this is also your cwd). Every Write/Edit path must
+be relative to this root (e.g. `overview.md`, `repos/<slug>/status.md`) —
+never an absolute path, and never another project's directory.
 
 PROJECT CHARTER (seed context, may be empty):
 {snapshot.charter or "(empty)"}
