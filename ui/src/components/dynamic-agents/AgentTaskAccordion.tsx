@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { RunHistory } from "@/components/autonomous/RunHistory";
+import { WebhookHookPath } from "@/components/autonomous/WebhookHookPath";
 import {
   ackBadgeFor,
   ackTooltip,
@@ -148,6 +149,9 @@ export function AgentTaskAccordion({
                   <span title={task.next_run ? new Date(task.next_run).toISOString() : ""}>
                     next run: {formatNextRun(task.next_run)}
                   </span>
+                  {task.trigger.type === "webhook" && (
+                    <WebhookHookPath taskId={task.id} />
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1">

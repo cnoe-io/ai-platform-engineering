@@ -51,6 +51,8 @@ jest.mock('lucide-react', () => {
     XCircle: stub('x'),
     Loader2: stub('loader'),
     MessageSquare: stub('chat'),
+    Check: stub('copied'),
+    Copy: stub('copy'),
   };
 });
 
@@ -308,5 +310,33 @@ describe('TaskList — Pause/Resume slot (admin oversight)', () => {
     expect(within(actions).getByText('Edit')).toBeInTheDocument();
     expect(within(actions).queryByText('Pause')).toBeNull();
     expect(within(actions).queryByText('Resume')).toBeNull();
+  });
+});
+
+describe('TaskList — copyable webhook hook path', () => {
+  const webhookTask = () =>
+    makeTask({ id: 'pr-review', trigger: { type: 'webhook', path: '/hooks/pr-review' } });
+
+  it('shows /api/v1/hooks/<task-id> for webhook tasks', () => {
+    render(<TaskList tasks={[webhookTask()]} {...noopHandlers} />);
+    expect(screen.getByTestId('webhook-hook-path')).toHaveTextContent(
+      '/api/v1/hooks/pr-review',
+    );
+  });
+
+  it('copies the path to the clipboard on click', () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<TaskList tasks={[webhookTask()]} {...noopHandlers} />);
+    fireEvent.click(screen.getByLabelText('Copy webhook path'));
+    expect(writeText).toHaveBeenCalledWith('/api/v1/hooks/pr-review');
+  });
+
+  it('renders no hook path for cron tasks', () => {
+    render(<TaskList tasks={[makeTask()]} {...noopHandlers} />);
+    expect(screen.queryByTestId('webhook-hook-path')).toBeNull();
   });
 });

@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const mockGetAuthFromBearerOrSession = jest.fn();
-const mockRequireAgentPermission = jest.fn();
+const mockRequireTeamMembershipManagementPermission = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockFindOne = jest.fn();
@@ -32,8 +32,9 @@ jest.mock("@/lib/api-middleware", () => {
       },
   };
 });
-jest.mock("@/lib/rbac/resource-authz", () => ({
-  requireAgentPermission: (...a: unknown[]) => mockRequireAgentPermission(...a),
+jest.mock("@/lib/rbac/team-admin-guards", () => ({
+  requireTeamMembershipManagementPermission: (...a: unknown[]) =>
+    mockRequireTeamMembershipManagementPermission(...a),
 }));
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn().mockResolvedValue({ findOne: (...a: unknown[]) => mockFindOne(...a) }),
@@ -60,7 +61,7 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAuthFromBearerOrSession.mockResolvedValue({ user: { email: "mgr@example.com" }, session: { sub: "s-1" } });
-    mockRequireAgentPermission.mockResolvedValue(undefined);
+    mockRequireTeamMembershipManagementPermission.mockResolvedValue("team_admin");
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: ELIG_TUPLE }] });
     mockFindOne.mockResolvedValue({ _id: AGENT_ID, owner_team_slug: TEAM_SLUG });
@@ -72,7 +73,11 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
       .mockResolvedValueOnce({ tuples: [] });                     // automator absent
     const res = await PUT(req({ team_slug: TEAM_SLUG }), ctx());
     expect(res.status).toBe(200);
-    expect(mockRequireAgentPermission).toHaveBeenCalledWith(expect.anything(), AGENT_ID, "manage");
+    expect(mockRequireTeamMembershipManagementPermission).toHaveBeenCalledWith(
+      expect.anything(),
+      "mgr@example.com",
+      { slug: TEAM_SLUG },
+    );
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({ writes: [AUTOMATOR_TUPLE], deletes: [] });
   });
 
@@ -83,10 +88,22 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
-  it("PUT is 403 when caller lacks can_manage on the agent", async () => {
+  it("PUT is 403 when caller is neither platform admin nor owner-team admin", async () => {
     const { ApiError } = jest.requireMock("@/lib/api-middleware");
-    mockRequireAgentPermission.mockRejectedValue(new ApiError("denied", 403));
+    mockRequireTeamMembershipManagementPermission.mockRejectedValue(
+      new ApiError("You do not have permission to manage this team", 403),
+    );
     const res = await PUT(req({ team_slug: TEAM_SLUG }), ctx());
+    expect(res.status).toBe(403);
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("DELETE is 403 when caller is neither platform admin nor owner-team admin", async () => {
+    const { ApiError } = jest.requireMock("@/lib/api-middleware");
+    mockRequireTeamMembershipManagementPermission.mockRejectedValue(
+      new ApiError("You do not have permission to manage this team", 403),
+    );
+    const res = await DELETE(req({ team_slug: TEAM_SLUG }), ctx());
     expect(res.status).toBe(403);
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });

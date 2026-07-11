@@ -2,7 +2,7 @@ import {
   ApiError, getAuthFromBearerOrSession, successResponse, withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
-import { requireAgentPermission } from '@/lib/rbac/resource-authz';
+import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { readOpenFgaTuples, writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
 import { NextRequest } from 'next/server';
@@ -10,8 +10,12 @@ import { NextRequest } from 'next/server';
 /**
  * Per-agent autonomous enablement for a team.
  * Writes/deletes  team:<slug>#member -> automator -> agent:<id>.
- * PUT/DELETE require can_manage on the agent AND (PUT) the team to hold Layer 1
- * eligibility (automation_eligible on the org). can_schedule = automator and can_use.
+ * PUT/DELETE require the caller to be a platform admin or an admin of the
+ * agent's owner team — agent-level can_manage is NOT enough, because the
+ * team "Manage" grant extends it to every member and per-agent autonomous
+ * enablement is a team-admin decision (Layer 2). PUT additionally requires
+ * the team to hold Layer 1 eligibility (automation_eligible on the org).
+ * can_schedule = automator and can_use.
  */
 export function agentAutomatorTuple(agentId: string, teamSlug: string): OpenFgaTupleKey {
   return { user: `team:${teamSlug}#member`, relation: 'automator', object: `agent:${agentId}` };
@@ -47,11 +51,11 @@ async function requireAgentOwnerTeam(agentId: string, requestedTeamSlug: string)
 }
 
 export const PUT = withErrorHandler(async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const { id } = await context.params;
   const requestedTeamSlug = await readTeamSlug(request);
-  await requireAgentPermission(session, id, 'manage');
   const teamSlug = await requireAgentOwnerTeam(id, requestedTeamSlug);
+  await requireTeamMembershipManagementPermission(session, user?.email, { slug: teamSlug });
   if (!(await hasTuple(eligibilityTuple(teamSlug)))) {
     throw new ApiError(
       'This team is not autonomous-eligible. A platform admin must enable autonomous for the team first.',
@@ -67,11 +71,11 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: { para
 });
 
 export const DELETE = withErrorHandler(async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const { id } = await context.params;
   const requestedTeamSlug = await readTeamSlug(request);
-  await requireAgentPermission(session, id, 'manage');
   const teamSlug = await requireAgentOwnerTeam(id, requestedTeamSlug);
+  await requireTeamMembershipManagementPermission(session, user?.email, { slug: teamSlug });
   const tuple = agentAutomatorTuple(id, teamSlug);
   if (await hasTuple(tuple)) {
     const result = await writeOpenFgaTuples({ writes: [], deletes: [tuple] });

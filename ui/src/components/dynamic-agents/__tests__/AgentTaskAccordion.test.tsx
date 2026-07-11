@@ -101,3 +101,23 @@ it("disables Run when the task is busy or disabled", async () => {
   await user.click(screen.getByRole("button", { name: /Beta/ }));
   screen.getAllByRole("button", { name: /Run/ }).forEach((b) => expect(b).toBeDisabled());
 });
+
+it("shows the copyable hook path for webhook tasks when expanded", async () => {
+  const user = userEvent.setup();
+  render(
+    <AgentTaskAccordion
+      {...baseProps}
+      tasks={[
+        makeTask({
+          id: "hooked",
+          name: "Hooked",
+          trigger: { type: "webhook", path: "/hooks/hooked" },
+        }),
+      ]}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Hooked/ }));
+  expect(screen.getByTestId("webhook-hook-path")).toHaveTextContent(
+    "/api/v1/hooks/hooked",
+  );
+});

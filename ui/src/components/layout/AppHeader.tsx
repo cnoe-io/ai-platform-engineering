@@ -412,7 +412,8 @@ export function AppHeader() {
       href: "/autonomous",
       label: "Autonomous",
       Icon: Sparkles,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-fuchsia-600 shadow-sm",
     },
     storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
       key: "schedules",

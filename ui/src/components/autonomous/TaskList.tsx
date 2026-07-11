@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 import type { AutonomousTask } from "./types";
 import { ackBadgeFor, ackTooltip, describeTrigger, formatNextRun, formatRelative, TriggerIcon } from "./taskPresentation";
+import { WebhookHookPath } from "./WebhookHookPath";
 
 interface TaskListProps {
   tasks: AutonomousTask[];
@@ -202,6 +203,15 @@ export function TaskList({
                 className="flex items-center justify-end gap-1 border-t border-border px-2 py-1.5"
                 data-testid="autonomous-task-actions"
               >
+                {/* Copyable hook endpoint for webhook tasks. Lives in the
+                    toolbar (not the metadata row above) because the row is a
+                    <button> — nesting the copy button there would be invalid
+                    HTML. `mr-auto` keeps actions right-aligned. */}
+                {task.trigger.type === "webhook" && (
+                  <span className="mr-auto min-w-0">
+                    <WebhookHookPath taskId={task.id} />
+                  </span>
+                )}
                 {/* Spec #099 FR-006 / Story 2: deep-link to the per-task
                       chat conversation. Stable UUIDv5 so the link works
                       even before the first run has fired. Open in a new

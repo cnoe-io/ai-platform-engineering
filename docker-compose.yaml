@@ -1322,8 +1322,22 @@ services:
       # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
       # starts deny-by-default and you can write tuples later.
       OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
+      # Grant the platform service account `auditor` on the org. CAS's
+      # subject-binding requires this before it evaluates decisions for a
+      # different subject — the on-behalf-of flow autonomous task runs use.
+      # The service-account `sub` is realm-specific, so the seed resolves it
+      # from a client-credentials token instead of a static value. Defaults
+      # match the local realm seed (see keycloak-init).
+      KEYCLOAK_TOKEN_URL: http://keycloak:7080/realms/caipe/protocol/openid-connect/token
+      KEYCLOAK_PLATFORM_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
+      KEYCLOAK_PLATFORM_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      OPENFGA_ORG_OBJECT: organization:${CAIPE_ORG_KEY:-caipe}
     depends_on:
       openfga:
+        condition: service_healthy
+      # The auditor-grant seed mints a token from the local realm; Keycloak's
+      # healthcheck already gates on the realm JWKS being served.
+      keycloak:
         condition: service_healthy
 
   openfga-authz-bridge:

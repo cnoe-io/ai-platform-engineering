@@ -465,6 +465,18 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
   }
+  // Autonomous-agents proxy is intentionally per-user, NOT admin-gated (see
+  // app/api/autonomous/[...path]/route.ts): any chat-capable user may manage
+  // their OWN tasks — per-task ownership is enforced by the autonomous
+  // service (`_assert_task_access`) and per-agent authorization by
+  // dynamic-agents/CAS (`can_use` / `can_schedule`). Without this mapping the
+  // default below admin-gates every non-GET call, 403ing regular users before
+  // the request ever reaches the backend. The admin-only oversight surface
+  // (`/api/autonomous/oversight`) is unaffected — it does not use withAuth
+  // and enforces `admin_ui#view` itself.
+  if (pathname.startsWith('/api/autonomous')) {
+    return { resource: 'chat', scope: 'invoke' };
+  }
 
   if (pathname.startsWith('/api/skills/seed')) {
     return { resource: 'admin_ui', scope: 'admin' };

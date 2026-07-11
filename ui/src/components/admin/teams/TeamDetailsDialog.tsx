@@ -1422,6 +1422,16 @@ export function TeamDetailsDialog({
               — who can chat with (Use) or manage each agent. Changes apply to every member of this team.
             </p>
 
+            {/* Autonomous eligibility — org-admin gate
+                for whether this team may operate autonomous agents at all. Team
+                admins then enable individual agents from the agent list. */}
+            <div className="shrink-0">
+              <AutomationCapabilityToggle
+                teamId={currentTeam._id}
+                teamName={currentTeam.name}
+              />
+            </div>
+
             {resourcesNotice && (
               <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3">
                 <p className="text-sm text-emerald-700 dark:text-emerald-400">
@@ -1628,13 +1638,6 @@ export function TeamDetailsDialog({
               teamName={currentTeam.name}
             />
 
-            {/* Autonomous eligibility — org-admin gate
-                for whether this team may operate autonomous agents at all. Team
-                admins then enable individual agents from the agent list. */}
-            <AutomationCapabilityToggle
-              teamId={currentTeam._id}
-              teamName={currentTeam.name}
-            />
             <TeamKbAssignmentPanel
               teamId={currentTeam._id}
               teamName={currentTeam.name}

@@ -17,7 +17,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useDynamicAgents } from "@/hooks/use-dynamic-agents";
 
 import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
 import { fromFormState, toFormState } from "./formState";
@@ -60,7 +59,6 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, onSub
   const [form, setForm] = useState<TaskFormState>(() => seededFormState(task, initialAgentId));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { agents: agentOptions, loading: agentsLoading, error: agentsError } = useDynamicAgents();
 
   // Reset whenever the dialog opens or the underlying task changes.
   // Without this, editing task A then opening "create" would inherit
@@ -87,7 +85,9 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, onSub
     // without one). Enforce it here so the operator gets immediate feedback
     // instead of a round-trip 400.
     if (!form.dynamic_agent_id) {
-      setError("Select a dynamic agent for this task.");
+      setError(
+        "This task has no target agent. Open the dialog from an agent's autonomous drawer.",
+      );
       return;
     }
     const result = fromFormState(form);
@@ -161,82 +161,11 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, onSub
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="task-agent">Dynamic agent</Label>
-              {agentsError ? (
-                <p className="text-[11px] text-destructive">
-                  Could not load dynamic agents. Create one in the Custom
-                  Agents tab, then retry.
-                </p>
-              ) : (
-                // Use the active theme's `--background` / `--foreground`
-                // tokens so the control matches the dialog body in every
-                // theme. Browsers ignore most CSS on <option>, so we read the
-                // same CSS variables via inline style with hsl(var(--…)).
-                <select
-                  id="task-agent"
-                  value={form.dynamic_agent_id ?? ""}
-                  onChange={(e) =>
-                    update("dynamic_agent_id", e.target.value || null)
-                  }
-                  disabled={agentsLoading}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option
-                    value=""
-                    style={{
-                      backgroundColor: "hsl(var(--background))",
-                      color: "hsl(var(--foreground))",
-                    }}
-                  >
-                    {agentsLoading ? "Loading agents…" : "Select a dynamic agent…"}
-                  </option>
-                  {agentOptions.map((opt) => (
-                    <option
-                      key={opt.id}
-                      value={opt.id}
-                      style={{
-                        backgroundColor: "hsl(var(--background))",
-                        color: "hsl(var(--foreground))",
-                      }}
-                    >
-                      {opt.name}
-                    </option>
-                  ))}
-                  {/* Preserve a stored agent id that's no longer listed (e.g.
-                      the agent was deleted or the caller lost access) so
-                      editing the task doesn't silently drop it. */}
-                  {form.dynamic_agent_id &&
-                    !agentOptions.some((opt) => opt.id === form.dynamic_agent_id) && (
-                      <option
-                        value={form.dynamic_agent_id}
-                        style={{
-                          backgroundColor: "hsl(var(--background))",
-                          color: "hsl(var(--foreground))",
-                        }}
-                      >
-                        {form.dynamic_agent_id} (not currently available)
-                      </option>
-                    )}
-                </select>
-              )}
-              <p className="text-[11px] text-muted-foreground">
-                Required. The task prompt runs through this dynamic agent (its
-                tools, system prompt and model). Manage agents in the Custom
-                Agents tab.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="task-llm">LLM provider (optional)</Label>
-              <Input
-                id="task-llm"
-                value={form.llm_provider}
-                onChange={(e) => update("llm_provider", e.target.value)}
-                placeholder="anthropic"
-              />
-            </div>
-          </div>
+          {/* The target dynamic agent is not editable here: the dialog is
+              only launched from an agent's drawer, which seeds
+              `dynamic_agent_id` on create and round-trips it on edit. The
+              deprecated no-op `llm_provider` is likewise round-tripped
+              unchanged — the agent's own model config governs execution. */}
 
           <div className="space-y-1">
             <Label htmlFor="task-prompt">Prompt</Label>
@@ -286,37 +215,43 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, onSub
             )}
 
             {form.triggerType === "interval" && (
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="task-interval-seconds">Seconds</Label>
-                  <Input
-                    id="task-interval-seconds"
-                    value={form.intervalSeconds}
-                    onChange={(e) => update("intervalSeconds", e.target.value)}
-                    inputMode="numeric"
-                    placeholder=""
-                  />
+              <div className="space-y-1">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="task-interval-seconds">Seconds</Label>
+                    <Input
+                      id="task-interval-seconds"
+                      value={form.intervalSeconds}
+                      onChange={(e) => update("intervalSeconds", e.target.value)}
+                      inputMode="numeric"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="task-interval-minutes">Minutes</Label>
+                    <Input
+                      id="task-interval-minutes"
+                      value={form.intervalMinutes}
+                      onChange={(e) => update("intervalMinutes", e.target.value)}
+                      inputMode="numeric"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="task-interval-hours">Hours</Label>
+                    <Input
+                      id="task-interval-hours"
+                      value={form.intervalHours}
+                      onChange={(e) => update("intervalHours", e.target.value)}
+                      inputMode="numeric"
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="task-interval-minutes">Minutes</Label>
-                  <Input
-                    id="task-interval-minutes"
-                    value={form.intervalMinutes}
-                    onChange={(e) => update("intervalMinutes", e.target.value)}
-                    inputMode="numeric"
-                    placeholder=""
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="task-interval-hours">Hours</Label>
-                  <Input
-                    id="task-interval-hours"
-                    value={form.intervalHours}
-                    onChange={(e) => update("intervalHours", e.target.value)}
-                    inputMode="numeric"
-                    placeholder="1"
-                  />
-                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Fill in at least one field; empty fields count as 0. Values
+                  add up (e.g. 1 hour + 30 minutes = every 90 minutes).
+                </p>
               </div>
             )}
 
