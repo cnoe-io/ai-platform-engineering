@@ -423,6 +423,7 @@ describe('AppHeader — nav tabs', () => {
       render(<AppHeader />)
       const pill = getHomeNavPill()
       expect(pill.className).toContain('text-white')
+      expect(pill.querySelector('.app-header-active-pill')).toHaveClass('gradient-primary')
     })
 
     it('Home does not have active styling on other paths', () => {
@@ -430,6 +431,7 @@ describe('AppHeader — nav tabs', () => {
       render(<AppHeader />)
       const pill = getHomeNavPill()
       expect(pill.className).toContain('text-muted-foreground')
+      expect(pill.querySelector('.app-header-active-pill')).not.toBeInTheDocument()
     })
   })
 
@@ -449,7 +451,9 @@ describe('AppHeader — nav tabs', () => {
       render(<AppHeader />)
 
       // Nav items overflow into More
-      expect(screen.getByRole('button', { name: /more navigation/i })).toHaveTextContent('More')
+      const moreButton = screen.getByRole('button', { name: /more navigation/i })
+      expect(moreButton).toHaveTextContent('More')
+      expect(moreButton.querySelector('.app-header-active-pill')).toHaveClass('bg-sky-600')
       // All items still accessible (inside the always-open popover mock)
       expect(screen.getByText('Home')).toBeInTheDocument()
       expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
@@ -467,14 +471,16 @@ describe('AppHeader — nav tabs', () => {
       mockPathname = '/skills'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/skills')
-      expect(link.className).toContain('text-white')
+      expect(link.className).toContain('text-amber-950')
+      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-amber-500')
     })
 
     it('shows Chat as active on /chat', () => {
       mockPathname = '/chat'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/chat')
-      expect(link.className).toContain('bg-primary')
+      expect(link.className).toContain('text-white')
+      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-sky-600')
     })
 
     it('shows Knowledge Bases tab only when RAG is enabled', () => {
@@ -547,7 +553,8 @@ describe('AppHeader — nav tabs', () => {
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/admin')
-      expect(link.className).toContain('bg-red-500')
+      expect(link.className).toContain('text-white')
+      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-red-600')
     })
 
     it('Admin tab shows primary styling when active for non-admin user', () => {
@@ -556,8 +563,9 @@ describe('AppHeader — nav tabs', () => {
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/admin')
-      expect(link.className).toContain('bg-primary')
-      expect(link.className).not.toContain('bg-red-500')
+      expect(link.className).toContain('text-white')
+      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-rose-600')
+      expect(link.querySelector('.app-header-active-pill')).not.toHaveClass('bg-red-600')
     })
   })
 

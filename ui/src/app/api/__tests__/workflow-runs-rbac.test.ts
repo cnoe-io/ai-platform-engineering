@@ -124,6 +124,21 @@ describe("workflow runs OpenFGA config access", () => {
     mockGetAuth.mockResolvedValue({ user: mockAuthUser, session: mockAuthSession });
   });
 
+  it("marks individual run polling responses as no-store", async () => {
+    const run = { _id: "run-1", workflow_config_id: "wf-visible", status: "running" };
+    const runCollection = {
+      findOne: jest.fn().mockResolvedValue(run),
+    };
+    mockGetCollection.mockResolvedValue(runCollection);
+    const { GET } = await import("../workflow-runs/route");
+
+    const response = await GET(request("/api/workflow-runs?run_id=run-1"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0");
+    expect(await response.json()).toMatchObject(run);
+  });
+
   it("lists runs for OpenFGA-readable workflow configs without legacy team prefiltering", async () => {
     const runCollection = {
       deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),

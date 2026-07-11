@@ -1,4 +1,130 @@
-## 0.5.40-dev.2-chart.1 (2026-07-08)
+## 0.5.49-dev.2 (2026-07-10)
+
+### Fix
+
+- **dynamic-agents**: repair general-purpose tool results (#2196)
+
+## 0.5.49-dev.1 (2026-07-10)
+
+### Fix
+
+- **slack-bot**: mint unlinked SA token for bot_message-subtype mentions
+- **slack-bot**: resolve bot identity for Workflow Builder @mentions
+- **slack-bot**: resolve bot identity for Workflow Builder @mentions
+
+## 0.5.49 (2026-07-10)
+
+## 0.5.48-dev.3 (2026-07-10)
+
+### Fix
+
+- **dynamic-agents**: restore tool result invariants (#2182)
+- **rbac**: stop masking real Keycloak lookup failures as not-found
+- **rbac**: treat 409 from createGroupRoleMapper as already-exists success
+- **rbac**: yield the event loop periodically during Okta IdP sync
+- **rbac**: sanitize Okta names and treat already-linked as success
+
+## 0.5.48-dev.2 (2026-07-10)
+
+### Fix
+
+- **rbac**: default channel/space onboarding to mention-only listen mode
+
+## 0.5.48-dev.1 (2026-07-10)
+
+### Feat
+
+- **ui**: animate header brand and navigation (#2187)
+
+## 0.5.48 (2026-07-10)
+
+### Fix
+
+- **rbac**: register real Keycloak federated identity for Okta-sync users (#2181)
+- **rbac**: stop splitting Slack bot/user names on spaces (#2180)
+
+## 0.5.47-dev.1 (2026-07-10)
+
+### Fix
+
+- **security**: NoSQL injection, playwright Node CVEs, ingestors apk upgrade (#2160)
+
+## 0.5.47 (2026-07-09)
+
+### Fix
+
+- **rbac**: chunk OpenFGA batch-check calls over the 50-check limit
+- **ui**: paginate dynamic agents fetch in slack integration pickers
+
+## 0.5.46-dev.1 (2026-07-09)
+
+### Fix
+
+- **rbac**: self-check should not expect manager grant for shared-only teams on agents
+
+## 0.5.46 (2026-07-09)
+
+## 0.5.45-dev.2 (2026-07-09)
+
+### Fix
+
+- **workflows**: resume subagent HITL timelines
+- **ci**: fix docs-snapshot push auth + retry on race (#2154)
+
+## 0.5.45-dev.1 (2026-07-09)
+
+### Fix
+
+- **ci**: exclude docs/src/pages/index.tsx from proprietary content check
+- **deps**: bump uv constraint 0.11.6 to 0.11.18 in scheduler and webex-meetings
+
+## 0.5.45 (2026-07-09)
+
+## 0.5.44-dev.1 (2026-07-09)
+
+### Fix
+
+- **ci**: add exponential backoff for apk retries; add missing workflows doc (#2153)
+
+## 0.5.44 (2026-07-09)
+
+## 0.5.43-dev.2 (2026-07-09)
+
+### Fix
+
+- **caipe-ui**: use X-CAIPE-Provider-Token for Webex MCP credential source (#2150)
+
+## 0.5.43-dev.1 (2026-07-09)
+
+### Fix
+
+- **workflows**: restore subagent HITL and live run status (#2142)
+
+## 0.5.43 (2026-07-09)
+
+### Feat
+
+- **caipe-ui**: show HITL input form inline in chat WorkflowRunCard (#2148)
+
+### Fix
+
+- **slack-bot**: remove stale user_allowed kwarg from SlackChannelRebacDecision (#2152)
+
+## 0.5.42 (2026-07-08)
+
+### Fix
+
+- **ui**: sharing a dynamic agent with a team is use-only, not manage
+- **slack-bot**: paginate accessible agents list beyond first page
+
+## 0.5.41-dev.1 (2026-07-08)
+
+### Fix
+
+- **okta-sync**: resilient large org syncs with better error diagnostics
+- **okta-sync**: add error handling and throttling for large org syncs
+
+## 0.5.41 (2026-07-08)
 
 ### Fix
 

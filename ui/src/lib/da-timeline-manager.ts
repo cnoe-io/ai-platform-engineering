@@ -18,7 +18,6 @@ ContentSegment,
 StatusSegment,
 StatusType,
 SubagentInfo,
-SubagentSegment,
 TimelineData,
 TimelineSegment,
 TimelineStats,
@@ -95,6 +94,61 @@ export class TimelineManager {
     }
   }
 
+  /** Ensure resumed namespaced events always have a visible subagent owner. */
+  private ensureSubagent(
+    subagentId: string,
+    args: Record<string, unknown> = {},
+    startedAt: Date = new Date(),
+  ): SubagentState {
+    const existing = this.subagents.get(subagentId);
+    if (existing) {
+      const subagentType = args.subagent_type as string | undefined;
+      const description = args.description as string | undefined;
+      if (subagentType && (!existing.info.agentId || existing.info.name === "subagent")) {
+        existing.info.name = subagentType;
+        existing.info.agentId = subagentType;
+      }
+      if (description && !existing.info.purpose) {
+        existing.info.purpose = description;
+      }
+      const existingTool = this.rootToolMap.get(subagentId);
+      if (existingTool && Object.keys(args).length > 0) {
+        existingTool.args = args;
+      }
+      return existing;
+    }
+
+    const subagentState: SubagentState = {
+      info: {
+        id: subagentId,
+        name: (args.subagent_type as string) || "subagent",
+        agentId: args.subagent_type as string,
+        purpose: args.description as string,
+        status: "running",
+      },
+      segments: [],
+      toolMap: new Map(),
+      lastToolEndIndex: -1,
+    };
+    this.subagents.set(subagentId, subagentState);
+    this.subagentContentBuffers.set(subagentId, "");
+    this.subagentContentIds.set(subagentId, 0);
+    this.rootToolMap.set(subagentId, {
+      id: subagentId,
+      name: SUBAGENT_TOOL_NAME,
+      args,
+      status: "running",
+      startedAt,
+    });
+    this.rootSegments.push({
+      type: "subagent",
+      id: subagentId,
+      info: subagentState.info,
+      segments: subagentState.segments,
+    });
+    return subagentState;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // Event Handlers
   // ═══════════════════════════════════════════════════════════════
@@ -111,6 +165,7 @@ export class TimelineManager {
     } else {
       // Subagent content - buffer it
       const subagentId = namespace[0];
+      this.ensureSubagent(subagentId);
       const buffer = this.subagentContentBuffers.get(subagentId) || "";
       this.subagentContentBuffers.set(subagentId, buffer + text);
     }
@@ -126,63 +181,11 @@ export class TimelineManager {
     // Check if this is a subagent invocation (task tool)
     if (toolData.tool_name === SUBAGENT_TOOL_NAME) {
       const subagentId = toolData.tool_call_id;
-
-      // DEDUP GUARD: If we already have this subagent, update its info if args
-      // are now available (AG-UI: args arrive in TOOL_CALL_ARGS after TOOL_CALL_START)
-      if (this.subagents.has(subagentId)) {
-        const existing = this.subagents.get(subagentId)!;
-        const args = toolData.args || {};
-        const subagentType = args.subagent_type as string | undefined;
-        const description = args.description as string | undefined;
-        if (subagentType && (!existing.info.agentId || existing.info.name === "subagent")) {
-          existing.info.name = subagentType;
-          existing.info.agentId = subagentType;
-        }
-        if (description && !existing.info.purpose) {
-          existing.info.purpose = description;
-        }
-        return;
-      }
-
-      // Flush any pending root content before subagent
-      this.flushRootContent();
-
-      // Create subagent entry
       const args = toolData.args || {};
-
-      const subagentState: SubagentState = {
-        info: {
-          id: subagentId,
-          name: (args.subagent_type as string) || "subagent",
-          agentId: args.subagent_type as string,
-          purpose: args.description as string,
-          status: "running",
-        },
-        segments: [],
-        toolMap: new Map(),
-        lastToolEndIndex: -1,
-      };
-      this.subagents.set(subagentId, subagentState);
-      this.subagentContentBuffers.set(subagentId, "");
-      this.subagentContentIds.set(subagentId, 0);
-
-      // Add subagent segment to root timeline
-      const segment: SubagentSegment = {
-        type: "subagent",
-        id: subagentId,
-        info: subagentState.info,
-        segments: subagentState.segments, // Reference, will be updated
-      };
-      this.rootSegments.push(segment);
-
-      // Also track in rootToolMap for tool_end handling
-      this.rootToolMap.set(subagentId, {
-        id: subagentId,
-        name: SUBAGENT_TOOL_NAME,
-        args,
-        status: "running",
-        startedAt: now,
-      });
+      if (!this.subagents.has(subagentId)) {
+        this.flushRootContent();
+      }
+      this.ensureSubagent(subagentId, args, now);
     } else if (namespace.length === 0) {
       // DEDUP GUARD: If we already have this tool, update its args if they
       // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
@@ -215,37 +218,35 @@ export class TimelineManager {
     } else {
       // Subagent tool
       const subagentId = namespace[0];
-      const subagent = this.subagents.get(subagentId);
-      if (subagent) {
-        // DEDUP GUARD: If we already have this tool, update its args if they
-        // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
-        if (subagent.toolMap.has(toolData.tool_call_id)) {
-          const existing = subagent.toolMap.get(toolData.tool_call_id)!;
-          if (toolData.args) {
-            existing.args = toolData.args;
-          }
-          return;
+      const subagent = this.ensureSubagent(subagentId);
+      // DEDUP GUARD: If we already have this tool, update its args if they
+      // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
+      if (subagent.toolMap.has(toolData.tool_call_id)) {
+        const existing = subagent.toolMap.get(toolData.tool_call_id)!;
+        if (toolData.args) {
+          existing.args = toolData.args;
         }
-
-        // Flush subagent content first
-        this.flushSubagentContent(subagentId);
-
-        const tool: ToolInfo = {
-          id: toolData.tool_call_id,
-          name: toolData.tool_name,
-          args: toolData.args,
-          status: "running",
-          startedAt: now,
-        };
-        subagent.toolMap.set(toolData.tool_call_id, tool);
-
-        const segment: ToolSegment = {
-          type: "tool",
-          id: toolData.tool_call_id,
-          data: tool,
-        };
-        subagent.segments.push(segment);
+        return;
       }
+
+      // Flush subagent content first
+      this.flushSubagentContent(subagentId);
+
+      const tool: ToolInfo = {
+        id: toolData.tool_call_id,
+        name: toolData.tool_name,
+        args: toolData.args,
+        status: "running",
+        startedAt: now,
+      };
+      subagent.toolMap.set(toolData.tool_call_id, tool);
+
+      const segment: ToolSegment = {
+        type: "tool",
+        id: toolData.tool_call_id,
+        data: tool,
+      };
+      subagent.segments.push(segment);
     }
   }
 
@@ -469,7 +470,26 @@ export class TimelineManager {
         // This content is after the last tool - it's part of final answer
         finalAnswerParts.push(seg.text);
       } else {
-        segments.push(seg);
+        if (seg.type === "subagent") {
+          const liveBuffer = this.subagentContentBuffers.get(seg.id) || "";
+          if (liveBuffer.trim()) {
+            segments.push({
+              ...seg,
+              segments: [
+                ...seg.segments,
+                {
+                  type: "content",
+                  id: `${seg.id}-content-live`,
+                  text: liveBuffer,
+                },
+              ],
+            });
+          } else {
+            segments.push(seg);
+          }
+        } else {
+          segments.push(seg);
+        }
       }
     }
     

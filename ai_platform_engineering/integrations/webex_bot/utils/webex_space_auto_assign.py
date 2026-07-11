@@ -134,7 +134,7 @@ class WebexSpaceAutoAssigner:
                         "agent_id": agent_id,
                         "enabled": True,
                         "priority": 100,
-                        "users": {"enabled": True, "listen": "all"},
+                        "users": {"enabled": True, "listen": "mention"},
                         "source_type": "auto",
                         "status": "active",
                         "created_by": "webex_auto_assign",

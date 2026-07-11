@@ -24,20 +24,11 @@
 # bash if `apk add bash` is used.
 FROM cgr.dev/chainguard/wolfi-base:latest
 
-# Point apk at the public Wolfi OS repo. The base image defaults to the
-# authenticated apk.cgr.dev/chainguard registry, whose index can't be fetched
-# in unauthenticated CI/local builds ("no such package" for everything).
-# Matches the other wolfi-based Dockerfiles in build/.
-RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
-
-RUN apk add --no-cache \
-      python-3.13 \
-      curl \
-      ca-certificates-bundle \
-      grep \
-      sed \
-      gawk \
- && rm -rf /var/cache/apk/*
+RUN for i in 1 2 3; do \
+      apk add --no-cache python-3.13 curl ca-certificates-bundle grep sed gawk && break; \
+      [ $i -lt 3 ] && sleep $((i * 5)); \
+    done && \
+    rm -rf /var/cache/apk/*
 
 # Non-root by default. The init scripts only read from /scripts (mounted RO
 # via ConfigMap or bind-mount) and talk to Keycloak over HTTP — no local

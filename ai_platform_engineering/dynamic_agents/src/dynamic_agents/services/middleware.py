@@ -16,9 +16,11 @@ construction and are handled with explicit builder functions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.context_editing import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
@@ -30,18 +32,138 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langgraph.errors import GraphBubbleUp
 
 from dynamic_agents.services.llm import get_configured_llm
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from langchain.agents.middleware import AgentMiddleware
+    from collections.abc import Awaitable, Callable
 
 from dynamic_agents.metrics import MetricsAgentMiddleware
 from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
 
 logger = logging.getLogger(__name__)
+
+
+class ToolResultInvariantMiddleware(AgentMiddleware):
+    """Patch tool calls that lost their results before each model request."""
+
+    @staticmethod
+    def _tool_calls(message: AIMessage) -> list[tuple[str, str]]:
+        tool_calls: list[tuple[str, str]] = []
+        known_ids: set[str] = set()
+
+        for tool_call in (*message.tool_calls, *message.invalid_tool_calls):
+            tool_call_id = tool_call.get("id")
+            if not isinstance(tool_call_id, str) or tool_call_id in known_ids:
+                continue
+            tool_name = tool_call.get("name")
+            tool_calls.append((tool_call_id, tool_name if isinstance(tool_name, str) else "unknown"))
+            known_ids.add(tool_call_id)
+
+        if not isinstance(message.content, list):
+            return tool_calls
+
+        for block in message.content:
+            if not isinstance(block, Mapping):
+                continue
+
+            nested_tool_use = block.get("toolUse")
+            if isinstance(nested_tool_use, Mapping):
+                tool_call_id = nested_tool_use.get("toolUseId")
+                tool_name = nested_tool_use.get("name")
+            elif block.get("type") in {"tool_call", "tool_use"}:
+                tool_call_id = block.get("id")
+                tool_name = block.get("name")
+            else:
+                continue
+
+            if (
+                isinstance(tool_call_id, str)
+                and isinstance(tool_name, str)
+                and tool_call_id not in known_ids
+            ):
+                tool_calls.append((tool_call_id, tool_name))
+                known_ids.add(tool_call_id)
+
+        return tool_calls
+
+    @classmethod
+    def _patch_messages(cls, messages: list[BaseMessage]) -> list[BaseMessage]:
+        tool_results = {
+            message.tool_call_id: message
+            for message in messages
+            if isinstance(message, ToolMessage) and message.tool_call_id
+        }
+        expected_tool_result_ids = {
+            tool_call_id
+            for message in messages
+            if isinstance(message, AIMessage)
+            for tool_call_id, _ in cls._tool_calls(message)
+        }
+        patched_messages: list[BaseMessage] = []
+
+        for message in messages:
+            if isinstance(message, ToolMessage) and message.tool_call_id in expected_tool_result_ids:
+                continue
+
+            patched_messages.append(message)
+            if not isinstance(message, AIMessage):
+                continue
+
+            for tool_call_id, tool_name in cls._tool_calls(message):
+                tool_result = tool_results.get(tool_call_id)
+                if tool_result is not None:
+                    patched_messages.append(tool_result)
+                    continue
+
+                patched_messages.append(
+                    ToolMessage(
+                        content=(
+                            f"Tool call {tool_name} with id {tool_call_id} was "
+                            "cancelled before it could be completed."
+                        ),
+                        name=tool_name,
+                        tool_call_id=tool_call_id,
+                        status="error",
+                    )
+                )
+
+        return patched_messages
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Ensure Bedrock receives one result for every prior tool call."""
+        patched_messages = self._patch_messages(list(request.messages))
+        return await handler(request.override(messages=patched_messages))
+
+
+class InterruptAwareToolRetryMiddleware(ToolRetryMiddleware):
+    """Retry ordinary tool failures without swallowing LangGraph control flow.
+
+    Nested subagent interrupts bubble through the parent ``task`` tool as
+    ``GraphBubbleUp`` exceptions. The stock retry middleware treats those as
+    failures, relaunches the subagent, and eventually converts the interrupt
+    into an error ``ToolMessage``. Raising from the retry predicate preserves
+    LangGraph's checkpoint-and-resume behavior while retaining the configured
+    retry policy for real tool exceptions.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        retry_on = kwargs.pop("retry_on", (Exception,))
+
+        def retry_non_control_flow(exc: Exception) -> bool:
+            if isinstance(exc, GraphBubbleUp):
+                raise exc
+            if callable(retry_on):
+                return retry_on(exc)
+            return isinstance(exc, retry_on)
+
+        super().__init__(retry_on=retry_non_control_flow, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +205,7 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
         },
     ),
     "tool_retry": MiddlewareSpec(
-        cls=ToolRetryMiddleware,
+        cls=InterruptAwareToolRetryMiddleware,
         default_params={"max_retries": 3, "backoff_factor": 2.0, "initial_delay": 2.0, "on_failure": "continue"},
         enabled_by_default=True,
         allow_multiple=False,
@@ -379,6 +501,9 @@ def build_middleware(
 
         result.append(instance)
         logger.debug("Middleware '%s' added with params: %s", entry.type, params)
+
+    # Repair tool-call history after configurable middleware edits and before the model.
+    result.append(ToolResultInvariantMiddleware())
 
     # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
     result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))

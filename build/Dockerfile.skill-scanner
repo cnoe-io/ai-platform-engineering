@@ -32,8 +32,8 @@ FROM cgr.dev/chainguard/wolfi-base
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 
 # python-3.13 + shadow (for useradd/groupadd). `apk add` is occasionally
-# flaky on first network setup; retry a few times like the other images.
-RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+# flaky on first network setup; retry with exponential backoff (5s, 10s).
+RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 5)); done && \
     apk upgrade --no-cache
 
 # Use the official uv binary — Wolfi's apk-shipped uv bundles outdated

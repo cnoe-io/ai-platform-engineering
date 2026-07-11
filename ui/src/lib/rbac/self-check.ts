@@ -380,7 +380,13 @@ function teamGrantTuples(input: {
     for (const relation of input.memberRelations) {
       tuples.push(expected(input.source, `team:${teamSlug}#member`, relation, input.object, input.resource));
     }
-    tuples.push(expected(input.source, `team:${teamSlug}#admin`, "manager", input.object, input.resource));
+    // Sharing is use-only: only the owner team's admins get `manager` (can_manage).
+    // Mirrors the write-side filter in openfga-agent-tools.ts (isSharedOnlyAdminManagerTuple) —
+    // without this, self-check expects an `#admin manager` grant for every shared team and
+    // flags it as "missing" once the reconciler stops writing/keeps deleting it.
+    if (teamSlug === input.ownerTeamSlug) {
+      tuples.push(expected(input.source, `team:${teamSlug}#admin`, "manager", input.object, input.resource));
+    }
   }
   return { tuples, staleReferences };
 }
