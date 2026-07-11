@@ -7,6 +7,7 @@ from autonomous_agents.models import (
     CronTrigger,
     IntervalTrigger,
     TaskDefinition,
+    TaskRun,
     TaskStatus,
     TriggerType,
     WebhookTrigger,
@@ -145,9 +146,6 @@ class TestPerTaskA2AOverrides:
                     trigger=CronTrigger(schedule="* * * * *"),
                     timeout_seconds=bad,
                 )
-
-
-from autonomous_agents.models import TaskRun
 
 
 class TestTaskDefinitionOwnerField:
