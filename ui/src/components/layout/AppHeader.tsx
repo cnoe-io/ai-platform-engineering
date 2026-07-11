@@ -41,7 +41,6 @@ Shield,
 Sparkles,
 Workflow,
 Zap,
-Sparkles,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
