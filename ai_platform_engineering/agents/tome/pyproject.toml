@@ -1,6 +1,6 @@
 [project]
 name = "tome-agent"
-version = "0.1.0"
+version = "0.5.15-tome-5d5106b18"
 license = "Apache-2.0"
 description = "Tome agent — a Claude Agent SDK ingest/chat service for the caipe Tome wiki app."
 readme = "README.md"
