@@ -1,6 +1,6 @@
 {
   "name": "caipe-ui",
-  "version": "0.5.15-apps-7fa7b56e2",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
