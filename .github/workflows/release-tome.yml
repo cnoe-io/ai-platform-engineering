@@ -99,6 +99,7 @@ jobs:
             git commit -m "chore(tome): bump version to $VERSION"
           fi
 
+          git pull --rebase origin main
           git tag -a "$GIT_TAG" -m "Tome agent release $VERSION"
           git push origin main
           git push origin "$GIT_TAG"

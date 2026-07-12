@@ -102,6 +102,7 @@ jobs:
             git commit -m "chore(apps): bump version to $VERSION"
           fi
 
+          git pull --rebase origin main
           git tag -a "$GIT_TAG" -m "Agentic app runtime release $VERSION"
           git push origin main
           git push origin "$GIT_TAG"
