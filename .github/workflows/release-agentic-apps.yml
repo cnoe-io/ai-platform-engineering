@@ -72,20 +72,7 @@ jobs:
           fi
           echo "✅ Tag '$GIT_TAG' is available"
 
-      - name: 📝 Bump version in ui/package.json
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.ver.outputs.version }}"
-          OLD=$(node -p "require('./ui/package.json').version")
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('ui/package.json', 'utf8'));
-            p.version = '$VERSION';
-            fs.writeFileSync('ui/package.json', JSON.stringify(p, null, 2) + '\n');
-          "
-          echo "✅ Bumped ui/package.json: $OLD → $VERSION"
-
-      - name: 📤 Commit, tag, and push
+      - name: 📤 Tag and push
         run: |
           set -euo pipefail
           VERSION="${{ steps.ver.outputs.version }}"
@@ -94,17 +81,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add ui/package.json
-
-          if git diff --cached --quiet; then
-            echo "ℹ️ No file changes — package.json already at $VERSION"
-          else
-            git commit -m "chore(apps): bump version to $VERSION"
-          fi
-
-          git pull --rebase origin main
           git tag -a "$GIT_TAG" -m "Agentic app runtime release $VERSION"
-          git push origin main
           git push origin "$GIT_TAG"
           echo "✅ Pushed tag: $GIT_TAG"
 

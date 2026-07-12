@@ -73,16 +73,7 @@ jobs:
           fi
           echo "✅ Tag '$GIT_TAG' is available"
 
-      - name: 📝 Bump version in pyproject.toml
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.ver.outputs.version }}"
-          PYPROJECT="ai_platform_engineering/agents/tome/pyproject.toml"
-          OLD=$(grep '^version = ' "$PYPROJECT" | sed 's/version = "\(.*\)"/\1/')
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" "$PYPROJECT"
-          echo "✅ Bumped $PYPROJECT: $OLD → $VERSION"
-
-      - name: 📤 Commit, tag, and push
+      - name: 📤 Tag and push
         run: |
           set -euo pipefail
           VERSION="${{ steps.ver.outputs.version }}"
@@ -91,17 +82,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add ai_platform_engineering/agents/tome/pyproject.toml
-
-          if git diff --cached --quiet; then
-            echo "ℹ️ No file changes — pyproject.toml already at $VERSION"
-          else
-            git commit -m "chore(tome): bump version to $VERSION"
-          fi
-
-          git pull --rebase origin main
           git tag -a "$GIT_TAG" -m "Tome agent release $VERSION"
-          git push origin main
           git push origin "$GIT_TAG"
           echo "✅ Pushed tag: $GIT_TAG"
 
