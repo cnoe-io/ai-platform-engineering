@@ -16,6 +16,7 @@ description: "Tag and build an agentic-app-runtime release from the current main
 
 on:
   workflow_dispatch: {}
+  workflow_call: {}
 
 permissions:
   contents: write

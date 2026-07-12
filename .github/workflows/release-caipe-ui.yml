@@ -16,6 +16,7 @@ description: "Tag and build a caipe-ui release from the current main HEAD."
 
 on:
   workflow_dispatch: {}
+  workflow_call: {}
 
 permissions:
   contents: write

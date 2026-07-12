@@ -16,6 +16,7 @@ description: "Tag and build a tome-agent release from the current main HEAD."
 
 on:
   workflow_dispatch: {}
+  workflow_call: {}
 
 permissions:
   contents: write
