@@ -1,25 +1,21 @@
 name: "[Release] Tome Agent Release"
-description: "Bump tome-agent version, tag, and trigger a fresh image build."
+description: "Tag and build a tome-agent release from the current main HEAD."
 
 # Usage:
 #   GitHub UI → Actions → "[Release] Tome Agent Release" → Run workflow
-#   gh workflow run release-tome.yml -f version=0.2.0
+#   gh workflow run release-tome.yml
 #
 # What this does:
-#   1. Validates the semver version input.
-#   2. Bumps ai_platform_engineering/agents/tome/pyproject.toml to the new version.
-#   3. Commits to main and creates an annotated git tag tome-agent-X.Y.Z.
-#   4. Dispatches ci-tome-agent.yml with tag_version=X.Y.Z so the image
-#      is pushed with a clean semver tag (not the prefixed git tag).
-#   5. Creates a draft GitHub release.
+#   1. Reads the nearest semver release tag on main to determine X.Y.Z.
+#   2. Computes the short SHA of HEAD.
+#   3. Derives image/git tag: X.Y.Z-tome-<sha>
+#   4. Bumps ai_platform_engineering/agents/tome/pyproject.toml to that version.
+#   5. Commits to main and creates annotated git tag tome-agent-X.Y.Z-tome-<sha>.
+#   6. Dispatches ci-tome-agent.yml with tag_version=X.Y.Z-tome-<sha>.
+#   7. Creates a draft GitHub release.
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "New version to release (e.g., 0.2.0)"
-        required: true
-        type: string
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -27,7 +23,7 @@ permissions:
 
 jobs:
   release:
-    name: Bump, tag, and dispatch build
+    name: Tag and dispatch build
     runs-on: ubuntu-latest
 
     steps:
@@ -43,20 +39,33 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: ✅ Validate version format
+      - name: 🏷️ Derive version and SHA
+        id: ver
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ Version must be semver (e.g. 0.2.0). Got: '$VERSION'"
+
+          # Nearest semver release tag reachable from HEAD (e.g. 0.5.50)
+          BASE=$(git describe --tags --match '[0-9]*.[0-9]*.[0-9]*' --abbrev=0 HEAD 2>/dev/null \
+                 | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || true)
+          if [[ -z "$BASE" ]]; then
+            echo "❌ No semver release tag found on main. Tag a release first."
             exit 1
           fi
-          echo "✅ Version: $VERSION"
+
+          SHORT=$(git rev-parse --short HEAD)
+          VERSION="${BASE}-tome-${SHORT}"
+          GIT_TAG="tome-agent-${VERSION}"
+
+          echo "base=$BASE"       >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT"     >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "git_tag=$GIT_TAG" >> "$GITHUB_OUTPUT"
+          echo "✅ base=$BASE  sha=$SHORT  version=$VERSION"
 
       - name: 🔍 Check tag doesn't already exist
         run: |
           set -euo pipefail
-          GIT_TAG="tome-agent-${{ github.event.inputs.version }}"
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
           if git ls-remote --exit-code --tags origin "refs/tags/$GIT_TAG" >/dev/null 2>&1; then
             echo "❌ Tag '$GIT_TAG' already exists"
             exit 1
@@ -66,7 +75,7 @@ jobs:
       - name: 📝 Bump version in pyproject.toml
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ steps.ver.outputs.version }}"
           PYPROJECT="ai_platform_engineering/agents/tome/pyproject.toml"
           OLD=$(grep '^version = ' "$PYPROJECT" | sed 's/version = "\(.*\)"/\1/')
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" "$PYPROJECT"
@@ -75,8 +84,8 @@ jobs:
       - name: 📤 Commit, tag, and push
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
-          GIT_TAG="tome-agent-$VERSION"
+          VERSION="${{ steps.ver.outputs.version }}"
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -92,7 +101,6 @@ jobs:
           git tag -a "$GIT_TAG" -m "Tome agent release $VERSION"
           git push origin main
           git push origin "$GIT_TAG"
-
           echo "✅ Pushed tag: $GIT_TAG"
 
       - name: 🚀 Dispatch ci-tome-agent.yml
@@ -100,7 +108,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ steps.ver.outputs.version }}"
           echo "📦 Dispatching ci-tome-agent.yml with tag_version=$VERSION"
           gh workflow run ci-tome-agent.yml \
             --repo "${{ github.repository }}" \
@@ -113,8 +121,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
-          GIT_TAG="tome-agent-$VERSION"
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
+          VERSION="${{ steps.ver.outputs.version }}"
           gh release create "$GIT_TAG" \
             --repo "${{ github.repository }}" \
             --title "Tome Agent $VERSION" \
@@ -124,18 +132,19 @@ jobs:
 
       - name: 📊 Summary
         run: |
-          VERSION="${{ github.event.inputs.version }}"
-          GIT_TAG="tome-agent-$VERSION"
+          VERSION="${{ steps.ver.outputs.version }}"
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
           cat >> "$GITHUB_STEP_SUMMARY" << EOF
-          ## Tome Agent Release $VERSION
+          ## Tome Agent Release
 
           | Item | Value |
           |------|-------|
+          | Base release | \`${{ steps.ver.outputs.base }}\` |
+          | Short SHA | \`${{ steps.ver.outputs.short }}\` |
           | Version | \`$VERSION\` |
           | Git tag | \`$GIT_TAG\` |
-          | Image tag | \`$VERSION\` + short SHA |
+          | Image tag | \`$VERSION\` |
 
-          ### Next steps
-          - ci-tome-agent.yml is building \`ghcr.io/${{ github.repository_owner }}/caipe-tome-agent:$VERSION\`
+          - Image: \`ghcr.io/${{ github.repository_owner }}/caipe-tome-agent:$VERSION\`
           - Draft release: https://github.com/${{ github.repository }}/releases/tag/$GIT_TAG
           EOF
