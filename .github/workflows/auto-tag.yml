@@ -19,6 +19,8 @@ on:
       - 'build/**'
       - 'pyproject.toml'
       - 'uv.lock'
+      # UI changes
+      - 'ui/**'
       # Chart changes
       - 'charts/**'
 
