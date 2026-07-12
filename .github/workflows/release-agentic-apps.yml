@@ -1,0 +1,152 @@
+name: "[Release] Agentic App Runtime Release"
+description: "Tag and build an agentic-app-runtime release from the current main HEAD."
+
+# Usage:
+#   GitHub UI → Actions → "[Release] Agentic App Runtime Release" → Run workflow
+#   gh workflow run release-agentic-apps.yml
+#
+# What this does:
+#   1. Reads the nearest semver release tag on main to determine X.Y.Z.
+#   2. Computes the short SHA of HEAD.
+#   3. Derives version: X.Y.Z-apps-<sha>
+#   4. Bumps ui/package.json to that version.
+#   5. Commits to main and creates annotated git tag agentic-apps-X.Y.Z-apps-<sha>.
+#   6. Dispatches ci-agentic-app-runtime.yml with tag_version=X.Y.Z-apps-<sha>.
+#   7. Creates a draft GitHub release.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    name: Tag and dispatch build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: 📥 Checkout main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Derive version and SHA
+        id: ver
+        run: |
+          set -euo pipefail
+
+          BASE=$(git describe --tags --match '[0-9]*.[0-9]*.[0-9]*' --abbrev=0 HEAD 2>/dev/null \
+                 | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || true)
+          if [[ -z "$BASE" ]]; then
+            echo "❌ No semver release tag found on main. Tag a release first."
+            exit 1
+          fi
+
+          SHORT=$(git rev-parse --short HEAD)
+          VERSION="${BASE}-apps-${SHORT}"
+          GIT_TAG="agentic-apps-${VERSION}"
+
+          echo "base=$BASE"       >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT"     >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "git_tag=$GIT_TAG" >> "$GITHUB_OUTPUT"
+          echo "✅ base=$BASE  sha=$SHORT  version=$VERSION"
+
+      - name: 🔍 Check tag doesn't already exist
+        run: |
+          set -euo pipefail
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$GIT_TAG" >/dev/null 2>&1; then
+            echo "❌ Tag '$GIT_TAG' already exists"
+            exit 1
+          fi
+          echo "✅ Tag '$GIT_TAG' is available"
+
+      - name: 📝 Bump version in ui/package.json
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          OLD=$(node -p "require('./ui/package.json').version")
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('ui/package.json', 'utf8'));
+            p.version = '$VERSION';
+            fs.writeFileSync('ui/package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+          echo "✅ Bumped ui/package.json: $OLD → $VERSION"
+
+      - name: 📤 Commit, tag, and push
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add ui/package.json
+
+          if git diff --cached --quiet; then
+            echo "ℹ️ No file changes — package.json already at $VERSION"
+          else
+            git commit -m "chore(apps): bump version to $VERSION"
+          fi
+
+          git tag -a "$GIT_TAG" -m "Agentic app runtime release $VERSION"
+          git push origin main
+          git push origin "$GIT_TAG"
+          echo "✅ Pushed tag: $GIT_TAG"
+
+      - name: 🚀 Dispatch ci-agentic-app-runtime.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          echo "📦 Dispatching ci-agentic-app-runtime.yml with tag_version=$VERSION"
+          gh workflow run ci-agentic-app-runtime.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f tag_version="$VERSION"
+          echo "✅ Dispatch sent"
+
+      - name: 📋 Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
+          VERSION="${{ steps.ver.outputs.version }}"
+          gh release create "$GIT_TAG" \
+            --repo "${{ github.repository }}" \
+            --title "Agentic App Runtime $VERSION" \
+            --generate-notes \
+            --draft
+          echo "✅ Draft release created: $GIT_TAG"
+
+      - name: 📊 Summary
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          GIT_TAG="${{ steps.ver.outputs.git_tag }}"
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## Agentic App Runtime Release
+
+          | Item | Value |
+          |------|-------|
+          | Base release | \`${{ steps.ver.outputs.base }}\` |
+          | Short SHA | \`${{ steps.ver.outputs.short }}\` |
+          | Version | \`$VERSION\` |
+          | Git tag | \`$GIT_TAG\` |
+
+          - Image: \`ghcr.io/${{ github.repository_owner }}/caipe-agentic-app-runtime:$VERSION\`
+          - Draft release: https://github.com/${{ github.repository }}/releases/tag/$GIT_TAG
+          EOF
