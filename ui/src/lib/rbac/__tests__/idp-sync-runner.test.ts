@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 // Unit tests for the IdP directory sync execution path. Focuses on the
 // runner's own logic added alongside Okta name/membership upserts: splitting
 // an Okta display_name into firstName/lastName for provisionShellUser,
@@ -17,6 +20,7 @@ const fetchExternalGroupsForProvider = jest.fn();
 const listIdentityGroupSyncRules = jest.fn();
 const listActiveTeamMembershipSourcesForProvider = jest.fn();
 const provisionShellUser = jest.fn();
+const linkFederatedIdentity = jest.fn();
 const planIdentityGroupSync = jest.fn();
 const applyIdentityGroupSyncPlan = jest.fn();
 const stripArchivedTeamResourceGrants = jest.fn();
@@ -53,6 +57,7 @@ jest.mock("@/lib/rbac/idp-sync-store", () => ({
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   provisionShellUser: (...args: unknown[]) => provisionShellUser(...args),
+  linkFederatedIdentity: (...args: unknown[]) => linkFederatedIdentity(...args),
 }));
 
 jest.mock("@/lib/rbac/archived-team-grants", () => ({
@@ -96,6 +101,7 @@ describe("idp-sync-runner", () => {
     listIdentityGroupSyncRules.mockResolvedValue([]);
     listActiveTeamMembershipSourcesForProvider.mockResolvedValue([]);
     provisionShellUser.mockResolvedValue({ sub: "sub-1", created: false });
+    linkFederatedIdentity.mockResolvedValue(undefined);
     planIdentityGroupSync.mockReturnValue({ matched_groups: [] });
     applyIdentityGroupSyncPlan.mockResolvedValue({
       teamsCreated: 0,
@@ -256,6 +262,97 @@ describe("idp-sync-runner", () => {
       expect(updateIdpSyncRun).toHaveBeenCalledWith("run-1", expect.objectContaining({ status: "success" }));
 
       warnSpy.mockRestore();
+    });
+  });
+
+  describe("executeSyncRun: Okta federated-identity linking", () => {
+    it("links each resolved Okta member once via linkFederatedIdentity", async () => {
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        {
+          id: "g1",
+          name: "Group 1",
+          members: [{ email: "jane@example.com", active: true, display_name: "Jane Doe", okta_user_id: "okta-1" }],
+        },
+      ]);
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      expect(linkFederatedIdentity).toHaveBeenCalledWith("sub-1", "okta", {
+        userId: "okta-1",
+        userName: "jane@example.com",
+      });
+    });
+
+    it("does not warn when linkFederatedIdentity resolves normally (e.g. after a 409 already-linked no-op)", async () => {
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        {
+          id: "g1",
+          name: "Group 1",
+          members: [{ email: "jane@example.com", active: true, display_name: "Jane Doe", okta_user_id: "okta-1" }],
+        },
+      ]);
+      linkFederatedIdentity.mockResolvedValue(undefined);
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("failed to link federated identity"));
+      warnSpy.mockRestore();
+    });
+
+    it("logs and continues when linkFederatedIdentity fails for a real (non-409) reason", async () => {
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        {
+          id: "g1",
+          name: "Group 1",
+          members: [{ email: "jane@example.com", active: true, display_name: "Jane Doe", okta_user_id: "okta-1" }],
+        },
+      ]);
+      linkFederatedIdentity.mockRejectedValue(new Error("linkFederatedIdentity failed: 500"));
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("failed to link federated identity for jane@example.com")
+      );
+      expect(updateIdpSyncRun).toHaveBeenCalledWith("run-1", expect.objectContaining({ status: "success" }));
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe("executeSyncRun: event-loop yield cadence", () => {
+    it("yields to the event loop every 50 processed members so /api/health can interleave", async () => {
+      const members = Array.from({ length: 120 }, (_, i) => ({
+        email: `user${i}@example.com`,
+        active: true,
+        display_name: `User ${i}`,
+      }));
+      fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
+
+      const setImmediateSpy = jest.spyOn(global, "setImmediate");
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      // 120 members with MEMBERS_PER_YIELD=50 yields at the 50th and 100th member.
+      expect(setImmediateSpy).toHaveBeenCalledTimes(2);
+      setImmediateSpy.mockRestore();
+    });
+
+    it("never yields for a run with fewer members than the yield threshold", async () => {
+      const members = Array.from({ length: 10 }, (_, i) => ({
+        email: `user${i}@example.com`,
+        active: true,
+        display_name: `User ${i}`,
+      }));
+      fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
+
+      const setImmediateSpy = jest.spyOn(global, "setImmediate");
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      expect(setImmediateSpy).not.toHaveBeenCalled();
+      setImmediateSpy.mockRestore();
     });
   });
 

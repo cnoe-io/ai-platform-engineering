@@ -113,7 +113,7 @@ def test_auto_assign_creates_mapping_route_and_openfga_tuple(monkeypatch) -> Non
     assert routes.rows[0]["workspace_id"] == "CAIPE"
     assert routes.rows[0]["channel_id"] == "CNEW"
     assert routes.rows[0]["agent_id"] == "test-april-2025"
-    assert routes.rows[0]["users"] == {"enabled": True, "listen": "all"}
+    assert routes.rows[0]["users"] == {"enabled": True, "listen": "mention"}
     assert writes == [
         {
             "user": "slack_channel:CAIPE--CNEW",

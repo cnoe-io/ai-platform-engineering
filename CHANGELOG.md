@@ -1,3 +1,41 @@
+## 0.5.49-dev.2 (2026-07-10)
+
+### Fix
+
+- **dynamic-agents**: repair general-purpose tool results (#2196)
+
+## 0.5.49-dev.1 (2026-07-10)
+
+### Fix
+
+- **slack-bot**: mint unlinked SA token for bot_message-subtype mentions
+- **slack-bot**: resolve bot identity for Workflow Builder @mentions
+- **slack-bot**: resolve bot identity for Workflow Builder @mentions
+
+## 0.5.49 (2026-07-10)
+
+## 0.5.48-dev.3 (2026-07-10)
+
+### Fix
+
+- **dynamic-agents**: restore tool result invariants (#2182)
+- **rbac**: stop masking real Keycloak lookup failures as not-found
+- **rbac**: treat 409 from createGroupRoleMapper as already-exists success
+- **rbac**: yield the event loop periodically during Okta IdP sync
+- **rbac**: sanitize Okta names and treat already-linked as success
+
+## 0.5.48-dev.2 (2026-07-10)
+
+### Fix
+
+- **rbac**: default channel/space onboarding to mention-only listen mode
+
+## 0.5.48-dev.1 (2026-07-10)
+
+### Feat
+
+- **ui**: animate header brand and navigation (#2187)
+
 ## 0.5.48 (2026-07-10)
 
 ### Fix

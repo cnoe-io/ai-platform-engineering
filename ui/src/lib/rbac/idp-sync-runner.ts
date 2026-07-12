@@ -174,10 +174,21 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     const idpAlias = process.env.IDENTITY_SYNC_OKTA_KEYCLOAK_IDP_ALIAS?.trim() || "okta";
     const subCache = new Map<string, string | null>();
     const linkedCache = new Set<string>();
+    // A cached-email hit (the common case in a large org with overlapping
+    // group memberships) skips every `await` below, so a long run of cache
+    // hits can otherwise monopolize the event loop for the CAIPE UI pod —
+    // the same process that serves the k8s liveness probe. Yield back to the
+    // loop periodically so a slow/large sync can't stall health checks into
+    // a pod restart.
+    let processedMembers = 0;
+    const MEMBERS_PER_YIELD = 50;
     for (const group of groups as Array<{
       members?: Array<{ email?: string; active?: boolean; subject?: string; display_name?: string; okta_user_id?: string }>;
     }>) {
       for (const member of group.members ?? []) {
+        if (++processedMembers % MEMBERS_PER_YIELD === 0) {
+          await new Promise((resolve) => setImmediate(resolve));
+        }
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
         if (!subCache.has(email)) {

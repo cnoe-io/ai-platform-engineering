@@ -440,7 +440,7 @@ describe("Webex space ReBAC resource APIs", () => {
       webex_room_id: publicRoomId,
       team_slug: "platform",
       agent_id: "agent-sri-demo-agent",
-      listen: "all",
+      listen: "mention",
     });
     // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
     // space onboarding flow no longer touches Keycloak team scopes,
@@ -471,7 +471,7 @@ describe("Webex space ReBAC resource APIs", () => {
       },
       expect.objectContaining({
         $set: expect.objectContaining({
-          users: { enabled: true, listen: "all" },
+          users: { enabled: true, listen: "mention" },
           source_type: "bootstrap",
           status: "active",
         }),
@@ -619,7 +619,7 @@ describe("Webex space ReBAC resource APIs", () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           priority: 100,
-          users: { enabled: true, listen: "all" },
+          users: { enabled: true, listen: "mention" },
           source_type: "bootstrap",
         }),
       }),

@@ -207,6 +207,57 @@ def test_rbac_deny_logs_warning_and_returns_200(
     assert result.status == 200
 
 
+def test_bot_message_subtype_still_mints_unlinked_sa_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bot/workflow message (subtype=bot_message, bot_id set) must reach the
+    bot_id branch and get an unlinked SA obo_token — not be swallowed by the
+    system-message skip list before that branch runs.
+
+    Slack tags every bot-authored message with subtype="bot_message". If that
+    subtype were included in the early skip list, the middleware would call
+    next() and return without ever setting context["obo_token"], and
+    downstream OpenFGA channel-grant checks would always deny with
+    reason=pdp_unavailable for bot/workflow senders.
+    """
+    app_module = _load_slack_app(monkeypatch, rbac_enabled=True)
+
+    async def _fake_mint() -> str:
+        return "unlinked-sa-token"
+
+    monkeypatch.setattr(app_module, "_mint_unlinked_obo_token", _fake_mint)
+
+    context: dict[str, object] = {}
+    next_called = False
+
+    def next_handler() -> None:
+        nonlocal next_called
+        next_called = True
+
+    result = app_module.rbac_global_middleware(
+        {
+            "event_id": "E-bot-workflow",
+            "event": {
+                "type": "app_mention",
+                "subtype": "bot_message",
+                "channel": "C0B84HHUNQ4",
+                "bot_id": "BWORKFLOW1",
+                "ts": "1700000000.000100",
+                "text": "run the workflow",
+            },
+        },
+        context,
+        next_handler,
+        _Logger(),
+    )
+
+    assert result is None, "bot message must not be short-circuited"
+    assert next_called is True
+    assert context.get("obo_token") == "unlinked-sa-token"
+    assert context.get("is_bot") is True
+    assert context.get("unlinked_fallback") is True
+
+
 def test_route_miss_notice_does_not_call_slack_for_ambient_messages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

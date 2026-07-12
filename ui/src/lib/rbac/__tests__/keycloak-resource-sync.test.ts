@@ -98,4 +98,51 @@ describe('keycloak-resource-sync', () => {
     expect(mockGetKeycloakAdminToken).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('logs loudly (not as a benign not-found) when the client lookup call itself fails', async () => {
+    process.env.KEYCLOAK_URL = 'http://keycloak';
+    mockGetKeycloakAdminToken.mockResolvedValue('admin-token');
+    (global.fetch as unknown as Mock).mockResolvedValueOnce({ ok: false, status: 403 });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { syncTaskResource } = await import('../keycloak-resource-sync');
+    await expect(
+      syncTaskResource('create', 'tid', 'Task Name', 'global')
+    ).resolves.toBeUndefined();
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('403'));
+    errorSpy.mockRestore();
+  });
+
+  it('logs loudly when the delete-lookup call itself fails, instead of silently skipping', async () => {
+    process.env.KEYCLOAK_URL = 'http://keycloak';
+    mockGetKeycloakAdminToken.mockResolvedValue('admin-token');
+    (global.fetch as unknown as Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => [{ id: 'client-uuid-1' }] })
+      .mockResolvedValueOnce({ ok: false, status: 500 });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { syncTaskResource } = await import('../keycloak-resource-sync');
+    await expect(syncTaskResource('delete', 'tid', 'Task Name')).resolves.toBeUndefined();
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('500'));
+    errorSpy.mockRestore();
+  });
+
+  it('logs create failures as errors (not warnings) so real failures are distinguishable from 409', async () => {
+    process.env.KEYCLOAK_URL = 'http://keycloak';
+    mockGetKeycloakAdminToken.mockResolvedValue('admin-token');
+    (global.fetch as unknown as Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => [{ id: 'client-uuid-1' }] })
+      .mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'invalid_token' });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { syncTaskResource } = await import('../keycloak-resource-sync');
+    await expect(
+      syncTaskResource('create', 'tid', 'Task Name', 'global')
+    ).resolves.toBeUndefined();
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('401'));
+    errorSpy.mockRestore();
+  });
 });
