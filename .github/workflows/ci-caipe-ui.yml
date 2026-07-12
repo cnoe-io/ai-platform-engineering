@@ -5,6 +5,11 @@ on:
   push:
     tags:
       - '**'
+    branches:
+      - main
+    paths:
+      - 'ui/**'
+      - 'build/Dockerfile.caipe-ui'
   pull_request:
     paths:
       - 'ui/**'
@@ -181,6 +186,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
@@ -193,7 +199,7 @@ jobs:
           context: .
           file: ${{ env.DOCKERFILE }}
           target: runner
-          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
