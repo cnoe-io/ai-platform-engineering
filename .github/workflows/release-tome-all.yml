@@ -1,9 +1,9 @@
-name: "[Release] Release All Mirror Apps"
+name: "[Release] Tome All Mirror Apps"
 description: "Tag and build caipe-ui, agentic-app-runtime, and tome-agent from main HEAD in parallel."
 
 # Usage:
-#   GitHub UI → Actions → "[Release] Release All Mirror Apps" → Run workflow
-#   gh workflow run release-all.yml
+#   GitHub UI → Actions → "[Release] Tome All Mirror Apps" → Run workflow
+#   gh workflow run release-tome-all.yml
 #
 # Triggers release-caipe-ui, release-agentic-apps, and release-tome in parallel.
 # Each derives X.Y.Z from the nearest semver tag on main and appends its own
