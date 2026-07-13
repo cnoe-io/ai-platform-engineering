@@ -392,6 +392,67 @@ describe("idp-sync-runner", () => {
     });
   });
 
+  describe("executeSyncRun: synchronous member passes yield to the event loop", () => {
+    it("yields during the dedupe and stamp passes so k8s health probes can interleave", async () => {
+      const prev = process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+      // Yield every 3 members so a small fixture still trips the yield path.
+      process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = "3";
+      try {
+        // 8 members across two groups. Both the dedupe pass and the stamp pass
+        // walk all 8, so with yieldEvery=3 each pass yields at member 3 and 6:
+        // 2 yields per pass, 4 total. mapWithConcurrency also uses setImmediate
+        // internally, so we assert a lower bound rather than an exact count.
+        const members = Array.from({ length: 8 }, (_, i) => ({
+          email: `user${i}@example.com`,
+          active: true,
+          display_name: `User ${i}`,
+        }));
+        fetchExternalGroupsForProvider.mockResolvedValue([
+          { id: "g1", name: "Group 1", members: members.slice(0, 4) },
+          { id: "g2", name: "Group 2", members: members.slice(4) },
+        ]);
+
+        const setImmediateSpy = jest.spyOn(global, "setImmediate");
+
+        await executeSyncRun("run-1", "okta", "admin");
+
+        // At least the 4 yields from the two synchronous passes.
+        expect(setImmediateSpy.mock.calls.length).toBeGreaterThanOrEqual(4);
+        setImmediateSpy.mockRestore();
+      } finally {
+        if (prev === undefined) delete process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+        else process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = prev;
+      }
+    });
+
+    it("does not yield in the synchronous passes when member count is below the threshold", async () => {
+      const prev = process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+      process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = "1000";
+      try {
+        const members = Array.from({ length: 5 }, (_, i) => ({
+          email: `user${i}@example.com`,
+          active: true,
+          display_name: `User ${i}`,
+        }));
+        fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
+
+        const setImmediateSpy = jest.spyOn(global, "setImmediate");
+        try {
+          await executeSyncRun("run-1", "okta", "admin");
+          // Both sync passes walk 5 members with a threshold of 1000, so neither
+          // trips the yield. mapWithConcurrency does not use setImmediate, so the
+          // only source of a call would be a sync pass — hence exactly zero.
+          expect(setImmediateSpy).not.toHaveBeenCalled();
+        } finally {
+          setImmediateSpy.mockRestore();
+        }
+      } finally {
+        if (prev === undefined) delete process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+        else process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = prev;
+      }
+    });
+  });
+
   describe("executeSyncRun: baseline bootstrap runs before team-membership apply", () => {
     it("grants the member baseline before the slower plan/apply so MCP access lands first", async () => {
       const members = [

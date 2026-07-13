@@ -58,6 +58,25 @@ function memberResolveConcurrency(): number {
   return DEFAULT_MEMBER_RESOLVE_CONCURRENCY;
 }
 
+// How many iterations of a purely-synchronous loop (no per-item await) to run
+// before handing the event loop back. The dedupe and subject-stamp passes touch
+// every member in every group, so on a large org (e.g. ~8k members across
+// thousands of groups) an unbroken loop can starve the k8s health probes served
+// by this same process. `setImmediate` lets any pending probe callback run
+// between chunks. Each iteration here is a cheap in-memory op, so a small
+// threshold costs almost nothing while keeping probes responsive — 500 gives
+// well over a dozen evenly-spaced yields on a full directory. Tunable via env so
+// tests can exercise the yield without a huge member count.
+const DEFAULT_SYNC_LOOP_YIELD_EVERY = 500;
+function syncLoopYieldEvery(): number {
+  const fromEnv = Number(process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY);
+  if (Number.isFinite(fromEnv) && fromEnv >= 1) return Math.floor(fromEnv);
+  return DEFAULT_SYNC_LOOP_YIELD_EVERY;
+}
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 async function listExistingTeams(): Promise<Array<{ id: string; slug: string; name: string }>> {
   const col = await getCollection<TeamDocument>("teams");
   const teams = await col.find({}).project({ id: 1, slug: 1, name: 1 }).toArray();
@@ -202,9 +221,12 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // them once, so we dedupe by email before doing any Keycloak work. We keep
     // the first active occurrence (its display name / Okta id) as the record to
     // provision from.
+    const yieldEvery = syncLoopYieldEvery();
     const uniqueMembers = new Map<string, SyncMember>();
+    let dedupeSeen = 0;
     for (const group of groups as Array<{ members?: SyncMember[] }>) {
       for (const member of group.members ?? []) {
+        if (++dedupeSeen % yieldEvery === 0) await yieldToEventLoop();
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
         if (!uniqueMembers.has(email)) uniqueMembers.set(email, member);
@@ -280,8 +302,10 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // Stamp the resolved subject onto every member object in every group so the
     // planner (which reads `member.subject`) sees them. This is a second pass
     // because a user can appear in many groups but is only resolved once above.
+    let stampSeen = 0;
     for (const group of groups as Array<{ members?: SyncMember[] }>) {
       for (const member of group.members ?? []) {
+        if (++stampSeen % yieldEvery === 0) await yieldToEventLoop();
         const email = member.email?.trim().toLowerCase();
         if (!email) continue;
         const sub = subCache.get(email);
