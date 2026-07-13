@@ -161,7 +161,7 @@ def _should_retry_model_call(exc: Exception) -> bool:
     return not any(token in msg for token in _BEDROCK_NON_RETRYABLE)
 
 
-class BrightModelRetryMiddleware(ModelRetryMiddleware):
+class SelectiveModelRetryMiddleware(ModelRetryMiddleware):
     """ModelRetryMiddleware that skips retrying permanent Bedrock errors.
 
     Bedrock ValidationExceptions for "input too long" or invalid tool name
@@ -225,7 +225,7 @@ class MiddlewareSpec:
 # then optional add-ons.
 MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
     "model_retry": MiddlewareSpec(
-        cls=BrightModelRetryMiddleware,
+        cls=SelectiveModelRetryMiddleware,
         default_params={"max_retries": 5, "backoff_factor": 2.0, "on_failure": "error"},
         enabled_by_default=True,
         allow_multiple=False,
