@@ -144,3 +144,22 @@ def test_build_delta_context_no_new_messages_returns_current():
     app = _mock_app([])
     result = build_delta_context(app, "C1", "100.0", "hello", BOT_USER_ID, since_ts="99.0")
     assert result == "hello"
+
+
+# ---------------------------------------------------------------------------
+# build_thread_context — single-message thread (regression for filtered=empty)
+# ---------------------------------------------------------------------------
+
+
+def test_build_thread_context_single_message_filtered_returns_current():
+    """When the only thread message is the current one (filtered by ts),
+    the function must return current_message directly, not an empty scaffold."""
+    messages = [{"ts": "100.0", "text": "only message", "user": "U1"}]
+    app = _mock_app(messages)
+
+    result = build_thread_context(
+        app, "C1", "100.0", "only message", BOT_USER_ID, current_ts="100.0"
+    )
+
+    assert result == "only message"
+    assert "Previous conversation:" not in result

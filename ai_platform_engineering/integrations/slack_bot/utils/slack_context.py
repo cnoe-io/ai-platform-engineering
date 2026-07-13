@@ -125,6 +125,10 @@ def build_thread_context(
   if current_ts:
     messages = [m for m in messages if m.get("ts") != current_ts]
 
+  # All messages were filtered (e.g. single-message thread where only msg is current)
+  if not messages:
+    return current_message
+
   # Cap to the most recent N messages (keep tail)
   if len(messages) > THREAD_HISTORY_LIMIT:
     messages = messages[-THREAD_HISTORY_LIMIT:]
