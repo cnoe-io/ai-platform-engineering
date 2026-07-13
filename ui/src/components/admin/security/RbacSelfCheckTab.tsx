@@ -909,7 +909,7 @@ export function RbacSelfCheckTab({ isAdmin }: RbacSelfCheckTabProps) {
             placeholder="Max (500)"
             title="Max missing tuples to repair in one pass. Leave blank for the default of 500; raise it to backfill a large synced population in a single pass."
             disabled={actionBusy}
-            className="h-9 w-24 rounded-md border border-border/80 bg-background px-2 text-sm"
+            className="h-9 w-32 rounded-md border border-border/80 bg-background px-2 text-sm"
           />
           <Button
             type="button"
