@@ -19,6 +19,11 @@ interface SlackStats {
   };
   total_interactions: number;
   unique_users: number;
+  configured_channels?: number;
+  configured_channels_daily?: Array<{
+    date: string;
+    total: number;
+  }>;
   resolution: {
     total_threads: number;
     resolved_threads: number;
@@ -54,6 +59,38 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
         <h3 className="text-lg font-semibold">Slack</h3>
       </div>
       <div className="h-px bg-border" />
+
+      {/* Configured Channels */}
+      {slack.configured_channels !== undefined && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Hash className="h-5 w-5" />
+              Configured Channels
+            </CardTitle>
+            <CardDescription>Slack channels wired to an agent</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-2">
+              <p className="text-3xl font-bold">{slack.configured_channels.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">currently configured</p>
+            </div>
+            {slack.configured_channels_daily && slack.configured_channels_daily.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs text-muted-foreground mb-2">Configured channels over time ({rangeLabel})</p>
+                <SimpleLineChart
+                  data={slack.configured_channels_daily.map((point) => ({
+                    label: new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    value: point.total,
+                  }))}
+                  height={160}
+                  color="rgb(168, 85, 247)"
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Daily Activity Chart */}
       {slack.daily.length > 0 && (

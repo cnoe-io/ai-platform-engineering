@@ -892,6 +892,15 @@ async function getAdminStats(request: NextRequest) {
         ];
         delete slackFilter.created_at;
       }
+      // Agent filter applies to the Slack block too: Slack conversations carry
+      // the routed agent on metadata.thread_owner_agent_id, so scope by the
+      // selected agent ids to keep this section consistent with the rest of the
+      // page (Overview, Top Users, Top Agents, etc.).
+      if (selectedAgents.length > 0) {
+        andInto(slackFilter, {
+          'metadata.thread_owner_agent_id': { $in: selectedAgents.map((a) => a.id) },
+        });
+      }
       const slackHasData = skipSlackBlock ? 0 : await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
 
       if (slackHasData > 0) {
@@ -910,7 +919,12 @@ async function getAdminStats(request: NextRequest) {
         // "resolved", so counting them made the rate a meaningless ~100%.
         const isUserQuestion = { $in: [interactionType, USER_QUESTION_INTERACTION_TYPES] };
 
-        const channelMappingColl = await getCollection('channel_team_mappings');
+        const channelMappingColl = await getCollection<{
+          slack_channel_id?: string;
+          channel_name?: string;
+          created_at?: string | Date;
+          active?: boolean;
+        }>('channel_team_mappings');
 
         const [configDoc, slackTotal, slackUniqueUsers, slackDailyAgg, slackTopChannels, channelMappings] =
           await Promise.all([
@@ -962,10 +976,17 @@ async function getAdminStats(request: NextRequest) {
               { $limit: 10 },
             ]).toArray(),
             // Channel id → human name (authoritative source; covers ids whose
-            // conversation metadata only carries the raw id).
+            // conversation metadata only carries the raw id). Also carries
+            // created_at + active for the "configured channels" stat/timeline.
+            // Non-admins only ever see their readable channels here.
             channelMappingColl.find(
-              { slack_channel_id: { $ne: null } },
-              { projection: { slack_channel_id: 1, channel_name: 1 } },
+              {
+                slack_channel_id: { $ne: null },
+                ...(nonAdminScope && nonAdminChannelNames.length > 0
+                  ? { channel_name: { $in: nonAdminChannelNames } }
+                  : {}),
+              },
+              { projection: { slack_channel_id: 1, channel_name: 1, created_at: 1, active: 1 } },
             ).toArray(),
           ]);
 
@@ -980,6 +1001,35 @@ async function getAdminStats(request: NextRequest) {
           const clean = normalizeChannelName(m.channel_name, m.slack_channel_id);
           if (m.slack_channel_id && clean) channelNameById.set(m.slack_channel_id, clean);
         }
+
+        // ── Configured channels: count + cumulative timeline ───────────
+        // How many Slack channels are wired to a team (active mappings), and
+        // how that total grew over the selected range. Distinct by channel id
+        // so a re-mapped channel isn't double-counted. Timeline is cumulative:
+        // each bucket is the running total of channels configured on/before it,
+        // seeded with those configured before the range start.
+        const activeMappings = channelMappings.filter((m) => m.active !== false && m.slack_channel_id);
+        const configuredChannelsTotal = new Set(activeMappings.map((m) => m.slack_channel_id)).size;
+
+        const configuredBeforeRange = new Set<string>();
+        const configuredByBucket = new Map<string, Set<string>>();
+        for (const m of activeMappings) {
+          const created = m.created_at ? new Date(m.created_at) : null;
+          if (!created || Number.isNaN(created.getTime()) || created < rangeStart) {
+            // No timestamp (legacy) or configured before the window → part of
+            // the starting baseline rather than growth inside the range.
+            configuredBeforeRange.add(m.slack_channel_id);
+            continue;
+          }
+          const key = bucketDateKey(floorToBucket(created, bucketUnit), bucketUnit);
+          if (!configuredByBucket.has(key)) configuredByBucket.set(key, new Set());
+          configuredByBucket.get(key)!.add(m.slack_channel_id);
+        }
+        let runningConfigured = configuredBeforeRange.size;
+        const configuredChannelsDaily = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => {
+          runningConfigured += configuredByBucket.get(dateKey)?.size ?? 0;
+          return { date: dateKey, total: runningConfigured };
+        });
 
         // ── Hours-saved estimation (Slack) ─────────────────────────────
         // Only user-initiated threads (mention/qanda/dm/user) count — a
@@ -1083,6 +1133,8 @@ async function getAdminStats(request: NextRequest) {
           channels: configDoc
             ? { total: configDoc.total, qanda_enabled: configDoc.qanda_enabled, alerts_enabled: configDoc.alerts_enabled, ai_enabled: configDoc.ai_enabled }
             : { total: 0, qanda_enabled: 0, alerts_enabled: 0, ai_enabled: 0 },
+          configured_channels: configuredChannelsTotal,
+          configured_channels_daily: configuredChannelsDaily,
           total_interactions: slackTotal,
           unique_users: slackUniqueUsers[0]?.total || 0,
           resolution: {

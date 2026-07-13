@@ -2750,7 +2750,7 @@ function AdminPage() {
                     )}
 
                     {/* ─── Web Section ─── */}
-                    {(stats.response_time?.sample_count > 0 || stats.completed_workflows) && (
+                    {(stats.response_time || stats.completed_workflows) && (
                       <>
                         <div className="flex items-center gap-2 pt-2">
                           <Globe className="h-5 w-5 text-muted-foreground" />
@@ -2759,8 +2759,10 @@ function AdminPage() {
                         <div className="h-px bg-border" />
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          {/* Response Time */}
-                          {stats.response_time && stats.response_time.sample_count > 0 && (
+                          {/* Response Time — always shown within the Web section so
+                              filtering to an agent with no latency samples renders
+                              empty stats rather than removing the card entirely. */}
+                          {stats.response_time && (
                             <Card>
                               <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -2770,20 +2772,24 @@ function AdminPage() {
                                 <CardDescription>AI response latency from web conversations</CardDescription>
                               </CardHeader>
                               <CardContent>
-                                <div className="grid grid-cols-3 gap-4 text-center">
-                                  <div>
-                                    <p className="text-2xl font-bold">{(stats.response_time.avg_ms / 1000).toFixed(1)}s</p>
-                                    <p className="text-xs text-muted-foreground">Average</p>
+                                {stats.response_time.sample_count > 0 ? (
+                                  <div className="grid grid-cols-3 gap-4 text-center">
+                                    <div>
+                                      <p className="text-2xl font-bold">{(stats.response_time.avg_ms / 1000).toFixed(1)}s</p>
+                                      <p className="text-xs text-muted-foreground">Average</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-2xl font-bold text-green-500">{(stats.response_time.min_ms / 1000).toFixed(1)}s</p>
+                                      <p className="text-xs text-muted-foreground">Fastest</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-2xl font-bold text-orange-500">{(stats.response_time.max_ms / 1000).toFixed(1)}s</p>
+                                      <p className="text-xs text-muted-foreground">Slowest</p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-2xl font-bold text-green-500">{(stats.response_time.min_ms / 1000).toFixed(1)}s</p>
-                                    <p className="text-xs text-muted-foreground">Fastest</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-2xl font-bold text-orange-500">{(stats.response_time.max_ms / 1000).toFixed(1)}s</p>
-                                    <p className="text-xs text-muted-foreground">Slowest</p>
-                                  </div>
-                                </div>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground text-center py-4">No latency data for this selection</p>
+                                )}
                               </CardContent>
                             </Card>
                           )}

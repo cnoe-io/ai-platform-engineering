@@ -1326,4 +1326,89 @@ describe('GET /api/admin/stats — agent filter (admin)', () => {
     );
     expect(msgHasAgent).toBe(true);
   });
+
+  it('admin: agent filter also scopes the Slack block by thread_owner_agent_id', async () => {
+    mockGetAgentsByIds.mockResolvedValue([{ id: 'agent-x', name: 'X Agent' }]);
+    const { convCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?agent=agent-x'));
+
+    // The Slack aggregations run off slackFilter; the agent id must be merged
+    // into its $and so Slack stats respect the filter too (not just web).
+    const slackScoped = convCol.aggregate.mock.calls.some((call: any[]) => {
+      const pipeline = call[0];
+      return (
+        Array.isArray(pipeline) &&
+        JSON.stringify(pipeline).includes('metadata.thread_owner_agent_id') &&
+        JSON.stringify(pipeline).includes('agent-x')
+      );
+    });
+    expect(slackScoped).toBe(true);
+  });
+});
+
+describe('GET /api/admin/stats — Configured Channels', () => {
+  beforeEach(resetMocks);
+
+  /** channel_team_mappings.find(query, opts).toArray() → docs. */
+  function stubChannelMappings(docs: any[]) {
+    const col = createMockCollection();
+    col.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(docs) });
+    mockCollections['channel_team_mappings'] = col;
+    return col;
+  }
+
+  /** Some queries in the Slack block call .find(...).toArray() directly. */
+  function stubFindToArray(col: any) {
+    col.find = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      sort: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+  }
+
+  it('reports configured_channels count (distinct active channel ids)', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    // Slack block only builds when there is ≥1 Slack conversation.
+    convCol.countDocuments.mockResolvedValue(1);
+    stubFindToArray(convCol);
+    stubFindToArray(feedbackCol);
+    stubChannelMappings([
+      { slack_channel_id: 'C1', channel_name: 'alpha', active: true },
+      { slack_channel_id: 'C2', channel_name: 'beta', active: true },
+      { slack_channel_id: 'C2', channel_name: 'beta-renamed', active: true },
+      { slack_channel_id: 'C3', channel_name: 'gamma', active: false },
+    ]);
+
+    const res = await GET(makeRequest('/api/admin/stats'));
+    const body = await res.json();
+
+    // C1 + C2 (deduped) active; C3 inactive excluded.
+    expect(body.data.slack.configured_channels).toBe(2);
+    expect(Array.isArray(body.data.slack.configured_channels_daily)).toBe(true);
+  });
+
+  it('configured_channels_daily is a cumulative running total', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+    stubFindToArray(convCol);
+    stubFindToArray(feedbackCol);
+    stubChannelMappings([
+      // No created_at → counted in the baseline before the range.
+      { slack_channel_id: 'C0', channel_name: 'legacy', active: true },
+    ]);
+
+    const res = await GET(makeRequest('/api/admin/stats'));
+    const body = await res.json();
+
+    const daily = body.data.slack.configured_channels_daily as Array<{ total: number }>;
+    expect(daily.length).toBeGreaterThan(0);
+    // Baseline channel present from the first bucket; totals never decrease.
+    expect(daily[0].total).toBe(1);
+    for (let i = 1; i < daily.length; i++) {
+      expect(daily[i].total).toBeGreaterThanOrEqual(daily[i - 1].total);
+    }
+  });
 });
