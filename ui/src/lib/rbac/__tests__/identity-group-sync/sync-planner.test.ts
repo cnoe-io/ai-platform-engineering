@@ -49,8 +49,8 @@ const group: ExternalGroup & {
 };
 
 describe("identity group sync dry-run planner", () => {
-  it("plans team creation, membership sources, skipped users, and member tuples", () => {
-    const result = planIdentityGroupSync({
+  it("plans team creation, membership sources, skipped users, and member tuples", async () => {
+    const result = await planIdentityGroupSync({
       groups: [group],
       rules: [rule],
       existingTeams: [],
@@ -86,8 +86,8 @@ describe("identity group sync dry-run planner", () => {
     ]);
   });
 
-  it("queues a team rename when the stored team name differs from the IdP group name", () => {
-    const result = planIdentityGroupSync({
+  it("queues a team rename when the stored team name differs from the IdP group name", async () => {
+    const result = await planIdentityGroupSync({
       groups: [group],
       rules: [rule],
       existingTeams: [{ id: "platform-id", slug: "platform", name: "Old Platform Name" }],
@@ -102,7 +102,7 @@ describe("identity group sync dry-run planner", () => {
     expect(result.teams_to_create).toEqual([]);
   });
 
-  it("stamps last_seen_at on membership_sources_to_refresh for unchanged active memberships", () => {
+  it("stamps last_seen_at on membership_sources_to_refresh for unchanged active memberships", async () => {
     const existingSource: TeamMembershipSource = {
       team_id: "platform-id",
       team_slug: "platform",
@@ -122,7 +122,7 @@ describe("identity group sync dry-run planner", () => {
       created_at: "2026-04-01T00:00:00.000Z",
     };
 
-    const result = planIdentityGroupSync({
+    const result = await planIdentityGroupSync({
       groups: [group],
       rules: [rule],
       existingTeams: [{ id: "platform-id", slug: "platform", name: "Platform" }],
@@ -141,7 +141,7 @@ describe("identity group sync dry-run planner", () => {
     expect(result.membership_sources_to_add).toEqual([]);
   });
 
-  it("surfaces safety warnings for disruptive managed membership removals", () => {
+  it("surfaces safety warnings for disruptive managed membership removals", async () => {
     const existingSources = [
       {
         team_id: "platform-id",
@@ -159,7 +159,7 @@ describe("identity group sync dry-run planner", () => {
       },
     ];
 
-    const result = planIdentityGroupSync({
+    const result = await planIdentityGroupSync({
       groups: [],
       rules: [rule],
       existingTeams: [{ id: "platform-id", slug: "platform", name: "Platform" }],
@@ -188,7 +188,7 @@ describe("identity group sync dry-run planner", () => {
     );
   });
 
-  it("deduplicates team creation when multiple claim groups target the same missing team", () => {
+  it("deduplicates team creation when multiple claim groups target the same missing team", async () => {
     const adminGroup = {
       ...group,
       external_group_id: "gid-caipe-admins",
@@ -201,7 +201,7 @@ describe("identity group sync dry-run planner", () => {
       role_map: { Admins: "admin", Users: "member" },
     };
 
-    const result = planIdentityGroupSync({
+    const result = await planIdentityGroupSync({
       groups: [group, adminGroup],
       rules: [adminRule],
       existingTeams: [],

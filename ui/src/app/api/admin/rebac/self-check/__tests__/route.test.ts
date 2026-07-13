@@ -292,3 +292,38 @@ it("cleans stale service account scopes and Webex grants for missing resources",
     applied_tuple_deletes: 2,
   });
 });
+
+it("raises the repair scan's finding cap when maxFindings is supplied", async () => {
+  mockRepairableMissingTuples.mockReturnValue([]);
+  mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
+
+  const { POST } = await import("../route");
+  const response = await POST(request({ maxFindings: 10000 }));
+
+  expect(response.status).toBe(200);
+  // First call is the "before" scan used to compute repairable tuples: it must
+  // carry the raised cap so a large backfill isn't truncated to the default.
+  expect(mockRunRbacSelfCheck).toHaveBeenNthCalledWith(1, { checks: undefined, maxFindings: 10000 });
+});
+
+it("clamps an oversized repair limit to the ceiling", async () => {
+  mockRepairableMissingTuples.mockReturnValue([]);
+  mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
+
+  const { POST } = await import("../route");
+  const response = await POST(request({ maxFindings: 5_000_000 }));
+
+  expect(response.status).toBe(200);
+  expect(mockRunRbacSelfCheck).toHaveBeenNthCalledWith(1, { checks: undefined, maxFindings: 100_000 });
+});
+
+it("omits maxFindings from the repair scan when none is supplied", async () => {
+  mockRepairableMissingTuples.mockReturnValue([]);
+  mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
+
+  const { POST } = await import("../route");
+  const response = await POST(request({}));
+
+  expect(response.status).toBe(200);
+  expect(mockRunRbacSelfCheck).toHaveBeenNthCalledWith(1, { checks: undefined });
+});
