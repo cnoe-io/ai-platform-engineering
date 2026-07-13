@@ -4,7 +4,7 @@ description: "Build, smoke-test, and publish the embedded agentic app runtime im
 on:
   push:
     tags:
-      - "**"
+      - "agentic-apps-*"
     branches:
       - main
     paths:

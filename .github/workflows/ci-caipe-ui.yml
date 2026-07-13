@@ -4,7 +4,7 @@ description: "Build and push CAIPE UI Docker image"
 on:
   push:
     tags:
-      - '**'
+      - 'caipe-ui-*'
     branches:
       - main
     paths:
