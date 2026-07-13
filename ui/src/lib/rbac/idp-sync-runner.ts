@@ -24,6 +24,7 @@ import { linkFederatedIdentity, provisionShellUser } from "@/lib/rbac/keycloak-a
 import { reconcileSyncedUsersBaselineAccess } from "@/lib/rbac/login-openfga-bootstrap";
 import { mapWithConcurrency } from "@/lib/rbac/openfga";
 import { loopYieldEvery, maybeYield } from "@/lib/rbac/event-loop-yield";
+import { startStageProgress } from "@/lib/rbac/sync-progress";
 import { stripArchivedTeamResourceGrants } from "@/lib/rbac/archived-team-grants";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
@@ -205,16 +206,27 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // the first active occurrence (its display name / Okta id) as the record to
     // provision from.
     const yieldEvery = loopYieldEvery();
+    const totalMemberships = (groups as Array<{ members?: SyncMember[] }>).reduce(
+      (sum, group) => sum + (group.members?.length ?? 0),
+      0
+    );
+    console.log(
+      `[IdpSync] run ${runId}: fetched ${groups.length} group(s), ${totalMemberships} membership row(s)`
+    );
+
+    const dedupeProgress = startStageProgress("dedupe members", totalMemberships);
     const uniqueMembers = new Map<string, SyncMember>();
     let dedupeSeen = 0;
     for (const group of groups as Array<{ members?: SyncMember[] }>) {
       for (const member of group.members ?? []) {
         await maybeYield(++dedupeSeen, yieldEvery);
+        dedupeProgress.tick(dedupeSeen);
         const email = member.email?.trim().toLowerCase();
         if (!member.active || !email) continue;
         if (!uniqueMembers.has(email)) uniqueMembers.set(email, member);
       }
     }
+    dedupeProgress.done();
 
     // Resolve each unique member's email to a Keycloak `sub`, JIT-creating a
     // federated shell user when none exists yet, so RBAC can be granted before
@@ -238,6 +250,12 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // explicit yield.
     const subCache = new Map<string, string | null>();
     const emails = Array.from(uniqueMembers.keys());
+    console.log(
+      `[IdpSync] run ${runId}: resolving ${emails.length} unique member(s) ` +
+        `at concurrency ${memberResolveConcurrency()}`
+    );
+    const resolveProgress = startStageProgress("resolve members", emails.length);
+    let resolved = 0;
     await mapWithConcurrency(emails, memberResolveConcurrency(), async (email) => {
       const member = uniqueMembers.get(email)!;
       let sub: string | null = null;
@@ -280,21 +298,26 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
           );
         }
       }
+      resolveProgress.tick(++resolved);
     });
+    resolveProgress.done();
 
     // Stamp the resolved subject onto every member object in every group so the
     // planner (which reads `member.subject`) sees them. This is a second pass
     // because a user can appear in many groups but is only resolved once above.
+    const stampProgress = startStageProgress("stamp subjects", totalMemberships);
     let stampSeen = 0;
     for (const group of groups as Array<{ members?: SyncMember[] }>) {
       for (const member of group.members ?? []) {
         await maybeYield(++stampSeen, yieldEvery);
+        stampProgress.tick(stampSeen);
         const email = member.email?.trim().toLowerCase();
         if (!email) continue;
         const sub = subCache.get(email);
         if (sub) member.subject = sub;
       }
     }
+    stampProgress.done();
 
     // Grant the org-member baseline (incl. the `mcp_gateway:list` caller tuple
     // that AgentGateway's coarse ext_authz gate requires) to every user this
@@ -310,6 +333,10 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // bootstrap hiccup can't block the membership reconcile that follows.
     const resolvedSubjects = Array.from(subCache.values()).filter(
       (sub): sub is string => Boolean(sub)
+    );
+    console.log(
+      `[IdpSync] run ${runId}: bootstrapping baseline OpenFGA access for ` +
+        `${resolvedSubjects.length} resolved subject(s)`
     );
     const baseline = await reconcileSyncedUsersBaselineAccess(resolvedSubjects);
     if (baseline.status === "failed") {
@@ -329,6 +356,11 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
     // for groups we didn't look at). Without a filter it's a full snapshot.
     const partialFetch = Boolean(groupFilter);
 
+    console.log(
+      `[IdpSync] run ${runId}: planning group sync over ${groups.length} group(s), ` +
+        `${rules.length} rule(s), ${existingMembershipSources.length} existing membership source(s)` +
+        (partialFetch ? " (partial fetch)" : "")
+    );
     const plan = await planIdentityGroupSync({
       groups,
       rules,
@@ -338,13 +370,20 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
       actor,
       partialFetch,
     });
+    console.log(
+      `[IdpSync] run ${runId}: plan ready — ${plan.matched_groups?.length ?? 0} matched group(s), ` +
+        `+${plan.membership_sources_to_add?.length ?? 0}/-${plan.membership_sources_to_remove?.length ?? 0} membership source(s), ` +
+        `${plan.teams_to_create?.length ?? 0} team(s) to create`
+    );
 
     const now = new Date().toISOString();
+    console.log(`[IdpSync] run ${runId}: applying plan`);
     const result = await applyIdentityGroupSyncPlan({
       plan,
       actor,
       now,
     });
+    console.log(`[IdpSync] run ${runId}: plan applied`);
 
     // On a full fetch, sweep for already-orphaned identity_group_sync teams
     // that pre-date this fix (their sources were previously removed but the
