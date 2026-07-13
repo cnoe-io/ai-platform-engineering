@@ -13,6 +13,7 @@ import { batchCheckOpenFgaTuples,checkOpenFgaTuple,listOpenFgaObjects,writeOpenF
 import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { openFgaResourceObject } from "@/lib/rbac/openfga-resource-ids";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import { getRealmUserByIdOrNull } from "@/lib/rbac/keycloak-admin";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import {
 createJsonResponseCacheStore,
@@ -337,6 +338,47 @@ async function getAdminTabGates(request?: NextRequest) {
       { status: 403 }
     );
   }
+
+  // A simulation URL only contains the stable Keycloak subject. Resolve the
+  // canonical identity here so the client can render a human name after a
+  // refresh instead of falling back to the opaque UUID. A raw OpenFGA id is
+  // still supported; failed lookups intentionally keep the id fallback.
+  let simulatedBaselineObjects = new Set<string>();
+  if (simulation.subject?.type === "user") {
+    const simulatedSubject = simulation.subject;
+    const [profile, realmUser] = await Promise.all([
+      getBaselineFgaProfile(),
+      getRealmUserByIdOrNull(simulatedSubject.id).catch((error) => {
+        console.warn("[AdminTabGates] Failed to resolve simulated user identity", {
+          userId: simulatedSubject.id,
+          error,
+        });
+        return null;
+      }),
+    ]);
+    simulatedBaselineObjects = new Set(
+      baselineBootstrapTuples(simulatedSubject.id, false, profile)
+        .filter((tuple) => tuple.relation === "reader")
+        .map((tuple) => tuple.object),
+    );
+
+    if (realmUser) {
+      const firstName = String(realmUser.firstName ?? "").trim();
+      const lastName = String(realmUser.lastName ?? "").trim();
+      const email = String(realmUser.email ?? "").trim();
+      const username = String(realmUser.username ?? "").trim();
+      const displayName = [firstName, lastName].filter(Boolean).join(" ") || username || email;
+      simulation = {
+        ...simulation,
+        subject: {
+          ...simulatedSubject,
+          ...(displayName ? { display_name: displayName } : {}),
+          ...(email ? { email } : {}),
+        },
+      };
+    }
+  }
+
   const simulatedUser = simulation.subject?.openfga_user;
   const currentSubject = getSessionSubject(session);
   const currentUser = currentSubject ? `user:${currentSubject}` : undefined;
@@ -454,13 +496,16 @@ async function getAdminTabGates(request?: NextRequest) {
               })
             : isAdmin
           : BASELINE_TABS.has(tab) && actor
-            ? await hasBaselineAdminSurfaceRead(actor, tab)
+            ? simulatedBaselineObjects.has(adminSurfaceObject(tab)) ||
+              await hasBaselineAdminSurfaceRead(actor, tab)
             : simulatedUser
               ? await hasAdminSurfaceManage(simulatedUser, tab)
               : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
     }
 
-    if (!allowed && actor && !simulatedUser) {
+    const supportsSimulatedResourceScope =
+      !simulatedUser || tab === "slack" || tab === "webex";
+    if (!allowed && actor && supportsSimulatedResourceScope) {
       allowed = await hasResourceScopedIntegrationAccess(actor, tab);
     }
 
@@ -489,7 +534,7 @@ async function getAdminTabGates(request?: NextRequest) {
       INTEGRATION_PANEL_TABS.map(async (tab) => {
         if (!gates[tab]) return;
         const surfaceManage =
-          bootstrapAdmin || (await hasAdminSurfaceManage(actor, tab));
+          (!simulatedUser && bootstrapAdmin) || (await hasAdminSurfaceManage(actor, tab));
         integrationPanelModes[tab] = surfaceManage ? "full" : "self_service";
       }),
     );

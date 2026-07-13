@@ -8,6 +8,9 @@ export interface AdminSimulationSubject {
   id: string;
   relation?: AdminSimulationTeamRelation;
   openfga_user: string;
+  /** Canonical Keycloak display values, populated by simulation API routes. */
+  display_name?: string;
+  email?: string;
 }
 
 export interface AdminSimulationContext {

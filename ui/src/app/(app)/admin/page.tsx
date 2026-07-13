@@ -504,6 +504,15 @@ function AdminPage() {
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
   const { gates, integrationPanelModes, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
   const isSimulationActive = Boolean(simulationTarget);
+  const canMutateAdminData = isAdmin && !isSimulationActive;
+  const simulationDisplayName =
+    simulation?.subject?.display_name ||
+    simulation?.subject?.email ||
+    simulationTarget?.id ||
+    "selected subject";
+  const simulationOpenFgaUser =
+    simulation?.subject?.openfga_user ||
+    (simulationTarget ? `${simulationTarget.type}:${simulationTarget.id}` : "");
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -542,7 +551,7 @@ function AdminPage() {
   const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
   const userSelectedAdminTabRef = useRef(false);
   const initialTab = searchParams.get('tab');
-  const defaultTab = isAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
+  const defaultTab = isAdmin && !isSimulationActive ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
   const [activeTab, setActiveTab] = useState<string>(
     isValidTab(initialTab) ? initialTab : defaultTab
   );
@@ -559,7 +568,10 @@ function AdminPage() {
       feedback: Boolean(gates.feedback && feedbackEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
-      settings: !isSimulationActive,
+      // General settings are part of the normal read-only user experience.
+      // Keep them visible during View As and let the child panels enforce the
+      // preview's read-only mode through `canMutateAdminData`.
+      settings: true,
       ai_review: isAdmin && !isSimulationActive,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
@@ -1208,6 +1220,7 @@ function AdminPage() {
   };
 
   const openTeamDialog = (team: Team, mode: TeamDialogMode) => {
+    if (isSimulationActive) return;
     setSelectedTeam(team as TeamType);
     setTeamDialogMode(mode);
     setTeamDetailsOpen(true);
@@ -1251,15 +1264,17 @@ function AdminPage() {
               <div className="flex min-w-0 flex-wrap items-baseline">
                 <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
                 <span className="ml-1 text-sm text-muted-foreground">
-                  {isAdmin
+                  {isSimulationActive
+                    ? `, Previewing ${simulationDisplayName}'s effective access`
+                    : isAdmin
                     ? ', Manage access, teams, health, and platform settings'
                     : ', View access, teams, health, and platform settings'}
                 </span>
               </div>
-              {!isAdmin && (
+              {(!isAdmin || isSimulationActive) && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   <Eye className="h-3.5 w-3.5" />
-                  Read-Only
+                  {isSimulationActive ? 'Preview · Read-Only' : 'Read-Only'}
                 </span>
               )}
               {/* Always-visible status pill that opens the
@@ -1318,7 +1333,7 @@ function AdminPage() {
                     View as
                     {isSimulationActive && (
                       <span className="max-w-40 truncate">
-                        {simulation?.subject?.openfga_user ?? simulationTarget?.id}
+                        {simulationDisplayName}
                       </span>
                     )}
                   </button>
@@ -1454,7 +1469,8 @@ function AdminPage() {
                     {isSimulationActive && (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
                         <span className="font-medium">Active preview:</span>{" "}
-                        <code>{simulation?.subject?.openfga_user ?? `${simulationTarget?.type}:${simulationTarget?.id}`}</code>
+                        <span>{simulationDisplayName}</span>{" "}
+                        <code className="text-xs text-muted-foreground">{simulationOpenFgaUser}</code>
                       </div>
                     )}
                   </div>
@@ -1472,23 +1488,37 @@ function AdminPage() {
                 </DialogContent>
               </Dialog>
 
+              {isSimulationActive && !adminTabGatesLoading && visibleCategories.length === 0 && (
+                <div
+                  role="status"
+                  className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-10 text-center"
+                >
+                  <p className="font-medium">No admin surfaces are available to {simulationDisplayName}.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    This user has no baseline admin tabs or resource-scoped Slack/Webex access.
+                  </p>
+                </div>
+              )}
+
               {/* Filtered sub-tabs for the active category */}
-              <TabsList className="flex w-full justify-start gap-0">
-                {visibleTabsForCategory.map((t) => {
-                  const Icon = t.icon;
-                  return (
-                    <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
-                      <Icon className="h-4 w-4" />
-                      {t.label}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
+              {visibleTabsForCategory.length > 0 && (
+                <TabsList className="flex w-full justify-start gap-0">
+                  {visibleTabsForCategory.map((t) => {
+                    const Icon = t.icon;
+                    return (
+                      <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
+                        <Icon className="h-4 w-4" />
+                        {t.label}
+                      </TabsTrigger>
+                    );
+                  })}
+                </TabsList>
+              )}
 
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab isAdmin={isAdmin} />
-                  <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                  <PlatformSettingsTab isAdmin={canMutateAdminData} />
+                  <ReleaseNotesSettingsTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
@@ -1514,10 +1544,11 @@ function AdminPage() {
                 <TabsContent value="slack" className="space-y-4">
                   <SlackChannelRebacPanel
                     disabled={isSimulationActive}
+                    simulationTarget={simulationTarget}
                     selfService={
                       integrationPanelModes.slack
                         ? integrationPanelModes.slack === "self_service"
-                        : !isAdmin
+                        : !canMutateAdminData
                     }
                   />
                 </TabsContent>
@@ -1527,10 +1558,11 @@ function AdminPage() {
                 <TabsContent value="webex" className="space-y-4">
                   <WebexSpaceRebacPanel
                     disabled={isSimulationActive}
+                    simulationTarget={simulationTarget}
                     selfService={
                       integrationPanelModes.webex
                         ? integrationPanelModes.webex === "self_service"
-                        : !isAdmin
+                        : !canMutateAdminData
                     }
                   />
                 </TabsContent>
@@ -1544,7 +1576,7 @@ function AdminPage() {
                     userId={selectedUserId}
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
-                    readOnly={!isAdmin}
+                    readOnly={!canMutateAdminData}
                     teamOptions={teams.length > 0 ? teams.map((t) => ({ teamId: t.name, label: t.name })) : undefined}
                   />
                 )}
@@ -1601,7 +1633,7 @@ function AdminPage() {
                       )}
                       Refresh Teams
                     </Button>
-                    {isAdmin && (
+                    {canMutateAdminData && (
                       <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
                         <UserPlus className="h-4 w-4" />
                         Create Team
@@ -1618,11 +1650,11 @@ function AdminPage() {
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
                     <p className="text-muted-foreground mb-4">
-                      {isAdmin
+                      {canMutateAdminData
                         ? 'Create teams to enable collaboration and conversation sharing'
                         : 'No teams have been created yet'}
                     </p>
-                    {isAdmin && (
+                    {canMutateAdminData && (
                       <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
                         <UserPlus className="h-4 w-4" />
                         Create Your First Team
@@ -1659,7 +1691,7 @@ function AdminPage() {
                                 <CardDescription>{team.description}</CardDescription>
                               )}
                             </div>
-                            {isAdmin && (
+                            {canMutateAdminData && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1702,24 +1734,28 @@ function AdminPage() {
                               icon={<Users className="h-3.5 w-3.5" />}
                               label="Members"
                               count={team.member_count ?? 0}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "members")}
                             />
                             <StatChip
                               icon={<Bot className="h-3.5 w-3.5" />}
                               label="Agents"
                               count={team.agent_count ?? 0}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
                               label="MCPs"
                               count={team.tool_wildcard ? "*" : (team.tool_count ?? 0)}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "mcp")}
                             />
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
                               label="KBs"
                               count={team.kb_count ?? 0}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "kbs")}
                             />
                           </div>
@@ -1730,12 +1766,13 @@ function AdminPage() {
                           <div className="mt-4">
                             <Button
                               size="sm"
-                              variant={(isAdmin || team.can_manage) ? "default" : "outline"}
+                              variant={(!isSimulationActive && (isAdmin || team.can_manage)) ? "default" : "outline"}
                               className="w-full gap-1.5"
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "details")}
                             >
                               <Settings className="h-3.5 w-3.5" />
-                              {(isAdmin || team.can_manage) ? "Manage team" : "View team"}
+                              {(!isSimulationActive && (isAdmin || team.can_manage)) ? "Manage team" : "View team"}
                             </Button>
                           </div>
                         </CardContent>
@@ -1780,7 +1817,7 @@ function AdminPage() {
                   shown only when a directory connector is enabled. */}
               {tabGateValues.identity_sync && (
                 <TabsContent value="identity-sync" className="space-y-4">
-                  <IdentitySyncPanel isAdmin={isAdmin} />
+                  <IdentitySyncPanel isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
@@ -1912,7 +1949,7 @@ function AdminPage() {
                 )}
 
                 {/* Skill Hubs */}
-                <SkillHubsSection isAdmin={isAdmin} />
+                <SkillHubsSection isAdmin={canMutateAdminData} />
               </TabsContent>
 
               {/* Feedback Tab */}
@@ -2790,31 +2827,31 @@ function AdminPage() {
               {/* CAS Insights — authorization service health + decision stats */}
               {tabGateValues.metrics && (
                 <TabsContent value="cas-insights" className="space-y-4">
-                  <CasInsightsTab isAdmin={isAdmin} />
+                  <CasInsightsTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
-                  <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
+                  <AuditLogsTab isAdmin={canMutateAdminData} onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
               {tabGateValues.action_audit && (
                 <TabsContent value="action-audit" className="space-y-4">
-                  <UnifiedAuditTab isAdmin={isAdmin} />
+                  <UnifiedAuditTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
               {tabGateValues.openfga && (
                 <TabsContent value="access-explorer" className="space-y-4">
-                  <AccessExplorerTab isAdmin={isAdmin} />
+                  <AccessExplorerTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
               {tabGateValues.openfga && (
                 <TabsContent value="rbac-self-check" className="space-y-4">
-                  <RbacSelfCheckTab isAdmin={isAdmin} />
+                  <RbacSelfCheckTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
@@ -2826,7 +2863,7 @@ function AdminPage() {
 
               {tabGateValues.migrations && (
                 <TabsContent value="migrations" className="space-y-4">
-                  <MigrationTab isAdmin={tabGateValues.migrations} />
+                  <MigrationTab isAdmin={canMutateAdminData && tabGateValues.migrations} />
                 </TabsContent>
               )}
 
@@ -2951,6 +2988,7 @@ function StatChip({
   count,
   ariaLabel,
   title,
+  disabled = false,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -2959,15 +2997,17 @@ function StatChip({
   count?: number | string;
   ariaLabel?: string;
   title?: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       aria-label={ariaLabel}
+      disabled={disabled}
       onClick={onClick}
-      className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={title || `Manage ${label.toLowerCase()}`}
+      className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-muted/30"
+      title={title || (disabled ? `${label} details are disabled during preview` : `Manage ${label.toLowerCase()}`)}
     >
       <div className="flex items-center gap-1 text-muted-foreground">
         {icon}

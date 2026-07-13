@@ -903,7 +903,10 @@ Admin URL through the **View As Effective Permissions** control. The browser sta
 authenticated as the real admin; the Web UI backend simply evaluates tab gates as
 the simulated OpenFGA subject (`user:<sub>` or `team:<slug>#admin`). Simulation is
 not Keycloak impersonation, never mints a token for the target principal, and
-disables mutation-oriented integration panels while previewing.
+disables mutation-oriented integration panels while previewing. Configured
+Slack channels and Webex spaces are also filtered through the simulated
+subject's concrete `can_read` / `can_manage` relationships, so an integration
+preview contains only resources that principal can access.
 
 The UI is intentionally Web UI backend first:
 

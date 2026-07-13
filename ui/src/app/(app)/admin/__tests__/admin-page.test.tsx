@@ -291,6 +291,7 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
             slack: 'full',
             webex: 'full',
           },
+          simulation: overrides.simulation ?? null,
         }),
       });
     }
@@ -586,6 +587,47 @@ describe('Admin Dashboard Page', () => {
         expect.stringContaining('simulate_type=user&simulate_id=kc-user'),
         { scroll: false }
       );
+    });
+
+    it('shows the simulated user name and baseline navigation instead of a blank shell', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=kc-user');
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          roles: false,
+          identity_group_sync: false,
+          slack: false,
+          webex: false,
+          feedback: false,
+          stats: false,
+          audit_logs: false,
+          action_audit: false,
+          openfga: false,
+          migrations: false,
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+            email: 'user@example.com',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: /view as regular user/i })).toBeInTheDocument();
+      expect(screen.getByText(/previewing regular user's effective access/i)).toBeInTheDocument();
+      expect(screen.getByText('Preview · Read-Only')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/No admin surfaces are available/i)).not.toBeInTheDocument();
     });
 
     it('does not show Read-Only badge', async () => {

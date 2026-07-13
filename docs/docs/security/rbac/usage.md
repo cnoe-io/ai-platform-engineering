@@ -404,8 +404,10 @@ email/name/Keycloak subject and teams by name/slug, with a `member`/`admin`
 userset relation for team previews. The preview is read-only: tab visibility is
 evaluated as the selected `user:<sub>` or `team:<slug>#relation`, but the browser
 session remains the signed-in admin and Slack/Webex mutation controls are
-disabled. Use this to answer "what would this manager see?" before granting or
-revoking relationships in Access Manager.
+disabled. Configured Slack channels and Webex spaces are listed using that same
+simulated subject, including concrete resources it owns or receives through a
+team grant. Use this to answer "what would this manager see?" before granting
+or revoking relationships in Access Manager.
 
 Use **Admin → Security & Policy → OpenFGA ReBAC → Policy Graph** to inspect the
 same relationships visually without starting from the full tuple blast radius.
