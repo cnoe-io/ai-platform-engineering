@@ -113,7 +113,7 @@ export async function reconcileOidcClaimGroupsForUser(input: {
     }),
   ]);
 
-  const plan = planIdentityGroupSync({
+  const plan = await planIdentityGroupSync({
     groups: groupsToExternalGroupsForUser({
       providerId,
       groups: input.groups,
