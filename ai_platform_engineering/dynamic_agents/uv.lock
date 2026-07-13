@@ -508,7 +508,6 @@ dev = [
 [package.dev-dependencies]
 dev = [
     { name = "memray" },
-    { name = "pytest" },
     { name = "ruff" },
 ]
 
@@ -538,7 +537,6 @@ provides-extras = ["dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "memray", specifier = "==1.19.3" },
-    { name = "pytest", specifier = ">=9.0.3" },
     { name = "ruff", specifier = "==0.15.5" },
 ]
 
