@@ -221,6 +221,10 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'architecture/scheduler',
+        },
+        {
+          type: 'doc',
           id: 'architecture/enterprise-identity-federation',
           label: 'Enterprise Identity Federation',
         },
