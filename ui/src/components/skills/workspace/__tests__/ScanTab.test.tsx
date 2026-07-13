@@ -148,11 +148,9 @@ describe("ScanTab — Scan now action", () => {
   });
 
   it("surfaces a toast on scan failure and does not re-fetch history", async () => {
-    let scanCalls = 0;
     let historyCalls = 0;
     const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
       if (url.startsWith("/api/skills/configs/") && init?.method === "POST") {
-        scanCalls += 1;
         return {
           ok: false,
           status: 503,

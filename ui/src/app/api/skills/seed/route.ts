@@ -171,7 +171,7 @@ async function seedTemplatesFromDisk(): Promise<{ seeded: number; skipped: numbe
 }
 
 // GET /api/skills/seed
-export const GET = withErrorHandler(async (request: NextRequest) => {
+export const GET = withErrorHandler(async () => {
   const enabledTemplates = getEnabledTemplates();
 
   if (!isMongoDBConfigured) {

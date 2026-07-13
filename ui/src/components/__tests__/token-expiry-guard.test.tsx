@@ -42,9 +42,9 @@ jest.mock('@/lib/config', () => ({
 // Mock framer-motion to avoid animation issues in tests
 jest.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }))
 
 describe('TokenExpiryGuard', () => {
@@ -82,7 +82,7 @@ describe('TokenExpiryGuard', () => {
       return undefined
     })
 
-    mockSignOut.mockClear().mockResolvedValue(undefined as any)
+    mockSignOut.mockClear().mockResolvedValue(undefined as unknown)
   })
 
   afterEach(() => {
@@ -103,7 +103,7 @@ describe('TokenExpiryGuard', () => {
     mockUseSession.mockReturnValue({
       data: null,
       status: 'unauthenticated',
-    } as any)
+    } as unknown)
 
     const { container } = render(<TokenExpiryGuard />)
     expect(container.firstChild).toBeNull()
@@ -113,7 +113,7 @@ describe('TokenExpiryGuard', () => {
     mockUseSession.mockReturnValue({
       data: null,
       status: 'unauthenticated',
-    } as any)
+    } as unknown)
 
     const { container } = render(<TokenExpiryGuard />)
     expect(container.firstChild).toBeNull()
@@ -123,7 +123,7 @@ describe('TokenExpiryGuard', () => {
     mockUseSession.mockReturnValue({
       data: null,
       status: 'loading',
-    } as any)
+    } as unknown)
 
     const { container } = render(<TokenExpiryGuard />)
     expect(container.firstChild).toBeNull()
@@ -140,7 +140,7 @@ describe('TokenExpiryGuard', () => {
       data: {
         user: { name: 'Test User', email: 'test@example.com' },
         expiresAt: futureExpiry,
-      } as any,
+      } as unknown,
       status: 'authenticated',
       update: mockUpdateSession,
     })
@@ -164,7 +164,7 @@ describe('TokenExpiryGuard', () => {
       data: {
         user: { name: 'Test User', email: 'test@example.com' },
         expiresAt: soonExpiry,
-      } as any,
+      } as unknown,
       status: 'authenticated',
       update: mockUpdateSession,
     })
@@ -196,7 +196,7 @@ describe('TokenExpiryGuard', () => {
         user: { name: 'Test User', email: 'test@example.com' },
         expiresAt: futureExpiry,
         accessToken: 'test-token',
-      } as any,
+      } as unknown,
       status: 'authenticated',
       update: mockUpdateSession,
     })
@@ -231,7 +231,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: expiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -257,7 +257,7 @@ describe('TokenExpiryGuard', () => {
       data: {
         user: { name: 'Test User', email: 'test@example.com' },
         expiresAt: futureExpiry,
-      } as any,
+      } as unknown,
       status: 'authenticated',
       update: mockUpdateSession,
     })
@@ -289,7 +289,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: false,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -319,7 +319,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: false,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -344,7 +344,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: false,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -374,7 +374,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -401,7 +401,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -424,7 +424,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: newExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -452,7 +452,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -477,7 +477,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: futureExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -503,7 +503,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -525,7 +525,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: false,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -556,7 +556,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -621,7 +621,7 @@ describe('TokenExpiryGuard', () => {
       // mockUpdateSession never resolves for this test, keeping isRefreshingRef = true
       let resolveFirstRefresh!: () => void
       mockUpdateSession.mockReturnValue(
-        new Promise<any>((resolve) => { resolveFirstRefresh = resolve }),
+        new Promise<unknown>((resolve) => { resolveFirstRefresh = resolve }),
       )
 
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
@@ -631,7 +631,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -666,7 +666,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -685,7 +685,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenError',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -704,7 +704,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'AccessTokenMissing',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -723,7 +723,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -750,7 +750,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -779,7 +779,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -808,7 +808,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -833,7 +833,7 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: pastExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -863,7 +863,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: soonExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })
@@ -883,7 +883,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: refreshedExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })

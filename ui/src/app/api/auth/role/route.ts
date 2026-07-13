@@ -3,9 +3,9 @@ import { authOptions,isBootstrapAdmin } from '@/lib/auth-config';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
 import { getServerSession } from 'next-auth';
-import { NextRequest,NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {

@@ -63,7 +63,7 @@ export interface WorkflowRun {
   };
   
   // MongoDB
-  _id?: any;
+  _id?: string;
 }
 
 export interface CreateWorkflowRunInput {

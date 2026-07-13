@@ -47,6 +47,13 @@ interface OktaConnectorConfig {
   groupFilter?: string;
 }
 
+type OAuthAccessToken = Awaited<ReturnType<Client["oauth"]["getAccessToken"]>>;
+
+type DpopOAuth = Omit<Client["oauth"], "getAccessToken"> & {
+  getAccessToken: (nonce?: string | null) => Promise<OAuthAccessToken>;
+  isDPoP: boolean;
+};
+
 function readOktaConfig(): OktaConnectorConfig | null {
   const orgUrl = process.env.IDENTITY_SYNC_OKTA_ORG_URL?.replace(/\/+$/, "");
   if (!orgUrl) return null;
@@ -96,11 +103,12 @@ function oktaConfig(): OktaConnectorConfig {
  * fails (it re-throws so the caller sees the real error).
  */
 function patchOAuthDpopNonce(client: Client): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const oauth = (client as any).oauth;
+  // The SDK runtime accepts a nonce and exposes isDPoP, but its declaration
+  // currently omits both members.
+  const oauth = client.oauth as DpopOAuth;
   if (!oauth) return;
-  const original = oauth.getAccessToken.bind(oauth) as (nonce?: string | null) => Promise<unknown>;
-  oauth.getAccessToken = async function (dpop_nonce: string | null = null): Promise<unknown> {
+  const original = oauth.getAccessToken.bind(oauth);
+  oauth.getAccessToken = async function (dpop_nonce: string | null = null): Promise<OAuthAccessToken> {
     if (this.accessToken) return this.accessToken;
     try {
       return await original(dpop_nonce);

@@ -16,10 +16,10 @@ import { render, screen } from '@testing-library/react'
 // Mocks — must be before imports
 // ============================================================================
 
-let mockStreamingConversations = new Map<string, any>()
+let mockStreamingConversations = new Map<string, unknown>()
 
 jest.mock('@/store/chat-store', () => {
-  const store = (selector?: (s: any) => any) => {
+  const store = (selector?: (s: unknown) => unknown) => {
     const state = {
       streamingConversations: mockStreamingConversations,
     }
@@ -34,7 +34,7 @@ jest.mock('@/store/chat-store', () => {
 })
 
 jest.mock('lucide-react', () => ({
-  Radio: (props: any) => <span data-testid="icon-radio" {...props} />,
+  Radio: (props: unknown) => <span data-testid="icon-radio" {...props} />,
 }))
 
 // ============================================================================

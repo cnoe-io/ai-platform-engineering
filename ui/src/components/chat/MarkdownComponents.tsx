@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import { Check,Copy } from "lucide-react";
 import React,{ useState } from "react";
+import type { Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -35,39 +36,39 @@ function CodeBlockCopyButton({ code }: { code: string }) {
 // Used by both FinalAnswerSegment (AgentTimeline) and the assistant markdown
 // card (ChatPanel) so that assistant output renders identically everywhere.
 
-export const assistantMarkdownComponents: Record<string, React.ComponentType<any>> = {
-  h1: ({ children }: { children: React.ReactNode }) => (
+export const assistantMarkdownComponents: Components = {
+  h1: ({ children }: React.ComponentPropsWithoutRef<"h1">) => (
     <h1 className="text-xl font-bold text-foreground mb-3 mt-4 first:mt-0 pb-2 border-b border-border/50">{children}</h1>
   ),
-  h2: ({ children }: { children: React.ReactNode }) => (
+  h2: ({ children }: React.ComponentPropsWithoutRef<"h2">) => (
     <h2 className="text-lg font-semibold text-foreground mb-2 mt-4 first:mt-0">{children}</h2>
   ),
-  h3: ({ children }: { children: React.ReactNode }) => (
+  h3: ({ children }: React.ComponentPropsWithoutRef<"h3">) => (
     <h3 className="text-base font-semibold text-foreground mb-2 mt-3 first:mt-0">{children}</h3>
   ),
-  p: ({ children }: { children: React.ReactNode }) => (
+  p: ({ children }: React.ComponentPropsWithoutRef<"p">) => (
     <p className="text-sm leading-relaxed text-foreground/90 mb-2 last:mb-0">{children}</p>
   ),
-  ul: ({ children }: { children: React.ReactNode }) => (
+  ul: ({ children }: React.ComponentPropsWithoutRef<"ul">) => (
     <ul className="list-disc list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">{children}</ul>
   ),
-  ol: ({ children }: { children: React.ReactNode }) => (
+  ol: ({ children }: React.ComponentPropsWithoutRef<"ol">) => (
     <ol className="list-decimal list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">{children}</ol>
   ),
-  li: ({ children }: { children: React.ReactNode }) => (
+  li: ({ children }: React.ComponentPropsWithoutRef<"li">) => (
     <li className="leading-relaxed">{children}</li>
   ),
-  strong: ({ children }: { children: React.ReactNode }) => (
+  strong: ({ children }: React.ComponentPropsWithoutRef<"strong">) => (
     <strong className="font-semibold text-foreground">{children}</strong>
   ),
-  em: ({ children }: { children: React.ReactNode }) => (
+  em: ({ children }: React.ComponentPropsWithoutRef<"em">) => (
     <em className="italic text-foreground/90">{children}</em>
   ),
-  blockquote: ({ children }: { children: React.ReactNode }) => (
+  blockquote: ({ children }: React.ComponentPropsWithoutRef<"blockquote">) => (
     <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
   ),
   hr: () => <hr className="my-6 border-border/50" />,
-  a: ({ href, children }: { href?: string; children: React.ReactNode }) => (
+  a: ({ href, children }: React.ComponentPropsWithoutRef<"a">) => (
     <a
       href={href}
       target="_blank"
@@ -77,25 +78,25 @@ export const assistantMarkdownComponents: Record<string, React.ComponentType<any
       {children}
     </a>
   ),
-  table: ({ children }: { children: React.ReactNode }) => (
+  table: ({ children }: React.ComponentPropsWithoutRef<"table">) => (
     <div className="overflow-x-auto my-3 rounded-lg border border-border/50 w-full">
       <table className="w-full text-sm">{children}</table>
     </div>
   ),
-  thead: ({ children }: { children: React.ReactNode }) => (
+  thead: ({ children }: React.ComponentPropsWithoutRef<"thead">) => (
     <thead className="bg-muted/50">{children}</thead>
   ),
-  th: ({ children }: { children: React.ReactNode }) => (
+  th: ({ children }: React.ComponentPropsWithoutRef<"th">) => (
     <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 break-words">{children}</th>
   ),
-  td: ({ children }: { children: React.ReactNode }) => (
+  td: ({ children }: React.ComponentPropsWithoutRef<"td">) => (
     <td className="px-3 py-2 border-b border-border/30 text-foreground/90 break-words align-top">{children}</td>
   ),
-  tr: ({ children }: { children: React.ReactNode }) => (
+  tr: ({ children }: React.ComponentPropsWithoutRef<"tr">) => (
     <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
   ),
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  code({ className, children, node, ...props }: { className?: string; children: React.ReactNode; node?: unknown; [key: string]: unknown }) {
+  code({ className, children, node, ...props }: React.ComponentPropsWithoutRef<"code"> & { node?: unknown }) {
+    void node;
     const match = /language-(\w+)/.exec(className || "");
     const codeContent = String(children).replace(/\n$/, "");
     const hasNewlines = codeContent.includes("\n");

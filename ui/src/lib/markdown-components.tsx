@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Copy } from "lucide-react";
+import type { ComponentPropsWithoutRef } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -9,43 +10,43 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
  */
 export const getMarkdownComponents = () => ({
   // Headings
-  h1: ({ children }: any) => (
+  h1: ({ children }: ComponentPropsWithoutRef<"h1">) => (
     <h1 className="text-xl font-bold text-foreground mb-3 mt-4 first:mt-0 pb-2 border-b border-border/50">
       {children}
     </h1>
   ),
-  h2: ({ children }: any) => (
+  h2: ({ children }: ComponentPropsWithoutRef<"h2">) => (
     <h2 className="text-lg font-semibold text-foreground mb-2 mt-4 first:mt-0">
       {children}
     </h2>
   ),
-  h3: ({ children }: any) => (
+  h3: ({ children }: ComponentPropsWithoutRef<"h3">) => (
     <h3 className="text-base font-semibold text-foreground mb-2 mt-3 first:mt-0">
       {children}
     </h3>
   ),
   // Paragraphs
-  p: ({ children }: any) => (
+  p: ({ children }: ComponentPropsWithoutRef<"p">) => (
     <p className="text-sm leading-relaxed text-foreground/90 mb-2 last:mb-0">
       {children}
     </p>
   ),
   // Lists
-  ul: ({ children }: any) => (
+  ul: ({ children }: ComponentPropsWithoutRef<"ul">) => (
     <ul className="list-disc list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
       {children}
     </ul>
   ),
-  ol: ({ children }: any) => (
+  ol: ({ children }: ComponentPropsWithoutRef<"ol">) => (
     <ol className="list-decimal list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
       {children}
     </ol>
   ),
-  li: ({ children }: any) => (
+  li: ({ children }: ComponentPropsWithoutRef<"li">) => (
     <li className="leading-relaxed">{children}</li>
   ),
   // Code
-  code({ className, children, ...props }: any) {
+  code({ className, children, ...props }: ComponentPropsWithoutRef<"code">) {
     const match = /language-(\w+)/.exec(className || "");
     const codeContent = String(children).replace(/\n$/, "");
     const hasNewlines = codeContent.includes("\n");
@@ -112,37 +113,37 @@ export const getMarkdownComponents = () => ({
     );
   },
   // Blockquotes
-  blockquote: ({ children }: any) => (
+  blockquote: ({ children }: ComponentPropsWithoutRef<"blockquote">) => (
     <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-muted-foreground">
       {children}
     </blockquote>
   ),
   // Tables
-  table: ({ children }: any) => (
+  table: ({ children }: ComponentPropsWithoutRef<"table">) => (
     <div className="overflow-x-auto my-3 rounded-lg border border-border/50 w-full">
       <table className="w-full text-sm">
         {children}
       </table>
     </div>
   ),
-  thead: ({ children }: any) => (
+  thead: ({ children }: ComponentPropsWithoutRef<"thead">) => (
     <thead className="bg-muted/50">{children}</thead>
   ),
-  th: ({ children }: any) => (
+  th: ({ children }: ComponentPropsWithoutRef<"th">) => (
     <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 break-words">
       {children}
     </th>
   ),
-  td: ({ children }: any) => (
+  td: ({ children }: ComponentPropsWithoutRef<"td">) => (
     <td className="px-3 py-2 border-b border-border/30 text-foreground/90 break-words align-top">
       {children}
     </td>
   ),
-  tr: ({ children }: any) => (
+  tr: ({ children }: ComponentPropsWithoutRef<"tr">) => (
     <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
   ),
   // Links
-  a: ({ href, children }: any) => (
+  a: ({ href, children }: ComponentPropsWithoutRef<"a">) => (
     <a
       href={href}
       target="_blank"
@@ -157,11 +158,11 @@ export const getMarkdownComponents = () => ({
     <hr className="my-6 border-border/50" />
   ),
   // Strong/Bold
-  strong: ({ children }: any) => (
+  strong: ({ children }: ComponentPropsWithoutRef<"strong">) => (
     <strong className="font-semibold text-foreground">{children}</strong>
   ),
   // Emphasis/Italic
-  em: ({ children }: any) => (
+  em: ({ children }: ComponentPropsWithoutRef<"em">) => (
     <em className="italic text-foreground/90">{children}</em>
   ),
 });

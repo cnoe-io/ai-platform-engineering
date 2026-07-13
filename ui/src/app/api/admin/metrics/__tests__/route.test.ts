@@ -62,7 +62,6 @@ async function expectMetricsDenied(response: Response): Promise<void> {
   expect(body.code).toBe("admin_surface:metrics#can_manage");
   expect(mockFetch).not.toHaveBeenCalled();
 }
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });

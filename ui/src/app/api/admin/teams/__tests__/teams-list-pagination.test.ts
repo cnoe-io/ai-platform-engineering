@@ -67,7 +67,7 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
   isValidTeamSlug: jest.fn(() => true),
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 let mockIsMongoDBConfigured = true;
 
 jest.mock("@/lib/mongodb", () => ({
@@ -93,11 +93,11 @@ function createMockCollection() {
 // and the unpaginated chain (find().sort().toArray()).
 function seedTeamsCollection(rows: Array<Record<string, unknown>>, total: number) {
   const calls: { query?: Record<string, unknown>; skip?: number; limit?: number } = {};
-  const cursor: any = {
+  const cursor: unknown = {
     sort: jest.fn().mockReturnValue(cursorChain()),
   };
   function cursorChain() {
-    const chain: any = {
+    const chain: unknown = {
       skip: jest.fn((n: number) => {
         calls.skip = n;
         return chain;

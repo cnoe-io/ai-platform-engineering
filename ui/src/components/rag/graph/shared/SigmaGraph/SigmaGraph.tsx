@@ -1,10 +1,16 @@
 "use client";
 
 import { SigmaContainer } from "@react-sigma/core";
-import { MultiDirectedGraph } from "graphology";
 import { Loader2 } from 'lucide-react';
 import React,{ ReactNode } from 'react';
+import type Sigma from 'sigma';
 import '../sigma-styles.css';
+import type {
+    GraphEdgeAttributes,
+    GraphNodeAttributes,
+    KnowledgeGraph,
+    SelectedGraphNode,
+} from '../graphTypes';
 
 // Import shared controllers
 import CameraController from './controllers/CameraController';
@@ -14,13 +20,11 @@ import GraphEventsController from './controllers/GraphEventsController';
 import GraphSettingsController from './controllers/GraphSettingsController';
 import SigmaInstanceCapture from './controllers/SigmaInstanceCapture';
 
-export interface GraphFilters {
-    [key: string]: any;
-}
+export type GraphFilters = Record<string, unknown>;
 
 export interface SigmaGraphProps {
     // Graph data
-    graph: MultiDirectedGraph;
+    graph: KnowledgeGraph;
 
     // State management
     dataReady: boolean;
@@ -29,15 +33,15 @@ export interface SigmaGraphProps {
     setHoveredNode: (node: string | null) => void;
     isDragging: boolean;
     setIsDragging: (dragging: boolean) => void;
-    selectedElement: { type: 'node'; id: string; data: any } | null;
+    selectedElement: SelectedGraphNode | null;
 
     // Event handlers
-    onNodeClick: (nodeId: string, nodeData: any, event?: any) => void;
-    onSigmaReady?: (sigma: any) => void;
+    onNodeClick: (nodeId: string, nodeData: GraphNodeAttributes, event?: unknown) => void;
+    onSigmaReady?: (sigma: Sigma<GraphNodeAttributes,GraphEdgeAttributes>) => void;
 
     // Filters
     filters: GraphFilters;
-    customFilterLogic?: (graph: any, filters: GraphFilters) => void;
+    customFilterLogic?: (graph: KnowledgeGraph, filters: GraphFilters) => void;
 
     // Custom components
     detailsCardComponent?: ReactNode;

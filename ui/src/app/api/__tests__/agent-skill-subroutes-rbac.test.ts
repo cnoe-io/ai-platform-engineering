@@ -74,7 +74,7 @@ describe("skill subroute RBAC cutover", () => {
     mockGetCollection.mockResolvedValue({ findOne });
     const { getAgentSkillVisibleToUser } = await import("@/lib/agent-skill-visibility");
 
-    const result = await getAgentSkillVisibleToUser("skill-openfga-only", "alice@example.com");
+    const result = await getAgentSkillVisibleToUser("skill-openfga-only");
 
     expect(result).toEqual(skill);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();

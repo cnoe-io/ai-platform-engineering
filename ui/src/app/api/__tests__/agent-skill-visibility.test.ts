@@ -73,7 +73,7 @@ jest.mock("@/lib/rbac/skill-team-grants", () => ({
 }));
 
 jest.mock("@/lib/agent-skill-visibility", () => ({
-  getAgentSkillVisibleToUser: jest.fn(async (_id: string, _email: string) => {
+  getAgentSkillVisibleToUser: jest.fn(async () => {
     const { getCollection } = jest.requireMock("@/lib/mongodb");
     const collection = await getCollection("agent_skills");
     return collection.findOne();
@@ -112,14 +112,6 @@ function userSession(email = "user@example.com") {
     user: { email, name: "Test User" },
     role: "user",
     sub: "user-sub",
-  };
-}
-
-function adminSession() {
-  return {
-    user: { email: "admin@example.com", name: "Admin" },
-    role: "admin",
-    sub: "admin-sub",
   };
 }
 

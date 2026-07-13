@@ -9,6 +9,7 @@ withErrorHandler,
 import { getCollection } from '@/lib/mongodb';
 import type { UpdateSettingsRequest,UserSettings } from '@/types/mongodb';
 import { DEFAULT_USER_SETTINGS } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest } from 'next/server';
 
 // GET /api/settings
@@ -20,14 +21,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Create default settings if they don't exist
     if (!userSettings) {
-      const newSettings = {
+      const newSettings: Omit<UserSettings, '_id'> = {
         user_id: user.email,
         ...DEFAULT_USER_SETTINGS,
         updated_at: new Date(),
       };
 
-      const result = await settings.insertOne(newSettings as any);
-      userSettings = { _id: result.insertedId, ...newSettings } as any;
+      const result = await settings.insertOne(newSettings);
+      userSettings = { _id: result.insertedId, ...newSettings };
     }
 
     return successResponse(userSettings);
@@ -41,7 +42,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const settings = await getCollection<UserSettings>('user_settings');
 
-    const update: any = {
+    const update: Document = {
       updated_at: new Date(),
     };
 

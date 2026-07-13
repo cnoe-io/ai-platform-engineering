@@ -33,7 +33,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -78,7 +78,7 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -88,7 +88,7 @@ const mockGetCollection = jest.fn((name: string) => {
 
 let mockIsMongoDBConfigured = true;
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   get isMongoDBConfigured() {
     return mockIsMongoDBConfigured;
   },
@@ -508,12 +508,12 @@ describe('GET /api/admin/stats — Top Users', () => {
 
     // Verify at least one aggregate call on messages uses $lookup from conversations
     const aggregateCalls = msgCol.aggregate.mock.calls;
-    const hasLookupPipeline = aggregateCalls.some((call: any[]) => {
+    const hasLookupPipeline = aggregateCalls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             stage.$lookup && stage.$lookup.from === 'conversations'
         )
       );
@@ -529,12 +529,12 @@ describe('GET /api/admin/stats — Top Users', () => {
 
     // The pipeline should include $addFields with $ifNull to coalesce owner_id
     const aggregateCalls = msgCol.aggregate.mock.calls;
-    const hasIfNull = aggregateCalls.some((call: any[]) => {
+    const hasIfNull = aggregateCalls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             stage.$addFields && stage.$addFields._owner?.$ifNull
         )
       );
@@ -569,12 +569,12 @@ describe('GET /api/admin/stats — Top Agents', () => {
 
     // Find the aggregate call that matches on role=assistant and agent_name
     const aggregateCalls = msgCol.aggregate.mock.calls;
-    const hasAgentPipeline = aggregateCalls.some((call: any[]) => {
+    const hasAgentPipeline = aggregateCalls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             stage.$match?.role === 'assistant' &&
             stage.$match?.['metadata.agent_name']?.$exists === true
         )
@@ -867,10 +867,10 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     // When source=slack, conversations should be filtered with { $or: [{ source: 'slack' }, { client_type: 'slack' }] }
     const convCountCalls = convCol.countDocuments.mock.calls;
     const hasSlackFilter = convCountCalls.some(
-      (call: any[]) => {
+      (call: unknown[]) => {
         const filter = call[0];
         // The route uses SLACK_CONV_MATCH which is an $or filter supporting both legacy and new schemas
-        return filter?.$or?.some((clause: any) => clause.source === 'slack' || clause.client_type === 'slack');
+        return filter?.$or?.some((clause: unknown) => clause.source === 'slack' || clause.client_type === 'slack');
       }
     );
     expect(hasSlackFilter).toBe(true);
@@ -889,7 +889,7 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     // Conversations should include owner_id filter
     const convCountCalls = convCol.countDocuments.mock.calls;
     const hasUserFilter = convCountCalls.some(
-      (call: any[]) => call[0]?.owner_id?.$in?.includes('alice@co.com')
+      (call: unknown[]) => call[0]?.owner_id?.$in?.includes('alice@co.com')
     );
     expect(hasUserFilter).toBe(true);
   });
@@ -919,7 +919,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     // OR owner_id == session email.
     const convCountCalls = convCol.countDocuments.mock.calls;
     expect(convCountCalls.length).toBeGreaterThan(0);
-    const hasScope = convCountCalls.some((call: any[]) => {
+    const hasScope = convCountCalls.some((call: unknown[]) => {
       const filter = call[0];
       const inspect = JSON.stringify(filter ?? {});
       return inspect.includes('ops-help') && inspect.includes('user@example.com');
@@ -941,7 +941,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
 
     // owner_id scope must be applied to conversation queries
     const convCountCalls = convCol.countDocuments.mock.calls;
-    const hasOwnerScope = convCountCalls.some((call: any[]) => {
+    const hasOwnerScope = convCountCalls.some((call: unknown[]) => {
       const inspect = JSON.stringify(call[0] ?? {});
       return inspect.includes('user@example.com');
     });
@@ -975,7 +975,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
 
     // No conversation query should embed the user's email as a scope
     const convCountCalls = convCol.countDocuments.mock.calls;
-    const hasUserEmailScope = convCountCalls.some((call: any[]) => {
+    const hasUserEmailScope = convCountCalls.some((call: unknown[]) => {
       const inspect = JSON.stringify(call[0] ?? {});
       return inspect.includes('admin@example.com');
     });
@@ -1066,7 +1066,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     // The feedback aggregations $match must embed the scope, not run globally.
     const fbAggCalls = feedbackCol.aggregate.mock.calls;
     expect(fbAggCalls.length).toBeGreaterThan(0);
-    const matchStage = fbAggCalls[0][0].find((s: any) => s.$match);
+    const matchStage = fbAggCalls[0][0].find((s: unknown) => s.$match);
     const inspect = JSON.stringify(matchStage);
     expect(inspect).toContain('ops-help');
     expect(inspect).toContain('user@example.com');
@@ -1084,7 +1084,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     expect(body.data.available_channels.sort()).toEqual(['ai-support', 'ops-help']);
     // No distinct over the channel name fields (which would enumerate every
     // channel on the platform).
-    const distinctFields = convCol.distinct.mock.calls.map((c: any[]) => c[0]);
+    const distinctFields = convCol.distinct.mock.calls.map((c: unknown[]) => c[0]);
     expect(distinctFields).not.toContain('slack_meta.channel_name');
     expect(distinctFields).not.toContain('metadata.channel_name');
   });
@@ -1102,7 +1102,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     // The probe is the only countDocuments call that passes an options object
     // ({ limit: 1 }) as its second argument.
     const probeCalls = convCol.countDocuments.mock.calls.filter(
-      (call: any[]) => call[1]?.limit === 1
+      (call: unknown[]) => call[1]?.limit === 1
     );
     expect(probeCalls).toHaveLength(0);
   });
@@ -1117,7 +1117,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     await GET(makeRequest('/api/admin/stats'));
 
     const probeCalls = convCol.countDocuments.mock.calls.filter(
-      (call: any[]) => call[1]?.limit === 1
+      (call: unknown[]) => call[1]?.limit === 1
     );
     expect(probeCalls.length).toBeGreaterThan(0);
   });

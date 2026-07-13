@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
@@ -142,7 +144,7 @@ export function AgentBuilderGallery({
   // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
 
-  const canModifyConfig = (_config: AgentSkill) => true;
+  const canModifyConfig = () => true;
 
   // Load configs on mount
   useEffect(() => {
@@ -207,9 +209,9 @@ export function AgentBuilderGallery({
     setDeletingId(config.id);
     try {
       await deleteSkill(config.id);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to delete config:", error);
-      alert(error.message || "Failed to delete configuration");
+      alert(getErrorMessage(error, "") || "Failed to delete configuration");
     } finally {
       setDeletingId(null);
     }
@@ -229,7 +231,7 @@ export function AgentBuilderGallery({
       router.push(`/chat/${conversationId}`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to create a chat conversation";
+        error instanceof Error ? getErrorMessage(error, "") : "Failed to create a chat conversation";
       alert(message);
     }
   };
@@ -393,7 +395,7 @@ export function AgentBuilderGallery({
                         >
                           <Star className="h-4 w-4 fill-current" />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canModifyConfig() && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
                             <Button
@@ -472,7 +474,7 @@ export function AgentBuilderGallery({
                         >
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canModifyConfig() && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
                             <Button
@@ -564,7 +566,7 @@ export function AgentBuilderGallery({
                         >
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canModifyConfig() && (
                           <>
                             <div className="h-4 w-px bg-border/50" />
                             <Button
@@ -646,7 +648,7 @@ export function AgentBuilderGallery({
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleConfigClick(config); }}>
                           <MessageSquare className="h-4 w-4" />
                         </Button>
-                        {canModifyConfig(config) && (
+                        {canModifyConfig() && (
                           <>
                             <div className="h-5 w-px bg-border/50" />
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}>

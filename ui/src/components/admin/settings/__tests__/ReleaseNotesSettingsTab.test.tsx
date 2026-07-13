@@ -36,8 +36,8 @@ function mockFetch({
   patch = { success: true },
   preferencesPatch = { success: true },
 }: {
-  config?: { success: boolean; data?: { release_notes?: any } };
-  settings?: { success: boolean; data?: { preferences?: any } };
+  config?: { success: boolean; data?: { release_notes?: unknown } };
+  settings?: { success: boolean; data?: { preferences?: unknown } };
   patch?: { success: boolean };
   preferencesPatch?: { success: boolean };
 } = {}) {

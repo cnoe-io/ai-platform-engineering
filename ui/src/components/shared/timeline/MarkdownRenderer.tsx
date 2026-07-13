@@ -10,6 +10,8 @@ import remend from "remend";
 import { bundledLanguages,createHighlighter,type BundledLanguage,type Highlighter } from "shiki";
 import "./streaming-markdown.css";
 
+const BLOCK_TAGS = new Set(["P", "UL", "OL", "LI", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "TABLE", "HR", "DIV"]);
+
 // ═══════════════════════════════════════════════════════════════
 // Shiki highlighter — lazy singleton, loads languages on demand
 // ═══════════════════════════════════════════════════════════════
@@ -232,7 +234,6 @@ export function MarkdownRenderer({
   streamingRef.current = isStreaming;
 
   /** Block-level tags that get the fade-in animation during streaming. */
-  const BLOCK_TAGS = new Set(["P", "UL", "OL", "LI", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "TABLE", "HR", "DIV"]);
 
   const patchDom = useCallback((html: string) => {
     const container = containerRef.current;

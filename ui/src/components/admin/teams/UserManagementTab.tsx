@@ -271,6 +271,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
   }, [
     page,
     searchFromUrl,
+    teamsFilter,
     teamsFilterKey,
     slackFilter,
     webexFilter,

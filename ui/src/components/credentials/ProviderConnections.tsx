@@ -935,6 +935,8 @@ function ProviderLogo({ provider }: { provider: string }) {
       );
     case "atlassian":
       return (
+        // Provider SVGs intentionally bypass the Next.js image pipeline.
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""
           aria-hidden="true"
@@ -946,6 +948,8 @@ function ProviderLogo({ provider }: { provider: string }) {
       );
     case "webex":
       return (
+        // Provider SVGs intentionally bypass the Next.js image pipeline.
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""
           aria-hidden="true"

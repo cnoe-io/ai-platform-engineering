@@ -1,10 +1,10 @@
 "use client";
 
-import { MultiDirectedGraph } from 'graphology';
+import type { KnowledgeGraph } from '../shared/graphTypes';
 
 interface DataNodeHoverCardProps {
     hoveredNode: string;
-    graph: MultiDirectedGraph;
+    graph: KnowledgeGraph;
 }
 
 export default function DataNodeHoverCard({ hoveredNode, graph }: DataNodeHoverCardProps) {

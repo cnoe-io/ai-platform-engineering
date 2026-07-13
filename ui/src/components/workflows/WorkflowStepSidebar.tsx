@@ -1,6 +1,7 @@
 "use client";
 
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
+import type { Extension } from "@codemirror/state";
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,8 +77,7 @@ export function WorkflowStepSidebar({
   const [configOverrideError, setConfigOverrideError] = useState<string | null>(null);
 
   // CodeMirror extensions (loaded async to avoid SSR)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [cmExtensions, setCmExtensions] = useState<any[]>([]);
+  const [cmExtensions, setCmExtensions] = useState<Extension[]>([]);
 
   useEffect(() => {
     let cancelled = false;

@@ -18,7 +18,7 @@
  */
 
 const mockNextResponseJson = jest.fn(
-  (data: any, init?: { headers?: Record<string, string>; status?: number }) => ({
+  (data: unknown, init?: { headers?: Record<string, string>; status?: number }) => ({
     json: async () => data,
     status: init?.status ?? 200,
     headers: new Map(Object.entries(init?.headers ?? {})),
@@ -31,7 +31,7 @@ jest.mock("next/server", () => {
   class MockNextResponse extends Response {}
   return {
     NextResponse: Object.assign(MockNextResponse, {
-      json: (...args: any[]) => mockNextResponseJson(...args),
+      json: (...args: unknown[]) => mockNextResponseJson(...args),
     }),
   };
 });
@@ -42,7 +42,7 @@ jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
   return {
     ...actual,
-    withAuth: jest.fn(async (_req: any, handler: any) =>
+    withAuth: jest.fn(async (_req: unknown, handler: unknown) =>
       // `sub` is now required by the new `requireResourcePermission`
       // gate that runs after the role check. Forge a stable admin subject.
       handler(_req, mockUser, { accessToken: "tok", sub: "admin-sub" }),
@@ -58,15 +58,15 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 // Mongo: stub two collections we touch.
-const agentSkillsDocs: any[] = [];
-const hubSkillsDocs: any[] = [];
-const agentSkillsUpdates: any[] = [];
-const hubSkillsUpdates: any[] = [];
+const agentSkillsDocs: unknown[] = [];
+const hubSkillsDocs: unknown[] = [];
+const agentSkillsUpdates: unknown[] = [];
+const hubSkillsUpdates: unknown[] = [];
 
 // Track the filter passed to find() so tests can assert hub_ids[] wiring.
-const hubFindCalls: any[] = [];
+const hubFindCalls: unknown[] = [];
 
-function makeCursor(docs: any[]) {
+function makeCursor(docs: unknown[]) {
   return {
     project: () => ({
       limit: () => ({
@@ -78,7 +78,7 @@ function makeCursor(docs: any[]) {
   };
 }
 
-function matchHubDocs(filter?: any) {
+function matchHubDocs(filter?: unknown) {
   let matching = hubSkillsDocs;
   if (filter && filter.hub_id) {
     if (typeof filter.hub_id === "string") {
@@ -98,20 +98,20 @@ const agentSkillsCol = {
   // upper bound for the start event's progress bar. Mirror the same
   // shape `find()` would walk so the count + iteration stay aligned.
   countDocuments: jest.fn(async () => agentSkillsDocs.length),
-  updateOne: jest.fn(async (filter: any, update: any) => {
+  updateOne: jest.fn(async (filter: unknown, update: unknown) => {
     agentSkillsUpdates.push({ filter, update });
     return { matchedCount: 1 };
   }),
 };
 const hubSkillsCol = {
-  find: (filter?: any) => {
+  find: (filter?: unknown) => {
     hubFindCalls.push(filter);
     // Mimic the route's filter semantics so the cursor only yields the
     // matching hub docs — keeps the assertions honest end-to-end.
     return makeCursor(matchHubDocs(filter));
   },
-  countDocuments: jest.fn(async (filter?: any) => matchHubDocs(filter).length),
-  updateOne: jest.fn(async (filter: any, update: any) => {
+  countDocuments: jest.fn(async (filter?: unknown) => matchHubDocs(filter).length),
+  updateOne: jest.fn(async (filter: unknown, update: unknown) => {
     hubSkillsUpdates.push({ filter, update });
     return { matchedCount: 1 };
   }),
@@ -119,9 +119,9 @@ const hubSkillsCol = {
 
 // Built-in scan persistence — mirrors agent_skills/hub_skills shape so the
 // new "builtin" branch can upsert without exploding the test.
-const builtinScanUpserts: any[] = [];
+const builtinScanUpserts: unknown[] = [];
 const builtinScansCol = {
-  updateOne: jest.fn(async (filter: any, update: any) => {
+  updateOne: jest.fn(async (filter: unknown, update: unknown) => {
     builtinScanUpserts.push({ filter, update });
     return { matchedCount: 1, upsertedCount: 1 };
   }),
@@ -142,7 +142,7 @@ jest.mock("@/lib/mongodb", () => ({
 
 // Built-in skills loader — controllable per test. Defaults to empty so
 // existing tests that don't care about built-ins keep their assertions.
-const builtinTemplates: any[] = [];
+const builtinTemplates: unknown[] = [];
 jest.mock("@/app/api/skills/skill-templates-loader", () => ({
   loadSkillTemplatesInternal: jest.fn(() => builtinTemplates),
   loadTemplateAncillaryFiles: jest.fn(() => ({})),
@@ -168,7 +168,7 @@ jest.mock("@/lib/skill-scan", () => ({
 
 const recordScanEventMock = jest.fn();
 jest.mock("@/lib/skill-scan-history", () => ({
-  recordScanEvent: (...args: any[]) => recordScanEventMock(...args),
+  recordScanEvent: (...args: unknown[]) => recordScanEventMock(...args),
 }));
 
 import { POST } from "../route";
@@ -181,7 +181,7 @@ function makeReq(body: unknown = {}, headers: Record<string, string> = {}) {
   return {
     headers: { get: (name: string) => lower[name.toLowerCase()] ?? null },
     json: async () => body,
-  } as any;
+  } as unknown;
 }
 
 /**
@@ -189,10 +189,10 @@ function makeReq(body: unknown = {}, headers: Record<string, string> = {}) {
  * the streaming-path tests so we can assert on the event sequence the
  * `<ScanAllDialog>` consumes.
  */
-async function readNdjsonEvents(res: Response): Promise<any[]> {
+async function readNdjsonEvents(res: Response): Promise<unknown[]> {
   const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
-  const events: any[] = [];
+  const events: unknown[] = [];
   let buf = "";
   for (;;) {
     const { value, done } = await reader.read();
@@ -354,7 +354,7 @@ describe("POST /api/skills/scan-all — sweep", () => {
     expect(data.scanned).toBe(2);
     expect(data.counts.unscanned).toBe(1);
     expect(data.counts.passed).toBe(1);
-    const failed = data.results.find((r: any) => r.id === "s1");
+    const failed = data.results.find((r: unknown) => r.id === "s1");
     expect(failed.error).toMatch(/boom/);
     expect(failed.scan_status).toBe("unscanned");
   });
@@ -405,7 +405,7 @@ describe("POST /api/skills/scan-all — sweep", () => {
 
     // The result row carries source: "builtin" so the dialog can
     // label it correctly.
-    const builtinRow = data.results.find((r: any) => r.id === "review-pr");
+    const builtinRow = data.results.find((r: unknown) => r.id === "review-pr");
     expect(builtinRow.source).toBe("builtin");
   });
 

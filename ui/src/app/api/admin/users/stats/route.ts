@@ -20,6 +20,7 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import type { User } from '@/types/mongodb';
+import type { Filter } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -47,7 +48,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const conversations = await getCollection('conversations');
   const messages = await getCollection('messages');
 
-  const filter: Record<string, any> = {};
+  const filter: Filter<User> = {};
   if (search) {
     const regex = { $regex: search, $options: 'i' };
     filter.$or = [{ email: regex }, { name: regex }];
