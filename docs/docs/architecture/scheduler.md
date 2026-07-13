@@ -4,6 +4,10 @@ sidebar_position: 7
 
 # Scheduler
 
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+  <iframe src="https://app.vidcast.io/share/embed/09076dab-2dad-4efe-96a6-c4ed81f78ae3?disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Scheduler Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+</div>
+
 The scheduler runs Dynamic Agent chats on recurring cron schedules or as delayed
 one-off jobs. It is disabled by default. Enabling it installs:
 
