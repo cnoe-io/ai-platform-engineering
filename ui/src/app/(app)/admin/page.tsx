@@ -55,6 +55,7 @@ import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
+import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
@@ -502,6 +503,9 @@ function AdminPage() {
   const pathname = usePathname();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
+  const simulationScopeKey = simulationTarget
+    ? `${simulationTarget.type}:${simulationTarget.id}:${simulationTarget.relation ?? ""}`
+    : "current-user";
   const { gates, integrationPanelModes, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
   const isSimulationActive = Boolean(simulationTarget);
   const canMutateAdminData = isAdmin && !isSimulationActive;
@@ -856,18 +860,31 @@ function AdminPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const visitedTabsRef = useRef<Set<string>>(new Set());
+  const previousSimulationScopeKeyRef = useRef(simulationScopeKey);
+  const activeDataScopeKeyRef = useRef(simulationScopeKey);
+  activeDataScopeKeyRef.current = simulationScopeKey;
 
+  // Data loaded for one preview subject must never survive a switch to a
+  // different subject (or back to the current user). Clear the lazy-load
+  // guards and scoped response state before loading the active tab again.
   useEffect(() => {
-    if (status === "authenticated" || !getConfig('ssoEnabled')) {
-      loadTabData(activeTab);
+    if (previousSimulationScopeKeyRef.current !== simulationScopeKey) {
+      previousSimulationScopeKeyRef.current = simulationScopeKey;
+      visitedTabsRef.current.clear();
+      setStats(null);
+      setGlobalOverview(null);
+      setFeedbackData(null);
+      setStatsChannels([]);
+      setFeedbackChannels([]);
+      setFeedbackUsers([]);
+      setTeams([]);
+      setStatsRefreshing(false);
+      setFeedbackLoading(false);
+      setLoading(false);
     }
-  }, [status]);
-
-  // Load data for newly-visited tabs
-  useEffect(() => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     loadTabData(activeTab);
-  }, [activeTab, status]);
+  }, [activeTab, simulationScopeKey, status]);
 
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
@@ -976,6 +993,7 @@ function AdminPage() {
   const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
   const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const requestScopeKey = simulationScopeKey;
     setStatsRefreshing(true);
     try {
       const r = range ?? dateRange;
@@ -986,10 +1004,10 @@ function AdminPage() {
       if (s !== 'all') params.set('source', s);
       if (u.length > 0) params.set('user', u.join(','));
       if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
-      const res = await fetch(`/api/admin/stats?${params}`);
+      const res = await fetch(withAdminSimulationParams(`/api/admin/stats?${params}`, simulationTarget));
       if (res.ok) {
         const json = await res.json();
-        if (json.success) {
+        if (json.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setStats(json.data);
           if (json.data.available_channels) setStatsChannels(json.data.available_channels);
         }
@@ -997,7 +1015,9 @@ function AdminPage() {
     } catch {
       // keep existing stats on failure
     } finally {
-      setStatsRefreshing(false);
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setStatsRefreshing(false);
+      }
     }
   };
   useEffect(() => {
@@ -1011,6 +1031,7 @@ function AdminPage() {
   }, [dateRange, sourceFilter, userFilter, status]);
 
   const loadStats = async () => {
+    const requestScopeKey = simulationScopeKey;
     setLoading(true);
     setError(null);
     try {
@@ -1019,9 +1040,13 @@ function AdminPage() {
       if (sourceFilter !== 'all') p.set('source', sourceFilter);
       if (userFilter.length > 0) p.set('user', userFilter.join(','));
       const [statsRes, globalStatsRes] = await Promise.all([
-        fetch(`/api/admin/stats?${p}`),
-        hasStatsFilters ? fetch('/api/admin/stats') : null,
+        fetch(withAdminSimulationParams(`/api/admin/stats?${p}`, simulationTarget)),
+        hasStatsFilters
+          ? fetch(withAdminSimulationParams('/api/admin/stats', simulationTarget))
+          : null,
       ]);
+
+      if (activeDataScopeKeyRef.current !== requestScopeKey) return;
 
       if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
@@ -1048,10 +1073,13 @@ function AdminPage() {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
     } catch (err: any) {
+      if (activeDataScopeKeyRef.current !== requestScopeKey) return;
       console.error('[Admin] Failed to load stats:', err);
       setError(err.message || 'Failed to load stats');
     } finally {
-      setLoading(false);
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setLoading(false);
+      }
     }
   };
 
@@ -1077,11 +1105,12 @@ function AdminPage() {
 
   const loadFeedbackOnce = async () => {
     if (!getConfig('feedbackEnabled')) return;
+    const requestScopeKey = simulationScopeKey;
     try {
-      const res = await fetch('/api/admin/feedback');
+      const res = await fetch(withAdminSimulationParams('/api/admin/feedback', simulationTarget));
       if (res.ok) {
         const data = await res.json().catch(() => ({ success: false }));
-        if (data.success) {
+        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setFeedbackData(data.data);
           if (data.data.channels) setFeedbackChannels(data.data.channels);
           if (data.data.users) setFeedbackUsers(data.data.users);
@@ -1096,17 +1125,17 @@ function AdminPage() {
     if (visitedTabsRef.current.has(tab)) return;
     visitedTabsRef.current.add(tab);
 
-    // Teams data is shared across stats/slack/feedback filter dropdowns.
+    // Teams data is shared across the Stats and Feedback filter dropdowns.
     // Use a data-level key (not the tab name) so it isn't confused with the
     // tab-visit guard that loadTabData adds before invoking the loader.
     const loadTeamsIfNeeded = () => {
+      if (isSimulationActive) return Promise.resolve();
       if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
       visitedTabsRef.current.add('_teams-loaded');
       return loadTeamsData();
     };
 
-    // Stats data is shared between the stats and slack tabs. Use a separate
-    // key so visiting one doesn't cause the other to re-fetch it.
+    // Stats data uses a separate key from the tab-visit guard.
     const loadStatsIfNeeded = () => {
       if (visitedTabsRef.current.has('_stats-loaded')) return Promise.resolve();
       visitedTabsRef.current.add('_stats-loaded');
@@ -1118,10 +1147,9 @@ function AdminPage() {
     // The Teams tab is NOT listed here: its grid is server-paginated and
     // self-loads via a debounced effect, so it must not pull the full team
     // list. The full list (`loadTeamsIfNeeded`) is only needed by tabs whose
-    // dropdowns offer every team for selection (stats/slack/feedback).
+    // dropdowns offer every team for selection (Stats and Feedback).
     const loaders: Record<string, () => Promise<void>> = {
       stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
-      slack: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
       skills: loadSkillStats,
       feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
     };
@@ -1139,6 +1167,7 @@ function AdminPage() {
     users?: string[],
     range?: DateRange,
   ) => {
+    const requestScopeKey = simulationScopeKey;
     setFeedbackLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '50' });
@@ -1156,10 +1185,10 @@ function AdminPage() {
       const dr = range ?? dateRange;
       if (dr.from) params.set('from', dr.from);
       if (dr.to) params.set('to', dr.to);
-      const res = await fetch(`/api/admin/feedback?${params}`);
+      const res = await fetch(withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget));
       if (res.ok) {
         const data = await res.json();
-        if (data.success) {
+        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setFeedbackData(data.data);
           if (data.data.channels) setFeedbackChannels(data.data.channels);
           if (data.data.users) setFeedbackUsers(data.data.users);
@@ -1168,7 +1197,9 @@ function AdminPage() {
     } catch (err) {
       console.error('[Admin] Failed to load feedback:', err);
     } finally {
-      setFeedbackLoading(false);
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setFeedbackLoading(false);
+      }
     }
   };
 
@@ -1261,17 +1292,33 @@ function AdminPage() {
               <div className="flex min-w-0 flex-wrap items-baseline">
                 <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
                 <span className="ml-1 text-sm text-muted-foreground">
-                  {isSimulationActive
-                    ? `, Previewing ${simulationDisplayName}'s effective access`
-                    : isAdmin
+                  {isAdmin
                     ? ', Manage access, teams, health, and platform settings'
                     : ', View access, teams, health, and platform settings'}
                 </span>
               </div>
-              {(!isAdmin || isSimulationActive) && (
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setSimulationDialogOpen(true)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    isSimulationActive
+                      ? 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  {isSimulationActive ? (
+                    <span className="max-w-64 truncate">Viewing as {simulationDisplayName}</span>
+                  ) : (
+                    'View as'
+                  )}
+                </button>
+              )}
+              {!isAdmin && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   <Eye className="h-3.5 w-3.5" />
-                  {isSimulationActive ? 'Access Preview · Read-Only' : 'Read-Only'}
+                  Read-Only
                 </span>
               )}
               {/* Always-visible status pill that opens the
@@ -1281,19 +1328,6 @@ function AdminPage() {
                   chip on freshly-loaded pages. */}
               <CrawlConsoleHeaderPill />
             </div>
-
-            {isSimulationActive && (
-              <div
-                role="note"
-                className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground"
-              >
-                <Eye className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <p>
-                  <span className="font-medium text-foreground">Access preview only.</span>{" "}
-                  Your current admin session remains active; no user session is impersonated.
-                </p>
-              </div>
-            )}
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
@@ -1329,25 +1363,6 @@ function AdminPage() {
                     </button>
                   );
                 })}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setSimulationDialogOpen(true)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      isSimulationActive
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                        : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    View as
-                    {isSimulationActive && (
-                      <span className="max-w-40 truncate">
-                        {simulationDisplayName}
-                      </span>
-                    )}
-                  </button>
-                )}
               </div>
 
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
@@ -1476,12 +1491,6 @@ function AdminPage() {
                       )}
                     </div>
 
-                    {isSimulationActive && (
-                      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
-                        <span className="font-medium">Active preview:</span>{" "}
-                        <span>{simulationDisplayName}</span>
-                      </div>
-                    )}
                   </div>
 
                   <DialogFooter>
@@ -1555,9 +1564,9 @@ function AdminPage() {
                     disabled={isSimulationActive}
                     simulationTarget={simulationTarget}
                     selfService={
-                      integrationPanelModes.slack
+                      isSimulationActive || (integrationPanelModes.slack
                         ? integrationPanelModes.slack === "self_service"
-                        : !canMutateAdminData
+                        : !canMutateAdminData)
                     }
                   />
                 </TabsContent>
@@ -1569,9 +1578,9 @@ function AdminPage() {
                     disabled={isSimulationActive}
                     simulationTarget={simulationTarget}
                     selfService={
-                      integrationPanelModes.webex
+                      isSimulationActive || (integrationPanelModes.webex
                         ? integrationPanelModes.webex === "self_service"
-                        : !canMutateAdminData
+                        : !canMutateAdminData)
                     }
                   />
                 </TabsContent>
@@ -2818,15 +2827,17 @@ function AdminPage() {
                     )}
 
                     {/* Checkpoint Persistence */}
-                    <CheckpointStatsSection />
+                    {canMutateAdminData && <CheckpointStatsSection />}
                   </div>
                 )}
               </TabsContent>
 
               {/* Agent Metrics Tab (Prometheus) */}
-              <TabsContent value="metrics" className="space-y-4">
-                <MetricsTab />
-              </TabsContent>
+              {tabGateValues.metrics && (
+                <TabsContent value="metrics" className="space-y-4">
+                  <MetricsTab />
+                </TabsContent>
+              )}
 
               {/* System Health Tab (live Prometheus + static services) */}
               <TabsContent value="health" className="space-y-4">

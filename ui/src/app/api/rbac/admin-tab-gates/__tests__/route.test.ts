@@ -142,7 +142,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       users: true,
       teams: true,
       skills: true,
-      metrics: true,
+      metrics: false,
       health: true,
       slack: false,
       webex: false,
@@ -165,7 +165,10 @@ describe("GET /api/rbac/admin-tab-gates", () => {
           "admin_surface:users",
           "admin_surface:teams",
           "admin_surface:skills",
-          "admin_surface:metrics",
+          "admin_surface:slack",
+          "admin_surface:webex",
+          "admin_surface:feedback",
+          "admin_surface:stats",
           "admin_surface:health",
           "admin_surface:credentials",
         ].includes(tuple.object),
@@ -179,16 +182,22 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       users: true,
       teams: true,
       skills: true,
-      metrics: true,
+      stats: true,
+      feedback: true,
+      metrics: false,
       health: true,
       credentials: false,
       roles: false,
       identity_group_sync: false,
-      slack: false,
-      webex: false,
+      slack: true,
+      webex: true,
       action_audit: false,
       openfga: false,
       migrations: false,
+    });
+    expect(body.integration_panel_modes).toEqual({
+      slack: "self_service",
+      webex: "self_service",
     });
   });
 
@@ -382,7 +391,10 @@ describe("GET /api/rbac/admin-tab-gates", () => {
           "admin_surface:users",
           "admin_surface:teams",
           "admin_surface:skills",
-          "admin_surface:metrics",
+          "admin_surface:slack",
+          "admin_surface:webex",
+          "admin_surface:feedback",
+          "admin_surface:stats",
           "admin_surface:health",
         ].includes(tuple.object) ||
         tuple.user === "team:platform#admin" && tuple.relation === "can_manage" && tuple.object === "admin_surface:slack",
@@ -408,14 +420,19 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       users: true,
       teams: true,
       skills: true,
-      metrics: true,
+      stats: true,
+      feedback: true,
+      metrics: false,
       health: true,
       slack: true,
-      webex: false,
+      webex: true,
       openfga: false,
       migrations: false,
     });
-    expect(body.integration_panel_modes).toEqual({ slack: "full" });
+    expect(body.integration_panel_modes).toEqual({
+      slack: "full",
+      webex: "self_service",
+    });
   });
 
   it("shows a simulated user's baseline tabs, identity, and resource-scoped integrations", async () => {
@@ -485,14 +502,19 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       users: true,
       teams: true,
       skills: true,
-      metrics: true,
+      stats: true,
+      feedback: true,
+      metrics: false,
       health: true,
       slack: true,
-      webex: false,
+      webex: true,
       openfga: false,
       migrations: false,
     });
-    expect(body.integration_panel_modes).toEqual({ slack: "self_service" });
+    expect(body.integration_panel_modes).toEqual({
+      slack: "self_service",
+      webex: "self_service",
+    });
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 

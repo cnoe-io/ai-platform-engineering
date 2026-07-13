@@ -113,6 +113,12 @@ const BASELINE_TABS = new Set<AdminTabKey>(BASELINE_ADMIN_SURFACES);
 
 const INTEGRATION_PANEL_TABS = ["slack", "webex"] as const satisfies readonly AdminTabKey[];
 
+function isIntegrationPanelTab(
+  tab: AdminTabKey,
+): tab is (typeof INTEGRATION_PANEL_TABS)[number] {
+  return (INTEGRATION_PANEL_TABS as readonly AdminTabKey[]).includes(tab);
+}
+
 function integrationPanelModesFromSurfaceManage(
   gates: AdminTabGatesMap,
   hasSurfaceManage: (tab: (typeof INTEGRATION_PANEL_TABS)[number]) => boolean,
@@ -132,6 +138,7 @@ const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
   webex: "webex",
   feedback: "feedback",
   stats: "stats",
+  metrics: "metrics",
   audit_logs: "audit_logs",
   action_audit: "action_audit",
   openfga: "openfga",
@@ -391,7 +398,11 @@ async function getAdminTabGates(request?: NextRequest) {
     // Tabs without an FGA primary check (credentials → isAdmin,
     // service_accounts → listOpenFgaObjects) are excluded from the batch and
     // resolved separately below.
-    type BatchEntry = { tab: AdminTabKey; tuple: OpenFgaTupleKey };
+    type BatchEntry = {
+      tab: AdminTabKey;
+      purpose: "primary" | "integration_manage";
+      tuple: OpenFgaTupleKey;
+    };
     const batchEntries: BatchEntry[] = [];
 
     for (const tab of ALL_TABS) {
@@ -400,6 +411,7 @@ async function getAdminTabGates(request?: NextRequest) {
         if (!isAdmin) {
           batchEntries.push({
             tab,
+            purpose: "primary",
             tuple: {
               user: currentUser,
               relation: "can_read",
@@ -412,11 +424,24 @@ async function getAdminTabGates(request?: NextRequest) {
       if (BASELINE_TABS.has(tab)) {
         batchEntries.push({
           tab,
+          purpose: "primary",
           tuple: { user: currentUser, relation: "can_read", object: adminSurfaceObject(tab) },
         });
       } else if (!bootstrapAdmin && TAB_ADMIN_SURFACES[tab]) {
         batchEntries.push({
           tab,
+          purpose: "primary",
+          tuple: { user: currentUser, relation: "can_manage", object: adminSurfaceObject(tab) },
+        });
+      }
+
+      // Slack and Webex are baseline read surfaces, but their panels still
+      // need a separate manage decision to distinguish configured-only mode
+      // from the full onboarding and advanced controls.
+      if (!bootstrapAdmin && isIntegrationPanelTab(tab)) {
+        batchEntries.push({
+          tab,
+          purpose: "integration_manage",
           tuple: { user: currentUser, relation: "can_manage", object: adminSurfaceObject(tab) },
         });
       }
@@ -429,7 +454,14 @@ async function getAdminTabGates(request?: NextRequest) {
     ]);
 
     const primaryAllowed = new Map<AdminTabKey, boolean>();
-    batchEntries.forEach((entry, i) => primaryAllowed.set(entry.tab, batchResults[i]));
+    const integrationSurfaceManage = new Map<(typeof INTEGRATION_PANEL_TABS)[number], boolean>();
+    batchEntries.forEach((entry, i) => {
+      if (entry.purpose === "primary") {
+        primaryAllowed.set(entry.tab, batchResults[i]);
+      } else if (isIntegrationPanelTab(entry.tab)) {
+        integrationSurfaceManage.set(entry.tab, batchResults[i]);
+      }
+    });
 
     // Resolve each tab using batch results; run secondary checks in parallel
     // for the handful of tabs that need resource-scoped fallback.
@@ -464,7 +496,7 @@ async function getAdminTabGates(request?: NextRequest) {
 
     const integrationPanelModes = integrationPanelModesFromSurfaceManage(
       gates,
-      (tab) => bootstrapAdmin || (primaryAllowed.get(tab) ?? false),
+      (tab) => bootstrapAdmin || (integrationSurfaceManage.get(tab) ?? false),
     );
     return NextResponse.json({ gates, simulation, integration_panel_modes: integrationPanelModes });
   }

@@ -279,6 +279,16 @@ const allGatesOpen = {
   migrations: true,
 };
 
+const baselineUserGates = {
+  ...allGatesOpen,
+  roles: false,
+  metrics: false,
+  audit_logs: false,
+  action_audit: false,
+  openfga: false,
+  migrations: false,
+};
+
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
     if (url.includes('/api/rbac/admin-tab-gates')) {
@@ -462,6 +472,7 @@ describe('Admin Dashboard Page', () => {
       mockIsAdmin = false;
       mockIsDevAnonymousAuthEnabled.mockReturnValue(false);
       setupFetchMock({
+        tabGates: baselineUserGates,
         integrationPanelModes: { slack: 'self_service', webex: 'self_service' },
       });
     });
@@ -552,6 +563,23 @@ describe('Admin Dashboard Page', () => {
       });
       expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'false');
     });
+
+    it('shows scoped Insights and configured integrations but only Health from Metrics & Health', async () => {
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Metrics & Health' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Feedback' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Metrics & Health' }));
+      expect(screen.getByRole('tab', { name: 'Health' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
+    });
   });
 
   describe('Admin mode', () => {
@@ -597,10 +625,11 @@ describe('Admin Dashboard Page', () => {
           ...allGatesOpen,
           roles: false,
           identity_group_sync: false,
-          slack: false,
-          webex: false,
-          feedback: false,
-          stats: false,
+          slack: true,
+          webex: true,
+          feedback: true,
+          stats: true,
+          metrics: false,
           audit_logs: false,
           action_audit: false,
           openfga: false,
@@ -617,19 +646,78 @@ describe('Admin Dashboard Page', () => {
             email: 'user@example.com',
           },
         },
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
       });
 
       render(<AdminPage />);
 
-      expect(await screen.findByRole('button', { name: /view as regular user/i })).toBeInTheDocument();
-      expect(screen.getByText(/previewing regular user's effective access/i)).toBeInTheDocument();
-      expect(screen.getByText('Access Preview · Read-Only')).toBeInTheDocument();
-      expect(screen.getByText(/no user session is impersonated/i)).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /viewing as regular user/i })).toBeInTheDocument();
+      expect(screen.queryByText(/previewing regular user's effective access/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/manage access.*teams.*health.*platform settings/i)).toBeInTheDocument();
+      expect(screen.queryByText('Access Preview · Read-Only')).not.toBeInTheDocument();
+      expect(screen.queryByText(/no user session is impersonated/i)).not.toBeInTheDocument();
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
         expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument();
       });
+      expect(screen.getByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
+      expect(await screen.findByRole('tab', { name: 'Slack' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Webex' })).toBeInTheDocument();
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/admin\/stats\?.*simulate_type=user.*simulate_id=kc-user/)
+        );
+      });
+      expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Feedback' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Metrics & Health' }));
+      expect(screen.getByRole('tab', { name: 'Health' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
       expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
+    });
+
+    it('scopes Feedback requests to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=insights&tab=feedback'
+      );
+      setupFetchMock({
+        tabGates: baselineUserGates,
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+            email: 'user@example.com',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/admin\/feedback\?.*simulate_type=user.*simulate_id=kc-user/)
+        );
+      });
     });
 
     it('does not show Read-Only badge', async () => {

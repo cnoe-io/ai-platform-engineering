@@ -2,14 +2,21 @@ import { getCollection } from "@/lib/mongodb";
 import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 
-export const BASELINE_ADMIN_SURFACES = ["users", "teams", "skills", "metrics", "health", "credentials"] as const;
-export const PRIVILEGED_ADMIN_SURFACES = [
-  "roles",
-  "identity_group_sync",
+export const BASELINE_ADMIN_SURFACES = [
+  "users",
+  "teams",
+  "skills",
   "slack",
   "webex",
   "feedback",
   "stats",
+  "health",
+  "credentials",
+] as const;
+export const PRIVILEGED_ADMIN_SURFACES = [
+  "roles",
+  "identity_group_sync",
+  "metrics",
   "audit_logs",
   "action_audit",
   "openfga",

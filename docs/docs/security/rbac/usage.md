@@ -60,7 +60,12 @@ the caller's own Keycloak row when OpenFGA allows
 `user_profile:<id>#can_read`. Team owners and team admins can manage membership
 and Knowledge Base grants for teams where they hold a scoped team role; unrelated
 teams and platform-wide user operations remain admin-only. The baseline Metrics &
-Health tabs require `admin_surface:metrics#can_read`. The Settings → Skills tab
+Health category exposes Health to members through
+`admin_surface:health#can_read`; Metrics and Authorization Insights require
+administrator access. Baseline members also get scoped Insights (Statistics and
+Feedback) plus configured-only Slack and Webex integration views. Those views
+return only the member's own web activity and connected resources available to
+the member or one of their teams. The Settings → Skills tab
 shows configured Skill Hubs read-only through `admin_surface:skills#can_read`;
 adding, refreshing, editing, or deleting hubs requires
 `admin_surface:skills#can_manage`.
@@ -394,19 +399,19 @@ Keycloak subject against the default member and admin OpenFGA baselines. This is
 the fastest way to verify first-login or bootstrap tuple repair: a normal member
 should match the member baseline for `organization:<org>#can_use`,
 `user_profile:<sub>#can_read`, and read-only
-`admin_surface:<users|teams|skills|metrics|health>#can_read`, while admin-only
+`admin_surface:<users|teams|skills|slack|webex|feedback|stats|health>#can_read`, while admin-only
 checks such as `organization:<org>#can_manage` should drift from the member
 baseline but match the admin baseline.
 
-Use the subtle **View as** control beside the Admin top-level category tabs to
+Use the subtle **View as** control beside the Admin heading to
 preview the Admin console as a real OpenFGA principal. The modal searches users by
 email/name/Keycloak subject and teams by name/slug, with a `member`/`admin`
 userset relation for team previews. The preview is read-only: tab visibility is
 evaluated as the selected `user:<sub>` or `team:<slug>#relation`, but the browser
-session remains the signed-in admin and Slack/Webex mutation controls are
-disabled. Configured Slack channels and Webex spaces are listed using that same
-simulated subject, including concrete resources it owns or receives through a
-team grant. Use this to answer "what would this manager see?" before granting
+session remains the signed-in admin and all mutation controls are disabled.
+Configured Slack channels, Webex spaces, Statistics, and Feedback are scoped to
+that same simulated subject, including concrete resources it owns or receives
+through a team grant. Use this to answer "what would this manager see?" before granting
 or revoking relationships in Access Manager.
 
 Use **Admin → Security & Policy → OpenFGA ReBAC → Policy Graph** to inspect the
