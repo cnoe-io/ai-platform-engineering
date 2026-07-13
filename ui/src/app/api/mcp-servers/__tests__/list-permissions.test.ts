@@ -127,4 +127,30 @@ describe("GET /api/mcp-servers list permissions", () => {
       },
     ]);
   });
+
+  it("returns one exact MCP server with row permissions for a deep link", async () => {
+    const server = { _id: "mcp-managed", name: "Managed" };
+    const findOne = jest.fn().mockResolvedValue(server);
+    mockGetCollection.mockResolvedValue({
+      countDocuments: jest.fn().mockResolvedValue(1),
+      findOne,
+    });
+
+    const { GET } = await import("../route");
+    const response = await GET(request("/api/mcp-servers?id=mcp-managed"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(findOne).toHaveBeenCalledWith({ _id: "mcp-managed" });
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub" }),
+      [server],
+      { type: "mcp_server", action: "read", id: expect.any(Function) },
+      { bypassForOrgAdmin: true },
+    );
+    expect(body.data).toEqual({
+      ...server,
+      permissions: { can_manage: true, can_invoke: true, can_discover: true },
+    });
+  });
 });

@@ -71,6 +71,11 @@ interface FetchServersOptions {
   preserveListOnError?: boolean;
 }
 
+interface MCPServersTabProps {
+  selectedServerId?: string | null;
+  onSelectedServerChange?: (serverId: string | null) => void;
+}
+
 interface ToolTestResult {
   success: boolean;
   application_success?: boolean;
@@ -190,12 +195,18 @@ function toolHealthDotClass(status: ToolHealthStatus): string {
   }
 }
 
-export function MCPServersTab() {
+export function MCPServersTab({
+  selectedServerId,
+  onSelectedServerChange,
+}: MCPServersTabProps = {}) {
   const [servers, setServers] = React.useState<MCPServerConfigWithPermissions[]>([]);
   const [listCapabilities, setListCapabilities] = React.useState(DEFAULT_LIST_CAPABILITIES);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [editingServer, setEditingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
+  const [selectionLoading, setSelectionLoading] = React.useState(false);
+  const [selectionError, setSelectionError] = React.useState<string | null>(null);
+  const selectionRequestRef = React.useRef(0);
   const [isCreating, setIsCreating] = React.useState(false);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
   const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
@@ -251,6 +262,47 @@ export function MCPServersTab() {
   React.useEffect(() => {
     fetchServers();
   }, [fetchServers]);
+
+  React.useEffect(() => {
+    if (selectedServerId === undefined) return;
+
+    const requestId = ++selectionRequestRef.current;
+    if (!selectedServerId) {
+      setEditingServer(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    setSelectionLoading(true);
+    setSelectionError(null);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/mcp-servers?id=${encodeURIComponent(selectedServerId)}`, {
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || "MCP server not found");
+        }
+        if (selectionRequestRef.current === requestId) {
+          setEditingServer({
+            ...data.data,
+            permissions: data.data.permissions ?? DEFAULT_ROW_PERMISSIONS,
+          });
+        }
+      } catch (err: unknown) {
+        if (selectionRequestRef.current === requestId) {
+          setEditingServer(null);
+          setSelectionError(errorMessage(err, "Failed to load MCP server"));
+        }
+      } finally {
+        if (selectionRequestRef.current === requestId) {
+          setSelectionLoading(false);
+        }
+      }
+    })();
+  }, [selectedServerId]);
 
   React.useEffect(() => {
     const refreshFromBackend = () => {
@@ -483,9 +535,50 @@ export function MCPServersTab() {
     }
   };
 
+  const openServer = (server: MCPServerConfigWithPermissions) => {
+    setSelectionError(null);
+    setEditingServer(server);
+    onSelectedServerChange?.(server._id);
+  };
+
+  const closeServerEditor = () => {
+    selectionRequestRef.current += 1;
+    setEditingServer(null);
+    setIsCreating(false);
+    setSelectionError(null);
+    setSelectionLoading(false);
+    onSelectedServerChange?.(null);
+  };
+
+  const hasMatchingSelectedServer = editingServer?._id === selectedServerId;
+
+  if (selectedServerId && selectionLoading && !hasMatchingSelectedServer) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (selectedServerId && selectionError && !hasMatchingSelectedServer) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-destructive">{selectionError}</p>
+          <Button variant="outline" className="mt-4" onClick={closeServerEditor}>
+            Back to MCP Servers
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isCreating || editingServer) {
     return (
       <MCPServerEditor
+        key={editingServer?._id ?? "new"}
         server={editingServer}
         readOnly={
           isCreating
@@ -493,14 +586,10 @@ export function MCPServersTab() {
             : isLockedConfigDrivenServer(editingServer) || !serverCanManage(editingServer)
         }
         onSave={() => {
-          setEditingServer(null);
-          setIsCreating(false);
+          closeServerEditor();
           fetchServers();
         }}
-        onCancel={() => {
-          setEditingServer(null);
-          setIsCreating(false);
-        }}
+        onCancel={closeServerEditor}
       />
     );
   }
@@ -639,7 +728,7 @@ export function MCPServersTab() {
                     className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
                       serverCanManage(server) ? "cursor-pointer" : "cursor-default"
                     }`}
-                    onClick={() => setEditingServer(server)}
+                    onClick={() => openServer(server)}
                   >
                     <div className="col-span-3">
                       <div className="flex items-center gap-3">

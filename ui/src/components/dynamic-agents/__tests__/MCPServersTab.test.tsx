@@ -50,6 +50,11 @@ describe("MCPServersTab AgentGateway repair", () => {
           }),
         } as Response);
       }
+      if (url === "/api/mcp-servers?id=jira") {
+        return Promise.resolve({
+          json: async () => ({ success: true, data: jiraServer }),
+        } as Response);
+      }
       if (url === "/api/mcp-servers/agentgateway/sync" && init?.method === "POST") {
         return Promise.resolve({
           json: async () => ({
@@ -401,6 +406,26 @@ describe("MCPServersTab AgentGateway repair", () => {
     fireEvent.click(screen.getByText("Jira"));
     expect(await screen.findByText("View MCP Server")).toBeInTheDocument();
     expect(screen.queryByText("Edit MCP Server")).not.toBeInTheDocument();
+  });
+
+  it("loads a directly linked MCP server and reports when its editor closes", async () => {
+    const onSelectedServerChange = jest.fn();
+
+    render(
+      <MCPServersTab
+        selectedServerId="jira"
+        onSelectedServerChange={onSelectedServerChange}
+      />,
+    );
+
+    expect(await screen.findByText("Edit MCP Server")).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/mcp-servers?id=jira",
+      { cache: "no-store" },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onSelectedServerChange).toHaveBeenCalledWith(null);
   });
 
   it("does not issue update requests when toggling enabled without can_manage", async () => {

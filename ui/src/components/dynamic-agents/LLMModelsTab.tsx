@@ -205,11 +205,22 @@ function getProviderColor(provider: string): string {
 // Main tab component
 // ═══════════════════════════════════════════════════════════════
 
-export function LLMModelsTab() {
+export interface LLMModelsTabProps {
+  selectedModelId?: string | null;
+  onSelectedModelChange?: (modelId: string | null) => void;
+}
+
+export function LLMModelsTab({
+  selectedModelId,
+  onSelectedModelChange,
+}: LLMModelsTabProps = {}) {
   const [models, setModels] = React.useState<LLMModelConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [editingModel, setEditingModel] = React.useState<LLMModelConfig | null>(null);
+  const [selectionLoading, setSelectionLoading] = React.useState(false);
+  const [selectionError, setSelectionError] = React.useState<string | null>(null);
+  const selectionRequestRef = React.useRef(0);
   const [isCreating, setIsCreating] = React.useState(false);
 
   const fetchModels = React.useCallback(async () => {
@@ -233,6 +244,42 @@ export function LLMModelsTab() {
   React.useEffect(() => {
     fetchModels();
   }, [fetchModels]);
+
+  React.useEffect(() => {
+    if (selectedModelId === undefined) return;
+
+    const requestId = ++selectionRequestRef.current;
+    if (!selectedModelId) {
+      setEditingModel(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    setSelectionLoading(true);
+    setSelectionError(null);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/llm-models?id=${encodeURIComponent(selectedModelId)}`);
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || "LLM model not found");
+        }
+        if (selectionRequestRef.current === requestId) {
+          setEditingModel(data.data as LLMModelConfig);
+        }
+      } catch (err: unknown) {
+        if (selectionRequestRef.current === requestId) {
+          setEditingModel(null);
+          setSelectionError(err instanceof Error ? err.message : "Failed to load LLM model");
+        }
+      } finally {
+        if (selectionRequestRef.current === requestId) {
+          setSelectionLoading(false);
+        }
+      }
+    })();
+  }, [selectedModelId]);
 
   const handleDelete = async (modelId: string) => {
     if (!confirm("Are you sure you want to delete this model?")) return;
@@ -275,20 +322,57 @@ export function LLMModelsTab() {
     URL.revokeObjectURL(url);
   };
 
+  const openModel = (model: LLMModelConfig) => {
+    setSelectionError(null);
+    setEditingModel(model);
+    onSelectedModelChange?.(model._id);
+  };
+
+  const closeModelEditor = () => {
+    selectionRequestRef.current += 1;
+    setEditingModel(null);
+    setIsCreating(false);
+    setSelectionError(null);
+    setSelectionLoading(false);
+    onSelectedModelChange?.(null);
+  };
+
+  const hasMatchingSelectedModel = editingModel?._id === selectedModelId;
+
+  if (selectedModelId && selectionLoading && !hasMatchingSelectedModel) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (selectedModelId && selectionError && !hasMatchingSelectedModel) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-destructive">{selectionError}</p>
+          <Button variant="outline" className="mt-4" onClick={closeModelEditor}>
+            Back to LLM Models
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isCreating || editingModel) {
     return (
       <LLMModelEditor
+        key={editingModel?._id ?? "new"}
         model={editingModel}
         readOnly={editingModel?.config_driven}
         onSave={() => {
-          setEditingModel(null);
-          setIsCreating(false);
+          closeModelEditor();
           fetchModels();
         }}
-        onCancel={() => {
-          setEditingModel(null);
-          setIsCreating(false);
-        }}
+        onCancel={closeModelEditor}
       />
     );
   }
@@ -357,7 +441,7 @@ export function LLMModelsTab() {
               <div
                 key={model._id}
                 className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
-                onClick={() => setEditingModel(model)}
+                onClick={() => openModel(model)}
               >
                 <div className="col-span-3">
                   <div className="flex items-center gap-3">

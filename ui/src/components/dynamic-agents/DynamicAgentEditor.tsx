@@ -46,6 +46,7 @@ import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SkillsSelector } from "./SkillsSelector";
 import { SubagentPicker } from "./SubagentPicker";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
+import type { AgentSetupStep } from "./deep-linking";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -55,6 +56,8 @@ interface DynamicAgentEditorProps {
   cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
   readOnly?: boolean; // true for view-only mode
   readOnlyReason?: "config" | "permissions"; // why readOnly is true
+  initialStep?: AgentSetupStep;
+  onStepChange?: (step: AgentSetupStep) => void;
   onSave: () => void;
   onCancel: () => void;
 }
@@ -132,7 +135,7 @@ const STEPS = [
   },
 ];
 
-type StepId = typeof STEPS[number]["id"];
+type StepId = AgentSetupStep;
 
 /**
  * Horizontal step indicator component
@@ -336,7 +339,16 @@ function AdvancedStep({
   );
 }
 
-export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason, onSave, onCancel }: DynamicAgentEditorProps) {
+export function DynamicAgentEditor({
+  agent,
+  cloneFrom,
+  readOnly,
+  readOnlyReason,
+  initialStep = "basic",
+  onStepChange,
+  onSave,
+  onCancel,
+}: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
@@ -660,7 +672,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
   }, [agent?._id]);
 
   // Step wizard state
-  const [activeStep, setActiveStep] = React.useState<StepId>("basic");
+  const [activeStep, setActiveStep] = React.useState<StepId>(initialStep);
+
+  React.useEffect(() => {
+    setActiveStep(initialStep);
+  }, [initialStep]);
+
+  const selectStep = React.useCallback((step: StepId) => {
+    setActiveStep(step);
+    onStepChange?.(step);
+  }, [onStepChange]);
 
   // Local state for the in-app "you have unsaved changes" confirmation when the
   // user clicks the back arrow. We don't route this through the global store's
@@ -730,7 +751,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      setActiveStep(STEPS[currentStepIndex - 1].id);
+      selectStep(STEPS[currentStepIndex - 1].id);
     }
   };
 
@@ -756,7 +777,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
       setBlockingMessage(null);
     }
     if (currentStepIndex < STEPS.length - 1) {
-      setActiveStep(STEPS[currentStepIndex + 1].id);
+      selectStep(STEPS[currentStepIndex + 1].id);
     }
   };
 
@@ -928,7 +949,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
         );
         // Return to the reviewed content so the user can see and act on the
         // inline comments; the banner below carries the message.
-        setActiveStep("instructions");
+        selectStep("instructions");
         setBlockingMessage(message);
         setLoading(false);
         return;
@@ -1192,7 +1213,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
             <StepIndicator 
               steps={STEPS} 
               currentStep={activeStep} 
-              onStepClick={setActiveStep} 
+              onStepClick={selectStep}
             />
           </div>
 
