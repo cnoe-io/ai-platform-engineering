@@ -398,14 +398,20 @@ async function seedMCPServers(
       serverData.source === "agentgateway"
         ? serverData.source
         : undefined;
+    // Prefer values from the YAML config; fall back to what's already in MongoDB
+    // for runtime-managed fields that seed-config should not wipe on restart.
     const agentgatewayEndpoint =
       typeof serverData.agentgateway_endpoint === "string"
         ? serverData.agentgateway_endpoint
-        : undefined;
+        : existing?.agentgateway_endpoint;
     const agentgatewayTargetEndpoint =
       typeof serverData.agentgateway_target_endpoint === "string"
         ? serverData.agentgateway_target_endpoint
-        : undefined;
+        : existing?.agentgateway_target_endpoint;
+    const agentgatewayDiscovered =
+      typeof serverData.agentgateway_discovered === "boolean"
+        ? serverData.agentgateway_discovered
+        : existing?.agentgateway_discovered;
 
     const doc: MCPServerConfig = {
       _id: serverId,
@@ -422,10 +428,7 @@ async function seedMCPServers(
       enabled: (serverData.enabled as boolean) ?? true,
       config_driven: true,
       source,
-      agentgateway_discovered:
-        typeof serverData.agentgateway_discovered === "boolean"
-          ? serverData.agentgateway_discovered
-          : undefined,
+      agentgateway_discovered: agentgatewayDiscovered,
       agentgateway_endpoint: agentgatewayEndpoint,
       agentgateway_target_endpoint: agentgatewayTargetEndpoint,
       created_at: createdAt,
