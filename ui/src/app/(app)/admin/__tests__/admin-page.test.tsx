@@ -572,8 +572,9 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: /view as/i }));
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
-      expect(screen.getByText('View As Effective Permissions')).toBeInTheDocument();
-      const search = screen.getByPlaceholderText(/search by email, name, or keycloak sub/i);
+      expect(screen.getByText('View As — Read-Only Access Preview')).toBeInTheDocument();
+      expect(screen.getByText(/does not sign in as them or change your current session/i)).toBeInTheDocument();
+      const search = screen.getByPlaceholderText(/search by email, name, or user id/i);
       fireEvent.change(search, { target: { value: 'user' } });
 
       await waitFor(() => {
@@ -622,12 +623,13 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByRole('button', { name: /view as regular user/i })).toBeInTheDocument();
       expect(screen.getByText(/previewing regular user's effective access/i)).toBeInTheDocument();
-      expect(screen.getByText('Preview · Read-Only')).toBeInTheDocument();
+      expect(screen.getByText('Access Preview · Read-Only')).toBeInTheDocument();
+      expect(screen.getByText(/no user session is impersonated/i)).toBeInTheDocument();
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
         expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument();
       });
-      expect(screen.queryByText(/No admin surfaces are available/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
     });
 
     it('does not show Read-Only badge', async () => {

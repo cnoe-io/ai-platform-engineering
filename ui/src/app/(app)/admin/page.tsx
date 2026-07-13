@@ -509,10 +509,7 @@ function AdminPage() {
     simulation?.subject?.display_name ||
     simulation?.subject?.email ||
     simulationTarget?.id ||
-    "selected subject";
-  const simulationOpenFgaUser =
-    simulation?.subject?.openfga_user ||
-    (simulationTarget ? `${simulationTarget.type}:${simulationTarget.id}` : "");
+    "selected account";
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -1274,7 +1271,7 @@ function AdminPage() {
               {(!isAdmin || isSimulationActive) && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   <Eye className="h-3.5 w-3.5" />
-                  {isSimulationActive ? 'Preview · Read-Only' : 'Read-Only'}
+                  {isSimulationActive ? 'Access Preview · Read-Only' : 'Read-Only'}
                 </span>
               )}
               {/* Always-visible status pill that opens the
@@ -1284,6 +1281,19 @@ function AdminPage() {
                   chip on freshly-loaded pages. */}
               <CrawlConsoleHeaderPill />
             </div>
+
+            {isSimulationActive && (
+              <div
+                role="note"
+                className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground"
+              >
+                <Eye className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <p>
+                  <span className="font-medium text-foreground">Access preview only.</span>{" "}
+                  Your current admin session remains active; no user session is impersonated.
+                </p>
+              </div>
+            )}
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
@@ -1343,10 +1353,10 @@ function AdminPage() {
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>View As Effective Permissions</DialogTitle>
+                    <DialogTitle>View As — Read-Only Access Preview</DialogTitle>
                     <DialogDescription>
-                      Search for a real user or team. Preview is read-only and evaluates Admin visibility
-                      against the selected OpenFGA subject.
+                      Preview which Admin areas and connected resources a user or team can access.
+                      This does not sign in as them or change your current session.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -1393,7 +1403,7 @@ function AdminPage() {
 
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-search">
-                        {simulationType === "team" ? "Search team, slug, or role" : "Search user, email, or sub"}
+                        {simulationType === "team" ? "Search team by name, slug, or ID" : "Search user by name, email, or ID"}
                       </label>
                       <div className="relative">
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1407,13 +1417,13 @@ function AdminPage() {
                           placeholder={
                             simulationType === "team"
                               ? "Search team name or slug"
-                              : "Search by email, name, or Keycloak sub"
+                              : "Search by email, name, or user ID"
                           }
                           className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        You can select a search result or enter a raw OpenFGA id directly.
+                        Select a search result or enter an exact user or team ID.
                       </p>
                     </div>
 
@@ -1469,8 +1479,7 @@ function AdminPage() {
                     {isSimulationActive && (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
                         <span className="font-medium">Active preview:</span>{" "}
-                        <span>{simulationDisplayName}</span>{" "}
-                        <code className="text-xs text-muted-foreground">{simulationOpenFgaUser}</code>
+                        <span>{simulationDisplayName}</span>
                       </div>
                     )}
                   </div>
@@ -1478,7 +1487,7 @@ function AdminPage() {
                   <DialogFooter>
                     {isSimulationActive && (
                       <Button type="button" variant="outline" onClick={clearSimulationTarget}>
-                        Exit Simulation
+                        Exit Preview
                       </Button>
                     )}
                     <Button type="button" onClick={applySimulationTarget} disabled={!simulationId.trim()}>
@@ -1493,9 +1502,9 @@ function AdminPage() {
                   role="status"
                   className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-10 text-center"
                 >
-                  <p className="font-medium">No admin surfaces are available to {simulationDisplayName}.</p>
+                  <p className="font-medium">No Admin access is available to {simulationDisplayName}.</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    This user has no baseline admin tabs or resource-scoped Slack/Webex access.
+                    This account has no Admin areas or connected Slack/Webex resources available.
                   </p>
                 </div>
               )}
