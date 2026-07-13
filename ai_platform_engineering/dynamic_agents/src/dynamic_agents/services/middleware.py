@@ -142,6 +142,39 @@ class ToolResultInvariantMiddleware(AgentMiddleware):
         return await handler(request.override(messages=patched_messages))
 
 
+_BEDROCK_NON_RETRYABLE = (
+    "input is too long for requested model",
+    "member must satisfy regular expression pattern",
+    "validationexception",
+)
+
+
+def _should_retry_model_call(exc: Exception) -> bool:
+    """Return False for Bedrock ValidationExceptions that are never retryable.
+
+    Bedrock raises ValidationException for both permanent errors (context too
+    long, invalid tool name chars) and transient ones. Permanent errors will
+    fail on every attempt, so retrying wastes quota and adds latency. We
+    detect them by inspecting the error message.
+    """
+    msg = str(exc).lower()
+    return not any(token in msg for token in _BEDROCK_NON_RETRYABLE)
+
+
+class BrightModelRetryMiddleware(ModelRetryMiddleware):
+    """ModelRetryMiddleware that skips retrying permanent Bedrock errors.
+
+    Bedrock ValidationExceptions for "input too long" or invalid tool name
+    constraints are permanent — retrying them burns quota with no chance of
+    success. This subclass passes a retry_on predicate that lets
+    ModelRetryMiddleware fast-fail on those errors.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("retry_on", _should_retry_model_call)
+        super().__init__(**kwargs)
+
+
 class InterruptAwareToolRetryMiddleware(ToolRetryMiddleware):
     """Retry ordinary tool failures without swallowing LangGraph control flow.
 
@@ -192,7 +225,7 @@ class MiddlewareSpec:
 # then optional add-ons.
 MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
     "model_retry": MiddlewareSpec(
-        cls=ModelRetryMiddleware,
+        cls=BrightModelRetryMiddleware,
         default_params={"max_retries": 5, "backoff_factor": 2.0, "on_failure": "error"},
         enabled_by_default=True,
         allow_multiple=False,
