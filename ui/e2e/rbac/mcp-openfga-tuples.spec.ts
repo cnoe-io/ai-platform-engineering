@@ -239,7 +239,12 @@ async function openTeamDialogFromChip(page: Page, teamName: string, chipLabel: s
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: chipLabel }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByRole("dialog").getByText(teamName)).toBeVisible();
+  // Match the dialog heading specifically: the team name also appears in
+  // capability-toggle descriptions (e.g. AutomationCapabilityToggle), so a
+  // plain getByText(teamName) resolves to >1 element and trips strict mode.
+  await expect(
+    page.getByRole("dialog").getByRole("heading", { name: teamName }),
+  ).toBeVisible();
   return card;
 }
 
