@@ -21,6 +21,7 @@ import {
   updateIdpSyncRun,
 } from "@/lib/rbac/idp-sync-store";
 import { linkFederatedIdentity, provisionShellUser } from "@/lib/rbac/keycloak-admin";
+import { reconcileSyncedUsersBaselineAccess } from "@/lib/rbac/login-openfga-bootstrap";
 import { stripArchivedTeamResourceGrants } from "@/lib/rbac/archived-team-grants";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
@@ -259,6 +260,32 @@ export async function executeSyncRun(runId: string, provider: string, actor: str
       actor,
       now,
     });
+
+    // Grant the org-member baseline (incl. the `mcp_gateway:list` caller tuple
+    // that AgentGateway's coarse ext_authz gate requires) to every user this
+    // run resolved to a Keycloak `sub`. The membership reconcile above only
+    // writes team tuples; without this, a user provisioned purely by directory
+    // sync — who never interactively logged into the web UI — would hold team
+    // tuples but lack the gateway-gate grant and get zero MCP tools. Running it
+    // for the full resolved set (not just newly-added memberships) on every run
+    // is idempotent (writeOpenFgaTuples drops already-present tuples) and
+    // backfills users provisioned before this fix. Best-effort: never throws,
+    // so a bootstrap hiccup can't fail the reconcile that already committed.
+    const resolvedSubjects = Array.from(subCache.values()).filter(
+      (sub): sub is string => Boolean(sub)
+    );
+    const baseline = await reconcileSyncedUsersBaselineAccess(resolvedSubjects);
+    if (baseline.status === "failed") {
+      console.warn(
+        `[IdpSync] run ${runId}: baseline OpenFGA bootstrap failed for ` +
+          `${baseline.subject_count} synced user(s): ${baseline.warning ?? "unknown error"}`
+      );
+    } else if (baseline.tuple_write_count > 0) {
+      console.log(
+        `[IdpSync] run ${runId}: baseline OpenFGA bootstrap wrote ` +
+          `${baseline.tuple_write_count} tuple(s) across ${baseline.subject_count} synced user(s)`
+      );
+    }
 
     // On a full fetch, sweep for already-orphaned identity_group_sync teams
     // that pre-date this fix (their sources were previously removed but the

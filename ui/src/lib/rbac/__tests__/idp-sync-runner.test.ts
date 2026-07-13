@@ -24,6 +24,7 @@ const linkFederatedIdentity = jest.fn();
 const planIdentityGroupSync = jest.fn();
 const applyIdentityGroupSyncPlan = jest.fn();
 const stripArchivedTeamResourceGrants = jest.fn();
+const reconcileSyncedUsersBaselineAccess = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => getCollection(...args),
@@ -58,6 +59,11 @@ jest.mock("@/lib/rbac/idp-sync-store", () => ({
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   provisionShellUser: (...args: unknown[]) => provisionShellUser(...args),
   linkFederatedIdentity: (...args: unknown[]) => linkFederatedIdentity(...args),
+}));
+
+jest.mock("@/lib/rbac/login-openfga-bootstrap", () => ({
+  reconcileSyncedUsersBaselineAccess: (...args: unknown[]) =>
+    reconcileSyncedUsersBaselineAccess(...args),
 }));
 
 jest.mock("@/lib/rbac/archived-team-grants", () => ({
@@ -112,6 +118,11 @@ describe("idp-sync-runner", () => {
       tupleDeletes: 0,
       openFgaEnabled: true,
       teamsArchived: 0,
+    });
+    reconcileSyncedUsersBaselineAccess.mockResolvedValue({
+      status: "completed",
+      subject_count: 0,
+      tuple_write_count: 0,
     });
   });
 
@@ -401,6 +412,76 @@ describe("idp-sync-runner", () => {
       expect(planIdentityGroupSync).not.toHaveBeenCalled();
 
       errorSpy.mockRestore();
+    });
+  });
+
+  describe("executeSyncRun: baseline OpenFGA bootstrap for synced users", () => {
+    it("bootstraps the member baseline for every resolved subject, deduped across groups", async () => {
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        { id: "g1", name: "Group 1", members: [{ email: "a@example.com", active: true, display_name: "A" }] },
+        {
+          id: "g2",
+          name: "Group 2",
+          members: [
+            { email: "a@example.com", active: true, display_name: "A" },
+            { email: "b@example.com", active: true, display_name: "B" },
+          ],
+        },
+      ]);
+      provisionShellUser.mockImplementation(async ({ email }: { email: string }) => ({
+        sub: email === "a@example.com" ? "sub-a" : "sub-b",
+        created: false,
+      }));
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      // One resolved sub per unique email — no duplicate sub-a from the two groups.
+      expect(reconcileSyncedUsersBaselineAccess).toHaveBeenCalledTimes(1);
+      const passed = reconcileSyncedUsersBaselineAccess.mock.calls[0][0] as string[];
+      expect(new Set(passed)).toEqual(new Set(["sub-a", "sub-b"]));
+    });
+
+    it("excludes members whose subject never resolved", async () => {
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        {
+          id: "g1",
+          name: "Group 1",
+          members: [
+            { email: "ok@example.com", active: true, display_name: "OK" },
+            { email: "broken@example.com", active: true, display_name: "Broken" },
+          ],
+        },
+      ]);
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      provisionShellUser.mockImplementation(async ({ email }: { email: string }) => {
+        if (email === "broken@example.com") throw new Error("keycloak unreachable");
+        return { sub: "sub-ok", created: false };
+      });
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      const passed = reconcileSyncedUsersBaselineAccess.mock.calls[0][0] as string[];
+      expect(passed).toEqual(["sub-ok"]);
+      warnSpy.mockRestore();
+    });
+
+    it("still records success when baseline bootstrap fails (best-effort, non-fatal)", async () => {
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        { id: "g1", name: "Group 1", members: [{ email: "a@example.com", active: true, display_name: "A" }] },
+      ]);
+      reconcileSyncedUsersBaselineAccess.mockResolvedValue({
+        status: "failed",
+        subject_count: 1,
+        tuple_write_count: 0,
+        warning: "openfga down",
+      });
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      expect(updateIdpSyncRun).toHaveBeenCalledWith("run-1", expect.objectContaining({ status: "success" }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("baseline OpenFGA bootstrap failed"));
+      warnSpy.mockRestore();
     });
   });
 });

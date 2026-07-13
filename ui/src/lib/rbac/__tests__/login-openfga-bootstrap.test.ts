@@ -449,4 +449,65 @@ describe("login OpenFGA bootstrap", () => {
     expect(result.status).toBe("skipped");
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
+
+  describe("reconcileSyncedUsersBaselineAccess (directory-sync baseline bootstrap)", () => {
+    it("writes the org-member baseline (incl. mcp_gateway:list) for each synced subject", async () => {
+      mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 20, deletes: 0 });
+      const { reconcileSyncedUsersBaselineAccess } = await import("../login-openfga-bootstrap");
+
+      const result = await reconcileSyncedUsersBaselineAccess(["sub-a", "sub-b"]);
+
+      expect(result.status).toBe("completed");
+      expect(result.subject_count).toBe(2);
+      // Member baseline only (no admin tuples), and it includes the coarse
+      // gateway gate grant that AgentGateway's ext_authz requires.
+      expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+        writes: expect.arrayContaining([
+          { user: "user:sub-a", relation: "member", object: "organization:grid" },
+          { user: "user:sub-a", relation: "caller", object: "mcp_gateway:list" },
+          { user: "user:sub-b", relation: "member", object: "organization:grid" },
+          { user: "user:sub-b", relation: "caller", object: "mcp_gateway:list" },
+        ]),
+        deletes: [],
+      });
+      // Never grants admin baselines from a directory sync.
+      const writtenObjects = mockWriteOpenFgaTuples.mock.calls[0][0].writes.map(
+        (t: { relation: string }) => t.relation
+      );
+      expect(writtenObjects).not.toContain("admin");
+      expect(writtenObjects).not.toContain("manager");
+    });
+
+    it("dedupes repeated subjects and skips blank ones", async () => {
+      const { reconcileSyncedUsersBaselineAccess } = await import("../login-openfga-bootstrap");
+
+      const result = await reconcileSyncedUsersBaselineAccess(["sub-a", "sub-a", "  ", ""]);
+
+      expect(result.subject_count).toBe(1);
+      const users = new Set(
+        mockWriteOpenFgaTuples.mock.calls[0][0].writes.map((t: { user: string }) => t.user)
+      );
+      expect(users).toEqual(new Set(["user:sub-a"]));
+    });
+
+    it("is a no-op with no resolved subjects", async () => {
+      const { reconcileSyncedUsersBaselineAccess } = await import("../login-openfga-bootstrap");
+
+      const result = await reconcileSyncedUsersBaselineAccess([]);
+
+      expect(result.status).toBe("skipped");
+      expect(result.subject_count).toBe(0);
+      expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+    });
+
+    it("never throws — returns failed on OpenFGA write error", async () => {
+      mockWriteOpenFgaTuples.mockRejectedValue(new Error("openfga down"));
+      const { reconcileSyncedUsersBaselineAccess } = await import("../login-openfga-bootstrap");
+
+      const result = await reconcileSyncedUsersBaselineAccess(["sub-a"]);
+
+      expect(result.status).toBe("failed");
+      expect(result.warning).toContain("openfga down");
+    });
+  });
 });
