@@ -66,6 +66,33 @@ def _msg_link(channel_id: str, ts: str) -> str:
     return ""
   return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
 
+
+def _ingestion_lag_ms(event: dict) -> int | None:
+  """Milliseconds between Slack's event timestamp and now.
+
+  ``event["ts"]`` is the wall-clock time Slack assigned when the message was
+  sent, so this measures true end-to-end lag (Slack delivery + our own
+  queueing/processing), not just time spent inside this process. Used to
+  profile where multi-minute response delays accumulate — Slack delivery,
+  our RBAC/routing pipeline, or agent dispatch — without hand-correlating
+  raw event timestamps against logs after the fact.
+  """
+  send_ts = event.get("ts")
+  try:
+    send_ts = float(send_ts)
+  except (TypeError, ValueError):
+    return None
+  return int((time.time() - send_ts) * 1000)
+
+
+def _log_stage(event: dict, stage: str, **extra) -> None:
+  """Emit a single structured timing line for pipeline-stage profiling."""
+  fields = " ".join(f"{k}={v}" for k, v in extra.items())
+  logger.debug(
+    "[{}] stage={} ingestion_lag_ms={} {}",
+    event.get("ts"), stage, _ingestion_lag_ms(event), fields,
+  )
+
 # 098 Enterprise RBAC enforcement
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
@@ -1022,6 +1049,7 @@ def rbac_global_middleware(body, context, next, logger):
     5. Stores the OBO access token and user_sub on the Bolt context
        for per-handler RBAC checks.
     """
+    _log_stage(body.get("event", {}), "middleware_entry")
     if not RBAC_ENABLED:
         next()
         return
@@ -1113,6 +1141,7 @@ def rbac_global_middleware(body, context, next, logger):
     is_command = bool(body.get("command"))
 
     loop = None
+    _rbac_t0 = time.monotonic()
     try:
         loop = asyncio.new_event_loop()
         rbac_status = loop.run_until_complete(
@@ -1122,6 +1151,10 @@ def rbac_global_middleware(body, context, next, logger):
                 context,
                 require_mapping=not (is_mention or is_command),
             )
+        )
+        logger.debug(
+            "[{}] stage=rbac_enrich_context_done duration_ms={} status={}",
+            event.get("ts"), int((time.monotonic() - _rbac_t0) * 1000), rbac_status,
         )
     except Exception as exc:
         logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
@@ -1221,6 +1254,7 @@ def rbac_global_middleware(body, context, next, logger):
 @app.event("app_mention")
 def handle_mention(event, say, client, context=None):
   """Handle @mentions of the bot to query CAIPE."""
+  _log_stage(event, "handle_mention_entry")
   try:
     # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
     t0 = time.monotonic()
@@ -1525,6 +1559,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
   authorization check and by `_bind_obo_for_handler()` so OBO tokens flow into
   MCP calls. Both default to no-ops when RBAC is disabled.
   """
+  _log_stage(event, "route_to_agent_entry", agent_id=agent_match.agent_id if agent_match else None)
   try:
     t0 = time.monotonic()
 
@@ -2004,6 +2039,7 @@ def handle_message_events(body, say, client, context=None):
   event = body.get("event")
   if not event:
     return
+  _log_stage(event, "handle_message_events_entry")
 
   subtype = event.get("subtype")
   if subtype in ("message_deleted", "message_changed", "channel_join", "channel_leave"):
@@ -2047,6 +2083,7 @@ def handle_message_events(body, say, client, context=None):
         logger.warning(f"event.get('username') also returned nothing for bot_id={bot_id}; bot_list filtering may not work correctly")
 
   sender_user_id = event.get("user") if not is_bot else None
+  _match_t0 = time.monotonic()
   matches = _match_channel_agents(
     channel_id,
     channel_config,
@@ -2056,6 +2093,10 @@ def handle_message_events(body, say, client, context=None):
     user_id=sender_user_id,
     listen="message",
     workspace_id=_event_workspace_id(event),
+  )
+  logger.debug(
+    "[{}] stage=match_channel_agents_done duration_ms={} matched={}",
+    event.get("ts"), int((time.monotonic() - _match_t0) * 1000), bool(matches),
   )
   if not matches:
     mode = slack_agent_route_mode()
