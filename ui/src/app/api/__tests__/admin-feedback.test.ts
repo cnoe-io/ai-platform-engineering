@@ -51,8 +51,15 @@ const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
 ).checkPermission;
 
 const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
+const mockGetOwnedAgents = jest.fn<Promise<Array<{ id: string; name: string }>>, [string]>();
+const mockGetOwnedAgentConversationIds = jest.fn<
+  Promise<{ ids: string[]; capped: boolean }>,
+  [Array<{ id: string; name: string }>]
+>();
 jest.mock('@/lib/rbac/user-insights-scope', () => ({
   getReadableSlackChannelNames: (...args: unknown[]) => mockGetReadableSlackChannelNames(...args),
+  getOwnedAgents: (...args: unknown[]) => mockGetOwnedAgents(...args),
+  getOwnedAgentConversationIds: (...args: unknown[]) => mockGetOwnedAgentConversationIds(...args),
 }));
 
 const mockCheckOpenFgaTuple = jest.fn();
@@ -226,6 +233,10 @@ describe('GET /api/admin/feedback', () => {
     }));
     mockGetRealmUserByIdOrNull.mockReset();
     mockGetRealmUserByIdOrNull.mockResolvedValue(null);
+    mockGetOwnedAgents.mockReset();
+    mockGetOwnedAgents.mockResolvedValue([]);
+    mockGetOwnedAgentConversationIds.mockReset();
+    mockGetOwnedAgentConversationIds.mockResolvedValue({ ids: [], capped: false });
     mockIsMongoDBConfigured = true;
     mockFeedbackEnabled = true;
   });

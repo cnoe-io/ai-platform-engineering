@@ -110,7 +110,7 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
               <CheckCircle2 className="h-5 w-5" />
               Self-Resolution
             </CardTitle>
-            <CardDescription>Threads resolved without human escalation</CardDescription>
+            <CardDescription>User questions resolved without human escalation (excludes bot/alert posts)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -133,7 +133,7 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
                   <p className="text-2xl font-bold text-blue-500">
                     ~{slack.resolution.estimated_hours_saved}h
                   </p>
-                  <p className="text-xs text-muted-foreground">Hours Saved</p>
+                  <p className="text-xs text-muted-foreground">Est. Hours Saved</p>
                 </div>
               </div>
               {/* Resolution bar */}
