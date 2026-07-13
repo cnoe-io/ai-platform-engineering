@@ -88,7 +88,7 @@ def _ingestion_lag_ms(event: dict) -> int | None:
 def _log_stage(event: dict, stage: str, **extra) -> None:
   """Emit a single structured timing line for pipeline-stage profiling."""
   fields = " ".join(f"{k}={v}" for k, v in extra.items())
-  logger.info(
+  logger.debug(
     "[{}] stage={} ingestion_lag_ms={} {}",
     event.get("ts"), stage, _ingestion_lag_ms(event), fields,
   )
@@ -1152,7 +1152,7 @@ def rbac_global_middleware(body, context, next, logger):
                 require_mapping=not (is_mention or is_command),
             )
         )
-        logger.info(
+        logger.debug(
             "[{}] stage=rbac_enrich_context_done duration_ms={} status={}",
             event.get("ts"), int((time.monotonic() - _rbac_t0) * 1000), rbac_status,
         )
@@ -2094,7 +2094,7 @@ def handle_message_events(body, say, client, context=None):
     listen="message",
     workspace_id=_event_workspace_id(event),
   )
-  logger.info(
+  logger.debug(
     "[{}] stage=match_channel_agents_done duration_ms={} matched={}",
     event.get("ts"), int((time.monotonic() - _match_t0) * 1000), bool(matches),
   )
