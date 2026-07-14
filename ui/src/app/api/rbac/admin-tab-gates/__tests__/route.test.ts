@@ -518,6 +518,60 @@ describe("GET /api/rbac/admin-tab-gates", () => {
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
+  it("returns a simulated organization admin's admin settings and full integration modes", async () => {
+    mockGetServerSession.mockResolvedValue({
+      role: "admin",
+      sub: "admin-sub",
+      user: { email: "admin@example.com" },
+    });
+    mockGetRealmUserByIdOrNull.mockResolvedValue({
+      id: "target-admin-sub",
+      username: "target.admin",
+      email: "target.admin@example.com",
+      firstName: "Target",
+      lastName: "Admin",
+    });
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: {
+      user: string;
+      relation: string;
+      object: string;
+    }) => ({
+      allowed:
+        (tuple.user === "user:admin-sub" &&
+          tuple.relation === "can_manage" &&
+          tuple.object === "organization:caipe") ||
+        (tuple.user === "user:target-admin-sub" &&
+          tuple.relation === "can_manage" &&
+          [
+            "organization:caipe",
+            "admin_surface:slack",
+            "admin_surface:webex",
+          ].includes(tuple.object)),
+    }));
+
+    const res = await GET(
+      request("/api/rbac/admin-tab-gates?simulate_type=user&simulate_id=target-admin-sub"),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.simulation.subject).toMatchObject({
+      id: "target-admin-sub",
+      display_name: "Target Admin",
+      organization_admin: true,
+    });
+    expect(body.gates).toMatchObject({
+      credentials: true,
+      service_accounts: true,
+      slack: true,
+      webex: true,
+    });
+    expect(body.integration_panel_modes).toEqual({
+      slack: "full",
+      webex: "full",
+    });
+  });
+
   it("rejects simulation requests from non-admin actors", async () => {
     mockGetServerSession.mockResolvedValue({
       role: "user",

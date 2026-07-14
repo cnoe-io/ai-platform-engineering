@@ -56,6 +56,7 @@ interface AdminTabGateSimulation {
     openfga_user: string;
     display_name?: string;
     email?: string;
+    organization_admin?: boolean;
   };
 }
 

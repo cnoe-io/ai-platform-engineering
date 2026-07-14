@@ -390,6 +390,23 @@ async function getAdminTabGates(request?: NextRequest) {
   const currentSubject = getSessionSubject(session);
   const currentUser = currentSubject ? `user:${currentSubject}` : undefined;
   const bootstrapAdmin = isBootstrapAdmin(session.user.email ?? "");
+  const simulatedOrganizationAdmin = simulatedUser
+    ? await checkTupleAllowed({
+        user: simulatedUser,
+        relation: "can_manage",
+        object: organizationObjectId(),
+      })
+    : false;
+
+  if (simulation.subject) {
+    simulation = {
+      ...simulation,
+      subject: {
+        ...simulation.subject,
+        organization_admin: simulatedOrganizationAdmin,
+      },
+    };
+  }
 
   // ── Common (non-simulated) path: resolve all primary checks in one batch ──
   // Simulated-user path falls through to the per-check evaluateTab() below.
@@ -473,6 +490,17 @@ async function getAdminTabGates(request?: NextRequest) {
         gates[tab] = isAdmin && !!getConfig("credentialsEnabled");
         continue;
       }
+      if (tab === "service_accounts") {
+        gates[tab] = isAdmin;
+        if (!gates[tab]) {
+          secondaryChecks.push(
+            isMemberOfAnyTeam(currentUser).then((allowed) => {
+              gates[tab] = allowed;
+            }),
+          );
+        }
+        continue;
+      }
       if (tab === "dynamic_agent_conversations") {
         gates[tab] = isAdmin || (primaryAllowed.get(tab) ?? false);
         continue;
@@ -508,24 +536,17 @@ async function getAdminTabGates(request?: NextRequest) {
 
     if (tab === "dynamic_agent_conversations") {
       if (simulatedUser) {
-        const simulatedOrgAdmin = await checkTupleAllowed({
-          user: simulatedUser,
-          relation: "can_manage",
-          object: organizationObjectId(),
-        });
-        allowed = simulatedOrgAdmin || await hasDynamicAgentConversationsRead(simulatedUser);
+        allowed = simulatedOrganizationAdmin || await hasDynamicAgentConversationsRead(simulatedUser);
       } else {
         allowed = isAdmin || (actor ? await hasDynamicAgentConversationsRead(actor) : false);
       }
+    } else if (tab === "service_accounts" && simulatedUser) {
+      allowed = simulatedOrganizationAdmin || await isMemberOfAnyTeam(simulatedUser);
     } else {
       allowed =
         tab === "credentials"
           ? simulatedUser
-            ? await checkTupleAllowed({
-                user: simulatedUser,
-                relation: "can_manage",
-                object: organizationObjectId(),
-              })
+            ? simulatedOrganizationAdmin
             : isAdmin
           : BASELINE_TABS.has(tab) && actor
             ? simulatedBaselineObjects.has(adminSurfaceObject(tab)) ||

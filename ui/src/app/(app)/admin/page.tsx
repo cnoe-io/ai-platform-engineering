@@ -509,6 +509,9 @@ function AdminPage() {
   const { gates, integrationPanelModes, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
   const isSimulationActive = Boolean(simulationTarget);
   const canMutateAdminData = isAdmin && !isSimulationActive;
+  const effectiveOrganizationAdmin = isSimulationActive
+    ? Boolean(simulation?.subject?.organization_admin)
+    : isAdmin;
   const simulationDisplayName =
     simulation?.subject?.display_name ||
     simulation?.subject?.email ||
@@ -552,7 +555,7 @@ function AdminPage() {
   const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
   const userSelectedAdminTabRef = useRef(false);
   const initialTab = searchParams.get('tab');
-  const defaultTab = isAdmin && !isSimulationActive ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
+  const defaultTab = effectiveOrganizationAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
   const [activeTab, setActiveTab] = useState<string>(
     isValidTab(initialTab) ? initialTab : defaultTab
   );
@@ -573,12 +576,12 @@ function AdminPage() {
       // Keep them visible during View As and let the child panels enforce the
       // preview's read-only mode through `canMutateAdminData`.
       settings: true,
-      ai_review: isAdmin && !isSimulationActive,
+      ai_review: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
     }),
-    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive]
+    [auditLogsEnabled, effectiveOrganizationAdmin, feedbackEnabled, gates]
   );
 
   const visibleCategories = useMemo(
@@ -1535,26 +1538,35 @@ function AdminPage() {
 
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab isAdmin={canMutateAdminData} />
-                  <ReleaseNotesSettingsTab isAdmin={canMutateAdminData} />
+                  <PlatformSettingsTab
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                  <ReleaseNotesSettingsTab
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
                 </TabsContent>
               )}
 
               {tabGateValues.service_accounts && (
                 <TabsContent value="service-accounts" className="space-y-4">
-                  <ServiceAccountsTab />
+                  <ServiceAccountsTab
+                    readOnly={isSimulationActive}
+                    simulationTarget={simulationTarget}
+                  />
                 </TabsContent>
               )}
 
               {tabGateValues.ai_review && (
                 <TabsContent value="ai-review" className="space-y-4">
-                  <ReviewConfigsTab />
+                  <ReviewConfigsTab readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
               {tabGateValues.credentials && (
                 <TabsContent value="credentials" className="space-y-4">
-                  <AdminCredentialManagementPanel />
+                  <AdminCredentialManagementPanel readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -1563,11 +1575,7 @@ function AdminPage() {
                   <SlackChannelRebacPanel
                     disabled={isSimulationActive}
                     simulationTarget={simulationTarget}
-                    selfService={
-                      isSimulationActive || (integrationPanelModes.slack
-                        ? integrationPanelModes.slack === "self_service"
-                        : !canMutateAdminData)
-                    }
+                    selfService={integrationPanelModes.slack !== "full"}
                   />
                 </TabsContent>
               )}
@@ -1577,11 +1585,7 @@ function AdminPage() {
                   <WebexSpaceRebacPanel
                     disabled={isSimulationActive}
                     simulationTarget={simulationTarget}
-                    selfService={
-                      isSimulationActive || (integrationPanelModes.webex
-                        ? integrationPanelModes.webex === "self_service"
-                        : !canMutateAdminData)
-                    }
+                    selfService={integrationPanelModes.webex !== "full"}
                   />
                 </TabsContent>
               )}

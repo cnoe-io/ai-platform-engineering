@@ -78,15 +78,35 @@ jest.mock('@/components/admin/platform/HealthTab', () => ({
 }));
 
 jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
-  ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
+  ReviewConfigsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="review-configs-tab" data-read-only={String(Boolean(props.readOnly))}>
+      ReviewConfigsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
-  PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
+  PlatformSettingsTab: (props: { isAdmin?: boolean; readOnly?: boolean }) => (
+    <div
+      data-testid="platform-settings-tab"
+      data-admin={String(Boolean(props.isAdmin))}
+      data-read-only={String(Boolean(props.readOnly))}
+    >
+      PlatformSettingsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
+}));
+
+jest.mock('@/components/admin/ServiceAccountsTab', () => ({
+  ServiceAccountsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="service-accounts-tab" data-read-only={String(Boolean(props.readOnly))}>
+      ServiceAccountsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
@@ -686,6 +706,55 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
       expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
+    });
+
+    it('uses a simulated admin\'s effective access while keeping the preview read-only', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=admin-target');
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          credentials: true,
+          service_accounts: true,
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'admin-target',
+            openfga_user: 'user:admin-target',
+            display_name: 'Target Admin',
+            organization_admin: true,
+          },
+        },
+        integrationPanelModes: {
+          slack: 'full',
+          webex: 'full',
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: /viewing as target admin/i })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      });
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'General',
+        'AI Review',
+        'Credentials',
+        'Skills',
+        'Service Accounts',
+      ]);
+      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
+      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
+      expect(await screen.findByTestId('slack-integration-panel')).toHaveAttribute(
+        'data-self-service',
+        'false',
+      );
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'true');
     });
 
     it('scopes Feedback requests to the selected preview account', async () => {

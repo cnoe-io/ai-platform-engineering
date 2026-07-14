@@ -11,6 +11,8 @@ export interface AdminSimulationSubject {
   /** Canonical Keycloak display values, populated by simulation API routes. */
   display_name?: string;
   email?: string;
+  /** Whether this subject can administer the organization. */
+  organization_admin?: boolean;
 }
 
 export interface AdminSimulationContext {
