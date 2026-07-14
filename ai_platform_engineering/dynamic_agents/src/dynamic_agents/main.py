@@ -135,7 +135,13 @@ def create_app() -> FastAPI:
     # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
     # JWT auth middleware so failed-auth and CORS-preflight requests are
     # still observable.
-    app.add_middleware(PrometheusHTTPMiddleware)
+    # When METRICS_PORT is set to a port other than the main API port,
+    # /metrics is served by a separate standalone server (see below) instead
+    # of on the main port — e.g. to keep the main port on strict mTLS while
+    # leaving the metrics port permissive for scrapers that don't support
+    # mTLS client certs.
+    serve_metrics_on_main_port = settings.metrics_port in (0, settings.port)
+    app.add_middleware(PrometheusHTTPMiddleware, serve_metrics=serve_metrics_on_main_port)
 
     # Spec 102 Phase 8 / T103: validate incoming Bearer JWTs against
     # Keycloak and bind current_user_token so the MCP httpx factory can
@@ -194,20 +200,23 @@ def create_app() -> FastAPI:
     # ai_platform_engineering.utils.auth.metrics are scrapeable. The
     # endpoint is intentionally NOT auth-gated (standard /metrics
     # convention; restrict via NetworkPolicy in production).
-    try:
-        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-        from starlette.responses import Response
+    # Skipped when METRICS_PORT moves /metrics to a dedicated port (see
+    # serve_metrics_on_main_port above and run_metrics_server below).
+    if serve_metrics_on_main_port:
+        try:
+            from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+            from starlette.responses import Response
 
-        @app.get("/metrics", include_in_schema=False)
-        async def metrics() -> Response:
-            return Response(
-                content=generate_latest(),
-                media_type=CONTENT_TYPE_LATEST,
+            @app.get("/metrics", include_in_schema=False)
+            async def metrics() -> Response:
+                return Response(
+                    content=generate_latest(),
+                    media_type=CONTENT_TYPE_LATEST,
+                )
+        except ImportError:
+            logger.warning(
+                "prometheus_client not installed; /metrics endpoint disabled"
             )
-    except ImportError:
-        logger.warning(
-            "prometheus_client not installed; /metrics endpoint disabled"
-        )
 
     return app
 
@@ -220,6 +229,17 @@ if __name__ == "__main__":
     import uvicorn
 
     settings = get_settings()
+
+    # Serve /metrics on its own port when METRICS_PORT differs from the main
+    # API port (see serve_metrics_on_main_port in create_app). Uses
+    # prometheus_client's own WSGI server, started in a background thread,
+    # against the same default collector registry the app's metrics use.
+    if settings.metrics_port and settings.metrics_port != settings.port:
+        from prometheus_client import start_http_server
+
+        start_http_server(settings.metrics_port, addr=settings.host)
+        logger.info("Metrics server listening on %s:%s/metrics", settings.host, settings.metrics_port)
+
     uvicorn.run(
         "dynamic_agents.main:app",
         host=settings.host,

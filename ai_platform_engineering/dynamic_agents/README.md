@@ -75,6 +75,9 @@ Create a `.env` file in the `dynamic_agents` directory:
 HOST=0.0.0.0
 PORT=8001
 DEBUG=false
+# Serve /metrics on a dedicated port instead of PORT (default: unset, same port as PORT).
+# Useful when the main API port is on strict mTLS but metrics scrapers need a permissive port.
+# METRICS_PORT=9001
 
 # MongoDB
 MONGODB_URI=mongodb://localhost:27017
@@ -141,6 +144,7 @@ The API documentation is available at:
 |----------|-------------|---------|
 | `HOST` | Server bind address | `0.0.0.0` |
 | `PORT` | Server port | `8001` |
+| `METRICS_PORT` | Dedicated port for `/metrics` (0 = same as `PORT`) | `0` |
 | `DEBUG` | Enable debug mode / hot reload / dev auth bypass | `false` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
 | `MONGODB_DATABASE` | Database name | `caipe` |

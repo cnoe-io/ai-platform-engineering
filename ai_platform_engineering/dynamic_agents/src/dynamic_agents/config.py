@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     port: int = 8001
     debug: bool = False
 
+    # Metrics
+    # Port for the /metrics endpoint. When 0 (default) or equal to `port`,
+    # metrics are served on the main API port (current behavior, unchanged).
+    # Set to a different port to serve metrics on a dedicated port — e.g. to
+    # keep the main API port on strict mTLS while leaving the metrics port in
+    # mTLS-permissive mode for scrapers that don't support mTLS client certs.
+    metrics_port: int = 0
+
     # MongoDB
     # Full URI takes precedence; if not set, built from components
     mongodb_uri: str = "mongodb://localhost:27017"

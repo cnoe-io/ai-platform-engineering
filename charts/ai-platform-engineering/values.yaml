@@ -1069,6 +1069,12 @@ dynamic-agents:
     pullPolicy: "IfNotPresent"
   service:
     port: 8001
+    # Dedicated port for /metrics. 0 (default) serves metrics on `port`
+    # above — unchanged from current behavior. Set to a different port to
+    # split metrics onto its own port, e.g. so the main API port can run
+    # strict mTLS while metrics stays permissive for scrapers that don't
+    # support mTLS client certs.
+    metricsPort: 0
   # ConfigMap for non-sensitive configuration
   config:
     # ─── Keycloak / OIDC (REQUIRED for Bearer token validation) ─────────
