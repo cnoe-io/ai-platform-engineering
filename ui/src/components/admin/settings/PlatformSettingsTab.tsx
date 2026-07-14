@@ -15,8 +15,9 @@ DialogFooter,
 DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
+import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceAccountModal";
-import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
+import { WebDefaultAgentPanel } from "@/components/settings/WebDefaultAgent/WebDefaultAgentPanel";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AlertTriangle,Info,Loader2,Shield } from "lucide-react";
 import { useEffect,useState } from "react";
@@ -131,114 +132,121 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
       : null;
   const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "this agent";
 
-  if (loadingConfig || loadingAgents) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Default Agent</CardTitle>
           <CardDescription>
-            Choose the agent people see first when they start a new chat in the web UI
-            or connected chat channels. Changes take effect right away.
+            Choose which agent new chats open with. Your personal choice applies to your
+            own web chats
+            {isAdmin
+              ? "; the platform default below applies to everyone who hasn't set their own."
+              : "."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div
-            className="flex gap-2 px-3 py-2 rounded-md bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-sm"
-            data-testid="default-agent-public-banner"
-          >
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-medium">
-                This choice gives every signed-in user access to the selected agent.
-              </p>
-              <p className="text-xs">
-                The platform default is the agent new users land on in direct messages and the
-                Web UI before any team grants kick in. Choose <em>No default agent</em> if
-                you don&apos;t want any agent to be public by default — users will only see agents
-                their teams have granted them.
-              </p>
-            </div>
-          </div>
+          {/* Personal web default — every signed-in user gets one. In an access
+              preview (readOnly) writes are suppressed because the preferences
+              API keys off the signed-in admin, not the previewed user. */}
+          <WebDefaultAgentPanel disabled={readOnly} />
 
-          {savedAgentMissing && (
-            <div
-              className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm"
-              data-testid="default-agent-missing-banner"
-            >
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p>
-                  The platform default agent (<code>{savedAgentId}</code>) is not
-                  in your accessible agent list. This usually means it was
-                  deleted, disabled, or you don&apos;t have permission to use
-                  it.
-                </p>
-                {!isAdmin && (
-                  <p className="text-xs">
-                    You&apos;re viewing this in read-only mode, so the dropdown
-                    above shows the configured agent id even though you can&apos;t
-                    chat with it. Ask a full admin to verify or change the
-                    default.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {configSource === 'env' && (
-            <p className="text-xs text-muted-foreground">
-              Currently using the deployment default (<code>DEFAULT_AGENT_ID</code>). Saving here
-              updates the live default.
-            </p>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Default agent for new chats</label>
-            <select
-              value={selectedAgentId ?? ''}
-              onChange={(e) => setSelectedAgentId(e.target.value || null)}
-              disabled={!isAdmin || readOnly}
-              className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 md:ml-4"
-            >
-              <option value="">No default agent</option>
-              {agents.map((a) => (
-                <option key={a._id} value={a._id}>
-                  {a.name}
-                </option>
-              ))}
-              {missingSelectedOption && (
-                <option
-                  key={missingSelectedOption._id}
-                  value={missingSelectedOption._id}
-                  data-testid="default-agent-missing-option"
-                >
-                  {missingSelectedOption.label}
-                </option>
-              )}
-            </select>
-            {selectedAgent && (
-              <p className="text-xs text-muted-foreground">{selectedAgent.description}</p>
-            )}
-          </div>
-
+          {/* Platform-wide default — admin only, below a divider mirroring the
+              Release Notes settings layout. */}
           {isAdmin && (
-            <div className="pt-2">
-              <SaveButton
-                onSave={handleSaveClick}
-                saving={saving}
-                dirty={selectedAgentId !== savedAgentId}
-                disabled={readOnly}
-                result={saveResult}
-                testId="default-agent-save"
-              />
+            <div className="space-y-4 border-t pt-4">
+              <AdminBadge />
+
+              {loadingConfig || loadingAgents ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="flex gap-2 px-3 py-2 rounded-md bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-sm"
+                    data-testid="default-agent-public-banner"
+                  >
+                    <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-medium">
+                        This choice gives every signed-in user access to the selected agent.
+                      </p>
+                      <p className="text-xs">
+                        The platform default is the agent new users land on in direct messages and the
+                        Web UI before any team grants kick in. Choose <em>No default agent</em> if
+                        you don&apos;t want any agent to be public by default — users will only see agents
+                        their teams have granted them.
+                      </p>
+                    </div>
+                  </div>
+
+                  {savedAgentMissing && (
+                    <div
+                      className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm"
+                      data-testid="default-agent-missing-banner"
+                    >
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p>
+                          The platform default agent (<code>{savedAgentId}</code>) is not
+                          in your accessible agent list. This usually means it was
+                          deleted, disabled, or you don&apos;t have permission to use
+                          it.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {configSource === 'env' && (
+                    <p className="text-xs text-muted-foreground">
+                      Currently using the deployment default (<code>DEFAULT_AGENT_ID</code>). Saving here
+                      updates the live default.
+                    </p>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Platform default agent for new chats</label>
+                    <select
+                      aria-label="Platform default agent for new chats"
+                      value={selectedAgentId ?? ''}
+                      onChange={(e) => setSelectedAgentId(e.target.value || null)}
+                      disabled={readOnly}
+                      className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 md:ml-4"
+                    >
+                      <option value="">No default agent</option>
+                      {agents.map((a) => (
+                        <option key={a._id} value={a._id}>
+                          {a.name}
+                        </option>
+                      ))}
+                      {missingSelectedOption && (
+                        <option
+                          key={missingSelectedOption._id}
+                          value={missingSelectedOption._id}
+                          data-testid="default-agent-missing-option"
+                        >
+                          {missingSelectedOption.label}
+                        </option>
+                      )}
+                    </select>
+                    {selectedAgent && (
+                      <p className="text-xs text-muted-foreground">{selectedAgent.description}</p>
+                    )}
+                  </div>
+
+                  <div className="pt-2">
+                    <SaveButton
+                      onSave={handleSaveClick}
+                      saving={saving}
+                      dirty={selectedAgentId !== savedAgentId}
+                      disabled={readOnly}
+                      result={saveResult}
+                      testId="default-agent-save"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
         </CardContent>
@@ -251,6 +259,7 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-muted-foreground" />
               Unlinked Access
+              <AdminBadge />
             </CardTitle>
             <CardDescription>
               Set the starting access for people who message the platform from Slack or Webex
@@ -282,8 +291,6 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
           isAdmin={isAdmin}
         />
       )}
-
-      <ImportAgentsFromConfigCard isAdmin={isAdmin} readOnly={readOnly} />
 
       <Dialog
         open={confirmAction !== null}

@@ -11,7 +11,7 @@ interface ApiEnvelope<T> {
 export interface ResolvedChatAgent {
   id: string;
   name: string;
-  source: "platform-default" | "first-available";
+  source: "user-default" | "platform-default" | "first-available";
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -30,6 +30,23 @@ async function fetchPlatformDefaultAgentId(): Promise<string | null> {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/**
+ * The user's personal Web new-chat default, when they've set one. A missing
+ * or cleared preference resolves to null so we fall through to the platform
+ * default. Never throws — a preference-service hiccup must not block new chats.
+ */
+async function fetchUserWebDefaultAgentId(): Promise<string | null> {
+  try {
+    const payload = await fetchJson<ApiEnvelope<{ web_default_agent_id?: unknown }>>(
+      "/api/user/preferences",
+    );
+    const value = payload.success ? payload.data?.web_default_agent_id : null;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchAvailableAgents(): Promise<DynamicAgentConfig[]> {
   const payload = await fetchJson<ApiEnvelope<DynamicAgentConfig[]>>(
     "/api/dynamic-agents/available",
@@ -41,15 +58,32 @@ async function fetchAvailableAgents(): Promise<DynamicAgentConfig[]> {
 }
 
 export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
-  const [defaultResult, agentsResult] = await Promise.allSettled([
+  const [userDefaultResult, defaultResult, agentsResult] = await Promise.allSettled([
+    fetchUserWebDefaultAgentId(),
     fetchPlatformDefaultAgentId(),
     fetchAvailableAgents(),
   ]);
 
+  const userDefaultAgentId =
+    userDefaultResult.status === "fulfilled" ? userDefaultResult.value : null;
   const defaultAgentId =
     defaultResult.status === "fulfilled" ? defaultResult.value : null;
   const availableAgents =
     agentsResult.status === "fulfilled" ? agentsResult.value : [];
+
+  // Highest priority: the user's own Web default, but only if they still have
+  // access to it (it's in the available list). A stale/revoked choice falls
+  // through to the platform default rather than dead-ending the new chat.
+  if (userDefaultAgentId) {
+    const userAgent = availableAgents.find((agent) => agent._id === userDefaultAgentId);
+    if (userAgent) {
+      return {
+        id: userAgent._id,
+        name: userAgent.name,
+        source: "user-default",
+      };
+    }
+  }
 
   if (defaultAgentId) {
     const defaultAgent = availableAgents.find((agent) => agent._id === defaultAgentId);

@@ -803,10 +803,11 @@ describe('Admin Dashboard Page', () => {
       });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
       expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
@@ -1014,10 +1015,11 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       // Release notes lives under General, not as a standalone tab.
@@ -1119,6 +1121,7 @@ describe('Admin Dashboard Page', () => {
 
     it.each([
       ['settings', 'settings', /^General$/i],
+      ['settings', 'agents', /^Agents$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
