@@ -59,7 +59,7 @@ async function expectMetricsDenied(response: Response): Promise<void> {
   const body = await response.json();
   expect(response.status).toBe(403);
   expect(body.reason).toBe("pdp_denied");
-  expect(body.code).toBe("admin_ui#view");
+  expect(body.code).toBe("admin_surface:metrics#can_manage");
   expect(mockFetch).not.toHaveBeenCalled();
 }
 
@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 describe("admin metrics route RBAC", () => {
-  it("allows OpenFGA baseline Metrics viewers to proxy an instant PromQL query", async () => {
+  it("allows Metrics administrators to proxy an instant PromQL query", async () => {
     const { GET } = await import("../route");
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -92,7 +92,7 @@ describe("admin metrics route RBAC", () => {
     expect(body.success).toBe(true);
     expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
       user: "user:bob-sub",
-      relation: "can_read",
+      relation: "can_manage",
       object: "admin_surface:metrics",
     });
     expect(mockFetch).toHaveBeenCalledWith(
@@ -101,7 +101,7 @@ describe("admin metrics route RBAC", () => {
     );
   });
 
-  it("allows OpenFGA baseline Metrics viewers to proxy batch PromQL queries", async () => {
+  it("allows Metrics administrators to proxy batch PromQL queries", async () => {
     const { POST } = await import("../route");
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -124,6 +124,24 @@ describe("admin metrics route RBAC", () => {
     expect(body.data.up).toEqual({
       status: "success",
       data: { resultType: "vector", result: [] },
+    });
+  });
+
+  it("rejects a baseline reader without Metrics administration access", async () => {
+    const { GET } = await import("../route");
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+
+    const response = await GET(
+      request("/api/admin/metrics?query=up", {
+        method: "GET",
+      })
+    );
+
+    await expectMetricsDenied(response);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:bob-sub",
+      relation: "can_manage",
+      object: "admin_surface:metrics",
     });
   });
 });

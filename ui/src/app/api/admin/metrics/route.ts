@@ -4,7 +4,7 @@ getAuthFromBearerOrSession,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getServerOnlyConfig } from '@/lib/config';
-import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
+import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 import { NextRequest,NextResponse } from 'next/server';
 
 const PROM_QUERY_TIMEOUT_MS = 15_000;
@@ -13,7 +13,7 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  * GET /api/admin/metrics
  *
  * Proxies PromQL queries to the Prometheus HTTP API.
- * OpenFGA baseline Metrics viewers may view metrics.
+ * Metrics are restricted to administrators.
  *
  * Query params:
  *   query  – PromQL expression (required)
@@ -26,7 +26,7 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  */
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireBaselineAdminSurfaceRead(session, 'metrics');
+  await requireAdminSurfaceManage(session, 'metrics');
 
   const { prometheusUrl } = getServerOnlyConfig();
 
@@ -105,7 +105,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
  */
 export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireBaselineAdminSurfaceRead(session, 'metrics');
+  await requireAdminSurfaceManage(session, 'metrics');
 
   const { prometheusUrl } = getServerOnlyConfig();
 
