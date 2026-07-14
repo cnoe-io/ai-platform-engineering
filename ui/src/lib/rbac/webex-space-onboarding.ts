@@ -341,7 +341,11 @@ export async function onboardWebexSpace(
     try {
       const result = await callWebexBotAdmin("/admin/webex/routes/reload", {
         method: "POST",
-        body: { workspace_id: workspaceId, space_id: canonicalSpaceId },
+        body: {
+          bot_id: botId,
+          workspace_id: workspaceId,
+          space_id: canonicalSpaceId,
+        },
       });
       runtimeReload = { attempted: true, ok: true, result };
     } catch (error) {

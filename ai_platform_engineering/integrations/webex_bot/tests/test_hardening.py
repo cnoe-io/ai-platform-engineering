@@ -113,6 +113,7 @@ def test_identity_lookup_exception_fail_closed() -> None:
         handle_webex_message(
             _event(),
             identity_linker=FailingIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
             dispatcher=dispatcher,
         )
     )

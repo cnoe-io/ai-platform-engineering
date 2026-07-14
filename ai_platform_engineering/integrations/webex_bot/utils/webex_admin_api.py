@@ -210,12 +210,18 @@ class WebexBotAdminService:
     def reload_routes(
         self,
         *,
+        bot_id: str | None = None,
         workspace_id: str | None = None,
         space_id: str | None = None,
     ) -> dict[str, str]:
-        if workspace_id and space_id:
-            self._resolver.invalidate_all()
-            return {"reloaded": "space", "workspace_id": workspace_id, "space_id": space_id}
+        if bot_id and workspace_id and space_id:
+            self._resolver.invalidate(bot_id, workspace_id, space_id)
+            return {
+                "reloaded": "space",
+                "bot_id": bot_id,
+                "workspace_id": workspace_id,
+                "space_id": space_id,
+            }
         self._resolver.invalidate_all()
         return {"reloaded": "all"}
 
@@ -391,6 +397,7 @@ class _WebexAdminRequestHandler(BaseHTTPRequestHandler):
                 return
             self._write_json(
                 self.service.reload_routes(
+                    bot_id=_optional_string(body.get("bot_id")),
                     workspace_id=_optional_string(body.get("workspace_id")),
                     space_id=_optional_string(body.get("space_id")),
                 )

@@ -895,9 +895,9 @@ export function ConnectorAdminPanel({
     void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
   }, [loadTeams, selfService]);
   useEffect(() => {
-    if (selfService || !adapter.api.discoveryIdentities) return;
+    if (!adapter.api.discoveryIdentities) return;
     void loadDiscoveryIdentities();
-  }, [adapter.api.discoveryIdentities, loadDiscoveryIdentities, selfService]);
+  }, [adapter.api.discoveryIdentities, loadDiscoveryIdentities]);
   useEffect(() => {
     if (!hasAdvancedView) return;
     void loadRuntimeStatus().catch((e) =>
@@ -1470,7 +1470,7 @@ export function ConnectorAdminPanel({
         {/* Configured / self-service channels — one slot: loading, empty, or table */}
         {(selfService || panelView === "channels") && (
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
-            {!selfService && adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
+            {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
               <div className="mb-3 flex justify-end">
                 <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <span>{adapter.discoveryIdentity.label}</span>

@@ -51,7 +51,7 @@ class _RoutesCollection:
 
 class _Resolver:
     def __init__(self) -> None:
-        self.invalidated: list[tuple[str | None, str | None]] = []
+        self.invalidated: list[tuple[str | None, str | None, str | None]] = []
 
     def cache_status(self) -> dict[str, object]:
         return {
@@ -61,11 +61,11 @@ class _Resolver:
             "last_errors": {},
         }
 
-    def invalidate(self, workspace_id: str, space_id: str) -> None:
-        self.invalidated.append((workspace_id, space_id))
+    def invalidate(self, bot_id: str, workspace_id: str, space_id: str) -> None:
+        self.invalidated.append((bot_id, workspace_id, space_id))
 
     def invalidate_all(self) -> None:
-        self.invalidated.append((None, None))
+        self.invalidated.append((None, None, None))
 
 
 def _config() -> WebexBotConfig:
@@ -114,12 +114,18 @@ def test_reload_clears_all_or_one_space_cache() -> None:
     service = WebexBotAdminService(config=_config(), resolver=resolver)
 
     assert service.reload_routes() == {"reloaded": "all"}
-    assert service.reload_routes(workspace_id="CAIPE-WEBEX", space_id="space-abc") == {
+    assert service.reload_routes(
+        bot_id="primary", workspace_id="CAIPE-WEBEX", space_id="space-abc"
+    ) == {
         "reloaded": "space",
+        "bot_id": "primary",
         "workspace_id": "CAIPE-WEBEX",
         "space_id": "space-abc",
     }
-    assert resolver.invalidated == [(None, None), ("CAIPE-WEBEX", "space-abc")]
+    assert resolver.invalidated == [
+        (None, None, None),
+        ("primary", "CAIPE-WEBEX", "space-abc"),
+    ]
 
 
 def test_sync_from_config_dry_run_plans_without_writes() -> None:
@@ -171,7 +177,7 @@ def test_sync_from_config_upserts_routes_writes_openfga_and_invalidates_cache() 
             "object": "agent:incident-agent",
         }
     ]
-    assert resolver.invalidated == [("CAIPE-WEBEX", "space-abc")]
+    assert resolver.invalidated == [(None, None, None)]
 
 
 def test_sync_from_config_replaces_existing_agent_metadata_without_touching_others() -> None:
@@ -238,7 +244,7 @@ def test_sync_from_config_canonicalizes_public_webex_room_ids() -> None:
     assert openfga_writes[0]["user"] == (
         "webex_space:CAIPE-WEBEX--6f91b070-531a-11f1-926d-6fd3c20dfdc4"
     )
-    assert resolver.invalidated == [("CAIPE-WEBEX", "6f91b070-531a-11f1-926d-6fd3c20dfdc4")]
+    assert resolver.invalidated == [(None, None, None)]
 
 
 def test_load_webex_bot_config_from_inline_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
