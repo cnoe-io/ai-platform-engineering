@@ -38,6 +38,7 @@ from dynamic_agents.models import (
     AgentContext,
     ClientContext,
     DynamicAgentConfig,
+    InputFile,
     InterruptConfig,
     MCPServerConfig,
     SubAgentRef,
@@ -221,6 +222,76 @@ def _mcp_warning_events(permanent: list[str], transient: list[str]) -> list[str]
             f"MCP server '{server_name}' is starting up and not ready yet — it will be retried."
         )
     return messages
+
+
+# MIME types the Bedrock Converse API can ingest, split by the LangChain
+# content-block type each maps to. Images become ``image`` blocks; everything
+# else becomes a ``document`` (``file``) block. Anything not listed here is
+# rejected by the langchain_aws adapter (raising ValueError), so we skip such
+# files with a warning rather than let them break the whole request.
+# Source: langchain_aws.chat_models.bedrock_converse.MIME_TO_FORMAT.
+_SUPPORTED_IMAGE_MIME_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp"}
+)
+_SUPPORTED_DOC_MIME_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/csv",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/html",
+        "text/plain",
+        "text/markdown",
+    }
+)
+
+
+def _build_user_content(message: str, files: "list[InputFile] | None") -> "str | list[dict[str, Any]]":
+    """Build the user-turn content for the agent's message list.
+
+    Without files, returns the plain ``message`` string (the fast path).
+    With one or more attachable files, returns a multimodal content list: a
+    text block followed by one block per file. Images become ``image`` blocks
+    and documents (PDF, CSV, Office, HTML, txt, md) become ``file`` blocks, so
+    the model reads every supported file — not just images. Both use
+    LangChain's standard shape (``{"type": ..., "mime_type": ...,
+    "base64"|"url": ...}``), which the langchain_aws Bedrock converse adapter
+    converts natively.
+
+    Files whose MIME type Bedrock cannot ingest are skipped with a warning
+    (passing them through would raise in the adapter). If no file survives,
+    the plain string is returned unchanged.
+    """
+    if not files:
+        return message
+
+    blocks: list[dict[str, Any]] = [{"type": "text", "text": message}]
+    for f in files:
+        if f.mime_type in _SUPPORTED_IMAGE_MIME_TYPES:
+            block_type = "image"
+        elif f.mime_type in _SUPPORTED_DOC_MIME_TYPES:
+            block_type = "file"
+        else:
+            logger.warning(
+                f"[stream] Skipping file with unsupported type '{f.mime_type}' "
+                f"(name={f.name!r}); Bedrock cannot ingest it"
+            )
+            continue
+
+        block: dict[str, Any] = {"type": block_type, "mime_type": f.mime_type}
+        if f.data:
+            block["base64"] = f.data
+        else:
+            block["url"] = f.uri
+        # Document blocks carry a filename; the adapter warns without one.
+        if block_type == "file" and f.name:
+            block["name"] = f.name
+        blocks.append(block)
+
+    # Only switch to multimodal if at least one file survived filtering.
+    return blocks if len(blocks) > 1 else message
 
 
 class AgentRuntime:
@@ -1215,8 +1286,14 @@ class AgentRuntime:
         user_id: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
+        files: list[InputFile] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream agent response for a user message.
+
+        When ``files`` are provided, the user turn is sent as a multimodal
+        content list (text block + one block per supported file — image or
+        document) instead of a plain string, so the model receives the file
+        bytes.
 
         Yields SSE frame strings produced by the encoder.
         """
@@ -1278,7 +1355,10 @@ class AgentRuntime:
                 yield frame
 
         # ── Core lifecycle: chunks ──
-        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
+        # Build the user turn: plain string normally, or a multimodal content
+        # list (text + image blocks) when files are attached.
+        user_content = _build_user_content(message, files)
+        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": user_content}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
         # In GridFS mode, skills are pre-populated in the store at init time.
         if getattr(self, "_skills_files", None) and self._resolve_backend_type() != BACKEND_STORE:
