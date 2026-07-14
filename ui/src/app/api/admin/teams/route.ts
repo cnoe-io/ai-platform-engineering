@@ -9,6 +9,10 @@ successResponse,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import {
+resolveAuthorizedAdminSimulationScope,
+simulationSubjectCanAuditOrganization,
+} from '@/lib/rbac/admin-simulation-server';
 import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
 import { listOpenFgaObjects } from '@/lib/rbac/openfga';
 import { listTeamKbGrantsBatch, listTeamResourceIdsBatch, TEAM_TOOL_WILDCARD_SENTINEL_ID } from '@/lib/rbac/team-resource-listing';
@@ -68,35 +72,49 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const { session } = await getAuthFromBearerOrSession(request);
   await requireBaselineAdminSurfaceRead(session, 'teams');
+  const url = new URL(request.url);
+  const simulationScope = await resolveAuthorizedAdminSimulationScope(url.searchParams, session);
 
   // Mirror the per-row access pattern from PR #1883 (Slack channels). Org/super
   // admins keep the unscoped view; everyone else only sees teams they're a
   // member of, with `can_manage` flipped on for teams where they're a team
   // admin. Failures resolving membership fail-closed so a transiently broken
   // PDP can't accidentally leak the full team list to a regular user.
-  const hasAdminView = await requireRbacPermission(session, 'admin_ui', 'view').then(
-    () => true,
-    () => false
-  );
+  const hasAdminView = simulationScope
+    ? await simulationSubjectCanAuditOrganization(simulationScope)
+    : await requireRbacPermission(session, 'admin_ui', 'view').then(
+        () => true,
+        () => false
+      );
 
   let memberSlugs = new Set<string>();
   let adminSlugs = new Set<string>();
   if (!hasAdminView) {
-    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
-    if (sub) {
-      try {
-        const [memberResult, adminResult] = await Promise.all([
-          listOpenFgaObjects({ user: `user:${sub}`, relation: 'member', type: 'team' }),
-          listOpenFgaObjects({ user: `user:${sub}`, relation: 'admin', type: 'team' }),
-        ]);
-        memberSlugs = new Set(
-          memberResult.objects.map((obj) => obj.split(':').slice(1).join(':')).filter(Boolean)
-        );
-        adminSlugs = new Set(
-          adminResult.objects.map((obj) => obj.split(':').slice(1).join(':')).filter(Boolean)
-        );
-      } catch {
-        // fail-closed: no teams visible
+    if (simulationScope?.subjectType === 'team') {
+      memberSlugs = new Set([simulationScope.subjectId]);
+      if (simulationScope.teamRelation === 'admin') {
+        adminSlugs = new Set([simulationScope.subjectId]);
+      }
+    } else {
+      const actor = simulationScope?.openfgaUser
+        ?? (typeof session.sub === 'string' && session.sub.trim()
+          ? `user:${session.sub.trim()}`
+          : '');
+      if (actor) {
+        try {
+          const [memberResult, adminResult] = await Promise.all([
+            listOpenFgaObjects({ user: actor, relation: 'member', type: 'team' }),
+            listOpenFgaObjects({ user: actor, relation: 'admin', type: 'team' }),
+          ]);
+          memberSlugs = new Set(
+            memberResult.objects.map((obj) => obj.split(':').slice(1).join(':')).filter(Boolean)
+          );
+          adminSlugs = new Set(
+            adminResult.objects.map((obj) => obj.split(':').slice(1).join(':')).filter(Boolean)
+          );
+        } catch {
+          // fail-closed: no teams visible
+        }
       }
     }
   }
@@ -108,7 +126,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // pulls one page of rows into the browser. Callers that omit `page` (the
   // shared Stats/Feedback team-filter dropdowns and the access-simulation
   // team picker) still get the full list, exactly as before.
-  const url = new URL(request.url);
   const paginated = url.searchParams.has('page');
   const page = paginated ? Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1) : 1;
   const pageSizeRaw = parseInt(url.searchParams.get('page_size') || '24', 10) || 24;

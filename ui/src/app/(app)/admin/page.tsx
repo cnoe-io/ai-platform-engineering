@@ -881,6 +881,12 @@ function AdminPage() {
       setFeedbackChannels([]);
       setFeedbackUsers([]);
       setTeams([]);
+      setGridTeams([]);
+      setGridTotal(0);
+      setGridPage(1);
+      setGridLoaded(false);
+      setSelectedUserId(null);
+      setSelectedUserEmail(null);
       setStatsRefreshing(false);
       setFeedbackLoading(false);
       setLoading(false);
@@ -890,7 +896,7 @@ function AdminPage() {
   }, [activeTab, simulationScopeKey, status]);
 
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
-    const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
+    const response = await fetch(withAdminSimulationParams(`/api/admin/teams?fresh=${Date.now()}`, simulationTarget), {
       cache: 'no-store',
     });
     const result = await response.json();
@@ -926,7 +932,7 @@ function AdminPage() {
       });
       if (search.trim()) params.set('search', search.trim());
       if (showArchivedTeams) params.set('include_archived', 'true');
-      const response = await fetch(`/api/admin/teams?${params.toString()}`, {
+      const response = await fetch(withAdminSimulationParams(`/api/admin/teams?${params.toString()}`, simulationTarget), {
         cache: 'no-store',
       });
       const result = await response.json();
@@ -942,7 +948,7 @@ function AdminPage() {
     } finally {
       setGridLoading(false);
     }
-  }, [showArchivedTeams]);
+  }, [showArchivedTeams, simulationTarget]);
 
   // Debounced server-side search for the Teams grid. Typing resets to page 1
   // and re-queries the server (~250ms after the last keystroke), matching the
@@ -1592,13 +1598,17 @@ function AdminPage() {
 
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                <UserManagementTab onSelectUser={(id) => setSelectedUserId(id)} />
+                <UserManagementTab
+                  onSelectUser={(id) => setSelectedUserId(id)}
+                  simulationTarget={simulationTarget}
+                />
                 {selectedUserId && (
                   <UserDetailModal
                     userId={selectedUserId}
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
                     readOnly={!canMutateAdminData}
+                    simulationTarget={simulationTarget}
                     teamOptions={teams.length > 0 ? teams.map((t) => ({ teamId: t.name, label: t.name })) : undefined}
                   />
                 )}
@@ -2986,6 +2996,7 @@ function AdminPage() {
       <UserDetailPanel
         email={selectedUserEmail}
         onClose={() => setSelectedUserEmail(null)}
+        simulationTarget={simulationTarget}
       />
     </div>
   );

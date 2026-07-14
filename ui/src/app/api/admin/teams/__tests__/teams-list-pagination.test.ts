@@ -16,7 +16,9 @@ const mockCheckPermission = jest.fn();
 const mockRequireBaselineAdminSurfaceRead = jest.fn();
 const mockLoadTeamMemberCounts = jest.fn();
 const mockLoadTeamIdpSourceTypes = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
+const mockGetRealmUserByIdOrNull = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
@@ -45,6 +47,7 @@ jest.mock("@/lib/rbac/require-openfga", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
 }));
 
@@ -64,6 +67,7 @@ jest.mock("@/lib/rbac/team-membership-sync", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
+  getRealmUserByIdOrNull: (...args: unknown[]) => mockGetRealmUserByIdOrNull(...args),
   isValidTeamSlug: jest.fn(() => true),
 }));
 
@@ -161,7 +165,19 @@ beforeEach(() => {
   // checkPermission. Default allow so the admin sees the unscoped list.
   mockLoadTeamMemberCounts.mockResolvedValue(new Map());
   mockLoadTeamIdpSourceTypes.mockResolvedValue(new Map());
+  mockCheckOpenFgaTuple.mockImplementation(
+    async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:admin-sub"
+        && tuple.relation === "can_manage"
+        && tuple.object === "organization:caipe",
+    }),
+  );
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+  mockGetRealmUserByIdOrNull.mockResolvedValue({
+    id: "preview-user",
+    email: "preview@example.com",
+  });
 });
 
 async function callGet(url: string) {
@@ -231,5 +247,52 @@ describe("GET /api/admin/teams pagination", () => {
 
     const and = (calls.query as { $and?: Array<Record<string, unknown>> })?.$and;
     expect(and ?? []).not.toContainEqual({ status: { $ne: "archived" } });
+  });
+
+  it("filters a user preview to teams visible to the selected user", async () => {
+    const { calls } = seedTeamsCollection([teamRow("platform")], 1);
+    mockListOpenFgaObjects.mockImplementation(
+      async (query: { user: string; relation: string }) => ({
+        objects:
+          query.user === "user:preview-user" && query.relation === "member"
+            ? ["team:platform"]
+            : [],
+      }),
+    );
+
+    const { response } = await callGet(
+      "/api/admin/teams?page=1&simulate_type=user&simulate_id=preview-user",
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: "user:preview-user",
+      relation: "member",
+      type: "team",
+    });
+    const and = (calls.query as { $and?: Array<Record<string, unknown>> }).$and;
+    expect(and).toContainEqual({ slug: { $in: ["platform"] } });
+  });
+
+  it("keeps the full team list for an organization-admin preview", async () => {
+    const { calls } = seedTeamsCollection([teamRow("platform")], 1);
+    mockCheckOpenFgaTuple.mockImplementation(
+      async (tuple: { user: string; relation: string; object: string }) => ({
+        allowed:
+          (tuple.user === "user:admin-sub" && tuple.relation === "can_manage")
+          || (tuple.user === "user:target-admin" && tuple.relation === "can_audit"),
+      }),
+    );
+
+    const { response } = await callGet(
+      "/api/admin/teams?page=1&simulate_type=user&simulate_id=target-admin",
+    );
+
+    expect(response.status).toBe(200);
+    const and = (calls.query as { $and?: Array<Record<string, unknown>> }).$and ?? [];
+    expect(and).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ slug: expect.anything() }),
+    ]));
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
   });
 });
