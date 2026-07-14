@@ -46,7 +46,6 @@ export class ServiceBackend implements AuditBackend {
       if (!response.ok) {
         throw new Error(`audit-service returned HTTP ${response.status}`);
       }
-      console.debug(`[audit/service] Flushed ${events.length} events`);
     } catch (err) {
       console.warn(`[audit/service] Failed to flush ${events.length} events:`, err);
     }
