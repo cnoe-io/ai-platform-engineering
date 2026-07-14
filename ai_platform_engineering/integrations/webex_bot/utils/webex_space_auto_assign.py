@@ -101,10 +101,7 @@ class WebexSpaceAutoAssigner:
         if mappings is None or teams is None or routes is None:
             return WebexSpaceAutoAssignResult(False, "mongo_unavailable")
 
-        deployment_id = os.environ.get("WEBEX_DEPLOYMENT_ID", "default").strip() or "default"
         existing = mappings.find_one({
-            "deployment_id": deployment_id,
-            "ownership_schema_version": 3,
             "bot_id": bot_id,
             "webex_space_id": space_id,
             "active": {"$ne": False},
@@ -119,7 +116,7 @@ class WebexSpaceAutoAssigner:
         team_id = str(team.get("_id"))
         workspace_ref = webex_workspace_ref(workspace_id)
         mapping_id = json.dumps(
-            [deployment_id, bot_id, workspace_ref, space_id], separators=(",", ":")
+            [bot_id, workspace_ref, space_id], separators=(",", ":")
         )
         now = datetime.now(timezone.utc).isoformat()
         display_name = (space_title or space_id).strip()
@@ -164,8 +161,6 @@ class WebexSpaceAutoAssigner:
                 {"_id": mapping_id},
                 {
                     "$set": {
-                        "ownership_schema_version": 3,
-                        "deployment_id": deployment_id,
                         "bot_id": bot_id,
                         "webex_workspace_id": workspace_ref,
                         "webex_space_id": space_id,

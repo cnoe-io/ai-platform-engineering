@@ -13,14 +13,10 @@ import {
 } from "@/lib/rbac/webex-space-grant-store";
 import { deleteWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
 
-export const WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION = 3 as const;
-
 interface WebexSpaceTeamMappingDoc extends Document {
-  deployment_id?: string;
   bot_id?: string;
   webex_workspace_id?: string;
   webex_space_id: string;
-  ownership_schema_version?: number;
 }
 
 export const WEBEX_SPACE_USABLE_OBJECT_TYPES = [
@@ -88,7 +84,6 @@ export async function deleteWebexSpaceState(input: {
       mappings.countDocuments({
         webex_workspace_id: workspaceId,
         webex_space_id: input.spaceId,
-        ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
         active: { $ne: false },
       } as never),
       mappings.countDocuments(mappingFilter as never),
@@ -123,20 +118,4 @@ export async function deleteWebexSpaceState(input: {
     grants: grantsDeleted,
     team_mappings: mappingResult.deletedCount ?? 0,
   };
-}
-
-export async function deleteLegacyWebexSpaceAssignments(): Promise<number> {
-  const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
-  const legacy = await mappings.find({
-    ownership_schema_version: { $ne: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION },
-  } as never).toArray();
-  for (const mapping of legacy) {
-    await deleteWebexSpaceState({
-      workspaceId: webexWorkspaceRef(mapping.webex_workspace_id),
-      spaceId: mapping.webex_space_id,
-      mappingId: mapping._id,
-      requireOpenFga: false,
-    });
-  }
-  return legacy.length;
 }

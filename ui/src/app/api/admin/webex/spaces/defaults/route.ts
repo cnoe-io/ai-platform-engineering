@@ -20,11 +20,6 @@ onboardWebexSpace,
 type WebexSpaceOnboardingResult,
 } from "@/lib/rbac/webex-space-onboarding";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
-import { webexDeploymentId } from "@/lib/rbac/webex-direct-user-route-store";
-import {
-deleteLegacyWebexSpaceAssignments,
-WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
-} from "@/lib/rbac/webex-space-delete";
 
 import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../_lib";
 
@@ -36,8 +31,6 @@ interface WebexMigrationDefaultsRequest {
 }
 
 interface WebexSpaceTeamMappingDoc extends Document {
-  ownership_schema_version: 3;
-  deployment_id: string;
   bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
@@ -193,12 +186,9 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
 
     let targetSpaces = manualSpaces;
     if (targetSpaces.length === 0) {
-      await deleteLegacyWebexSpaceAssignments();
       const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
       const spaces = await mappings
         .find({
-          deployment_id: webexDeploymentId(),
-          ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
           active: { $ne: false },
         } as never)
         .sort({ space_name: 1 })

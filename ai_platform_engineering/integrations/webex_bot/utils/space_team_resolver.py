@@ -83,9 +83,6 @@ class WebexSpaceTeamResolver:
             return None
         try:
             mapping = mappings.find_one({
-                "deployment_id": os.environ.get("WEBEX_DEPLOYMENT_ID", "default").strip()
-                or "default",
-                "ownership_schema_version": 3,
                 "bot_id": bot_id,
                 "webex_space_id": space_id,
                 "active": {"$ne": False},

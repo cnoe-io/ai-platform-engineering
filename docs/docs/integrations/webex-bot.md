@@ -67,7 +67,6 @@ caipe-ui:
       tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
   config:
     WEBEX_DM_ACCESS_MODE: allowlist
-    WEBEX_DEPLOYMENT_ID: production-a
   existingSecret: webex-bot-tokens
 
 webex-bot:
@@ -82,7 +81,6 @@ webex-bot:
     CAIPE_API_URL: http://ai-platform-engineering-caipe-ui:3000
     WEBEX_AGENT_ROUTES_MODE: db_prefer
     WEBEX_DM_ACCESS_MODE: allowlist
-    WEBEX_DEPLOYMENT_ID: production-a
   existingSecret: webex-bot-tokens
 ```
 
@@ -99,9 +97,8 @@ stringData:
   WEBEX_SECONDARY_BOT_TOKEN: <secondary-bot-token>
 ```
 
-Use a distinct bot token for each live CAIPE deployment. `WEBEX_DEPLOYMENT_ID`
-separates MongoDB records; it does not route Webex events between deployments
-that connect with the same token.
+Use a distinct bot token for each live CAIPE deployment. Reusing one token starts
+multiple listeners for the same bot identity and can produce duplicate replies.
 
 ## Admin Onboarding
 
@@ -125,26 +122,22 @@ Messages to a bot without a matching active allowlist entry are ignored.
 | `allowlist` | Only bot/user pairs explicitly configured by an admin are handled. |
 | `all_users` | Deployment users may use the first configured bot and `WEBEX_DEFAULT_AGENT_ID`. |
 
-Set `WEBEX_DM_ACCESS_MODE` and `WEBEX_DEPLOYMENT_ID` to identical values on the
-UI and Webex bot workloads. `allowlist` is the recommended mode when admins must
-control access and agent assignment explicitly.
+Set `WEBEX_DM_ACCESS_MODE` to the same value on the UI and Webex bot workloads.
+`allowlist` is the recommended mode when admins must control access and agent
+assignment explicitly.
 
 ## Routing and Authorization
 
 Bot-specific ownership is stored in MongoDB:
 
-- Space mapping: `deployment_id`, `bot_id`, `workspace_id`, and `space_id`
+- Space mapping: `bot_id`, `workspace_id`, and `space_id`
 - Agent route: `bot_id`, `workspace_id`, `space_id`, and `agent_id`
-- Direct-message route: `deployment_id`, `bot_id`, and Keycloak user ID
+- Direct-message route: `bot_id` and Keycloak user ID
 
 OpenFGA grants remain attached to the physical Webex space as
 `webex_space:<workspace>--<space>`. This allows two bots in the same physical
 space to share the space's authorization boundary while preserving separate
 MongoDB routes. Runtime lookup never falls back to another bot's route.
-
-After upgrading from a bot-less configuration, re-onboard spaces and direct
-users under the intended bot. Legacy ownership records are not assigned to a
-bot automatically.
 
 ## Important Environment Variables
 
@@ -155,7 +148,6 @@ bot automatically.
 | `CAIPE_API_URL` | UI/BFF base URL |
 | `WEBEX_AGENT_ROUTES_MODE` | `db_prefer`, `config`, or `db_only` |
 | `WEBEX_DM_ACCESS_MODE` | `disabled`, `allowlist`, or `all_users` |
-| `WEBEX_DEPLOYMENT_ID` | Stable namespace for deployment-owned MongoDB records |
 | `WEBEX_DEFAULT_TEAM_SLUG` | Team used for auto-assignment |
 | `WEBEX_DEFAULT_AGENT_ID` | Dynamic-agent ID used for auto-assignment |
 | `WEBEX_THREAD_CONTEXT_ENABLED` | Include bounded thread context |

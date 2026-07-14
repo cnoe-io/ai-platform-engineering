@@ -2,15 +2,11 @@ import type { Document } from "mongodb";
 
 import { ApiError } from "@/lib/api-error";
 import { getCollection } from "@/lib/mongodb";
-import { webexDeploymentId } from "@/lib/rbac/webex-direct-user-route-store";
 import { ensureWebexBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
-import {
-deleteLegacyWebexSpaceAssignments,
-WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
-} from "@/lib/rbac/webex-space-delete";
+import { deleteWebexSpaceState } from "@/lib/rbac/webex-space-delete";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import {
 webexSpaceGrantRelationship,
@@ -22,8 +18,6 @@ import type { WebexRouteListenMode } from "@/types/webex-rebac";
 import { resolveWebexBotToken } from "@/lib/webex-bot-catalog";
 
 interface WebexSpaceTeamMappingDoc extends Document {
-  ownership_schema_version: 3;
-  deployment_id: string;
   bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
@@ -204,23 +198,18 @@ export async function onboardWebexSpace(
   // from the space→team mapping at message time. We still ensure the Webex bot
   // has general OBO permissions in place so token exchange works.
   await ensureWebexBotOboPermissions();
-  await deleteLegacyWebexSpaceAssignments();
-
   const [mappings, grants, routes] = await Promise.all([
     getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings"),
     getRbacCollection("webexSpaceGrants"),
     getRbacCollection("webexSpaceAgentRoutes"),
   ]);
   const now = new Date().toISOString();
-  const deploymentId = webexDeploymentId();
-  const mappingId = JSON.stringify([deploymentId, botId, workspaceId, canonicalSpaceId]);
+  const mappingId = JSON.stringify([botId, workspaceId, canonicalSpaceId]);
 
   await mappings.updateOne(
     { _id: mappingId } as never,
     {
       $set: {
-        ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
-        deployment_id: deploymentId,
         bot_id: botId,
         webex_workspace_id: workspaceId,
         webex_space_id: canonicalSpaceId,

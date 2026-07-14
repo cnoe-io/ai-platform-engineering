@@ -223,7 +223,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   process.env.OPENFGA_HTTP = "http://openfga:8080";
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
-  process.env.WEBEX_DEPLOYMENT_ID = "deployment-a";
   process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
     { id: "primary", name: "Primary", tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN" },
   ]);
@@ -246,7 +245,6 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.OPENFGA_HTTP;
   delete process.env.WEBEX_WORKSPACE_ALIAS;
-  delete process.env.WEBEX_DEPLOYMENT_ID;
   delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
   delete process.env.WEBEX_PRIMARY_BOT_TOKEN;
 });
@@ -255,8 +253,6 @@ describe("Webex space ReBAC resource APIs", () => {
   it("filters the Webex space list to concrete spaces the caller can read or manage", async () => {
     mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
       {
-        ownership_schema_version: 3,
-        deployment_id: "deployment-a",
         bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: spaceId,
@@ -264,8 +260,6 @@ describe("Webex space ReBAC resource APIs", () => {
         active: true,
       },
       {
-        ownership_schema_version: 3,
-        deployment_id: "deployment-a",
         bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: "space-private",
@@ -293,43 +287,9 @@ describe("Webex space ReBAC resource APIs", () => {
     ]);
   });
 
-  it("deletes legacy bot-less assignments instead of migrating them", async () => {
-    const mappings = createMockCollection([
-      {
-        _id: "legacy-mapping",
-        webex_workspace_id: workspaceAlias,
-        webex_space_id: spaceId,
-        space_name: "Legacy Room",
-        active: true,
-      },
-    ]);
-    const routes = createMockCollection([
-      { workspace_id: workspaceAlias, space_id: spaceId, agent_id: "agent-1" },
-    ]);
-    const grants = createMockCollection([
-      { workspace_id: workspaceAlias, space_id: spaceId, resource: agentGrant.resource },
-    ]);
-    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = mappings;
-    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = routes;
-    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceGrants] = grants;
-    const { GET } = await import("../route");
-
-    const response = await GET(request("/api/admin/webex/spaces?bot_id=primary"));
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data.spaces).toEqual([]);
-    expect(mappings.rows).toEqual([]);
-    expect(routes.rows).toEqual([]);
-    expect(grants.rows).toEqual([]);
-    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalled();
-  });
-
   it("scopes a View As space list to the simulated user", async () => {
     mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
       {
-        ownership_schema_version: 3,
-        deployment_id: "deployment-a",
         bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: spaceId,
@@ -337,8 +297,6 @@ describe("Webex space ReBAC resource APIs", () => {
         active: true,
       },
       {
-        ownership_schema_version: 3,
-        deployment_id: "deployment-a",
         bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: "space-private",
@@ -576,7 +534,7 @@ describe("Webex space ReBAC resource APIs", () => {
     // removed with their helpers. OBO permissions are still wired up.
     expect(mockEnsureWebexBotOboPermissions).toHaveBeenCalled();
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
-      { _id: `["deployment-a","primary","${workspaceAlias}","${rawRoomId}"]` },
+      { _id: `["primary","${workspaceAlias}","${rawRoomId}"]` },
       expect.objectContaining({
         $set: expect.objectContaining({
           space_name: "Grid Test",
@@ -711,7 +669,7 @@ describe("Webex space ReBAC resource APIs", () => {
       routes_preserved: 1,
     });
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
-      { _id: `["deployment-a","primary","${workspaceAlias}","space-config-managed"]` },
+      { _id: `["primary","${workspaceAlias}","space-config-managed"]` },
       expect.objectContaining({
         $set: expect.objectContaining({
           space_name: "Config Managed",

@@ -12,16 +12,9 @@ type WebexSpaceHealthSummary,
 } from "@/lib/rbac/webex-space-diagnostics";
 import { listWebexSpaceGrants,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
-import { webexDeploymentId } from "@/lib/rbac/webex-direct-user-route-store";
-import {
-deleteLegacyWebexSpaceAssignments,
-WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
-} from "@/lib/rbac/webex-space-delete";
 import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
 
 interface WebexSpaceTeamMappingDoc {
-  ownership_schema_version: 3;
-  deployment_id: string;
   bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
@@ -75,13 +68,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // ConnectorAdminPanel can show real per-row health for Webex too.
     const includeHealth = request.nextUrl.searchParams.get("health") === "1";
     const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
-    await deleteLegacyWebexSpaceAssignments();
     const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
     const rows = await mappings
       .find({
-        deployment_id: webexDeploymentId(),
         bot_id: botId,
-        ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
         active: { $ne: false },
       } as never)
       .sort({ space_name: 1, space_title: 1 })

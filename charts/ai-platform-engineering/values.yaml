@@ -855,9 +855,8 @@ caipe-ui:
     WEBEX_DEFAULT_TEAM_SLUG: ""
     WEBEX_DEFAULT_AGENT_ID: ""
     # Direct-message policy: disabled, allowlist, or all_users. The UI and bot
-    # must use the same mode and deployment id.
+    # must use the same mode.
     WEBEX_DM_ACCESS_MODE: "disabled"
-    WEBEX_DEPLOYMENT_ID: "default"
     WEBEX_THREAD_CONTEXT_ENABLED: "true"
     WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
     WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
@@ -1315,7 +1314,6 @@ webex-bot:
     # Direct messages are fail-closed by default. In allowlist mode, admins
     # onboard deployment users and select their agent in the Webex admin UI.
     WEBEX_DM_ACCESS_MODE: "disabled"
-    WEBEX_DEPLOYMENT_ID: "default"
     WEBEX_ADMIN_API_ENABLED: "false"
     WEBEX_ADMIN_API_HOST: "0.0.0.0"
     WEBEX_ADMIN_API_PORT: "3002"

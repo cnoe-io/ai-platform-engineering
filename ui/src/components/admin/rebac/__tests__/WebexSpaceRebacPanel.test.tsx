@@ -104,7 +104,6 @@ function setupFetchMock() {
               agent_id: "",
             },
           ],
-          deployment_id: "deployment-a",
           dm_access_mode: "allowlist",
           default_agent_id: null,
         },

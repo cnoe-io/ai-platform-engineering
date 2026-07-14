@@ -31,7 +31,6 @@ interface DirectUserRow {
 
 interface DirectUsersResponse {
   users: DirectUserRow[];
-  deployment_id: string;
   bot_id: string;
   dm_access_mode: DmAccessMode;
   default_agent_id: string | null;
@@ -188,7 +187,6 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
             </select>
           </label>
           <Badge variant={data?.dm_access_mode === "disabled" ? "outline" : "secondary"}>{modeLabel}</Badge>
-          {data && <span className="pb-1 text-xs text-muted-foreground">Deployment: {data.deployment_id}</span>}
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadUsers(selectedBotId)} disabled={disabled || loading || !selectedBotId}>
           <RefreshCw className="h-4 w-4" aria-hidden="true" />

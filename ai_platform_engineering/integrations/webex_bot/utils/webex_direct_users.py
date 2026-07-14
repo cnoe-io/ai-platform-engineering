@@ -20,9 +20,6 @@ logger = logging.getLogger("caipe.webex_bot.webex_direct_users")
 WebexDmAccessMode = Literal["disabled", "allowlist", "all_users"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
 UserByEmail = Callable[[str], Awaitable[Optional[dict[str, Any]]]]
-DIRECT_USER_OWNERSHIP_SCHEMA_VERSION = 3
-
-
 @dataclass(frozen=True)
 class WebexDirectUserAccess:
     allowed: bool
@@ -78,9 +75,6 @@ class WebexDirectUserResolver:
         if collection is None:
             return None
         base = {
-            "deployment_id": os.environ.get("WEBEX_DEPLOYMENT_ID", "default").strip()
-            or "default",
-            "ownership_schema_version": DIRECT_USER_OWNERSHIP_SCHEMA_VERSION,
             "bot_id": bot_id,
             "status": "active",
         }

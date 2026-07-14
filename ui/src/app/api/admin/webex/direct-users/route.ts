@@ -14,7 +14,6 @@ import {
 deleteWebexDirectUserRoute,
 listWebexDirectUserRoutes,
 upsertWebexDirectUserRoute,
-webexDeploymentId,
 webexDmAccessMode,
 } from "@/lib/rbac/webex-direct-user-route-store";
 
@@ -110,7 +109,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   return successResponse({
     users: rows,
-    deployment_id: webexDeploymentId(),
     bot_id: botId,
     dm_access_mode: accessMode,
     default_agent_id: defaultAgentId,

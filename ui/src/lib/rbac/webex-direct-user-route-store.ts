@@ -5,8 +5,6 @@ import { getRbacCollection } from "./mongo-collections";
 export type WebexDmAccessMode = "disabled" | "allowlist" | "all_users";
 
 export interface WebexDirectUserRouteDocument extends Document {
-  ownership_schema_version: 3;
-  deployment_id: string;
   bot_id: string;
   keycloak_user_id: string;
   user_email: string;
@@ -44,35 +42,15 @@ export function webexDmAccessMode(env: NodeJS.ProcessEnv = process.env): WebexDm
   throw new Error("WEBEX_DM_ACCESS_MODE must be disabled, allowlist, or all_users");
 }
 
-export function webexDeploymentId(env: NodeJS.ProcessEnv = process.env): string {
-  return requiredId(env.WEBEX_DEPLOYMENT_ID ?? "default", "WEBEX_DEPLOYMENT_ID");
-}
-
-const WEBEX_DIRECT_USER_OWNERSHIP_SCHEMA_VERSION = 3 as const;
-
-function routeId(deploymentId: string, botId: string, keycloakUserId: string): string {
-  return JSON.stringify([deploymentId, botId, keycloakUserId]);
-}
-
-async function deleteLegacyRoutes(
-  collection: Awaited<ReturnType<typeof getRbacCollection<WebexDirectUserRouteDocument>>>,
-): Promise<void> {
-  await collection.deleteMany({
-    deployment_id: webexDeploymentId(),
-    ownership_schema_version: { $ne: WEBEX_DIRECT_USER_OWNERSHIP_SCHEMA_VERSION },
-  } as never);
+function routeId(botId: string, keycloakUserId: string): string {
+  return JSON.stringify([botId, keycloakUserId]);
 }
 
 export async function listWebexDirectUserRoutes(botId: string): Promise<WebexDirectUserRouteDocument[]> {
   const collection = await getRbacCollection<WebexDirectUserRouteDocument>("webexDirectUserRoutes");
   const normalizedBotId = requiredId(botId, "bot_id");
-  await deleteLegacyRoutes(collection);
   return collection
-    .find({
-      deployment_id: webexDeploymentId(),
-      ownership_schema_version: WEBEX_DIRECT_USER_OWNERSHIP_SCHEMA_VERSION,
-      bot_id: normalizedBotId,
-    } as never)
+    .find({ bot_id: normalizedBotId } as never)
     .sort({ user_email: 1 })
     .toArray();
 }
@@ -88,17 +66,13 @@ export async function upsertWebexDirectUserRoute(input: {
 }): Promise<void> {
   const collection = await getRbacCollection<WebexDirectUserRouteDocument>("webexDirectUserRoutes");
   const now = new Date().toISOString();
-  const deploymentId = webexDeploymentId();
   const botId = requiredId(input.botId, "bot_id");
   const keycloakUserId = requiredId(input.keycloakUserId, "keycloak_user_id");
   const actor = input.actor.trim() || "unknown";
-  await deleteLegacyRoutes(collection);
   await collection.updateOne(
-    { _id: routeId(deploymentId, botId, keycloakUserId) } as never,
+    { _id: routeId(botId, keycloakUserId) } as never,
     {
       $set: {
-        deployment_id: deploymentId,
-        ownership_schema_version: WEBEX_DIRECT_USER_OWNERSHIP_SCHEMA_VERSION,
         bot_id: botId,
         keycloak_user_id: keycloakUserId,
         user_email: normalizedEmail(input.userEmail, "user_email"),
@@ -120,12 +94,10 @@ export async function deleteWebexDirectUserRoute(
   keycloakUserId: string,
 ): Promise<boolean> {
   const collection = await getRbacCollection<WebexDirectUserRouteDocument>("webexDirectUserRoutes");
-  const deploymentId = webexDeploymentId();
   const normalizedBotId = requiredId(botId, "bot_id");
   const normalizedUserId = requiredId(keycloakUserId, "keycloak_user_id");
-  await deleteLegacyRoutes(collection);
   const result = await collection.deleteOne({
-    _id: routeId(deploymentId, normalizedBotId, normalizedUserId),
+    _id: routeId(normalizedBotId, normalizedUserId),
   } as never);
   return result.deletedCount === 1;
 }
