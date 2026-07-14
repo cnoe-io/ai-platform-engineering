@@ -221,6 +221,7 @@ export function LLMModelsTab({
   const [selectionLoading, setSelectionLoading] = React.useState(false);
   const [selectionError, setSelectionError] = React.useState<string | null>(null);
   const selectionRequestRef = React.useRef(0);
+  const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
 
   const fetchModels = React.useCallback(async () => {
@@ -250,7 +251,14 @@ export function LLMModelsTab({
 
     const requestId = ++selectionRequestRef.current;
     if (!selectedModelId) {
+      loadedSelectionIdRef.current = null;
       setEditingModel(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    if (loadedSelectionIdRef.current === selectedModelId) {
       setSelectionError(null);
       setSelectionLoading(false);
       return;
@@ -266,10 +274,12 @@ export function LLMModelsTab({
           throw new Error(data.error || "LLM model not found");
         }
         if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = selectedModelId;
           setEditingModel(data.data as LLMModelConfig);
         }
       } catch (err: unknown) {
         if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = null;
           setEditingModel(null);
           setSelectionError(err instanceof Error ? err.message : "Failed to load LLM model");
         }
@@ -323,6 +333,7 @@ export function LLMModelsTab({
   };
 
   const openModel = (model: LLMModelConfig) => {
+    loadedSelectionIdRef.current = model._id;
     setSelectionError(null);
     setEditingModel(model);
     onSelectedModelChange?.(model._id);
@@ -330,6 +341,7 @@ export function LLMModelsTab({
 
   const closeModelEditor = () => {
     selectionRequestRef.current += 1;
+    loadedSelectionIdRef.current = null;
     setEditingModel(null);
     setIsCreating(false);
     setSelectionError(null);

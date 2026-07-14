@@ -48,12 +48,28 @@ describe("LLMModelsTab deep links", () => {
     expect(onSelectedModelChange).toHaveBeenCalledWith(null);
   });
 
-  it("reports row selection so the page can add the model ID to the URL", async () => {
+  it("keeps the selected row open when the page adds the model ID to the URL", async () => {
     const onSelectedModelChange = jest.fn();
-    render(<LLMModelsTab onSelectedModelChange={onSelectedModelChange} />);
+    const { rerender } = render(
+      <LLMModelsTab onSelectedModelChange={onSelectedModelChange} />,
+    );
 
     fireEvent.click(await screen.findByText("openai/gpt-4o"));
 
     expect(onSelectedModelChange).toHaveBeenCalledWith("openai/gpt-4o");
+    expect(screen.getByLabelText("Model ID")).toHaveValue("openai/gpt-4o");
+
+    jest.mocked(global.fetch).mockClear();
+    rerender(
+      <LLMModelsTab
+        selectedModelId="openai/gpt-4o"
+        onSelectedModelChange={onSelectedModelChange}
+      />,
+    );
+
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/llm-models?id=openai%2Fgpt-4o",
+    );
+    expect(screen.getByLabelText("Model ID")).toHaveValue("openai/gpt-4o");
   });
 });

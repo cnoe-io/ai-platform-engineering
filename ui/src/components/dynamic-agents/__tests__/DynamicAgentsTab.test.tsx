@@ -304,12 +304,32 @@ describe("DynamicAgentsTab search + pagination", () => {
     expect(onSelectedAgentChange).toHaveBeenCalledWith(null);
   });
 
-  it("reports row selection so the page can add the agent ID to the URL", async () => {
+  it("keeps the selected row open when the page adds the agent ID to the URL", async () => {
     const onSelectedAgentChange = jest.fn();
-    render(<DynamicAgentsTab onSelectedAgentChange={onSelectedAgentChange} />);
+    const { rerender } = render(
+      <DynamicAgentsTab onSelectedAgentChange={onSelectedAgentChange} />,
+    );
 
     fireEvent.click(await screen.findByText("Ops Helper"));
 
     expect(onSelectedAgentChange).toHaveBeenCalledWith("agent-1");
+    expect(screen.getByTestId("dynamic-agent-editor")).toHaveAttribute(
+      "data-agent-id",
+      "agent-1",
+    );
+
+    fetchMock.mockClear();
+    rerender(
+      <DynamicAgentsTab
+        selectedAgentId="agent-1"
+        onSelectedAgentChange={onSelectedAgentChange}
+      />,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/dynamic-agents/agents/agent-1");
+    expect(screen.getByTestId("dynamic-agent-editor")).toHaveAttribute(
+      "data-agent-id",
+      "agent-1",
+    );
   });
 });

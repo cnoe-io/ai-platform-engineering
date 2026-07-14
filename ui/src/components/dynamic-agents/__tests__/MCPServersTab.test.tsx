@@ -428,6 +428,32 @@ describe("MCPServersTab AgentGateway repair", () => {
     expect(onSelectedServerChange).toHaveBeenCalledWith(null);
   });
 
+  it("keeps the selected row open when the page adds the server ID to the URL", async () => {
+    const onSelectedServerChange = jest.fn();
+    const { rerender } = render(
+      <MCPServersTab onSelectedServerChange={onSelectedServerChange} />,
+    );
+
+    fireEvent.click(await screen.findByText("Jira"));
+
+    expect(onSelectedServerChange).toHaveBeenCalledWith("jira");
+    expect(await screen.findByText("Edit MCP Server")).toBeInTheDocument();
+
+    jest.mocked(global.fetch).mockClear();
+    rerender(
+      <MCPServersTab
+        selectedServerId="jira"
+        onSelectedServerChange={onSelectedServerChange}
+      />,
+    );
+
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/mcp-servers?id=jira",
+      { cache: "no-store" },
+    );
+    expect(screen.getByText("Edit MCP Server")).toBeInTheDocument();
+  });
+
   it("does not issue update requests when toggling enabled without can_manage", async () => {
     serverItems = [
       {

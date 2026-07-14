@@ -71,6 +71,7 @@ export function DynamicAgentsTab({
   const [selectionLoading, setSelectionLoading] = React.useState(false);
   const [selectionError, setSelectionError] = React.useState<string | null>(null);
   const selectionRequestRef = React.useRef(0);
+  const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
   const [cloningAgent, setCloningAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
@@ -122,7 +123,14 @@ export function DynamicAgentsTab({
 
     const requestId = ++selectionRequestRef.current;
     if (!selectedAgentId) {
+      loadedSelectionIdRef.current = null;
       setEditingAgent(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    if (loadedSelectionIdRef.current === selectedAgentId) {
       setSelectionError(null);
       setSelectionLoading(false);
       return;
@@ -140,6 +148,7 @@ export function DynamicAgentsTab({
           throw new Error(data.error || "Agent not found");
         }
         if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = selectedAgentId;
           setEditingAgent({
             ...data.data,
             permissions: data.data.permissions ?? DEFAULT_ROW_PERMISSIONS,
@@ -147,6 +156,7 @@ export function DynamicAgentsTab({
         }
       } catch (err: unknown) {
         if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = null;
           setEditingAgent(null);
           setSelectionError(errorMessage(err, "Failed to load agent"));
         }
@@ -277,6 +287,7 @@ export function DynamicAgentsTab({
   };
 
   const openAgent = (agent: DynamicAgentConfigWithPermissions) => {
+    loadedSelectionIdRef.current = agent._id;
     setSelectionError(null);
     setEditingAgent(agent);
     onSelectedAgentChange?.(agent._id);
@@ -284,6 +295,7 @@ export function DynamicAgentsTab({
 
   const closeAgentEditor = () => {
     selectionRequestRef.current += 1;
+    loadedSelectionIdRef.current = null;
     setEditingAgent(null);
     setIsCreating(false);
     setCloningAgent(null);

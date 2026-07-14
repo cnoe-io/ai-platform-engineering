@@ -207,6 +207,7 @@ export function MCPServersTab({
   const [selectionLoading, setSelectionLoading] = React.useState(false);
   const [selectionError, setSelectionError] = React.useState<string | null>(null);
   const selectionRequestRef = React.useRef(0);
+  const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
   const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
@@ -268,7 +269,14 @@ export function MCPServersTab({
 
     const requestId = ++selectionRequestRef.current;
     if (!selectedServerId) {
+      loadedSelectionIdRef.current = null;
       setEditingServer(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    if (loadedSelectionIdRef.current === selectedServerId) {
       setSelectionError(null);
       setSelectionLoading(false);
       return;
@@ -286,6 +294,7 @@ export function MCPServersTab({
           throw new Error(data.error || "MCP server not found");
         }
         if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = selectedServerId;
           setEditingServer({
             ...data.data,
             permissions: data.data.permissions ?? DEFAULT_ROW_PERMISSIONS,
@@ -293,6 +302,7 @@ export function MCPServersTab({
         }
       } catch (err: unknown) {
         if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = null;
           setEditingServer(null);
           setSelectionError(errorMessage(err, "Failed to load MCP server"));
         }
@@ -536,6 +546,7 @@ export function MCPServersTab({
   };
 
   const openServer = (server: MCPServerConfigWithPermissions) => {
+    loadedSelectionIdRef.current = server._id;
     setSelectionError(null);
     setEditingServer(server);
     onSelectedServerChange?.(server._id);
@@ -543,6 +554,7 @@ export function MCPServersTab({
 
   const closeServerEditor = () => {
     selectionRequestRef.current += 1;
+    loadedSelectionIdRef.current = null;
     setEditingServer(null);
     setIsCreating(false);
     setSelectionError(null);
