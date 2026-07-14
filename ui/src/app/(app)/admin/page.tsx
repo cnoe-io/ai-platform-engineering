@@ -429,14 +429,14 @@ function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | n
   if (!overview) return null;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="overview-stats-cards">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Total Users</CardTitle>
           <Users className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{overview.total_users}</div>
+          <div className="text-2xl font-bold" data-testid="overview-total-users">{overview.total_users}</div>
           <p className="text-xs text-muted-foreground mt-1">
             DAU: {overview.dau} | MAU: {overview.mau}
           </p>
@@ -449,7 +449,7 @@ function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | n
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{overview.total_conversations}</div>
+          <div className="text-2xl font-bold" data-testid="overview-total-conversations">{overview.total_conversations}</div>
           <p className="text-xs text-muted-foreground mt-1">
             Today: +{overview.conversations_today}
           </p>
@@ -462,7 +462,7 @@ function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | n
           <Activity className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{overview.total_messages}</div>
+          <div className="text-2xl font-bold" data-testid="overview-total-messages">{overview.total_messages}</div>
           <p className="text-xs text-muted-foreground mt-1">
             Today: +{overview.messages_today}
           </p>
@@ -475,7 +475,7 @@ function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | n
           <Share2 className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{overview.shared_conversations}</div>
+          <div className="text-2xl font-bold" data-testid="overview-shared-conversations">{overview.shared_conversations}</div>
           <p className="text-xs text-muted-foreground mt-1">
             {overview.total_conversations > 0
               ? ((overview.shared_conversations / overview.total_conversations) * 100).toFixed(1)
@@ -2214,6 +2214,7 @@ function AdminPage() {
                       badgeLabel="selected"
                     />
                     <DateRangeFilter
+                      data-testid="stats-date-range-filter"
                       value={datePreset}
                       customRange={datePreset === 'custom' ? dateRange : undefined}
                       onChange={(preset, range) => {
@@ -2243,7 +2244,10 @@ function AdminPage() {
                 {stats && (
                   <div className="relative space-y-4">
                     {statsRefreshing && (
-                      <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
+                      <div
+                        data-testid="stats-refreshing-overlay"
+                        className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded"
+                      >
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
                     )}
@@ -2305,6 +2309,7 @@ function AdminPage() {
                         </CardHeader>
                         <CardContent>
                           <SimpleLineChart
+                            data-testid="chart-dau"
                             data={stats.daily_activity.map((day) => ({
                               label: formatBucketLabel(day.date),
                               value: day.active_users,
@@ -2338,6 +2343,7 @@ function AdminPage() {
                         </CardHeader>
                         <CardContent>
                           <SimpleLineChart
+                            data-testid="chart-conversations"
                             data={stats.daily_activity.map((day) => ({
                               label: formatBucketLabel(day.date),
                               value: day.conversations,
@@ -2351,7 +2357,7 @@ function AdminPage() {
                               <p className="text-xs text-muted-foreground">Today</p>
                             </div>
                             <div>
-                              <p className="text-2xl font-bold">{stats.overview.total_conversations}</p>
+                              <p className="text-2xl font-bold" data-testid="conversations-total">{stats.overview.total_conversations}</p>
                               <p className="text-xs text-muted-foreground">Total</p>
                             </div>
                             <div>
@@ -2373,6 +2379,7 @@ function AdminPage() {
                       </CardHeader>
                       <CardContent>
                         <SimpleLineChart
+                          data-testid="chart-messages"
                           data={stats.daily_activity.map((day) => ({
                             label: formatBucketLabel(day.date),
                             value: day.messages,
@@ -2386,7 +2393,7 @@ function AdminPage() {
                             <p className="text-xs text-muted-foreground">Today</p>
                           </div>
                           <div>
-                            <p className="text-2xl font-bold">{stats.overview.total_messages}</p>
+                            <p className="text-2xl font-bold" data-testid="messages-total">{stats.overview.total_messages}</p>
                             <p className="text-xs text-muted-foreground">Total</p>
                           </div>
                           <div>

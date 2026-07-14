@@ -15,6 +15,7 @@ interface DateRangeFilterProps {
   value: DateRangePreset;
   customRange?: DateRange;
   onChange: (preset: DateRangePreset, range: DateRange) => void;
+  "data-testid"?: string;
 }
 
 const PRESETS: { value: DateRangePreset; label: string }[] = [
@@ -46,7 +47,7 @@ function toDateInputValue(iso: string): string {
   return iso.slice(0, 10);
 }
 
-export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilterProps) {
+export function DateRangeFilter({ value, customRange, onChange, "data-testid": testId }: DateRangeFilterProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(
     () => customRange ? toDateInputValue(customRange.from) : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString())
@@ -97,7 +98,7 @@ export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilte
     : "Custom";
 
   return (
-    <div className="relative flex items-center">
+    <div className="relative flex items-center" data-testid={testId}>
       <div className="flex rounded-md border overflow-hidden">
         {PRESETS.map((p) => (
           <button

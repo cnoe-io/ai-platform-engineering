@@ -13,6 +13,7 @@ interface SimpleLineChartProps {
   color?: string;
   showGrid?: boolean;
   title?: string;
+  "data-testid"?: string;
 }
 
 export function SimpleLineChart({
@@ -21,6 +22,7 @@ export function SimpleLineChart({
   color = "rgb(59, 130, 246)", // blue-500
   showGrid = true,
   title,
+  "data-testid": testId,
 }: SimpleLineChartProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [dragStart, setDragStart] = useState<number | null>(null);
@@ -139,7 +141,7 @@ export function SimpleLineChart({
   const selColor = isPositive ? "rgb(34, 197, 94)" : "rgb(239, 68, 68)"; // green-500 / red-500
 
   return (
-    <div className="w-full">
+    <div className="w-full" data-testid={testId}>
       {title && <h4 className="text-sm font-medium mb-4">{title}</h4>}
       <svg
         ref={svgRef}
