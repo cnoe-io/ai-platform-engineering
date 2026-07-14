@@ -6,7 +6,6 @@ import { ensureWebexBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
-import { deleteWebexSpaceState } from "@/lib/rbac/webex-space-delete";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import {
 webexSpaceGrantRelationship,
