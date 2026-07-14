@@ -1,3 +1,7 @@
+---
+sidebar_position: 8
+---
+
 # Platform Engineer Streaming Architecture
 
 ## Table of Contents

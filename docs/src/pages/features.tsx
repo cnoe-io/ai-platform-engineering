@@ -46,6 +46,19 @@ const FEATURES = [
     ],
   },
   {
+    title: 'Credentials & Secrets',
+    icon: '🔑',
+    color: '#0d9488',
+    to: '/docs/ui/features',
+    items: [
+      'Connected Apps — link Atlassian, GitHub, GitLab, PagerDuty, and Webex for user-scoped MCP access',
+      'Connection health, reconnect, and permission review from one Credentials page',
+      'Saved Secrets — store bearer tokens and other secret types without showing values again',
+      'Rotate, share, and revoke secrets with team-scoped RBAC',
+      'Server-side credential retrieval for agents and MCP servers — raw secrets never return to the browser',
+    ],
+  },
+  {
     title: 'Multi-Agent Orchestration',
     icon: '🤖',
     color: '#0284c7',
@@ -87,18 +100,6 @@ const FEATURES = [
     items: [
       'Chat persistence memory with multi-turn conversation',
       'Fact extraction across chats for a user',
-    ],
-  },
-  {
-    title: 'Agentic Workflows',
-    icon: '⚙️',
-    color: '#0891b2',
-    items: [
-      'Deterministic sequential agent pipelines with no hallucinated steps',
-      'Multi-agent orchestration with dynamic tool routing',
-      'Skills-based workflow composition',
-      'Parallel and sequential agent execution patterns',
-      'Workflow state persistence across sessions via MongoDB checkpointing',
     ],
   },
   {

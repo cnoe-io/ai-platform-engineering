@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # AgentGateway as MCP Proxy
 
 AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool
