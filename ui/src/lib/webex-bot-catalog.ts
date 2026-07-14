@@ -6,6 +6,7 @@ interface WebexBotConfig {
   id: string;
   name: string;
   tokenEnv: string;
+  default: boolean;
 }
 
 export interface WebexBotOption {
@@ -34,7 +35,7 @@ function requiredString(
 export function configuredWebexBots(env: Env = process.env): WebexBotConfig[] {
   const serialized = env[CONFIG_ENV]?.trim();
   if (!serialized) {
-    return [{ id: "default", name: "Webex bot", tokenEnv: DEFAULT_TOKEN_ENV }];
+    return [{ id: "default", name: "Webex bot", tokenEnv: DEFAULT_TOKEN_ENV, default: true }];
   }
 
   let parsed: unknown;
@@ -48,7 +49,8 @@ export function configuredWebexBots(env: Env = process.env): WebexBotConfig[] {
   }
 
   const ids = new Set<string>();
-  return parsed.map((value, index) => {
+  let defaultCount = 0;
+  const bots = parsed.map((value, index) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new ApiError(`${CONFIG_ENV}[${index}] must be an object`, 500);
     }
@@ -59,6 +61,7 @@ export function configuredWebexBots(env: Env = process.env): WebexBotConfig[] {
     const id = requiredString(candidate, "id", index);
     const name = requiredString(candidate, "name", index);
     const tokenEnv = requiredString(candidate, "tokenEnv", index);
+    const isDefault = candidate.default ?? false;
     if (!ID_PATTERN.test(id)) {
       throw new ApiError(`${CONFIG_ENV}[${index}].id is invalid`, 500);
     }
@@ -68,9 +71,27 @@ export function configuredWebexBots(env: Env = process.env): WebexBotConfig[] {
     if (!ENV_PATTERN.test(tokenEnv)) {
       throw new ApiError(`${CONFIG_ENV}[${index}].tokenEnv is invalid`, 500);
     }
+    if (typeof isDefault !== "boolean") {
+      throw new ApiError(`${CONFIG_ENV}[${index}].default must be a boolean`, 500);
+    }
     ids.add(id);
-    return { id, name, tokenEnv };
+    if (isDefault) defaultCount += 1;
+    return { id, name, tokenEnv, default: isDefault };
   });
+  if (defaultCount > 1) {
+    throw new ApiError(`${CONFIG_ENV} may contain only one default bot`, 500);
+  }
+  return bots;
+}
+
+export function defaultWebexBotId(env: Env = process.env): string | undefined {
+  const bots = configuredWebexBots(env);
+  const explicit = bots.find((bot) => bot.default);
+  if (explicit) return explicit.id;
+  const legacy = bots.filter((bot) => bot.tokenEnv === DEFAULT_TOKEN_ENV);
+  if (legacy.length === 1) return legacy[0].id;
+  if (bots.length === 1) return bots[0].id;
+  return undefined;
 }
 
 export function listWebexBotOptions(env: Env = process.env): WebexBotOption[] {
@@ -98,8 +119,19 @@ export function resolveWebexBotToken(
 ): { id: string; name: string; token: string } {
   const bots = configuredWebexBots(env);
   const requestedId = botId?.trim();
-  const bot = requestedId ? bots.find((candidate) => candidate.id === requestedId) : bots[0];
+  const defaultId = defaultWebexBotId(env);
+  const bot = requestedId
+    ? bots.find((candidate) => candidate.id === requestedId)
+    : defaultId
+      ? bots.find((candidate) => candidate.id === defaultId)
+      : undefined;
   if (!bot) {
+    if (!requestedId && !defaultId) {
+      throw new ApiError(
+        `No default Webex bot is configured; set default: true on exactly one ${CONFIG_ENV} entry`,
+        500,
+      );
+    }
     throw new ApiError(`Unknown Webex bot: ${requestedId}`, 400);
   }
   const token = env[bot.tokenEnv]?.trim();

@@ -10,6 +10,7 @@ data:
   {{- fail "webex-bot.config.WEBEX_INTEGRATION_BOTS_JSON is managed by webex-bot.bots" }}
   {{- end }}
   {{- $ids := dict }}
+  {{- $defaultBotCount := 0 }}
   {{- range $index, $bot := .Values.bots }}
   {{- if or (hasKey $bot "token") (hasKey $bot "accessToken") }}
   {{- fail (printf "webex-bot.bots[%d] must use tokenEnv; inline tokens are forbidden" $index) }}
@@ -21,6 +22,17 @@ data:
   {{- fail (printf "duplicate webex-bot bot id: %s" $id) }}
   {{- end }}
   {{- $_ := set $ids $id true }}
+  {{- if hasKey $bot "default" }}
+  {{- if not (kindIs "bool" $bot.default) }}
+  {{- fail (printf "webex-bot.bots[%d].default must be a boolean" $index) }}
+  {{- end }}
+  {{- if $bot.default }}
+  {{- $defaultBotCount = add1 $defaultBotCount }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- if gt $defaultBotCount 1 }}
+  {{- fail "webex-bot.bots may contain only one default bot" }}
   {{- end }}
   WEBEX_INTEGRATION_BOTS_JSON: {{ .Values.bots | toJson | quote }}
   {{- end }}

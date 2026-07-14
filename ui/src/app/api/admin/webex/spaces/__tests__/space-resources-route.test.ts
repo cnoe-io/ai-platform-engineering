@@ -534,7 +534,11 @@ describe("Webex space ReBAC resource APIs", () => {
     // removed with their helpers. OBO permissions are still wired up.
     expect(mockEnsureWebexBotOboPermissions).toHaveBeenCalled();
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
-      { _id: `["primary","${workspaceAlias}","${rawRoomId}"]` },
+      {
+        bot_id: "primary",
+        webex_workspace_id: workspaceAlias,
+        webex_space_id: rawRoomId,
+      },
       expect.objectContaining({
         $set: expect.objectContaining({
           space_name: "Grid Test",
@@ -669,7 +673,11 @@ describe("Webex space ReBAC resource APIs", () => {
       routes_preserved: 1,
     });
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
-      { _id: `["primary","${workspaceAlias}","space-config-managed"]` },
+      {
+        bot_id: "primary",
+        webex_workspace_id: workspaceAlias,
+        webex_space_id: "space-config-managed",
+      },
       expect.objectContaining({
         $set: expect.objectContaining({
           space_name: "Config Managed",

@@ -1271,6 +1271,27 @@ export async function applySeedConfig(): Promise<void> {
   // don't block startup, and a non-empty discovered set is a no-op.
   if (isMongoDBConfigured) {
     try {
+      const { migrateLegacyWebexBotOwnership } = await import(
+        "@/lib/rbac/webex-bot-migration"
+      );
+      const migrated = await migrateLegacyWebexBotOwnership();
+      if (migrated.skipped && migrated.legacy_records_found > 0) {
+        console.error(
+          `[seed-config] Found ${migrated.legacy_records_found} legacy Webex record(s) without bot_id, ` +
+            "but no default bot can be determined. Set default: true on exactly one caipe-ui.webexBots " +
+            "and webex-bot.bots entry; legacy records were not changed.",
+        );
+      } else if (migrated.team_mappings_updated > 0 || migrated.agent_routes_updated > 0) {
+        console.log(
+          `[seed-config] Assigned legacy Webex records to default bot ${migrated.default_bot_id}: ` +
+            `${migrated.team_mappings_updated} team mapping(s), ` +
+            `${migrated.agent_routes_updated} agent route(s)`,
+        );
+      }
+    } catch (err) {
+      console.error("[seed-config] legacy Webex bot ownership migration threw:", err);
+    }
+    try {
       await selfHealDiscoveredMcpServersIfEmpty();
     } catch (err) {
       console.error(

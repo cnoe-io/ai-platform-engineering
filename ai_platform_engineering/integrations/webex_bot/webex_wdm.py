@@ -9,7 +9,6 @@ import inspect
 import json
 import logging
 import os
-import re
 import threading
 import uuid
 from collections import deque
@@ -17,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
+from .utils.webex_bot_catalog import configured_webex_bots
 from .app import handle_webex_message
 from .webex_responder import WebexResponder, WebexRestApi, WebexThreadedStreamDispatcher
 from .webex_websocket import WebexWebSocketRuntime
@@ -29,10 +29,6 @@ WEBEX_WDM_DEVICES_URL = "https://wdm-a.wbx2.com/wdm/api/v1/devices"
 # the WebSocket upgrade; delete and re-register the WDM device before retrying.
 WDM_HANDSHAKE_REFRESH_STATUSES = frozenset({401, 403, 404, 429})
 MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS = 3
-_BOT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-_TOKEN_ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
-
-
 @dataclass(frozen=True)
 class WebexBotListenerConfig:
     id: str
@@ -47,57 +43,17 @@ def configured_webex_bot_listeners(
     """Resolve configured bot identities without exposing token values."""
 
     source = os.environ if env is None else env
-    raw = source.get("WEBEX_INTEGRATION_BOTS_JSON", "").strip()
-    if not raw:
-        token = source.get("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN", "").strip()
-        return (
-            [
-                WebexBotListenerConfig(
-                    "default",
-                    "Webex bot",
-                    "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN",
-                    token,
-                )
-            ]
-            if token
-            else []
-        )
-
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError("WEBEX_INTEGRATION_BOTS_JSON must be valid JSON") from exc
-    if not isinstance(payload, list):
-        raise ValueError("WEBEX_INTEGRATION_BOTS_JSON must be a JSON array")
-
     listeners: list[WebexBotListenerConfig] = []
-    seen_ids: set[str] = set()
-    for index, candidate in enumerate(payload):
-        if not isinstance(candidate, dict):
-            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}] must be an object")
-        if "token" in candidate or "accessToken" in candidate:
-            raise ValueError("Webex bot tokens must be supplied through tokenEnv")
-        bot_id = str(candidate.get("id") or "").strip()
-        name = str(candidate.get("name") or "").strip()
-        token_env = str(candidate.get("tokenEnv") or "").strip()
-        if not _BOT_ID_RE.fullmatch(bot_id):
-            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}].id is invalid")
-        if not name:
-            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}].name is required")
-        if not _TOKEN_ENV_RE.fullmatch(token_env):
-            raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}].tokenEnv is invalid")
-        if bot_id in seen_ids:
-            raise ValueError(f"Duplicate Webex bot id: {bot_id}")
-        seen_ids.add(bot_id)
-        token = source.get(token_env, "").strip()
+    for bot in configured_webex_bots(source):
+        token = source.get(bot.token_env, "").strip()
         if not token:
             logger.warning(
                 "Webex bot listener disabled id=%s: %s is not configured",
-                bot_id,
-                token_env,
+                bot.id,
+                bot.token_env,
             )
             continue
-        listeners.append(WebexBotListenerConfig(bot_id, name, token_env, token))
+        listeners.append(WebexBotListenerConfig(bot.id, bot.name, bot.token_env, token))
     return listeners
 
 

@@ -16,6 +16,7 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
+from .webex_bot_catalog import default_webex_bot_id
 
 logger = logging.getLogger("caipe.webex_bot.space_team_resolver")
 
@@ -87,6 +88,16 @@ class WebexSpaceTeamResolver:
                 "webex_space_id": space_id,
                 "active": {"$ne": False},
             })
+            if not mapping and bot_id == default_webex_bot_id():
+                mapping = mappings.find_one({
+                    "$or": [
+                        {"bot_id": {"$exists": False}},
+                        {"bot_id": None},
+                        {"bot_id": ""},
+                    ],
+                    "webex_space_id": space_id,
+                    "active": {"$ne": False},
+                })
             if not mapping:
                 return None
             team_id_str = mapping.get("team_id")
@@ -109,7 +120,10 @@ class WebexSpaceTeamResolver:
                     team_id_str,
                 )
                 return None
-            return {"team": team_doc, "bot_id": str(mapping.get("bot_id") or "").strip()}
+            return {
+                "team": team_doc,
+                "bot_id": str(mapping.get("bot_id") or bot_id).strip(),
+            }
         except PyMongoError as exc:
             logger.warning("webex_space_team_mappings query failed: %s", exc)
             return None

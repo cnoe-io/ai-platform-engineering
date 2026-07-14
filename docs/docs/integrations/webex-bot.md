@@ -51,7 +51,8 @@ Define the same bot catalog in both places:
 Each entry has a stable `id`, a display `name`, and a `tokenEnv`. The token
 itself must be supplied through `existingSecret` or `externalSecrets`; it must
 not be placed in Helm values. The two catalogs must use the same IDs and token
-environment variable names.
+environment variable names. Mark the same entry `default: true` in both
+catalogs when more than one bot is configured.
 
 ```yaml
 tags:
@@ -62,6 +63,7 @@ caipe-ui:
     - id: primary
       name: Primary Webex bot
       tokenEnv: WEBEX_PRIMARY_BOT_TOKEN
+      default: true
     - id: secondary
       name: Secondary Webex bot
       tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
@@ -74,6 +76,7 @@ webex-bot:
     - id: primary
       name: Primary Webex bot
       tokenEnv: WEBEX_PRIMARY_BOT_TOKEN
+      default: true
     - id: secondary
       name: Secondary Webex bot
       tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
@@ -138,6 +141,22 @@ OpenFGA grants remain attached to the physical Webex space as
 `webex_space:<workspace>--<space>`. This allows two bots in the same physical
 space to share the space's authorization boundary while preserving separate
 MongoDB routes. Runtime lookup never falls back to another bot's route.
+
+### Legacy single-bot records
+
+On UI startup, legacy `webex_space_team_mappings` and
+`webex_space_agent_routes` documents without `bot_id` are assigned only when
+the original bot is unambiguous. The resolver uses this order:
+
+1. The single entry marked `default: true`.
+2. The single entry whose `tokenEnv` is the legacy
+   `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN`.
+3. The only configured bot when the catalog contains one entry.
+
+It never selects a bot from list order. If a multi-bot catalog has no explicit
+default and no unique legacy-token entry, startup reports the number of legacy
+records and leaves them unchanged. Add `default: true` to the intended bot in
+both catalogs, then restart the UI and Webex bot workloads.
 
 ## Important Environment Variables
 

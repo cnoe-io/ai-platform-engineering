@@ -204,10 +204,12 @@ export async function onboardWebexSpace(
     getRbacCollection("webexSpaceAgentRoutes"),
   ]);
   const now = new Date().toISOString();
-  const mappingId = JSON.stringify([botId, workspaceId, canonicalSpaceId]);
-
   await mappings.updateOne(
-    { _id: mappingId } as never,
+    {
+      bot_id: botId,
+      webex_workspace_id: workspaceId,
+      webex_space_id: canonicalSpaceId,
+    } as never,
     {
       $set: {
         bot_id: botId,

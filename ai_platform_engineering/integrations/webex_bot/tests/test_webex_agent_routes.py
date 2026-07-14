@@ -44,10 +44,15 @@ class _Collection:
 
     def find(self, filter_query: dict[str, object]) -> _Cursor:
         self.filters.append(filter_query)
+        requested_bot = filter_query.get("bot_id")
         rows = [
             row
             for row in self.rows
-            if row.get("bot_id") == filter_query["bot_id"]
+            if (
+                row.get("bot_id") == requested_bot
+                if "bot_id" in filter_query
+                else row.get("bot_id") in {None, ""}
+            )
             and row.get("workspace_id") == filter_query["workspace_id"]
             and row.get("space_id") == filter_query["space_id"]
             and row.get("status") == filter_query["status"]
@@ -299,6 +304,54 @@ def test_same_space_routes_are_isolated_by_bot() -> None:
 
     assert [match.agent_id for match in primary] == ["primary-agent"]
     assert [match.agent_id for match in secondary] == ["secondary-agent"]
+
+
+def test_default_bot_can_use_legacy_route_during_startup_migration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        '[{"id":"primary","name":"Primary","tokenEnv":"PRIMARY_TOKEN","default":true},'
+        '{"id":"secondary","name":"Secondary","tokenEnv":"SECONDARY_TOKEN"}]',
+    )
+    collection = _Collection([
+        {
+            "bot_id": None,
+            "workspace_id": "CAIPE-WEBEX",
+            "space_id": "legacy-space",
+            "agent_id": "legacy-agent",
+            "enabled": True,
+            "priority": 10,
+            "status": "active",
+            "users": {"enabled": True, "listen": "all"},
+        },
+    ])
+    resolver = WebexAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["legacy-agent"],
+    )
+
+    matches = resolver.match_routes(
+        bot_id="primary",
+        workspace_id="CAIPE-WEBEX",
+        space_id="legacy-space",
+        is_bot=False,
+        user_id="user-1",
+        listen="mention",
+    )
+    secondary_matches = resolver.match_routes(
+        bot_id="secondary",
+        workspace_id="CAIPE-WEBEX",
+        space_id="legacy-space",
+        is_bot=False,
+        user_id="user-1",
+        listen="mention",
+    )
+
+    assert [match.agent_id for match in matches] == ["legacy-agent"]
+    assert secondary_matches == []
+    assert "$or" in collection.filters[1]
+    assert all("$or" not in query for query in collection.filters[2:])
 
 
 def test_openfga_read_includes_tuple_key_filter_and_pagination(monkeypatch) -> None:

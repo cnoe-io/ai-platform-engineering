@@ -26,6 +26,9 @@ from ai_platform_engineering.integrations.webex_bot.utils.user_messages import (
     WEBEX_SPACE_MENTION_REQUIRED_MESSAGE,
     WEBEX_SPACE_SETUP_REQUIRED_MESSAGE,
 )
+from ai_platform_engineering.integrations.webex_bot.utils.webex_bot_catalog import (
+    default_webex_bot_id,
+)
 
 logger = logging.getLogger("caipe.webex_bot.webex_agent_routes")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
@@ -273,13 +276,30 @@ class WebexAgentRouteResolver:
         workspace_id: str,
         space_id: str,
     ) -> list[dict[str, Any]]:
+        base_query: dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "space_id": space_id,
+            "status": "active",
+            "enabled": {"$ne": False},
+        }
+        cursor = collection.find({**base_query, "bot_id": bot_id}).sort(
+            [("priority", 1), ("agent_id", 1)]
+        )
+        if hasattr(cursor, "to_list"):
+            routes = list(cursor.to_list())  # type: ignore[no-any-return, operator]
+        else:
+            routes = list(cursor)
+        if routes or bot_id != default_webex_bot_id():
+            return routes
+
         cursor = collection.find(
             {
-                "bot_id": bot_id,
-                "workspace_id": workspace_id,
-                "space_id": space_id,
-                "status": "active",
-                "enabled": {"$ne": False},
+                **base_query,
+                "$or": [
+                    {"bot_id": {"$exists": False}},
+                    {"bot_id": None},
+                    {"bot_id": ""},
+                ],
             }
         ).sort([("priority", 1), ("agent_id", 1)])
         if hasattr(cursor, "to_list"):

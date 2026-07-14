@@ -369,11 +369,14 @@ oauthConnectors: []
 # discovery. `tokenEnv` references a key supplied through `existingSecret` or
 # `externalSecrets`; token values must never be placed in this list. When empty,
 # the UI exposes one legacy `default` bot backed by
-# WEBEX_INTEGRATION_BOT_ACCESS_TOKEN.
+# WEBEX_INTEGRATION_BOT_ACCESS_TOKEN. With multiple bots, mark at most one
+# entry `default: true`; legacy records use that entry, then the entry backed
+# by WEBEX_INTEGRATION_BOT_ACCESS_TOKEN. List order is never used to migrate.
 webexBots: []
   # - id: "primary"
   #   name: "Primary Webex bot"
   #   tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN"
+  #   default: true
   # - id: "secondary"
   #   name: "Secondary Webex bot"
   #   tokenEnv: "WEBEX_SECONDARY_BOT_TOKEN"

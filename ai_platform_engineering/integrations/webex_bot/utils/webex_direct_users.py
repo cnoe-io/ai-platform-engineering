@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from .keycloak_admin import get_user_by_email
+from .webex_bot_catalog import default_webex_bot_id
 
 logger = logging.getLogger("caipe.webex_bot.webex_direct_users")
 
@@ -128,7 +128,7 @@ class WebexDirectUserResolver:
         if mode == "allowlist":
             return WebexDirectUserAccess(False, None, None, "not_onboarded")
 
-        if bot_id != _default_bot_id():
+        if bot_id != default_webex_bot_id():
             return WebexDirectUserAccess(False, None, None, "wrong_bot")
 
         if not email:
@@ -149,16 +149,3 @@ class WebexDirectUserResolver:
         if not user_id or not agent_id:
             return WebexDirectUserAccess(False, None, None, "default_agent_missing")
         return WebexDirectUserAccess(True, user_id, agent_id, "all_users")
-
-
-def _default_bot_id() -> str:
-    serialized = os.environ.get("WEBEX_INTEGRATION_BOTS_JSON", "").strip()
-    if not serialized:
-        return "default"
-    try:
-        bots = json.loads(serialized)
-    except json.JSONDecodeError:
-        return ""
-    if not isinstance(bots, list) or not bots or not isinstance(bots[0], dict):
-        return ""
-    return str(bots[0].get("id") or "").strip()
