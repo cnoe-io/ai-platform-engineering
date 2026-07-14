@@ -12,6 +12,7 @@ Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { withQueryParam } from "@/lib/rbac/admin-simulation-query";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 import { cn } from "@/lib/utils";
@@ -708,11 +709,11 @@ export function ConnectorAdminPanel({
     const generation = ++itemsFetchGenerationRef.current;
     setItemsLoading(true); setMessage(null);
     try {
-      const params = new URLSearchParams({ health: "1" });
+      let listUrl = withQueryParam(adapter.api.list, "health", "1");
       if (adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && selectedDiscoveryIdentityId) {
-        params.set("bot_id", selectedDiscoveryIdentityId);
+        listUrl = withQueryParam(listUrl, "bot_id", selectedDiscoveryIdentityId);
       }
-      const res = await fetch(`${adapter.api.list}?${params.toString()}`);
+      const res = await fetch(listUrl);
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const rows = adapter.parseListResponse(json);

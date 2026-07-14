@@ -28,6 +28,12 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
+const mockResolveAuthorizedAdminSimulationScope = jest.fn();
+jest.mock("@/lib/rbac/admin-simulation-server", () => ({
+  resolveAuthorizedAdminSimulationScope: (...args: unknown[]) =>
+    mockResolveAuthorizedAdminSimulationScope(...args),
+}));
+
 const mockListByOwningTeams = jest.fn();
 const mockGetBySub = jest.fn();
 jest.mock("@/lib/service-accounts", () => ({
@@ -83,6 +89,8 @@ const SA_DOC = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetServerSession.mockResolvedValue(SESSION);
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+  mockResolveAuthorizedAdminSimulationScope.mockResolvedValue(null);
 });
 
 describe("GET /api/admin/service-accounts (list)", () => {
@@ -183,6 +191,31 @@ describe("GET /api/admin/service-accounts (list)", () => {
       type: "team",
     });
     expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
+  });
+
+  it("uses the preview subject's team memberships for a read-only simulation", async () => {
+    mockResolveAuthorizedAdminSimulationScope.mockResolvedValue({
+      openfgaUser: "user:target-sub",
+      ownerEmail: "target@example.com",
+    });
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:target-team"] });
+    mockListByOwningTeams.mockResolvedValue([]);
+
+    const res = await listGET(
+      listRequest(
+        "http://localhost:3000/api/admin/service-accounts?simulate_type=user&simulate_id=target-sub",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: "user:target-sub",
+      relation: "member",
+      type: "team",
+    });
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["target-team"], {
+      includeRevoked: false,
+    });
   });
 });
 

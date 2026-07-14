@@ -275,6 +275,22 @@ function response(payload: unknown): Response {
   } as Response;
 }
 
+it("scopes the configured channel list to the simulated user", async () => {
+  render(
+    <SlackChannelRebacPanel
+      selfService
+      disabled
+      simulationTarget={{ type: "user", id: "target-sub" }}
+    />,
+  );
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels?simulate_type=user&simulate_id=target-sub&health=1",
+    );
+  });
+});
+
 it("shows a loading spinner while self-service channels load", async () => {
   let resolveChannels: ((value: Response) => void) | undefined;
   const channelsPromise = new Promise<Response>((resolve) => {

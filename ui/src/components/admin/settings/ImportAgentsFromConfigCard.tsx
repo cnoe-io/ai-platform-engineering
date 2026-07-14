@@ -49,9 +49,13 @@ interface TeamOption {
 
 interface ImportAgentsFromConfigCardProps {
   isAdmin: boolean;
+  readOnly?: boolean;
 }
 
-export function ImportAgentsFromConfigCard({ isAdmin }: ImportAgentsFromConfigCardProps) {
+export function ImportAgentsFromConfigCard({
+  isAdmin,
+  readOnly = false,
+}: ImportAgentsFromConfigCardProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -115,6 +119,7 @@ export function ImportAgentsFromConfigCard({ isAdmin }: ImportAgentsFromConfigCa
   }
 
   async function handleApply() {
+    if (readOnly) return;
     setApplying(true);
     setError(null);
     try {
@@ -164,7 +169,10 @@ export function ImportAgentsFromConfigCard({ isAdmin }: ImportAgentsFromConfigCa
           type="button"
           variant="outline"
           className="gap-2"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            if (!readOnly) setOpen(true);
+          }}
+          disabled={readOnly}
           data-testid="import-agents-from-config-button"
         >
           <FileUp className="h-4 w-4" />

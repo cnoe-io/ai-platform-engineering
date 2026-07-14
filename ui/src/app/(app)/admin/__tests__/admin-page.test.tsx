@@ -78,15 +78,35 @@ jest.mock('@/components/admin/platform/HealthTab', () => ({
 }));
 
 jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
-  ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
+  ReviewConfigsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="review-configs-tab" data-read-only={String(Boolean(props.readOnly))}>
+      ReviewConfigsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
-  PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
+  PlatformSettingsTab: (props: { isAdmin?: boolean; readOnly?: boolean }) => (
+    <div
+      data-testid="platform-settings-tab"
+      data-admin={String(Boolean(props.isAdmin))}
+      data-read-only={String(Boolean(props.readOnly))}
+    >
+      PlatformSettingsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
+}));
+
+jest.mock('@/components/admin/ServiceAccountsTab', () => ({
+  ServiceAccountsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="service-accounts-tab" data-read-only={String(Boolean(props.readOnly))}>
+      ServiceAccountsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
@@ -279,6 +299,16 @@ const allGatesOpen = {
   migrations: true,
 };
 
+const baselineUserGates = {
+  ...allGatesOpen,
+  roles: false,
+  metrics: false,
+  audit_logs: false,
+  action_audit: false,
+  openfga: false,
+  migrations: false,
+};
+
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
     if (url.includes('/api/rbac/admin-tab-gates')) {
@@ -291,6 +321,7 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
             slack: 'full',
             webex: 'full',
           },
+          simulation: overrides.simulation ?? null,
         }),
       });
     }
@@ -461,6 +492,7 @@ describe('Admin Dashboard Page', () => {
       mockIsAdmin = false;
       mockIsDevAnonymousAuthEnabled.mockReturnValue(false);
       setupFetchMock({
+        tabGates: baselineUserGates,
         integrationPanelModes: { slack: 'self_service', webex: 'self_service' },
       });
     });
@@ -551,6 +583,23 @@ describe('Admin Dashboard Page', () => {
       });
       expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'false');
     });
+
+    it('shows scoped Insights and configured integrations but only Health from Metrics & Health', async () => {
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Metrics & Health' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Feedback' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Metrics & Health' }));
+      expect(screen.getByRole('tab', { name: 'Health' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
+    });
   });
 
   describe('Admin mode', () => {
@@ -571,8 +620,9 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: /view as/i }));
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
-      expect(screen.getByText('View As Effective Permissions')).toBeInTheDocument();
-      const search = screen.getByPlaceholderText(/search by email, name, or keycloak sub/i);
+      expect(screen.getByText('View As — Read-Only Access Preview')).toBeInTheDocument();
+      expect(screen.getByText(/does not sign in as them or change your current session/i)).toBeInTheDocument();
+      const search = screen.getByPlaceholderText(/search by email, name, or user id/i);
       fireEvent.change(search, { target: { value: 'user' } });
 
       await waitFor(() => {
@@ -586,6 +636,157 @@ describe('Admin Dashboard Page', () => {
         expect.stringContaining('simulate_type=user&simulate_id=kc-user'),
         { scroll: false }
       );
+    });
+
+    it('shows the simulated user name and baseline navigation instead of a blank shell', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=kc-user');
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          roles: false,
+          identity_group_sync: false,
+          slack: true,
+          webex: true,
+          feedback: true,
+          stats: true,
+          metrics: false,
+          audit_logs: false,
+          action_audit: false,
+          openfga: false,
+          migrations: false,
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+            email: 'user@example.com',
+          },
+        },
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: /viewing as regular user/i })).toBeInTheDocument();
+      expect(screen.queryByText(/previewing regular user's effective access/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/manage access.*teams.*health.*platform settings/i)).toBeInTheDocument();
+      expect(screen.queryByText('Access Preview · Read-Only')).not.toBeInTheDocument();
+      expect(screen.queryByText(/no user session is impersonated/i)).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
+      expect(await screen.findByRole('tab', { name: 'Slack' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Webex' })).toBeInTheDocument();
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/admin\/stats\?.*simulate_type=user.*simulate_id=kc-user/)
+        );
+      });
+      expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Feedback' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Metrics & Health' }));
+      expect(screen.getByRole('tab', { name: 'Health' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
+    });
+
+    it('uses a simulated admin\'s effective access while keeping the preview read-only', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=admin-target');
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          credentials: true,
+          service_accounts: true,
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'admin-target',
+            openfga_user: 'user:admin-target',
+            display_name: 'Target Admin',
+            organization_admin: true,
+          },
+        },
+        integrationPanelModes: {
+          slack: 'full',
+          webex: 'full',
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: /viewing as target admin/i })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      });
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'General',
+        'AI Review',
+        'Credentials',
+        'Skills',
+        'Service Accounts',
+      ]);
+      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
+      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
+      expect(await screen.findByTestId('slack-integration-panel')).toHaveAttribute(
+        'data-self-service',
+        'false',
+      );
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'true');
+    });
+
+    it('scopes Feedback requests to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=insights&tab=feedback'
+      );
+      setupFetchMock({
+        tabGates: baselineUserGates,
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+            email: 'user@example.com',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/admin\/feedback\?.*simulate_type=user.*simulate_id=kc-user/)
+        );
+      });
     });
 
     it('does not show Read-Only badge', async () => {

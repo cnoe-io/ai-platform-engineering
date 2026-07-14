@@ -44,7 +44,7 @@ const TARGETS: TargetTab[] = [
 
 const TARGET_VALUES: readonly string[] = TARGETS.map((t) => t.target);
 
-export function ReviewConfigsTab() {
+export function ReviewConfigsTab({ readOnly = false }: { readOnly?: boolean }) {
   // Active target is mirrored to the `subtab` URL param so the chosen review
   // config (Agents / Skills) is deep-linkable and survives refresh.
   const [activeTarget, setActiveTarget] = useSubtabParam(TARGET_VALUES, TARGETS[0].target);
@@ -95,7 +95,7 @@ export function ReviewConfigsTab() {
           onSave={() => editorRefs.current[activeTarget]?.save()}
           saving={activeSaving}
           dirty={activeDirty}
-          disabled={!activeReady}
+          disabled={readOnly || !activeReady}
         />
       </div>
 
@@ -122,6 +122,7 @@ export function ReviewConfigsTab() {
                 editorRefs.current[target] = instance;
               }}
               target={target}
+              readOnly={readOnly}
               showInlineSave={false}
               onSavingChange={(saving) => setTargetSaving(target, saving)}
               onReadyChange={(ready) => setTargetReady(target, ready)}

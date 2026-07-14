@@ -125,9 +125,9 @@ export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
 // assisted-by Cursor Claude:claude-opus-4-8
 // Issue #1513: the Slack admin surface is gated by
 // `requireAdminSurfaceManage(session, "slack")`, which checks
-// `admin_surface:slack#can_manage`. `slack` is in PRIVILEGED_ADMIN_SURFACES
-// so the login bootstrap writes `user:<sub> manager admin_surface:slack`
-// for admins, but any org admin bootstrapped before that seed who has not
+// `admin_surface:slack#can_manage`. The admin baseline writes
+// `user:<sub> manager admin_surface:slack` in addition to the member baseline's
+// read grant, but any org admin bootstrapped before that seed who has not
 // re-logged-in still lacks the tuple and sees "You do not have permission"
 // on the Slack Channels admin panel. This backfill mirrors the
 // rag_datasources fix: it walks OpenFGA for existing

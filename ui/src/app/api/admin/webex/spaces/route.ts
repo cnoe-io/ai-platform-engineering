@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import { parseAdminSimulation } from "@/lib/rbac/admin-simulator";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import {
 computeWebexSpaceHealthSummaries,
@@ -62,7 +64,11 @@ async function webexSpaceAccess(
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
     const { session } = await getAuthFromBearerOrSession(request);
-    const subject = subjectFromSession(session);
+    const simulation = parseAdminSimulation(request.nextUrl.searchParams);
+    if (simulation.active && !(await hasOrganizationAdmin(session))) {
+      throw new ApiError("Simulation requires organization admin access", 403);
+    }
+    const subject = simulation.subject?.openfga_user ?? subjectFromSession(session);
     // `?health=1` opts the caller in to a per-row diagnostics summary
     // (warnings count + OpenFGA reachability + last runtime error
     // timestamp). Mirrors the Slack channels endpoint so the shared

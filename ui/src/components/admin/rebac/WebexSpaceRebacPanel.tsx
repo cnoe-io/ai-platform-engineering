@@ -1,7 +1,7 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,8 @@ DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
+import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { WebexDirectUsersPanel } from "./WebexDirectUsersPanel";
 import type {
@@ -419,9 +421,21 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
 export function WebexSpaceRebacPanel({
   disabled = false,
   selfService = false,
+  simulationTarget = null,
 }: {
   disabled?: boolean;
   selfService?: boolean;
+  simulationTarget?: AdminSimulationQueryTarget | null;
 }) {
-  return <ConnectorAdminPanel adapter={WEBEX_ADAPTER} disabled={disabled} selfService={selfService} />;
+  const adapter = useMemo<ConnectorAdminAdapter>(
+    () => ({
+      ...WEBEX_ADAPTER,
+      api: {
+        ...WEBEX_ADAPTER.api,
+        list: withAdminSimulationParams(WEBEX_ADAPTER.api.list, simulationTarget),
+      },
+    }),
+    [simulationTarget],
+  );
+  return <ConnectorAdminPanel adapter={adapter} disabled={disabled} selfService={selfService} />;
 }
