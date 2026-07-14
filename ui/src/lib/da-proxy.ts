@@ -262,11 +262,12 @@ export async function proxySSEStream(
         `${logPrefix} Backend error: ${backendResponse.status} ${backendResponse.statusText}`,
         errorText,
       );
+      const userMessage =
+        backendResponse.status >= 500
+          ? "The agent service encountered an error. Please try again in a moment."
+          : `Request failed (${backendResponse.status}). Please try again.`;
       return NextResponse.json(
-        {
-          success: false,
-          error: `Backend error: ${backendResponse.status} ${backendResponse.statusText}`,
-        },
+        { success: false, error: userMessage },
         { status: backendResponse.status },
       );
     }

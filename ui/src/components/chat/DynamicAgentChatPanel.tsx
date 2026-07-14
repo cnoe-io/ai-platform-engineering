@@ -1031,7 +1031,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           reason: se.reason,
           action: se.action,
         });
-      } else if (!(error as Error).message?.startsWith("Session expired:")) {
+      } else {
         appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
       }
       // Set interrupted status on error

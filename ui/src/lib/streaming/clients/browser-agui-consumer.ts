@@ -14,6 +14,7 @@
 import type { StreamAdapter } from "../adapter";
 import type { RawStreamEvent,StreamCallbacks,StreamParams } from "../callbacks";
 import { parseSSEStream,type RawSSEEvent } from "../parse-sse";
+import { buildStreamErrorFromResponse } from "../stream-error";
 import {
 createAGUIProtocolState,
 processAGUIEvent,
@@ -130,16 +131,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       });
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error(
-            "Session expired: Your authentication token has expired. " +
-            "Please save your work and log in again.",
-          );
-        }
-        const errorBody = await response.text().catch(() => "");
-        throw new Error(
-          `HTTP error: ${response.status} ${response.statusText}. ${errorBody || "(empty)"}`,
-        );
+        throw await buildStreamErrorFromResponse(response);
       }
 
       for await (const raw of parseSSEStream(response)) {
