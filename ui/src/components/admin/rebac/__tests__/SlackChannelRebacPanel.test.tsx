@@ -51,7 +51,7 @@ beforeEach(() => {
         },
       });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: {
           items: [
@@ -287,7 +287,7 @@ it("shows a loading spinner while self-service channels load", async () => {
     ) {
       return channelsPromise;
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({ data: { items: [] } });
     }
     return response({});
@@ -328,7 +328,7 @@ it("shows discovery loading while Find channels scans Slack", async () => {
     if (url.startsWith("/api/admin/slack/available-channels")) {
       return discoveryPromise;
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
       });
@@ -463,7 +463,7 @@ it("preserves imported escalation/overthink/bots when editing a route (no data l
         },
       });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
       });
@@ -603,7 +603,7 @@ it("renders the full per-channel/agent breakdown in the sync preview modal", asy
     ) {
       return response({ data: { channels: [] } });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({ data: { items: [] } });
     }
     if (url === "/api/dynamic-agents/teams") {
@@ -947,7 +947,7 @@ it("discovers Slack channels even when no onboarding default team is configured"
     ) {
       return response({ data: { channels: [] } });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: {
           items: [{ _id: "incident-agent", name: "Incident Agent" }],

@@ -66,6 +66,7 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.CI_MCP_APP_ID }}
@@ -84,7 +85,7 @@ jobs:
         uses: ./.github/actions/determine-release-tag
         with:
           manual_tag: ${{ inputs.tag_version }}
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Generate path filters
         id: generate-filters
@@ -107,7 +108,7 @@ jobs:
 
       - name: Detect changed paths (MCP)
         id: filter
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
         with:
           filters: ${{ steps.generate-filters.outputs.filters }}
 

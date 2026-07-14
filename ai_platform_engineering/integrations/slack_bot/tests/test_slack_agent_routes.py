@@ -269,7 +269,15 @@ def test_resolver_defaults_to_internal_openfga_url_when_env_is_unset(monkeypatch
     )
 
     assert [match.agent_id for match in matches] == ["tuple-backed-agent"]
-    assert post_calls == [("http://openfga:8080/stores/store-1/read", {"page_size": 100})]
+    assert post_calls == [
+        (
+            "http://openfga:8080/stores/store-1/read",
+            {
+                "page_size": 100,
+                "tuple_key": {"user": "slack_channel:CAIPE--C123", "relation": "user", "object": "agent:"},
+            },
+        )
+    ]
 
 
 def test_resolver_records_openfga_read_failures_to_audit_service(monkeypatch) -> None:

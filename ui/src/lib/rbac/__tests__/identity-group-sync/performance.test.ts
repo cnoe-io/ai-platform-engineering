@@ -3,7 +3,7 @@ import type { ExternalGroup, IdentityGroupSyncRule } from "@/types/identity-grou
 import { planIdentityGroupSync } from "../../identity-group-sync-planner";
 
 describe("identity group sync performance", () => {
-  it("plans a 500-group dry run within an interactive budget", () => {
+  it("plans a 500-group dry run within an interactive budget", async () => {
     const rule: IdentityGroupSyncRule = {
       id: "rule-platform",
       provider_id: "oidc-claims",
@@ -39,7 +39,7 @@ describe("identity group sync performance", () => {
     })) as Array<ExternalGroup & { members: Array<{ subject: string; email: string; display_name: string; active: boolean }> }>;
 
     const started = performance.now();
-    const result = planIdentityGroupSync({
+    const result = await planIdentityGroupSync({
       groups,
       rules: [rule],
       existingTeams: [],

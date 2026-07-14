@@ -127,7 +127,7 @@ export function publicWebexRoomIdFromUuid(spaceId: string): string | undefined {
 }
 
 function parseListen(value: WebexRouteListenMode | undefined): WebexRouteListenMode {
-  const listen = value ?? "all";
+  const listen = value ?? "mention";
   if (!LISTEN_MODES.has(listen)) {
     throw new ApiError("listen must be one of message, mention, or all", 400);
   }

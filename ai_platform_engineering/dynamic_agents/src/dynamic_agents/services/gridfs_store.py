@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
@@ -219,7 +220,7 @@ class MongoDBGridFSStore(BaseStore):
         namespace_list = list(namespace)
         query = {
             "metadata.namespace": namespace_list,
-            "metadata.key": {"$regex": f"^{prefix}"},
+            "metadata.key": {"$regex": f"^{re.escape(prefix)}"},
         }
         count = 0
         for doc in self._files_collection.find(query):

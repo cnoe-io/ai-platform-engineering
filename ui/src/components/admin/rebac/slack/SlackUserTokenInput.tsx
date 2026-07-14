@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect,useMemo,useState } from "react";
+import { useEffect,useState } from "react";
 
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { joinList,splitList } from "./slack-route-draft";
 
 interface SlackUserSuggestion {
   id: string;
@@ -21,13 +20,13 @@ export function SlackUserTokenInput({
   kind = "all",
 }: {
   label: string;
-  value: string;
-  onChange: (value: string) => void;
+  value: string[];
+  onChange: (value: string[]) => void;
   disabled: boolean;
   placeholder: string;
   kind?: "all" | "bots";
 }) {
-  const selectedIds = useMemo(() => splitList(value), [value]);
+  const selectedIds = value;
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SlackUserSuggestion[]>([]);
   const [lookupStatus, setLookupStatus] = useState<"idle" | "searching" | "ready" | "empty" | "error">("idle");
@@ -75,19 +74,19 @@ export function SlackUserTokenInput({
 
   const addUser = (user: SlackUserSuggestion) => {
     setKnownUsers((prev) => ({ ...prev, [user.id]: user }));
-    onChange(joinList([...selectedIds, user.id]));
+    onChange([...selectedIds, user.id]);
     setQuery("");
     closeLookup();
   };
 
   const addRawId = (id: string) => {
-    onChange(joinList([...selectedIds, id]));
+    onChange([...selectedIds, id]);
     setQuery("");
     closeLookup();
   };
 
   const removeId = (id: string) => {
-    onChange(joinList(selectedIds.filter((candidate) => candidate !== id)));
+    onChange(selectedIds.filter((candidate) => candidate !== id));
   };
 
   return (

@@ -12,6 +12,7 @@ import { APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getConfig } from "@/lib/config";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
+import { createSubagentResumeSeedEvents } from "@/lib/resume-subagent-context";
 import { createStreamAdapter,StreamError,type StreamCallbacks } from "@/lib/streaming";
 import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } from "@/lib/streaming/types";
 import { cn,deduplicateByKey } from "@/lib/utils";
@@ -1252,8 +1253,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const resumeAgentId = pendingUserInput.agentId;
     setPendingUserInput(null);
 
-    // Clear previous turn's events before starting resume stream
+    // Resume continues the existing LangGraph task namespace, but the server
+    // does not repeat its parent `task` start. Seed active task starts into the
+    // new turn so resumed child events retain their subagent timeline.
+    const resumeSeedEvents = createSubagentResumeSeedEvents(
+      getActiveConversation()?.streamEvents ?? [],
+    );
     clearStreamEvents(activeConversationId);
+    for (const event of resumeSeedEvents) {
+      addStreamEvent(event, activeConversationId);
+    }
 
     // Create protocol-agnostic adapter for resume
     const adapter = createStreamAdapter({
@@ -1306,8 +1315,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      appendToMessage, setConversationStreaming,
-      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
+      appendToMessage, addStreamEvent, setConversationStreaming,
+      clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle tool approval decisions (approve/reject/edit)
   // Shows cards sequentially; only resumes after all tools are decided.
@@ -1351,7 +1360,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const resumeAgentId = pendingToolApproval.agentId;
     setPendingToolApproval(null);
 
+    const resumeSeedEvents = createSubagentResumeSeedEvents(
+      getActiveConversation()?.streamEvents ?? [],
+    );
     clearStreamEvents(activeConversationId);
+    for (const event of resumeSeedEvents) {
+      addStreamEvent(event, activeConversationId);
+    }
 
     const adapter = createStreamAdapter({
       protocol: agentProtocol as "custom" | "agui",
@@ -1416,7 +1431,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming, clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
+      addStreamEvent, setConversationStreaming, clearStreamEvents, getActiveConversation,
+      buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

@@ -66,6 +66,33 @@ def _msg_link(channel_id: str, ts: str) -> str:
     return ""
   return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
 
+
+def _ingestion_lag_ms(event: dict) -> int | None:
+  """Milliseconds between Slack's event timestamp and now.
+
+  ``event["ts"]`` is the wall-clock time Slack assigned when the message was
+  sent, so this measures true end-to-end lag (Slack delivery + our own
+  queueing/processing), not just time spent inside this process. Used to
+  profile where multi-minute response delays accumulate — Slack delivery,
+  our RBAC/routing pipeline, or agent dispatch — without hand-correlating
+  raw event timestamps against logs after the fact.
+  """
+  send_ts = event.get("ts")
+  try:
+    send_ts = float(send_ts)
+  except (TypeError, ValueError):
+    return None
+  return int((time.time() - send_ts) * 1000)
+
+
+def _log_stage(event: dict, stage: str, **extra) -> None:
+  """Emit a single structured timing line for pipeline-stage profiling."""
+  fields = " ".join(f"{k}={v}" for k, v in extra.items())
+  logger.debug(
+    "[{}] stage={} ingestion_lag_ms={} {}",
+    event.get("ts"), stage, _ingestion_lag_ms(event), fields,
+  )
+
 # 098 Enterprise RBAC enforcement
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
@@ -1022,16 +1049,22 @@ def rbac_global_middleware(body, context, next, logger):
     5. Stores the OBO access token and user_sub on the Bolt context
        for per-handler RBAC checks.
     """
+    _log_stage(body.get("event", {}), "middleware_entry")
     if not RBAC_ENABLED:
         next()
         return
 
-    # Skip system/bot messages (joins, leaves, topic changes, etc.)
+    # Skip system messages (joins, leaves, topic changes, etc.). NOTE:
+    # "bot_message" is deliberately NOT in this list — bot-authored messages
+    # need the event.get("bot_id") branch below to mint the unlinked SA
+    # token; skipping them here would return via next() with no obo_token
+    # ever set, so _slack_agent_channel_grant_check always denies with
+    # reason=pdp_unavailable for bot/workflow senders.
     event = body.get("event", {})
     subtype = event.get("subtype", "")
     if subtype in (
         "channel_join", "channel_leave", "channel_topic", "channel_purpose",
-        "channel_name", "bot_message", "message_changed", "message_deleted",
+        "channel_name", "message_changed", "message_deleted",
         "group_join", "group_leave",
     ):
         next()
@@ -1108,6 +1141,7 @@ def rbac_global_middleware(body, context, next, logger):
     is_command = bool(body.get("command"))
 
     loop = None
+    _rbac_t0 = time.monotonic()
     try:
         loop = asyncio.new_event_loop()
         rbac_status = loop.run_until_complete(
@@ -1117,6 +1151,10 @@ def rbac_global_middleware(body, context, next, logger):
                 context,
                 require_mapping=not (is_mention or is_command),
             )
+        )
+        logger.debug(
+            "[{}] stage=rbac_enrich_context_done duration_ms={} status={}",
+            event.get("ts"), int((time.monotonic() - _rbac_t0) * 1000), rbac_status,
         )
     except Exception as exc:
         logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
@@ -1216,6 +1254,7 @@ def rbac_global_middleware(body, context, next, logger):
 @app.event("app_mention")
 def handle_mention(event, say, client, context=None):
   """Handle @mentions of the bot to query CAIPE."""
+  _log_stage(event, "handle_mention_entry")
   try:
     # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
     t0 = time.monotonic()
@@ -1235,7 +1274,20 @@ def handle_mention(event, say, client, context=None):
       return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
-    user_id = event.get("user")
+
+    # A Workflow Builder step that @mentions the bot delivers an app_mention
+    # with `bot_id` set and no `user` — resolve the same way _route_to_agent /
+    # handle_message_events do for bot-authored messages, so routing/filtering
+    # and RBAC still see a real identity instead of `user_id=None`.
+    mention_bot_id = event.get("bot_id")
+    is_bot = mention_bot_id is not None
+    if is_bot:
+      bot_username, sender_bot_user_id = utils.get_bot_info_by_id(mention_bot_id)
+      user_id = sender_bot_user_id or mention_bot_id
+    else:
+      bot_username = None
+      sender_bot_user_id = None
+      user_id = event.get("user")
 
     if not utils.verify_thread_exists(client, channel_id, thread_ts):
       logger.warning(f"[{thread_ts}] Ignoring @mention — parent message was deleted")
@@ -1248,6 +1300,9 @@ def handle_mention(event, say, client, context=None):
     logger.info(f"[{thread_ts}] CAIPE was invoked by User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Thread: {thread_ts}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text:
+      if is_bot:
+        logger.info(f"[{thread_ts}] Ignoring bot/workflow @mention with no message text — silently dropping")
+        return
       say(text="Please include a question or message!", thread_ts=thread_ts)
       return
 
@@ -1259,7 +1314,9 @@ def handle_mention(event, say, client, context=None):
     matches = _match_channel_agents(
       channel_id,
       channel_config,
-      is_bot=False,
+      is_bot=is_bot,
+      bot_username=bot_username,
+      bot_user_id=sender_bot_user_id,
       user_id=user_id,
       listen="mention",
       workspace_id=_event_workspace_id(event),
@@ -1272,7 +1329,14 @@ def handle_mention(event, say, client, context=None):
     # already established — the grant on the initial agent is sufficient.
     denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
-      _post_ephemeral_for_event(client, event, channel_id, user_id, denial)
+      if is_bot:
+        logger.warning(
+          "Slack channel grant denied for bot/workflow @mention channel={} agent={} — silently dropping",
+          channel_id,
+          agent_id,
+        )
+      else:
+        _post_ephemeral_for_event(client, event, channel_id, user_id, denial)
       return
 
     # Apply the route's execution identity BEFORE create_conversation — the
@@ -1293,7 +1357,7 @@ def handle_mention(event, say, client, context=None):
           event=event,
           client=client,
           say=say,
-          is_bot=False,
+          is_bot=is_bot,
           impersonate_fn=impersonate_service_account,
         )
         if not should_proceed:
@@ -1327,10 +1391,17 @@ def handle_mention(event, say, client, context=None):
         },
       )
     except AgentAccessDeniedError as e:
-      _post_ephemeral_for_event(
-        client, event, channel_id, user_id,
-        _agent_access_denied_text(e.agent_id, context, agent_match),
-      )
+      if is_bot:
+        logger.warning(
+          "Agent access denied for bot/workflow @mention channel={} agent={} — silently dropping",
+          channel_id,
+          e.agent_id,
+        )
+      else:
+        _post_ephemeral_for_event(
+          client, event, channel_id, user_id,
+          _agent_access_denied_text(e.agent_id, context, agent_match),
+        )
       return
 
     conversation_id = conv_result["conversation_id"]
@@ -1488,6 +1559,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
   authorization check and by `_bind_obo_for_handler()` so OBO tokens flow into
   MCP calls. Both default to no-ops when RBAC is disabled.
   """
+  _log_stage(event, "route_to_agent_entry", agent_id=agent_match.agent_id if agent_match else None)
   try:
     t0 = time.monotonic()
 
@@ -1967,6 +2039,7 @@ def handle_message_events(body, say, client, context=None):
   event = body.get("event")
   if not event:
     return
+  _log_stage(event, "handle_message_events_entry")
 
   subtype = event.get("subtype")
   if subtype in ("message_deleted", "message_changed", "channel_join", "channel_leave"):
@@ -1986,9 +2059,11 @@ def handle_message_events(body, say, client, context=None):
   if channel_config is None:
     return
 
-  # Skip thread replies; only root messages trigger the agent.
-  is_thread = event.get("thread_ts") is not None
-  if is_thread:
+  # Skip true thread replies (ts != thread_ts). Root messages can have
+  # thread_ts populated by Slack when a follow-up arrives before the socket
+  # event is delivered, so checking thread_ts is not None is too broad.
+  is_thread_reply = event.get("thread_ts") is not None and event.get("thread_ts") != event.get("ts")
+  if is_thread_reply:
     return
 
   # Skip @mentions — handled by handle_mention
@@ -2001,8 +2076,14 @@ def handle_message_events(body, say, client, context=None):
   sender_bot_user_id = None
   if is_bot:
     bot_username, sender_bot_user_id = utils.get_bot_info_by_id(bot_id)
+    if not bot_username:
+      logger.warning(f"bots.info lookup failed for bot_id={bot_id}, falling back to event username")
+      bot_username = event.get("username")
+      if not bot_username:
+        logger.warning(f"event.get('username') also returned nothing for bot_id={bot_id}; bot_list filtering may not work correctly")
 
   sender_user_id = event.get("user") if not is_bot else None
+  _match_t0 = time.monotonic()
   matches = _match_channel_agents(
     channel_id,
     channel_config,
@@ -2012,6 +2093,10 @@ def handle_message_events(body, say, client, context=None):
     user_id=sender_user_id,
     listen="message",
     workspace_id=_event_workspace_id(event),
+  )
+  logger.debug(
+    "[{}] stage=match_channel_agents_done duration_ms={} matched={}",
+    event.get("ts"), int((time.monotonic() - _match_t0) * 1000), bool(matches),
   )
   if not matches:
     mode = slack_agent_route_mode()
@@ -2326,7 +2411,6 @@ def handle_escalation_get_help(ack, body, client):
       user_id=user_id,
       escalation_config=esc_config,
       agent_id=vo_agent_id or "",
-      conversation_id=conversation_id,
     )
 
     # Mark conversation as escalated for admin dashboard resolution stats

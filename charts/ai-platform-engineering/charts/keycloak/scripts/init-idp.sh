@@ -61,6 +61,36 @@ json_field() {
   echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:.*"\(.*\)"/\1/'
 }
 
+# --- helper: from a JSON array on stdin, print the "id" of the first object
+# whose <field> == <value> (empty string if none) ---------------------------
+# Keycloak 26.x returns admin-API list endpoints as single-line compact JSON,
+# which defeats line-oriented `grep -B<N> '"<name>"' | grep -o '"id"...'`
+# lookups: with no distinct preceding line, `-B<N>` matches nothing and the
+# outer grep falls back to the FIRST id in the whole array regardless of name.
+# This parses the JSON structurally instead (works for compact or pretty
+# output). The match value is passed via env, not string-interpolated into the
+# python source, so a value containing quotes/metacharacters can never break
+# the snippet or inject code. Malformed / non-list responses (e.g. curl -sf
+# swallowing an error body) degrade to empty output without aborting under
+# `set -eu`.
+json_id_by_field() {
+  MATCH_KEY="$1" MATCH_VALUE="$2" python3 -c '
+import json
+import os
+import sys
+
+try:
+    items = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(items, list):
+    sys.exit(0)
+key = os.environ["MATCH_KEY"]
+value = os.environ["MATCH_VALUE"]
+print(next((it.get("id", "") for it in items if isinstance(it, dict) and it.get(key) == value), ""))
+'
+}
+
 seed_personas_main() {
   echo "[init-idp] [spec-102] seeding personas in realm ${REALM} ..."
 
@@ -426,6 +456,152 @@ json.dump(client, sys.stdout)
 }
 
 _reconcile_caipe_platform_client_secret
+
+# -------------------------------------------------------------------
+# Reconcile the public CLI client (caipe-cli / forge-cli).
+#
+# Background: the CLI client is a public authorization-code + PKCE
+# client that lets local developer CLIs (e.g. `dev-login`) mint a
+# real-user JWT with aud=caipe-platform. It ships in realm-config.json,
+# but Keycloak's `--import-realm` only imports on FIRST boot. On any
+# deployment with a persistent database (database.enabled=true), the
+# realm already exists on upgrade, so a newly-added client in
+# realm-config.json is NEVER created — login fails with "Client not
+# found". Every other client this platform relies on (caipe-ui,
+# caipe-platform, agentgateway, the bots) is instead reconciled
+# imperatively here via the Admin API, which runs on every
+# post-install/post-upgrade. This function brings the CLI client into
+# that same idempotent path so `helm upgrade` creates/updates it.
+#
+# The clientId, redirect URIs, web origins, and access-token lifespan
+# are configurable so downstream realms can rename the client
+# (e.g. forge-cli) and tune callbacks/session length. Defaults mirror
+# the caipe-cli definition in realm-config.json.
+#
+# assisted-by Claude:claude-opus-4-8
+# -------------------------------------------------------------------
+_reconcile_cli_client() {
+  local CLI_CLIENT_ID="${KEYCLOAK_CLI_CLIENT_ID:-caipe-cli}"
+  # Space- or comma-separated lists; defaults match realm-config.json.
+  local CLI_REDIRECT_URIS="${KEYCLOAK_CLI_REDIRECT_URIS:-http://localhost:8085 http://localhost:8085/* http://127.0.0.1:8085 http://127.0.0.1:8085/*}"
+  local CLI_WEB_ORIGINS="${KEYCLOAK_CLI_WEB_ORIGINS:-http://localhost:8085 http://127.0.0.1:8085}"
+  local CLI_ACCESS_TOKEN_LIFESPAN="${KEYCLOAK_CLI_ACCESS_TOKEN_LIFESPAN:-28800}"
+
+  echo "[init-idp] Reconciling public CLI client '${CLI_CLIENT_ID}' (authorization-code + PKCE) ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   WARNING: could not acquire admin token — skipping CLI client reconcile."
+      return 0
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  # Build the desired client representation. Keycloak binds the
+  # defaultClientScopes/optionalClientScopes name arrays only on CREATE
+  # (RepresentationToModel.createClient); updateClient does not re-bind
+  # scopes. That is safe here because caipe-cli's default scopes match
+  # the realm's defaultDefaultClientScopes, so an existing client keeps
+  # the right scopes without a separate scope-binding call.
+  local DESIRED_JSON
+  DESIRED_JSON=$(CLI_CLIENT_ID="${CLI_CLIENT_ID}" \
+    CLI_REDIRECT_URIS="${CLI_REDIRECT_URIS}" \
+    CLI_WEB_ORIGINS="${CLI_WEB_ORIGINS}" \
+    CLI_ACCESS_TOKEN_LIFESPAN="${CLI_ACCESS_TOKEN_LIFESPAN}" \
+    python3 -c '
+import json
+import os
+
+
+def split(value):
+    return [item for item in value.replace(",", " ").split() if item]
+
+
+client = {
+    "clientId": os.environ["CLI_CLIENT_ID"],
+    "name": "CAIPE CLI",
+    "description": (
+        "Public OIDC client for local developer CLIs (authorization-code + "
+        "PKCE). Mints a real-user JWT with aud=caipe-platform accepted by "
+        "Dynamic Agents, AgentGateway, and MCP servers. No client secret; "
+        "PKCE S256 required."
+    ),
+    "enabled": True,
+    "publicClient": True,
+    "standardFlowEnabled": True,
+    "directAccessGrantsEnabled": False,
+    "serviceAccountsEnabled": False,
+    "authorizationServicesEnabled": False,
+    "redirectUris": split(os.environ["CLI_REDIRECT_URIS"]),
+    "webOrigins": split(os.environ["CLI_WEB_ORIGINS"]),
+    "protocol": "openid-connect",
+    "fullScopeAllowed": True,
+    "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "access.token.lifespan": str(int(os.environ["CLI_ACCESS_TOKEN_LIFESPAN"])),
+    },
+    "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
+    "optionalClientScopes": ["offline_access"],
+}
+print(json.dumps(client))
+' 2>/dev/null)
+
+  if [ -z "${DESIRED_JSON}" ]; then
+    echo "[init-idp]   WARNING: failed to render CLI client JSON (python3 required) — skipping."
+    return 0
+  fi
+
+  local CLI_CLIENT_UUID
+  CLI_CLIENT_UUID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${CLI_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${CLI_CLIENT_UUID}" ]; then
+    echo "[init-idp]   Client '${CLI_CLIENT_ID}' not found — creating ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients" \
+      -d "${DESIRED_JSON}" \
+      && echo "[init-idp]   Created CLI client '${CLI_CLIENT_ID}'." \
+      || echo "[init-idp]   WARNING: failed to create CLI client '${CLI_CLIENT_ID}'."
+  else
+    # Merge desired fields onto the existing representation so we keep
+    # the Keycloak-assigned id and any fields we do not manage, then PUT.
+    local EXISTING_JSON MERGED_JSON
+    EXISTING_JSON=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${CLI_CLIENT_UUID}" 2>/dev/null || echo "")
+    if [ -z "${EXISTING_JSON}" ]; then
+      echo "[init-idp]   WARNING: could not fetch existing CLI client — skipping update."
+      return 0
+    fi
+    MERGED_JSON=$(EXISTING_JSON="${EXISTING_JSON}" DESIRED_JSON="${DESIRED_JSON}" python3 -c '
+import json
+import os
+
+existing = json.loads(os.environ["EXISTING_JSON"])
+desired = json.loads(os.environ["DESIRED_JSON"])
+# Preserve Keycloak-managed identity; merge attributes rather than replace.
+attributes = existing.get("attributes") or {}
+attributes.update(desired.pop("attributes", {}))
+existing.update(desired)
+existing["attributes"] = attributes
+print(json.dumps(existing))
+' 2>/dev/null)
+    if [ -z "${MERGED_JSON}" ]; then
+      echo "[init-idp]   WARNING: failed to merge CLI client JSON — skipping update."
+      return 0
+    fi
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${CLI_CLIENT_UUID}" \
+      -d "${MERGED_JSON}" \
+      && echo "[init-idp]   Updated CLI client '${CLI_CLIENT_ID}' (public/PKCE/redirects/lifespan reconciled)." \
+      || echo "[init-idp]   WARNING: failed to update CLI client '${CLI_CLIENT_ID}'."
+  fi
+}
+
+_reconcile_cli_client
 
 # -------------------------------------------------------------------
 # Strict client-secret mode guard (init-idp scope: caipe-ui + caipe-platform).
@@ -907,7 +1083,7 @@ DEFAULT_REALM_ROLE="default-roles-${REALM}"
 echo "[init-idp] Ensuring offline_access is in ${DEFAULT_REALM_ROLE} ..."
 DEFAULT_ROLE_ID=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-  | grep -B1 "\"${DEFAULT_REALM_ROLE}\"" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+  | json_id_by_field "name" "${DEFAULT_REALM_ROLE}")
 
 if [ -n "${DEFAULT_ROLE_ID}" ]; then
   COMPOSITES=$(curl -sf -H "${AUTH}" \
@@ -917,7 +1093,7 @@ if [ -n "${DEFAULT_ROLE_ID}" ]; then
   else
     OFFLINE_ROLE_ID=$(curl -sf -H "${AUTH}" \
       "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-      | grep -B1 '"offline_access"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+      | json_id_by_field "name" "offline_access")
     if [ -n "${OFFLINE_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
         "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
@@ -1295,7 +1471,7 @@ echo "[init-idp]   No Keycloak role mappers are created for IDP_ACCESS_GROUP or 
 # Keycloak's ID token/userinfo carry the user's name to downstream clients.
 echo "[init-idp] Ensuring standard profile scope mappers ..."
 PROFILE_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
-  | grep -B1 '"profile"' | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  | json_id_by_field "name" "profile")
 
 if [ -n "${PROFILE_SCOPE_ID}" ]; then
   EXISTING_MAPPERS=$(curl -sf -H "${AUTH}" \
@@ -1339,7 +1515,7 @@ AUTH="Authorization: Bearer $(json_field "$(curl -sf -X POST "${KC_URL}/realms/m
 EXECUTIONS=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/authentication/flows/first%20broker%20login/executions" 2>/dev/null || echo "[]")
 
-REVIEW_ID=$(echo "${EXECUTIONS}" | grep -B2 '"idp-review-profile"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+REVIEW_ID=$(printf '%s' "${EXECUTIONS}" | json_id_by_field "providerId" "idp-review-profile")
 
 if [ -n "${REVIEW_ID}" ]; then
   # Keycloak 26.x requires providerId in the execution update payload
@@ -1434,24 +1610,33 @@ echo "[init-idp] Setting '${ALIAS}' as default IdP redirector in browser flow ..
 BROWSER_EXECS=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" 2>/dev/null || echo "[]")
 
-REDIR_INFO=$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
+# Emit shell KEY=value assignments (shlex-quoted) and eval them, rather than
+# reading a tab-delimited line with `IFS=<tab> read`. Tab is an IFS whitespace
+# character, so `read` collapses consecutive tabs and drops empty fields — on a
+# fresh realm the redirector has no authenticationConfig yet (empty middle
+# field), which would shift every subsequent field and leave FORMS_ID empty and
+# REDIR_CONFIG_ID garbage. shlex.quote preserves empty strings intact.
+eval "$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
 import json
+import shlex
 import sys
 
-executions = json.load(sys.stdin)
+try:
+    executions = json.load(sys.stdin)
+except Exception:
+    executions = []
 redirector = next((e for e in executions if e.get("providerId") == "identity-provider-redirector"), {})
 forms = next((e for e in executions if e.get("displayName") == "forms" or e.get("flowAlias") == "forms"), {})
-print("\t".join([
-    redirector.get("id", ""),
-    redirector.get("authenticationConfig") or "",
-    redirector.get("providerId") or "",
-    forms.get("id", ""),
-    forms.get("providerId") or "",
-]))
-')
-IFS='	' read -r REDIR_ID REDIR_CONFIG_ID REDIR_PROVIDER_ID FORMS_ID FORMS_PROVIDER_ID <<EOF
-${REDIR_INFO}
-EOF
+fields = {
+    "REDIR_ID": redirector.get("id", ""),
+    "REDIR_CONFIG_ID": redirector.get("authenticationConfig") or "",
+    "REDIR_PROVIDER_ID": redirector.get("providerId") or "",
+    "FORMS_ID": forms.get("id", ""),
+    "FORMS_PROVIDER_ID": forms.get("providerId") or "",
+}
+for key, value in fields.items():
+    print(f"{key}={shlex.quote(value)}")
+')"
 
 if [ -n "${REDIR_ID}" ]; then
   if [ -n "${REDIR_CONFIG_ID}" ]; then

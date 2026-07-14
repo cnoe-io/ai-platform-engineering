@@ -221,7 +221,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
           space_name: space.space_name,
           team_slug: teamSlug,
           agent_id: agentId,
-          listen: "all",
+          listen: "mention",
           create_route: createRoutes,
           reload_runtime: false,
           actor: "api",

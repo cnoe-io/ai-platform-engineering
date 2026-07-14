@@ -415,6 +415,15 @@ export interface DynamicAgentConfig {
   owner_team_id?: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  /**
+   * Set by the "Import from YAML" admin flow. Once true, seed-config.ts's
+   * seedAgents()/cleanupStaleConfigDriven() skip this agent ID entirely —
+   * the YAML seed file becomes a no-op for it, even if the entry is still
+   * present there. Lets an imported agent's `config_driven` flag flip to
+   * `false` (making it editable/deletable in the UI) without being wiped
+   * or resurrected on the next server restart.
+   */
+  config_import_adopted?: boolean;
   /** Compact AI Review verdict from the last save. Drives the Grade column
    *  in the agent list. Optional — agents created before AI Review was wired
    *  up have this missing. */

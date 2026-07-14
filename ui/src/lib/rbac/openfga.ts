@@ -475,22 +475,31 @@ function tupleKeyFilter(tuple?: Partial<OpenFgaTupleKey>): Partial<OpenFgaTupleK
 }
 
 /**
- * Send multiple Check requests in a single HTTP call via the OpenFGA
- * /batch-check endpoint (available since OpenFGA v1.8). Returns a boolean
- * array in the same order as the input tuples. Falls back gracefully: if
- * OPENFGA_HTTP is unset or batch-check is unavailable, callers should use
- * checkOpenFgaTuple() instead.
+ * OpenFGA's HTTP `/batch-check` endpoint caps each call at 50 checks by
+ * default (`max_checks_per_batch_check`). Callers that fan a check out
+ * over an unbounded collection (e.g. one row per Mongo document) can
+ * easily exceed this — the call then fails outright, and a caller with a
+ * blanket try/catch around the whole batch silently treats every check
+ * as denied instead of just the ones over the limit.
+ *
+ * Configurable via `OPENFGA_MAX_CHECKS_PER_BATCH` for environments that
+ * tune the server-side limit; defaults to 50 to match the stock server.
  */
-export async function batchCheckOpenFgaTuples(tuples: OpenFgaTupleKey[]): Promise<boolean[]> {
-  if (tuples.length === 0) return [];
-  if (isUnsafeRbacBypassEnabled()) {
-    warnUnsafeRbacBypassEnabled("openfga.batch-check");
-    return tuples.map(() => true);
-  }
-  const baseUrl = openFgaHttpUrl();
-  if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
-  const storeId = await getOpenFgaStoreId();
+const DEFAULT_OPENFGA_BATCH_CHECK_LIMIT = 50;
 
+function openFgaBatchCheckLimit(): number {
+  const fromEnv = Number(process.env.OPENFGA_MAX_CHECKS_PER_BATCH);
+  if (Number.isFinite(fromEnv) && fromEnv > 0 && fromEnv <= 50) {
+    return Math.floor(fromEnv);
+  }
+  return DEFAULT_OPENFGA_BATCH_CHECK_LIMIT;
+}
+
+async function postOpenFgaBatchCheck(
+  baseUrl: string,
+  storeId: string,
+  tuples: OpenFgaTupleKey[],
+): Promise<boolean[]> {
   const checks = tuples.map((tuple, i) => ({
     tuple_key: tuple,
     correlation_id: String(i),
@@ -506,6 +515,37 @@ export async function batchCheckOpenFgaTuples(tuples: OpenFgaTupleKey[]): Promis
   }
   const body = (await response.json()) as { result: Record<string, { allowed?: boolean }> };
   return tuples.map((_, i) => Boolean(body.result[String(i)]?.allowed));
+}
+
+/**
+ * Send multiple Check requests via the OpenFGA /batch-check endpoint
+ * (available since OpenFGA v1.8), chunking to stay under the server's
+ * per-call check limit. Returns a boolean array in the same order as the
+ * input tuples. Falls back gracefully: if OPENFGA_HTTP is unset or
+ * batch-check is unavailable, callers should use checkOpenFgaTuple()
+ * instead.
+ */
+export async function batchCheckOpenFgaTuples(tuples: OpenFgaTupleKey[]): Promise<boolean[]> {
+  if (tuples.length === 0) return [];
+  if (isUnsafeRbacBypassEnabled()) {
+    warnUnsafeRbacBypassEnabled("openfga.batch-check");
+    return tuples.map(() => true);
+  }
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+  const storeId = await getOpenFgaStoreId();
+
+  const limit = openFgaBatchCheckLimit();
+  if (tuples.length <= limit) {
+    return postOpenFgaBatchCheck(baseUrl, storeId, tuples);
+  }
+
+  const chunkResults = await Promise.all(
+    Array.from({ length: Math.ceil(tuples.length / limit) }, (_, i) =>
+      postOpenFgaBatchCheck(baseUrl, storeId, tuples.slice(i * limit, (i + 1) * limit)),
+    ),
+  );
+  return chunkResults.flat();
 }
 
 export async function checkOpenFgaTuple(tuple: OpenFgaTupleKey): Promise<OpenFgaCheckResult> {

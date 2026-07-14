@@ -24,7 +24,7 @@ import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { AnimatePresence,motion } from "framer-motion";
+import { AnimatePresence,motion,useReducedMotion } from "framer-motion";
 import {
 AlertTriangle,
 BookOpen,
@@ -38,6 +38,7 @@ Home,
 KeyRound,
 Loader2,
 Shield,
+Sparkles,
 Workflow,
 Zap,
 } from "lucide-react";
@@ -138,6 +139,7 @@ function GuardedLink({
 
 export function AppHeader() {
   const pathname = usePathname();
+  const shouldReduceMotion = useReducedMotion();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { streamingConversations, unviewedConversations, inputRequiredConversations, conversations, activeConversationId } = useChatStore();
@@ -369,41 +371,56 @@ export function AppHeader() {
           : null,
       ].filter(Boolean) as AdminAlertSource[])
     : [];
+  type NavItem = {
+    key: string;
+    href: string;
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    activeTextClassName: string;
+    activeIndicatorClassName: string;
+    disabled?: boolean;
+  };
+
   const secondaryNavItems = [
     config.workflowsEnabled && {
       key: "workflows",
       href: "/workflows",
       label: "Workflows",
       Icon: Workflow,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-indigo-600 shadow-sm",
     },
     ragEnabled && {
       key: "knowledge",
       href: "/knowledge-bases",
       label: "Knowledge Bases",
       Icon: Database,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-emerald-600 shadow-sm",
     },
     storageMode === "mongodb" && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
       Icon: Bot,
-      activeClassName: "bg-purple-500 text-white shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-violet-600 shadow-sm",
     },
     storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
       key: "schedules",
       href: "/schedules",
       label: "Schedules",
       Icon: CalendarClock,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-orange-600 shadow-sm",
     },
     storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",
       href: "/credentials#connections",
       label: "Credentials",
       Icon: KeyRound,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-blue-600 shadow-sm",
     },
     (session || isAdmin) && {
       key: "admin",
@@ -411,33 +428,16 @@ export function AppHeader() {
       label: "Admin",
       Icon: Shield,
       disabled: storageMode !== "mongodb",
-      activeClassName:
-        activeTab === "admin" && isAdmin
-          ? "bg-red-500 text-white shadow-sm"
-          : "bg-primary text-primary-foreground shadow-sm",
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: isAdmin ? "bg-red-600 shadow-sm" : "bg-rose-600 shadow-sm",
     },
-  ].filter(Boolean) as Array<{
-    key: string;
-    href: string;
-    label: string;
-    Icon: React.ComponentType<{ className?: string }>;
-    activeClassName: string;
-    disabled?: boolean;
-  }>;
+  ].filter(Boolean) as NavItem[];
 
   // All nav items in order — primary first, then secondary.
-  type NavItem = {
-    key: string;
-    href: string;
-    label: string;
-    Icon: React.ComponentType<{ className?: string }>;
-    activeClassName: string;
-    disabled?: boolean;
-  };
   const allNavItems: NavItem[] = [
-    { key: "home", href: "/", label: "Home", Icon: Home, activeClassName: "gradient-primary text-white shadow-sm" },
-    { key: "chat", href: "/chat", label: "Chat", Icon: ({ className }: { className?: string }) => <span className={className}>💬</span>, activeClassName: "bg-primary text-primary-foreground shadow-sm" },
-    { key: "skills", href: "/skills", label: "Skills", Icon: Zap, activeClassName: "gradient-primary text-white shadow-sm" },
+    { key: "home", href: "/", label: "Home", Icon: Home, activeTextClassName: "text-white", activeIndicatorClassName: "gradient-primary shadow-sm" },
+    { key: "chat", href: "/chat", label: "Chat", Icon: ({ className }: { className?: string }) => <span className={className}>💬</span>, activeTextClassName: "text-white", activeIndicatorClassName: "bg-sky-600 shadow-sm" },
+    { key: "skills", href: "/skills", label: "Skills", Icon: Zap, activeTextClassName: "text-amber-950", activeIndicatorClassName: "bg-amber-500 shadow-sm" },
     ...secondaryNavItems,
   ];
 
@@ -494,6 +494,24 @@ export function AppHeader() {
 
   const overflowItems = allNavItems.slice(visibleCount);
   const visibleItems = allNavItems.slice(0, visibleCount);
+  const activeOverflowItem = overflowItems.find((item) => activeTab === item.key);
+
+  const renderActiveNavIndicator = (item: NavItem) => (
+    <motion.span
+      aria-hidden="true"
+      initial={false}
+      layoutId="app-header-active-nav-pill"
+      className={cn(
+        "app-header-active-pill pointer-events-none absolute inset-0 rounded-full",
+        item.activeIndicatorClassName,
+      )}
+      transition={
+        shouldReduceMotion
+          ? { duration: 0 }
+          : { type: "spring", stiffness: 420, damping: 32, mass: 0.75 }
+      }
+    />
+  );
 
   const renderSecondaryNavItem = (
     item: (typeof secondaryNavItems)[number],
@@ -502,7 +520,7 @@ export function AppHeader() {
     const Icon = item.Icon;
     const baseClassName =
       variant === "inline"
-        ? "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all"
+        ? "relative isolate flex items-center px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors"
         : "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors";
     const inactiveClassName =
       variant === "inline"
@@ -517,14 +535,19 @@ export function AppHeader() {
       item.disabled
         ? disabledClassName
         : activeTab === item.key
-          ? item.activeClassName
+          ? variant === "inline"
+            ? item.activeTextClassName
+            : cn(item.activeTextClassName, item.activeIndicatorClassName)
           : inactiveClassName,
     );
 
     const content = (
       <>
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        {item.label}
+        {variant === "inline" && !item.disabled && activeTab === item.key && renderActiveNavIndicator(item)}
+        <span className="relative z-10 flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          {item.label}
+        </span>
       </>
     );
 
@@ -551,14 +574,23 @@ export function AppHeader() {
         <div ref={logoRef} className="shrink-0">
           <GuardedLink
             href="/"
-            className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
+            className="brand-link flex items-center gap-2.5 cursor-pointer"
           >
             <img
               src={config.logoUrl}
               alt={`${config.appName} Logo`}
               className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
             />
-            <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
+            <span className="brand-lockup relative hidden sm:inline-block">
+              <span className="brand-name gradient-text text-base font-bold">
+                {config.appName}
+              </span>
+              <Sparkles
+                aria-hidden="true"
+                className="brand-sparkle pointer-events-none absolute -right-2.5 -top-2 h-3.5 w-3.5"
+                strokeWidth={1.75}
+              />
+            </span>
             {config.envBadge && (
               <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
                 {config.envBadge}
@@ -577,15 +609,16 @@ export function AppHeader() {
                   href={chatHref}
                   prefetch={true}
                   className={cn(
-                    "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                    "relative isolate flex items-center px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors",
                     activeTab === "chat"
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                      ? item.activeTextClassName
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  💬 Chat
+                  {activeTab === "chat" && renderActiveNavIndicator(item)}
+                  <span className="relative z-10">💬 Chat</span>
                   {streamingConversations.size > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                    <span className="absolute -top-1 -right-1 z-20 flex h-4 w-4 items-center justify-center">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                       <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
                         {streamingConversations.size}
@@ -593,7 +626,7 @@ export function AppHeader() {
                     </span>
                   )}
                   {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                    <span className="absolute -top-1 -right-1 z-20 flex h-4 w-4 items-center justify-center">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
                       <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
                         {inputRequiredConversations.size}
@@ -601,7 +634,7 @@ export function AppHeader() {
                     </span>
                   )}
                   {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                    <span className="absolute -top-1 -right-1 z-20 flex h-4 w-4 items-center justify-center">
                       <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
                         {unviewedConversations.size}
                       </span>
@@ -620,14 +653,15 @@ export function AppHeader() {
                   data-more-btn="1"
                   aria-label="More navigation"
                   className={cn(
-                    "flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-all",
-                    overflowItems.some((item) => activeTab === item.key)
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                    "relative isolate flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+                    activeOverflowItem
+                      ? activeOverflowItem.activeTextClassName
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <span>More</span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  {activeOverflowItem && renderActiveNavIndicator(activeOverflowItem)}
+                  <span className="relative z-10">More</span>
+                  <ChevronDown className="relative z-10 h-3.5 w-3.5 shrink-0" />
                 </button>
               </PopoverTrigger>
               <PopoverContent side="bottom" align="start" className="w-56 p-2">

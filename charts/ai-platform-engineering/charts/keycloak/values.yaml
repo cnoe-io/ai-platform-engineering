@@ -9,7 +9,7 @@ image:
 #
 # Default points at our project image — `build/Dockerfile.keycloak-init` —
 # which is wolfi-base + python-3.13 + curl + sed + grep + awk. We need
-# python3 because init-idp.sh does richer JSON munging on the realm user
+# python-3.13 because init-idp.sh does richer JSON munging on the realm user
 # profile (`alpine/curl` lacks python3 and the script exits 127).
 #
 # Override with --set initImage.repository=… for air-gapped registries.
@@ -144,6 +144,13 @@ uiClient:
 # single login lasts a full working session — 28800 = 8h, which matches the
 # realm ssoSessionIdleTimeout and avoids re-authenticating throughout the day.
 # Keep it <= ssoSessionMaxLifespan (86400). Omit to inherit the realm default.
+#
+# This client is reconciled imperatively by init-idp.sh on every
+# post-install/post-upgrade — NOT only via first-boot realm import. That
+# matters on persistent-database deployments (database.enabled=true): the
+# realm already exists on upgrade, so a client added to realm-config.json
+# alone would never be created and `dev-login` would hit "Client not found".
+# The init-idp Job creates/updates it from these values on each helm upgrade.
 cliClient:
   clientId: "caipe-cli"
   accessTokenLifespan: 28800

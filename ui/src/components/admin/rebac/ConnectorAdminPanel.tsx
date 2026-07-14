@@ -750,10 +750,18 @@ export function ConnectorAdminPanel({
   }, [selected, adapter]);
 
   const loadDynamicAgents = useCallback(async () => {
-    const res = await fetch("/api/dynamic-agents?enabled_only=true");
-    if (!res.ok) throw new Error(await res.text());
-    const data = apiData<{ items: DynamicAgentOption[] }>(await res.json());
-    setDynamicAgents(data.items ?? []);
+    const items: DynamicAgentOption[] = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const res = await fetch(`/api/dynamic-agents?enabled_only=true&page=${page}&page_size=100`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = apiData<{ items: DynamicAgentOption[]; has_more?: boolean }>(await res.json());
+      items.push(...(data.items ?? []));
+      hasMore = Boolean(data.has_more);
+      page += 1;
+    }
+    setDynamicAgents(items);
   }, []);
 
   const loadTeams = useCallback(async () => {

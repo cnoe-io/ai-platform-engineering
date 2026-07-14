@@ -32,7 +32,8 @@ dependencies = [
 # Playwright for JavaScript rendering in webloader ingestor
 # Adds ~1GB to image size (Chromium browser + dependencies)
 playwright = [
-    "scrapy-playwright==0.0.46",
+    "scrapy-playwright==0.0.47",
+    "playwright==1.61.0",
 ]
 dev = [
     "pytest==9.0.3",
