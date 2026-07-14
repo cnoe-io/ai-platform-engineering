@@ -1023,7 +1023,9 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
     const result = await collection.updateOne(
       {
         _id: id,
-        credential_sources: { $exists: false },
+        // Match missing OR null — but NOT an explicit empty array, which means
+        // the operator intentionally cleared credentials and must not be overwritten.
+        credential_sources: { $in: [null, undefined] },
       },
       {
         $set: {
