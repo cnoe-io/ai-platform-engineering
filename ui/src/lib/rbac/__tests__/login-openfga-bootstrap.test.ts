@@ -78,7 +78,10 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-user", relation: "reader", object: "admin_surface:users" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:teams" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:skills" },
-        { user: "user:sub-user", relation: "reader", object: "admin_surface:metrics" },
+        { user: "user:sub-user", relation: "reader", object: "admin_surface:slack" },
+        { user: "user:sub-user", relation: "reader", object: "admin_surface:webex" },
+        { user: "user:sub-user", relation: "reader", object: "admin_surface:feedback" },
+        { user: "user:sub-user", relation: "reader", object: "admin_surface:stats" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:health" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:credentials" },
       ],
@@ -105,7 +108,10 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:users" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:teams" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:skills" },
-        { user: "user:sub-admin", relation: "reader", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:slack" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:webex" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:feedback" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:stats" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:health" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:credentials" },
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
@@ -114,11 +120,20 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:users" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:teams" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:skills" },
-        { user: "user:sub-admin", relation: "manager", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:slack" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:webex" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:feedback" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:stats" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:health" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:credentials" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:roles" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:identity_group_sync" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:audit_logs" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:action_audit" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:openfga" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:migrations" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:rag_datasources" },
       ]),
       deletes: [],
     });
@@ -176,7 +191,7 @@ describe("login OpenFGA bootstrap", () => {
                       id: "support-member",
                       name: "Support member",
                       role: "member",
-                      grants: ["admin-surface:metrics:read"],
+                      grants: ["admin-surface:feedback:read"],
                     },
                   ],
                 }
@@ -231,7 +246,7 @@ describe("login OpenFGA bootstrap", () => {
 
     expect(result.status).toBe("completed");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: "user:sub-user", relation: "reader", object: "admin_surface:metrics" }],
+      writes: [{ user: "user:sub-user", relation: "reader", object: "admin_surface:feedback" }],
       deletes: [],
     });
   });
@@ -260,7 +275,7 @@ describe("login OpenFGA bootstrap", () => {
                       id: "support-member",
                       name: "Support member",
                       role: "member",
-                      grants: ["admin-surface:metrics:read"],
+                      grants: ["admin-surface:feedback:read"],
                     },
                   ],
                 }

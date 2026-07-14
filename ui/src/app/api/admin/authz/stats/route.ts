@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiError, getAuthFromBearerOrSession, withErrorHandler } from "@/lib/api-middleware";
 import { getAuditReader } from "@/lib/audit/reader";
 import { getEngineStats } from "@/lib/authz";
-import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 
 const WINDOWS: Record<string, number> = {
   "1h": 60 * 60 * 1000,
@@ -34,7 +34,7 @@ function topCounts(map: Map<string, number>, label: "reason" | "resource"): Reco
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireBaselineAdminSurfaceRead(session, "metrics");
+  await requireAdminSurfaceManage(session, "metrics");
 
   const url = new URL(request.url);
   const windowKey = url.searchParams.get("window") ?? "24h";
