@@ -214,7 +214,7 @@ class WebexBotAdminService:
         space_id: str | None = None,
     ) -> dict[str, str]:
         if workspace_id and space_id:
-            self._resolver.invalidate(workspace_id, space_id)
+            self._resolver.invalidate_all()
             return {"reloaded": "space", "workspace_id": workspace_id, "space_id": space_id}
         self._resolver.invalidate_all()
         return {"reloaded": "all"}
@@ -271,7 +271,7 @@ class WebexBotAdminService:
                     }
                 )
                 summary["openfga_tuples_written"] += 1
-                self._resolver.invalidate(str(route["workspace_id"]), str(route["space_id"]))
+                self._resolver.invalidate_all()
             except Exception as exc:  # noqa: BLE001
                 summary["openfga_write_failed"] = True
                 summary["error"] = str(exc)

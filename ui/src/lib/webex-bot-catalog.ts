@@ -16,7 +16,7 @@ export interface WebexBotOption {
 
 const CONFIG_ENV = "WEBEX_INTEGRATION_BOTS_JSON";
 const DEFAULT_TOKEN_ENV = "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN";
-const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function requiredString(
@@ -79,6 +79,17 @@ export function listWebexBotOptions(env: Env = process.env): WebexBotOption[] {
     name: bot.name,
     available: Boolean(env[bot.tokenEnv]?.trim()),
   }));
+}
+
+export function requireAvailableWebexBotId(
+  botId: string | null | undefined,
+  env: Env = process.env,
+): string {
+  const requestedId = botId?.trim();
+  const option = listWebexBotOptions(env).find((bot) => bot.id === requestedId);
+  if (!option) throw new ApiError(`Unknown Webex bot: ${requestedId ?? ""}`, 400);
+  if (!option.available) throw new ApiError(`Webex bot "${option.name}" is not configured`, 503);
+  return option.id;
 }
 
 export function resolveWebexBotToken(

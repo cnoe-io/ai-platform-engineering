@@ -44,7 +44,7 @@ const SPACE_REF = `webex_space:${WORKSPACE_ID}--${SPACE_ID}`;
 
 function request(): NextRequest {
   return new NextRequest(
-    new URL(`/api/admin/webex/spaces/${WORKSPACE_ID}/${SPACE_ID}`, "http://localhost:3000"),
+    new URL(`/api/admin/webex/spaces/${WORKSPACE_ID}/${SPACE_ID}?bot_id=primary`, "http://localhost:3000"),
     { method: "DELETE" },
   );
 }
@@ -55,13 +55,23 @@ function context() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
+    { id: "primary", name: "Primary", tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN" },
+  ]);
+  process.env.WEBEX_PRIMARY_BOT_TOKEN = "token";
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, deletes: 0 });
   mockDeleteWebexSpaceAgentRoutes.mockResolvedValue(0);
   mockDeleteWebexSpaceGrants.mockResolvedValue(0);
   mockGetRbacCollection.mockResolvedValue({
+    countDocuments: jest.fn(async () => 1),
     deleteMany: jest.fn(async () => ({ deletedCount: 1 })),
   });
+});
+
+afterEach(() => {
+  delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
+  delete process.env.WEBEX_PRIMARY_BOT_TOKEN;
 });
 
 describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
@@ -105,7 +115,7 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
 
   it("aborts before Mongo cleanup if OpenFGA tuple deletion fails", async () => {
     const deleteMany = jest.fn(async () => ({ deletedCount: 1 }));
-    mockGetRbacCollection.mockResolvedValue({ deleteMany });
+    mockGetRbacCollection.mockResolvedValue({ countDocuments: jest.fn(async () => 1), deleteMany });
     mockDeleteExactOpenFgaTuples.mockRejectedValue(new Error("openfga down"));
     const { DELETE } = await import("../[workspaceId]/[spaceId]/route");
 
@@ -119,7 +129,7 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
 
   it("purges Webex metadata after successful tuple deletion", async () => {
     const deleteMany = jest.fn(async () => ({ deletedCount: 2 }));
-    mockGetRbacCollection.mockResolvedValue({ deleteMany });
+    mockGetRbacCollection.mockResolvedValue({ countDocuments: jest.fn(async () => 1), deleteMany });
     mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, deletes: 3 });
     mockDeleteWebexSpaceAgentRoutes.mockResolvedValue(4);
     mockDeleteWebexSpaceGrants.mockResolvedValue(5);
@@ -129,11 +139,12 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockDeleteWebexSpaceAgentRoutes).toHaveBeenCalledWith(WORKSPACE_ID, SPACE_ID);
+    expect(mockDeleteWebexSpaceAgentRoutes).toHaveBeenCalledWith(WORKSPACE_ID, SPACE_ID, "primary");
     expect(mockDeleteWebexSpaceGrants).toHaveBeenCalledWith(WORKSPACE_ID, SPACE_ID);
     expect(deleteMany).toHaveBeenCalledWith({
       webex_workspace_id: WORKSPACE_ID,
       webex_space_id: SPACE_ID,
+      bot_id: "primary",
     });
     expect(body.data.deleted).toMatchObject({
       workspace_id: WORKSPACE_ID,

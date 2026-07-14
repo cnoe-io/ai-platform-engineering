@@ -32,7 +32,8 @@ class RetryTeamResolver:
     calls: int = 0
     team_slug: str = "platform-eng"
 
-    async def resolve(self, space_id: str) -> SpaceTeamResolution:
+    async def resolve(self, bot_id: str, space_id: str) -> SpaceTeamResolution:
+        del bot_id, space_id
         self.calls += 1
         if self.calls == 1:
             return SpaceTeamResolution(
@@ -40,21 +41,23 @@ class RetryTeamResolver:
                 team_id=None,
                 team_name=None,
                 deny_message="Space not mapped",
+                bot_id=None,
             )
         return SpaceTeamResolution(
             team_slug=self.team_slug,
             team_id="team-1",
             team_name="Platform Eng",
             deny_message=None,
+            bot_id="default",
         )
 
 
 @dataclass
 class CaptureInvalidate:
-    calls: list[tuple[str, str]] = field(default_factory=list)
+    calls: list[tuple[str, str, str]] = field(default_factory=list)
 
-    def invalidate(self, workspace_id: str, space_id: str) -> None:
-        self.calls.append((workspace_id, space_id))
+    def invalidate(self, bot_id: str, workspace_id: str, space_id: str) -> None:
+        self.calls.append((bot_id, workspace_id, space_id))
 
     def invalidate_all(self) -> None:
         pass
@@ -99,5 +102,5 @@ def test_gate_auto_assign_re_resolves_team_and_invalidates_routes(monkeypatch: p
 
     assert result.reason_code == REASON_DISPATCH_ALLOWED
     assert team_resolver.calls == 2
-    assert route_cache.calls == [("CAIPE-WEBEX", "space12345")]
+    assert route_cache.calls == [("default", "CAIPE-WEBEX", "space12345")]
     assigner.assign_space.assert_called_once()

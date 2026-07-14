@@ -17,7 +17,7 @@ def test_resolve_denies_when_mongo_unavailable(monkeypatch: pytest.MonkeyPatch) 
     resolver = WebexSpaceTeamResolver()
     monkeypatch.setattr(resolver, "_get_client", lambda: None)
 
-    result = asyncio.run(resolver.resolve("space-12345678"))
+    result = asyncio.run(resolver.resolve("primary", "space-12345678"))
     assert result.team_slug is None
     assert result.deny_message is not None
 
@@ -34,10 +34,15 @@ def test_resolve_returns_team_slug_without_membership_check(
         "members": [],
     }
 
-    monkeypatch.setattr(resolver, "_load_space_team_sync", lambda _space_id: team_doc)
+    monkeypatch.setattr(
+        resolver,
+        "_load_space_team_sync",
+        lambda _bot_id, _space_id: {"team": team_doc, "bot_id": "primary"},
+    )
 
-    result = asyncio.run(resolver.resolve("space-12345678"))
+    result = asyncio.run(resolver.resolve("primary", "space-12345678"))
     assert result.team_slug == "platform-eng"
+    assert result.bot_id == "primary"
     assert result.deny_message is None
 
 
@@ -54,9 +59,9 @@ def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         resolver,
         "_load_space_team_sync",
-        lambda _space_id: team_doc,
+        lambda _bot_id, _space_id: {"team": team_doc, "bot_id": "primary"},
     )
 
-    result = asyncio.run(resolver.resolve("space-12345678"))
+    result = asyncio.run(resolver.resolve("primary", "space-12345678"))
     assert result.team_slug is None
     assert result.deny_message is not None

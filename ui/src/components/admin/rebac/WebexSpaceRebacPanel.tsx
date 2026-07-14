@@ -14,6 +14,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
+import { WebexDirectUsersPanel } from "./WebexDirectUsersPanel";
 import type {
 ConnectorAdminAdapter,
 DiagnosticRoute,
@@ -49,7 +50,8 @@ function WebexConfiguredSpaceDelete({
     setLoading(true);
     try {
       const url = `/api/admin/webex/spaces/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}`;
-      const res = await fetch(url, { method: "DELETE" });
+      const params = new URLSearchParams({ bot_id: item.bot_id ?? "" });
+      const res = await fetch(`${url}?${params.toString()}`, { method: "DELETE" });
       if (!res.ok) {
         throw new Error(await responseErrorMessage(res, "Failed to delete Webex space"));
       }
@@ -140,14 +142,20 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   itemSingular: "space",
   itemPlural: "spaces",
   singlePanelView: "onboard",
+  directMessagesPanel: {
+    title: "1:1 Messages",
+    description: "Choose which deployment users can message each Webex bot and which agent handles their messages.",
+    render: ({ disabled }) => <WebexDirectUsersPanel disabled={disabled} />,
+  },
 
   api: {
     list: "/api/admin/webex/spaces",
-    discoveryUrl: (_page, cursor, q, identityId) => {
+    discoveryUrl: (_page, cursor, q, identityId, refresh) => {
       const p = new URLSearchParams({ limit: "200" });
       if (cursor) p.set("cursor", cursor);
       if (q) p.set("q", q);
       if (identityId) p.set("bot_id", identityId);
+      if (refresh) p.set("refresh", "1");
       return `/api/admin/webex/available-spaces?${p.toString()}`;
     },
     discoveryIdentities: "/api/admin/webex/bots",
@@ -155,8 +163,8 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     runtimeStatus: "/api/admin/webex/runtime/status",
     runtimeReload: "/api/admin/webex/runtime/reload",
     runtimeSyncFromConfig: "/api/admin/webex/runtime/sync-from-config",
-    routesFor: (ws, sp) => `/api/admin/webex/spaces/${encodeURIComponent(ws)}/${encodeURIComponent(sp)}/routes`,
-    diagnosticsFor: (ws, sp) => `/api/admin/webex/spaces/${encodeURIComponent(ws)}/${encodeURIComponent(sp)}/diagnostics`,
+    routesFor: (ws, sp, botId) => `/api/admin/webex/spaces/${encodeURIComponent(ws)}/${encodeURIComponent(sp)}/routes?bot_id=${encodeURIComponent(botId ?? "")}`,
+    diagnosticsFor: (ws, sp, botId) => `/api/admin/webex/spaces/${encodeURIComponent(ws)}/${encodeURIComponent(sp)}/diagnostics?bot_id=${encodeURIComponent(botId ?? "")}`,
     legacyConfigDefaults: null,
   },
 
@@ -173,27 +181,35 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       item_name: String(r.space_name ?? r.space_id),
       team_slug: r.team_slug ? String(r.team_slug) : undefined,
       primary_agent_id: r.primary_agent_id ? String(r.primary_agent_id) : undefined,
+      bot_id: r.bot_id ? String(r.bot_id) : undefined,
       active_grants: Number(r.active_grants ?? 0),
       can_manage: Boolean(r.can_manage),
       health: r.health as ItemSummary["health"],
     };
   },
-  itemKey: (item) => `${item.workspace_id}/${item.item_id}`,
+  itemKey: (item) => `${item.bot_id ?? ""}/${item.workspace_id}/${item.item_id}`,
   parseDiscoveryPage: (json) => {
     const d = apiData<{ spaces: unknown[]; next_cursor?: string | null; has_more?: boolean; total_matches?: number }>(
       json as { spaces: unknown[] },
     );
-    const spaces = (d.spaces ?? []) as Record<string, unknown>[];
+    const spaces = ((d.spaces ?? []) as Record<string, unknown>[]).filter(
+      (space) => String(space.type ?? "group").trim().toLowerCase() !== "direct",
+    );
     return {
       items: spaces.map((sp) => {
         const type = String(sp.type ?? "group").trim().toLowerCase() || "group";
-        const isDirect = type === "direct";
         return {
           id: String(sp.id ?? ""),
           name: String(sp.name ?? sp.id),
           secondary: [String(sp.id ?? ""), type, sp.is_locked ? "locked" : ""].filter(Boolean).join(" · "),
-          teamRequired: !isDirect,
-          selectable: !isDirect,
+          teamRequired: true,
+          selectable: true,
+          availableBotIds: Array.isArray(sp.available_bot_ids)
+            ? sp.available_bot_ids.map((id) => String(id)).filter(Boolean)
+            : [],
+          botId: Array.isArray(sp.available_bot_ids) && sp.available_bot_ids.length === 1
+            ? String(sp.available_bot_ids[0])
+            : undefined,
         };
       }),
       nextCursor: d.next_cursor ?? null,
@@ -225,7 +241,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
 
   discoveryCacheProvider: "webex",
   discoveryIdentity: {
-    label: "Bot",
+    label: "Webex bot",
     parseResponse: (json) => {
       const data = apiData<{ bots?: Array<{ id?: unknown; name?: unknown; available?: unknown }> }>(
         json as { bots?: Array<{ id?: unknown; name?: unknown; available?: unknown }> },
@@ -239,6 +255,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
         .filter((bot) => bot.id && bot.name);
     },
   },
+  discoveryIdentityPerItem: false,
 
   copy: {
     configuredTabTitle: "Configured spaces",
@@ -322,7 +339,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     (route.openfga_tuple && route.listen !== "all"),
 
   fixDiagnosticRoute: async ({ item, route, routes }) => {
-    const routeUrl = `/api/admin/webex/spaces/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes`;
+    const routeUrl = `/api/admin/webex/spaces/${encodeURIComponent(item.workspace_id)}/${encodeURIComponent(item.item_id)}/routes?bot_id=${encodeURIComponent(item.bot_id ?? "")}`;
     if (route.route_metadata && !route.openfga_tuple) {
       const res = await fetch(routeUrl, {
         method: "DELETE", headers: { "Content-Type": "application/json" },
@@ -354,14 +371,15 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       r.teamRequired !== false &&
       r.selected &&
       r.teamSlug &&
-      r.agentId
+      r.agentId &&
+      r.botId
     );
     if (selectedImports.length === 0) return { toastMessage: "No spaces selected." };
-    const grouped = new Map<string, Array<{ id: string; name?: string }>>();
+    const grouped = new Map<string, Array<{ id: string; name?: string; bot_id: string }>>();
     for (const sp of selectedImports) {
       const key = `${sp.teamSlug} ${sp.agentId}`;
       const cur = grouped.get(key) ?? [];
-      cur.push({ id: sp.id, name: sp.name });
+      cur.push({ id: sp.id, name: sp.name, bot_id: sp.botId! });
       grouped.set(key, cur);
     }
     const requests = Array.from(grouped.entries()).map(([key, spacesForGroup]) => {

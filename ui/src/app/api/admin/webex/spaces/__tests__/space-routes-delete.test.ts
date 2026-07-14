@@ -86,6 +86,10 @@ const spaceId = "space-abc";
 beforeEach(() => {
   jest.clearAllMocks();
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
+  process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
+    { id: "primary", name: "Primary", tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN" },
+  ]);
+  process.env.WEBEX_PRIMARY_BOT_TOKEN = "token";
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
@@ -95,6 +99,7 @@ beforeEach(() => {
     {
       workspace_id: workspaceAlias,
       space_id: spaceId,
+      bot_id: "primary",
       agent_id: "incident-agent",
       status: "active",
       enabled: true,
@@ -105,6 +110,8 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.WEBEX_WORKSPACE_ALIAS;
+  delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
+  delete process.env.WEBEX_PRIMARY_BOT_TOKEN;
 });
 
 describe("DELETE /api/admin/webex/spaces/.../routes", () => {
@@ -113,7 +120,7 @@ describe("DELETE /api/admin/webex/spaces/.../routes", () => {
 
     const response = await DELETE(
       new NextRequest(
-        `http://localhost:3000/api/admin/webex/spaces/${workspaceId}/${spaceId}/routes`,
+        `http://localhost:3000/api/admin/webex/spaces/${workspaceId}/${spaceId}/routes?bot_id=primary`,
         {
           method: "DELETE",
           headers: {

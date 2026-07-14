@@ -15,7 +15,8 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
-import { resolveWebexBotToken } from "@/lib/webex-bot-catalog";
+import { listWebexBotOptions,resolveWebexBotToken } from "@/lib/webex-bot-catalog";
+import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 
 interface WebexRoom {
@@ -37,6 +38,7 @@ interface NormalizedSpace {
   name: string;
   type: string;
   is_locked: boolean;
+  available_bot_ids?: string[];
 }
 
 interface CacheEntry {
@@ -61,7 +63,7 @@ const cache = new Map<string, CacheEntry>();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function tokenCacheKey(token: string): string {
-  return token.slice(-12);
+  return createHash("sha256").update(token).digest("hex");
 }
 
 export function __resetWebexSpaceDiscoveryCacheForTests(): void {
@@ -152,6 +154,19 @@ export function isSafeWebexPaginationUrl(url: string): boolean {
   }
 }
 
+export function nextWebexPaginationUrl(linkHeader: string | null): string | undefined {
+  if (!linkHeader) return undefined;
+  for (const entry of linkHeader.split(/,\s*(?=<)/)) {
+    const href = entry.match(/<([^>]+)>/)?.[1];
+    const rel = entry.match(/;\s*rel\s*=\s*(?:"([^"]+)"|([^;\s,]+))/i);
+    const relationships = (rel?.[1] ?? rel?.[2] ?? "").toLowerCase().split(/\s+/);
+    if (href && relationships.includes("next") && isSafeWebexPaginationUrl(href)) {
+      return href;
+    }
+  }
+  return undefined;
+}
+
 export function canonicalizeWebexSpaceId(spaceId: string): string {
   const trimmed = spaceId.trim();
   if (!trimmed) return trimmed;
@@ -199,6 +214,7 @@ async function listAllRooms(token: string): Promise<NormalizedSpace[]> {
     if (data.items) {
       for (const room of data.items) {
         if (!room.id) continue;
+        if ((room.type ?? "group").trim().toLowerCase() === "direct") continue;
         const canonicalId = canonicalizeWebexSpaceId(room.id);
         out.push({
           id: canonicalId,
@@ -210,7 +226,9 @@ async function listAllRooms(token: string): Promise<NormalizedSpace[]> {
       }
     }
 
-    const next = data.link?.find((l) => l.rel === "next")?.href;
+    const next =
+      nextWebexPaginationUrl(res.headers.get("link")) ??
+      data.link?.find((link) => link.rel?.toLowerCase() === "next")?.href;
     url = next && isSafeWebexPaginationUrl(next) ? next : undefined;
   }
 
@@ -224,13 +242,35 @@ function applyCursor(spaces: NormalizedSpace[], cursor: string | undefined): Nor
   return idx < 0 ? [] : spaces.slice(idx);
 }
 
+async function spacesForToken(
+  token: string,
+  refresh: boolean,
+  cacheTtlMs: number,
+): Promise<{ spaces: NormalizedSpace[]; cacheHit: boolean; fetchedAt: number }> {
+  const now = Date.now();
+  const cacheKey = tokenCacheKey(token);
+  const cached = cache.get(cacheKey);
+  if (!refresh && cacheTtlMs > 0 && cached && now - cached.fetched_at < cacheTtlMs) {
+    return { spaces: cached.spaces, cacheHit: true, fetchedAt: cached.fetched_at };
+  }
+  const spaces = await listAllRooms(token);
+  if (cacheTtlMs > 0) cache.set(cacheKey, { spaces, fetched_at: now });
+  else cache.delete(cacheKey);
+  return { spaces, cacheHit: false, fetchedAt: now };
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
 
   const params = request.nextUrl.searchParams;
-  const bot = resolveWebexBotToken(params.get("bot_id"));
-  const token = bot.token;
+  const requestedBotId = params.get("bot_id")?.trim();
+  const bots = requestedBotId
+    ? [resolveWebexBotToken(requestedBotId)]
+    : listWebexBotOptions()
+        .filter((bot) => bot.available)
+        .map((bot) => resolveWebexBotToken(bot.id));
+  if (bots.length === 0) throw new ApiError("No configured Webex bot is available", 503);
   const refresh = params.get("refresh") === "1";
   const q = (params.get("q") ?? "").trim().toLowerCase();
   const cursor = params.get("cursor") ?? undefined;
@@ -240,29 +280,25 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? Math.min(requestedLimit, MAX_UI_LIMIT)
       : DEFAULT_UI_LIMIT;
 
-  const now = Date.now();
-  const cacheKey = tokenCacheKey(token);
-  const cached = cache.get(cacheKey);
   const cacheTtlMs = await getDiscoveryCacheTtlMs();
-
-  let allSpaces: NormalizedSpace[];
-  let cacheHit = false;
-  let fetchedAt: number;
-
-  // ttl=0 disables caching entirely (admin-controlled debug knob).
-  if (!refresh && cacheTtlMs > 0 && cached && now - cached.fetched_at < cacheTtlMs) {
-    allSpaces = cached.spaces;
-    fetchedAt = cached.fetched_at;
-    cacheHit = true;
-  } else {
-    allSpaces = await listAllRooms(token);
-    fetchedAt = now;
-    if (cacheTtlMs > 0) {
-      cache.set(cacheKey, { spaces: allSpaces, fetched_at: fetchedAt });
-    } else {
-      cache.delete(cacheKey);
+  const snapshots = await Promise.all(
+    bots.map(async (bot) => ({ bot, ...(await spacesForToken(bot.token, refresh, cacheTtlMs)) })),
+  );
+  const merged = new Map<string, NormalizedSpace>();
+  for (const snapshot of snapshots) {
+    for (const space of snapshot.spaces) {
+      const current = merged.get(space.id);
+      const availableBotIds = new Set(current?.available_bot_ids ?? []);
+      availableBotIds.add(snapshot.bot.id);
+      merged.set(space.id, {
+        ...(current ?? space),
+        available_bot_ids: [...availableBotIds],
+      });
     }
   }
+  const allSpaces = [...merged.values()].sort((left, right) => left.name.localeCompare(right.name));
+  const cacheHit = snapshots.every((snapshot) => snapshot.cacheHit);
+  const fetchedAt = Math.max(...snapshots.map((snapshot) => snapshot.fetchedAt));
 
   let filtered = allSpaces;
   if (q) {
@@ -276,7 +312,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const nextCursor = hasMore ? page[page.length - 1].name : null;
 
   console.log(
-    `[Admin WebexSpaces] discovery ok bot=${bot.id} total=${allSpaces.length} matches=${totalMatches} returned=${page.length} q="${q}" cache=${cacheHit ? "hit" : "miss"} by=${user.email}`
+    `[Admin WebexSpaces] discovery ok bots=${bots.map((bot) => bot.id).join(",")} total=${allSpaces.length} matches=${totalMatches} returned=${page.length} q="${q}" cache=${cacheHit ? "hit" : "miss"} by=${user.email}`
   );
 
   return successResponse({
@@ -288,6 +324,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     cached: cacheHit,
     fetched_at: fetchedAt,
     query: { q, limit },
-    bot: { id: bot.id, name: bot.name },
+    bots: bots.map((bot) => ({ id: bot.id, name: bot.name })),
+    ...(bots.length === 1 ? { bot: { id: bots[0].id, name: bots[0].name } } : {}),
   });
 });

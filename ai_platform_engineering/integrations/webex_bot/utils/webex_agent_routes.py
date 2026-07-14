@@ -113,7 +113,7 @@ class WebexAgentRouteResolver:
         self._openfga_agent_ids_factory = openfga_agent_ids_factory
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
-        self._cache: dict[tuple[str, str], tuple[list[dict[str, Any]], float]] = {}
+        self._cache: dict[tuple[str, str, str], tuple[list[dict[str, Any]], float]] = {}
         self._last_errors: dict[tuple[str, str], str] = {}
 
     def _get_client(self) -> Optional[MongoClient]:
@@ -183,7 +183,9 @@ class WebexAgentRouteResolver:
             }
         )
 
-    def _load_routes(self, workspace_id: str, space_id: str) -> list[dict[str, Any]]:
+    def _load_routes(
+        self, bot_id: str, workspace_id: str, space_id: str
+    ) -> list[dict[str, Any]]:
         agent_ids = self._load_openfga_agent_ids(workspace_id, space_id)
         if agent_ids is None:
             return []
@@ -196,16 +198,16 @@ class WebexAgentRouteResolver:
 
         collection = self._get_collection()
         if collection is None:
-            return [_default_route(agent_id) for agent_id in agent_ids]
+            return []
 
         try:
-            routes = self._query_routes(collection, workspace_id, space_id)
+            routes = self._query_routes(collection, bot_id, workspace_id, space_id)
             if not routes and workspace_id != "unknown":
-                routes = self._query_routes(collection, "unknown", space_id)
+                routes = self._query_routes(collection, bot_id, "unknown", space_id)
             return _merge_openfga_agents_with_route_metadata(agent_ids, routes)
         except PyMongoError as exc:
             logger.warning("WebexAgentRouteResolver: route query failed: %s", exc)
-            return [_default_route(agent_id) for agent_id in agent_ids]
+            return []
 
     def _load_openfga_agent_ids(self, workspace_id: str, space_id: str) -> list[str] | None:
         if self._openfga_agent_ids_factory is not None:
@@ -258,19 +260,22 @@ class WebexAgentRouteResolver:
             )
             return None
 
-    def last_error(self, workspace_id: str, space_id: str) -> str | None:
+    def last_error(self, bot_id: str, workspace_id: str, space_id: str) -> str | None:
         """Return the latest route-loading error for a space, if any."""
 
+        del bot_id
         return self._last_errors.get((workspace_id, space_id))
 
     def _query_routes(
         self,
         collection: Collection[Any],
+        bot_id: str,
         workspace_id: str,
         space_id: str,
     ) -> list[dict[str, Any]]:
         cursor = collection.find(
             {
+                "bot_id": bot_id,
                 "workspace_id": workspace_id,
                 "space_id": space_id,
                 "status": "active",
@@ -281,20 +286,23 @@ class WebexAgentRouteResolver:
             return list(cursor.to_list())  # type: ignore[no-any-return, operator]
         return list(cursor)
 
-    def _cached_routes(self, workspace_id: str, space_id: str) -> list[dict[str, Any]]:
+    def _cached_routes(
+        self, bot_id: str, workspace_id: str, space_id: str
+    ) -> list[dict[str, Any]]:
         now = time.monotonic()
-        key = (workspace_id, space_id)
+        key = (bot_id, workspace_id, space_id)
         cached = self._cache.get(key)
         if cached and now - cached[1] < self._ttl:
             return cached[0]
 
-        routes = self._load_routes(workspace_id, space_id)
+        routes = self._load_routes(bot_id, workspace_id, space_id)
         self._cache[key] = (routes, now)
         return routes
 
     def match_routes(
         self,
         *,
+        bot_id: str,
         workspace_id: str,
         space_id: str,
         is_bot: bool,
@@ -305,7 +313,7 @@ class WebexAgentRouteResolver:
         """Return active DB route matches as ``AgentBinding`` objects."""
 
         matches: list[AgentBinding] = []
-        for route in self._cached_routes(workspace_id, space_id):
+        for route in self._cached_routes(bot_id, workspace_id, space_id):
             binding = _route_to_agent_binding(route)
             if binding is None:
                 continue
@@ -319,6 +327,7 @@ class WebexAgentRouteResolver:
     def explain_no_route_match(
         self,
         *,
+        bot_id: str,
         workspace_id: str,
         space_id: str,
         is_bot: bool,
@@ -331,7 +340,7 @@ class WebexAgentRouteResolver:
     ) -> str | None:
         """Return a user-facing explanation when a routed Webex message has no match."""
 
-        if self.last_error(workspace_id, space_id):
+        if self.last_error(bot_id, workspace_id, space_id):
             return (
                 f"{app_name} could not read Webex routing relationships from OpenFGA, "
                 "so I cannot safely dispatch this message. Please try again shortly "
@@ -339,6 +348,7 @@ class WebexAgentRouteResolver:
             )
 
         candidates = self.match_routes(
+            bot_id=bot_id,
             workspace_id=workspace_id,
             space_id=space_id,
             is_bot=is_bot,
@@ -346,7 +356,7 @@ class WebexAgentRouteResolver:
             user_id=user_id,
             listen=None,
         )
-        if self.last_error(workspace_id, space_id):
+        if self.last_error(bot_id, workspace_id, space_id):
             return (
                 f"{app_name} could not read Webex routing relationships from OpenFGA, "
                 "so I cannot safely dispatch this message. Please try again shortly "
@@ -366,8 +376,8 @@ class WebexAgentRouteResolver:
             return WEBEX_SPACE_SETUP_REQUIRED_MESSAGE.format(app_name=app_name)
         return None
 
-    def invalidate(self, workspace_id: str, space_id: str) -> None:
-        self._cache.pop((workspace_id, space_id), None)
+    def invalidate(self, bot_id: str, workspace_id: str, space_id: str) -> None:
+        self._cache.pop((bot_id, workspace_id, space_id), None)
 
     def invalidate_all(self) -> None:
         self._cache.clear()
@@ -377,7 +387,8 @@ class WebexAgentRouteResolver:
             "ttl_seconds": self._ttl,
             "cache_size": len(self._cache),
             "cached_spaces": [
-                f"{workspace_id}/{space_id}" for workspace_id, space_id in self._cache
+                f"{bot_id}/{workspace_id}/{space_id}"
+                for bot_id, workspace_id, space_id in self._cache
             ],
             "last_errors": {
                 f"{workspace_id}/{space_id}": error
@@ -388,6 +399,7 @@ class WebexAgentRouteResolver:
 
 async def resolve_webex_agent_route(
     *,
+    bot_id: str,
     workspace_id: str,
     space_id: str,
     person_id: str,
@@ -411,14 +423,16 @@ async def resolve_webex_agent_route(
         return None, "No agent route is configured for this Webex space."
 
     matches = active.match_routes(
+        bot_id=bot_id,
         workspace_id=workspace_id,
         space_id=space_id,
         is_bot=False,
         user_id=person_id,
         listen=listen,
     )
-    if active.last_error(workspace_id, space_id):
+    if active.last_error(bot_id, workspace_id, space_id):
         return None, active.explain_no_route_match(
+            bot_id=bot_id,
             workspace_id=workspace_id,
             space_id=space_id,
             is_bot=False,
@@ -431,6 +445,7 @@ async def resolve_webex_agent_route(
         return matches[0].agent_id, None
     if mode == "db_only":
         deny = active.explain_no_route_match(
+            bot_id=bot_id,
             workspace_id=workspace_id,
             space_id=space_id,
             is_bot=False,
@@ -445,6 +460,7 @@ async def resolve_webex_agent_route(
     if agent_id:
         return agent_id, None
     deny = active.explain_no_route_match(
+        bot_id=bot_id,
         workspace_id=workspace_id,
         space_id=space_id,
         is_bot=False,
@@ -515,7 +531,7 @@ def _merge_openfga_agents_with_route_metadata(
         for route in routes
         if isinstance(route.get("agent_id"), str) and route["agent_id"] in agent_ids
     }
-    merged = [metadata_by_agent_id.get(agent_id, _default_route(agent_id)) for agent_id in agent_ids]
+    merged = list(metadata_by_agent_id.values())
     return sorted(merged, key=lambda route: (route.get("priority", 100), route.get("agent_id", "")))
 
 

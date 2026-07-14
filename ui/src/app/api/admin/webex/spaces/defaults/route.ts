@@ -20,6 +20,11 @@ onboardWebexSpace,
 type WebexSpaceOnboardingResult,
 } from "@/lib/rbac/webex-space-onboarding";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
+import { webexDeploymentId } from "@/lib/rbac/webex-direct-user-route-store";
+import {
+deleteLegacyWebexSpaceAssignments,
+WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
+} from "@/lib/rbac/webex-space-delete";
 
 import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../_lib";
 
@@ -31,6 +36,9 @@ interface WebexMigrationDefaultsRequest {
 }
 
 interface WebexSpaceTeamMappingDoc extends Document {
+  ownership_schema_version: 3;
+  deployment_id: string;
+  bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
   space_name?: string;
@@ -39,6 +47,7 @@ interface WebexSpaceTeamMappingDoc extends Document {
 }
 
 interface ManualWebexSpace {
+  bot_id: string;
   workspace_id: string;
   space_id: string;
   space_name: string;
@@ -116,7 +125,9 @@ function normalizeManualSpaces(value: unknown): ManualWebexSpace[] {
     }
     const workspaceId = webexWorkspaceRef(readOptionalString(record.workspace_id));
     const spaceName = readOptionalString(record.name) || readOptionalString(record.space_name) || spaceId;
-    byKey.set(`${workspaceId}/${spaceId}`, {
+    const botId = readRequiredString(record.bot_id, `manual_spaces[${index}].bot_id`);
+    byKey.set(`${botId}/${workspaceId}/${spaceId}`, {
+      bot_id: botId,
       workspace_id: workspaceId,
       space_id: spaceId,
       space_name: spaceName,
@@ -137,6 +148,7 @@ function validateDefaultsBody(body: Record<string, unknown>): void {
 function activeMappingToManualSpace(mapping: WebexSpaceTeamMappingDoc): ManualWebexSpace {
   const workspaceId = webexWorkspaceRef(mapping.webex_workspace_id);
   return {
+    bot_id: mapping.bot_id,
     workspace_id: workspaceId,
     space_id: mapping.webex_space_id,
     space_name: mapping.space_name || mapping.space_title || mapping.webex_space_id,
@@ -181,9 +193,14 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
 
     let targetSpaces = manualSpaces;
     if (targetSpaces.length === 0) {
+      await deleteLegacyWebexSpaceAssignments();
       const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
       const spaces = await mappings
-        .find({ active: { $ne: false } } as never)
+        .find({
+          deployment_id: webexDeploymentId(),
+          ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
+          active: { $ne: false },
+        } as never)
         .sort({ space_name: 1 })
         .limit(500)
         .toArray();
@@ -198,6 +215,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     for (const space of targetSpaces) {
       results.push(
         await onboardWebexSpace({
+          bot_id: space.bot_id,
           workspace_id: space.workspace_id,
           space_id: space.space_id,
           space_name: space.space_name,

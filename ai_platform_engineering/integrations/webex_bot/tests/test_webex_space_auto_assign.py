@@ -44,7 +44,7 @@ def test_auto_assign_disabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES", raising=False)
     assigner = WebexSpaceAutoAssigner()
 
-    result = assigner.assign_space(workspace_id="CAIPE-WEBEX", space_id="space-new")
+    result = assigner.assign_space(bot_id="primary", workspace_id="CAIPE-WEBEX", space_id="space-new")
 
     assert result.assigned is False
     assert result.reason == "disabled"
@@ -77,6 +77,7 @@ def test_auto_assign_writes_explicit_mappings_when_enabled(monkeypatch) -> None:
     )
 
     result = assigner.assign_space(
+        bot_id="primary",
         workspace_id="CAIPE-WEBEX",
         space_id="space-new",
         space_title="New Space",
@@ -119,7 +120,7 @@ def test_auto_assign_does_not_overwrite_existing_active_mapping(monkeypatch) -> 
         openfga_writer=lambda key: openfga_writes.append(key),
     )
 
-    result = assigner.assign_space(workspace_id="CAIPE-WEBEX", space_id="space-existing")
+    result = assigner.assign_space(bot_id="primary", workspace_id="CAIPE-WEBEX", space_id="space-existing")
 
     assert result.assigned is False
     assert result.reason == "existing_mapping"
@@ -150,7 +151,7 @@ def test_auto_assign_mongo_failure_does_not_leave_openfga_tuple(monkeypatch) -> 
         openfga_deleter=lambda key: openfga_deletes.append(key),
     )
 
-    result = assigner.assign_space(workspace_id="CAIPE-WEBEX", space_id="space-new")
+    result = assigner.assign_space(bot_id="primary", workspace_id="CAIPE-WEBEX", space_id="space-new")
 
     assert result.assigned is False
     assert result.reason == "write_failed"

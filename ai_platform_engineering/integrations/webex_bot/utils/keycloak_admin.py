@@ -86,7 +86,32 @@ async def get_user_by_attribute(
             stored = raw[0] if isinstance(raw, list) and raw else raw
             if isinstance(stored, str) and stored.strip() == value:
                 return user
+    return None
+
+
+async def get_user_by_email(
+    email: str,
+    config: KeycloakAdminConfig | None = None,
+) -> Optional[dict[str, Any]]:
+    """Find one enabled realm user whose email exactly matches *email*."""
+    normalized = email.strip().lower()
+    if not normalized or "@" not in normalized:
         return None
+    cfg = config or _default_config
+    token = await _get_admin_token(cfg)
+    url = f"{cfg.server_url}/admin/realms/{cfg.realm}/users"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            url,
+            params={"email": normalized, "exact": "true", "max": 5},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
+        for user in resp.json():
+            stored = str(user.get("email") or "").strip().lower()
+            if stored == normalized and user.get("enabled") is not False:
+                return user
+    return None
 
 
 def _user_profile_roundtrip(user_repr: dict[str, Any]) -> dict[str, Any]:

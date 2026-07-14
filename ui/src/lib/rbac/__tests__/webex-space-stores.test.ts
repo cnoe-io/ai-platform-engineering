@@ -217,6 +217,7 @@ describe("webex-space stores", () => {
     await replaceWebexSpaceAgentRoutes(
       "org-123",
       "space-abc",
+      "primary",
       [
         { workspace_id: "org-123", space_id: "space-abc", agent_id: "  agent-trimmed  " },
         { workspace_id: "org-123", space_id: "space-abc", agent_id: "   " },
@@ -283,7 +284,7 @@ describe("webex-space stores", () => {
     getRbacCollection.mockResolvedValue({ deleteOne });
 
     const { deleteWebexSpaceAgentRoute } = await import("../webex-space-route-store");
-    const deleted = await deleteWebexSpaceAgentRoute("org-123", "space-abc", "   ");
+    const deleted = await deleteWebexSpaceAgentRoute("org-123", "space-abc", "primary", "   ");
 
     expect(deleted).toBe(false);
     expect(deleteOne).not.toHaveBeenCalled();
@@ -295,11 +296,12 @@ describe("webex-space stores", () => {
 
     const { deleteWebexSpaceAgentRoute } = await import("../webex-space-route-store");
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
-    await deleteWebexSpaceAgentRoute("org-123", "space-abc", "  agent-trimmed  ");
+    await deleteWebexSpaceAgentRoute("org-123", "space-abc", "primary", "  agent-trimmed  ");
 
     expect(deleteOne).toHaveBeenCalledWith({
       workspace_id: "CAIPE-WEBEX",
       space_id: "space-abc",
+      bot_id: "primary",
       agent_id: "agent-trimmed",
     });
   });

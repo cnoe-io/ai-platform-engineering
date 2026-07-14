@@ -21,6 +21,7 @@ WebexRouteEscalationConfig,
 WebexRouteSideConfig,
 WebexSpaceAgentRoute,
 } from "@/types/webex-rebac";
+import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
 
 import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../../../_lib";
 
@@ -46,40 +47,13 @@ async function writeRequiredOpenFgaTuples(
   }
 }
 
-function defaultRouteForAgent(
-  workspaceId: string,
-  spaceId: string,
-  agentId: string
-): WebexSpaceAgentRoute {
-  const now = new Date().toISOString();
-  return {
-    workspace_id: workspaceId,
-    space_id: spaceId,
-    agent_id: agentId,
-    enabled: true,
-    priority: 100,
-    // Materialised from an existing OpenFGA space→agent tuple that has no
-    // Mongo route metadata yet. The tuple is the opt-in signal, so default
-    // to listening on both @mentions and plain space messages; admins can
-    // narrow via the Step-2a route picker.
-    // assisted-by Cursor claude-opus-4-7
-    users: { enabled: true, listen: "all" },
-    source_type: "manual",
-    status: "active",
-    created_at: now,
-    updated_at: now,
-  };
-}
-
 function mergeOpenFgaAgentsWithMetadata(
-  workspaceId: string,
-  spaceId: string,
   agentIds: string[],
   metadataRoutes: WebexSpaceAgentRoute[]
 ): WebexSpaceAgentRoute[] {
-  const metadataByAgentId = new Map(metadataRoutes.map((route) => [route.agent_id, route]));
-  return agentIds
-    .map((agentId) => metadataByAgentId.get(agentId) ?? defaultRouteForAgent(workspaceId, spaceId, agentId))
+  const allowedAgentIds = new Set(agentIds);
+  return metadataRoutes
+    .filter((route) => allowedAgentIds.has(route.agent_id))
     .sort((left, right) => left.priority - right.priority || left.agent_id.localeCompare(right.agent_id));
 }
 
@@ -163,6 +137,7 @@ function toRouteInputs(routes: WebexSpaceAgentRoute[]): WebexSpaceAgentRouteInpu
   return routes.map((route) => ({
     workspace_id: route.workspace_id,
     space_id: route.space_id,
+    bot_id: route.bot_id,
     agent_id: route.agent_id,
     enabled: route.enabled,
     priority: route.priority,
@@ -177,11 +152,12 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacViewAuth(request, async () => {
+    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
     const [agentIds, metadataRoutes] = await Promise.all([
       listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId),
-      listWebexSpaceAgentRoutes(workspaceId, spaceId),
+      listWebexSpaceAgentRoutes(workspaceId, spaceId, botId),
     ]);
-    const routes = mergeOpenFgaAgentsWithMetadata(workspaceId, spaceId, agentIds, metadataRoutes);
+    const routes = mergeOpenFgaAgentsWithMetadata(agentIds, metadataRoutes);
     return successResponse({ routes });
   }, { workspaceId, spaceId });
 });
@@ -190,6 +166,7 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacManageAuth(request, async () => {
+    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
     const body = (await request.json()) as { routes?: unknown };
     if (!Array.isArray(body.routes)) {
       throw new ApiError("routes must be an array", 400);
@@ -197,31 +174,37 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
 
     const actor = "api";
     const routes = body.routes.map((route, index) => parseRoute(route, index, workspaceId, spaceId));
-    const previousRoutes = toRouteInputs(await listWebexSpaceAgentRoutes(workspaceId, spaceId));
+    const previousRoutes = toRouteInputs(await listWebexSpaceAgentRoutes(workspaceId, spaceId, botId));
     const existingAgentIds = await listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId);
-    const enabledAgentIds = routes.filter((route) => route.enabled).map((route) => route.agent_id);
-    const uniqueEnabledAgentIds = Array.from(new Set(enabledAgentIds));
-
-    const writes = uniqueEnabledAgentIds.map((agentId) =>
-      webexSpaceGrantRelationship(workspaceId, spaceId, { type: "agent", id: agentId }, "use")
-    );
+    const saved = await replaceWebexSpaceAgentRoutes(workspaceId, spaceId, botId, routes, actor);
+    const allRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
+    const activeAgentIds = Array.from(new Set(
+      allRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+    ));
+    const writes = activeAgentIds
+      .filter((agentId) => !existingAgentIds.includes(agentId))
+      .map((agentId) =>
+        webexSpaceGrantRelationship(workspaceId, spaceId, { type: "agent", id: agentId }, "use")
+      );
     const deletes = existingAgentIds
-      .filter((agentId) => !uniqueEnabledAgentIds.includes(agentId))
+      .filter((agentId) => !activeAgentIds.includes(agentId))
       .map((agentId) =>
         webexSpaceGrantRelationship(workspaceId, spaceId, { type: "agent", id: agentId }, "use")
       );
 
-    const saved = await replaceWebexSpaceAgentRoutes(workspaceId, spaceId, routes, actor);
-    await ensureRouteOwnedAgentGrants(workspaceId, spaceId, uniqueEnabledAgentIds, actor);
+    await ensureRouteOwnedAgentGrants(workspaceId, spaceId, activeAgentIds, actor);
     try {
       const openfga = await writeRequiredOpenFgaTuples(writes, deletes);
       return successResponse({ routes: saved, openfga });
     } catch (error) {
-      await replaceWebexSpaceAgentRoutes(workspaceId, spaceId, previousRoutes, actor);
+      await replaceWebexSpaceAgentRoutes(workspaceId, spaceId, botId, previousRoutes, actor);
+      const restoredRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
       await ensureRouteOwnedAgentGrants(
         workspaceId,
         spaceId,
-        previousRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+        Array.from(new Set(
+          restoredRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+        )),
         actor
       );
       throw new ApiError(
@@ -236,23 +219,30 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacManageAuth(request, async () => {
+    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
     const body = (await request.json()) as { agent_id?: unknown };
     const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     if (!agentId) {
       throw new ApiError("agent_id is required", 400);
     }
 
-    const relationship = webexSpaceGrantRelationship(
-      workspaceId,
-      spaceId,
-      { type: "agent", id: agentId },
-      "use"
-    );
-    const previousRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
+    const previousRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId, botId);
     const restoreRoute = previousRoutes.find((route) => route.agent_id === agentId);
-    const routeMetadataDeleted = await deleteWebexSpaceAgentRoute(workspaceId, spaceId, agentId);
+    const routeMetadataDeleted = await deleteWebexSpaceAgentRoute(workspaceId, spaceId, botId, agentId);
     try {
-      const openfga = await writeRequiredOpenFgaTuples([], [relationship]);
+      const remainingRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
+      const activeAgentIds = Array.from(new Set(
+        remainingRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+      ));
+      await ensureRouteOwnedAgentGrants(workspaceId, spaceId, activeAgentIds, "api");
+      const openfga = activeAgentIds.includes(agentId)
+        ? { enabled: true, writes: 0, deletes: 0 }
+        : await writeRequiredOpenFgaTuples([], [webexSpaceGrantRelationship(
+            workspaceId,
+            spaceId,
+            { type: "agent", id: agentId },
+            "use",
+          )]);
       return successResponse({
         deleted: {
           agent_id: agentId,
@@ -265,8 +255,18 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
         await replaceWebexSpaceAgentRoutes(
           workspaceId,
           spaceId,
+          botId,
           [toRouteInputs([restoreRoute])[0]],
           "api"
+        );
+        const restoredRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
+        await ensureRouteOwnedAgentGrants(
+          workspaceId,
+          spaceId,
+          Array.from(new Set(
+            restoredRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+          )),
+          "api",
         );
       }
       throw new ApiError(

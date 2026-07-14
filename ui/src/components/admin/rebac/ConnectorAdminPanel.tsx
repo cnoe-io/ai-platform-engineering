@@ -33,8 +33,8 @@ import type {
   TeamOption,
 } from "./connector-admin-adapter";
 
-type PanelView = "channels" | "onboard" | "advanced";
-const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "advanced"];
+type PanelView = "channels" | "onboard" | "direct" | "advanced";
+const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "direct", "advanced"];
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
 
@@ -531,12 +531,26 @@ function itemsToDiscovered(items: ItemSummary[]): DiscoveredItem[] {
     id: item.item_id,
     name: item.item_name,
     secondary: item.item_id,
+    botId: item.bot_id,
+    availableBotIds: item.bot_id ? [item.bot_id] : undefined,
   }));
 }
 
 function mergeDiscoveredById(base: DiscoveredItem[], incoming: DiscoveredItem[]): DiscoveredItem[] {
   const byId = new Map(base.map((item) => [item.id, item]));
-  for (const item of incoming) byId.set(item.id, item);
+  for (const item of incoming) {
+    const current = byId.get(item.id);
+    const availableBotIds = Array.from(new Set([
+      ...(current?.availableBotIds ?? []),
+      ...(item.availableBotIds ?? []),
+    ]));
+    byId.set(item.id, {
+      ...(current ?? {}),
+      ...item,
+      botId: current?.botId || item.botId,
+      ...(availableBotIds.length > 0 ? { availableBotIds } : {}),
+    });
+  }
   return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -682,11 +696,23 @@ export function ConnectorAdminPanel({
   // ── Data loaders ────────────────────────────────────────────────────────────
 
   const loadItems = useCallback(async () => {
+    if (adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && !selectedDiscoveryIdentityId) {
+      if (!discoveryIdentitiesLoading) {
+        setItems([]);
+        setItemsLoading(false);
+        setHasLoadedItemsOnce(true);
+      }
+      return;
+    }
     const startedAt = Date.now();
     const generation = ++itemsFetchGenerationRef.current;
     setItemsLoading(true); setMessage(null);
     try {
-      const res = await fetch(`${adapter.api.list}?health=1`);
+      const params = new URLSearchParams({ health: "1" });
+      if (adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && selectedDiscoveryIdentityId) {
+        params.set("bot_id", selectedDiscoveryIdentityId);
+      }
+      const res = await fetch(`${adapter.api.list}?${params.toString()}`);
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const rows = adapter.parseListResponse(json);
@@ -705,11 +731,11 @@ export function ConnectorAdminPanel({
         setHasLoadedItemsOnce(true);
       }
     }
-  }, [adapter]);
+  }, [adapter, discoveryIdentitiesLoading, selectedDiscoveryIdentityId]);
 
   const loadRoutes = useCallback(async () => {
     if (!selected) return;
-    const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id));
+    const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id, selected.bot_id));
     if (!res.ok) throw new Error(await res.text());
     const data = apiData<{ routes: ItemAgentRoute[] }>(await res.json());
     setRoutes(data.routes ?? []);
@@ -717,7 +743,7 @@ export function ConnectorAdminPanel({
 
   const loadDiagnostics = useCallback(async () => {
     if (!selected) return;
-    const res = await fetch(adapter.api.diagnosticsFor(selected.workspace_id, selected.item_id));
+    const res = await fetch(adapter.api.diagnosticsFor(selected.workspace_id, selected.item_id, selected.bot_id));
     if (!res.ok) throw new Error(await res.text());
     const data = apiData<ItemDiagnostics>(await res.json());
     setDiagnostics(data);
@@ -954,6 +980,8 @@ export function ConnectorAdminPanel({
             selected: selectable ? prev.selected : false,
             team_slug: teamRequired ? prev.team_slug || existing?.team_slug || "" : "",
             agent_id: selectable ? prev.agent_id || existing?.primary_agent_id || "" : "",
+            botId: prev.botId || existing?.bot_id || item.botId || "",
+            availableBotIds: item.availableBotIds,
             is_existing: isSetupComplete || prev.is_existing,
           };
         }
@@ -964,6 +992,7 @@ export function ConnectorAdminPanel({
           selectable,
           team_slug: teamRequired ? existing?.team_slug ?? "" : "",
           agent_id: selectable ? existing?.primary_agent_id ?? "" : "",
+          botId: existing?.bot_id || item.botId || "",
           is_existing: isSetupComplete,
         };
       });
@@ -994,7 +1023,13 @@ export function ConnectorAdminPanel({
   }, [configuredItemsById, onboardingDefaults, legacyChannelAgents, panelView, discoveredRows.length]);
 
   const fetchDiscoveryPage = useCallback(
-    async (opts: { append: boolean; cursor?: string | null; q?: string; toastOnSuccess?: boolean }) => {
+    async (opts: {
+      append: boolean;
+      cursor?: string | null;
+      q?: string;
+      toastOnSuccess?: boolean;
+      forceRefresh?: boolean;
+    }) => {
       const startedAt = Date.now();
       if (opts.append) setDiscoveryLoadingMore(true);
       else {
@@ -1008,7 +1043,8 @@ export function ConnectorAdminPanel({
           0,
           opts.cursor ?? null,
           opts.q,
-          selectedDiscoveryIdentityId || undefined,
+          adapter.discoveryIdentityPerItem ? undefined : selectedDiscoveryIdentityId || undefined,
+          opts.forceRefresh,
         );
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(await res.text());
@@ -1032,6 +1068,8 @@ export function ConnectorAdminPanel({
                 secondary: row.secondary,
                 teamRequired: row.teamRequired,
                 selectable: row.selectable,
+                botId: row.botId,
+                availableBotIds: row.availableBotIds,
               })),
               pageData.items,
             );
@@ -1104,7 +1142,11 @@ export function ConnectorAdminPanel({
 
   const discoverItems = async () => {
     if (paginatedDiscovery) {
-      await fetchDiscoveryPage({ append: false, q: discoverySearch.trim() });
+      await fetchDiscoveryPage({
+        append: false,
+        q: discoverySearch.trim(),
+        forceRefresh: discoveryLiveFetched,
+      });
       return;
     }
     const startedAt = Date.now();
@@ -1118,7 +1160,7 @@ export function ConnectorAdminPanel({
           page,
           cursor,
           undefined,
-          selectedDiscoveryIdentityId || undefined,
+          adapter.discoveryIdentityPerItem ? undefined : selectedDiscoveryIdentityId || undefined,
         );
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(await res.text());
@@ -1152,7 +1194,7 @@ export function ConnectorAdminPanel({
     });
   };
 
-  const updateDiscoveredRow = (itemId: string, updates: Partial<{ selected: boolean; team_slug: string; agent_id: string }>) => {
+  const updateDiscoveredRow = (itemId: string, updates: Partial<{ selected: boolean; team_slug: string; agent_id: string; botId: string }>) => {
     setDiscoveredRows((rows) => rows.map((row) => row.id === itemId ? { ...row, ...updates } : row));
   };
   const setAllRowsSelected = (sel: boolean) => {
@@ -1171,6 +1213,7 @@ export function ConnectorAdminPanel({
           selected: r.selected,
           teamRequired: r.teamRequired,
           selectable: r.selectable,
+          botId: r.botId || (!adapter.discoveryIdentityPerItem ? selectedDiscoveryIdentityId : ""),
         })),
         defaultTeamSlug: onboardingDefaults.team_slug,
         defaultAgentId: onboardingDefaults.agent_id,
@@ -1203,13 +1246,18 @@ export function ConnectorAdminPanel({
   const viewTitle: Record<PanelView, string> = {
     channels: adapter.copy.configuredTabTitle,
     onboard: adapter.copy.onboardTabTitle,
+    direct: adapter.directMessagesPanel?.title ?? "1:1 Messages",
     advanced: adapter.copy.advancedTabTitle,
   };
   const viewDescription: Record<PanelView, string> = {
     channels: adapter.copy.configuredTabDescription,
     onboard: adapter.copy.onboardTabDescription,
+    direct: adapter.directMessagesPanel?.description ?? "Configure direct-message access.",
     advanced: adapter.copy.advancedTabDescription,
   };
+  const availablePanelViews = PANEL_VIEWS.filter(
+    (key) => key !== "direct" || Boolean(adapter.directMessagesPanel),
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -1258,7 +1306,7 @@ export function ConnectorAdminPanel({
         {showTabBar && (
           <div role="tablist" aria-label={adapter.ariaLabels.tablist}
             className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
-            {(Object.keys(viewTitle) as PanelView[]).map((key) => (
+            {availablePanelViews.map((key) => (
               <Button key={key} role="tab" type="button" size="sm"
                 variant={panelView === key ? "default" : "ghost"}
                 aria-selected={panelView === key} onClick={() => setView(key)}>
@@ -1284,8 +1332,18 @@ export function ConnectorAdminPanel({
               onClick={() => setLocalSingleView("channels")}>
               {viewTitle.channels}
             </Button>
+            {adapter.directMessagesPanel && (
+              <Button role="tab" type="button" size="sm"
+                variant={panelView === "direct" ? "default" : "ghost"}
+                aria-selected={panelView === "direct"}
+                onClick={() => setLocalSingleView("direct")}>
+                {viewTitle.direct}
+              </Button>
+            )}
           </div>
         )}
+
+        {!selfService && panelView === "direct" && adapter.directMessagesPanel?.render({ disabled })}
 
         {/* Auth disclaimer */}
         {(selfService || (panelView === "onboard" && !showCompactOnboardingHeader)) && (
@@ -1404,6 +1462,28 @@ export function ConnectorAdminPanel({
         {/* Configured / self-service channels — one slot: loading, empty, or table */}
         {(selfService || panelView === "channels") && (
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
+            {!selfService && adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
+              <div className="mb-3 flex justify-end">
+                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <span>{adapter.discoveryIdentity.label}</span>
+                  <select
+                    aria-label={`${adapter.discoveryIdentity.label} for configured ${adapter.itemPlural}`}
+                    value={selectedDiscoveryIdentityId}
+                    onChange={(event) => selectDiscoveryIdentity(event.target.value)}
+                    disabled={disabled || discoveryIdentitiesLoading}
+                    className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm"
+                  >
+                    {discoveryIdentitiesLoading && <option value="">Loading…</option>}
+                    {!discoveryIdentitiesLoading && discoveryIdentities.length === 0 && <option value="">No bots available</option>}
+                    {discoveryIdentities.map((identity) => (
+                      <option key={identity.id} value={identity.id} disabled={!identity.available}>
+                        {identity.available ? identity.name : `${identity.name} (unavailable)`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
             {showConfiguredLoading ? (
               <ConnectorLoadingState label={configuredLoadingLabel} />
             ) : items.length === 0 ? (
@@ -1447,6 +1527,7 @@ export function ConnectorAdminPanel({
                 <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">{adapter.itemSingular.charAt(0).toUpperCase() + adapter.itemSingular.slice(1)}</th>
+                    {adapter.discoveryIdentityPerItem && <th className="px-3 py-2 text-left font-medium">Webex bot</th>}
                     <th className="px-3 py-2 text-left font-medium">Team</th>
                     <th className="px-3 py-2 text-left font-medium">Agent</th>
                     <th className="px-3 py-2 text-left font-medium">Health</th>
@@ -1455,7 +1536,7 @@ export function ConnectorAdminPanel({
                 <tbody>
                   {filteredConfiguredItems.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      <td colSpan={adapter.discoveryIdentityPerItem ? 5 : 4} className="px-3 py-6 text-center text-sm text-muted-foreground">
                         No configured {adapter.itemPlural} match “{configuredSearch.trim()}”.
                       </td>
                     </tr>
@@ -1491,6 +1572,15 @@ export function ConnectorAdminPanel({
                               </div>
                             </div>
                           </td>
+                          {adapter.discoveryIdentityPerItem && (
+                            <td className="px-3 py-2">
+                              {item.bot_id ? (
+                                <Badge variant="outline">
+                                  {discoveryIdentities.find((identity) => identity.id === item.bot_id)?.name ?? item.bot_id}
+                                </Badge>
+                              ) : <span className="text-xs text-muted-foreground">—</span>}
+                            </td>
+                          )}
                           <td className="px-3 py-2">{item.team_slug ? <Badge variant="secondary">team:{item.team_slug}</Badge> : <span className="text-xs text-muted-foreground">—</span>}</td>
                           <td className="px-3 py-2">
                             {(() => {
@@ -1514,7 +1604,7 @@ export function ConnectorAdminPanel({
                         </tr>
                         {isSelected && (
                           <tr className="border-t bg-muted/20">
-                            <td colSpan={4} className="p-4">
+                            <td colSpan={adapter.discoveryIdentityPerItem ? 5 : 4} className="p-4">
                               <ItemDetail
                                 adapter={adapter} selected={item} diagnostics={diagnostics} routes={routes}
                                 dynamicAgents={dynamicAgents}
@@ -1551,14 +1641,14 @@ export function ConnectorAdminPanel({
           <ConnectorOnboardingWizard
             connectorName={adapter.connectorName}
             provider={adapter.discoveryCacheProvider}
-            discoveryCacheQuery={selectedDiscoveryIdentityId ? {
+            discoveryCacheQuery={!adapter.discoveryIdentityPerItem && selectedDiscoveryIdentityId ? {
               bot_id: selectedDiscoveryIdentityId,
             } : undefined}
             isAdmin={!selfService}
             itemSingular={adapter.itemSingular}
             itemPlural={adapter.itemPlural}
             header={onboardingHeader}
-            discoveryIdentity={adapter.discoveryIdentity ? {
+            discoveryIdentity={adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem ? {
               label: adapter.discoveryIdentity.label,
               value: selectedDiscoveryIdentityId,
               options: discoveryIdentities.map((identity) => ({
@@ -1594,6 +1684,17 @@ export function ConnectorAdminPanel({
               importLabel: `Import ${row.name}`,
               teamLabel: `Team for ${row.name}`,
               agentLabel: `Dynamic Agent for ${row.name}`,
+              botId: row.botId,
+              botLabel: `Webex bot for ${row.name}`,
+              botOptions: adapter.discoveryIdentityPerItem
+                ? discoveryIdentities
+                    .filter((identity) => row.availableBotIds?.includes(identity.id))
+                    .map((identity) => ({
+                      value: identity.id,
+                      label: identity.name,
+                      disabled: !identity.available,
+                    }))
+                : undefined,
             }))}
             teams={teams.map((t) => ({ value: t.slug, label: t.name || t.slug }))}
             agents={sortedDynamicAgents.map((a) => ({ value: a._id, label: a.name || a._id }))}
@@ -1620,6 +1721,7 @@ export function ConnectorAdminPanel({
               ...(typeof updates.selected === "boolean" ? { selected: updates.selected } : {}),
               ...(typeof updates.teamSlug === "string" ? { team_slug: updates.teamSlug } : {}),
               ...(typeof updates.agentId === "string" ? { agent_id: updates.agentId } : {}),
+              ...(typeof updates.botId === "string" ? { botId: updates.botId } : {}),
             })}
             onApply={() => void applyOnboarding()}
           />

@@ -103,7 +103,7 @@
 {{- fail (printf "caipe-ui.webexBots[%d] cannot contain an inline token; use tokenEnv with existingSecret or externalSecrets" $index) -}}
 {{- end -}}
 {{- $botId := required (printf "caipe-ui.webexBots[%d].id is required" $index) $bot.id -}}
-{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" $botId) -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" $botId) -}}
 {{- fail (printf "caipe-ui.webexBots[%d].id is invalid" $index) -}}
 {{- end -}}
 {{- if hasKey $webexBotIds $botId -}}

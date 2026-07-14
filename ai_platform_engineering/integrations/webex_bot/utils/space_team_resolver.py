@@ -42,13 +42,14 @@ class SpaceTeamResolution:
     team_id: Optional[str]
     team_name: Optional[str]
     deny_message: Optional[str]
+    bot_id: Optional[str] = None
 
 
 class WebexSpaceTeamResolver:
     """Resolve Webex space → team slug (mapping only, no membership gate)."""
 
     def __init__(self, ttl_seconds: int = 60) -> None:
-        self._team_by_space: dict[str, tuple[dict[str, Any], float]] = {}
+        self._team_by_space: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
         self._ttl = ttl_seconds
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
@@ -75,15 +76,20 @@ class WebexSpaceTeamResolver:
             return None
         return client[self._db_name][name]
 
-    def _load_space_team_sync(self, space_id: str) -> Optional[dict[str, Any]]:
+    def _load_space_team_sync(self, bot_id: str, space_id: str) -> Optional[dict[str, Any]]:
         mappings = self._coll("webex_space_team_mappings")
         teams = self._coll("teams")
         if mappings is None or teams is None:
             return None
         try:
-            mapping = mappings.find_one(
-                {"webex_space_id": space_id, "active": {"$ne": False}}
-            )
+            mapping = mappings.find_one({
+                "deployment_id": os.environ.get("WEBEX_DEPLOYMENT_ID", "default").strip()
+                or "default",
+                "ownership_schema_version": 3,
+                "bot_id": bot_id,
+                "webex_space_id": space_id,
+                "active": {"$ne": False},
+            })
             if not mapping:
                 return None
             team_id_str = mapping.get("team_id")
@@ -106,15 +112,15 @@ class WebexSpaceTeamResolver:
                     team_id_str,
                 )
                 return None
-            return team_doc
+            return {"team": team_doc, "bot_id": str(mapping.get("bot_id") or "").strip()}
         except PyMongoError as exc:
             logger.warning("webex_space_team_mappings query failed: %s", exc)
             return None
 
-    def invalidate(self, space_id: str) -> None:
-        self._team_by_space.pop(space_id, None)
+    def invalidate(self, bot_id: str, space_id: str) -> None:
+        self._team_by_space.pop((bot_id, space_id), None)
 
-    async def resolve(self, space_id: str) -> SpaceTeamResolution:
+    async def resolve(self, bot_id: str, space_id: str) -> SpaceTeamResolution:
         """Resolve space → team metadata for routing and logging.
 
         User access (``can_use`` on an agent) is enforced downstream when the
@@ -129,18 +135,19 @@ class WebexSpaceTeamResolver:
             )
 
         now = time.monotonic()
-        cached = self._team_by_space.get(space_id)
-        team_doc: Optional[dict[str, Any]] = None
+        key = (bot_id, space_id)
+        cached = self._team_by_space.get(key)
+        resolved: Optional[dict[str, Any]] = None
         if cached and now - cached[1] < self._ttl:
-            team_doc = cached[0]
+            resolved = cached[0]
         else:
-            team_doc = await asyncio.to_thread(self._load_space_team_sync, space_id)
-            if team_doc:
-                self._team_by_space[space_id] = (team_doc, now)
+            resolved = await asyncio.to_thread(self._load_space_team_sync, bot_id, space_id)
+            if resolved:
+                self._team_by_space[key] = (resolved, now)
             else:
-                self._team_by_space.pop(space_id, None)
+                self._team_by_space.pop(key, None)
 
-        if not team_doc:
+        if not resolved:
             return SpaceTeamResolution(
                 team_slug=None,
                 team_id=None,
@@ -148,6 +155,8 @@ class WebexSpaceTeamResolver:
                 deny_message=SPACE_NOT_MAPPED_MESSAGE,
             )
 
+        team_doc = resolved["team"]
+        bot_id = str(resolved.get("bot_id") or "").strip() or None
         slug = team_doc.get("slug")
         team_name = team_doc.get("name") or "(unnamed team)"
         team_id = str(team_doc.get("_id"))
@@ -163,6 +172,7 @@ class WebexSpaceTeamResolver:
                 team_id=team_id,
                 team_name=team_name,
                 deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="Webex space"),
+                bot_id=bot_id,
             )
 
         return SpaceTeamResolution(
@@ -170,6 +180,7 @@ class WebexSpaceTeamResolver:
             team_id=team_id,
             team_name=team_name,
             deny_message=None,
+            bot_id=bot_id,
         )
 
 
@@ -183,7 +194,7 @@ def get_webex_space_team_resolver() -> WebexSpaceTeamResolver:
     return _default_resolver
 
 
-async def resolve_space_team(space_id: Optional[str]) -> SpaceTeamResolution:
+async def resolve_space_team(bot_id: str, space_id: Optional[str]) -> SpaceTeamResolution:
     if not space_id:
         return SpaceTeamResolution(
             team_slug=None,
@@ -191,4 +202,4 @@ async def resolve_space_team(space_id: Optional[str]) -> SpaceTeamResolution:
             team_name=None,
             deny_message=SPACE_NOT_MAPPED_MESSAGE,
         )
-    return await get_webex_space_team_resolver().resolve(space_id)
+    return await get_webex_space_team_resolver().resolve(bot_id, space_id)

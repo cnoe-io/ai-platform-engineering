@@ -10,8 +10,17 @@ type WebexSpaceHealthSummary,
 } from "@/lib/rbac/webex-space-diagnostics";
 import { listWebexSpaceGrants,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
+import { webexDeploymentId } from "@/lib/rbac/webex-direct-user-route-store";
+import {
+deleteLegacyWebexSpaceAssignments,
+WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
+} from "@/lib/rbac/webex-space-delete";
+import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
 
 interface WebexSpaceTeamMappingDoc {
+  ownership_schema_version: 3;
+  deployment_id: string;
+  bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
   space_name?: string;
@@ -23,7 +32,6 @@ interface WebexSpaceTeamMappingDoc {
 
 function pickPrimaryAgentId(
   routes: Awaited<ReturnType<typeof listWebexSpaceAgentRoutes>>,
-  grants: Awaited<ReturnType<typeof listWebexSpaceGrants>>
 ): string | undefined {
   const enabledRoute = routes
     .filter((route) => route.enabled !== false)
@@ -33,9 +41,7 @@ function pickPrimaryAgentId(
         left.agent_id.localeCompare(right.agent_id)
     )[0];
   if (enabledRoute?.agent_id) return enabledRoute.agent_id;
-  const agentGrant = grants.find((grant) => grant.resource?.type === "agent");
-  const grantAgentId = agentGrant?.resource?.id;
-  return typeof grantAgentId === "string" && grantAgentId.trim() ? grantAgentId.trim() : undefined;
+  return undefined;
 }
 
 async function webexSpaceAccess(
@@ -62,9 +68,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // timestamp). Mirrors the Slack channels endpoint so the shared
     // ConnectorAdminPanel can show real per-row health for Webex too.
     const includeHealth = request.nextUrl.searchParams.get("health") === "1";
+    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    await deleteLegacyWebexSpaceAssignments();
     const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
     const rows = await mappings
-      .find({ active: { $ne: false } } as never)
+      .find({
+        deployment_id: webexDeploymentId(),
+        bot_id: botId,
+        ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
+        active: { $ne: false },
+      } as never)
       .sort({ space_name: 1, space_title: 1 })
       .limit(500)
       .toArray();
@@ -88,6 +101,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             workspaceId,
             spaceId: row.webex_space_id,
           })),
+          botId,
         ).catch(
           () =>
             visibleRows.map(
@@ -104,7 +118,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       visibleRows.map(async ({ row, workspaceId, access }, index) => {
         const [grants, routes] = await Promise.all([
           listWebexSpaceGrants(workspaceId, row.webex_space_id),
-          listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id),
+          listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id, botId),
         ]);
         const health = includeHealth ? healthSummaries[index] : undefined;
         return {
@@ -113,7 +127,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           space_name: row.space_name ?? row.space_title ?? row.webex_space_id,
           team_id: row.team_id,
           team_slug: row.team_slug,
-          primary_agent_id: pickPrimaryAgentId(routes, grants),
+          bot_id: row.bot_id,
+          primary_agent_id: pickPrimaryAgentId(routes),
           active_grants: grants.length,
           can_manage: access.canManage,
           ...(health ? { health } : {}),

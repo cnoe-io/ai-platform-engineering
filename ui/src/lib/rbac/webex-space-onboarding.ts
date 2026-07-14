@@ -2,10 +2,15 @@ import type { Document } from "mongodb";
 
 import { ApiError } from "@/lib/api-error";
 import { getCollection } from "@/lib/mongodb";
+import { webexDeploymentId } from "@/lib/rbac/webex-direct-user-route-store";
 import { ensureWebexBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import {
+deleteLegacyWebexSpaceAssignments,
+WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
+} from "@/lib/rbac/webex-space-delete";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import {
 webexSpaceGrantRelationship,
@@ -14,8 +19,12 @@ webexSpaceTeamVisibilityRelationships,
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type { WebexRouteListenMode } from "@/types/webex-rebac";
+import { resolveWebexBotToken } from "@/lib/webex-bot-catalog";
 
 interface WebexSpaceTeamMappingDoc extends Document {
+  ownership_schema_version: 3;
+  deployment_id: string;
+  bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
   space_name?: string;
@@ -38,6 +47,7 @@ interface DynamicAgentDoc extends Document {
 }
 
 export interface WebexSpaceOnboardingInput {
+  bot_id: string;
   workspace_id?: string;
   space_id: string;
   space_name?: string;
@@ -69,6 +79,7 @@ export interface WebexSpaceOnboardingResult {
     team_id: string;
     agent_id: string;
     listen: WebexRouteListenMode;
+    bot_id: string;
   };
   openfga?: Awaited<ReturnType<typeof writeOpenFgaTuples>>;
   runtime_reload?: {
@@ -134,6 +145,7 @@ export async function onboardWebexSpace(
 ): Promise<WebexSpaceOnboardingResult> {
   const teamSlug = readRequiredString(input.team_slug, "team_slug");
   const agentId = readRequiredString(input.agent_id, "agent_id");
+  const botId = resolveWebexBotToken(readRequiredString(input.bot_id, "bot_id")).id;
   const canonicalSpaceId = canonicalizeWebexSpaceId(readRequiredString(input.space_id, "space_id"));
   assertSafeSpaceId(canonicalSpaceId);
   const workspaceId = webexWorkspaceRef(input.workspace_id);
@@ -181,6 +193,7 @@ export async function onboardWebexSpace(
         team_id: String(team._id),
         agent_id: agentId,
         listen,
+        bot_id: botId,
       },
       runtime_reload: { attempted: false, ok: true },
     };
@@ -191,6 +204,7 @@ export async function onboardWebexSpace(
   // from the space→team mapping at message time. We still ensure the Webex bot
   // has general OBO permissions in place so token exchange works.
   await ensureWebexBotOboPermissions();
+  await deleteLegacyWebexSpaceAssignments();
 
   const [mappings, grants, routes] = await Promise.all([
     getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings"),
@@ -198,14 +212,18 @@ export async function onboardWebexSpace(
     getRbacCollection("webexSpaceAgentRoutes"),
   ]);
   const now = new Date().toISOString();
+  const deploymentId = webexDeploymentId();
+  const mappingId = JSON.stringify([deploymentId, botId, workspaceId, canonicalSpaceId]);
 
   await mappings.updateOne(
-    {
-      webex_workspace_id: workspaceId,
-      webex_space_id: canonicalSpaceId,
-    } as never,
+    { _id: mappingId } as never,
     {
       $set: {
+        ownership_schema_version: WEBEX_BOT_OWNERSHIP_SCHEMA_VERSION,
+        deployment_id: deploymentId,
+        bot_id: botId,
+        webex_workspace_id: workspaceId,
+        webex_space_id: canonicalSpaceId,
         space_name: spaceName,
         space_title: spaceName,
         team_id: String(team._id),
@@ -215,8 +233,6 @@ export async function onboardWebexSpace(
         updated_at: now,
       },
       $setOnInsert: {
-        webex_workspace_id: workspaceId,
-        webex_space_id: canonicalSpaceId,
         created_by: actor,
         created_at: now,
       },
@@ -258,6 +274,7 @@ export async function onboardWebexSpace(
   let routesPreserved = 0;
   if (createRoute) {
     const existingRoute = await routes.findOne({
+      bot_id: botId,
       workspace_id: workspaceId,
       space_id: canonicalSpaceId,
       agent_id: agentId,
@@ -268,12 +285,14 @@ export async function onboardWebexSpace(
     } else {
       await routes.updateOne(
         {
+          bot_id: botId,
           workspace_id: workspaceId,
           space_id: canonicalSpaceId,
           agent_id: agentId,
         },
         {
           $set: {
+            bot_id: botId,
             workspace_id: workspaceId,
             space_id: canonicalSpaceId,
             agent_id: agentId,
@@ -355,6 +374,7 @@ export async function onboardWebexSpace(
       team_id: String(team._id),
       agent_id: agentId,
       listen,
+      bot_id: botId,
     },
     openfga,
     runtime_reload: runtimeReload,

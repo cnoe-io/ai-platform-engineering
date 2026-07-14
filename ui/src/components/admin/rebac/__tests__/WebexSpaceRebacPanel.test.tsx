@@ -21,10 +21,7 @@ const fetchMock = jest.fn();
 
 function setupFetchMock() {
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (
-      url === "/api/admin/webex/spaces" ||
-      url === "/api/admin/webex/spaces?health=1"
-    ) {
+    if (String(url).startsWith("/api/admin/webex/spaces?health=1")) {
       return response({
         data: {
           spaces: [
@@ -34,6 +31,7 @@ function setupFetchMock() {
               space_name: "Platform Alerts",
               team_slug: "platform-engineering",
               primary_agent_id: "incident-agent",
+              bot_id: "primary",
               active_grants: 1,
             },
           ],
@@ -49,12 +47,14 @@ function setupFetchMock() {
               name: "Platform Alerts",
               type: "group",
               is_locked: false,
+              available_bot_ids: ["primary", "secondary"],
             },
             {
               id: "space-new-123",
               name: "Incident War Room",
               type: "group",
               is_locked: false,
+              available_bot_ids: ["primary", "secondary"],
             },
           ],
           has_more: false,
@@ -83,6 +83,30 @@ function setupFetchMock() {
             { _id: "test-april-2025", name: "Test April 2025" },
             { _id: "incident-agent", name: "Incident Agent" },
           ],
+        },
+      });
+    }
+    if (String(url).startsWith("/api/admin/webex/direct-users")) {
+      if (init?.method === "PUT" || init?.method === "DELETE") {
+        return response({ data: { saved: init.method === "PUT", deleted: init.method === "DELETE" } });
+      }
+      return response({
+        data: {
+          users: [
+            {
+              keycloak_user_id: "user-1",
+              email: "user@example.com",
+              display_name: "Example User",
+              webex_user_id: null,
+              enabled: false,
+              configured: false,
+              expected_webex_email: "user@example.com",
+              agent_id: "",
+            },
+          ],
+          deployment_id: "deployment-a",
+          dm_access_mode: "allowlist",
+          default_agent_id: null,
         },
       });
     }
@@ -162,14 +186,14 @@ function setupFetchMock() {
         },
       });
     }
-    if (url.endsWith("/routes") && init?.method === "PUT") {
+    if (String(url).includes("/routes?") && init?.method === "PUT") {
       const body = JSON.parse(String(init.body ?? "{}"));
       return response({ data: { routes: body.routes } });
     }
-    if (url.endsWith("/routes") && init?.method === "DELETE") {
+    if (String(url).includes("/routes?") && init?.method === "DELETE") {
       return response({ data: { deleted: { agent_id: "foo-bar" } } });
     }
-    if (url.endsWith("/routes")) {
+    if (String(url).includes("/routes?")) {
       return response({
         data: {
           routes: [
@@ -183,7 +207,7 @@ function setupFetchMock() {
         },
       });
     }
-    if (url.endsWith("/diagnostics")) {
+    if (String(url).includes("/diagnostics?")) {
       return response({
         data: {
           openfga: { reachable: true, tuple_count: 1 },
@@ -217,7 +241,7 @@ function setupFetchMock() {
       });
     }
     if (
-      url === "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc" &&
+      String(url).startsWith("/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc?") &&
       init?.method === "DELETE"
     ) {
       return response({ data: { deleted: { space_id: "space-abc" } } });
@@ -256,16 +280,21 @@ async function clickFindSpaces() {
   fireEvent.click(discoverButton);
 }
 
+async function clickRefreshSpaces() {
+  const refreshButton = await screen.findByRole("button", {
+    name: "Refresh spaces",
+  });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
+}
+
 it("shows the onboarding loading state while configured spaces seed the table", async () => {
   let resolveSpaces: ((value: Response) => void) | undefined;
   const spacesPromise = new Promise<Response>((resolve) => {
     resolveSpaces = resolve;
   });
   fetchMock.mockImplementation(async (url: string) => {
-    if (
-      url === "/api/admin/webex/spaces" ||
-      url === "/api/admin/webex/spaces?health=1"
-    ) {
+    if (String(url).startsWith("/api/admin/webex/spaces?health=1")) {
       return spacesPromise;
     }
     if (url === "/api/dynamic-agents?enabled_only=true") {
@@ -289,7 +318,7 @@ it("shows the onboarding loading state while configured spaces seed the table", 
 
 // ── Single onboarding layout ────────────────────────────────────────────────
 
-it("renders Webex with a two-tab bar (Configure / Configured) but no Advanced tab", async () => {
+it("renders Webex with Configure, Configured, and 1:1 tabs but no Advanced tab", async () => {
   render(<WebexSpaceRebacPanel />);
 
   // Default landing tab is "Configure spaces"
@@ -300,7 +329,8 @@ it("renders Webex with a two-tab bar (Configure / Configured) but no Advanced ta
   expect(
     screen.getByRole("tab", { name: "Configured spaces" }),
   ).toBeInTheDocument();
-  // Two-tab switcher replaces the full 3-tab bar; no "Advanced" tab
+  expect(screen.getByRole("tab", { name: "1:1 Messages" })).toBeInTheDocument();
+  // The focused Webex switcher does not expose the generic Advanced tab.
   expect(
     screen.queryByRole("tab", { name: "Advanced" }),
   ).not.toBeInTheDocument();
@@ -321,7 +351,7 @@ it("renders Webex with a two-tab bar (Configure / Configured) but no Advanced ta
 it("opens Configure spaces from the empty configured-spaces action", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === "/api/admin/webex/spaces?health=1") {
+    if (String(url).startsWith("/api/admin/webex/spaces?health=1")) {
       return response({ data: { spaces: [] } });
     }
     return baseFetch?.(url, init) ?? response({});
@@ -373,10 +403,7 @@ it("seeds configured Webex spaces on the onboard tab before discovery", async ()
 it("filters configured Webex spaces locally before live discovery runs", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (
-      url === "/api/admin/webex/spaces" ||
-      url === "/api/admin/webex/spaces?health=1"
-    ) {
+    if (String(url).startsWith("/api/admin/webex/spaces?health=1")) {
       return response({
         data: {
           spaces: [
@@ -440,6 +467,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
   ).not.toBeChecked();
   await pickTeam("Team for Incident War Room", "platform-engineering");
   await pickAgent("Dynamic Agent for Incident War Room", "incident-agent");
+  expect(screen.getByRole("combobox", { name: "Webex bot" })).toHaveValue("primary");
 
   fireEvent.click(screen.getByRole("button", { name: /^Set up \d+ spaces?$/ }));
 
@@ -452,7 +480,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
           team_slug: "platform-engineering",
           agent_id: "incident-agent",
           create_routes: true,
-          manual_spaces: [{ id: "space-new-123", name: "Incident War Room" }],
+          manual_spaces: [{ id: "space-new-123", name: "Incident War Room", bot_id: "primary" }],
         }),
       }),
     ),
@@ -467,26 +495,41 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
   expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
 });
 
-it("discovers spaces with the selected Webex bot", async () => {
+it("uses one top-level Webex bot selector for space discovery", async () => {
   render(<WebexSpaceRebacPanel />);
 
-  const botSelect = await screen.findByRole("combobox", { name: "Bot" });
-  await waitFor(() => expect(botSelect).toHaveValue("primary"));
-  fireEvent.change(botSelect, { target: { value: "secondary" } });
   await clickFindSpaces();
+  const botSelector = screen.getByRole("combobox", { name: "Webex bot" });
+  expect(screen.queryByRole("combobox", { name: /Webex bot for / })).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([url]) =>
+    new URL(String(url), "http://localhost").searchParams.get("bot_id") === "primary",
+  )).toBe(true);
 
-  await waitFor(() =>
-    expect(
-      fetchMock.mock.calls.some(([url]) => {
-        const parsed = new URL(String(url), "http://localhost");
-        return parsed.pathname === "/api/admin/webex/available-spaces" &&
-          parsed.searchParams.get("bot_id") === "secondary";
-      }),
-    ).toBe(true),
-  );
+  fireEvent.change(botSelector, { target: { value: "secondary" } });
+  await clickFindSpaces();
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) =>
+    new URL(String(url), "http://localhost").searchParams.get("bot_id") === "secondary",
+  )).toBe(true));
 });
 
-it("shows direct Webex rooms as personal DMs and excludes them from team setup", async () => {
+it("forces a fresh Webex discovery when Refresh spaces is clicked", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  await clickFindSpaces();
+  await screen.findByRole("button", { name: "Refresh spaces" });
+  await clickRefreshSpaces();
+
+  await waitFor(() => {
+    const discoveryCalls = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith("/api/admin/webex/available-spaces"));
+    expect(discoveryCalls).toHaveLength(2);
+    expect(new URL(discoveryCalls[0], "http://localhost").searchParams.has("refresh")).toBe(false);
+    expect(new URL(discoveryCalls[1], "http://localhost").searchParams.get("refresh")).toBe("1");
+  });
+});
+
+it("hides direct Webex rooms from space discovery", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (String(url).startsWith("/api/admin/webex/available-spaces")) {
@@ -495,15 +538,17 @@ it("shows direct Webex rooms as personal DMs and excludes them from team setup",
           spaces: [
             {
               id: "direct-room-123456",
-              name: "Sri Aradhyula",
+              name: "Example User",
               type: "direct",
               is_locked: false,
+              available_bot_ids: ["primary"],
             },
             {
               id: "space-new-123",
               name: "Incident War Room",
               type: "group",
               is_locked: false,
+              available_bot_ids: ["primary"],
             },
           ],
           has_more: false,
@@ -520,21 +565,10 @@ it("shows direct Webex rooms as personal DMs and excludes them from team setup",
 
   expect(
     await screen.findByRole("status", {
-      name: /Discovered: 3 .* Configured: 1/i,
+      name: /Discovered: 2 .* Configured: 1/i,
     }),
   ).toBeInTheDocument();
-  const directCheckbox = screen.getByRole("checkbox", {
-    name: /Import Sri Aradhyula/i,
-  });
-  expect(directCheckbox).toBeDisabled();
-  expect(directCheckbox).not.toBeChecked();
-  expect(
-    screen.queryByLabelText("Team for Sri Aradhyula"),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByLabelText("Dynamic Agent for Sri Aradhyula"),
-  ).not.toBeInTheDocument();
-  expect(screen.getAllByText("Personal DM").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Example User")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Set up 1 space" })).toBeEnabled();
 
   fireEvent.click(screen.getByRole("button", { name: "Set up 1 space" }));
@@ -547,8 +581,44 @@ it("shows direct Webex rooms as personal DMs and excludes them from team setup",
     expect(postCall).toBeTruthy();
     expect(
       JSON.parse(String(postCall?.[1]?.body ?? "{}")).manual_spaces,
-    ).toEqual([{ id: "space-new-123", name: "Incident War Room" }]);
+    ).toEqual([{ id: "space-new-123", name: "Incident War Room", bot_id: "primary" }]);
   });
+});
+
+it("onboards deployment users independently for the bot selected above the table", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "1:1 Messages" }));
+  expect(await screen.findByText("Example User")).toBeInTheDocument();
+  expect(screen.getByText("Allowlist")).toBeInTheDocument();
+  const botSelector = screen.getByRole("combobox", { name: "Webex bot" });
+  expect(botSelector).toHaveValue("primary");
+  expect(screen.queryByRole("combobox", { name: "Webex bot for user@example.com" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("checkbox", { name: "Allow direct messages for user@example.com" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Agent for user@example.com" }), {
+    target: { value: "incident-agent" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save 1:1 access for user@example.com" }));
+
+  await waitFor(() => {
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/admin/webex/direct-users" && init?.method === "PUT",
+    );
+    expect(putCall).toBeTruthy();
+    expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
+      bot_id: "primary",
+      keycloak_user_id: "user-1",
+      agent_id: "incident-agent",
+    });
+  });
+
+  fireEvent.change(botSelector, { target: { value: "secondary" } });
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => {
+    const parsed = new URL(String(url), "http://localhost");
+    return parsed.pathname === "/api/admin/webex/direct-users" &&
+      parsed.searchParams.get("bot_id") === "secondary";
+  })).toBe(true));
 });
 
 it("allows discovery before global defaults are configured", async () => {
@@ -595,7 +665,7 @@ it("deletes a configured Webex space after confirmation", async () => {
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc",
+      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc?bot_id=primary",
       { method: "DELETE" },
     ),
   );

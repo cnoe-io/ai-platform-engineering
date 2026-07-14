@@ -12,6 +12,7 @@ import { webexWorkspaceRef } from "./webex-space-grant-store";
 export interface WebexSpaceAgentRouteDocument extends Document, WebexSpaceAgentRoute {}
 
 export interface WebexSpaceAgentRouteInput {
+  bot_id?: string;
   workspace_id: string;
   space_id: string;
   agent_id: string;
@@ -25,7 +26,8 @@ export interface WebexSpaceAgentRouteInput {
 
 export async function listWebexSpaceAgentRoutes(
   workspaceId: string,
-  spaceId: string
+  spaceId: string,
+  botId?: string,
 ): Promise<WebexSpaceAgentRouteDocument[]> {
   const collection = await getRbacCollection<WebexSpaceAgentRouteDocument>("webexSpaceAgentRoutes");
   const workspaceRef = webexWorkspaceRef(workspaceId);
@@ -33,6 +35,7 @@ export async function listWebexSpaceAgentRoutes(
     .find({
       workspace_id: workspaceRef,
       space_id: spaceId,
+      ...(botId ? { bot_id: botId } : {}),
       status: "active",
     } as never)
     .sort({ priority: 1, agent_id: 1 })
@@ -43,6 +46,7 @@ export async function listWebexSpaceAgentRoutes(
 export async function replaceWebexSpaceAgentRoutes(
   workspaceId: string,
   spaceId: string,
+  botId: string,
   routes: WebexSpaceAgentRouteInput[],
   actor: string
 ): Promise<WebexSpaceAgentRouteDocument[]> {
@@ -63,6 +67,7 @@ export async function replaceWebexSpaceAgentRoutes(
     {
       workspace_id: workspaceRef,
       space_id: spaceId,
+      bot_id: botId,
       status: "active",
       agent_id: { $nin: uniqueActiveAgentIds },
     } as never,
@@ -81,12 +86,14 @@ export async function replaceWebexSpaceAgentRoutes(
       {
         workspace_id: workspaceRef,
         space_id: spaceId,
+        bot_id: botId,
         agent_id: agentId,
       } as never,
       ({
         $set: {
           workspace_id: workspaceRef,
           space_id: spaceId,
+          bot_id: botId,
           agent_id: agentId,
           enabled: route.enabled ?? true,
           priority: route.priority ?? 100,
@@ -106,12 +113,13 @@ export async function replaceWebexSpaceAgentRoutes(
     );
   }
 
-  return listWebexSpaceAgentRoutes(workspaceRef, spaceId);
+  return listWebexSpaceAgentRoutes(workspaceRef, spaceId, botId);
 }
 
 export async function deleteWebexSpaceAgentRoute(
   workspaceId: string,
   spaceId: string,
+  botId: string,
   agentId: string
 ): Promise<boolean> {
   const normalizedAgentId = agentId.trim();
@@ -122,6 +130,7 @@ export async function deleteWebexSpaceAgentRoute(
   const result = await collection.deleteOne({
     workspace_id: workspaceRef,
     space_id: spaceId,
+    bot_id: botId,
     agent_id: normalizedAgentId,
   } as never);
   return result.deletedCount > 0;
@@ -130,13 +139,15 @@ export async function deleteWebexSpaceAgentRoute(
 // assisted-by Codex Codex-sonnet-4-6
 export async function deleteWebexSpaceAgentRoutes(
   workspaceId: string,
-  spaceId: string
+  spaceId: string,
+  botId?: string,
 ): Promise<number> {
   const collection = await getRbacCollection<WebexSpaceAgentRouteDocument>("webexSpaceAgentRoutes");
   const workspaceRef = webexWorkspaceRef(workspaceId);
   const result = await collection.deleteMany({
     workspace_id: workspaceRef,
     space_id: spaceId,
+    ...(botId ? { bot_id: botId } : {}),
   } as never);
   return result.deletedCount ?? 0;
 }

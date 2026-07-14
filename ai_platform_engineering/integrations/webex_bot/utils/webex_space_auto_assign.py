@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -79,6 +80,7 @@ class WebexSpaceAutoAssigner:
     def assign_space(
         self,
         *,
+        bot_id: str,
         workspace_id: str,
         space_id: str,
         space_title: str | None = None,
@@ -99,7 +101,14 @@ class WebexSpaceAutoAssigner:
         if mappings is None or teams is None or routes is None:
             return WebexSpaceAutoAssignResult(False, "mongo_unavailable")
 
-        existing = mappings.find_one({"webex_space_id": space_id, "active": {"$ne": False}})
+        deployment_id = os.environ.get("WEBEX_DEPLOYMENT_ID", "default").strip() or "default"
+        existing = mappings.find_one({
+            "deployment_id": deployment_id,
+            "ownership_schema_version": 3,
+            "bot_id": bot_id,
+            "webex_space_id": space_id,
+            "active": {"$ne": False},
+        })
         if existing:
             return WebexSpaceAutoAssignResult(False, "existing_mapping")
 
@@ -109,6 +118,9 @@ class WebexSpaceAutoAssigner:
 
         team_id = str(team.get("_id"))
         workspace_ref = webex_workspace_ref(workspace_id)
+        mapping_id = json.dumps(
+            [deployment_id, bot_id, workspace_ref, space_id], separators=(",", ":")
+        )
         now = datetime.now(timezone.utc).isoformat()
         display_name = (space_title or space_id).strip()
 
@@ -118,6 +130,7 @@ class WebexSpaceAutoAssigner:
             "object": f"agent:{agent_id}",
         }
         route_filter = {
+            "bot_id": bot_id,
             "workspace_id": workspace_ref,
             "space_id": space_id,
             "agent_id": agent_id,
@@ -129,6 +142,7 @@ class WebexSpaceAutoAssigner:
                 route_filter,
                 {
                     "$set": {
+                        "bot_id": bot_id,
                         "workspace_id": workspace_ref,
                         "space_id": space_id,
                         "agent_id": agent_id,
@@ -147,9 +161,12 @@ class WebexSpaceAutoAssigner:
             )
             routes_written = True
             mappings.update_one(
-                {"webex_space_id": space_id},
+                {"_id": mapping_id},
                 {
                     "$set": {
+                        "ownership_schema_version": 3,
+                        "deployment_id": deployment_id,
+                        "bot_id": bot_id,
                         "webex_workspace_id": workspace_ref,
                         "webex_space_id": space_id,
                         "space_name": display_name,
@@ -176,7 +193,7 @@ class WebexSpaceAutoAssigner:
         except (PyMongoError, requests.RequestException) as exc:
             logger.warning("Webex space auto-assignment failed for space=%s: %s", space_id, exc)
             if mapping_written:
-                mappings.delete_one({"webex_space_id": space_id})
+                mappings.delete_one({"_id": mapping_id})
             if routes_written:
                 routes.delete_one(route_filter)
             return WebexSpaceAutoAssignResult(False, "write_failed")

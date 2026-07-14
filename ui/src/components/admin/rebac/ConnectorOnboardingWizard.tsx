@@ -54,6 +54,9 @@ export interface ConnectorOnboardingRow {
   importLabel: string;
   teamLabel: string;
   agentLabel: string;
+  botId?: string;
+  botLabel?: string;
+  botOptions?: Array<ConnectorOnboardingOption & { disabled?: boolean }>;
 }
 
 interface ConnectorOnboardingWizardProps {
@@ -107,7 +110,7 @@ interface ConnectorOnboardingWizardProps {
   onRowChange: (
     id: string,
     updates: Partial<
-      Pick<ConnectorOnboardingRow, "selected" | "teamSlug" | "agentId">
+      Pick<ConnectorOnboardingRow, "selected" | "teamSlug" | "agentId" | "botId">
     >,
   ) => void;
   onApply: () => void;
@@ -169,6 +172,9 @@ function readinessFor(row: ConnectorOnboardingRow): {
   }
   if (!row.agentId) {
     return { state: "blocked", label: "Pick an agent" };
+  }
+  if (row.botOptions && !row.botId) {
+    return { state: "blocked", label: "Pick a Webex bot" };
   }
   return { state: "needs_setup", label: "Ready to set up" };
 }
@@ -298,6 +304,10 @@ export function ConnectorOnboardingWizard({
     (error || discoveredCount > 0 || rows.length > 0) &&
     !showFullDiscoveryLoading;
   const showProgressBadges = newCount > 0 || selectedCount > 0;
+  const showBotColumn = rows.some((row) => Boolean(row.botOptions));
+  const rowGridClass = showBotColumn
+    ? "min-w-[1040px] grid-cols-[minmax(220px,1fr)_180px_180px_200px_170px]"
+    : "min-w-[860px] grid-cols-[minmax(240px,1fr)_190px_220px_190px]";
 
   return (
     <div
@@ -546,10 +556,11 @@ export function ConnectorOnboardingWizard({
                   </div>
                 )}
                 <div className="max-h-[460px] overflow-auto rounded-md border bg-background/80">
-                  <div className="grid min-w-[860px] grid-cols-[minmax(240px,1fr)_190px_220px_190px] gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <div className={cn("grid gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground", rowGridClass)}>
                     <div>
                       {itemSingular[0].toUpperCase() + itemSingular.slice(1)}
                     </div>
+                    {showBotColumn && <div>Webex bot</div>}
                     <div>Team</div>
                     <div>Dynamic Agent</div>
                     <div>Status</div>
@@ -567,7 +578,8 @@ export function ConnectorOnboardingWizard({
                         <div
                           key={row.id}
                           className={cn(
-                            "grid min-w-[860px] grid-cols-[minmax(240px,1fr)_190px_220px_190px] gap-3 border-b px-3 py-3 last:border-b-0",
+                            "grid gap-3 border-b px-3 py-3 last:border-b-0",
+                            rowGridClass,
                             readiness.state === "blocked" && "bg-amber-500/5",
                             readiness.state === "needs_setup" &&
                               "bg-emerald-500/5",
@@ -594,6 +606,25 @@ export function ConnectorOnboardingWizard({
                               </span>
                             </span>
                           </label>
+                          {showBotColumn && (
+                            <select
+                              className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
+                              value={row.botId ?? ""}
+                              onChange={(event) => onRowChange(row.id, {
+                                botId: event.target.value,
+                                selected: true,
+                              })}
+                              disabled={loading || !rowIsSelectable(row)}
+                              aria-label={row.botLabel ?? `Webex bot for ${row.name}`}
+                            >
+                              <option value="">Select a bot</option>
+                              {(row.botOptions ?? []).map((option) => (
+                                <option key={option.value} value={option.value} disabled={option.disabled}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                           {/* assisted-by Codex Codex-sonnet-4-6 */}
                           {/* Editing a selectable row implies intent to set it up, so the checkbox follows. */}
                           {rowNeedsTeam(row) ? (
