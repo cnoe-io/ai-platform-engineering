@@ -47,7 +47,14 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if eq (include "dynamic-agents.metricsPortSeparate" .) "true" }}
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+              protocol: TCP
+            {{- end }}
           env:
+            - name: METRICS_PORT
+              value: {{ .Values.service.metricsPort | default 0 | quote }}
             - name: KEYCLOAK_URL
               value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
             - name: OPENFGA_HTTP

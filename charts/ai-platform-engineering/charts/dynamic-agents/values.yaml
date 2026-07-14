@@ -52,6 +52,12 @@ securityContext:
 service:
   type: ClusterIP
   port: 8001
+  # Dedicated port for the /metrics endpoint. 0 (default) serves metrics on
+  # `port` above — current behavior, unchanged. Set to a different port to
+  # split metrics onto its own container/service port, e.g. so the main API
+  # port can run strict mTLS while metrics stays on a permissive port for
+  # scrapers that don't support mTLS client certs.
+  metricsPort: 0
 
 # Ingress configuration
 ingress:
