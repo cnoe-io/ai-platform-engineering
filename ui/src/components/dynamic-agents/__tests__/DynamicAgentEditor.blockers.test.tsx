@@ -192,6 +192,26 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("starts on the deep-linked setup step and reports subsequent step changes", async () => {
+    const onStepChange = jest.fn();
+    render(
+      <DynamicAgentEditor
+        initialStep="tools"
+        onStepChange={onStepChange}
+        onCancel={jest.fn()}
+        onSave={jest.fn()}
+      />,
+    );
+    await flushAsync();
+
+    expect(screen.getByRole("heading", { name: "Step 3: Tools" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
+
+    expect(onStepChange).toHaveBeenCalledWith("advanced");
+    expect(screen.getByRole("heading", { name: "Step 5: Advanced" })).toBeInTheDocument();
+  });
+
   it("enables Create Agent once Owner Team and the remaining fields are filled", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();

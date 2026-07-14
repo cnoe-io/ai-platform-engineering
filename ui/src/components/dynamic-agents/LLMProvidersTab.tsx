@@ -10,7 +10,7 @@ import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { LLMModelsTab } from "./LLMModelsTab";
+import { LLMModelsTab,type LLMModelsTabProps } from "./LLMModelsTab";
 
 type ProviderField = {
   id: string;
@@ -201,7 +201,10 @@ function ProviderCredentialDialog({
   );
 }
 
-export function LLMProvidersTab() {
+export function LLMProvidersTab({
+  selectedModelId,
+  onSelectedModelChange,
+}: LLMModelsTabProps = {}) {
   const [models, setModels] = React.useState<LlmModel[]>([]);
   const [secrets, setSecrets] = React.useState<SecretMetadata[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -312,7 +315,10 @@ export function LLMProvidersTab() {
         </CardContent>
       </Card>
 
-      <LLMModelsTab />
+      <LLMModelsTab
+        selectedModelId={selectedModelId}
+        onSelectedModelChange={onSelectedModelChange}
+      />
 
       {editingProvider && (
         <ProviderCredentialDialog

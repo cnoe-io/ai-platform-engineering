@@ -30,6 +30,7 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import { AgentAvatar } from "./AgentAvatar";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
+import type { AgentSetupStep } from "./deep-linking";
 
 const DEFAULT_ROW_PERMISSIONS = {
   can_manage: false,
@@ -50,11 +51,27 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-export function DynamicAgentsTab() {
+interface DynamicAgentsTabProps {
+  selectedAgentId?: string | null;
+  initialStep?: AgentSetupStep;
+  onSelectedAgentChange?: (agentId: string | null) => void;
+  onStepChange?: (step: AgentSetupStep) => void;
+}
+
+export function DynamicAgentsTab({
+  selectedAgentId,
+  initialStep,
+  onSelectedAgentChange,
+  onStepChange,
+}: DynamicAgentsTabProps = {}) {
   const [agents, setAgents] = React.useState<DynamicAgentConfigWithPermissions[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [editingAgent, setEditingAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
+  const [selectionLoading, setSelectionLoading] = React.useState(false);
+  const [selectionError, setSelectionError] = React.useState<string | null>(null);
+  const selectionRequestRef = React.useRef(0);
+  const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
   const [cloningAgent, setCloningAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
@@ -100,6 +117,56 @@ export function DynamicAgentsTab() {
   React.useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  React.useEffect(() => {
+    if (selectedAgentId === undefined) return;
+
+    const requestId = ++selectionRequestRef.current;
+    if (!selectedAgentId) {
+      loadedSelectionIdRef.current = null;
+      setEditingAgent(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    if (loadedSelectionIdRef.current === selectedAgentId) {
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    setSelectionLoading(true);
+    setSelectionError(null);
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/agents/${encodeURIComponent(selectedAgentId)}`,
+        );
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || "Agent not found");
+        }
+        if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = selectedAgentId;
+          setEditingAgent({
+            ...data.data,
+            permissions: data.data.permissions ?? DEFAULT_ROW_PERMISSIONS,
+          });
+        }
+      } catch (err: unknown) {
+        if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = null;
+          setEditingAgent(null);
+          setSelectionError(errorMessage(err, "Failed to load agent"));
+        }
+      } finally {
+        if (selectionRequestRef.current === requestId) {
+          setSelectionLoading(false);
+        }
+      }
+    })();
+  }, [selectedAgentId]);
 
   // Debounce search input
   React.useEffect(() => {
@@ -219,6 +286,24 @@ export function DynamicAgentsTab() {
     setCloningAgent(agent);
   };
 
+  const openAgent = (agent: DynamicAgentConfigWithPermissions) => {
+    loadedSelectionIdRef.current = agent._id;
+    setSelectionError(null);
+    setEditingAgent(agent);
+    onSelectedAgentChange?.(agent._id);
+  };
+
+  const closeAgentEditor = () => {
+    selectionRequestRef.current += 1;
+    loadedSelectionIdRef.current = null;
+    setEditingAgent(null);
+    setIsCreating(false);
+    setCloningAgent(null);
+    setSelectionError(null);
+    setSelectionLoading(false);
+    onSelectedAgentChange?.(null);
+  };
+
   const getVisibilityIcon = (visibility: string) => {
     switch (visibility) {
       case "global":
@@ -241,24 +326,46 @@ export function DynamicAgentsTab() {
     }
   };
 
+  const hasMatchingSelectedAgent = editingAgent?._id === selectedAgentId;
+
+  if (selectedAgentId && selectionLoading && !hasMatchingSelectedAgent) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (selectedAgentId && selectionError && !hasMatchingSelectedAgent) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-destructive">{selectionError}</p>
+          <Button variant="outline" className="mt-4" onClick={closeAgentEditor}>
+            Back to Agents
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isCreating || editingAgent || cloningAgent) {
     return (
       <DynamicAgentEditor
+        key={editingAgent?._id ?? (cloningAgent ? `clone-${cloningAgent._id}` : "new")}
         agent={editingAgent}
         cloneFrom={cloningAgent}
         readOnly={Boolean(editingAgent?.config_driven || (editingAgent && !agentCanEdit(editingAgent)))}
         readOnlyReason={editingAgent?.config_driven ? "config" : "permissions"}
+        initialStep={initialStep}
+        onStepChange={onStepChange}
         onSave={() => {
-          setEditingAgent(null);
-          setIsCreating(false);
-          setCloningAgent(null);
+          closeAgentEditor();
           fetchAgents();
         }}
-        onCancel={() => {
-          setEditingAgent(null);
-          setIsCreating(false);
-          setCloningAgent(null);
-        }}
+        onCancel={closeAgentEditor}
       />
     );
   }
@@ -359,7 +466,7 @@ export function DynamicAgentsTab() {
               <div key={agent._id} className="space-y-2">
               <div
                 className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
-                onClick={() => setEditingAgent(agent)}
+                onClick={() => openAgent(agent)}
               >
                 <div className="col-span-4">
                     <div className="flex items-center gap-3">
