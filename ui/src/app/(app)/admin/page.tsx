@@ -51,6 +51,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { MultiSelect,TagInput } from "@/components/ui/multi-select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SlidingSelectorIndicator } from "@/components/ui/sliding-selector";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
@@ -565,6 +566,7 @@ function AdminPage() {
       ? initialCat
       : categoryForTab(activeTab)
   );
+  const categorySelectorLayoutId = React.useId();
 
   const tabGateValues = useMemo<Record<string, boolean>>(
     () => ({
@@ -1347,22 +1349,37 @@ function AdminPage() {
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
               {/* Category selector */}
-              <div className="flex flex-wrap gap-1.5">
+              <div
+                aria-label="Admin sections"
+                className="flex flex-wrap gap-1.5"
+                role="group"
+              >
                 {visibleCategories.map((cat) => {
                   const Icon = cat.icon;
                   const isActive = activeCategory === cat.key;
                   return (
                     <button
                       key={cat.key}
+                      type="button"
+                      aria-pressed={isActive}
                       onClick={() => handleCategoryChange(cat.key)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      className={`relative isolate inline-flex items-center gap-1.5 overflow-hidden rounded-full px-3 py-1.5 text-xs font-medium transition-[color,transform,background-color] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] motion-reduce:transform-none ${
                         isActive
-                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          ? 'bg-transparent text-primary-foreground'
                           : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
                       }`}
                     >
-                      <Icon className="h-3.5 w-3.5" />
-                      {cat.label}
+                      {isActive && (
+                        <SlidingSelectorIndicator
+                          className="admin-category-active-pill"
+                          layoutId={categorySelectorLayoutId}
+                          variant="liquid"
+                        />
+                      )}
+                      <span className="relative z-10 inline-flex items-center gap-1.5">
+                        <Icon className="h-3.5 w-3.5" />
+                        {cat.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -1523,7 +1540,10 @@ function AdminPage() {
 
               {/* Filtered sub-tabs for the active category */}
               {visibleTabsForCategory.length > 0 && (
-                <TabsList className="flex w-full justify-start gap-0">
+                <TabsList
+                  className="flex w-full justify-start gap-0"
+                  indicatorScope={activeCategory}
+                >
                   {visibleTabsForCategory.map((t) => {
                     const Icon = t.icon;
                     return (
