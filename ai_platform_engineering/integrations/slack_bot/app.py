@@ -2379,7 +2379,7 @@ def handle_escalation_get_help(ack, body, client):
     session_manager.set_escalated(thread_ts)
 
     # Track escalation in feedback
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -2433,6 +2433,10 @@ def handle_delete_message(ack, body, client):
     message_ts = message.get("ts")
     thread_ts = message.get("thread_ts") or message_ts
 
+    action = body.get("actions", [{}])[0]
+    parts = action.get("value", "").split("|")
+    agent_id = parts[3] if len(parts) > 3 else ""
+
     if not channel_id or not message_ts:
       return
 
@@ -2454,7 +2458,7 @@ def handle_delete_message(ack, body, client):
       logger.warning(f"[{thread_ts}] Unauthorized delete attempt by <@{user_id}>")
       return
 
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
