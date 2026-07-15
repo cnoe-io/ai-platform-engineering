@@ -216,11 +216,17 @@ async function openHealthPopover(page: Page, statusPattern: RegExp = /system sta
   await dismissReleaseUpgradeDialog(page);
   const badge = page.getByRole("button", { name: statusPattern });
   await expect(badge).toBeVisible();
-  // Wait for Framer Motion label animation to settle before clicking, otherwise
-  // the popover trigger may not register the click mid-animation.
-  await page.waitForTimeout(300);
-  await badge.click();
-  await expect(page.getByText("System Status")).toBeVisible();
+  // Use force:true because the Framer Motion AnimatePresence inside the button
+  // keeps it perpetually "animating" in Playwright's eyes, blocking the default
+  // stability check. Retry the click if the popover doesn't open (e.g. a dialog
+  // dismissed the first click).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await badge.click({ force: true });
+    const visible = await page.getByText("System Status").isVisible({ timeout: 3000 }).catch(() => false);
+    if (visible) return;
+    await dismissReleaseUpgradeDialog(page);
+  }
+  await expect(page.getByText("System Status")).toBeVisible({ timeout: 5000 });
 }
 
 test.describe("Platform Health widget", () => {
