@@ -444,4 +444,48 @@ test.describe("token refresh / session expiry (PR #2220)", () => {
     expect(page.url()).toContain("session_expired=true");
     expect(page.url()).toContain("callbackUrl");
   });
+
+  // ── 9. Keycloak realm session lifetime is configurable ───────────────────
+  //
+  // Verifies that the running Keycloak realm reflects the configured SSO
+  // session lifetimes (7d idle / 14d max by default, overridable via
+  // KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT / KEYCLOAK_SSO_SESSION_MAX_LIFESPAN).
+  // Requires the rbac profile stack (Keycloak accessible).
+
+  test("Keycloak realm has the configured SSO session idle and max lifetimes", async () => {
+    const expectedIdle = parseInt(process.env.KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT ?? "604800", 10);
+    const expectedMax = parseInt(process.env.KEYCLOAK_SSO_SESSION_MAX_LIFESPAN ?? "1209600", 10);
+
+    // keycloakUrl may be the docker-network hostname (keycloak:7080); replace
+    // with localhost so the test runner on the host can reach the exposed port.
+    const keycloakBaseUrl = env.keycloakUrl.replace(/\/\/keycloak(:\d+)?/, "//localhost$1");
+    const adminTokenResp = await fetch(
+      `${keycloakBaseUrl}/realms/master/protocol/openid-connect/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "password",
+          client_id: "admin-cli",
+          username: "admin",
+          password: "admin",
+        }).toString(),
+      },
+    );
+    expect(adminTokenResp.ok, `Keycloak admin login failed: ${adminTokenResp.status}`).toBe(true);
+    const { access_token: adminToken } = (await adminTokenResp.json()) as { access_token: string };
+
+    const realmResp = await fetch(
+      `${keycloakBaseUrl}/admin/realms/${env.keycloakRealm}`,
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    expect(realmResp.ok, `Realm fetch failed: ${realmResp.status}`).toBe(true);
+    const realm = (await realmResp.json()) as {
+      ssoSessionIdleTimeout: number;
+      ssoSessionMaxLifespan: number;
+    };
+
+    expect(realm.ssoSessionIdleTimeout).toBe(expectedIdle);
+    expect(realm.ssoSessionMaxLifespan).toBe(expectedMax);
+  });
 });
