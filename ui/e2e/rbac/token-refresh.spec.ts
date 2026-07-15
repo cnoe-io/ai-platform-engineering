@@ -25,13 +25,14 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { encode } from "next-auth/jwt";
 import { rbacEnvOrSkip, type RbacEnv } from "./_env";
-import { dismissReleaseUpgradeDialog } from "./_helpers";
+import { dismissReleaseUpgradeDialog, installTestSession } from "./_helpers";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const SESSION_PATH = "**/api/auth/session";
+const TEST_EMAIL = "e2e@caipe.local";
+const TEST_SUBJECT = "playwright-token-refresh-sub";
 
 /** Suppress the "What's new" release-upgrade dialog by disabling release notes. */
 async function suppressReleaseDialog(page: import("@playwright/test").Page): Promise<void> {
@@ -86,48 +87,22 @@ function sessionPayload(opts: {
 }
 
 /**
- * Mint a JWT cookie whose embedded expiresAt is `expiresAt`.
- * The cookie itself has a generous browser-level maxAge so it won't
- * be dropped by the browser before the test finishes.
+ * Install a NextAuth session cookie whose embedded token expiry is `expiresAt`.
+ * Delegates to the shared RBAC helper so the token shape stays in one place;
+ * the helper keeps the browser-level cookie alive past the embedded expiry so
+ * tests that start with an already-expired token still load authenticated.
  */
-async function mintCookie(expiresAt: number): Promise<string> {
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) throw new Error("NEXTAUTH_SECRET is required");
-  return encode({
-    secret,
-    maxAge: 60 * 60,
-    token: {
-      sub: "playwright-token-refresh-sub",
-      name: "e2e@caipe.local",
-      email: "e2e@caipe.local",
-      accessToken: "e2e-access-token",
-      expiresAt,
-      hasRefreshToken: true,
-      isAuthorized: true,
-      role: "admin",
-      canViewAdmin: true,
-      canAccessDynamicAgents: true,
-      org: process.env.CAIPE_ORG_KEY?.trim() || "caipe",
-    },
-  });
-}
-
 async function installCookieWithExpiry(
   page: import("@playwright/test").Page,
   env: RbacEnv,
   expiresAt: number,
 ) {
-  const token = await mintCookie(expiresAt);
-  await page.context().addCookies([
-    {
-      name: "next-auth.session-token",
-      value: token,
-      url: env.baseUrl,
-      httpOnly: true,
-      sameSite: "Lax",
-      expires: expiresAt + 3600,
-    },
-  ]);
+  await installTestSession(page, env, {
+    email: TEST_EMAIL,
+    subject: TEST_SUBJECT,
+    expiresAt,
+    hasRefreshToken: true,
+  });
 }
 
 // ─── suite ──────────────────────────────────────────────────────────────────
@@ -459,6 +434,9 @@ test.describe("token refresh / session expiry (PR #2220)", () => {
     // keycloakUrl may be the docker-network hostname (keycloak:7080); replace
     // with localhost so the test runner on the host can reach the exposed port.
     const keycloakBaseUrl = env.keycloakUrl.replace(/\/\/keycloak(:\d+)?/, "//localhost$1");
+    // Master-realm admin creds default to the docker-compose dev values
+    // (KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD) but stay overridable for
+    // deployments that seed a different bootstrap admin.
     const adminTokenResp = await fetch(
       `${keycloakBaseUrl}/realms/master/protocol/openid-connect/token`,
       {
@@ -467,8 +445,8 @@ test.describe("token refresh / session expiry (PR #2220)", () => {
         body: new URLSearchParams({
           grant_type: "password",
           client_id: "admin-cli",
-          username: "admin",
-          password: "admin",
+          username: process.env.KEYCLOAK_ADMIN ?? "admin",
+          password: process.env.KEYCLOAK_ADMIN_PASSWORD ?? "admin",
         }).toString(),
       },
     );
