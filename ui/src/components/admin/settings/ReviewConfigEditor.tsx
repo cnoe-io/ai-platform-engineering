@@ -48,6 +48,8 @@ const MICRO_PROMPT_SOFT_LIMIT = 500;
 export interface ReviewConfigEditorProps {
   /** Stable target id (e.g. "agent-system-prompt"). */
   target: string;
+  /** Render the configuration without allowing changes. */
+  readOnly?: boolean;
   /** Notified after a successful save so the parent can refresh adjacent state. */
   onSaved?: (config: ReviewConfig) => void;
   /** Hide the editor-local save button when the parent renders one in its header. */
@@ -127,6 +129,7 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
   function ReviewConfigEditor(
     {
       target,
+      readOnly = false,
       onSaved,
       showInlineSave = true,
       onSavingChange,
@@ -270,6 +273,7 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
   // ─────────────────────────────────────────────────────────────
 
   async function handleSave() {
+    if (readOnly) return;
     const validationError = validate(state);
     if (validationError) {
       setError(validationError);
@@ -366,7 +370,7 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
   }
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={readOnly} className="space-y-4">
       {showInlineSave && (
         <SaveButton
           onSave={handleSave}
@@ -724,7 +728,7 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
           })}
         </CardContent>
       </Card>
-    </div>
+    </fieldset>
   );
   },
 );

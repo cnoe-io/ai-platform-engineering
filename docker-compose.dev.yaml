@@ -1070,6 +1070,9 @@ services:
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
       - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      # Dedicated /metrics port. 0 (default) serves metrics on the main API
+      # port — current behavior, unchanged.
+      - METRICS_PORT=${DYNAMIC_AGENTS_METRICS_PORT:-0}
 
     healthcheck:
       # Use /healthz (matches FastAPI route in routes/health.py and the Helm chart probes).

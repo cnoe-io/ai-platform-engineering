@@ -35,8 +35,8 @@ function group(displayName: string, id = displayName): ExternalGroup {
 }
 
 describe("identity group rule matcher", () => {
-  it("matches enabled rules by priority and renders deterministic team targets", () => {
-    const result = evaluateIdentityGroupRules({
+  it("matches enabled rules by priority and renders deterministic team targets", async () => {
+    const result = await evaluateIdentityGroupRules({
       groups: [group("Engineering Platform Admins")],
       rules: [baseRule],
       existingTeamSlugs: [],
@@ -56,8 +56,8 @@ describe("identity group rule matcher", () => {
     expect(result.conflicts).toEqual([]);
   });
 
-  it("ignores excluded groups before include matching", () => {
-    const result = evaluateIdentityGroupRules({
+  it("ignores excluded groups before include matching", async () => {
+    const result = await evaluateIdentityGroupRules({
       groups: [group("Engineering Platform Contractors")],
       rules: [baseRule],
       existingTeamSlugs: [],
@@ -73,8 +73,8 @@ describe("identity group rule matcher", () => {
     ]);
   });
 
-  it("matches generated slugs to existing teams instead of treating them as conflicts", () => {
-    const result = evaluateIdentityGroupRules({
+  it("matches generated slugs to existing teams instead of treating them as conflicts", async () => {
+    const result = await evaluateIdentityGroupRules({
       groups: [group("Engineering Platform Users")],
       rules: [baseRule],
       existingTeamSlugs: ["platform"],

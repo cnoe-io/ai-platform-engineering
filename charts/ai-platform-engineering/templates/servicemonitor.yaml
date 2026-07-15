@@ -1,3 +1,6 @@
+{{- $daPort := index .Values "dynamic-agents" "service" "port" | default 8001 | int }}
+{{- $daMetricsPort := index .Values "dynamic-agents" "service" "metricsPort" | default 0 | int }}
+{{- $daMetricsSeparate := and (ne $daMetricsPort 0) (ne $daMetricsPort $daPort) }}
 {{- if .Values.metrics.serviceMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -20,6 +23,8 @@ spec:
   #   - agentgateway: servicemonitor-agentgateway.yaml (admin port 15000)
   #   - keycloak: servicemonitor-keycloak.yaml (management port 9000)
   #   - openfga: servicemonitor-openfga.yaml (metrics port 2112)
+  #   - dynamic-agents (only when dynamic-agents.service.metricsPort is set
+  #     to a port different from the main port): servicemonitor-dynamic-agents.yaml
   # audit-service has no /metrics endpoint and is excluded entirely.
   selector:
     matchLabels:
@@ -40,6 +45,9 @@ spec:
           - keycloak
           - openfga
           - audit-service
+          {{- if $daMetricsSeparate }}
+          - dynamic-agents
+          {{- end }}
   endpoints:
     - port: http
       path: {{ .Values.metrics.path | default "/metrics" }}

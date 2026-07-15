@@ -8,6 +8,11 @@ jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: jest.fn(),
 }));
 
+import {
+  baselineAdminTuples,
+  baselineMemberTuples,
+} from "@/lib/rbac/baseline-access";
+
 import { deriveRbacSelfCheckReport, repairableMissingTuples, type RbacSelfCheckInventoryInput } from "../self-check";
 
 function baseInput(overrides: Partial<RbacSelfCheckInventoryInput> = {}): RbacSelfCheckInventoryInput {
@@ -128,13 +133,66 @@ describe("deriveRbacSelfCheckReport", () => {
       ],
     }));
 
-    expect(report.expected_by_source.baseline_access).toBe(4);
+    // An admin user's full member + admin baseline is authoritative, so every
+    // baseline grant is expected (not just the four present in actualTuples).
+    // The org-admin AgentGateway manager tuple is keyed on organization:caipe#admin,
+    // which is not in actualTuples here, so it is not added.
+    const expectedAdminBaseline =
+      baselineMemberTuples("sri-sub").length + baselineAdminTuples("sri-sub").length;
+    expect(report.expected_by_source.baseline_access).toBe(expectedAdminBaseline);
+    // The present tuples are all owned, so none are flagged as orphan candidates.
     expect(report.summary.orphan_candidates).toBe(0);
     expect(report.findings).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           severity: "orphan_candidate",
           tuple: expect.objectContaining({ user: "user:sri-sub" }),
+        }),
+      ]),
+    );
+  });
+
+  it("flags a synced user's missing member baseline (incl. mcp_gateway:list) as repairable", () => {
+    // A user provisioned by directory sync who never interactively logged into
+    // the web UI holds no baseline tuples. The member baseline is authoritative,
+    // so every member grant — including the mcp_gateway:list caller tuple the
+    // AgentGateway coarse gate requires — must be reported missing and repairable.
+    const report = deriveRbacSelfCheckReport(baseInput({
+      users: [
+        {
+          email: "synced@example.com",
+          keycloak_sub: "synced-sub",
+          metadata: { role: "user" },
+        },
+      ],
+      actualTuples: [],
+    }));
+
+    const memberBaseline = baselineMemberTuples("synced-sub");
+    expect(report.status).toBe("fail");
+    expect(report.summary.missing_tuples).toBe(memberBaseline.length);
+    // The gateway-gate tuple specifically must be flagged and repairable.
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "missing",
+          source: "baseline_access",
+          repairable: true,
+          tuple: { user: "user:synced-sub", relation: "caller", object: "mcp_gateway:list" },
+        }),
+      ]),
+    );
+    expect(repairableMissingTuples(report)).toEqual(
+      expect.arrayContaining([
+        { user: "user:synced-sub", relation: "caller", object: "mcp_gateway:list" },
+      ]),
+    );
+    // A member (non-admin) user must not have admin baseline grants forced in.
+    expect(report.findings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "missing",
+          tuple: { user: "user:synced-sub", relation: "admin", object: "organization:caipe" },
         }),
       ]),
     );

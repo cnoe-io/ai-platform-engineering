@@ -66,9 +66,24 @@ function requireStableSubject(session: { sub?: unknown }): string {
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
 
-    const { page, pageSize } = getPaginationParams(request);
-
     const collection = await getCollection<LLMModelConfig>(COLLECTION_NAME);
+    const requestedId = new URL(request.url).searchParams.get("id")?.trim();
+
+    if (requestedId) {
+      const model = await collection.findOne({ _id: requestedId });
+      if (!model) throw new ApiError("Model not found", 404);
+
+      const visibleItems = await filterResourcesByPermission(session, [model], {
+        type: "llm_model",
+        action: "read",
+        id: (item) => String(item._id),
+      });
+      if (visibleItems.length === 0) throw new ApiError("Model not found", 404);
+
+      return successResponse(model);
+    }
+
+    const { page, pageSize } = getPaginationParams(request);
     const total = await collection.countDocuments();
     const items = await collection
       .find({})

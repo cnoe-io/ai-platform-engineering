@@ -1,3 +1,7 @@
+---
+sidebar_position: 4
+---
+
 # Enterprise Identity Federation and User Impersonation in CAIPE
 
 ## Overview

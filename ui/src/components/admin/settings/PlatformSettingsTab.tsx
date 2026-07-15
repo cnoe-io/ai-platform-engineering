@@ -23,11 +23,12 @@ import { useEffect,useState } from "react";
 
 interface PlatformSettingsTabProps {
   isAdmin: boolean;
+  readOnly?: boolean;
 }
 
 type PendingAction = "set" | "clear";
 
-export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
+export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSettingsTabProps) {
   const [agents, setAgents] = useState<DynamicAgentConfig[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [savedAgentId, setSavedAgentId] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
   }, []);
 
   const handleSaveClick = () => {
-    if (!isAdmin) return;
+    if (!isAdmin || readOnly) return;
     if (selectedAgentId === savedAgentId) return;
     // Clearing the default → lighter confirmation.
     // Setting a new default → public-access confirmation.
@@ -83,7 +84,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
   };
 
   const handleConfirmSave = async () => {
-    if (!isAdmin) return;
+    if (!isAdmin || readOnly) return;
     setSaving(true);
     setSaveResult(null);
     try {
@@ -204,7 +205,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
             <select
               value={selectedAgentId ?? ''}
               onChange={(e) => setSelectedAgentId(e.target.value || null)}
-              disabled={!isAdmin}
+              disabled={!isAdmin || readOnly}
               className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 md:ml-4"
             >
               <option value="">No default agent</option>
@@ -234,6 +235,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
                 onSave={handleSaveClick}
                 saving={saving}
                 dirty={selectedAgentId !== savedAgentId}
+                disabled={readOnly}
                 result={saveResult}
                 testId="default-agent-save"
               />
@@ -262,6 +264,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               variant="outline"
               className="gap-2"
               onClick={() => setAnonymousModalOpen(true)}
+              disabled={readOnly}
               data-testid="unlinked-access-button"
             >
               <Shield className="h-4 w-4" />
@@ -272,7 +275,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
       )}
 
       {/* [TS-S3] Guard the modal under isAdmin so non-admins never mount it. */}
-      {isAdmin && (
+      {isAdmin && !readOnly && (
         <UnlinkedServiceAccountModal
           open={anonymousModalOpen}
           onOpenChange={setAnonymousModalOpen}
@@ -280,7 +283,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
         />
       )}
 
-      <ImportAgentsFromConfigCard isAdmin={isAdmin} />
+      <ImportAgentsFromConfigCard isAdmin={isAdmin} readOnly={readOnly} />
 
       <Dialog
         open={confirmAction !== null}

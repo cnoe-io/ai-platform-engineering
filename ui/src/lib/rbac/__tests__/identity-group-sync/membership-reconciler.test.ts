@@ -18,8 +18,8 @@ function source(overrides: Partial<TeamMembershipSource>): TeamMembershipSource 
 }
 
 describe("team membership source reconciler", () => {
-  it("adds new managed sources and materializes user-team tuples", () => {
-    const result = reconcileTeamMembershipSources({
+  it("adds new managed sources and materializes user-team tuples", async () => {
+    const result = await reconcileTeamMembershipSources({
       existingSources: [],
       desiredSources: [
         source({
@@ -41,8 +41,8 @@ describe("team membership source reconciler", () => {
     ]);
   });
 
-  it("removes only managed sources and preserves manual access", () => {
-    const result = reconcileTeamMembershipSources({
+  it("removes only managed sources and preserves manual access", async () => {
+    const result = await reconcileTeamMembershipSources({
       existingSources: [
         source({ source_type: "manual", managed: false }),
         source({ source_type: "oidc_claim", managed: true, sync_rule_id: "rule-platform" }),
@@ -63,8 +63,8 @@ describe("team membership source reconciler", () => {
     expect(result.tupleDeletes).toEqual([]);
   });
 
-  it("deletes the user-team tuple when the last active source is removed", () => {
-    const result = reconcileTeamMembershipSources({
+  it("deletes the user-team tuple when the last active source is removed", async () => {
+    const result = await reconcileTeamMembershipSources({
       existingSources: [source({ source_type: "oidc_claim", managed: true })],
       desiredSources: [],
       now: "2026-05-12T01:00:00.000Z",
@@ -79,7 +79,7 @@ describe("team membership source reconciler", () => {
     ]);
   });
 
-  it("re-emits tuple writes for RETAINED existing sources, not just adds (self-heal)", () => {
+  it("re-emits tuple writes for RETAINED existing sources, not just adds (self-heal)", async () => {
     // Regression for the interrupted-sync drift: a prior run upserted the
     // Mongo source row but its OpenFGA write never landed (pod SIGKILLed
     // mid-reconcile). On the next run the row is "existing" + still desired,
@@ -93,7 +93,7 @@ describe("team membership source reconciler", () => {
       sync_rule_id: "rule-platform",
       external_group_id: "platform",
     });
-    const result = reconcileTeamMembershipSources({
+    const result = await reconcileTeamMembershipSources({
       existingSources: [stranded],
       desiredSources: [stranded],
       now: "2026-05-12T01:00:00.000Z",
@@ -112,7 +112,7 @@ describe("team membership source reconciler", () => {
     ]);
   });
 
-  it("collapses duplicate (user, relation, team) across multiple retained sources", () => {
+  it("collapses duplicate (user, relation, team) across multiple retained sources", async () => {
     // A user can hold the same access via two sources (e.g. manual + okta).
     // The re-emitted write set must dedupe so we don't send the same tuple
     // twice to OpenFGA in one diff.
@@ -123,7 +123,7 @@ describe("team membership source reconciler", () => {
       sync_rule_id: "rule-platform",
       external_group_id: "platform",
     });
-    const result = reconcileTeamMembershipSources({
+    const result = await reconcileTeamMembershipSources({
       existingSources: [manual, okta],
       desiredSources: [manual, okta],
       now: "2026-05-12T01:00:00.000Z",

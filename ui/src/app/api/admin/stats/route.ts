@@ -6,6 +6,10 @@ successResponse,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import {
+resolveAuthorizedAdminSimulationScope,
+simulationSubjectCanManageAdminSurface,
+} from '@/lib/rbac/admin-simulation-server';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
 import {
@@ -82,24 +86,33 @@ async function getAdminStats(request: NextRequest) {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  const isFullAdmin = await requireAdminSurfaceManage(session, 'stats').then(() => true, () => false);
+  const { searchParams } = request.nextUrl;
+  const simulationScope = await resolveAuthorizedAdminSimulationScope(searchParams, session);
+  const isFullAdmin = simulationScope
+    ? await simulationSubjectCanManageAdminSurface(simulationScope, 'stats')
+    : await requireAdminSurfaceManage(session, 'stats').then(() => true, () => false);
 
   // Non-admin: scope to their readable Slack channels + their own web conversations.
   let nonAdminScope: { channelNames: string[]; ownerEmail: string } | null = null;
   if (!isFullAdmin) {
-    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
-    const email = typeof session.user?.email === 'string' ? session.user.email.trim() : '';
-    if (!sub && !email) {
+    const openfgaUser = simulationScope?.openfgaUser ?? (
+      typeof session.sub === 'string' && session.sub.trim()
+        ? `user:${session.sub.trim()}`
+        : ''
+    );
+    const email = simulationScope?.ownerEmail ?? (
+      typeof session.user?.email === 'string' ? session.user.email.trim() : ''
+    );
+    if (!openfgaUser && !email) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
-    const channelNames = sub ? await getReadableSlackChannelNames(`user:${sub}`) : [];
+    const channelNames = openfgaUser ? await getReadableSlackChannelNames(openfgaUser) : [];
     nonAdminScope = { channelNames, ownerEmail: email };
   }
 
-    const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
 
     // Optional filters

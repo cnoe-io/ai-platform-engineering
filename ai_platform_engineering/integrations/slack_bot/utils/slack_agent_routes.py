@@ -194,12 +194,15 @@ class SlackAgentRouteResolver:
         try:
             store_id = _openfga_store_id(base_url)
             workspace_ref = slack_workspace_ref(workspace_id)
+            channel_subject = f"slack_channel:{workspace_ref}--{channel_id}"
             agent_ids: list[str] = []
             seen: set[str] = set()
             continuation_token: str | None = None
             while True:
-                channel_subject = f"slack_channel:{workspace_ref}--{channel_id}"
-                body: dict[str, Any] = {"page_size": 100}
+                body: dict[str, Any] = {
+                    "page_size": 100,
+                    "tuple_key": {"user": channel_subject, "relation": "user", "object": "agent:"},
+                }
                 if continuation_token:
                     body["continuation_token"] = continuation_token
                 response = requests.post(

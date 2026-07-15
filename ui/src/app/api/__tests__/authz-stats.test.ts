@@ -4,7 +4,7 @@
 import { NextRequest } from "next/server";
 
 const mockGetAuth = jest.fn();
-const mockRequireBaseline = jest.fn();
+const mockRequireManage = jest.fn();
 const mockGetEngineStats = jest.fn();
 const mockAuditQuery = jest.fn();
 
@@ -32,7 +32,7 @@ jest.mock("@/lib/api-middleware", () => {
   };
 });
 jest.mock("@/lib/rbac/require-openfga", () => ({
-  requireBaselineAdminSurfaceRead: (...a: unknown[]) => mockRequireBaseline(...a),
+  requireAdminSurfaceManage: (...a: unknown[]) => mockRequireManage(...a),
 }));
 jest.mock("@/lib/authz", () => ({ getEngineStats: (...a: unknown[]) => mockGetEngineStats(...a) }));
 jest.mock("@/lib/audit/reader", () => ({
@@ -50,7 +50,7 @@ const ENGINE = { circuitState: "closed", cacheSize: 3, cacheHits: 7, cacheMisses
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetAuth.mockResolvedValue({ session: { org: "acme" } });
-  mockRequireBaseline.mockResolvedValue(undefined);
+  mockRequireManage.mockResolvedValue(undefined);
   mockGetEngineStats.mockReturnValue(ENGINE);
   mockAuditQuery.mockResolvedValue([]);
 });
@@ -96,5 +96,5 @@ it("rejects an invalid window with 400", async () => {
 
 it("enforces the metrics admin surface gate", async () => {
   await GET(req("?window=24h"));
-  expect(mockRequireBaseline).toHaveBeenCalledWith(expect.anything(), "metrics");
+  expect(mockRequireManage).toHaveBeenCalledWith(expect.anything(), "metrics");
 });

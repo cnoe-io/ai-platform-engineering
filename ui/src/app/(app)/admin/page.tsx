@@ -55,6 +55,7 @@ import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
+import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
@@ -502,8 +503,20 @@ function AdminPage() {
   const pathname = usePathname();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
+  const simulationScopeKey = simulationTarget
+    ? `${simulationTarget.type}:${simulationTarget.id}:${simulationTarget.relation ?? ""}`
+    : "current-user";
   const { gates, integrationPanelModes, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
   const isSimulationActive = Boolean(simulationTarget);
+  const canMutateAdminData = isAdmin && !isSimulationActive;
+  const effectiveOrganizationAdmin = isSimulationActive
+    ? Boolean(simulation?.subject?.organization_admin)
+    : isAdmin;
+  const simulationDisplayName =
+    simulation?.subject?.display_name ||
+    simulation?.subject?.email ||
+    simulationTarget?.id ||
+    "selected account";
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -542,7 +555,7 @@ function AdminPage() {
   const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
   const userSelectedAdminTabRef = useRef(false);
   const initialTab = searchParams.get('tab');
-  const defaultTab = isAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
+  const defaultTab = effectiveOrganizationAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
   const [activeTab, setActiveTab] = useState<string>(
     isValidTab(initialTab) ? initialTab : defaultTab
   );
@@ -559,13 +572,16 @@ function AdminPage() {
       feedback: Boolean(gates.feedback && feedbackEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
-      settings: !isSimulationActive,
-      ai_review: isAdmin && !isSimulationActive,
+      // General settings are part of the normal read-only user experience.
+      // Keep them visible during View As and let the child panels enforce the
+      // preview's read-only mode through `canMutateAdminData`.
+      settings: true,
+      ai_review: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
     }),
-    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive]
+    [auditLogsEnabled, effectiveOrganizationAdmin, feedbackEnabled, gates]
   );
 
   const visibleCategories = useMemo(
@@ -847,18 +863,31 @@ function AdminPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const visitedTabsRef = useRef<Set<string>>(new Set());
+  const previousSimulationScopeKeyRef = useRef(simulationScopeKey);
+  const activeDataScopeKeyRef = useRef(simulationScopeKey);
+  activeDataScopeKeyRef.current = simulationScopeKey;
 
+  // Data loaded for one preview subject must never survive a switch to a
+  // different subject (or back to the current user). Clear the lazy-load
+  // guards and scoped response state before loading the active tab again.
   useEffect(() => {
-    if (status === "authenticated" || !getConfig('ssoEnabled')) {
-      loadTabData(activeTab);
+    if (previousSimulationScopeKeyRef.current !== simulationScopeKey) {
+      previousSimulationScopeKeyRef.current = simulationScopeKey;
+      visitedTabsRef.current.clear();
+      setStats(null);
+      setGlobalOverview(null);
+      setFeedbackData(null);
+      setStatsChannels([]);
+      setFeedbackChannels([]);
+      setFeedbackUsers([]);
+      setTeams([]);
+      setStatsRefreshing(false);
+      setFeedbackLoading(false);
+      setLoading(false);
     }
-  }, [status]);
-
-  // Load data for newly-visited tabs
-  useEffect(() => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     loadTabData(activeTab);
-  }, [activeTab, status]);
+  }, [activeTab, simulationScopeKey, status]);
 
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
@@ -967,6 +996,7 @@ function AdminPage() {
   const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
   const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const requestScopeKey = simulationScopeKey;
     setStatsRefreshing(true);
     try {
       const r = range ?? dateRange;
@@ -977,10 +1007,10 @@ function AdminPage() {
       if (s !== 'all') params.set('source', s);
       if (u.length > 0) params.set('user', u.join(','));
       if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
-      const res = await fetch(`/api/admin/stats?${params}`);
+      const res = await fetch(withAdminSimulationParams(`/api/admin/stats?${params}`, simulationTarget));
       if (res.ok) {
         const json = await res.json();
-        if (json.success) {
+        if (json.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setStats(json.data);
           if (json.data.available_channels) setStatsChannels(json.data.available_channels);
         }
@@ -988,7 +1018,9 @@ function AdminPage() {
     } catch {
       // keep existing stats on failure
     } finally {
-      setStatsRefreshing(false);
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setStatsRefreshing(false);
+      }
     }
   };
   useEffect(() => {
@@ -1002,6 +1034,7 @@ function AdminPage() {
   }, [dateRange, sourceFilter, userFilter, status]);
 
   const loadStats = async () => {
+    const requestScopeKey = simulationScopeKey;
     setLoading(true);
     setError(null);
     try {
@@ -1010,9 +1043,13 @@ function AdminPage() {
       if (sourceFilter !== 'all') p.set('source', sourceFilter);
       if (userFilter.length > 0) p.set('user', userFilter.join(','));
       const [statsRes, globalStatsRes] = await Promise.all([
-        fetch(`/api/admin/stats?${p}`),
-        hasStatsFilters ? fetch('/api/admin/stats') : null,
+        fetch(withAdminSimulationParams(`/api/admin/stats?${p}`, simulationTarget)),
+        hasStatsFilters
+          ? fetch(withAdminSimulationParams('/api/admin/stats', simulationTarget))
+          : null,
       ]);
+
+      if (activeDataScopeKeyRef.current !== requestScopeKey) return;
 
       if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
@@ -1039,10 +1076,13 @@ function AdminPage() {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
     } catch (err: any) {
+      if (activeDataScopeKeyRef.current !== requestScopeKey) return;
       console.error('[Admin] Failed to load stats:', err);
       setError(err.message || 'Failed to load stats');
     } finally {
-      setLoading(false);
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setLoading(false);
+      }
     }
   };
 
@@ -1068,11 +1108,12 @@ function AdminPage() {
 
   const loadFeedbackOnce = async () => {
     if (!getConfig('feedbackEnabled')) return;
+    const requestScopeKey = simulationScopeKey;
     try {
-      const res = await fetch('/api/admin/feedback');
+      const res = await fetch(withAdminSimulationParams('/api/admin/feedback', simulationTarget));
       if (res.ok) {
         const data = await res.json().catch(() => ({ success: false }));
-        if (data.success) {
+        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setFeedbackData(data.data);
           if (data.data.channels) setFeedbackChannels(data.data.channels);
           if (data.data.users) setFeedbackUsers(data.data.users);
@@ -1087,17 +1128,17 @@ function AdminPage() {
     if (visitedTabsRef.current.has(tab)) return;
     visitedTabsRef.current.add(tab);
 
-    // Teams data is shared across stats/slack/feedback filter dropdowns.
+    // Teams data is shared across the Stats and Feedback filter dropdowns.
     // Use a data-level key (not the tab name) so it isn't confused with the
     // tab-visit guard that loadTabData adds before invoking the loader.
     const loadTeamsIfNeeded = () => {
+      if (isSimulationActive) return Promise.resolve();
       if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
       visitedTabsRef.current.add('_teams-loaded');
       return loadTeamsData();
     };
 
-    // Stats data is shared between the stats and slack tabs. Use a separate
-    // key so visiting one doesn't cause the other to re-fetch it.
+    // Stats data uses a separate key from the tab-visit guard.
     const loadStatsIfNeeded = () => {
       if (visitedTabsRef.current.has('_stats-loaded')) return Promise.resolve();
       visitedTabsRef.current.add('_stats-loaded');
@@ -1109,10 +1150,9 @@ function AdminPage() {
     // The Teams tab is NOT listed here: its grid is server-paginated and
     // self-loads via a debounced effect, so it must not pull the full team
     // list. The full list (`loadTeamsIfNeeded`) is only needed by tabs whose
-    // dropdowns offer every team for selection (stats/slack/feedback).
+    // dropdowns offer every team for selection (Stats and Feedback).
     const loaders: Record<string, () => Promise<void>> = {
       stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
-      slack: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
       skills: loadSkillStats,
       feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
     };
@@ -1130,6 +1170,7 @@ function AdminPage() {
     users?: string[],
     range?: DateRange,
   ) => {
+    const requestScopeKey = simulationScopeKey;
     setFeedbackLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '50' });
@@ -1147,10 +1188,10 @@ function AdminPage() {
       const dr = range ?? dateRange;
       if (dr.from) params.set('from', dr.from);
       if (dr.to) params.set('to', dr.to);
-      const res = await fetch(`/api/admin/feedback?${params}`);
+      const res = await fetch(withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget));
       if (res.ok) {
         const data = await res.json();
-        if (data.success) {
+        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setFeedbackData(data.data);
           if (data.data.channels) setFeedbackChannels(data.data.channels);
           if (data.data.users) setFeedbackUsers(data.data.users);
@@ -1159,7 +1200,9 @@ function AdminPage() {
     } catch (err) {
       console.error('[Admin] Failed to load feedback:', err);
     } finally {
-      setFeedbackLoading(false);
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setFeedbackLoading(false);
+      }
     }
   };
 
@@ -1208,6 +1251,7 @@ function AdminPage() {
   };
 
   const openTeamDialog = (team: Team, mode: TeamDialogMode) => {
+    if (isSimulationActive) return;
     setSelectedTeam(team as TeamType);
     setTeamDialogMode(mode);
     setTeamDetailsOpen(true);
@@ -1256,6 +1300,24 @@ function AdminPage() {
                     : ', View access, teams, health, and platform settings'}
                 </span>
               </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setSimulationDialogOpen(true)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    isSimulationActive
+                      ? 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  {isSimulationActive ? (
+                    <span className="max-w-64 truncate">Viewing as {simulationDisplayName}</span>
+                  ) : (
+                    'View as'
+                  )}
+                </button>
+              )}
               {!isAdmin && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   <Eye className="h-3.5 w-3.5" />
@@ -1304,34 +1366,15 @@ function AdminPage() {
                     </button>
                   );
                 })}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setSimulationDialogOpen(true)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      isSimulationActive
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                        : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    View as
-                    {isSimulationActive && (
-                      <span className="max-w-40 truncate">
-                        {simulation?.subject?.openfga_user ?? simulationTarget?.id}
-                      </span>
-                    )}
-                  </button>
-                )}
               </div>
 
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>View As Effective Permissions</DialogTitle>
+                    <DialogTitle>View As — Read-Only Access Preview</DialogTitle>
                     <DialogDescription>
-                      Search for a real user or team. Preview is read-only and evaluates Admin visibility
-                      against the selected OpenFGA subject.
+                      Preview which Admin areas and connected resources a user or team can access.
+                      This does not sign in as them or change your current session.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -1378,7 +1421,7 @@ function AdminPage() {
 
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-search">
-                        {simulationType === "team" ? "Search team, slug, or role" : "Search user, email, or sub"}
+                        {simulationType === "team" ? "Search team by name, slug, or ID" : "Search user by name, email, or ID"}
                       </label>
                       <div className="relative">
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1392,13 +1435,13 @@ function AdminPage() {
                           placeholder={
                             simulationType === "team"
                               ? "Search team name or slug"
-                              : "Search by email, name, or Keycloak sub"
+                              : "Search by email, name, or user ID"
                           }
                           className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        You can select a search result or enter a raw OpenFGA id directly.
+                        Select a search result or enter an exact user or team ID.
                       </p>
                     </div>
 
@@ -1451,18 +1494,12 @@ function AdminPage() {
                       )}
                     </div>
 
-                    {isSimulationActive && (
-                      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
-                        <span className="font-medium">Active preview:</span>{" "}
-                        <code>{simulation?.subject?.openfga_user ?? `${simulationTarget?.type}:${simulationTarget?.id}`}</code>
-                      </div>
-                    )}
                   </div>
 
                   <DialogFooter>
                     {isSimulationActive && (
                       <Button type="button" variant="outline" onClick={clearSimulationTarget}>
-                        Exit Simulation
+                        Exit Preview
                       </Button>
                     )}
                     <Button type="button" onClick={applySimulationTarget} disabled={!simulationId.trim()}>
@@ -1472,41 +1509,64 @@ function AdminPage() {
                 </DialogContent>
               </Dialog>
 
+              {isSimulationActive && !adminTabGatesLoading && visibleCategories.length === 0 && (
+                <div
+                  role="status"
+                  className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-10 text-center"
+                >
+                  <p className="font-medium">No Admin access is available to {simulationDisplayName}.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    This account has no Admin areas or connected Slack/Webex resources available.
+                  </p>
+                </div>
+              )}
+
               {/* Filtered sub-tabs for the active category */}
-              <TabsList className="flex w-full justify-start gap-0">
-                {visibleTabsForCategory.map((t) => {
-                  const Icon = t.icon;
-                  return (
-                    <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
-                      <Icon className="h-4 w-4" />
-                      {t.label}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
+              {visibleTabsForCategory.length > 0 && (
+                <TabsList className="flex w-full justify-start gap-0">
+                  {visibleTabsForCategory.map((t) => {
+                    const Icon = t.icon;
+                    return (
+                      <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
+                        <Icon className="h-4 w-4" />
+                        {t.label}
+                      </TabsTrigger>
+                    );
+                  })}
+                </TabsList>
+              )}
 
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab isAdmin={isAdmin} />
-                  <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                  <PlatformSettingsTab
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                  <ReleaseNotesSettingsTab
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
                 </TabsContent>
               )}
 
               {tabGateValues.service_accounts && (
                 <TabsContent value="service-accounts" className="space-y-4">
-                  <ServiceAccountsTab />
+                  <ServiceAccountsTab
+                    readOnly={isSimulationActive}
+                    simulationTarget={simulationTarget}
+                  />
                 </TabsContent>
               )}
 
               {tabGateValues.ai_review && (
                 <TabsContent value="ai-review" className="space-y-4">
-                  <ReviewConfigsTab />
+                  <ReviewConfigsTab readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
               {tabGateValues.credentials && (
                 <TabsContent value="credentials" className="space-y-4">
-                  <AdminCredentialManagementPanel />
+                  <AdminCredentialManagementPanel readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -1514,11 +1574,8 @@ function AdminPage() {
                 <TabsContent value="slack" className="space-y-4">
                   <SlackChannelRebacPanel
                     disabled={isSimulationActive}
-                    selfService={
-                      integrationPanelModes.slack
-                        ? integrationPanelModes.slack === "self_service"
-                        : !isAdmin
-                    }
+                    simulationTarget={simulationTarget}
+                    selfService={integrationPanelModes.slack !== "full"}
                   />
                 </TabsContent>
               )}
@@ -1527,11 +1584,8 @@ function AdminPage() {
                 <TabsContent value="webex" className="space-y-4">
                   <WebexSpaceRebacPanel
                     disabled={isSimulationActive}
-                    selfService={
-                      integrationPanelModes.webex
-                        ? integrationPanelModes.webex === "self_service"
-                        : !isAdmin
-                    }
+                    simulationTarget={simulationTarget}
+                    selfService={integrationPanelModes.webex !== "full"}
                   />
                 </TabsContent>
               )}
@@ -1544,7 +1598,7 @@ function AdminPage() {
                     userId={selectedUserId}
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
-                    readOnly={!isAdmin}
+                    readOnly={!canMutateAdminData}
                     teamOptions={teams.length > 0 ? teams.map((t) => ({ teamId: t.name, label: t.name })) : undefined}
                   />
                 )}
@@ -1601,7 +1655,7 @@ function AdminPage() {
                       )}
                       Refresh Teams
                     </Button>
-                    {isAdmin && (
+                    {canMutateAdminData && (
                       <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
                         <UserPlus className="h-4 w-4" />
                         Create Team
@@ -1618,11 +1672,11 @@ function AdminPage() {
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
                     <p className="text-muted-foreground mb-4">
-                      {isAdmin
+                      {canMutateAdminData
                         ? 'Create teams to enable collaboration and conversation sharing'
                         : 'No teams have been created yet'}
                     </p>
-                    {isAdmin && (
+                    {canMutateAdminData && (
                       <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
                         <UserPlus className="h-4 w-4" />
                         Create Your First Team
@@ -1659,7 +1713,7 @@ function AdminPage() {
                                 <CardDescription>{team.description}</CardDescription>
                               )}
                             </div>
-                            {isAdmin && (
+                            {canMutateAdminData && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1702,24 +1756,28 @@ function AdminPage() {
                               icon={<Users className="h-3.5 w-3.5" />}
                               label="Members"
                               count={team.member_count ?? 0}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "members")}
                             />
                             <StatChip
                               icon={<Bot className="h-3.5 w-3.5" />}
                               label="Agents"
                               count={team.agent_count ?? 0}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
                               label="MCPs"
                               count={team.tool_wildcard ? "*" : (team.tool_count ?? 0)}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "mcp")}
                             />
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
                               label="KBs"
                               count={team.kb_count ?? 0}
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "kbs")}
                             />
                           </div>
@@ -1730,12 +1788,13 @@ function AdminPage() {
                           <div className="mt-4">
                             <Button
                               size="sm"
-                              variant={(isAdmin || team.can_manage) ? "default" : "outline"}
+                              variant={(!isSimulationActive && (isAdmin || team.can_manage)) ? "default" : "outline"}
                               className="w-full gap-1.5"
+                              disabled={isSimulationActive}
                               onClick={() => openTeamDialog(team, "details")}
                             >
                               <Settings className="h-3.5 w-3.5" />
-                              {(isAdmin || team.can_manage) ? "Manage team" : "View team"}
+                              {(!isSimulationActive && (isAdmin || team.can_manage)) ? "Manage team" : "View team"}
                             </Button>
                           </div>
                         </CardContent>
@@ -1780,7 +1839,7 @@ function AdminPage() {
                   shown only when a directory connector is enabled. */}
               {tabGateValues.identity_sync && (
                 <TabsContent value="identity-sync" className="space-y-4">
-                  <IdentitySyncPanel isAdmin={isAdmin} />
+                  <IdentitySyncPanel isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
@@ -1912,7 +1971,7 @@ function AdminPage() {
                 )}
 
                 {/* Skill Hubs */}
-                <SkillHubsSection isAdmin={isAdmin} />
+                <SkillHubsSection isAdmin={canMutateAdminData} />
               </TabsContent>
 
               {/* Feedback Tab */}
@@ -2772,15 +2831,17 @@ function AdminPage() {
                     )}
 
                     {/* Checkpoint Persistence */}
-                    <CheckpointStatsSection />
+                    {canMutateAdminData && <CheckpointStatsSection />}
                   </div>
                 )}
               </TabsContent>
 
               {/* Agent Metrics Tab (Prometheus) */}
-              <TabsContent value="metrics" className="space-y-4">
-                <MetricsTab />
-              </TabsContent>
+              {tabGateValues.metrics && (
+                <TabsContent value="metrics" className="space-y-4">
+                  <MetricsTab />
+                </TabsContent>
+              )}
 
               {/* System Health Tab (live Prometheus + static services) */}
               <TabsContent value="health" className="space-y-4">
@@ -2790,31 +2851,31 @@ function AdminPage() {
               {/* CAS Insights — authorization service health + decision stats */}
               {tabGateValues.metrics && (
                 <TabsContent value="cas-insights" className="space-y-4">
-                  <CasInsightsTab isAdmin={isAdmin} />
+                  <CasInsightsTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
-                  <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
+                  <AuditLogsTab isAdmin={canMutateAdminData} onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
               {tabGateValues.action_audit && (
                 <TabsContent value="action-audit" className="space-y-4">
-                  <UnifiedAuditTab isAdmin={isAdmin} />
+                  <UnifiedAuditTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
               {tabGateValues.openfga && (
                 <TabsContent value="access-explorer" className="space-y-4">
-                  <AccessExplorerTab isAdmin={isAdmin} />
+                  <AccessExplorerTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
               {tabGateValues.openfga && (
                 <TabsContent value="rbac-self-check" className="space-y-4">
-                  <RbacSelfCheckTab isAdmin={isAdmin} />
+                  <RbacSelfCheckTab isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 
@@ -2826,7 +2887,7 @@ function AdminPage() {
 
               {tabGateValues.migrations && (
                 <TabsContent value="migrations" className="space-y-4">
-                  <MigrationTab isAdmin={tabGateValues.migrations} />
+                  <MigrationTab isAdmin={canMutateAdminData && tabGateValues.migrations} />
                 </TabsContent>
               )}
 
@@ -2951,6 +3012,7 @@ function StatChip({
   count,
   ariaLabel,
   title,
+  disabled = false,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -2959,15 +3021,17 @@ function StatChip({
   count?: number | string;
   ariaLabel?: string;
   title?: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       aria-label={ariaLabel}
+      disabled={disabled}
       onClick={onClick}
-      className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={title || `Manage ${label.toLowerCase()}`}
+      className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-muted/30"
+      title={title || (disabled ? `${label} details are disabled during preview` : `Manage ${label.toLowerCase()}`)}
     >
       <div className="flex items-center gap-1 text-muted-foreground">
         {icon}

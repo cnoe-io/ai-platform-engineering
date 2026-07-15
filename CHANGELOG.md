@@ -1,3 +1,27 @@
+## 0.5.50-dev.2 (2026-07-13)
+
+### Fix
+
+- **slack-bot**: demote profiling stage logs from INFO to DEBUG
+- **slack-bot**: filter OpenFGA tuple read server-side by channel subject
+- **slack-bot**: add stage timing logs to profile routing delay
+
+## 0.5.50-dev.1 (2026-07-13)
+
+### Feat
+
+- **idp-sync**: log per-stage progress through a directory sync
+- **docs**: add vidcast links for scheduler and mcp webex meetings
+
+### Fix
+
+- **idp-sync**: make the plan/reconcile chain async and O(n) to keep probes alive
+- **idp-sync**: yield the event loop during synchronous member passes
+- **idp-sync**: bootstrap baseline access before team apply and parallelize member resolution
+- **rbac**: bootstrap member baseline for directory-synced users
+
+## 0.5.50 (2026-07-10)
+
 ## 0.5.49-dev.2 (2026-07-10)
 
 ### Fix
