@@ -511,4 +511,41 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     expect(emails).toEqual(['alice@example.com', 'dave@example.com', 'erin@example.com']);
     expect(body.total).toBe(3);
   });
+
+  // Regression test for the prod incident: a large (e.g. Okta-synced,
+  // org-wide) team used to resolve every member's email via Keycloak in one
+  // unbounded `Promise.all`, firing thousands of concurrent admin API calls
+  // that OOMKilled the istio-proxy sidecar. This asserts the route now only
+  // resolves the requested page's slice of members per request.
+  it("pages large teams instead of resolving every member in one request", async () => {
+    const emails = Array.from({ length: 45 }, (_, i) => `member${String(i).padStart(2, '0')}@example.com`);
+    setMemberTeams(['team:org-wide']);
+    setMembershipBySlug({ 'org-wide': emails });
+    resolveUsersByEmail(
+      Object.fromEntries(emails.map((email, i) => [email, { id: `u-${i}` }]))
+    );
+
+    const page1 = await GET(makeRequest('/api/admin/users?page=1&pageSize=20'));
+    expect(page1.status).toBe(200);
+    const body1 = await page1.json();
+    expect(body1.scoped).toBe('team');
+    expect(body1.total).toBe(45);
+    expect(body1.page).toBe(1);
+    expect(body1.pageSize).toBe(20);
+    expect(body1.users).toHaveLength(20);
+    // Only this page's 20 emails were resolved via Keycloak, not all 45.
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledTimes(20);
+    expect(body1.users.map((u: { email: string }) => u.email).sort()).toEqual(
+      emails.slice(0, 20).sort()
+    );
+
+    mockFindRealmUsersByExactEmail.mockClear();
+
+    const page3 = await GET(makeRequest('/api/admin/users?page=3&pageSize=20'));
+    const body3 = await page3.json();
+    // Final page only has the remaining 5 members.
+    expect(body3.users).toHaveLength(5);
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledTimes(5);
+    expect(body3.total).toBe(45);
+  });
 });

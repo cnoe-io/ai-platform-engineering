@@ -237,6 +237,19 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const includeRolesRaw = (url.searchParams.get("includeRoles") ?? "").trim().toLowerCase();
   const includeRoles = includeRolesRaw === "true" || includeRolesRaw === "1";
 
+  // Parsed once up front so both the plain-member (team-scoped) branch below
+  // and the admin/team-admin branch can page their Keycloak round-trips
+  // instead of resolving every row in one request.
+  const page = parseInt(url.searchParams.get("page") ?? "1", 10);
+  const pageSize = parseInt(url.searchParams.get("pageSize") ?? "20", 10);
+  if (Number.isNaN(page) || page < 1) {
+    throw new ApiError("page must be >= 1", 400);
+  }
+  if (Number.isNaN(pageSize) || pageSize < 1 || pageSize > 100) {
+    throw new ApiError("pageSize must be between 1 and 100", 400);
+  }
+  const skip = (page - 1) * pageSize;
+
   // Resolve the caller's subject + the teams they administer (`team#admin`).
   // Org/super admins keep the unscoped full-list view. A TEAM admin (not org
   // admin) is now widened to the same full-list view so they can VIEW any
@@ -347,14 +360,20 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       });
     }
 
-    // Resolve each team member by exact email rather than scanning the whole
-    // realm. The membership store already gives us the exact set of emails, so
-    // an indexed per-email lookup is O(team size) instead of O(realm size) —
-    // critical now that every non-admin pays this on each Users-tab load.
+    // Resolve only the requested page's worth of members by exact email,
+    // rather than scanning the whole realm OR resolving every member of the
+    // team in one request. A team can be arbitrarily large (e.g. an
+    // Okta-synced org-wide group with thousands of members) — fanning out one
+    // Keycloak call per member on every Users-tab load caused an unbounded
+    // concurrent request burst that OOMKilled the istio-proxy sidecar in prod.
+    // Sorting first gives stable pagination across requests.
+    const sortedEmails = [...teamEmailUnion].sort();
+    const pageEmails = sortedEmails.slice(skip, skip + pageSize);
+
     const seenIds = new Set<string>();
     const teamUsers: AdminUsersListItem[] = [];
     await Promise.all(
-      [...teamEmailUnion].map(async (email) => {
+      pageEmails.map(async (email) => {
         try {
           const matches = await findRealmUsersByExactEmail(email);
           for (const u of matches) {
@@ -372,9 +391,9 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     // Plain members can only edit their own profile.
     return NextResponse.json({
       users: teamUsers.map((u) => ({ ...u, can_edit: u.id === subject })),
-      total: teamUsers.length,
-      page: 1,
-      pageSize: teamUsers.length,
+      total: teamEmailUnion.size,
+      page,
+      pageSize,
       scoped: "team",
     });
   }
@@ -403,15 +422,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
             })();
 
     const enabled = parseBoolParam(url.searchParams.get("enabled"));
-
-    const page = parseInt(url.searchParams.get("page") ?? "1", 10);
-    const pageSize = parseInt(url.searchParams.get("pageSize") ?? "20", 10);
-    if (Number.isNaN(page) || page < 1) {
-      throw new ApiError("page must be >= 1", 400);
-    }
-    if (Number.isNaN(pageSize) || pageSize < 1 || pageSize > 100) {
-      throw new ApiError("pageSize must be between 1 and 100", 400);
-    }
 
     if (team && !isMongoDBConfigured) {
       return NextResponse.json(
@@ -452,8 +462,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       Boolean(webexStatus);
     const pendingSlackIds =
       needsScan || !slackStatus ? await loadPendingSlackIds() : new Set<string>();
-
-    const skip = (page - 1) * pageSize;
 
     if (!needsScan) {
       const first = skip;
