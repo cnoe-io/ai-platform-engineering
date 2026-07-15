@@ -952,15 +952,12 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'Navigation',
-        'Release notes',
         'AI Review',
         'Credentials',
         'Skills',
         'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      // Release notes lives under General, not as a standalone tab.
       expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();

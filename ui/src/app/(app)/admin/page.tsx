@@ -34,7 +34,6 @@ import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
 import { TeamDetailsDialog,type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
 import { ServiceAccountsTab } from "@/components/admin/ServiceAccountsTab";
-import { TopNavSettingsTab } from "@/components/admin/TopNavSettingsTab";
 import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
 import { AuthGuard } from "@/components/auth-guard";
@@ -228,7 +227,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'navigation', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -263,8 +262,6 @@ const CATEGORIES: Category[] = [
     icon: Settings,
     tabs: [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
-      { value: 'navigation', label: 'Navigation', icon: LayoutGrid, gateKey: 'settings' },
-      { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
@@ -1550,14 +1547,6 @@ function AdminPage() {
                     readOnly={isSimulationActive}
                   />
                 </TabsContent>
-              )}
-
-              {tabGateValues.settings && (
-                <>
-                  <TabsContent value="navigation" className="space-y-4">
-                    <TopNavSettingsTab isAdmin={isAdmin} />
-                  </TabsContent>
-                </>
               )}
 
               {tabGateValues.service_accounts && (
