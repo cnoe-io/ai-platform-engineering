@@ -248,9 +248,14 @@ _ensure_caipe_platform_user_roles() {
 }
 
 _ensure_realm_session_lifetimes() {
+  # Defaults: 1h access token, 7d SSO idle (refresh token lifetime), 14d SSO max.
+  # Override via KEYCLOAK_ACCESS_TOKEN_LIFESPAN / KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT
+  # / KEYCLOAK_SSO_SESSION_MAX_LIFESPAN in .env or Helm values.
+  # For Duo SSO deployments the idle timeout is the effective refresh-token TTL —
+  # a Keycloak session refresh prolongs it on activity, up to the max lifespan.
   local ACCESS_TOKEN_LIFESPAN="${KEYCLOAK_ACCESS_TOKEN_LIFESPAN:-3600}"
-  local SSO_IDLE_TIMEOUT="${KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT:-28800}"
-  local SSO_MAX_LIFESPAN="${KEYCLOAK_SSO_SESSION_MAX_LIFESPAN:-86400}"
+  local SSO_IDLE_TIMEOUT="${KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT:-604800}"
+  local SSO_MAX_LIFESPAN="${KEYCLOAK_SSO_SESSION_MAX_LIFESPAN:-1209600}"
 
   echo "[init-idp] Ensuring realm session lifetimes: access=${ACCESS_TOKEN_LIFESPAN}s, idle=${SSO_IDLE_TIMEOUT}s, max=${SSO_MAX_LIFESPAN}s ..."
   if [ -z "${AUTH:-}" ]; then
