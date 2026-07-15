@@ -11,10 +11,11 @@ import { signOut,useSession } from "next-auth/react";
 import { useCallback,useEffect,useRef,useState } from "react";
 
 const LOGIN_REDIRECT_COUNTDOWN_SECONDS = 5;
+// AccessTokenMissing is intentionally absent here — it has its own retry-budget
+// handling above (lines 198-211) and must never fall through to immediate logout.
 const SESSION_CREDENTIAL_ERRORS = new Set([
   "RefreshTokenExpired",
   "RefreshTokenError",
-  "AccessTokenMissing",
 ]);
 /**
  * How many consecutive 30s check cycles we tolerate seeing the token as
@@ -264,6 +265,12 @@ export function TokenExpiryGuard() {
     // Token state is healthy this cycle — clear the problem-tick counter so a
     // future isolated blip gets the full retry budget again.
     consecutiveProblemTicksRef.current = 0;
+    // Release the AuthGuard coordination flag if we set it during the warning
+    // window or expired retry ticks. Without this, AuthGuard stays suppressed
+    // even after the session has fully recovered.
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('token-expiry-handling');
+    }
 
     // If the token was refreshed (expiresAt changed), clear the dismissed state
     // so the warning can show again for the next expiry cycle.

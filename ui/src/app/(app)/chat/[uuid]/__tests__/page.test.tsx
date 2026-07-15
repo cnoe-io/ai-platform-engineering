@@ -301,12 +301,14 @@ describe("ChatContainer", () => {
 
     render(<ChatContainer />);
 
-    // No spinner in localStorage mode. With no conversation in store, the
-    // agentless empty state renders (no MongoDB metadata to resolve an agent).
+    // No spinner in localStorage mode. With no conversation in store and
+    // participants: [], ChatContainer now routes through ChatView with
+    // agentNotFound=true (deprecated-agent banner path) rather than the old
+    // agent-picker empty state.
     expect(
       screen.queryByText("Loading conversation...")
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
   });
 
   it("falls back to an agentless empty conversation when MongoDB returns 404", async () => {
@@ -316,10 +318,10 @@ describe("ChatContainer", () => {
 
     rejectGetConversation(new Error("Conversation not found (404)"));
 
-    // The fallback conversation has no agent participant, so the agent-picker
-    // empty state is shown instead of the chat panel (and the spinner clears).
+    // The fallback conversation has participants: [] so ChatContainer routes it
+    // through ChatView with agentNotFound=true (deprecated-agent banner path).
     await waitFor(() => {
-      expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
     expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
   });
@@ -335,8 +337,10 @@ describe("ChatContainer", () => {
 
     rejectGetConversation(new Error("Network error: ECONNREFUSED"));
 
+    // Fallback conversation has participants: [] so ChatContainer routes it
+    // through ChatView with agentNotFound=true (deprecated-agent banner path).
     await waitFor(() => {
-      expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
 
     // Should still set the active conversation
@@ -638,10 +642,10 @@ describe("ChatContainer", () => {
       expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
     });
 
-    // The fallback "New Conversation" has no agent participant, so the
-    // agent-picker empty state is shown (component recovers without crashing).
+    // The fallback "New Conversation" has no agent participant, so ChatContainer
+    // routes through ChatView with agentNotFound=true (component recovers without crashing).
     await waitFor(() => {
-      expect(screen.getByText(/select an agent to start chatting/i)).toBeInTheDocument();
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
   });
 
