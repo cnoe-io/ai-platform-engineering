@@ -216,7 +216,10 @@ async function openHealthPopover(page: Page, statusPattern: RegExp = /system sta
   await dismissReleaseUpgradeDialog(page);
   const badge = page.getByRole("button", { name: statusPattern });
   await expect(badge).toBeVisible();
-  await badge.click({ force: true });
+  // Wait for Framer Motion label animation to settle before clicking, otherwise
+  // the popover trigger may not register the click mid-animation.
+  await page.waitForTimeout(300);
+  await badge.click();
   await expect(page.getByText("System Status")).toBeVisible();
 }
 
