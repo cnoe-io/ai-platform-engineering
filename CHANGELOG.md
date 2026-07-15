@@ -1,3 +1,25 @@
+## 0.5.52-dev.2 (2026-07-15)
+
+### Feat
+
+- **keycloak**: configurable SSO session lifetime, default 7d idle / 14d max
+
+### Fix
+
+- **ui**: remove AccessTokenMissing dead code and clear auth flag on recovery
+
+## 0.5.52-dev.1 (2026-07-15)
+
+### Feat
+
+- **ui**: add 'Choose agent' button alongside 'Resume with default agent' in deprecated-agent banner
+
+### Fix
+
+- **ci**: resolve ruff and jest failures blocking deprecated-agent PR
+- **ui**: patch Zustand store after re-linking deprecated-agent conversation
+- **ui**: show history and resume CTA for deprecated-agent conversations
+
 ## 0.5.52 (2026-07-15)
 
 ### Fix
