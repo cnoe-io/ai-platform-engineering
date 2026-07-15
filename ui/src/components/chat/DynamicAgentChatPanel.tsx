@@ -177,16 +177,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   // Re-link this deprecated/deleted-agent conversation to the platform default agent,
   // then reload the page so ChatContainer picks up the new participants.
   const handleStartNewConversation = useCallback(async () => {
+    if (!conversationId) return;
     try {
       const agentId = await resolveUsableChatAgentId();
+      const newParticipants = buildParticipants(agentId);
       await apiClient.updateConversation(conversationId, {
-        participants: buildParticipants(agentId),
+        participants: newParticipants,
       });
-      // Force a full reload so the store and ChatContainer re-fetch the conversation
-      // with the updated participants and initialise the correct agent endpoint.
+      // Patch the Zustand store in-place so ChatContainer sees the new participants
+      // immediately — it skips the API fetch when the conversation is already cached.
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, participants: newParticipants } : c,
+        ),
+      }));
       router.refresh();
     } catch (err) {
-      toast({ title: "Could not resume conversation", description: (err as Error).message, variant: "destructive" });
+      toast(`Could not resume conversation: ${(err as Error).message}`, "error", 8000);
     }
   }, [conversationId, router, toast]);
 
