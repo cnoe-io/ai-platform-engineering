@@ -333,8 +333,8 @@ test.describe("Platform Health widget", () => {
     );
     await setupWithHealth(page, healthResponse(capabilities));
 
-    await expect(page.getByRole("button", { name: /system status: degraded/i })).toBeVisible();
-    await openHealthPopover(page, /system status: degraded/i);
+    await expect(page.getByRole("button", { name: /system status: down/i })).toBeVisible();
+    await openHealthPopover(page, /system status: down/i);
     await expect(page.getByText("Down")).toBeVisible();
     await expect(page.getByText("Chat Runtime", { exact: true })).toBeVisible();
     await expect(page.getByText("Chat runtime health check returned HTTP 503")).toBeVisible();
