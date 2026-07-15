@@ -216,12 +216,13 @@ async function openHealthPopover(page: Page, statusPattern: RegExp = /system sta
   await dismissReleaseUpgradeDialog(page);
   const badge = page.getByRole("button", { name: statusPattern });
   await expect(badge).toBeVisible();
-  // Use force:true because the Framer Motion AnimatePresence inside the button
-  // keeps it perpetually "animating" in Playwright's eyes, blocking the default
-  // stability check. Retry the click if the popover doesn't open (e.g. a dialog
-  // dismissed the first click).
+  // Use dispatchEvent instead of click() because the Framer Motion AnimatePresence
+  // inside the button keeps it perpetually animating, which causes Playwright's
+  // default click action to time out waiting for the element to be stable.
+  // dispatchEvent fires the event directly without any actionability checks.
+  // Retry if the popover doesn't open (e.g. a dialog intercepted the first event).
   for (let attempt = 0; attempt < 3; attempt++) {
-    await badge.click({ force: true });
+    await badge.dispatchEvent("click");
     const visible = await page.getByText("System Status").isVisible({ timeout: 3000 }).catch(() => false);
     if (visible) return;
     await dismissReleaseUpgradeDialog(page);
@@ -333,8 +334,10 @@ test.describe("Platform Health widget", () => {
     );
     await setupWithHealth(page, healthResponse(capabilities));
 
-    await expect(page.getByRole("button", { name: /system status: down/i })).toBeVisible();
-    await openHealthPopover(page, /system status: down/i);
+    // When a required capability is down, combinedStatus === "disconnected" which
+    // still renders the badge label as "Degraded" (the component has no "Down" label).
+    await expect(page.getByRole("button", { name: /system status: degraded/i })).toBeVisible();
+    await openHealthPopover(page, /system status: degraded/i);
     await expect(page.getByText("Down")).toBeVisible();
     await expect(page.getByText("Chat Runtime", { exact: true })).toBeVisible();
     await expect(page.getByText("Chat runtime health check returned HTTP 503")).toBeVisible();
