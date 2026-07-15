@@ -5,11 +5,8 @@ metadata:
   labels:
     {{- include "autonomous-agents.labels" . | nindent 4 }}
 data:
-  {{- /*
-    Render each value through `tpl` so defaults like SUPERVISOR_URL can
-    reference Helm built-ins ({{ .Release.Name }}) and track the actual
-    install name. Plain literals pass through unchanged.
-  */}}
-  {{- range $key, $value := .Values.config }}
-  {{ $key }}: {{ tpl ($value | toString) $ | quote }}
+  SUPERVISOR_URL: {{ include "autonomous-agents.supervisorUrl" . | quote }}
+  DYNAMIC_AGENTS_URL: {{ include "autonomous-agents.dynamicAgentsUrl" . | quote }}
+  {{- range $key, $value := omit .Values.config "SUPERVISOR_URL" "DYNAMIC_AGENTS_URL" }}
+  {{ $key }}: {{ $value | toString | quote }}
   {{- end }}

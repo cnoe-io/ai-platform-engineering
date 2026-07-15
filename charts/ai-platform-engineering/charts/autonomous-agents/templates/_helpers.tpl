@@ -64,3 +64,15 @@ Create the name of the service account to use
 {{- define "autonomous-agents.appVersion" -}}
 {{- dig "image" "tag" "" (default dict .Values.global) | default .Chart.AppVersion -}}
 {{- end -}}
+
+{{/*
+Default in-release endpoints. Keep values.yaml static; operators can still
+override these by setting config.SUPERVISOR_URL / config.DYNAMIC_AGENTS_URL.
+*/}}
+{{- define "autonomous-agents.supervisorUrl" -}}
+{{- .Values.config.SUPERVISOR_URL | default (printf "http://%s-supervisor-agent:8000" .Release.Name) -}}
+{{- end -}}
+
+{{- define "autonomous-agents.dynamicAgentsUrl" -}}
+{{- .Values.config.DYNAMIC_AGENTS_URL | default (printf "http://%s-dynamic-agents:8001" .Release.Name) -}}
+{{- end -}}

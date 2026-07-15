@@ -810,7 +810,7 @@ caipe-ui:
     # (UI proxies to the service at /api/autonomous). Requires tags.autonomous-agents=true.
     ENABLE_AUTONOMOUS_AGENTS: "false"
     # Autonomous Agents service URL (only used when ENABLE_AUTONOMOUS_AGENTS is "true")
-    # AUTONOMOUS_AGENTS_URL: "http://{{ .Release.Name }}-autonomous-agents:8002"
+    # AUTONOMOUS_AGENTS_URL: ""
 
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true. Leave empty to use the
@@ -1156,11 +1156,13 @@ autonomous-agents:
     pullPolicy: "IfNotPresent"
   service:
     port: 8002
-  # ConfigMap for non-sensitive configuration (values are rendered via tpl)
+  # ConfigMap for non-sensitive configuration.
+  # DYNAMIC_AGENTS_URL defaults to the in-release dynamic-agents Service in the
+  # autonomous-agents subchart helper. Set it here only to override that default.
   config:
     # Dynamic-agents runtime endpoint -- every autonomous task runs against a
     # dynamic agent selected by the task's dynamic_agent_id.
-    DYNAMIC_AGENTS_URL: "http://{{ .Release.Name }}-dynamic-agents:8001"
+    DYNAMIC_AGENTS_URL: ""
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
   # Pre-existing secret with MONGODB_URI (required), WEBHOOK_SECRET, and
@@ -1498,6 +1500,13 @@ openfga:
     enabled: true
     storeName: caipe-openfga
     seedTuples: []
+    platformClient:
+      enabled: false
+      clientId: caipe-platform
+      clientSecretRef:
+        name: caipe-platform-secret
+        key: OIDC_CLIENT_SECRET
+      orgObject: organization:caipe
   datastore:
     engine: memory
     uriSecretRef:

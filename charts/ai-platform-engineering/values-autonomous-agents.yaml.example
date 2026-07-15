@@ -32,11 +32,11 @@ tags:
 autonomous-agents:
   config:
     # Defaults track the in-release supervisor; override for an external one.
-    SUPERVISOR_URL: "http://{{ .Release.Name }}-supervisor-agent:8000"
+    # SUPERVISOR_URL: "http://external-supervisor-agent:8000"
     MONGODB_DATABASE: "caipe"
     # Uncomment when tags.dynamic-agents=true so autonomous tasks with a
     # dynamic_agent_id route through the user's custom agent:
-    # DYNAMIC_AGENTS_URL: "http://{{ .Release.Name }}-dynamic-agents:8001"
+    # DYNAMIC_AGENTS_URL: "http://external-dynamic-agents:8001"
     # Publish completed runs into the UI conversations collection so the
     # "Open run" deep link works. OFF by default -- writes to a collection
     # shared with the UI; opt in deliberately (storage growth, multi-tenant
@@ -68,9 +68,24 @@ autonomous-agents:
 caipe-ui:
   config:
     # Show the Autonomous tab (admin-gated) and point the /api/autonomous
-    # proxy at the in-release service.
+    # proxy at the in-release service. This example assumes a release named
+    # "ai-platform-engineering"; change the hostname if your release differs.
     ENABLE_AUTONOMOUS_AGENTS: "true"
-    AUTONOMOUS_AGENTS_URL: "http://{{ .Release.Name }}-autonomous-agents:8002"
+    AUTONOMOUS_AGENTS_URL: "http://ai-platform-engineering-autonomous-agents:8002"
+
+######### OpenFGA on-behalf-of Configuration #########
+# Enable when running the RBAC/OpenFGA stack with the bundled Keycloak platform
+# client. This seeds the platform service account as an organization auditor so
+# autonomous runs can be authorized on behalf of their task owner.
+openfga:
+  init:
+    platformClient:
+      enabled: true
+      clientId: caipe-platform
+      clientSecretRef:
+        name: caipe-platform-secret
+        key: OIDC_CLIENT_SECRET
+      orgObject: organization:caipe
 
 ######### Supervisor Configuration #########
 supervisor-agent:

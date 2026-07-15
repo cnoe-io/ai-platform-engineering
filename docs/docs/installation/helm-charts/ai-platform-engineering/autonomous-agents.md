@@ -61,8 +61,9 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | config.CHAT_HISTORY_OWNER_EMAIL | string | `"autonomous@system"` |  |
 | config.CHAT_HISTORY_PUBLISH_ENABLED | string | `"false"` |  |
 | config.CORS_ORIGINS | string | `""` |  |
+| config.DYNAMIC_AGENTS_URL | string | `""` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
-| config.SUPERVISOR_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
+| config.SUPERVISOR_URL | string | `""` |  |
 | existingSecret | string | `""` |  |
 | externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | externalSecrets.data | list | `[]` |  |

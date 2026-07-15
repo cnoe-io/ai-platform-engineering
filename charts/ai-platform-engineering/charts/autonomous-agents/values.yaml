@@ -137,16 +137,16 @@ tolerations: []
 affinity: {}
 
 # ConfigMap for non-sensitive configuration.
-# Values are rendered through `tpl`, so Helm built-ins like {{ .Release.Name }}
-# can be used to track the actual install name.
+# SUPERVISOR_URL and DYNAMIC_AGENTS_URL default to in-release Service names in
+# templates/_helpers.tpl. Set either value here only to override that default.
 config:
   # Supervisor A2A endpoint -- autonomous tasks are sent here. The default
   # tracks the in-release supervisor Service name.
-  SUPERVISOR_URL: "http://{{ .Release.Name }}-supervisor-agent:8000"
+  SUPERVISOR_URL: ""
   # Dynamic-agents service endpoint -- enables routing of autonomous tasks
   # whose dynamic_agent_id is set through the user's custom agent. Only
   # uncomment when the dynamic-agents subchart is enabled (tags.dynamic-agents).
-  # DYNAMIC_AGENTS_URL: "http://{{ .Release.Name }}-dynamic-agents:8001"
+  DYNAMIC_AGENTS_URL: ""
   # MongoDB database name (uses same DB as CAIPE UI so the Autonomous tab's
   # task list and run history come from the same source of truth)
   MONGODB_DATABASE: "caipe"

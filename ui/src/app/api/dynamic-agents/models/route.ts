@@ -1,16 +1,9 @@
 /**
  * API route for listing available LLM models.
  *
- * Sources, in order:
- *   1. The supervisor's configured LLM, derived from `LLM_PROVIDER` +
- *      provider-specific env vars (so the model the supervisor already
- *      uses is always available to Custom Agents without extra setup).
- *   2. RBAC-filtered models in the `llm_models` MongoDB collection (seeded
- *      at startup via instrumentation.ts from config.yaml, plus any added
- *      via the admin LLM Models tab).
- *
- * Entries are deduplicated by `model_id`; an explicit Mongo entry with
- * the same id wins over the env-derived default.
+ * Models are read from the RBAC-filtered `llm_models` MongoDB collection
+ * seeded at startup via instrumentation.ts from config.yaml, plus any added
+ * via the admin LLM Models tab.
  */
 
 import {
@@ -20,7 +13,6 @@ import {
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
-import { getDefaultLLMModelFromEnv } from "@/lib/default-llm-model";
 import { NextRequest } from "next/server";
 
 interface ModelResponseEntry {
@@ -36,8 +28,6 @@ interface ModelResponseEntry {
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
-
-  const envDefault = getDefaultLLMModelFromEnv();
 
   let mongoModels: ModelResponseEntry[] = [];
   if (isMongoDBConfigured) {
@@ -57,8 +47,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         description: m.description ?? "",
       }));
     } catch (err) {
-      // Don't fail the whole request if Mongo is configured but unreachable;
-      // we can still return the env-derived default so the UI stays usable.
+      // Don't fail the whole request if Mongo is configured but unreachable.
       console.error(
         "[api/dynamic-agents/models] failed to read llm_models:",
         err,
@@ -66,14 +55,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
   }
 
-  const seen = new Set(mongoModels.map((m) => m.model_id));
-  const merged: ModelResponseEntry[] = [];
-  // The env default is the supervisor's own LLM — always visible to any
-  // signed-in user. A Mongo entry with the same model_id wins (dedup).
-  if (envDefault && !seen.has(envDefault.model_id)) {
-    merged.push(envDefault);
-  }
-  merged.push(...mongoModels);
-
-  return successResponse(merged);
+  return successResponse(mongoModels);
 });
