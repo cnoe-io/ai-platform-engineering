@@ -4,6 +4,10 @@ sidebar_position: 3
 
 # Webex Meetings MCP
 
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+  <iframe src="https://app.vidcast.io/share/embed/bc8150be-d034-4f27-a7d6-e21665cd6503?disableCopyDropdown=1" width="100%" height="100%" title="Webex Meetings MCP Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+</div>
+
 The Webex Meetings MCP exposes per-user Webex meeting, participant, recording,
 and transcript operations to Dynamic Agents. It runs as one shared MCP service,
 but each tool call uses the connected Webex account of the caller.

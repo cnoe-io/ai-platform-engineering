@@ -82,7 +82,7 @@ describe('TokenExpiryGuard', () => {
       return undefined
     })
 
-    mockSignOut.mockResolvedValue(undefined as any)
+    mockSignOut.mockClear().mockResolvedValue(undefined as any)
   })
 
   afterEach(() => {
@@ -540,8 +540,12 @@ describe('TokenExpiryGuard', () => {
       expect(screen.queryByText(/attempting to refresh automatically/i)).not.toBeInTheDocument()
     })
 
-    it('should show a countdown and redirect through current-tab login if updateSession rejects', async () => {
-      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
+    it('should tolerate a single silent-refresh failure without logging out', async () => {
+      // Regression test: a lone transient failure (network blip, momentary
+      // server-side cache miss, etc.) must NOT tear down the session while
+      // the token still has plenty of time left — the whole point of the
+      // "Attempting to refresh automatically..." banner is that it keeps
+      // trying, not that it gives up on the very first hiccup.
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
       mockUpdateSession.mockRejectedValueOnce(new Error('Network error'))
 
@@ -559,17 +563,52 @@ describe('TokenExpiryGuard', () => {
 
       render(<TokenExpiryGuard />)
 
+      // Mount triggers the proactive silent refresh, which rejects once.
       await act(async () => { jest.advanceTimersByTime(0) })
 
+      expect(screen.queryByText(/sign-in needed/i)).not.toBeInTheDocument()
+      expect(mockSignOut).not.toHaveBeenCalled()
+      expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should force logout only after the token has expired and repeated refresh retries are exhausted', async () => {
+      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
+      const pastExpiry = Math.floor(Date.now() / 1000) - 1 // already expired
+      mockUpdateSession.mockRejectedValue(new Error('Network error')) // always fails
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: pastExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Tick 1 (mount): expired reading #1 — still within the retry budget.
+      await act(async () => { jest.advanceTimersByTime(0) })
+      expect(screen.queryByText(/redirecting to login/i)).not.toBeInTheDocument()
+
+      // Tick 2 (+30s): expired reading #2 — still within the retry budget.
+      await act(async () => { jest.advanceTimersByTime(30000) })
+      expect(screen.queryByText(/redirecting to login/i)).not.toBeInTheDocument()
+      expect(mockSignOut).not.toHaveBeenCalled()
+
+      // Tick 3 (+30s): retry budget exhausted — now forces logout.
+      await act(async () => { jest.advanceTimersByTime(30000) })
       await waitFor(() => {
-        expect(screen.getByText(/sign-in needed/i)).toBeInTheDocument()
+        expect(screen.getByText(/session expired/i)).toBeInTheDocument()
         expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
       })
 
-      await act(async () => { jest.advanceTimersByTime(1000) })
-      expect(screen.getByText(/redirecting to login in 4 seconds/i)).toBeInTheDocument()
-
-      await act(async () => { jest.advanceTimersByTime(4000) })
+      await act(async () => { jest.advanceTimersByTime(5000) })
       expect(mockSignOut).toHaveBeenCalledWith({
         callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
       })

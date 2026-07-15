@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
+import { ApiError } from "@/lib/api-error";
 import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 import {
   checkOpenFgaTuple,
@@ -16,6 +17,8 @@ import {
   getServiceAccountTokenUrl,
 } from "@/lib/rbac/keycloak-admin";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
+import { resolveAuthorizedAdminSimulationScope } from "@/lib/rbac/admin-simulation-server";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import {
   createServiceAccountDoc,
   isNameTakenInTeam,
@@ -151,7 +154,31 @@ export async function GET(request: NextRequest) {
 
   // Read the caller's role so admins can see SAs for teams they don't belong to.
   const { user: callerUser } = await getAuthFromBearerOrSession(request);
-  const isAdmin = callerUser.role === "admin";
+  let simulationScope;
+  try {
+    simulationScope = await resolveAuthorizedAdminSimulationScope(
+      request.nextUrl.searchParams,
+      session,
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.statusCode },
+      );
+    }
+    throw error;
+  }
+  const effectiveSubject = simulationScope?.openfgaUser ?? `user:${session.sub}`;
+  const isAdmin = simulationScope
+    ? await checkOpenFgaTuple({
+        user: effectiveSubject,
+        relation: "can_manage",
+        object: organizationObjectId(),
+      })
+        .then((decision) => decision.allowed)
+        .catch(() => false)
+    : callerUser.role === "admin";
 
   const searchParams = new URL(request.url).searchParams;
   const includeRevoked = searchParams.get("include_revoked") === "true";
@@ -169,7 +196,7 @@ export async function GET(request: NextRequest) {
     } else {
       // Visibility boundary: the caller's own team memberships (FR-021).
       const teamObjects = await listOpenFgaObjects({
-        user: `user:${session.sub}`,
+        user: effectiveSubject,
         relation: "member",
         type: "team",
       });

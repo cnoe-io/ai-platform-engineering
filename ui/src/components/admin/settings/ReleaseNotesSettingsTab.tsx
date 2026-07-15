@@ -11,6 +11,7 @@ import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/compone
 
 interface ReleaseNotesSettingsTabProps {
   isAdmin: boolean;
+  readOnly?: boolean;
 }
 
 function normalizeVersion(value?: string | null): string | null {
@@ -25,7 +26,7 @@ function baseVersion(value: string): string {
 // One card for everyone: a per-user notification toggle plus a button to
 // re-open the release notes popup on demand. Admins get an extra "Admin"
 // section with the platform-wide on/off switch.
-function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
+function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTabProps) {
   // ── Per-user notification preference ──────────────────────────────────────
   // Persists to /api/settings/preferences (user_settings) and never touches
   // the platform-wide admin configuration.
@@ -90,6 +91,7 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
   }, [isAdmin]);
 
   const savePreference = async () => {
+    if (readOnly) return;
     setSaving(true);
     setSaveResult(null);
     try {
@@ -114,6 +116,7 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
   };
 
   const savePlatformConfig = async () => {
+    if (readOnly) return;
     setSavingPlatform(true);
     setPlatformSaveResult(null);
     try {
@@ -215,6 +218,7 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
                 type="checkbox"
                 checked={enabled}
                 onChange={(event) => setEnabled(event.target.checked)}
+                disabled={readOnly}
                 data-testid="release-notes-user-pref-toggle"
               />
               Notify me about release notes
@@ -228,6 +232,7 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
                 saving={saving}
                 dirty={enabled !== savedEnabled}
                 result={saveResult}
+                disabled={readOnly}
                 ariaLabel="Save release notes preference"
                 testId="release-notes-user-pref-save"
               />
@@ -266,6 +271,7 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
                     type="checkbox"
                     checked={platformEnabled}
                     onChange={(event) => setPlatformEnabled(event.target.checked)}
+                    disabled={readOnly}
                   />
                   Enable release notes notification
                 </label>
@@ -277,6 +283,7 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
                   saving={savingPlatform}
                   dirty={platformEnabled !== savedPlatformEnabled}
                   result={platformSaveResult}
+                  disabled={readOnly}
                   ariaLabel="Save release notes settings"
                 />
               </>
@@ -298,10 +305,10 @@ function ReleaseNotesCard({ isAdmin }: ReleaseNotesSettingsTabProps) {
   );
 }
 
-export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProps) {
+export function ReleaseNotesSettingsTab({ isAdmin, readOnly = false }: ReleaseNotesSettingsTabProps) {
   return (
     <div className="space-y-6">
-      <ReleaseNotesCard isAdmin={isAdmin} />
+      <ReleaseNotesCard isAdmin={isAdmin} readOnly={readOnly} />
     </div>
   );
 }

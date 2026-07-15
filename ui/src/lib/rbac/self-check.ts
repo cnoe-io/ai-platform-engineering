@@ -3,7 +3,13 @@
 import type { Document,Filter } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
-import { baselineAdminTuples,baselineMemberTuples } from "@/lib/rbac/baseline-access";
+import {
+  baselineAdminTuples,
+  baselineMemberTuples,
+  defaultBaselineFgaProfile,
+  getBaselineFgaProfile,
+  type BaselineFgaProfile,
+} from "@/lib/rbac/baseline-access";
 import {
   RBAC_SELF_CHECK_IDS,
   normalizeRbacSelfCheckIds,
@@ -218,6 +224,7 @@ export interface RbacSelfCheckInventoryInput {
   tasks: TaskDoc[];
   mcpToolCatalog: ToolCatalogDoc[];
   platformConfig?: PlatformConfigDoc | null;
+  baselineProfile?: BaselineFgaProfile;
   generatedAt?: string;
 }
 
@@ -549,6 +556,7 @@ function currentBaselineAccessTuples(
   actualKeys: Set<string>,
 ): ExpectedTuple[] {
   const tuples: ExpectedTuple[] = [];
+  const profile = input.baselineProfile ?? defaultBaselineFgaProfile();
   const agentGatewayAdminTuple = {
     user: `${organizationObjectId()}#admin`,
     relation: "manager",
@@ -569,18 +577,39 @@ function currentBaselineAccessTuples(
     const subject = userSubject(user);
     if (!subject) continue;
     const role = userRole(user);
-    const adminTuples = baselineAdminTuples(subject);
-    const hasCurrentAdminBaseline = adminTuples.some((tuple) => actualKeys.has(tupleKey(tuple)));
-    const ownsAdminBaseline = role === "admin" || (role === null && hasCurrentAdminBaseline);
     const resource = {
       type: "user",
       id: subject,
       label: user.name ?? user.email ?? subject,
     };
 
-    for (const tuple of [...baselineMemberTuples(subject), ...(ownsAdminBaseline ? adminTuples : [])]) {
-      if (!actualKeys.has(tupleKey(tuple))) continue;
+    // The member baseline is authoritative for every active user: it is always
+    // expected, so a user who was provisioned but never interactively logged
+    // into the web UI (e.g. an Okta directory-sync user) has their MISSING
+    // member grants — including the `mcp_gateway:list` caller tuple that
+    // AgentGateway's coarse ext_authz gate requires — flagged as `missing` and
+    // made repairable. Previously these tuples were only expected when already
+    // present in OpenFGA, so the self-check could never surface or repair a
+    // user who was missing them, which is exactly how sync-only users ended up
+    // with zero MCP tools.
+    for (const tuple of baselineMemberTuples(subject, profile)) {
       tuples.push(expected("baseline_access", tuple.user, tuple.relation, tuple.object, resource));
+    }
+
+    // The admin baseline is authoritative only for users Mongo marks as admin
+    // (there is no trustworthy admin signal otherwise). For a user whose role
+    // is unknown we don't force-repair admin grants; we only recognize the ones
+    // already present so they are not mis-reported as orphan candidates.
+    const adminTuples = baselineAdminTuples(subject, profile);
+    if (role === "admin") {
+      for (const tuple of adminTuples) {
+        tuples.push(expected("baseline_access", tuple.user, tuple.relation, tuple.object, resource));
+      }
+    } else if (role === null && adminTuples.some((tuple) => actualKeys.has(tupleKey(tuple)))) {
+      for (const tuple of adminTuples) {
+        if (!actualKeys.has(tupleKey(tuple))) continue;
+        tuples.push(expected("baseline_access", tuple.user, tuple.relation, tuple.object, resource));
+      }
     }
   }
   return uniqueTuples(tuples);
@@ -1509,6 +1538,7 @@ export async function runRbacSelfCheck(options: RbacSelfCheckOptions = {}): Prom
     tasks,
     mcpToolCatalog,
     platformConfigRows,
+    baselineProfile,
   ] = await Promise.all([
     readAllOpenFgaTuples(),
     loadCollection<TeamDoc>("teams", { status: { $ne: "deleted" } }),
@@ -1538,6 +1568,7 @@ export async function runRbacSelfCheck(options: RbacSelfCheckOptions = {}): Prom
     loadCollection<TaskDoc>("task_configs"),
     loadCollection<ToolCatalogDoc>("mcp_tool_catalog"),
     loadCollection<PlatformConfigDoc>("platform_config", { _id: "platform_settings" } as unknown as Filter<PlatformConfigDoc>),
+    getBaselineFgaProfile(),
   ]);
 
   return deriveRbacSelfCheckReport(
@@ -1561,6 +1592,7 @@ export async function runRbacSelfCheck(options: RbacSelfCheckOptions = {}): Prom
       tasks,
       mcpToolCatalog,
       platformConfig: platformConfigRows[0] ?? null,
+      baselineProfile,
     },
     options,
   );

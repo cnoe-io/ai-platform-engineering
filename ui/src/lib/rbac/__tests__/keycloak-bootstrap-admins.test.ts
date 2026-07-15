@@ -53,7 +53,7 @@ describe("bootstrap admin reconciliation", () => {
     expect(result.configured_emails).toEqual(["admin@cisco.com", "second@cisco.com"]);
     expect(result.resolved_count).toBe(2);
     expect(result.created_count).toBe(1);
-    expect(result.tuple_write_count).toBe(60);
+    expect(result.tuple_write_count).toBe(66);
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("admin@cisco.com");
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("second@cisco.com");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
@@ -65,7 +65,10 @@ describe("bootstrap admin reconciliation", () => {
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:users" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:teams" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:skills" },
-        { user: "user:sub-admin", relation: "reader", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:slack" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:webex" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:feedback" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:stats" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:health" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:credentials" },
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
@@ -74,9 +77,17 @@ describe("bootstrap admin reconciliation", () => {
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:users" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:teams" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:skills" },
-        { user: "user:sub-admin", relation: "manager", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:slack" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:webex" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:feedback" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:stats" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:health" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:credentials" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:roles" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:identity_group_sync" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:audit_logs" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:action_audit" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:openfga" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:migrations" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:rag_datasources" },
@@ -89,13 +100,13 @@ describe("bootstrap admin reconciliation", () => {
           email: "admin@cisco.com",
           user_id: "sub-admin",
           status: "existing",
-          tuple_write_count: 30,
+          tuple_write_count: 33,
         }),
         expect.objectContaining({
           email: "second@cisco.com",
           user_id: "sub-second",
           status: "created",
-          tuple_write_count: 30,
+          tuple_write_count: 33,
         }),
       ]),
     );

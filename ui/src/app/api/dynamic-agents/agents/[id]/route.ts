@@ -12,8 +12,12 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { requireAgentPermission } from "@/lib/rbac/resource-authz";
-import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import {
+agentRowPermissionsOrDefault,
+requireAgentPermission,
+resolveAgentListPermissions,
+} from "@/lib/rbac/resource-authz";
+import type { DynamicAgentConfig,DynamicAgentConfigWithPermissions } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -61,6 +65,13 @@ export const GET = withErrorHandler(
         delete doc.model_provider;
       }
 
-      return successResponse(doc);
+      const resourceId = String(agent._id);
+      const { rows } = await resolveAgentListPermissions(session, [resourceId]);
+      const result: DynamicAgentConfigWithPermissions = {
+        ...(doc as unknown as DynamicAgentConfig),
+        permissions: agentRowPermissionsOrDefault(rows, resourceId),
+      };
+
+      return successResponse(result);
   }
 );

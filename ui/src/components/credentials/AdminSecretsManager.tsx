@@ -132,7 +132,7 @@ function usageSummary(usageCount: number): string {
   return `Used in ${usageCount} ${usageCount === 1 ? "place" : "places"}`;
 }
 
-export function AdminSecretsManager() {
+export function AdminSecretsManager({ readOnly = false }: { readOnly?: boolean }) {
   const [secrets, setSecrets] = React.useState<AdminSecretMetadata[]>([]);
   const [auditEvents, setAuditEvents] = React.useState<CredentialAuditEvent[]>([]);
   const [editingSecret, setEditingSecret] = React.useState<AdminSecretMetadata | null>(null);
@@ -165,6 +165,7 @@ export function AdminSecretsManager() {
   }, [loadSecrets]);
 
   async function deleteSecret(secretId: string) {
+    if (readOnly) return;
     const response = await fetch(`/api/admin/credentials/secrets/${secretId}`, {
       method: "DELETE",
     });
@@ -177,6 +178,7 @@ export function AdminSecretsManager() {
   }
 
   function openEdit(secret: AdminSecretMetadata) {
+    if (readOnly) return;
     setEditingSecret(secret);
     setEditName(secret.name);
     setEditDescription(secret.description ?? "");
@@ -184,7 +186,7 @@ export function AdminSecretsManager() {
 
   async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingSecret) return;
+    if (readOnly || !editingSecret) return;
     const response = await fetch(`/api/admin/credentials/secrets/${editingSecret.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -264,7 +266,13 @@ export function AdminSecretsManager() {
                         )}
                         {expanded ? "Hide details" : "More details"}
                       </Button>
-                      <Button type="button" variant="secondary" size="sm" onClick={() => openEdit(secret)}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEdit(secret)}
+                        disabled={readOnly}
+                      >
                         Edit
                       </Button>
                       {confirmingDelete ? (
@@ -294,6 +302,7 @@ export function AdminSecretsManager() {
                           size="sm"
                           aria-label={`Delete ${secret.name}`}
                           onClick={() => setConfirmingDeleteSecretId(secret.id)}
+                          disabled={readOnly}
                         >
                           Delete
                         </Button>

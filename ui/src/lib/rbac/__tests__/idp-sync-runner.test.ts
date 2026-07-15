@@ -24,6 +24,7 @@ const linkFederatedIdentity = jest.fn();
 const planIdentityGroupSync = jest.fn();
 const applyIdentityGroupSyncPlan = jest.fn();
 const stripArchivedTeamResourceGrants = jest.fn();
+const reconcileSyncedUsersBaselineAccess = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => getCollection(...args),
@@ -58,6 +59,11 @@ jest.mock("@/lib/rbac/idp-sync-store", () => ({
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   provisionShellUser: (...args: unknown[]) => provisionShellUser(...args),
   linkFederatedIdentity: (...args: unknown[]) => linkFederatedIdentity(...args),
+}));
+
+jest.mock("@/lib/rbac/login-openfga-bootstrap", () => ({
+  reconcileSyncedUsersBaselineAccess: (...args: unknown[]) =>
+    reconcileSyncedUsersBaselineAccess(...args),
 }));
 
 jest.mock("@/lib/rbac/archived-team-grants", () => ({
@@ -112,6 +118,11 @@ describe("idp-sync-runner", () => {
       tupleDeletes: 0,
       openFgaEnabled: true,
       teamsArchived: 0,
+    });
+    reconcileSyncedUsersBaselineAccess.mockResolvedValue({
+      status: "completed",
+      subject_count: 0,
+      tuple_write_count: 0,
     });
   });
 
@@ -321,38 +332,161 @@ describe("idp-sync-runner", () => {
     });
   });
 
-  describe("executeSyncRun: event-loop yield cadence", () => {
-    it("yields to the event loop every 50 processed members so /api/health can interleave", async () => {
-      const members = Array.from({ length: 120 }, (_, i) => ({
+  describe("executeSyncRun: member resolution is fanned out, not serial", () => {
+    it("resolves members concurrently rather than one await at a time", async () => {
+      const members = Array.from({ length: 40 }, (_, i) => ({
         email: `user${i}@example.com`,
         active: true,
         display_name: `User ${i}`,
       }));
       fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
 
-      const setImmediateSpy = jest.spyOn(global, "setImmediate");
+      // Track how many provisionShellUser calls are in flight simultaneously.
+      // A strictly sequential loop would never exceed 1; the concurrency pool
+      // should keep several outstanding at once.
+      let inFlight = 0;
+      let maxInFlight = 0;
+      provisionShellUser.mockImplementation(async ({ email }: { email: string }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setImmediate(resolve));
+        inFlight -= 1;
+        return { sub: `sub-${email}`, created: false };
+      });
 
       await executeSyncRun("run-1", "okta", "admin");
 
-      // 120 members with MEMBERS_PER_YIELD=50 yields at the 50th and 100th member.
-      expect(setImmediateSpy).toHaveBeenCalledTimes(2);
-      setImmediateSpy.mockRestore();
+      expect(provisionShellUser).toHaveBeenCalledTimes(40);
+      expect(maxInFlight).toBeGreaterThan(1);
     });
 
-    it("never yields for a run with fewer members than the yield threshold", async () => {
-      const members = Array.from({ length: 10 }, (_, i) => ({
-        email: `user${i}@example.com`,
-        active: true,
-        display_name: `User ${i}`,
-      }));
-      fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
+    it("honors IDENTITY_SYNC_MEMBER_CONCURRENCY as the parallelism ceiling", async () => {
+      const prev = process.env.IDENTITY_SYNC_MEMBER_CONCURRENCY;
+      process.env.IDENTITY_SYNC_MEMBER_CONCURRENCY = "4";
+      try {
+        const members = Array.from({ length: 20 }, (_, i) => ({
+          email: `user${i}@example.com`,
+          active: true,
+          display_name: `User ${i}`,
+        }));
+        fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
 
-      const setImmediateSpy = jest.spyOn(global, "setImmediate");
+        let inFlight = 0;
+        let maxInFlight = 0;
+        provisionShellUser.mockImplementation(async ({ email }: { email: string }) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => setImmediate(resolve));
+          inFlight -= 1;
+          return { sub: `sub-${email}`, created: false };
+        });
+
+        await executeSyncRun("run-1", "okta", "admin");
+
+        expect(maxInFlight).toBeLessThanOrEqual(4);
+        expect(maxInFlight).toBeGreaterThan(1);
+      } finally {
+        if (prev === undefined) delete process.env.IDENTITY_SYNC_MEMBER_CONCURRENCY;
+        else process.env.IDENTITY_SYNC_MEMBER_CONCURRENCY = prev;
+      }
+    });
+  });
+
+  describe("executeSyncRun: synchronous member passes yield to the event loop", () => {
+    it("yields during the dedupe and stamp passes so k8s health probes can interleave", async () => {
+      const prev = process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+      // Yield every 3 members so a small fixture still trips the yield path.
+      process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = "3";
+      try {
+        // 8 members across two groups. Both the dedupe pass and the stamp pass
+        // walk all 8, so with yieldEvery=3 each pass yields at member 3 and 6:
+        // 2 yields per pass, 4 total. mapWithConcurrency also uses setImmediate
+        // internally, so we assert a lower bound rather than an exact count.
+        const members = Array.from({ length: 8 }, (_, i) => ({
+          email: `user${i}@example.com`,
+          active: true,
+          display_name: `User ${i}`,
+        }));
+        fetchExternalGroupsForProvider.mockResolvedValue([
+          { id: "g1", name: "Group 1", members: members.slice(0, 4) },
+          { id: "g2", name: "Group 2", members: members.slice(4) },
+        ]);
+
+        const setImmediateSpy = jest.spyOn(global, "setImmediate");
+
+        await executeSyncRun("run-1", "okta", "admin");
+
+        // At least the 4 yields from the two synchronous passes.
+        expect(setImmediateSpy.mock.calls.length).toBeGreaterThanOrEqual(4);
+        setImmediateSpy.mockRestore();
+      } finally {
+        if (prev === undefined) delete process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+        else process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = prev;
+      }
+    });
+
+    it("does not yield in the synchronous passes when member count is below the threshold", async () => {
+      const prev = process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+      process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = "1000";
+      try {
+        const members = Array.from({ length: 5 }, (_, i) => ({
+          email: `user${i}@example.com`,
+          active: true,
+          display_name: `User ${i}`,
+        }));
+        fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
+
+        const setImmediateSpy = jest.spyOn(global, "setImmediate");
+        try {
+          await executeSyncRun("run-1", "okta", "admin");
+          // Both sync passes walk 5 members with a threshold of 1000, so neither
+          // trips the yield. mapWithConcurrency does not use setImmediate, so the
+          // only source of a call would be a sync pass — hence exactly zero.
+          expect(setImmediateSpy).not.toHaveBeenCalled();
+        } finally {
+          setImmediateSpy.mockRestore();
+        }
+      } finally {
+        if (prev === undefined) delete process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY;
+        else process.env.IDENTITY_SYNC_LOOP_YIELD_EVERY = prev;
+      }
+    });
+  });
+
+  describe("executeSyncRun: baseline bootstrap runs before team-membership apply", () => {
+    it("grants the member baseline before the slower plan/apply so MCP access lands first", async () => {
+      const members = [
+        { email: "a@example.com", active: true, display_name: "A" },
+        { email: "b@example.com", active: true, display_name: "B" },
+      ];
+      fetchExternalGroupsForProvider.mockResolvedValue([{ id: "g1", name: "Group 1", members }]);
+      provisionShellUser.mockImplementation(async ({ email }: { email: string }) => ({
+        sub: `sub-${email}`,
+        created: false,
+      }));
+
+      const order: string[] = [];
+      reconcileSyncedUsersBaselineAccess.mockImplementation(async () => {
+        order.push("baseline");
+        return { status: "completed", subject_count: 2, tuple_write_count: 0 };
+      });
+      applyIdentityGroupSyncPlan.mockImplementation(async () => {
+        order.push("apply");
+        return {
+          teamsCreated: 0,
+          membershipSourcesAdded: 0,
+          membershipSourcesRemoved: 0,
+          membershipSourcesRefreshed: 0,
+          tupleWrites: 0,
+          tupleDeletes: 0,
+          openFgaEnabled: true,
+          teamsArchived: 0,
+        };
+      });
 
       await executeSyncRun("run-1", "okta", "admin");
 
-      expect(setImmediateSpy).not.toHaveBeenCalled();
-      setImmediateSpy.mockRestore();
+      expect(order).toEqual(["baseline", "apply"]);
     });
   });
 
@@ -401,6 +535,76 @@ describe("idp-sync-runner", () => {
       expect(planIdentityGroupSync).not.toHaveBeenCalled();
 
       errorSpy.mockRestore();
+    });
+  });
+
+  describe("executeSyncRun: baseline OpenFGA bootstrap for synced users", () => {
+    it("bootstraps the member baseline for every resolved subject, deduped across groups", async () => {
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        { id: "g1", name: "Group 1", members: [{ email: "a@example.com", active: true, display_name: "A" }] },
+        {
+          id: "g2",
+          name: "Group 2",
+          members: [
+            { email: "a@example.com", active: true, display_name: "A" },
+            { email: "b@example.com", active: true, display_name: "B" },
+          ],
+        },
+      ]);
+      provisionShellUser.mockImplementation(async ({ email }: { email: string }) => ({
+        sub: email === "a@example.com" ? "sub-a" : "sub-b",
+        created: false,
+      }));
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      // One resolved sub per unique email — no duplicate sub-a from the two groups.
+      expect(reconcileSyncedUsersBaselineAccess).toHaveBeenCalledTimes(1);
+      const passed = reconcileSyncedUsersBaselineAccess.mock.calls[0][0] as string[];
+      expect(new Set(passed)).toEqual(new Set(["sub-a", "sub-b"]));
+    });
+
+    it("excludes members whose subject never resolved", async () => {
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        {
+          id: "g1",
+          name: "Group 1",
+          members: [
+            { email: "ok@example.com", active: true, display_name: "OK" },
+            { email: "broken@example.com", active: true, display_name: "Broken" },
+          ],
+        },
+      ]);
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      provisionShellUser.mockImplementation(async ({ email }: { email: string }) => {
+        if (email === "broken@example.com") throw new Error("keycloak unreachable");
+        return { sub: "sub-ok", created: false };
+      });
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      const passed = reconcileSyncedUsersBaselineAccess.mock.calls[0][0] as string[];
+      expect(passed).toEqual(["sub-ok"]);
+      warnSpy.mockRestore();
+    });
+
+    it("still records success when baseline bootstrap fails (best-effort, non-fatal)", async () => {
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      fetchExternalGroupsForProvider.mockResolvedValue([
+        { id: "g1", name: "Group 1", members: [{ email: "a@example.com", active: true, display_name: "A" }] },
+      ]);
+      reconcileSyncedUsersBaselineAccess.mockResolvedValue({
+        status: "failed",
+        subject_count: 1,
+        tuple_write_count: 0,
+        warning: "openfga down",
+      });
+
+      await executeSyncRun("run-1", "okta", "admin");
+
+      expect(updateIdpSyncRun).toHaveBeenCalledWith("run-1", expect.objectContaining({ status: "success" }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("baseline OpenFGA bootstrap failed"));
+      warnSpy.mockRestore();
     });
   });
 });

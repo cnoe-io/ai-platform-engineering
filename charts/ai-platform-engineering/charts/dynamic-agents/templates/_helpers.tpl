@@ -82,6 +82,25 @@ Determine if ingress is enabled - global takes precedence
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
 
+{{/*
+Effective metrics port. 0 (default) means metrics are served on the main
+service port, so this resolves to service.port in that case.
+*/}}
+{{- define "dynamic-agents.metricsPort" -}}
+{{- if and .Values.service.metricsPort (ne (int .Values.service.metricsPort) 0) -}}
+{{- .Values.service.metricsPort -}}
+{{- else -}}
+{{- .Values.service.port -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+True when metrics run on a port different from the main service port.
+*/}}
+{{- define "dynamic-agents.metricsPortSeparate" -}}
+{{- and .Values.service.metricsPort (ne (int .Values.service.metricsPort) (int .Values.service.port)) -}}
+{{- end -}}
+
 {/*
 Resolve maintained CAIPE image repositories for release vs pre-release channels.
 

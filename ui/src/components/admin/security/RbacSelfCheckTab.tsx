@@ -495,6 +495,11 @@ export function RbacSelfCheckTab({ isAdmin }: RbacSelfCheckTabProps) {
   const [revokingKey, setRevokingKey] = useState<string | null>(null);
   const [bulkRevoking, setBulkRevoking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // How many missing tuples a single "Repair Missing Tuples" pass may write.
+  // Empty string means "use the server default". Backfilling the member
+  // baseline for a large directory-synced population can exceed the default
+  // 500, so admins can raise this to repair everyone in one pass.
+  const [repairLimit, setRepairLimit] = useState("");
   const [matrixDialogOpen, setMatrixDialogOpen] = useState(false);
   const [selectedCheckIds, setSelectedCheckIds] = useState<Set<RbacSelfCheckId>>(
     () => new Set(RBAC_SELF_CHECK_IDS),
@@ -590,10 +595,15 @@ export function RbacSelfCheckTab({ isAdmin }: RbacSelfCheckTabProps) {
     setRepairing(true);
     setError(null);
     try {
+      const parsedLimit = Number(repairLimit);
+      const limitExtra =
+        repairLimit.trim() && Number.isFinite(parsedLimit) && parsedLimit > 0
+          ? { maxFindings: Math.floor(parsedLimit) }
+          : {};
       const response = await fetch("/api/admin/rebac/self-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: requestBodyForChecks(selectedChecks),
+        body: requestBodyForChecks(selectedChecks, limitExtra),
       });
       if (!response.ok) {
         throw new Error(`Repair failed with ${response.status}`);
@@ -616,7 +626,7 @@ export function RbacSelfCheckTab({ isAdmin }: RbacSelfCheckTabProps) {
     } finally {
       setRepairing(false);
     }
-  }, [selectedChecks]);
+  }, [selectedChecks, repairLimit]);
 
   const revokeTuple = useCallback(async (finding: RbacSelfCheckFinding) => {
     if (!finding.tuple) return;
@@ -890,6 +900,17 @@ export function RbacSelfCheckTab({ isAdmin }: RbacSelfCheckTabProps) {
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Audit Selected
           </Button>
+          <input
+            type="number"
+            min={1}
+            inputMode="numeric"
+            value={repairLimit}
+            onChange={(event) => setRepairLimit(event.target.value)}
+            placeholder="Max (500)"
+            title="Max missing tuples to repair in one pass. Leave blank for the default of 500; raise it to backfill a large synced population in a single pass."
+            disabled={actionBusy}
+            className="h-9 w-32 rounded-md border border-border/80 bg-background px-2 text-sm"
+          />
           <Button
             type="button"
             onClick={repairMissing}

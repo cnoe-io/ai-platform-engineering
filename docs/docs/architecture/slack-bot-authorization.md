@@ -1,3 +1,7 @@
+---
+sidebar_position: 5
+---
+
 # Slack Bot Authorization Architecture
 
 This document provides a visual reference for the end-to-end authorization flow when a user interacts with CAIPE through Slack. It covers the trust chain from Okta enterprise SSO through Slack, Keycloak token exchange, Dynamic Agents execution, and user scope validation at every boundary.

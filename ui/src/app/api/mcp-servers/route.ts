@@ -245,17 +245,42 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
-    const { page, pageSize, skip } = getPaginationParams(request);
-
     await selfHealAgentGatewayMcpServersForList(collection);
 
-    const allItems = await collection.find({}).sort({ name: 1 }).toArray();
     const listTarget = {
       type: "mcp_server" as const,
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
     const permissionOptions = { bypassForOrgAdmin: true as const };
+    const requestedId = new URL(request.url).searchParams.get("id")?.trim();
+
+    if (requestedId) {
+      const server = await collection.findOne({ _id: requestedId });
+      if (!server) throw new ApiError("MCP server not found", 404);
+
+      const visibleItems = await filterResourcesByPermission(
+        session,
+        [server],
+        listTarget,
+        permissionOptions,
+      );
+      if (visibleItems.length === 0) throw new ApiError("MCP server not found", 404);
+
+      const { rows } = await resolveMcpServerListPermissions(
+        session,
+        [requestedId],
+        permissionOptions,
+      );
+      const result: MCPServerConfigWithPermissions = {
+        ...server,
+        permissions: mcpServerRowPermissionsOrDefault(rows, requestedId),
+      };
+      return successResponse(result);
+    }
+
+    const { page, pageSize, skip } = getPaginationParams(request);
+    const allItems = await collection.find({}).sort({ name: 1 }).toArray();
     const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, permissionOptions);
     const pageItems = visibleItems.slice(skip, skip + pageSize);
     const { rows, capabilities } = await resolveMcpServerListPermissions(

@@ -13,6 +13,7 @@ import { batchCheckOpenFgaTuples,checkOpenFgaTuple,listOpenFgaObjects,writeOpenF
 import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { openFgaResourceObject } from "@/lib/rbac/openfga-resource-ids";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import { getRealmUserByIdOrNull } from "@/lib/rbac/keycloak-admin";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import {
 createJsonResponseCacheStore,
@@ -112,6 +113,12 @@ const BASELINE_TABS = new Set<AdminTabKey>(BASELINE_ADMIN_SURFACES);
 
 const INTEGRATION_PANEL_TABS = ["slack", "webex"] as const satisfies readonly AdminTabKey[];
 
+function isIntegrationPanelTab(
+  tab: AdminTabKey,
+): tab is (typeof INTEGRATION_PANEL_TABS)[number] {
+  return (INTEGRATION_PANEL_TABS as readonly AdminTabKey[]).includes(tab);
+}
+
 function integrationPanelModesFromSurfaceManage(
   gates: AdminTabGatesMap,
   hasSurfaceManage: (tab: (typeof INTEGRATION_PANEL_TABS)[number]) => boolean,
@@ -131,6 +138,7 @@ const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
   webex: "webex",
   feedback: "feedback",
   stats: "stats",
+  metrics: "metrics",
   audit_logs: "audit_logs",
   action_audit: "action_audit",
   openfga: "openfga",
@@ -337,10 +345,68 @@ async function getAdminTabGates(request?: NextRequest) {
       { status: 403 }
     );
   }
+
+  // A simulation URL only contains the stable Keycloak subject. Resolve the
+  // canonical identity here so the client can render a human name after a
+  // refresh instead of falling back to the opaque UUID. A raw OpenFGA id is
+  // still supported; failed lookups intentionally keep the id fallback.
+  let simulatedBaselineObjects = new Set<string>();
+  if (simulation.subject?.type === "user") {
+    const simulatedSubject = simulation.subject;
+    const [profile, realmUser] = await Promise.all([
+      getBaselineFgaProfile(),
+      getRealmUserByIdOrNull(simulatedSubject.id).catch((error) => {
+        console.warn("[AdminTabGates] Failed to resolve simulated user identity", {
+          userId: simulatedSubject.id,
+          error,
+        });
+        return null;
+      }),
+    ]);
+    simulatedBaselineObjects = new Set(
+      baselineBootstrapTuples(simulatedSubject.id, false, profile)
+        .filter((tuple) => tuple.relation === "reader")
+        .map((tuple) => tuple.object),
+    );
+
+    if (realmUser) {
+      const firstName = String(realmUser.firstName ?? "").trim();
+      const lastName = String(realmUser.lastName ?? "").trim();
+      const email = String(realmUser.email ?? "").trim();
+      const username = String(realmUser.username ?? "").trim();
+      const displayName = [firstName, lastName].filter(Boolean).join(" ") || username || email;
+      simulation = {
+        ...simulation,
+        subject: {
+          ...simulatedSubject,
+          ...(displayName ? { display_name: displayName } : {}),
+          ...(email ? { email } : {}),
+        },
+      };
+    }
+  }
+
   const simulatedUser = simulation.subject?.openfga_user;
   const currentSubject = getSessionSubject(session);
   const currentUser = currentSubject ? `user:${currentSubject}` : undefined;
   const bootstrapAdmin = isBootstrapAdmin(session.user.email ?? "");
+  const simulatedOrganizationAdmin = simulatedUser
+    ? await checkTupleAllowed({
+        user: simulatedUser,
+        relation: "can_manage",
+        object: organizationObjectId(),
+      })
+    : false;
+
+  if (simulation.subject) {
+    simulation = {
+      ...simulation,
+      subject: {
+        ...simulation.subject,
+        organization_admin: simulatedOrganizationAdmin,
+      },
+    };
+  }
 
   // ── Common (non-simulated) path: resolve all primary checks in one batch ──
   // Simulated-user path falls through to the per-check evaluateTab() below.
@@ -349,7 +415,11 @@ async function getAdminTabGates(request?: NextRequest) {
     // Tabs without an FGA primary check (credentials → isAdmin,
     // service_accounts → listOpenFgaObjects) are excluded from the batch and
     // resolved separately below.
-    type BatchEntry = { tab: AdminTabKey; tuple: OpenFgaTupleKey };
+    type BatchEntry = {
+      tab: AdminTabKey;
+      purpose: "primary" | "integration_manage";
+      tuple: OpenFgaTupleKey;
+    };
     const batchEntries: BatchEntry[] = [];
 
     for (const tab of ALL_TABS) {
@@ -358,6 +428,7 @@ async function getAdminTabGates(request?: NextRequest) {
         if (!isAdmin) {
           batchEntries.push({
             tab,
+            purpose: "primary",
             tuple: {
               user: currentUser,
               relation: "can_read",
@@ -370,11 +441,24 @@ async function getAdminTabGates(request?: NextRequest) {
       if (BASELINE_TABS.has(tab)) {
         batchEntries.push({
           tab,
+          purpose: "primary",
           tuple: { user: currentUser, relation: "can_read", object: adminSurfaceObject(tab) },
         });
       } else if (!bootstrapAdmin && TAB_ADMIN_SURFACES[tab]) {
         batchEntries.push({
           tab,
+          purpose: "primary",
+          tuple: { user: currentUser, relation: "can_manage", object: adminSurfaceObject(tab) },
+        });
+      }
+
+      // Slack and Webex are baseline read surfaces, but their panels still
+      // need a separate manage decision to distinguish configured-only mode
+      // from the full onboarding and advanced controls.
+      if (!bootstrapAdmin && isIntegrationPanelTab(tab)) {
+        batchEntries.push({
+          tab,
+          purpose: "integration_manage",
           tuple: { user: currentUser, relation: "can_manage", object: adminSurfaceObject(tab) },
         });
       }
@@ -387,7 +471,14 @@ async function getAdminTabGates(request?: NextRequest) {
     ]);
 
     const primaryAllowed = new Map<AdminTabKey, boolean>();
-    batchEntries.forEach((entry, i) => primaryAllowed.set(entry.tab, batchResults[i]));
+    const integrationSurfaceManage = new Map<(typeof INTEGRATION_PANEL_TABS)[number], boolean>();
+    batchEntries.forEach((entry, i) => {
+      if (entry.purpose === "primary") {
+        primaryAllowed.set(entry.tab, batchResults[i]);
+      } else if (isIntegrationPanelTab(entry.tab)) {
+        integrationSurfaceManage.set(entry.tab, batchResults[i]);
+      }
+    });
 
     // Resolve each tab using batch results; run secondary checks in parallel
     // for the handful of tabs that need resource-scoped fallback.
@@ -397,6 +488,17 @@ async function getAdminTabGates(request?: NextRequest) {
     for (const tab of ALL_TABS) {
       if (tab === "credentials") {
         gates[tab] = isAdmin && !!getConfig("credentialsEnabled");
+        continue;
+      }
+      if (tab === "service_accounts") {
+        gates[tab] = isAdmin;
+        if (!gates[tab]) {
+          secondaryChecks.push(
+            isMemberOfAnyTeam(currentUser).then((allowed) => {
+              gates[tab] = allowed;
+            }),
+          );
+        }
         continue;
       }
       if (tab === "dynamic_agent_conversations") {
@@ -422,7 +524,7 @@ async function getAdminTabGates(request?: NextRequest) {
 
     const integrationPanelModes = integrationPanelModesFromSurfaceManage(
       gates,
-      (tab) => bootstrapAdmin || (primaryAllowed.get(tab) ?? false),
+      (tab) => bootstrapAdmin || (integrationSurfaceManage.get(tab) ?? false),
     );
     return NextResponse.json({ gates, simulation, integration_panel_modes: integrationPanelModes });
   }
@@ -434,33 +536,29 @@ async function getAdminTabGates(request?: NextRequest) {
 
     if (tab === "dynamic_agent_conversations") {
       if (simulatedUser) {
-        const simulatedOrgAdmin = await checkTupleAllowed({
-          user: simulatedUser,
-          relation: "can_manage",
-          object: organizationObjectId(),
-        });
-        allowed = simulatedOrgAdmin || await hasDynamicAgentConversationsRead(simulatedUser);
+        allowed = simulatedOrganizationAdmin || await hasDynamicAgentConversationsRead(simulatedUser);
       } else {
         allowed = isAdmin || (actor ? await hasDynamicAgentConversationsRead(actor) : false);
       }
+    } else if (tab === "service_accounts" && simulatedUser) {
+      allowed = simulatedOrganizationAdmin || await isMemberOfAnyTeam(simulatedUser);
     } else {
       allowed =
         tab === "credentials"
           ? simulatedUser
-            ? await checkTupleAllowed({
-                user: simulatedUser,
-                relation: "can_manage",
-                object: organizationObjectId(),
-              })
+            ? simulatedOrganizationAdmin
             : isAdmin
           : BASELINE_TABS.has(tab) && actor
-            ? await hasBaselineAdminSurfaceRead(actor, tab)
+            ? simulatedBaselineObjects.has(adminSurfaceObject(tab)) ||
+              await hasBaselineAdminSurfaceRead(actor, tab)
             : simulatedUser
               ? await hasAdminSurfaceManage(simulatedUser, tab)
               : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
     }
 
-    if (!allowed && actor && !simulatedUser) {
+    const supportsSimulatedResourceScope =
+      !simulatedUser || tab === "slack" || tab === "webex";
+    if (!allowed && actor && supportsSimulatedResourceScope) {
       allowed = await hasResourceScopedIntegrationAccess(actor, tab);
     }
 
@@ -489,7 +587,7 @@ async function getAdminTabGates(request?: NextRequest) {
       INTEGRATION_PANEL_TABS.map(async (tab) => {
         if (!gates[tab]) return;
         const surfaceManage =
-          bootstrapAdmin || (await hasAdminSurfaceManage(actor, tab));
+          (!simulatedUser && bootstrapAdmin) || (await hasAdminSurfaceManage(actor, tab));
         integrationPanelModes[tab] = surfaceManage ? "full" : "self_service";
       }),
     );

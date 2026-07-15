@@ -78,9 +78,15 @@ describe("GET /api/admin/openfga/baseline-diagnostics", () => {
     expect(body.data.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "member-admin-surface:metrics:read",
+          id: "member-admin-surface:feedback:read",
           actual: true,
           expected_member: true,
+          expected_admin: true,
+        }),
+        expect.objectContaining({
+          id: "admin-admin-surface:metrics:manage",
+          actual: false,
+          expected_member: false,
           expected_admin: true,
         }),
         expect.objectContaining({

@@ -10,7 +10,7 @@ import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { AdminSecretsManager } from "./AdminSecretsManager";
 import { OAuthConnectorAdminPanel } from "./OAuthConnectorAdminPanel";
 
-export function AdminCredentialManagementPanel() {
+export function AdminCredentialManagementPanel({ readOnly = false }: { readOnly?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -44,10 +44,10 @@ export function AdminCredentialManagementPanel() {
           <TabsTrigger value="oauth-providers">Connected Apps</TabsTrigger>
         </TabsList>
         <TabsContent value="secrets">
-          <AdminSecretsManager />
+          <AdminSecretsManager readOnly={readOnly} />
         </TabsContent>
         <TabsContent value="oauth-providers">
-          <OAuthConnectorAdminPanel />
+          <OAuthConnectorAdminPanel readOnly={readOnly} />
         </TabsContent>
       </Tabs>
     </section>
