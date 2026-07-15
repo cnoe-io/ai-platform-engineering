@@ -93,7 +93,11 @@ async def get_user_by_email(
     email: str,
     config: KeycloakAdminConfig | None = None,
 ) -> Optional[dict[str, Any]]:
-    """Find one enabled realm user whose email exactly matches *email*."""
+    """
+    Find one enabled realm user whose email exactly matches *email*.
+    Required for Webex 1:1 feature where the webex sender's email is
+    checked against Keycloak deployment user
+    """
     normalized = email.strip().lower()
     if not normalized or "@" not in normalized:
         return None

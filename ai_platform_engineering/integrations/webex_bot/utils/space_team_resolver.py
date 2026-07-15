@@ -88,6 +88,7 @@ class WebexSpaceTeamResolver:
                 "webex_space_id": space_id,
                 "active": {"$ne": False},
             })
+            # backward-compat: if no mapping for this bot, try the default bot (if any) for this space
             if not mapping and bot_id == default_webex_bot_id():
                 mapping = mappings.find_one({
                     "$or": [

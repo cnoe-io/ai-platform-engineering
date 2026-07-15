@@ -123,7 +123,7 @@ Messages to a bot without a matching active allowlist entry are ignored.
 |---|---|
 | `disabled` | The runtime does not handle direct messages. |
 | `allowlist` | Only bot/user pairs explicitly configured by an admin are handled. |
-| `all_users` | Deployment users may use the first configured bot and `WEBEX_DEFAULT_AGENT_ID`. |
+| `all_users` | Deployment users may use the resolved default bot and `WEBEX_DEFAULT_AGENT_ID`. |
 
 Set `WEBEX_DM_ACCESS_MODE` to the same value on the UI and Webex bot workloads.
 `allowlist` is the recommended mode when admins must control access and agent
@@ -157,6 +157,26 @@ It never selects a bot from list order. If a multi-bot catalog has no explicit
 default and no unique legacy-token entry, startup reports the number of legacy
 records and leaves them unchanged. Add `default: true` to the intended bot in
 both catalogs, then restart the UI and Webex bot workloads.
+
+While the UI startup migration is pending, the Webex runtime may read a legacy
+space mapping or agent route only for the resolved default bot. It attributes
+that record to the default bot before authorization is evaluated. A
+non-default bot cannot inherit or use a legacy record. Re-onboarding the space
+after migration updates the existing logical mapping instead of creating a
+second mapping because the legacy document has a different MongoDB `_id`.
+
+The migration intentionally does not modify:
+
+- `webex_space_grants`, which remain attached to the physical Webex space and
+  are shared by bot-specific routes.
+- `webex_direct_user_routes`, which were introduced with multi-bot ownership
+  and already require `bot_id`.
+
+Legacy MongoDB documents do not contain the historical bot identity. The
+platform therefore cannot independently prove which bot originally owned a
+record. Operators must ensure that `default: true`, or the bot using the legacy
+`WEBEX_INTEGRATION_BOT_ACCESS_TOKEN`, still identifies the original bot before
+allowing migration to run.
 
 ## Important Environment Variables
 
