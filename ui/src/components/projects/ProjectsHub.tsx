@@ -630,7 +630,7 @@ export function ProjectsHub() {
                 <TooltipContent side="bottom">What is TOME?</TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <McpConnectDialog />
+            <McpConnectDialog initialOpen={searchParams.get("mcp") === "1"} />
             <select
               value={groupBy}
               onChange={(e) => setGroupBy(e.target.value as GroupBy)}

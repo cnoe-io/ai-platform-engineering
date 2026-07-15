@@ -64,8 +64,8 @@ function cursorConfig(endpoint: string, token: string): string {
   );
 }
 
-export function McpConnectDialog() {
-  const [open, setOpen] = useState(false);
+export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
   const [endpoint, setEndpoint] = useState("/api/tome/mcp");
   const [days, setDays] = useState(90);
   const [token, setToken] = useState<string | null>(null);
