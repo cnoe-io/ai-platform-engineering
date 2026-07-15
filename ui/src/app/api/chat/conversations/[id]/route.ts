@@ -97,6 +97,7 @@ export const PUT = withErrorHandler(async (
     if (body.tags !== undefined) update.tags = body.tags;
     if (body.is_archived !== undefined) update.is_archived = body.is_archived;
     if (body.is_pinned !== undefined) update.is_pinned = body.is_pinned;
+    if (body.participants !== undefined) update.participants = body.participants;
 
     await conversations.updateOne(
       { _id: conversationId },
