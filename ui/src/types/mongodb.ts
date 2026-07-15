@@ -313,6 +313,8 @@ export interface UpdateConversationRequest {
   tags?: string[];
   is_archived?: boolean;
   is_pinned?: boolean;
+  /** Re-link a conversation to a new agent (e.g. resume a deprecated-agent conversation). */
+  participants?: Participant[];
 }
 
 export interface PatchConversationMetadataRequest {
