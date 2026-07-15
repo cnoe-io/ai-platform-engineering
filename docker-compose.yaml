@@ -535,6 +535,9 @@ services:
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
+      # Dedicated /metrics port. 0 (default) serves metrics on the main API
+      # port — current behavior, unchanged.
+      - METRICS_PORT=${DYNAMIC_AGENTS_METRICS_PORT:-0}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s

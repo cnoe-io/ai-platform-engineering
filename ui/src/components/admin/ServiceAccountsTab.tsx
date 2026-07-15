@@ -36,6 +36,8 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { ProviderSelect, type ProviderOption } from "@/components/ui/provider-select";
 import { CopyButton } from "@/components/ui/copy-button";
+import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
+import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import { getProviderDisplayName } from "@/lib/credentials/provider-display-names";
 
@@ -110,7 +112,13 @@ interface ServiceAccountCredential {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ServiceAccountsTab() {
+export function ServiceAccountsTab({
+  readOnly = false,
+  simulationTarget = null,
+}: {
+  readOnly?: boolean;
+  simulationTarget?: AdminSimulationQueryTarget | null;
+}) {
   const [items, setItems] = useState<ServiceAccountListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,11 +128,15 @@ export function ServiceAccountsTab() {
   const [credential, setCredential] = useState<CreatedCredential | null>(null);
   const [createdName, setCreatedName] = useState<string>("");
   const [manageId, setManageId] = useState<string | null>(null);
+  const listUrl = useMemo(
+    () => withAdminSimulationParams("/api/admin/service-accounts", simulationTarget),
+    [simulationTarget],
+  );
 
   const loadList = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
-      const res = await fetch("/api/admin/service-accounts");
+      const res = await fetch(listUrl);
       const body = await res.json();
       if (!res.ok || !body.success) {
         throw new Error(body.error || "Failed to load service accounts");
@@ -137,7 +149,7 @@ export function ServiceAccountsTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [listUrl]);
 
   useEffect(() => {
     void loadList();
@@ -187,7 +199,11 @@ export function ServiceAccountsTab() {
             )}
             Refresh
           </Button>
-          <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+          <Button
+            className="gap-2"
+            onClick={() => setCreateOpen(true)}
+            disabled={readOnly}
+          >
             <Plus className="h-4 w-4" />
             Create Service Account
           </Button>
@@ -211,7 +227,11 @@ export function ServiceAccountsTab() {
           <p className="mb-4 text-muted-foreground">
             Create one to give an external integration scoped, auditable access.
           </p>
-          <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+          <Button
+            className="gap-2"
+            onClick={() => setCreateOpen(true)}
+            disabled={readOnly}
+          >
             <Plus className="h-4 w-4" />
             Create your first service account
           </Button>
@@ -237,6 +257,7 @@ export function ServiceAccountsTab() {
                     sa={sa}
                     zebra={idx % 2 === 1}
                     onManage={() => setManageId(sa.id)}
+                    readOnly={readOnly}
                   />
                 ))}
               </tbody>
@@ -245,28 +266,32 @@ export function ServiceAccountsTab() {
         </div>
       )}
 
-      <CreateServiceAccountDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={handleCreated}
-      />
+      {!readOnly && (
+        <>
+          <CreateServiceAccountDialog
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            onCreated={handleCreated}
+          />
 
-      <ManageServiceAccountDialog
-        key={manageId ?? "no-manage"}
-        saId={manageId}
-        onClose={() => setManageId(null)}
-        onMutated={() => loadList(true)}
-        onRotated={handleRotated}
-      />
+          <ManageServiceAccountDialog
+            key={manageId ?? "no-manage"}
+            saId={manageId}
+            onClose={() => setManageId(null)}
+            onMutated={() => loadList(true)}
+            onRotated={handleRotated}
+          />
 
-      <CredentialRevealDialog
-        // Remount per credential so the acknowledgement checkbox resets without
-        // a setState-in-effect.
-        key={credential?.client_id ?? "no-credential"}
-        credential={credential}
-        name={createdName}
-        onClose={() => setCredential(null)}
-      />
+          <CredentialRevealDialog
+            // Remount per credential so the acknowledgement checkbox resets without
+            // a setState-in-effect.
+            key={credential?.client_id ?? "no-credential"}
+            credential={credential}
+            name={createdName}
+            onClose={() => setCredential(null)}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -279,10 +304,12 @@ function ServiceAccountRow({
   sa,
   zebra,
   onManage,
+  readOnly,
 }: {
   sa: ServiceAccountListItem;
   zebra: boolean;
   onManage: () => void;
+  readOnly: boolean;
 }) {
   return (
     <tr className={cn("border-b border-border/60", zebra && "bg-muted/20")}>
@@ -322,7 +349,7 @@ function ServiceAccountRow({
           variant="outline"
           className="gap-1.5"
           onClick={onManage}
-          disabled={sa.status === "revoked"}
+          disabled={readOnly || sa.status === "revoked"}
         >
           <Settings className="h-3.5 w-3.5" />
           {sa.status === "revoked" ? "Revoked" : "Manage"}

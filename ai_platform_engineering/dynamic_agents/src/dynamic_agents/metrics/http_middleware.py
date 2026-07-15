@@ -22,16 +22,22 @@ _EXCLUDED = frozenset({"/health", "/ready", "/healthz", "/", "/metrics"})
 class PrometheusHTTPMiddleware(BaseHTTPMiddleware):
     """Serves ``/metrics`` and records request duration + active gauge."""
 
-    def __init__(self, app: ASGIApp, metrics_path: str = "/metrics") -> None:
+    def __init__(self, app: ASGIApp, metrics_path: str = "/metrics", serve_metrics: bool = True) -> None:
         super().__init__(app)
         self._metrics_path = metrics_path
-        logger.info("PrometheusHTTPMiddleware initialised, metrics at %s", metrics_path)
+        self._serve_metrics_inline = serve_metrics
+        logger.info(
+            "PrometheusHTTPMiddleware initialised, metrics at %s (inline=%s)",
+            metrics_path,
+            serve_metrics,
+        )
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
 
-        # Serve metrics endpoint directly
-        if path == self._metrics_path:
+        # Serve metrics endpoint directly, unless metrics are served on a
+        # dedicated port instead (see dynamic_agents.main / METRICS_PORT).
+        if path == self._metrics_path and self._serve_metrics_inline:
             return self._serve_metrics()
 
         # Skip tracking for health/root

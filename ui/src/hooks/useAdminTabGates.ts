@@ -3,6 +3,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { allAdminTabGates,isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
+import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
 import type { AdminTabGatesMap,AdminTabKey,IntegrationPanelModesMap } from "@/lib/rbac/types";
 import { useSession } from "next-auth/react";
 import { useCallback,useEffect,useRef,useState } from "react";
@@ -43,11 +44,7 @@ interface AdminTabGatesState {
   refresh: () => void;
 }
 
-export interface AdminTabGateSimulationTarget {
-  type: "user" | "team";
-  id: string;
-  relation?: "member" | "admin";
-}
+export type AdminTabGateSimulationTarget = AdminSimulationQueryTarget;
 
 interface AdminTabGateSimulation {
   active: boolean;
@@ -57,6 +54,9 @@ interface AdminTabGateSimulation {
     id: string;
     relation?: "member" | "admin";
     openfga_user: string;
+    display_name?: string;
+    email?: string;
+    organization_admin?: boolean;
   };
 }
 

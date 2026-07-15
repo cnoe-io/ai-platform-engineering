@@ -44,12 +44,12 @@ describe("backfillBuiltinMcpCredentialSources", () => {
 
     expect(mockCollection.updateOne).toHaveBeenCalledTimes(BUILTIN_IDS.length);
 
-    // Every call must guard on missing credential_sources only — an explicit
+    // Every call must guard on missing/null credential_sources only — an explicit
     // empty array means the operator cleared credentials and must not be clobbered.
     for (const call of mockCollection.updateOne.mock.calls) {
       const [filter, update] = call;
       expect(BUILTIN_IDS).toContain(filter._id);
-      expect(filter.credential_sources).toEqual({ $exists: false });
+      expect(filter.credential_sources).toEqual({ $in: [null, undefined] });
       expect(update.$set.credential_sources).toEqual(
         BUILTIN_MCP_CREDENTIAL_SOURCES[filter._id],
       );

@@ -177,6 +177,30 @@ describe("/api/llm-models", () => {
     expect(body.pagination).toEqual({ total: 1, page: 2, page_size: 5 });
   });
 
+  it("returns one exact model for a deep link after its OpenFGA read check", async () => {
+    const model = {
+      _id: "openai/gpt-4o",
+      model_id: "openai/gpt-4o",
+      name: "GPT-4o",
+      provider: "openai",
+    };
+    const collection = createCollection([model]);
+    mockGetCollection.mockResolvedValue(collection);
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/llm-models?id=openai%2Fgpt-4o"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(collection.findOne).toHaveBeenCalledWith({ _id: "openai/gpt-4o" });
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "admin-sub" }),
+      [model],
+      { type: "llm_model", action: "read", id: expect.any(Function) },
+    );
+    expect(body).toEqual({ success: true, data: model });
+  });
+
   it("creates user-managed models and ignores server-controlled fields", async () => {
     const collection = createCollection([]);
     mockGetCollection.mockResolvedValue(collection);

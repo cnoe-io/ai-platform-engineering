@@ -11,5 +11,11 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if eq (include "dynamic-agents.metricsPortSeparate" .) "true" }}
+    - port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "dynamic-agents.selectorLabels" . | nindent 4 }}

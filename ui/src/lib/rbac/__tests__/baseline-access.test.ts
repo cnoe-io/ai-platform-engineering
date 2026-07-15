@@ -98,10 +98,10 @@ describe("baseline FGA profile bundles", () => {
         built_in: false,
       },
       {
-        id: "metrics-member",
-        name: "Metrics member",
+        id: "insights-member",
+        name: "Insights member",
         role: "member",
-        grants: ["admin-surface:metrics:read"],
+        grants: ["admin-surface:stats:read"],
         built_in: false,
       },
     );
@@ -112,14 +112,14 @@ describe("baseline FGA profile bundles", () => {
       bundle,
       teamOverrides: [
         { team_slug: "support", role: "member", member_profile_id: "support-member" },
-        { team_slug: "observability", role: "member", member_profile_id: "metrics-member" },
+        { team_slug: "observability", role: "member", member_profile_id: "insights-member" },
       ],
     });
 
     expect(tuples).toEqual(
       expect.arrayContaining([
         { user: "user:sub-user", relation: "member", object: "organization:grid" },
-        { user: "user:sub-user", relation: "reader", object: "admin_surface:metrics" },
+        { user: "user:sub-user", relation: "reader", object: "admin_surface:stats" },
       ]),
     );
     expect(tuples).not.toEqual(

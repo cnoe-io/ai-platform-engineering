@@ -236,6 +236,22 @@ async function clickFindSpaces() {
   fireEvent.click(discoverButton);
 }
 
+it("scopes the configured space list to the simulated user", async () => {
+  render(
+    <WebexSpaceRebacPanel
+      selfService
+      disabled
+      simulationTarget={{ type: "user", id: "target-sub" }}
+    />,
+  );
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/webex/spaces?simulate_type=user&simulate_id=target-sub&health=1",
+    );
+  });
+});
+
 it("shows the onboarding loading state while configured spaces seed the table", async () => {
   let resolveSpaces: ((value: Response) => void) | undefined;
   const spacesPromise = new Promise<Response>((resolve) => {

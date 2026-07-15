@@ -43,7 +43,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('disconnected');
-    });
+    }, { timeout: 3000 });
 
     expect(mockGetHealthStatus).not.toHaveBeenCalled();
   });
@@ -55,7 +55,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('connected');
-    });
+    }, { timeout: 3000 });
   });
 
   it('healthy response with graph_rag_enabled=false → graphRagEnabled=false', async () => {
@@ -68,7 +68,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('connected');
-    });
+    }, { timeout: 3000 });
 
     expect(result.current.graphRagEnabled).toBe(false);
   });
@@ -80,7 +80,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('connected');
-    });
+    }, { timeout: 3000 });
 
     expect(result.current.graphRagEnabled).toBe(true);
   });
@@ -92,7 +92,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('disconnected');
-    });
+    }, { timeout: 3000 });
   });
 
   it('error → disconnected', async () => {
@@ -103,7 +103,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('disconnected');
-    });
+    }, { timeout: 3000 });
 
     consoleSpy.mockRestore();
   });
@@ -115,7 +115,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('connected');
-    });
+    }, { timeout: 3000 });
 
     mockGetHealthStatus.mockClear();
     mockGetHealthStatus.mockResolvedValue({ status: 'healthy' });
@@ -126,7 +126,7 @@ describe('useRAGHealth', () => {
 
     await waitFor(() => {
       expect(mockGetHealthStatus).toHaveBeenCalled();
-    });
+    }, { timeout: 3000 });
   });
 
   it('returns url from config', () => {

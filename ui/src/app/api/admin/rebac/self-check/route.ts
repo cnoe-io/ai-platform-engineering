@@ -25,6 +25,12 @@ import type {
 import { withRebacAdminAuth,withRebacViewAuth } from "../_lib";
 
 const BULK_REVOKE_REVIEW_LIMIT = 5000;
+// Upper bound on how many missing tuples a single repair pass may consider.
+// A large org backfilling the member baseline for every directory-synced user
+// can have far more than the default 500 missing tuples, so admins may raise
+// the cap up to this ceiling to repair everyone in one pass instead of paging
+// through it 500 at a time.
+const MAX_REPAIR_LIMIT = 100_000;
 const DEFAULT_SLACK_WORKSPACE = "CAIPE";
 const DEFAULT_WEBEX_WORKSPACE = "Cisco";
 
@@ -111,6 +117,17 @@ function parseChecks(value: unknown): string[] | undefined {
       .filter(Boolean);
   }
   return undefined;
+}
+
+/**
+ * Parse an admin-supplied repair limit, capping how many missing tuples one
+ * repair pass considers. Returns undefined (self-check's own default applies)
+ * for absent/invalid values, and clamps to [1, MAX_REPAIR_LIMIT] otherwise.
+ */
+function parseRepairLimit(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.min(Math.floor(parsed), MAX_REPAIR_LIMIT);
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
@@ -394,8 +411,11 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       checks?: unknown;
       tuple?: unknown;
       tuples?: unknown;
+      maxFindings?: unknown;
+      limit?: unknown;
     };
     const checks = parseChecks(body.checks);
+    const repairLimit = parseRepairLimit(body.maxFindings ?? body.limit);
 
     if (body.action === "revoke_tuple") {
       if (!isTuple(body.tuple)) {
@@ -504,7 +524,12 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       ? body.sources.filter((source): source is string => typeof source === "string" && source.trim().length > 0)
       : undefined;
 
-    const before = await runRbacSelfCheck({ checks });
+    // Raise the finding cap for the repair scan when an admin asks for it, so a
+    // large backfill (e.g. the member baseline for every directory-synced user)
+    // can be repaired in one pass instead of 500 tuples at a time. The orphan
+    // limit is left at its default — this control is about repairing missing
+    // grants, not surfacing more unowned tuples.
+    const before = await runRbacSelfCheck({ checks, ...(repairLimit ? { maxFindings: repairLimit } : {}) });
     const writes = repairableMissingTuples(before, sources);
     const result = await writeOpenFgaTuples({ writes, deletes: [] });
     const after = await runRbacSelfCheck({ checks });

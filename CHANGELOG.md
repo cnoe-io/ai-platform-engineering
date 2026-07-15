@@ -1,3 +1,64 @@
+## 0.5.52 (2026-07-15)
+
+### Fix
+
+- **ui**: scroll unlinked access modal body instead of overflowing
+
+## 0.5.51-dev.5 (2026-07-15)
+
+### Fix
+
+- **slack-bot**: pass agent_id when resolving conversation for message delete
+- **slack-bot**: pass agent_id when resolving conversation for Get help escalation
+
+## 0.5.51-dev.4 (2026-07-15)
+
+## 0.5.51-dev.3 (2026-07-15)
+
+### Fix
+
+- **ui**: tolerate transient silent-refresh failures before forcing logout (#2220)
+- **ui**: add deep links for agent resources (#2212)
+
+## 0.5.51-dev.2 (2026-07-14)
+
+### Feat
+
+- **dynamic-agents**: pass METRICS_PORT through in dev compose
+- **dynamic-agents**: make metrics port configurable
+
+## 0.5.51-dev.1 (2026-07-14)
+
+### Fix
+
+- **ui**: repair admin view-as access preview (#2206)
+
+## 0.5.51 (2026-07-13)
+
+## 0.5.50-dev.2 (2026-07-13)
+
+### Fix
+
+- **slack-bot**: demote profiling stage logs from INFO to DEBUG
+- **slack-bot**: filter OpenFGA tuple read server-side by channel subject
+- **slack-bot**: add stage timing logs to profile routing delay
+
+## 0.5.50-dev.1 (2026-07-13)
+
+### Feat
+
+- **idp-sync**: log per-stage progress through a directory sync
+- **docs**: add vidcast links for scheduler and mcp webex meetings
+
+### Fix
+
+- **idp-sync**: make the plan/reconcile chain async and O(n) to keep probes alive
+- **idp-sync**: yield the event loop during synchronous member passes
+- **idp-sync**: bootstrap baseline access before team apply and parallelize member resolution
+- **rbac**: bootstrap member baseline for directory-synced users
+
+## 0.5.50 (2026-07-10)
+
 ## 0.5.49-dev.2 (2026-07-10)
 
 ### Fix
