@@ -22,7 +22,8 @@
     "test:e2e:rbac-live-rich": "RUN_RBAC_E2E=1 playwright test e2e/rbac/rbac-rich-local-regression-live.spec.ts --config=playwright.rbac.config.ts",
     "test:e2e:rbac-live-rich-keep": "RUN_RBAC_E2E=1 RBAC_RICH_KEEP_FIXTURE=1 playwright test e2e/rbac/rbac-rich-local-regression-live.spec.ts --config=playwright.rbac.config.ts",
     "test:e2e:rbac-live-rich-cleanup": "RUN_RBAC_E2E=1 playwright test e2e/rbac/rbac-rich-local-regression-live.spec.ts --config=playwright.rbac.config.ts",
-    "test:e2e:rbac-live-full": "RUN_RBAC_E2E=1 playwright test e2e/rbac/openfga-live.spec.ts e2e/rbac/mcp-server-create-live.spec.ts e2e/rbac/resource-lifecycle-live.spec.ts e2e/rbac/credential-team-sharing.spec.ts e2e/rbac/rbac-rich-local-regression-live.spec.ts --config=playwright.rbac.config.ts"
+    "test:e2e:rbac-live-full": "RUN_RBAC_E2E=1 playwright test e2e/rbac/openfga-live.spec.ts e2e/rbac/mcp-server-create-live.spec.ts e2e/rbac/resource-lifecycle-live.spec.ts e2e/rbac/credential-team-sharing.spec.ts e2e/rbac/rbac-rich-local-regression-live.spec.ts --config=playwright.rbac.config.ts",
+    "test:e2e:token-refresh": "RUN_RBAC_E2E=1 playwright test e2e/rbac/token-refresh.spec.ts --config=playwright.rbac.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1051.0",
