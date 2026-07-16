@@ -30,11 +30,29 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
     async function fetchDefaultAgent() {
       try {
-        const configResponse = await fetch('/api/admin/platform-config');
-        const configData = await configResponse.json().catch(() => ({ success: false }));
-        const agentId = configData.success && configData.data.default_agent_id
-          ? String(configData.data.default_agent_id)
-          : null;
+        // The user's personal Web default takes precedence over the platform
+        // default; a missing/failed preference falls through to the platform
+        // default so new chats always resolve to something usable.
+        const [userDefaultId, platformDefaultId] = await Promise.all([
+          fetch('/api/user/preferences')
+            .then((r) => r.json())
+            .then((d) =>
+              d?.success && d.data?.web_default_agent_id
+                ? String(d.data.web_default_agent_id)
+                : null,
+            )
+            .catch(() => null),
+          fetch('/api/admin/platform-config')
+            .then((r) => r.json())
+            .then((d) =>
+              d?.success && d.data?.default_agent_id
+                ? String(d.data.default_agent_id)
+                : null,
+            )
+            .catch(() => null),
+        ]);
+
+        const agentId = userDefaultId ?? platformDefaultId;
 
         if (cancelled) return;
 

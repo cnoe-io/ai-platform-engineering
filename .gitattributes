@@ -1,3 +1,6 @@
 
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads
+
+# This TypeScript source historically contained a literal NUL separator.
+ui/src/app/api/admin/users/*/access/route.ts diff

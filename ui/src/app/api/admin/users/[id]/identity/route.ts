@@ -14,7 +14,7 @@ import {
   getUserFederatedIdentities,
   getUserSessions,
 } from "@/lib/rbac/keycloak-admin";
-import { requireUserProfileRead } from "@/lib/rbac/require-openfga";
+import { requireAdminSimulationUserProfileRead } from "@/lib/rbac/admin-simulation-server";
 import { type NextRequest } from "next/server";
 
 export const GET = withErrorHandler(
@@ -24,7 +24,11 @@ export const GET = withErrorHandler(
   ) => {
     const { session } = await getAuthFromBearerOrSession(request);
     const { id } = await context.params;
-    await requireUserProfileRead(session, id);
+    await requireAdminSimulationUserProfileRead(
+      new URL(request.url).searchParams,
+      session,
+      id,
+    );
 
     const [sessions, federatedIdentities] = await Promise.all([
       getUserSessions(id),

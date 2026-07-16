@@ -17,6 +17,10 @@ import {
 curateRealmRolesForUser,
 type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
+import {
+resolveAuthorizedAdminSimulationScope,
+simulationSubjectCanAuditOrganization,
+} from "@/lib/rbac/admin-simulation-server";
 import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import {
@@ -222,13 +226,16 @@ function userMatchesFilters(
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireBaselineAdminSurfaceRead(session, "users");
-
-  const hasAdminView = await requireRbacPermission(session, "admin_ui", "view").then(
-    () => true,
-    () => false
-  );
-
   const url = new URL(request.url);
+  const simulationScope = await resolveAuthorizedAdminSimulationScope(url.searchParams, session);
+
+  const hasAdminView = simulationScope
+    ? await simulationSubjectCanAuditOrganization(simulationScope)
+    : await requireRbacPermission(session, "admin_ui", "view").then(
+        () => true,
+        () => false
+      );
+
   // Per-user role enrichment is opt-in. The Users-tab table, the team
   // typeaheads, the simulation picker, and the ReBAC graph filters do not
   // render role fields; they should not pay for N extra Keycloak round-trips
@@ -242,20 +249,32 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   // admin) is now widened to the same full-list view so they can VIEW any
   // user, but each row is stamped `can_edit` only for users on a team they
   // administer. Plain members fall back to the self/team-scoped listing.
-  const subject = typeof session.sub === "string" ? session.sub.trim() : "";
+  const selfSubjectId = simulationScope
+    ? simulationScope.subjectType === "user"
+      ? simulationScope.subjectId
+      : ""
+    : typeof session.sub === "string"
+      ? session.sub.trim()
+      : "";
+  const actor = simulationScope?.openfgaUser
+    ?? (selfSubjectId ? `user:${selfSubjectId}` : "");
   let adminSlugs = new Set<string>();
-  if (!hasAdminView && subject) {
-    try {
-      const adminObjects = await listOpenFgaObjects({
-        user: `user:${subject}`,
-        relation: "admin",
-        type: "team",
-      });
-      adminSlugs = new Set(
-        adminObjects.objects.map((obj) => obj.split(":").slice(1).join(":")).filter(Boolean)
-      );
-    } catch {
-      // fail-closed: treat as non-team-admin
+  if (!hasAdminView) {
+    if (simulationScope?.subjectType === "team" && simulationScope.teamRelation === "admin") {
+      adminSlugs = new Set([simulationScope.subjectId]);
+    } else if (actor) {
+      try {
+        const adminObjects = await listOpenFgaObjects({
+          user: actor,
+          relation: "admin",
+          type: "team",
+        });
+        adminSlugs = new Set(
+          adminObjects.objects.map((obj) => obj.split(":").slice(1).join(":")).filter(Boolean)
+        );
+      } catch {
+        // fail-closed: treat as non-team-admin
+      }
     }
   }
   const isTeamAdmin = adminSlugs.size > 0;
@@ -283,41 +302,58 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     rows.map((row) => ({ ...row, can_edit: orgAdmin || canEditEmail(row.email) }));
 
   if (!orgAdmin && !isTeamAdmin) {
-    if (!subject) {
+    if (!actor) {
       throw new ApiError("A stable user subject is required to load your user profile.", 401);
     }
     const pendingSlackIds = await loadPendingSlackIds();
 
-    let teamSlugs: string[] = [];
-    try {
-      const teamObjects = await listOpenFgaObjects({
-        user: `user:${subject}`,
-        relation: "member",
-        type: "team",
-      });
-      teamSlugs = teamObjects.objects
-        .map((obj) => {
-          const parts = obj.split(":");
-          return parts.length >= 2 ? parts.slice(1).join(":") : "";
-        })
-        .filter(Boolean);
-    } catch {
-      // fall through to self-only
-    }
-
-    if (teamSlugs.length === 0) {
+    const selfOnlyResponse = async (): Promise<NextResponse> => {
+      if (!selfSubjectId) {
+        return NextResponse.json({
+          users: [],
+          total: 0,
+          page: 1,
+          pageSize: 0,
+          scoped: "team",
+        });
+      }
       const self = await enrichListRow(
-        await getRealmUserById(subject),
+        await getRealmUserById(selfSubjectId),
         pendingSlackIds,
         true
       );
       return NextResponse.json({
-        users: [{ ...self, can_edit: self.id === subject }],
+        users: [{ ...self, can_edit: self.id === selfSubjectId }],
         total: 1,
         page: 1,
         pageSize: 1,
         scoped: "self",
       });
+    };
+
+    let teamSlugs: string[] = [];
+    if (simulationScope?.subjectType === "team") {
+      teamSlugs = [simulationScope.subjectId];
+    } else {
+      try {
+        const teamObjects = await listOpenFgaObjects({
+          user: actor,
+          relation: "member",
+          type: "team",
+        });
+        teamSlugs = teamObjects.objects
+          .map((obj) => {
+            const parts = obj.split(":");
+            return parts.length >= 2 ? parts.slice(1).join(":") : "";
+          })
+          .filter(Boolean);
+      } catch {
+        // fall through to self-only
+      }
+    }
+
+    if (teamSlugs.length === 0) {
+      return selfOnlyResponse();
     }
 
     const teamEmailUnion = new Set<string>();
@@ -333,18 +369,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     );
 
     if (teamEmailUnion.size === 0) {
-      const self = await enrichListRow(
-        await getRealmUserById(subject),
-        pendingSlackIds,
-        true
-      );
-      return NextResponse.json({
-        users: [{ ...self, can_edit: self.id === subject }],
-        total: 1,
-        page: 1,
-        pageSize: 1,
-        scoped: "self",
-      });
+      return selfOnlyResponse();
     }
 
     // Resolve each team member by exact email rather than scanning the whole
@@ -371,7 +396,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
 
     // Plain members can only edit their own profile.
     return NextResponse.json({
-      users: teamUsers.map((u) => ({ ...u, can_edit: u.id === subject })),
+      users: teamUsers.map((u) => ({ ...u, can_edit: u.id === selfSubjectId })),
       total: teamUsers.length,
       page: 1,
       pageSize: teamUsers.length,
