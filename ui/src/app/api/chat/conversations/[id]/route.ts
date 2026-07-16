@@ -89,7 +89,7 @@ export const PUT = withErrorHandler(async (
     await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Build update
-    const update: Partial<Pick<Conversation, 'is_archived' | 'is_pinned' | 'tags' | 'title' | 'updated_at'>> & {
+    const update: Partial<Pick<Conversation, 'is_archived' | 'is_pinned' | 'participants' | 'tags' | 'title' | 'updated_at'>> & {
       updated_at: Date;
     } = {
       updated_at: new Date(),

@@ -889,7 +889,7 @@ function AdminPage() {
       setLoading(false);
     }
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
-    loadTabData(activeTab);
+    loadTabDataEvent(activeTab);
   }, [activeTab, simulationScopeKey, status]);
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
@@ -2887,7 +2887,7 @@ function AdminPage() {
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
-                  <AuditLogsTab isAdmin={canMutateAdminData} onUserClick={setSelectedUserEmail} />
+                  <AuditLogsTab onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 

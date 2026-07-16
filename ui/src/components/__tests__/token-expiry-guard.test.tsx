@@ -585,7 +585,7 @@ describe('TokenExpiryGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           expiresAt: pastExpiry,
           hasRefreshToken: true,
-        } as any,
+        } as unknown,
         status: 'authenticated',
         update: mockUpdateSession,
       })

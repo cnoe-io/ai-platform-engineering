@@ -998,7 +998,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     expect(res.status).toBe(200);
     expect(mockGetRealmUserByIdOrNull).toHaveBeenCalledWith('target-sub');
     expect(mockGetReadableSlackChannelNames).toHaveBeenCalledWith('user:target-sub');
-    const filters = convCol.countDocuments.mock.calls.map((call: any[]) => JSON.stringify(call[0] ?? {}));
+    const filters = convCol.countDocuments.mock.calls.map((call: unknown[]) => JSON.stringify(call[0] ?? {}));
     expect(filters.some((filter: string) => filter.includes('target@example.com'))).toBe(true);
     expect(filters.every((filter: string) => !filter.includes('admin@example.com'))).toBe(true);
   });
@@ -1046,9 +1046,12 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
 
     // Every slack-message query must carry the owner scope; none may run a bare
     // { 'metadata.source': 'slack' } across the whole platform.
-    const slackMsgCalls = msgCol.countDocuments.mock.calls.filter(
-      (call: any[]) => call[0]?.['metadata.source'] === 'slack'
-    );
+    const slackMsgCalls = msgCol.countDocuments.mock.calls.filter((call: unknown[]) => {
+      const filter = call[0];
+      return typeof filter === 'object'
+        && filter !== null
+        && Reflect.get(filter, 'metadata.source') === 'slack';
+    });
     expect(slackMsgCalls.length).toBeGreaterThan(0);
     for (const call of slackMsgCalls) {
       expect(JSON.stringify(call[0])).toContain('user@example.com');
