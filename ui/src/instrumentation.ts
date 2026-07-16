@@ -21,6 +21,7 @@ export async function register() {
   // Start the IdP directory-sync scheduler so the "Enable background sync"
   // schedule (Identity Sync admin tab) actually fires. Idempotent and
   // replica-safe (per-minute fires are claimed atomically in Mongo).
+  if (process.env.SKIP_IDP_SYNC_SCHEDULER === "1") return;
   const { startIdpSyncScheduler } = await import("./lib/rbac/idp-sync-scheduler");
   startIdpSyncScheduler();
 }

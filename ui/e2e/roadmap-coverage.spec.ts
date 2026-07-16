@@ -7,9 +7,14 @@ const requestedScenarioGrid = [
     coverage: "Outshift triage plus GitHub, ArgoCD, AWS, PagerDuty, Splunk, and Webex chat prompts",
   },
   {
+    area: "GRID Prod 0.5.x deployment testing",
+    status: "runnable",
+    coverage: "PDF-backed mocked chat coverage plus opt-in live GRID prod smoke scenarios",
+  },
+  {
     area: "Workflows replace Task Builder",
-    status: "partial",
-    coverage: "Use-case grid asserts Task Builder is absent; promote to runnable once /workflows exists",
+    status: "runnable",
+    coverage: "Workflows route opens with the feature flag enabled and Task Builder copy absent",
   },
   {
     area: "Super admin creates Agents, MCP servers, and Skills",
@@ -48,7 +53,8 @@ test.describe("Requested scenario grid", () => {
     await expect(requestedScenarioGrid).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ area: "Chat with SRE Agent", status: "runnable" }),
-        expect.objectContaining({ area: "Workflows replace Task Builder", status: "partial" }),
+        expect.objectContaining({ area: "GRID Prod 0.5.x deployment testing", status: "runnable" }),
+        expect.objectContaining({ area: "Workflows replace Task Builder", status: "runnable" }),
         expect.objectContaining({ area: "Webex integration from team space", status: "partial" }),
       ]),
     );
@@ -63,10 +69,6 @@ test.describe("Requested scenario grid", () => {
       "Non-admin creates and shares assets",
       "Non-admin accesses shared assets",
     ]);
-  });
-
-  test.fixme("Workflows builder supports replacing Task Builder end to end", async () => {
-    // Add runnable coverage when a /workflows route or workflow builder component exists.
   });
 
   test.fixme("super admins create Agents, MCP servers, and Skills with static and connected credentials", async () => {

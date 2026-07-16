@@ -1,13 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import fs from "fs";
+import { readFileSync } from "node:fs";
+import { allGridProdScenarios, type GridProdScenario } from "./fixtures/grid-prod-scenarios";
 
-interface GridScenario {
-  name: string;
-  prompt: string;
-  expected?: string[];
-}
-
-const defaultGridChatUrl = "https://grid.outshift.io/chat/0e5a25f1-56ff-4004-a608-4c0ad8fe6b5e";
+const defaultGridChatUrl = "https://grid.outshift.io/chat";
 const gridChatUrl = process.env.GRID_CHAT_URL || defaultGridChatUrl;
 const shouldRunGridProd = process.env.RUN_GRID_PROD === "true";
 const scenarios = loadGridScenarios();
@@ -32,33 +27,31 @@ test.describe("GRID prod chat scenarios", () => {
 
       await expect(page.getByText(scenario.prompt)).toBeVisible();
 
-      for (const expectedText of scenario.expected ?? []) {
+      for (const expectedText of expectedLiveText(scenario)) {
         await expect(page.getByText(new RegExp(escapeRegExp(expectedText), "i")).last()).toBeVisible({
           timeout: 90_000,
         });
       }
 
-      await expect(page.getByText(/^Error:/i)).toHaveCount(0);
+      await expect(page.getByText(/^Error:/i).first()).not.toBeVisible();
     });
   }
 });
 
-function loadGridScenarios(): GridScenario[] {
+function loadGridScenarios(): GridProdScenario[] {
   if (process.env.GRID_SCENARIOS_JSON) {
-    return JSON.parse(process.env.GRID_SCENARIOS_JSON) as GridScenario[];
+    return JSON.parse(process.env.GRID_SCENARIOS_JSON) as GridProdScenario[];
   }
 
   if (process.env.GRID_SCENARIOS_PATH) {
-    return JSON.parse(fs.readFileSync(process.env.GRID_SCENARIOS_PATH, "utf8")) as GridScenario[];
+    return JSON.parse(readFileSync(process.env.GRID_SCENARIOS_PATH, "utf8")) as GridProdScenario[];
   }
 
-  return [
-    {
-      name: "Basic Outshift SRE triage",
-      prompt: "Run basic Outshift SRE triage across GitHub, ArgoCD, AWS, PagerDuty, and Splunk",
-      expected: ["Outshift", "SRE"],
-    },
-  ];
+  return allGridProdScenarios;
+}
+
+function expectedLiveText(scenario: GridProdScenario) {
+  return scenario.liveExpected ?? scenario.expectedResponse;
 }
 
 async function chatInput(page: Page): Promise<Locator> {

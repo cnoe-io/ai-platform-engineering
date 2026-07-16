@@ -44,6 +44,7 @@ directly.
 npm run lint
 npm test
 npm run build
+npm run test:e2e
 ```
 
 For Docker Compose:
@@ -73,6 +74,21 @@ ui/src/types/               Shared TypeScript types
 3. Dynamic Agents streams AG-UI/SSE events back through the BFF.
 4. The UI stores conversation messages and stream events in MongoDB-backed state.
 5. MCP tools are reached through configured MCP server rows, usually via AgentGateway.
+
+## Playwright Scenario Coverage
+
+The local Playwright suite includes mocked SRE and GRID Prod 0.5.x deployment testing scenarios. These cover Outshift debugging, GitHub, ArgoCD, AWS, PagerDuty, Splunk, Webex, Jira, LLM gateway, RAG, deployment rollback, rolling update, config/secret injection, and graceful degradation prompts without requiring live credentials.
+
+Live GRID prod smoke coverage is opt-in:
+
+```bash
+RUN_GRID_PROD=true \
+GRID_CHAT_URL="https://grid.outshift.io/chat" \
+GRID_SCENARIOS_PATH="./e2e/fixtures/grid-prod-scenarios.example.json" \
+npm run test:e2e:grid
+```
+
+The legacy use-case gallery/builder checks are tracked as pending because latest main exposes Workflows instead of the older `/use-cases` route.
 
 ## Related Docs
 
