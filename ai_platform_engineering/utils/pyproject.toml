@@ -16,7 +16,7 @@ dependencies = [
     "langgraph==1.2.6",
     "langgraph-checkpoint-mongodb==0.3.1",
     "langmem==0.0.30",
-    "mcp==1.27.1",
+    "mcp==1.27.2",
     "prometheus-client==0.23.1",
     "pydantic==2.12.5",
     "pyjwt==2.13.0",

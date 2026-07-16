@@ -11,7 +11,7 @@ requires-python = ">=3.13"
 dependencies = [
   "fastmcp==3.3.1",
   "httpx==0.28.1",
-  "mcp==1.27.1",
+  "mcp==1.27.2",
   "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "pydantic==2.12.5",
   "python-dotenv==1.2.2",

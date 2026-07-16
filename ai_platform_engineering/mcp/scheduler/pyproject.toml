@@ -12,7 +12,7 @@ keywords = ["scheduler", "cron", "mcp"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "click==8.3.1",
-    "mcp==1.27.1",
+    "mcp==1.27.2",
     "mcp-agent-auth",
     "pydantic==2.12.5",
     "httpx==0.28.1",
