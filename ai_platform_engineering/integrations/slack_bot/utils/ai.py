@@ -276,6 +276,7 @@ def stream_response(
   resume_form_data=None,
   resume_trace_id=None,
   client_context=None,
+  files=None,
 ):
   """
   Stream an AG-UI response to Slack.
@@ -305,6 +306,9 @@ def stream_response(
       is_resume: If True, use resume_stream() instead of stream_chat().
       resume_form_data: JSON string of form data for resume.
       resume_trace_id: Trace ID for resume.
+      files: Optional multimodal attachments ({"mime_type", "data", "name"})
+          from the Slack message, forwarded to the backend as ChatRequest.files.
+          Ignored on resume (the original turn already carried them).
 
   Returns:
       List of Slack blocks for the final response, or dict with retry_needed=True
@@ -577,6 +581,7 @@ def stream_response(
       conversation_id=conversation_id,
       agent_id=agent_id,
       client_context=client_context,
+      files=files,
     )
 
   try:
@@ -1071,6 +1076,7 @@ def invoke_response(
   additional_footer=None,
   escalation_config=None,
   client_context=None,
+  files=None,
 ):
   """
   Non-streaming invoke for bot users.
@@ -1087,6 +1093,7 @@ def invoke_response(
       conversation_id=conversation_id,
       agent_id=agent_id,
       client_context=client_context,
+      files=files,
     )
 
     if not result.get("success", True):

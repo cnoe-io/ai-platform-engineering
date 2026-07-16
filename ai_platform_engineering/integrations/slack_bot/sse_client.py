@@ -367,6 +367,7 @@ class SSEClient:
     trace_id: Optional[str] = None,
     client_context: Optional[Dict[str, Any]] = None,
     bearer_token: Optional[str] = None,
+    files: Optional[list[Dict[str, Any]]] = None,
   ) -> Iterator[SSEEvent]:
     """Stream a chat response from a dynamic agent.
 
@@ -376,6 +377,8 @@ class SSEClient:
         agent_id: Dynamic agent config ID.
         trace_id: Optional Langfuse trace ID.
         client_context: Optional client context dict for system prompt rendering.
+        files: Optional multimodal attachments ({"mime_type", "data", "name"});
+            forwarded verbatim as the request's top-level ``files`` field.
 
     Yields:
         SSEEvent objects for each AG-UI event.
@@ -392,6 +395,8 @@ class SSEClient:
     }
     if client_context:
       payload["client_context"] = client_context
+    if files:
+      payload["files"] = files
 
     url = f"{self.base_url}/api/v1/chat/stream/start"
     yield from self._stream_sse(url, payload, bearer_token=bearer_token)
@@ -441,6 +446,7 @@ class SSEClient:
     trace_id: Optional[str] = None,
     client_context: Optional[Dict[str, Any]] = None,
     bearer_token: Optional[str] = None,
+    files: Optional[list[Dict[str, Any]]] = None,
   ) -> Dict[str, Any]:
     """Non-streaming chat invocation for bot users.
 
@@ -450,6 +456,8 @@ class SSEClient:
         agent_id: Dynamic agent config ID.
         trace_id: Optional Langfuse trace ID.
         client_context: Optional client context dict for system prompt rendering.
+        files: Optional multimodal attachments ({"mime_type", "data", "name"});
+            forwarded verbatim as the request's top-level ``files`` field.
 
     Returns:
         Response dict with 'success', 'content', etc.
@@ -465,6 +473,8 @@ class SSEClient:
     }
     if client_context:
       payload["client_context"] = client_context
+    if files:
+      payload["files"] = files
 
     headers = self._get_headers(bearer_token=bearer_token)
     headers["Accept"] = "application/json"
