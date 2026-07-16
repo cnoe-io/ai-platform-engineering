@@ -88,6 +88,15 @@ GRID_SCENARIOS_PATH="./e2e/fixtures/grid-prod-scenarios.example.json" \
 npm run test:e2e:grid
 ```
 
+For live GRID runs, save a Playwright SSO session first and pass it with
+`GRID_STORAGE_STATE`:
+
+```bash
+mkdir -p e2e/.auth
+npx playwright codegen --save-storage=e2e/.auth/grid-prod.json https://grid.outshift.io/chat
+RUN_GRID_PROD=true GRID_STORAGE_STATE="./e2e/.auth/grid-prod.json" npm run test:e2e:grid
+```
+
 The legacy use-case gallery/builder checks are tracked as pending because latest main exposes Workflows instead of the older `/use-cases` route.
 
 ## Related Docs
