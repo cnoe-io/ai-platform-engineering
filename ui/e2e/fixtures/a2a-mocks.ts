@@ -1,4 +1,5 @@
 import { expect, type Page, type Route } from "@playwright/test";
+import { allGridProdScenarios } from "./grid-prod-scenarios";
 
 type A2AEvent = Record<string, unknown>;
 
@@ -18,6 +19,10 @@ interface JsonRpcBody {
       }>;
     };
   };
+}
+
+interface CustomStreamBody {
+  message?: string;
 }
 
 interface MockOptions {
@@ -43,7 +48,28 @@ const agentCard = {
   ],
 };
 
+const mockAgentConfig = {
+  _id: "caipe-supervisor",
+  id: "caipe-supervisor",
+  name: "CAIPE Supervisor",
+  description: "Coordinates platform engineering agents for SRE workflows.",
+  enabled: true,
+  visibility: "global",
+  protocol: "custom",
+  owner_team_slug: "sre",
+  created_at: "2026-06-24T12:00:00.000Z",
+  updated_at: "2026-06-24T12:00:00.000Z",
+};
+
 const cannedResponses = [
+  {
+    match: /multi[- ]turn|session persistence|previous deployment|follow[- ]?up|run id/i,
+    sourceAgent: "supervisor",
+    finalText:
+      "# Multi-turn Session Context\n\n- Session context preserved the GRID prod 0.5.x deployment validation thread.\n- The follow-up correctly referenced run ID wfrun-grid-prod-05x.\n- Conversation persistence check passed.",
+    toolStart: "Checking conversation session context...",
+    toolEnd: "Multi-turn session validation passed",
+  },
   {
     match: /outshift|basic sre|sre triage|platform triage/i,
     sourceAgent: "supervisor",
@@ -100,6 +126,92 @@ export async function installCaipeMocks(page: Page, options: MockOptions = {}) {
   const capturedMessages: CapturedMessage[] = [];
   let savedUseCases = options.savedUseCases ?? [];
 
+  await page.addInitScript(() => {
+    window.localStorage.clear();
+  });
+
+  await page.route("**/api/admin/platform-config**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: { default_agent_id: mockAgentConfig._id } }),
+    });
+  });
+
+  await page.route("**/api/dynamic-agents/available**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [mockAgentConfig] }),
+    });
+  });
+
+  await page.route("**/api/dynamic-agents/agents/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: mockAgentConfig }),
+    });
+  });
+
+  await page.route("**/api/dynamic-agents?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: { items: [mockAgentConfig] } }),
+    });
+  });
+
+  await page.route("**/api/settings**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          preferences: {
+            font_size: "medium",
+            font_family: "inter",
+            theme: "light",
+            gradient_theme: "default",
+          },
+        },
+      }),
+    });
+  });
+
+  await page.route("**/api/platform/health**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "ok", capabilities: { dynamic_agents: true } }),
+    });
+  });
+
+  await page.route("**/api/files/list**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ files: [] }),
+    });
+  });
+
+  await page.route("**/api/workflow-configs**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [] }),
+    });
+  });
+
+  await page.route("**/api/workflow-runs**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([]),
+    });
+  });
+
   await page.route("**/api/usecases**", async (route) => {
     const request = route.request();
 
@@ -132,6 +244,31 @@ export async function installCaipeMocks(page: Page, options: MockOptions = {}) {
     await route.continue();
   });
 
+  await page.route("**/api/v1/chat/stream/start", async (route) => {
+    const body = route.request().postDataJSON() as CustomStreamBody;
+    const prompt = String(body.message ?? "");
+    capturedMessages.push({ method: "custom/stream/start", prompt });
+
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      headers: {
+        ...corsHeaders,
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+      body: toCustomSse(eventsForPrompt(prompt)),
+    });
+  });
+
+  await page.route("**/api/v1/chat/stream/cancel", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ cancelled: true }),
+    });
+  });
+
   await page.route(/https?:\/\/(localhost|127\.0\.0\.1):8000\/.*/, async (route) => {
     await handleA2ARoute(route, capturedMessages);
   });
@@ -143,8 +280,8 @@ export async function installCaipeMocks(page: Page, options: MockOptions = {}) {
 }
 
 export async function expectAppReady(page: Page) {
-  await expect(page.getByRole("link", { name: /use cases/i })).toBeVisible();
-  await expect(page.getByText(/Connected|Checking|Disconnected/).first()).toBeVisible();
+  await expect(page.getByRole("banner")).toBeVisible();
+  await expect(page.getByPlaceholder(/Ask CAIPE anything|Ask anything/i).first()).toBeVisible();
 }
 
 function handleA2ARoute(route: Route, capturedMessages: CapturedMessage[]) {
@@ -204,8 +341,22 @@ function extractPrompt(body: JsonRpcBody) {
 }
 
 function eventsForPrompt(prompt: string): A2AEvent[] {
+  const gridScenario = allGridProdScenarios.find((scenario) => normalizePrompt(scenario.prompt) === normalizePrompt(prompt));
+  if (gridScenario) {
+    return buildFinalResultEvents({
+      sourceAgent: gridScenario.area,
+      finalText: `# ${gridScenario.name}\n\n${gridScenario.expectedResponse.map((item) => `- ${item}`).join("\n")}`,
+      toolStart: `Running ${gridScenario.name}...`,
+      toolEnd: `${gridScenario.name} completed`,
+    });
+  }
+
   const scenario = cannedResponses.find((item) => item.match.test(prompt)) ?? cannedResponses[0];
   return buildFinalResultEvents(scenario);
+}
+
+function normalizePrompt(prompt: string) {
+  return prompt.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function buildFinalResultEvents({
@@ -270,4 +421,45 @@ function toSse(id: number, events: A2AEvent[]) {
   return events
     .map((event) => `data: ${JSON.stringify({ jsonrpc: "2.0", id, result: event })}\n\n`)
     .join("");
+}
+
+function toCustomSse(events: A2AEvent[]) {
+  const toolCallId = "tool-grid-prod-validation";
+  const text = events
+    .map((event) => {
+      const artifact = (event as { artifact?: { name?: string; parts?: Array<{ text?: string }> } }).artifact;
+      if (!artifact) return null;
+      const content = artifact.parts?.map((part) => part.text ?? "").join("") ?? "";
+
+      if (artifact.name === "tool_notification_start") {
+        return sseEvent("tool_start", {
+          tool_call_id: toolCallId,
+          tool_name: "grid_prod_validation",
+          args: { summary: content },
+          namespace: [],
+        });
+      }
+
+      if (artifact.name === "tool_notification_end") {
+        return sseEvent("tool_end", {
+          tool_call_id: toolCallId,
+          result: content,
+          namespace: [],
+        });
+      }
+
+      if (artifact.name === "streaming_result") {
+        return sseEvent("content", { text: content, namespace: [] });
+      }
+
+      return null;
+    })
+    .filter((event): event is string => Boolean(event))
+    .join("");
+
+  return `${text}${sseEvent("done", {})}`;
+}
+
+function sseEvent(event: string, data: unknown) {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }

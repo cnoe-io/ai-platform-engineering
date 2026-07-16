@@ -7,6 +7,8 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: [
     "chat-sre-agent.spec.ts",
+    "grid-prod-deployment.spec.ts",
+    "grid-prod-chat.spec.ts",
     "use-cases-and-settings.spec.ts",
     "roadmap-coverage.spec.ts",
   ],
@@ -37,6 +39,9 @@ export default defineConfig({
           NEXT_PUBLIC_CAIPE_URL: process.env.NEXT_PUBLIC_CAIPE_URL || "http://localhost:8000",
           NEXT_PUBLIC_SSO_ENABLED: process.env.NEXT_PUBLIC_SSO_ENABLED || "false",
           NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS: process.env.NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS || "true",
+          AGENT_PROTOCOL: process.env.AGENT_PROTOCOL || "custom",
+          WORKFLOWS_ENABLED: process.env.WORKFLOWS_ENABLED || "true",
+          SKIP_IDP_SYNC_SCHEDULER: process.env.SKIP_IDP_SYNC_SCHEDULER || "1",
         },
       },
   projects: [
