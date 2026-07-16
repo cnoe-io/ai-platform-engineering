@@ -926,11 +926,11 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [unlinkedHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=settings", {
+    await page.goto("/settings/platform/access", {
       waitUntil: "domcontentloaded",
     });
 
-    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    await page.getByRole("button", { name: "Review unlinked access" }).click();
     const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
     await expect(dialog).toBeVisible();
 
@@ -1031,11 +1031,11 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [unlinkedEmptyToolsHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=settings", {
+    await page.goto("/settings/platform/access", {
       waitUntil: "domcontentloaded",
     });
 
-    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    await page.getByRole("button", { name: "Review unlinked access" }).click();
     const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
     await expect(dialog).toBeVisible();
 

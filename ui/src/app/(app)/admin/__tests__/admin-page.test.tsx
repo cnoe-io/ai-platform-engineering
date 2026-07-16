@@ -113,20 +113,17 @@ jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
   ),
 }));
 
-jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
-  PlatformSettingsTab: (props: { isAdmin?: boolean; readOnly?: boolean }) => (
+jest.mock('@/components/admin/settings/SettingsCenterLinks', () => ({
+  SettingsCenterLinks: (props: { readOnly?: boolean; readOnlyReason?: string; section?: string }) => (
     <div
-      data-testid="platform-settings-tab"
-      data-admin={String(Boolean(props.isAdmin))}
+      data-testid="settings-center-links"
       data-read-only={String(Boolean(props.readOnly))}
+      data-read-only-reason={props.readOnlyReason ?? ''}
+      data-section={props.section ?? 'general'}
     >
-      PlatformSettingsTab
+      SettingsCenterLinks
     </div>
   ),
-}));
-
-jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
-  ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
 }));
 
 jest.mock('@/components/admin/ServiceAccountsTab', () => ({
@@ -496,6 +493,7 @@ describe('Admin Dashboard Page', () => {
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
+      expect(screen.getByTestId('settings-center-links')).toHaveAttribute('data-read-only', 'true');
 
       const userListCalls = fetchMock.mock.calls.filter(([url]) => {
         if (typeof url !== 'string') return false;
@@ -859,8 +857,7 @@ describe('Admin Dashboard Page', () => {
         'AI Review',
         'Credentials',
       ]);
-      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
-      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
+      expect(screen.getByTestId('settings-center-links')).toHaveAttribute('data-read-only', 'true');
 
       fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
       expect(await screen.findByTestId('slack-integration-panel')).toHaveAttribute(
@@ -1072,7 +1069,7 @@ describe('Admin Dashboard Page', () => {
         'AI Review',
         'Credentials',
       ]);
-      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('settings-center-links')).toBeInTheDocument();
       // Release notes lives under General, not as a standalone tab.
       expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
@@ -1130,7 +1127,7 @@ describe('Admin Dashboard Page', () => {
 
       render(<AdminPage />);
 
-      expect(await screen.findByTestId('platform-settings-tab')).toBeInTheDocument();
+      expect(await screen.findByTestId('settings-center-links')).toBeInTheDocument();
       expect(screen.queryByText(/Access denied/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
@@ -1145,7 +1142,7 @@ describe('Admin Dashboard Page', () => {
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('settings-center-links')).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith(
         '/admin?cat=settings&tab=settings',
         { scroll: false }
@@ -1159,15 +1156,13 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
-      // An unknown tab value falls through to the first visible Settings tab
-      // (General), which renders both the platform settings and the release
-      // notes preference/config sections.
+      // An unknown tab value falls through to General, which now points to the
+      // canonical Settings Center instead of rendering duplicate controls.
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      expect(screen.getByTestId('release-notes-settings-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('settings-center-links')).toHaveAttribute('data-section', 'general');
     });
 
     it.each([
