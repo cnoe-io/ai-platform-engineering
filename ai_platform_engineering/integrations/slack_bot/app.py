@@ -2174,8 +2174,9 @@ def handle_hitl_action(ack, body, client):
 # Feedback Action Handler
 # =============================================================================
 @app.action("caipe_feedback")
-def handle_caipe_feedback(ack, body, client):
+def handle_caipe_feedback(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
@@ -2256,8 +2257,9 @@ def handle_feedback_less_verbose(ack, body, client):
 
 
 @app.action("caipe_retry")
-def handle_caipe_retry(ack, body, client):
+def handle_caipe_retry(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     action = body.get("actions", [{}])[0]
@@ -2330,8 +2332,9 @@ def handle_caipe_retry(ack, body, client):
 # Escalation Action Handlers
 # =============================================================================
 @app.action("caipe_escalation_get_help")
-def handle_escalation_get_help(ack, body, client):
+def handle_escalation_get_help(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     from utils.escalation import execute_escalation
 
@@ -2424,8 +2427,9 @@ def handle_escalation_get_help(ack, body, client):
 
 
 @app.action("caipe_delete_message")
-def handle_delete_message(ack, body, client):
+def handle_delete_message(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
@@ -2600,8 +2604,9 @@ def _regen_message_text(feedback_type: str, comment: str) -> str:
 
 
 @app.view("caipe_feedback_modal")
-def handle_feedback_modal_submission(ack, body, client, view):
+def handle_feedback_modal_submission(ack, body, client, view, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     team_id = body.get("team", {}).get("id")
