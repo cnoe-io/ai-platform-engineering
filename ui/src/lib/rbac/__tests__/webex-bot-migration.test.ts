@@ -74,6 +74,13 @@ describe("legacy Webex bot ownership migration", () => {
             object: "agent:unrelated-agent",
           },
         },
+        {
+          key: {
+            user: "webex_space:workspace-1--",
+            relation: "user",
+            object: "agent:malformed-agent",
+          },
+        },
       ],
     });
 

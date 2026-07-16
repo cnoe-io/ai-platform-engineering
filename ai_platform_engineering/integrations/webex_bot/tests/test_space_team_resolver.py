@@ -71,11 +71,6 @@ def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> No
 def test_botless_legacy_mapping_is_not_used_at_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mapping = {
-        "webex_space_id": "space-12345678",
-        "team_id": "507f1f77bcf86cd799439011",
-        "active": True,
-    }
     mappings = Mock()
     mappings.find_one.return_value = None
     teams = Mock()

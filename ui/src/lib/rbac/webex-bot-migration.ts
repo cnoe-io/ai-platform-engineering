@@ -116,10 +116,12 @@ function parseLegacySpaceUser(user: string): { workspaceId: string; spaceId: str
   if (!user.startsWith("webex_space:")) return null;
   const id = user.slice("webex_space:".length);
   const separator = id.lastIndexOf("--");
-  if (separator <= 0 || separator === id.length - 2) return null;
+  if (separator <= 0) return null;
+  const spaceId = id.slice(separator + 2);
+  if (!spaceId) return null;
   return {
     workspaceId: id.slice(0, separator),
-    spaceId: id.slice(separator + 2),
+    spaceId,
   };
 }
 

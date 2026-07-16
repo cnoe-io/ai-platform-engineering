@@ -119,12 +119,14 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
     event = webex_event_from_wdm_activity(
         activity,
         message_detail=message_detail,
+        bot_id="primary",
         bot_person_id="bot-person-id",
     )
 
     assert event == {
         "event": "message",
         "data": {
+            "botId": "primary",
             "id": "message-public-id",
             "parentId": "root-message-public-id",
             "roomId": RAW_ROOM_ID,
@@ -200,7 +202,11 @@ def _bot_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _runtime() -> WebexWdmRuntime:
-    return WebexWdmRuntime(access_token="test-token", device_name="CAIPE-Webex-Bot")
+    return WebexWdmRuntime(
+        access_token="test-token",
+        bot_id="primary",
+        device_name="CAIPE-Webex-Bot",
+    )
 
 
 def test_get_websocket_url_reuses_existing_device_and_prunes_extras() -> None:
