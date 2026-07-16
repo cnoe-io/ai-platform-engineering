@@ -433,6 +433,14 @@ describe('AppHeader — nav tabs', () => {
       expect(pill.className).toContain('text-muted-foreground')
       expect(pill.querySelector('.app-header-active-pill')).not.toBeInTheDocument()
     })
+
+    it('does not select a primary nav item on Settings routes', () => {
+      mockPathname = '/settings/chat'
+      render(<AppHeader />)
+
+      expect(document.querySelectorAll('.app-header-active-pill')).toHaveLength(0)
+      expect(getHomeNavPill()).toHaveClass('text-muted-foreground')
+    })
   })
 
   describe('core tabs', () => {

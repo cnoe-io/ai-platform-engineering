@@ -41,6 +41,7 @@ describe("SettingsWorkspace",() => {
     render(<SettingsWorkspace />);
 
     expect(screen.getByRole("heading",{ name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Manage your experience.")).toBeInTheDocument();
     expect(screen.getByRole("heading",{ name: "Appearance" })).toBeInTheDocument();
     expect(screen.getAllByText("Personal").length).toBeGreaterThan(0);
     expect(screen.getByText("Appearance content")).toBeInTheDocument();

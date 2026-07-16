@@ -113,15 +113,10 @@ jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
   ),
 }));
 
-jest.mock('@/components/admin/settings/SettingsCenterLinks', () => ({
-  SettingsCenterLinks: (props: { readOnly?: boolean; readOnlyReason?: string; section?: string }) => (
-    <div
-      data-testid="settings-center-links"
-      data-read-only={String(Boolean(props.readOnly))}
-      data-read-only-reason={props.readOnlyReason ?? ''}
-      data-section={props.section ?? 'general'}
-    >
-      SettingsCenterLinks
+jest.mock('@/components/admin/settings/ImportAgentsFromConfigCard', () => ({
+  ImportAgentsFromConfigCard: (props: { readOnly?: boolean }) => (
+    <div data-testid="import-agents-card" data-read-only={String(Boolean(props.readOnly))}>
+      ImportAgentsFromConfigCard
     </div>
   ),
 }));
@@ -486,14 +481,15 @@ describe('Admin Dashboard Page', () => {
       // every admin tab — even tabs that have nothing to do with users.
       // UserManagementTab now owns the only first-paint /api/admin/users
       // call, and only when the Users tab is the active tab.
-      currentSearchParams = new URLSearchParams('cat=settings&tab=settings');
+      mockIsAdmin = true;
+      currentSearchParams = new URLSearchParams('cat=settings&tab=agents');
       const fetchMock = setupFetchMock();
       render(<AdminPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
-      expect(screen.getByTestId('settings-center-links')).toHaveAttribute('data-read-only', 'true');
+      expect(screen.getByTestId('import-agents-card')).toHaveAttribute('data-read-only', 'false');
 
       const userListCalls = fetchMock.mock.calls.filter(([url]) => {
         if (typeof url !== 'string') return false;
@@ -849,15 +845,13 @@ describe('Admin Dashboard Page', () => {
         expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'General',
         'Agents',
         'MCP',
         'Skills',
         'Service Accounts',
-        'AI Review',
         'Credentials',
       ]);
-      expect(screen.getByTestId('settings-center-links')).toHaveAttribute('data-read-only', 'true');
+      expect(screen.getByTestId('import-agents-card')).toHaveAttribute('data-read-only', 'true');
 
       fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
       expect(await screen.findByTestId('slack-integration-panel')).toHaveAttribute(
@@ -1061,19 +1055,17 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'General',
         'Agents',
         'MCP',
         'Skills',
         'Service Accounts',
-        'AI Review',
         'Credentials',
       ]);
-      expect(screen.getByTestId('settings-center-links')).toBeInTheDocument();
-      // Release notes lives under General, not as a standalone tab.
+      expect(screen.getByTestId('import-agents-card')).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^General$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /release notes/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /ai review/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /knowledge bases/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /rag team access/i })).not.toBeInTheDocument();
 
@@ -1103,72 +1095,42 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /ai review/i })).not.toBeInTheDocument();
     });
 
-    it('keeps the settings shell available for non-admin users when admin stats are forbidden', async () => {
-      currentSearchParams = new URLSearchParams('cat=settings&tab=settings');
-      setupFetchMock({
-        tabGates: {
-          users: false,
-          teams: false,
-          roles: false,
-          slack: false,
-          webex: false,
-          skills: false,
-          feedback: false,
-          stats: false,
-          metrics: false,
-          health: false,
-          audit_logs: false,
-          action_audit: false,
-          openfga: false,
-          migrations: false,
-        },
-        statsStatus: 403,
-      });
-
-      render(<AdminPage />);
-
-      expect(await screen.findByTestId('settings-center-links')).toBeInTheDocument();
-      expect(screen.queryByText(/Access denied/i)).not.toBeInTheDocument();
-      expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
-    });
-
-    it('defaults bare /admin to Settings General tab', async () => {
+    it('defaults bare /admin to Settings Agents tab', async () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Agents$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('settings-center-links')).toBeInTheDocument();
+      expect(screen.getByTestId('import-agents-card')).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith(
-        '/admin?cat=settings&tab=settings',
+        '/admin?cat=settings&tab=agents',
         { scroll: false }
       );
     });
 
-    it('falls back to the General settings tab for the removed release-notes tab', async () => {
+    it('falls back to Agents for a removed settings proxy tab', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=release-notes');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
-      // An unknown tab value falls through to General, which now points to the
-      // canonical Settings Center instead of rendering duplicate controls.
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Agents$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('settings-center-links')).toHaveAttribute('data-section', 'general');
+      expect(screen.getByTestId('import-agents-card')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=agents', {
+        scroll: false,
+      });
     });
 
     it.each([
-      ['settings', 'settings', /^General$/i],
       ['settings', 'agents', /^Agents$/i],
-      ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
       ['people', 'teams', /^Teams$/i],
@@ -1192,7 +1154,7 @@ describe('Admin Dashboard Page', () => {
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true');
       });
-      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=agents', {
         scroll: false,
       });
     });
@@ -1223,20 +1185,20 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
 
-    it('falls back from removed Settings Knowledge Bases links to General', async () => {
+    it('falls back from removed Settings Knowledge Bases links to Agents', async () => {
       currentSearchParams = new URLSearchParams('cat=settings&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Agents$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
       expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
       expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=agents', {
         scroll: false,
       });
     });
@@ -1266,20 +1228,20 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('canonicalizes legacy Resources Knowledge Base links to Settings General', async () => {
+    it('canonicalizes legacy Resources Knowledge Base links to Settings Agents', async () => {
       currentSearchParams = new URLSearchParams('cat=resources&tab=rag-access');
 
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Agents$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
       expect(screen.queryByRole('tab', { name: /^Knowledge Bases$/i })).not.toBeInTheDocument();
       expect(screen.queryByTestId('rag-team-access-panel')).not.toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=agents', {
         scroll: false,
       });
     });

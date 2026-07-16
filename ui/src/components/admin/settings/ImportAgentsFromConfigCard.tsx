@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Admin -> Settings -> General pane for adopting YAML-seeded dynamic agents
+ * Admin -> Settings -> Agents pane for adopting YAML-seeded dynamic agents
  * into the DB as source of truth (spec: config-driven agents currently
  * re-seeded from APP_CONFIG_PATH on every restart via seed-config.ts).
  *

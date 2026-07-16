@@ -11,7 +11,7 @@ Open it from:
 
 - **Profile picture → Settings** for personal settings.
 - The **Appearance** shortcut in the application header.
-- **Admin → Settings** for links to platform settings.
+- The **Platform** group inside the Settings Center for admin-only settings.
 
 ## Settings Map
 
@@ -28,8 +28,9 @@ Open it from:
 | Platform | `/settings/platform/ai-review` | AI review policies |
 
 Platform routes and their navigation group are visible only to admins. The
-Admin Dashboard still manages resources such as users, teams, agents, skills,
-credentials, integrations, metrics, health, and policy.
+Admin Dashboard manages resources such as users, teams, agents, skills,
+credentials, integrations, metrics, health, and policy; it does not duplicate
+Settings Center controls or show redirect panels.
 
 ## Saving Changes
 

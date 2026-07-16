@@ -1215,14 +1215,14 @@ describe("dynamic agents RBAC routes", () => {
   });
 
   // Platform-default agent invariant: an admin can pick an agent in
-  // Admin → Settings to be the "default for new chats", which writes a
+  // Settings → Platform → Defaults to be the "default for new chats", which writes a
   // wildcard `user:* user agent:<id>` tuple so every signed-in user can
   // chat with it. We must not let the same admin demote `visibility:
   // global → team` from the per-agent edit page or delete the agent
   // outright while that wildcard is still in place — both would silently
   // strip new-user access. The PUT/DELETE handlers therefore reject
   // those mutations with 409 / `AGENT_IS_PLATFORM_DEFAULT` and steer the
-  // admin back to Admin → Settings to change the platform default
+  // admin back to Settings → Platform → Defaults to change the platform default
   // first.
   it("blocks demoting the current platform default from global to team", async () => {
     const findOneAndUpdate = jest.fn();

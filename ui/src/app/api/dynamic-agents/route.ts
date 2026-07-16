@@ -41,9 +41,9 @@ import { Collection,ObjectId } from "mongodb";
 import { NextRequest } from "next/server";
 
 const PLATFORM_DEFAULT_VISIBILITY_ERROR =
-  "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before changing this agent's visibility.";
+  "This agent is currently the platform default for new chats. Open Settings → Platform → Defaults and change the platform default before changing this agent's visibility.";
 const PLATFORM_DEFAULT_DELETE_ERROR =
-  "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before deleting this agent.";
+  "This agent is currently the platform default for new chats. Open Settings → Platform → Defaults and change the platform default before deleting this agent.";
 
 const COLLECTION_NAME = "dynamic_agents";
 
@@ -667,7 +667,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     // Platform-default invariant: an agent can't be demoted from `global`
     // → `team` while it's the configured platform default — that would
     // silently strip the wildcard `user:*` grant new users rely on.
-    // Force the admin to change the platform default in Admin → Settings
+    // Force the admin to change the platform default in Settings → Platform → Defaults
     // first. We only block the demote case; promoting team → global is
     // always fine.
     const currentVisibility = agent.visibility as VisibilityType | "private" | undefined;
@@ -850,7 +850,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
     // Platform-default invariant: deleting the currently configured
     // default would yank the public `user:*` grant new users rely on
-    // and leave Admin → Settings pointing at a tombstone. Force the
+    // and leave Settings → Platform → Defaults pointing at a tombstone. Force the
     // admin to clear/change the platform default first.
     if (await isPlatformDefaultAgent(id)) {
       throw new ApiError(

@@ -83,9 +83,8 @@ it("keeps the AI Review save action in the page header row", async () => {
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/review-configs/agent-system-prompt"));
 
   const header = screen.getByRole("region", { name: "AI Review configurations header" });
-  expect(
-    within(header).getByRole("heading", { name: "AI Review configurations Admin" }),
-  ).toBeInTheDocument();
+  expect(within(header).getByRole("heading", { name: "AI Review configurations" })).toBeInTheDocument();
+  expect(within(header).queryByText("Admin")).not.toBeInTheDocument();
   const save = within(header).getByRole("button", { name: "Save" });
   expect(save).toBeInTheDocument();
 
