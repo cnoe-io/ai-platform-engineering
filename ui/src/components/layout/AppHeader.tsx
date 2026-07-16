@@ -274,7 +274,7 @@ export function AppHeader() {
     platformProbeStatus === "down" ? "Down" :
     "Checking";
 
-  const getActiveTab = () => {
+  const getActiveTab = (): string | null => {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
@@ -284,7 +284,10 @@ export function AppHeader() {
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "home";
+    // Utility and secondary destinations (for example /settings and
+    // /insights) are not children of a primary navigation item. Leaving the
+    // strip unselected is more accurate than implying that they belong to Home.
+    return null;
   };
 
   const activeTab = getActiveTab();

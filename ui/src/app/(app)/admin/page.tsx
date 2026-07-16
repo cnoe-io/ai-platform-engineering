@@ -27,7 +27,6 @@ import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
-import { SettingsCenterLinks } from "@/components/admin/settings/SettingsCenterLinks";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
@@ -190,11 +189,15 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'mcp', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'agents', 'mcp', 'slack', 'webex', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
   openfga: 'access-explorer',
+  settings: 'agents',
+  'ai-review': 'agents',
+  'release-notes': 'agents',
+  'rag-access': 'agents',
 } as const;
 const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
   slack: 'slack',
@@ -203,7 +206,7 @@ const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
 const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
-const DEFAULT_ADMIN_TAB = 'settings';
+const DEFAULT_ADMIN_TAB = 'agents';
 const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
@@ -224,12 +227,10 @@ const CATEGORIES: Category[] = [
     label: 'Settings',
     icon: Settings,
     tabs: [
-      { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'agents', label: 'Agents', icon: Bot, gateKey: 'agents' },
       { value: 'mcp', label: 'MCP', icon: Plug, gateKey: 'mcp' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
       { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
-      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
     ],
   },
@@ -616,14 +617,9 @@ function AdminPage() {
       feedback: Boolean(gates.feedback && feedbackEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
-      // General settings are part of the normal read-only user experience.
-      // Keep them visible during View As and let the child panels enforce the
-      // preview's read-only mode through `canMutateAdminData`.
-      settings: true,
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
       mcp: effectiveOrganizationAdmin,
-      ai_review: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
@@ -1843,17 +1839,6 @@ function AdminPage() {
                 </TabsList>
               )}
 
-              {tabGateValues.settings && (
-                <TabsContent value="settings" className="space-y-4">
-                  <SettingsCenterLinks
-                    readOnly={!effectiveOrganizationAdmin || isSimulationActive}
-                    readOnlyReason={isSimulationActive
-                      ? "Exit access preview to manage platform settings"
-                      : undefined}
-                  />
-                </TabsContent>
-              )}
-
               {tabGateValues.agents && (
                 <TabsContent value="agents" className="space-y-4">
                   <ImportAgentsFromConfigCard
@@ -1877,18 +1862,6 @@ function AdminPage() {
                   <ServiceAccountsTab
                     readOnly={isSimulationActive}
                     simulationTarget={simulationTarget}
-                  />
-                </TabsContent>
-              )}
-
-              {tabGateValues.ai_review && (
-                <TabsContent value="ai-review" className="space-y-4">
-                  <SettingsCenterLinks
-                    readOnly={!effectiveOrganizationAdmin || isSimulationActive}
-                    readOnlyReason={isSimulationActive
-                      ? "Exit access preview to manage platform settings"
-                      : undefined}
-                    section="ai-review"
                   />
                 </TabsContent>
               )}
