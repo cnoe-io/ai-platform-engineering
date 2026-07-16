@@ -1,4 +1,4 @@
-import { expect,test,type Page } from "@playwright/test";
+import { expect,test,type Locator,type Page } from "@playwright/test";
 
 import {
   fulfillJson,
@@ -196,6 +196,18 @@ async function installSettingsCenterMocks(
   });
 }
 
+async function switchThumbIsInsideTrack(toggle: Locator): Promise<boolean> {
+  const track = await toggle.locator("span").first().boundingBox();
+  const thumb = await toggle.locator("span").nth(1).boundingBox();
+  if (!track || !thumb) return false;
+
+  const tolerance = 0.5;
+  return thumb.x >= track.x - tolerance
+    && thumb.x + thumb.width <= track.x + track.width + tolerance
+    && thumb.y >= track.y - tolerance
+    && thumb.y + thumb.height <= track.y + track.height + tolerance;
+}
+
 test.describe("mocked Settings Center browser regression",() => {
   test.beforeEach(() => {
     test.skip(
@@ -215,6 +227,21 @@ test.describe("mocked Settings Center browser regression",() => {
     await expect(page.getByRole("heading",{ level: 2,name: "Notifications" })).toBeVisible();
     await expect(page.getByText("Personal",{ exact: true }).last()).toBeVisible();
     await expect(page.getByRole("button",{ name: /^save$/i })).toHaveCount(0);
+    await expect(page.locator(".app-header-active-pill")).toHaveCount(0);
+  });
+
+  test("keeps settings switch thumbs inside their tracks in both states",async ({ page }) => {
+    const state = createState();
+    await installSettingsCenterMocks(page,state);
+    await page.goto("/settings/notifications",{ waitUntil: "domcontentloaded" });
+
+    const toggle = page.getByRole("switch",{ name: "Notify me about new releases" });
+    await expect(toggle).toHaveAttribute("aria-checked","true");
+    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked","false");
+    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
   });
 
   test("rolls back a failed personal autosave, retries it, and preserves it after reload",async ({ page }) => {

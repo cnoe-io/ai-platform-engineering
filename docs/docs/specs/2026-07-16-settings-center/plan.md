@@ -11,9 +11,8 @@
 Replace the overlapping profile modal, appearance drawer, and mixed admin settings cards with one routed Settings Center.
 
 ```text
-Avatar menu ───────────────┐
-Appearance shortcut ──────┼──> /settings/<section>
-Admin platform settings ──┘
+Avatar menu ──────────┐
+Appearance shortcut ─┴──> /settings/<section>
 ```
 
 - Give every setting one canonical home.
@@ -120,9 +119,10 @@ idle -> saving -> saved
 
 - Route avatar Settings to `/settings/chat`.
 - Route the header appearance shortcut to `/settings/appearance`.
-- Deep-link Admin settings entries into `/settings/platform/*`.
+- Keep Settings Center out of the primary navigation selection state.
+- Remove duplicate Admin General and AI Review proxy tabs.
 - Retire the profile settings dialog and appearance drawer after parity is covered.
-- Redirect legacy admin settings URLs where practical.
+- Redirect legacy Admin settings URLs to the first canonical Admin resource tab.
 
 ### 6. Verification and docs
 
@@ -153,7 +153,7 @@ idle -> saving -> saved
 
 ## Verification status
 
-- Focused Jest: 11 suites, 114 tests passed.
+- Focused Jest: 12 suites, 119 tests passed.
 - ESLint: passed.
 - TypeScript (`tsc --noEmit --incremental false`): passed.
 - Playwright: 17 affected tests discovered across the Settings Center, admin

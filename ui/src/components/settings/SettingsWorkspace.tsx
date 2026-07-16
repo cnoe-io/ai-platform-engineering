@@ -77,7 +77,7 @@ export function SettingsWorkspace(): React.ReactElement {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
             <p className="text-sm text-muted-foreground">
-              Manage your experience and, if permitted, platform-wide defaults.
+              Manage your experience.
             </p>
           </div>
         </header>
