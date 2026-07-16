@@ -156,7 +156,7 @@ test.describe("mocked identity sync browser regression", () => {
       waitUntil: "domcontentloaded",
     });
 
-    await expect(page.getByRole("button", { name: "Teams & Users" })).toHaveClass(/bg-primary/);
+    await expect(page.getByRole("button", { name: "Teams & Users" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("tab", { name: "Identity Sync" })).toHaveAttribute(
       "aria-selected",
       "true",

@@ -182,7 +182,17 @@ jest.mock('@/lib/api-client', () => ({
 }));
 
 jest.mock('framer-motion', () => ({
-  motion: { div: ({ children, ...props }: any) => <div {...props}>{children}</div> },
+  motion: {
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    span: ({ animate, children, initial, layoutId, transition, ...props }: any) => {
+      void animate;
+      void initial;
+      void layoutId;
+      void transition;
+      return <span {...props}>{children}</span>;
+    },
+  },
+  useReducedMotion: () => false,
 }));
 
 const mockStatsResponse = {
@@ -799,7 +809,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByRole('button', { name: /viewing as target admin/i })).toBeInTheDocument();
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+        expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
@@ -1089,7 +1099,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1107,7 +1117,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       // An unknown tab value falls through to the first visible Settings tab
       // (General), which renders both the platform settings and the release
       // notes preference/config sections.
@@ -1157,7 +1167,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Slack',
         'Webex',
@@ -1172,7 +1182,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Webex$/i })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
@@ -1183,7 +1193,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1201,7 +1211,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1226,7 +1236,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1244,7 +1254,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Insights')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Insights' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Insights' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1262,7 +1272,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1280,7 +1290,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Self Check$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1295,7 +1305,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1315,7 +1325,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Slack$/i })).toHaveAttribute(
         'aria-selected',
         'true'
