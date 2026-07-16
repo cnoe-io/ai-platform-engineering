@@ -20,6 +20,7 @@ type RealmRoleClassification,
 import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import {
+listActiveTeamMemberEmailsBySlugsPaged,
 listActiveTeamMembershipSourcesBySlug,
 listTeamMembershipSources,
 } from "@/lib/rbac/team-membership-source-store";
@@ -333,19 +334,18 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       });
     }
 
-    const teamEmailUnion = new Set<string>();
-    await Promise.all(
-      teamSlugs.map(async (slug) => {
-        try {
-          const emails = await loadTeamMemberEmailsBySlug(slug);
-          for (const email of emails) teamEmailUnion.add(email);
-        } catch {
-          // skip this team on error
-        }
-      })
-    );
+    // Dedup + sort + page happen in Mongo (`listActiveTeamMemberEmailsBySlugsPaged`)
+    // rather than in Node. A team can be arbitrarily large (e.g. an
+    // Okta-synced org-wide group with thousands of members) — fetching every
+    // member row into Node on every Users-tab load, just to slice a page out
+    // of it in JS, meant the request cost the full team size regardless of
+    // `pageSize`. It also used to fan out one Keycloak call per member in one
+    // unbounded `Promise.all`, which OOMKilled the istio-proxy sidecar in prod;
+    // this still resolves at most `pageSize` emails via Keycloak per request.
+    const { emails: pageEmails, total: teamMemberTotal } =
+      await listActiveTeamMemberEmailsBySlugsPaged(teamSlugs, skip, pageSize);
 
-    if (teamEmailUnion.size === 0) {
+    if (teamMemberTotal === 0) {
       const self = await enrichListRow(
         await getRealmUserById(subject),
         pendingSlackIds,
@@ -359,16 +359,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         scoped: "self",
       });
     }
-
-    // Resolve only the requested page's worth of members by exact email,
-    // rather than scanning the whole realm OR resolving every member of the
-    // team in one request. A team can be arbitrarily large (e.g. an
-    // Okta-synced org-wide group with thousands of members) — fanning out one
-    // Keycloak call per member on every Users-tab load caused an unbounded
-    // concurrent request burst that OOMKilled the istio-proxy sidecar in prod.
-    // Sorting first gives stable pagination across requests.
-    const sortedEmails = [...teamEmailUnion].sort();
-    const pageEmails = sortedEmails.slice(skip, skip + pageSize);
 
     const seenIds = new Set<string>();
     const teamUsers: AdminUsersListItem[] = [];
@@ -391,7 +381,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     // Plain members can only edit their own profile.
     return NextResponse.json({
       users: teamUsers.map((u) => ({ ...u, can_edit: u.id === subject })),
-      total: teamEmailUnion.size,
+      total: teamMemberTotal,
       page,
       pageSize,
       scoped: "team",

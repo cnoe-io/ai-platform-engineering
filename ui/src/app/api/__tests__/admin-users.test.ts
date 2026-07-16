@@ -383,20 +383,35 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     );
   }
 
-  // Membership is resolved via `listActiveTeamMembershipSourcesBySlug`, which
-  // queries `team_membership_sources` by { team_slug, status: 'active' } — NOT
-  // by team_id. Keying these mocks by slug guards the prod bug where the slug
-  // from OpenFGA was passed to a team_id-keyed lookup and matched nobody.
+  // Membership is resolved via `listActiveTeamMemberEmailsBySlugsPaged`, which
+  // runs two `team_membership_sources` aggregations (`{ $match: { team_slug:
+  // { $in }, status: 'active' } }` → dedupe/count, and → dedupe/sort/page) —
+  // NOT a team_id lookup. Keying these mocks by slug guards the prod bug where
+  // the slug from OpenFGA was passed to a team_id-keyed lookup and matched
+  // nobody. The mock emulates Mongo's own dedupe + sort + skip/limit so tests
+  // exercise the same pagination contract as the real aggregation.
   function setMembershipBySlug(
     bySlug: Record<string, string[]>
   ) {
     mockGetCollection.mockImplementation((name: string) => {
       if (name === 'team_membership_sources') {
         return Promise.resolve({
-          find: jest.fn().mockImplementation((filter: { team_slug?: string }) => {
-            const emails = bySlug[filter?.team_slug ?? ''] ?? [];
-            const docs = emails.map((user_email) => ({ user_email, status: 'active' }));
-            return { sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(docs) }) };
+          aggregate: jest.fn().mockImplementation((pipeline: Array<Record<string, unknown>>) => {
+            const match = pipeline[0]?.$match as { team_slug?: { $in?: string[] } } | undefined;
+            const slugs = match?.team_slug?.$in ?? [];
+            const emails = [...new Set(slugs.flatMap((slug) => bySlug[slug] ?? []))]
+              .map((e) => e.trim().toLowerCase())
+              .sort();
+            const isCount = pipeline.some((stage) => '$count' in stage);
+            if (isCount) {
+              return { toArray: jest.fn().mockResolvedValue([{ total: emails.length }]) };
+            }
+            const skipStage = pipeline.find((stage) => '$skip' in stage) as { $skip: number } | undefined;
+            const limitStage = pipeline.find((stage) => '$limit' in stage) as { $limit: number } | undefined;
+            const skip = skipStage?.$skip ?? 0;
+            const limit = limitStage?.$limit ?? emails.length;
+            const page = emails.slice(skip, skip + limit).map((email) => ({ _id: email }));
+            return { toArray: jest.fn().mockResolvedValue(page) };
           }),
         });
       }

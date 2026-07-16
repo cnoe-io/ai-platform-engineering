@@ -88,6 +88,59 @@ export async function listActiveTeamMembershipSourcesBySlug(
   return collection.find({ team_slug: teamSlug, status: "active" }).sort({ created_at: -1 }).toArray();
 }
 
+/**
+ * Dedupes and sorts active members' emails across one or more teams entirely
+ * in Mongo, then returns only the requested page. Unlike
+ * `listActiveTeamMembershipSourcesBySlug`, this never materializes the full
+ * membership set in Node — for an IdP-synced, org-wide team (thousands of
+ * rows) that's the difference between a bounded query and a full collection
+ * scan + JS sort on every page load.
+ *
+ * DocumentDB (this collection's engine) doesn't support `$facet`, so total
+ * and page are two separate aggregations rather than one round trip.
+ */
+export async function listActiveTeamMemberEmailsBySlugsPaged(
+  teamSlugs: string[],
+  skip: number,
+  limit: number
+): Promise<{ emails: string[]; total: number }> {
+  if (teamSlugs.length === 0) return { emails: [], total: 0 };
+
+  const collection = await getRbacCollection<
+    TeamMembershipSource & { team_slug: string }
+  >("teamMembershipSources");
+  const match = {
+    team_slug: { $in: teamSlugs },
+    status: "active",
+    user_email: { $type: "string", $ne: "" },
+  };
+  const dedupeEmail = { $trim: { input: { $toLower: "$user_email" } } };
+
+  const [countResult, page] = await Promise.all([
+    collection
+      .aggregate<{ total: number }>([
+        { $match: match },
+        { $group: { _id: dedupeEmail } },
+        { $count: "total" },
+      ])
+      .toArray(),
+    collection
+      .aggregate<{ _id: string }>([
+        { $match: match },
+        { $group: { _id: dedupeEmail } },
+        { $sort: { _id: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+      ])
+      .toArray(),
+  ]);
+
+  return {
+    emails: page.map((row) => row._id),
+    total: countResult[0]?.total ?? 0,
+  };
+}
+
 export async function listActiveTeamMembershipSourcesForProvider(
   providerId: string
 ): Promise<TeamMembershipSource[]> {

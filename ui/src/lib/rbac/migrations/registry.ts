@@ -2085,6 +2085,11 @@ const RBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
   { collection: "schema_migrations", keys: { release: 1, status: 1 } },
   { collection: "rebac_relationships", keys: { "resource.type": 1, "resource.id": 1, action: 1, status: 1 } },
   { collection: "team_membership_sources", keys: { team_slug: 1, user_subject: 1, relationship: 1 } },
+  // Covers the paged active-member listing (`listActiveTeamMembershipSourcesBySlugPaged`):
+  // filters on team_slug + status, then dedupes/sorts by user_email. Without this, the
+  // route fell back to the index above (which doesn't include `status`) and had to scan
+  // every row for a team regardless of the requested page.
+  { collection: "team_membership_sources", keys: { team_slug: 1, status: 1, user_email: 1 } },
 ];
 
 const MESSAGING_REBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
