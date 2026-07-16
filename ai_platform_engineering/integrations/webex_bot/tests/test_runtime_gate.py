@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -449,7 +450,7 @@ def test_direct_webex_event_passes_direct_flag_to_route_resolver() -> None:
 
 
 def test_default_direct_route_uses_webex_preference(monkeypatch) -> None:
-    import ai_platform_engineering.integrations.webex_bot.app as app_module
+    app_module = sys.modules[handle_webex_message.__module__]
 
     class _Preferences:
         def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
@@ -475,7 +476,7 @@ def test_default_direct_route_uses_webex_preference(monkeypatch) -> None:
     monkeypatch.setattr(
         app_module,
         "get_default_override_store",
-        lambda: OverrideStore(),
+        OverrideStore,
     )
 
     dispatcher = FakeDispatcher()
