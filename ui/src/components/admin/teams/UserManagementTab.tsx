@@ -291,7 +291,6 @@ export function UserManagementTab({
     slackFilter,
     webexFilter,
     enabledFilter,
-    teams,
     withPreviewScope,
   ]);
 

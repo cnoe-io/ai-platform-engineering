@@ -410,16 +410,40 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     );
   }
 
-  // Membership is resolved via `listActiveTeamMembershipSourcesBySlug`, which
-  // queries `team_membership_sources` by { team_slug, status: 'active' } — NOT
-  // by team_id. Keying these mocks by slug guards the prod bug where the slug
-  // from OpenFGA was passed to a team_id-keyed lookup and matched nobody.
+  // Membership is resolved two ways against `team_membership_sources`:
+  // `listActiveTeamMemberEmailsBySlugsPaged` (plain-member team scope) runs
+  // two aggregations (`{ $match: { team_slug: { $in }, status: 'active' } }`
+  // → dedupe/count, and → dedupe/sort/page), while
+  // `listActiveTeamMembershipSourcesBySlug` (team-admin editable-emails scope)
+  // still does a plain `.find({ team_slug, status: 'active' }).sort(...)`.
+  // NOT a team_id lookup either way. Keying these mocks by slug guards the
+  // prod bug where the slug from OpenFGA was passed to a team_id-keyed lookup
+  // and matched nobody. The aggregate mock emulates Mongo's own dedupe + sort
+  // + skip/limit so tests exercise the same pagination contract as the real
+  // aggregation.
   function setMembershipBySlug(
     bySlug: Record<string, string[]>
   ) {
     mockGetCollection.mockImplementation((name: string) => {
       if (name === 'team_membership_sources') {
         return Promise.resolve({
+          aggregate: jest.fn().mockImplementation((pipeline: Array<Record<string, unknown>>) => {
+            const match = pipeline[0]?.$match as { team_slug?: { $in?: string[] } } | undefined;
+            const slugs = match?.team_slug?.$in ?? [];
+            const emails = [...new Set(slugs.flatMap((slug) => bySlug[slug] ?? []))]
+              .map((e) => e.trim().toLowerCase())
+              .sort();
+            const isCount = pipeline.some((stage) => '$count' in stage);
+            if (isCount) {
+              return { toArray: jest.fn().mockResolvedValue([{ total: emails.length }]) };
+            }
+            const skipStage = pipeline.find((stage) => '$skip' in stage) as { $skip: number } | undefined;
+            const limitStage = pipeline.find((stage) => '$limit' in stage) as { $limit: number } | undefined;
+            const skip = skipStage?.$skip ?? 0;
+            const limit = limitStage?.$limit ?? emails.length;
+            const page = emails.slice(skip, skip + limit).map((email) => ({ _id: email }));
+            return { toArray: jest.fn().mockResolvedValue(page) };
+          }),
           find: jest.fn().mockImplementation((filter: { team_slug?: string }) => {
             const emails = bySlug[filter?.team_slug ?? ''] ?? [];
             const docs = emails.map((user_email) => ({ user_email, status: 'active' }));
@@ -537,6 +561,43 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     // alice is in both teams but appears once.
     expect(emails).toEqual(['alice@example.com', 'dave@example.com', 'erin@example.com']);
     expect(body.total).toBe(3);
+  });
+
+  // Regression test for the prod incident: a large (e.g. Okta-synced,
+  // org-wide) team used to resolve every member's email via Keycloak in one
+  // unbounded `Promise.all`, firing thousands of concurrent admin API calls
+  // that OOMKilled the istio-proxy sidecar. This asserts the route now only
+  // resolves the requested page's slice of members per request.
+  it("pages large teams instead of resolving every member in one request", async () => {
+    const emails = Array.from({ length: 45 }, (_, i) => `member${String(i).padStart(2, '0')}@example.com`);
+    setMemberTeams(['team:org-wide']);
+    setMembershipBySlug({ 'org-wide': emails });
+    resolveUsersByEmail(
+      Object.fromEntries(emails.map((email, i) => [email, { id: `u-${i}` }]))
+    );
+
+    const page1 = await GET(makeRequest('/api/admin/users?page=1&pageSize=20'));
+    expect(page1.status).toBe(200);
+    const body1 = await page1.json();
+    expect(body1.scoped).toBe('team');
+    expect(body1.total).toBe(45);
+    expect(body1.page).toBe(1);
+    expect(body1.pageSize).toBe(20);
+    expect(body1.users).toHaveLength(20);
+    // Only this page's 20 emails were resolved via Keycloak, not all 45.
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledTimes(20);
+    expect(body1.users.map((u: { email: string }) => u.email).sort()).toEqual(
+      emails.slice(0, 20).sort()
+    );
+
+    mockFindRealmUsersByExactEmail.mockClear();
+
+    const page3 = await GET(makeRequest('/api/admin/users?page=3&pageSize=20'));
+    const body3 = await page3.json();
+    // Final page only has the remaining 5 members.
+    expect(body3.users).toHaveLength(5);
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledTimes(5);
+    expect(body3.total).toBe(45);
   });
 
   it("uses the selected user's memberships instead of the viewing admin's", async () => {
