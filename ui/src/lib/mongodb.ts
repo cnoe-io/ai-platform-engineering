@@ -326,13 +326,6 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
     safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),
-
-    // Paged active-member listing for GET /api/admin/users (team-scoped,
-    // non-admin branch): filters on team_slug + status, then dedupes/sorts by
-    // user_email. The rbac_indexes_v1 migration's index on this collection
-    // doesn't include `status`, so without this an IdP-synced org-wide team
-    // (thousands of rows) forces a full scan on every page load.
-    safeCreateIndex(db, 'team_membership_sources', { team_slug: 1, status: 1, user_email: 1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
