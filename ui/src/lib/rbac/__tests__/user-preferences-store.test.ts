@@ -32,7 +32,7 @@ describe("user-preferences-store", () => {
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
-      expect(result).toEqual({ dm_default_agent_id: null });
+      expect(result).toEqual({ dm_default_agent_id: null, web_default_agent_id: null });
       expect(mockCollection.findOne).toHaveBeenCalledWith({
         tenant_id: "default",
         user_id: "alice-sub",
@@ -48,7 +48,23 @@ describe("user-preferences-store", () => {
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
-      expect(result).toEqual({ dm_default_agent_id: "agent-x" });
+      expect(result).toEqual({ dm_default_agent_id: "agent-x", web_default_agent_id: null });
+    });
+
+    it("returns the saved web default agent id independently of the DM default", async () => {
+      mockCollection.findOne.mockResolvedValue({
+        tenant_id: "default",
+        user_id: "alice-sub",
+        dm_default_agent_id: "agent-x",
+        web_default_agent_id: "agent-web",
+      } satisfies Partial<UserPreferenceDocument>);
+
+      const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
+
+      expect(result).toEqual({
+        dm_default_agent_id: "agent-x",
+        web_default_agent_id: "agent-web",
+      });
     });
 
     it("treats a stored null/undefined dm_default_agent_id as cleared", async () => {
@@ -60,7 +76,7 @@ describe("user-preferences-store", () => {
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
-      expect(result).toEqual({ dm_default_agent_id: null });
+      expect(result).toEqual({ dm_default_agent_id: null, web_default_agent_id: null });
     });
 
     it("scopes reads by tenant", async () => {
@@ -96,6 +112,19 @@ describe("user-preferences-store", () => {
       expect(updatedAt).toBeLessThanOrEqual(after);
     });
 
+    it("writes the web default field when field is web_default_agent_id", async () => {
+      await setUserPreference({
+        tenantId: "default",
+        userId: "alice-sub",
+        agentId: "agent-web",
+        field: "web_default_agent_id",
+      });
+
+      const [, update] = mockCollection.updateOne.mock.calls[0];
+      expect(update.$set.web_default_agent_id).toBe("agent-web");
+      expect(update.$set.dm_default_agent_id).toBeUndefined();
+    });
+
     it("rejects empty or malformed agent ids before touching Mongo", async () => {
       await expect(
         setUserPreference({ tenantId: "default", userId: "alice-sub", agentId: "" }),
@@ -126,6 +155,17 @@ describe("user-preferences-store", () => {
       expect(update.$set.tenant_id).toBe("default");
       expect(update.$set.user_id).toBe("alice-sub");
       expect(typeof update.$set.updated_at).toBe("string");
+    });
+
+    it("clears only the web default field when that field is requested", async () => {
+      await clearUserPreference(
+        { tenantId: "default", userId: "alice-sub" },
+        "web_default_agent_id",
+      );
+
+      const [, update] = mockCollection.updateOne.mock.calls[0];
+      expect(update.$set.web_default_agent_id).toBeNull();
+      expect(update.$set.dm_default_agent_id).toBeUndefined();
     });
   });
 });

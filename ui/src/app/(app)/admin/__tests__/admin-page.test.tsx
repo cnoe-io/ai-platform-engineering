@@ -734,6 +734,68 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
     });
 
+    it('scopes Teams & Users data requests to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=people&tab=users'
+      );
+      const fetchMock = setupFetchMock({
+        tabGates: baselineUserGates,
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/users?page=1&pageSize=20&simulate_type=user&simulate_id=kc-user'
+        );
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/teams?simulate_type=user&simulate_id=kc-user'
+        );
+      });
+
+    });
+
+    it('scopes the Teams grid request to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=people&tab=teams'
+      );
+      const fetchMock = setupFetchMock({
+        tabGates: baselineUserGates,
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        const gridRequest = fetchMock.mock.calls.find(([url]) =>
+          typeof url === 'string'
+          && url.includes('/api/admin/teams?page=1')
+          && url.includes('simulate_type=user')
+          && url.includes('simulate_id=kc-user')
+        );
+        expect(gridRequest).toBeDefined();
+      });
+    });
+
     it('uses a simulated admin\'s effective access while keeping the preview read-only', async () => {
       currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=admin-target');
       setupFetchMock({
@@ -767,10 +829,11 @@ describe('Admin Dashboard Page', () => {
       });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
       expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
@@ -978,10 +1041,11 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       // Release notes lives under General, not as a standalone tab.
@@ -1083,6 +1147,7 @@ describe('Admin Dashboard Page', () => {
 
     it.each([
       ['settings', 'settings', /^General$/i],
+      ['settings', 'agents', /^Agents$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],

@@ -140,8 +140,33 @@ describe("PUT /api/user/preferences", () => {
       tenantId: "default",
       userId: "alice-sub",
       agentId: "agent-x",
+      field: "dm_default_agent_id",
     });
     expect(mockClearUserPreference).not.toHaveBeenCalled();
+  });
+
+  it("saves the web default independently of the DM default", async () => {
+    mockEvaluateAgentAccess.mockResolvedValue({
+      allowed: true,
+      path: "direct_user_grant",
+      reasonCode: "ALLOW_DIRECT",
+    });
+
+    const response = await PUT(
+      makeRequest("PUT", { web_default_agent_id: "agent-x" }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(bodyOf(response)).resolves.toMatchObject({
+      success: true,
+      data: { web_default_agent_id: "agent-x" },
+    });
+    expect(mockSetUserPreference).toHaveBeenCalledWith({
+      tenantId: "default",
+      userId: "alice-sub",
+      agentId: "agent-x",
+      field: "web_default_agent_id",
+    });
   });
 
   it("clears the preference when dm_default_agent_id is null", async () => {
@@ -154,12 +179,48 @@ describe("PUT /api/user/preferences", () => {
       success: true,
       data: { dm_default_agent_id: null },
     });
-    expect(mockClearUserPreference).toHaveBeenCalledWith({
-      tenantId: "default",
-      userId: "alice-sub",
-    });
+    expect(mockClearUserPreference).toHaveBeenCalledWith(
+      {
+        tenantId: "default",
+        userId: "alice-sub",
+      },
+      "dm_default_agent_id",
+    );
     expect(mockSetUserPreference).not.toHaveBeenCalled();
     expect(mockEvaluateAgentAccess).not.toHaveBeenCalled();
+  });
+
+  it("clears only the web default when web_default_agent_id is null", async () => {
+    const response = await PUT(
+      makeRequest("PUT", { web_default_agent_id: null }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(bodyOf(response)).resolves.toMatchObject({
+      success: true,
+      data: { web_default_agent_id: null },
+    });
+    expect(mockClearUserPreference).toHaveBeenCalledWith(
+      {
+        tenantId: "default",
+        userId: "alice-sub",
+      },
+      "web_default_agent_id",
+    );
+    expect(mockSetUserPreference).not.toHaveBeenCalled();
+    expect(mockEvaluateAgentAccess).not.toHaveBeenCalled();
+  });
+
+  it("rejects a request that does not include a supported preference field", async () => {
+    const response = await PUT(makeRequest("PUT", { unrelated: "agent-x" }));
+
+    expect(response.status).toBe(400);
+    await expect(bodyOf(response)).resolves.toMatchObject({
+      success: false,
+      code: "INVALID_BODY",
+    });
+    expect(mockSetUserPreference).not.toHaveBeenCalled();
+    expect(mockClearUserPreference).not.toHaveBeenCalled();
   });
 
   it("returns 403 when the user does not have can_use on the chosen agent", async () => {

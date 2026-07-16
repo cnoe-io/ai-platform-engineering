@@ -292,6 +292,31 @@ describe("UserDetailModal", () => {
     expect(global.fetch).not.toHaveBeenCalledWith("/api/admin/teams");
   });
 
+  it("scopes every profile read to the selected preview account", async () => {
+    render(
+      <UserDetailModal
+        userId="user-1"
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+        readOnly
+        simulationTarget={{ type: "user", id: "preview-user" }}
+      />
+    );
+
+    expect(await screen.findByText("Sri Aradhyula")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/users/user-1?simulate_type=user&simulate_id=preview-user"
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/users/user-1/access?simulate_type=user&simulate_id=preview-user"
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/users/user-1/identity?simulate_type=user&simulate_id=preview-user"
+      );
+    });
+  });
+
   it("can unlink Webex identity from the user detail modal", async () => {
     const onSaved = jest.fn();
     render(
