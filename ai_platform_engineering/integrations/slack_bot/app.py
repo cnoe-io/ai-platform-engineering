@@ -93,6 +93,18 @@ def _log_stage(event: dict, stage: str, **extra) -> None:
     event.get("ts"), stage, _ingestion_lag_ms(event), fields,
   )
 
+
+def _channel_id_from_view_metadata(body: dict) -> str | None:
+  """Recover channel_id for view_submission payloads (modal submits).
+
+  Unlike block_actions/event bodies, a view_submission body carries no
+  top-level channel field at all — the channel only lives in
+  view.private_metadata, which our feedback modal encodes as
+  "channel_id|thread_ts|message_ts|agent_id|feedback_type".
+  """
+  private_metadata = body.get("view", {}).get("private_metadata", "")
+  return private_metadata.split("|")[0] or None if private_metadata else None
+
 # 098 Enterprise RBAC enforcement
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
@@ -142,6 +154,7 @@ if RBAC_ENABLED:
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
             or body.get("channel_id")  # slash command bodies
+            or _channel_id_from_view_metadata(body)  # view_submission (modal submit)
         )
         if channel_id:
             context["slack_channel_id"] = channel_id
@@ -1167,6 +1180,7 @@ def rbac_global_middleware(body, context, next, logger):
         body.get("event", {}).get("channel")
         or body.get("channel", {}).get("id")
         or body.get("channel_id")  # slash command bodies
+        or _channel_id_from_view_metadata(body)  # view_submission (modal submit)
     )
 
     if rbac_status == "unlinked":
