@@ -22,29 +22,28 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function fetchPlatformDefaultAgentId(): Promise<string | null> {
-  const payload = await fetchJson<ApiEnvelope<{ default_agent_id?: unknown }>>(
-    "/api/admin/platform-config",
-  );
-  const value = payload.success ? payload.data?.default_agent_id : null;
+function normalizedAgentId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/**
- * The user's personal Web new-chat default, when they've set one. A missing
- * or cleared preference resolves to null so we fall through to the platform
- * default. Never throws — a preference-service hiccup must not block new chats.
- */
-async function fetchUserWebDefaultAgentId(): Promise<string | null> {
-  try {
-    const payload = await fetchJson<ApiEnvelope<{ web_default_agent_id?: unknown }>>(
-      "/api/user/preferences",
-    );
-    const value = payload.success ? payload.data?.web_default_agent_id : null;
-    return typeof value === "string" && value.trim() ? value.trim() : null;
-  } catch {
-    return null;
-  }
+export interface ChatDefaultAgentIds {
+  userDefaultAgentId: string | null;
+  platformDefaultAgentId: string | null;
+}
+
+/** Load personal and platform Web defaults in one preferences request. */
+export async function fetchChatDefaultAgentIds(): Promise<ChatDefaultAgentIds> {
+  const payload = await fetchJson<
+    ApiEnvelope<{
+      web_default_agent_id?: unknown;
+      platform_default_agent_id?: unknown;
+    }>
+  >("/api/user/preferences");
+  const data = payload.success ? payload.data : null;
+  return {
+    userDefaultAgentId: normalizedAgentId(data?.web_default_agent_id),
+    platformDefaultAgentId: normalizedAgentId(data?.platform_default_agent_id),
+  };
 }
 
 async function fetchAvailableAgents(): Promise<DynamicAgentConfig[]> {
@@ -58,16 +57,17 @@ async function fetchAvailableAgents(): Promise<DynamicAgentConfig[]> {
 }
 
 export async function resolveUsableChatAgent(): Promise<ResolvedChatAgent> {
-  const [userDefaultResult, defaultResult, agentsResult] = await Promise.allSettled([
-    fetchUserWebDefaultAgentId(),
-    fetchPlatformDefaultAgentId(),
+  const [defaultsResult, agentsResult] = await Promise.allSettled([
+    fetchChatDefaultAgentIds(),
     fetchAvailableAgents(),
   ]);
 
-  const userDefaultAgentId =
-    userDefaultResult.status === "fulfilled" ? userDefaultResult.value : null;
-  const defaultAgentId =
-    defaultResult.status === "fulfilled" ? defaultResult.value : null;
+  const defaults =
+    defaultsResult.status === "fulfilled"
+      ? defaultsResult.value
+      : { userDefaultAgentId: null, platformDefaultAgentId: null };
+  const userDefaultAgentId = defaults.userDefaultAgentId;
+  const defaultAgentId = defaults.platformDefaultAgentId;
   const availableAgents =
     agentsResult.status === "fulfilled" ? agentsResult.value : [];
 

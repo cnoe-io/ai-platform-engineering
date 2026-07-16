@@ -15,8 +15,7 @@ jest.mock("@/lib/mongodb", () => ({
 
 import {
   getUserPreference,
-  setUserPreference,
-  clearUserPreference,
+  updateUserPreferences,
   type UserPreferenceDocument,
 } from "../user-preferences-store";
 
@@ -32,51 +31,67 @@ describe("user-preferences-store", () => {
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
-      expect(result).toEqual({ dm_default_agent_id: null, web_default_agent_id: null });
+      expect(result).toEqual({
+        web_default_agent_id: null,
+        slack_default_agent_id: null,
+        webex_default_agent_id: null,
+      });
       expect(mockCollection.findOne).toHaveBeenCalledWith({
         tenant_id: "default",
         user_id: "alice-sub",
       });
     });
 
-    it("returns the saved agent id when one is present", async () => {
+    it("returns the saved surface defaults", async () => {
       mockCollection.findOne.mockResolvedValue({
         tenant_id: "default",
         user_id: "alice-sub",
-        dm_default_agent_id: "agent-x",
+        web_default_agent_id: "agent-web",
+        slack_default_agent_id: "agent-slack",
+        webex_default_agent_id: "agent-webex",
       } satisfies Partial<UserPreferenceDocument>);
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
-      expect(result).toEqual({ dm_default_agent_id: "agent-x", web_default_agent_id: null });
+      expect(result).toEqual({
+        web_default_agent_id: "agent-web",
+        slack_default_agent_id: "agent-slack",
+        webex_default_agent_id: "agent-webex",
+      });
     });
 
-    it("returns the saved web default agent id independently of the DM default", async () => {
+    it("returns null for surfaces that have not been configured", async () => {
       mockCollection.findOne.mockResolvedValue({
         tenant_id: "default",
         user_id: "alice-sub",
-        dm_default_agent_id: "agent-x",
         web_default_agent_id: "agent-web",
       } satisfies Partial<UserPreferenceDocument>);
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
       expect(result).toEqual({
-        dm_default_agent_id: "agent-x",
         web_default_agent_id: "agent-web",
+        slack_default_agent_id: null,
+        webex_default_agent_id: null,
       });
     });
 
-    it("treats a stored null/undefined dm_default_agent_id as cleared", async () => {
+    it("keeps explicit null surface values", async () => {
       mockCollection.findOne.mockResolvedValue({
         tenant_id: "default",
         user_id: "alice-sub",
-        dm_default_agent_id: null,
-      });
+        web_default_agent_id: "web-agent",
+        slack_default_agent_id: null,
+        webex_default_agent_id: "webex-agent",
+      } satisfies Partial<UserPreferenceDocument>);
 
       const result = await getUserPreference({ tenantId: "default", userId: "alice-sub" });
 
-      expect(result).toEqual({ dm_default_agent_id: null, web_default_agent_id: null });
+      expect(result).toEqual({
+        web_default_agent_id: "web-agent",
+        slack_default_agent_id: null,
+        webex_default_agent_id: "webex-agent",
+      });
     });
 
     it("scopes reads by tenant", async () => {
@@ -89,14 +104,18 @@ describe("user-preferences-store", () => {
     });
   });
 
-  describe("setUserPreference", () => {
-    it("upserts the saved agent id and refreshes updated_at", async () => {
+  describe("updateUserPreferences", () => {
+    it("atomically upserts multiple surface defaults and refreshes updated_at", async () => {
       const before = Date.now();
 
-      await setUserPreference({
+      await updateUserPreferences({
         tenantId: "default",
         userId: "alice-sub",
-        agentId: "agent-x",
+        preferences: {
+          web_default_agent_id: "web-agent",
+          slack_default_agent_id: null,
+          webex_default_agent_id: "webex-agent",
+        },
       });
 
       const after = Date.now();
@@ -104,7 +123,9 @@ describe("user-preferences-store", () => {
       const [filter, update, options] = mockCollection.updateOne.mock.calls[0];
       expect(filter).toEqual({ tenant_id: "default", user_id: "alice-sub" });
       expect(options).toEqual({ upsert: true });
-      expect(update.$set.dm_default_agent_id).toBe("agent-x");
+      expect(update.$set.web_default_agent_id).toBe("web-agent");
+      expect(update.$set.slack_default_agent_id).toBeNull();
+      expect(update.$set.webex_default_agent_id).toBe("webex-agent");
       expect(update.$set.tenant_id).toBe("default");
       expect(update.$set.user_id).toBe("alice-sub");
       const updatedAt = new Date(update.$set.updated_at).getTime();
@@ -112,60 +133,44 @@ describe("user-preferences-store", () => {
       expect(updatedAt).toBeLessThanOrEqual(after);
     });
 
-    it("writes the web default field when field is web_default_agent_id", async () => {
-      await setUserPreference({
-        tenantId: "default",
-        userId: "alice-sub",
-        agentId: "agent-web",
-        field: "web_default_agent_id",
-      });
-
-      const [, update] = mockCollection.updateOne.mock.calls[0];
-      expect(update.$set.web_default_agent_id).toBe("agent-web");
-      expect(update.$set.dm_default_agent_id).toBeUndefined();
-    });
-
     it("rejects empty or malformed agent ids before touching Mongo", async () => {
       await expect(
-        setUserPreference({ tenantId: "default", userId: "alice-sub", agentId: "" }),
+        updateUserPreferences({
+          tenantId: "default",
+          userId: "alice-sub",
+          preferences: { web_default_agent_id: "" },
+        }),
       ).rejects.toThrow(/agent/i);
       await expect(
-        setUserPreference({ tenantId: "default", userId: "alice-sub", agentId: "../bad" }),
+        updateUserPreferences({
+          tenantId: "default",
+          userId: "alice-sub",
+          preferences: { slack_default_agent_id: "../bad" },
+        }),
       ).rejects.toThrow(/agent/i);
+      expect(mockCollection.updateOne).not.toHaveBeenCalled();
+    });
+
+    it("rejects an empty update before touching Mongo", async () => {
+      await expect(
+        updateUserPreferences({
+          tenantId: "default",
+          userId: "alice-sub",
+          preferences: {},
+        }),
+      ).rejects.toThrow(/preference/i);
       expect(mockCollection.updateOne).not.toHaveBeenCalled();
     });
 
     it("rejects empty or malformed user ids before touching Mongo", async () => {
       await expect(
-        setUserPreference({ tenantId: "default", userId: "", agentId: "agent-x" }),
+        updateUserPreferences({
+          tenantId: "default",
+          userId: "",
+          preferences: { web_default_agent_id: "agent-x" },
+        }),
       ).rejects.toThrow(/user/i);
       expect(mockCollection.updateOne).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("clearUserPreference", () => {
-    it("upserts a row with dm_default_agent_id=null and refreshes updated_at", async () => {
-      await clearUserPreference({ tenantId: "default", userId: "alice-sub" });
-
-      expect(mockCollection.updateOne).toHaveBeenCalledTimes(1);
-      const [filter, update, options] = mockCollection.updateOne.mock.calls[0];
-      expect(filter).toEqual({ tenant_id: "default", user_id: "alice-sub" });
-      expect(options).toEqual({ upsert: true });
-      expect(update.$set.dm_default_agent_id).toBeNull();
-      expect(update.$set.tenant_id).toBe("default");
-      expect(update.$set.user_id).toBe("alice-sub");
-      expect(typeof update.$set.updated_at).toBe("string");
-    });
-
-    it("clears only the web default field when that field is requested", async () => {
-      await clearUserPreference(
-        { tenantId: "default", userId: "alice-sub" },
-        "web_default_agent_id",
-      );
-
-      const [, update] = mockCollection.updateOne.mock.calls[0];
-      expect(update.$set.web_default_agent_id).toBeNull();
-      expect(update.$set.dm_default_agent_id).toBeUndefined();
     });
   });
 });

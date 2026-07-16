@@ -9,9 +9,13 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
 from .utils.audit import log_webex_authz_decision
+from .utils.dm_agent_resolver import resolve_dm_agent
+from .utils.dm_authz_client import DmAuthzClient
+from .utils.dm_thread_overrides import OverrideKey, get_default_override_store
 from .utils.identity_linker import WebexIdentityLinker
 from .utils.obo_exchange import OboExchangeError, OboToken, impersonate_user
 from .utils.space_team_resolver import SpaceTeamResolution, WebexSpaceTeamResolver
+from .utils.user_preferences_client import UserPreferencesClient
 from .utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
 from .utils.webex_agent_routes import infer_listen_mode
 from .utils.webex_ids import (
@@ -135,6 +139,7 @@ class RouteResolverProtocol(Protocol):
         person_id: str,
         text: str,
         is_direct: bool = False,
+        bearer_token: str | None = None,
     ) -> WebexRouteResolution:
         """Resolve the agent route to dispatch this message to."""
         raise NotImplementedError
@@ -348,6 +353,24 @@ class _DefaultOboExchanger:
         return await impersonate_user(keycloak_user_id)
 
 
+_dm_authz_client: DmAuthzClient | None = None
+_user_preferences_client: UserPreferencesClient | None = None
+
+
+def _default_dm_authz_client() -> DmAuthzClient:
+    global _dm_authz_client
+    if _dm_authz_client is None:
+        _dm_authz_client = DmAuthzClient()
+    return _dm_authz_client
+
+
+def _default_user_preferences_client() -> UserPreferencesClient:
+    global _user_preferences_client
+    if _user_preferences_client is None:
+        _user_preferences_client = UserPreferencesClient()
+    return _user_preferences_client
+
+
 class _WebexAgentRouteResolver:
     """Resolve routes via OpenFGA + Mongo when DB modes are enabled."""
 
@@ -359,7 +382,58 @@ class _WebexAgentRouteResolver:
         person_id: str,
         text: str,
         is_direct: bool = False,
+        bearer_token: str | None = None,
     ) -> WebexRouteResolution:
+        if is_direct:
+            if not bearer_token:
+                return WebexRouteResolution(
+                    agent_id=None,
+                    deny_message=(
+                        "I can't verify your agent access right now. "
+                        "Please try again in a moment."
+                    ),
+                )
+            try:
+                override_key = OverrideKey(person_id=person_id, room_id=space_id)
+            except ValueError:
+                return WebexRouteResolution(
+                    agent_id=None,
+                    deny_message="This Webex direct-message context is invalid.",
+                )
+
+            resolution = await asyncio.to_thread(
+                resolve_dm_agent,
+                override_key=override_key,
+                overrides=get_default_override_store(),
+                prefs_client=_default_user_preferences_client(),
+                authz_client=_default_dm_authz_client(),
+                dm_agent_id=os.environ.get("WEBEX_INTEGRATION_DM_AGENT_ID"),
+                default_agent_id=(
+                    os.environ.get("WEBEX_DEFAULT_AGENT_ID")
+                    or os.environ.get("WEBEX_INTEGRATION_DEFAULT_AGENT_ID")
+                ),
+                bearer_token=bearer_token,
+            )
+            for notice in resolution.notices:
+                logger.info("Webex direct-message route notice: %s", notice)
+            if resolution.agent_id:
+                return WebexRouteResolution(agent_id=resolution.agent_id)
+            if resolution.source == "pdp_unavailable":
+                return WebexRouteResolution(
+                    agent_id=None,
+                    deny_message=(
+                        "I can't verify your agent access right now. "
+                        "Please try again in a moment."
+                    ),
+                )
+            return WebexRouteResolution(
+                agent_id=None,
+                deny_message=(
+                    "No agent is available for this Webex direct message. "
+                    "Choose a default in Admin → Settings or ask an admin for access."
+                ),
+            )
+
         from .utils.webex_agent_routes import resolve_webex_agent_route
 
         agent_id, deny_message = await resolve_webex_agent_route(
@@ -607,6 +681,7 @@ async def handle_webex_message(
         person_id=parsed.person_id,
         text=parsed.text,
         is_direct=parsed.is_direct,
+        bearer_token=obo_token.access_token,
     )
     agent_id = route.agent_id
     if not agent_id:
@@ -626,44 +701,48 @@ async def handle_webex_message(
             explicit_invocation=explicit_invocation,
         )
 
-    rebac_decision = rebac.check_space_grant(
-        workspace_id=parsed.workspace_id,
-        space_id=parsed.space_id,
-        agent_id=agent_id,
-        obo_token=obo_token.access_token,
-    )
-    if not rebac_decision.space_allowed:
-        audit_reason = (
-            "DENY_PDP_UNAVAILABLE"
-            if rebac_decision.reason == "pdp_unavailable"
-            else "WEBEX_REBAC_DENIED"
+    # Direct-message candidates were already checked against the user's
+    # effective agent access by resolve_dm_agent. Space assignment applies only
+    # to shared Webex spaces, where it remains an additional gate.
+    if not parsed.is_direct:
+        rebac_decision = rebac.check_space_grant(
+            workspace_id=parsed.workspace_id,
+            space_id=parsed.space_id,
+            agent_id=agent_id,
+            obo_token=obo_token.access_token,
         )
-        log_webex_authz_decision(
-            tenant_id=tenant_id,
-            sub=keycloak_user_id,
-            outcome="deny",
-            reason_code=audit_reason,
-            webex_person_id=parsed.person_id,
-            webex_space_id=parsed.space_id,
-            resource_ref=f"agent:{agent_id}",
-        )
-        if not explicit_invocation:
-            logger.info(
-                "Webex space grant denied for ambient message space=%s agent=%s — silently dropping",
-                parsed.space_id,
-                agent_id,
+        if not rebac_decision.space_allowed:
+            audit_reason = (
+                "DENY_PDP_UNAVAILABLE"
+                if rebac_decision.reason == "pdp_unavailable"
+                else "WEBEX_REBAC_DENIED"
             )
-        return _deny(
-            rebac_decision.reason,
-            deny_message=(
-                f"Agent *{agent_id}* is not assigned to this Webex space. "
-                f"Ask an admin to add it in the {APP_NAME} Admin panel."
-            ),
-            rebac_reason=rebac_decision.reason,
-            keycloak_user_id=keycloak_user_id,
-            team_slug=team_slug,
-            explicit_invocation=explicit_invocation,
-        )
+            log_webex_authz_decision(
+                tenant_id=tenant_id,
+                sub=keycloak_user_id,
+                outcome="deny",
+                reason_code=audit_reason,
+                webex_person_id=parsed.person_id,
+                webex_space_id=parsed.space_id,
+                resource_ref=f"agent:{agent_id}",
+            )
+            if not explicit_invocation:
+                logger.info(
+                    "Webex space grant denied for ambient message space=%s agent=%s — silently dropping",
+                    parsed.space_id,
+                    agent_id,
+                )
+            return _deny(
+                rebac_decision.reason,
+                deny_message=(
+                    f"Agent *{agent_id}* is not assigned to this Webex space. "
+                    f"Ask an admin to add it in the {APP_NAME} Admin panel."
+                ),
+                rebac_reason=rebac_decision.reason,
+                keycloak_user_id=keycloak_user_id,
+                team_slug=team_slug,
+                explicit_invocation=explicit_invocation,
+            )
 
     if dispatcher is not None:
         await dispatcher(

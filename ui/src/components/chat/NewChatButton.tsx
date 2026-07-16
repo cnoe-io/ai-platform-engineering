@@ -2,6 +2,7 @@
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { Button } from "@/components/ui/button";
+import { fetchChatDefaultAgentIds } from "@/lib/chat-agent-selection";
 import { cn } from "@/lib/utils";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { ChevronDown,Loader2,Plus,Search } from "lucide-react";
@@ -30,29 +31,9 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
     async function fetchDefaultAgent() {
       try {
-        // The user's personal Web default takes precedence over the platform
-        // default; a missing/failed preference falls through to the platform
-        // default so new chats always resolve to something usable.
-        const [userDefaultId, platformDefaultId] = await Promise.all([
-          fetch('/api/user/preferences')
-            .then((r) => r.json())
-            .then((d) =>
-              d?.success && d.data?.web_default_agent_id
-                ? String(d.data.web_default_agent_id)
-                : null,
-            )
-            .catch(() => null),
-          fetch('/api/admin/platform-config')
-            .then((r) => r.json())
-            .then((d) =>
-              d?.success && d.data?.default_agent_id
-                ? String(d.data.default_agent_id)
-                : null,
-            )
-            .catch(() => null),
-        ]);
-
-        const agentId = userDefaultId ?? platformDefaultId;
+        const { userDefaultAgentId, platformDefaultAgentId } =
+          await fetchChatDefaultAgentIds();
+        const agentId = userDefaultAgentId ?? platformDefaultAgentId;
 
         if (cancelled) return;
 

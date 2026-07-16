@@ -31,10 +31,23 @@ function mockFetch({
     },
   },
   patch = { success: true },
+  preferences = {
+    web_default_agent_id: null,
+    slack_default_agent_id: null,
+    webex_default_agent_id: null,
+    integrations: { slack: false, webex: false },
+  },
 }: {
   agents?: Array<{ _id: string; name: string; description?: string }>;
   config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string; release_notes?: unknown } };
   patch?: { success: boolean };
+  preferences?: {
+    platform_default_agent_id?: string | null;
+    web_default_agent_id?: string | null;
+    slack_default_agent_id?: string | null;
+    webex_default_agent_id?: string | null;
+    integrations?: { slack?: boolean; webex?: boolean };
+  };
 } = {}) {
   global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
     const href = String(url);
@@ -54,8 +67,7 @@ function mockFetch({
         json: () => Promise.resolve(config),
       } as Response);
     }
-    // Endpoints used by the non-admin personal Default Agent picker
-    // (WebDefaultAgentPanel).
+    // Endpoints used by the personal default-agent pickers.
     if (href.includes('/api/user/accessible-agents')) {
       const accessible = agents.map((a) => ({
         id: a._id,
@@ -74,7 +86,13 @@ function mockFetch({
     if (href.includes('/api/user/preferences')) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: { web_default_agent_id: null } }),
+        json: () => Promise.resolve({
+          success: true,
+          data: {
+            platform_default_agent_id: config.data?.default_agent_id ?? null,
+            ...preferences,
+          },
+        }),
       } as Response);
     }
     return Promise.reject(new Error(`Unexpected fetch: ${href}`));
@@ -111,7 +129,7 @@ describe('PlatformSettingsTab', () => {
       screen.getAllByText('Agent Description: Handles SRE workflows'),
     ).toHaveLength(2);
     expect(screen.getByTestId('default-agent-save')).toBeDisabled();
-    expect(screen.getByTestId('web-default-agent-save')).toBeDisabled();
+    expect(screen.getByTestId('personal-default-agents-save')).toBeDisabled();
   });
 
   it('shows the personal Default Agent picker for non-admins (no platform controls)', async () => {
@@ -119,7 +137,7 @@ describe('PlatformSettingsTab', () => {
 
     // Non-admins get the personal web-default picker, not the
     // platform-default picker or its save button.
-    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
+    const personal = await screen.findByRole('button', { name: /^Web default agent$/i });
     expect(personal).toBeInTheDocument();
     fireEvent.click(personal);
     expect(
@@ -128,15 +146,101 @@ describe('PlatformSettingsTab', () => {
     expect(
       screen.queryByRole('button', { name: /Platform default agent for new chats/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId('web-default-agent-save')).toBeInTheDocument();
+    expect(screen.getByTestId('personal-default-agents-save')).toBeInTheDocument();
     expect(screen.queryByTestId('default-agent-save')).not.toBeInTheDocument();
     expect(screen.queryByTestId('default-agent-access-note')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Slack default agent$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Webex default agent$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the platform fallback for every active integration', async () => {
+    mockFetch({
+      config: { success: true, data: { default_agent_id: 'sre' } },
+      preferences: {
+        web_default_agent_id: null,
+        slack_default_agent_id: null,
+        webex_default_agent_id: null,
+        integrations: { slack: true, webex: true },
+      },
+    });
+
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    const slack = await screen.findByRole('button', { name: /^Slack default agent$/i });
+    const webex = screen.getByRole('button', { name: /^Webex default agent$/i });
+    expect(slack).toHaveTextContent('Use platform default (Basic SRE)');
+    expect(webex).toHaveTextContent('Use platform default (Basic SRE)');
+  });
+
+  it('saves changed Slack and Webex defaults in one request', async () => {
+    mockFetch({
+      preferences: {
+        web_default_agent_id: 'sre',
+        slack_default_agent_id: null,
+        webex_default_agent_id: null,
+        integrations: { slack: true, webex: true },
+      },
+    });
+
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    const slack = await screen.findByRole('button', { name: /^Slack default agent$/i });
+    fireEvent.click(slack);
+    fireEvent.click(await screen.findByRole('option', { name: 'Knowledge Base Agent' }));
+
+    const webex = screen.getByRole('button', { name: /^Webex default agent$/i });
+    fireEvent.click(webex);
+    fireEvent.click(await screen.findByRole('option', { name: 'Knowledge Base Agent' }));
+    fireEvent.click(screen.getByTestId('personal-default-agents-save'));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/user/preferences',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            slack_default_agent_id: 'kb',
+            webex_default_agent_id: 'kb',
+          }),
+        }),
+      );
+    });
+  });
+
+  it('clears a Slack override back to the platform default', async () => {
+    mockFetch({
+      preferences: {
+        web_default_agent_id: 'sre',
+        slack_default_agent_id: 'kb',
+        webex_default_agent_id: null,
+        integrations: { slack: true, webex: false },
+      },
+    });
+
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    const slack = await screen.findByRole('button', { name: /^Slack default agent$/i });
+    fireEvent.click(slack);
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Use platform default' }),
+    );
+    fireEvent.click(screen.getByTestId('personal-default-agents-save'));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/user/preferences',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ slack_default_agent_id: null }),
+        }),
+      );
+    });
   });
 
   it('persists the non-admin personal web default via /api/user/preferences', async () => {
     render(<PlatformSettingsTab isAdmin={false} />);
 
-    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
+    const personal = await screen.findByRole('button', { name: /^Web default agent$/i });
     fireEvent.click(personal);
     fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
 
@@ -144,7 +248,7 @@ describe('PlatformSettingsTab', () => {
       '/api/user/preferences',
       expect.objectContaining({ method: 'PUT' }),
     );
-    fireEvent.click(screen.getByTestId('web-default-agent-save'));
+    fireEvent.click(screen.getByTestId('personal-default-agents-save'));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -162,7 +266,7 @@ describe('PlatformSettingsTab', () => {
 
     render(<PlatformSettingsTab isAdmin={false} />);
 
-    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
+    const personal = await screen.findByRole('button', { name: /^Web default agent$/i });
     await waitFor(() => {
       expect(personal).toHaveTextContent('Use platform default (Basic SRE)');
     });
@@ -172,7 +276,7 @@ describe('PlatformSettingsTab', () => {
 
     fireEvent.click(personal);
     fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
-    fireEvent.click(screen.getByTestId('web-default-agent-save'));
+    fireEvent.click(screen.getByTestId('personal-default-agents-save'));
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/user/preferences',
@@ -182,10 +286,10 @@ describe('PlatformSettingsTab', () => {
         }),
       );
     });
-    await waitFor(() => expect(screen.getByTestId('web-default-agent-save')).toBeDisabled());
+    await waitFor(() => expect(screen.getByTestId('personal-default-agents-save')).toBeDisabled());
 
     fireEvent.click(screen.getByLabelText('Clear agent selection'));
-    fireEvent.click(screen.getByTestId('web-default-agent-save'));
+    fireEvent.click(screen.getByTestId('personal-default-agents-save'));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -203,9 +307,9 @@ describe('PlatformSettingsTab', () => {
   it('suppresses writes in the non-admin picker when readOnly (preview)', async () => {
     render(<PlatformSettingsTab isAdmin={false} readOnly />);
 
-    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
+    const personal = await screen.findByRole('button', { name: /^Web default agent$/i });
     expect(personal).toBeDisabled();
-    expect(screen.getByTestId('web-default-agent-save')).toBeDisabled();
+    expect(screen.getByTestId('personal-default-agents-save')).toBeDisabled();
   });
 
   it('warns when the saved default agent is not in the viewer accessible list (admin variant)', async () => {
@@ -231,7 +335,7 @@ describe('PlatformSettingsTab', () => {
       screen.queryByRole('button', { name: /Platform default agent for new chats/i }),
     ).not.toBeInTheDocument();
     expect(
-      await screen.findByRole('button', { name: /^My default agent$/i }),
+      await screen.findByRole('button', { name: /^Web default agent$/i }),
     ).toBeInTheDocument();
   });
 
@@ -265,7 +369,7 @@ describe('PlatformSettingsTab', () => {
             Promise.resolve({ success: true, data: { default_agent_id: 'sre' } }),
         } as Response);
       }
-      // The embedded personal picker (WebDefaultAgentPanel) also hits these.
+      // The embedded personal defaults panel also hits these.
       if (href.includes('/api/user/accessible-agents')) {
         return Promise.resolve({
           json: () =>
@@ -351,7 +455,7 @@ describe('PlatformSettingsTab', () => {
 
     await screen.findByRole('button', { name: /Platform default agent for new chats/i });
     expect(screen.getByTestId('default-agent-access-note')).toHaveTextContent(
-      /available to every signed-in user/i,
+      /available to every signed-in user, regardless of agent sharing permissions/i,
     );
   });
 
@@ -370,7 +474,7 @@ describe('PlatformSettingsTab', () => {
   it('non-admin does NOT see the Unlinked Access card or button', async () => {
     render(<PlatformSettingsTab isAdmin={false} />);
 
-    await screen.findByRole('button', { name: /^My default agent$/i });
+    await screen.findByRole('button', { name: /^Web default agent$/i });
 
     expect(screen.queryByTestId("unlinked-access-button")).toBeNull();
   });

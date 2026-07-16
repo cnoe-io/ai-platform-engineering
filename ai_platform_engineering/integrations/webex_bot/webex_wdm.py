@@ -14,9 +14,14 @@ import uuid
 from collections import deque
 from typing import Any
 
+from .utils.webex_command_dispatcher import get_default_command_dispatcher
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
 from .app import handle_webex_message
-from .webex_responder import WebexResponder, WebexThreadedStreamDispatcher
+from .webex_responder import (
+    WebexResponder,
+    WebexRestApi,
+    WebexThreadedStreamDispatcher,
+)
 from .webex_websocket import WebexWebSocketRuntime
 
 logger = logging.getLogger("caipe.webex_bot.webex_wdm")
@@ -125,14 +130,17 @@ class WebexWdmRuntime:
     ) -> None:
         self._access_token = access_token
         dispatcher = WebexThreadedStreamDispatcher()
+        webex_api = WebexRestApi(access_token=access_token)
+        command_handler = get_default_command_dispatcher(webex_api=webex_api)
         self._runtime = runtime or WebexWebSocketRuntime(
             message_handler=lambda event, **kwargs: handle_webex_message(
                 event,
                 dispatcher=dispatcher,
+                command_handler=command_handler,
                 **kwargs,
             )
         )
-        self._responder = responder or WebexResponder()
+        self._responder = responder or WebexResponder(webex_api=webex_api)
         self._device_name = device_name
         self._bot_email: str | None = None
         self._bot_person_id: str | None = None

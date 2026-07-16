@@ -30,9 +30,9 @@ beforeEach(() => {
 });
 
 /**
- * Route fetch by URL so tests are robust to the parallel
- * preferences + platform-config resolution. `prefsAgentId` is the user's
- * personal web default (null → none); `platformAgentId` is the admin default.
+ * Route fetch by URL. `prefsAgentId` is the user's personal Web default
+ * (null → none); `platformAgentId` is the resolved platform default returned
+ * by the same preferences endpoint.
  * `agentNames` maps agent id → display name for the detail lookup.
  */
 function mockFetchByUrl(opts: {
@@ -46,12 +46,14 @@ function mockFetchByUrl(opts: {
     if (url === "/api/user/preferences") {
       if (opts.prefsPromise) return opts.prefsPromise;
       return Promise.resolve({
-        json: async () => ({ success: true, data: { web_default_agent_id: prefsAgentId } }),
-      } as Response);
-    }
-    if (url === "/api/admin/platform-config") {
-      return Promise.resolve({
-        json: async () => ({ success: true, data: { default_agent_id: platformAgentId } }),
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            web_default_agent_id: prefsAgentId,
+            platform_default_agent_id: platformAgentId,
+          },
+        }),
       } as Response);
     }
     const match = url.match(/^\/api\/dynamic-agents\/agents\/(.+)$/);
@@ -85,7 +87,14 @@ describe("NewChatButton", () => {
     expect(onNewChat).not.toHaveBeenCalled();
 
     resolvePrefs({
-      json: async () => ({ success: true, data: { web_default_agent_id: null } }),
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          web_default_agent_id: null,
+          platform_default_agent_id: "agent-default",
+        },
+      }),
     } as Response);
 
     await waitFor(() => expect(mainButton).not.toBeDisabled());

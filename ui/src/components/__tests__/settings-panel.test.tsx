@@ -154,6 +154,7 @@ describe('SettingsPanel', () => {
       expect(screen.getByText('Theme')).toBeInTheDocument();
       expect(screen.getByText('Gradient Theme')).toBeInTheDocument();
       expect(screen.getByText('Preview')).toBeInTheDocument();
+      expect(screen.queryByText('DM Default Agent')).not.toBeInTheDocument();
     });
   });
 

@@ -1,10 +1,9 @@
 /**
  * GET  /api/user/preferences — return the signed-in user's saved
- *                              default-agent preferences (DM + Web).
+ *                              per-surface default-agent preferences.
  * PUT  /api/user/preferences — upsert (or clear when the field is null) the
  *                              user's saved default-agent for a given surface.
- *                              Accepts `dm_default_agent_id` (bot DMs) and/or
- *                              `web_default_agent_id` (Web new-chat default).
+ *                              Accepts Web, Slack, and Webex defaults.
  *
  * The PUT path enforces that the user has `can_use` on each chosen agent via
  * the BFF PDP (`evaluateAgentAccess`). The bot re-verifies again at dispatch
@@ -23,11 +22,12 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { getIntegrationAvailability } from "@/lib/integration-config";
+import { getResolvedPlatformDefaultAgentId } from "@/lib/platform-default-agent";
 import { evaluateAgentAccess } from "@/lib/rbac/pdp-shared";
 import {
-clearUserPreference,
 getUserPreference,
-setUserPreference,
+updateUserPreferences,
 type UserAgentPreferenceField,
 } from "@/lib/rbac/user-preferences-store";
 
@@ -68,45 +68,52 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     });
   }
   const tenantId = resolveTenant(session);
-  const preference = await getUserPreference({ tenantId, userId: subject });
-  return successResponse(preference);
+  const [preference, platformDefaultAgentId] = await Promise.all([
+    getUserPreference({ tenantId, userId: subject }),
+    getResolvedPlatformDefaultAgentId(),
+  ]);
+  return successResponse({
+    ...preference,
+    platform_default_agent_id: platformDefaultAgentId,
+    integrations: getIntegrationAvailability(),
+  });
 });
 
 interface PutBody {
-  dm_default_agent_id?: unknown;
   web_default_agent_id?: unknown;
+  slack_default_agent_id?: unknown;
+  webex_default_agent_id?: unknown;
 }
 
 const PREFERENCE_FIELDS: readonly UserAgentPreferenceField[] = [
-  "dm_default_agent_id",
   "web_default_agent_id",
+  "slack_default_agent_id",
+  "webex_default_agent_id",
 ];
 
 /**
  * Validate one preference field and, when a non-null agent is chosen, confirm
- * it exists and the signed-in user is authorized to use it. Returns an error
- * response to short-circuit the request, or `null` when the write may proceed.
+ * it exists and the signed-in user is authorized to use it.
  */
-async function applyPreferenceField(
+async function validatePreferenceField(
   field: UserAgentPreferenceField,
   raw: unknown,
   ctx: { tenantId: string; subject: string },
-  result: Record<string, string | null>,
-): Promise<NextResponse | null> {
-  // Clear branch — no PDP check required (spec FR-029a and FR-022).
+): Promise<{ value: string | null; error: NextResponse | null }> {
   if (raw === null) {
-    await clearUserPreference({ tenantId: ctx.tenantId, userId: ctx.subject }, field);
-    result[field] = null;
-    return null;
+    return { value: null, error: null };
   }
 
   if (typeof raw !== "string" || !OPENFGA_ID_PATTERN.test(raw)) {
-    return errorResponse(400, {
-      error: `${field} must be null or an OpenFGA-safe agent id`,
-      code: "INVALID_BODY",
-      reason: "invalid_body",
-      action: "fix_request",
-    });
+    return {
+      value: null,
+      error: errorResponse(400, {
+        error: `${field} must be null or a valid agent id`,
+        code: "INVALID_BODY",
+        reason: "invalid_body",
+        action: "fix_request",
+      }),
+    };
   }
   const agentId = raw;
 
@@ -117,12 +124,15 @@ async function applyPreferenceField(
     _id: agentId,
   } as never);
   if (!existing) {
-    return errorResponse(404, {
-      error: "Agent not found",
-      code: "AGENT_NOT_FOUND",
-      reason: "agent_not_found",
-      action: "pick_another",
-    });
+    return {
+      value: null,
+      error: errorResponse(404, {
+        error: "Agent not found",
+        code: "AGENT_NOT_FOUND",
+        reason: "agent_not_found",
+        action: "pick_another",
+      }),
+    };
   }
 
   let decision;
@@ -133,26 +143,30 @@ async function applyPreferenceField(
       "[user-preferences] PDP error while validating chosen agent",
       err instanceof Error ? err.message : String(err),
     );
-    return errorResponse(502, {
-      error: "Authorization service is temporarily unavailable. Please try again in a moment.",
-      code: "PDP_UNAVAILABLE",
-      reason: "pdp_unavailable",
-      action: "retry",
-    });
+    return {
+      value: null,
+      error: errorResponse(502, {
+        error: "Authorization service is temporarily unavailable. Please try again in a moment.",
+        code: "PDP_UNAVAILABLE",
+        reason: "pdp_unavailable",
+        action: "retry",
+      }),
+    };
   }
 
   if (!decision.allowed) {
-    return errorResponse(403, {
-      error: "You do not have permission to use the selected agent.",
-      code: "FORBIDDEN_AGENT",
-      reason: "pdp_denied",
-      action: "pick_another",
-    });
+    return {
+      value: null,
+      error: errorResponse(403, {
+        error: "You do not have permission to use the selected agent.",
+        code: "FORBIDDEN_AGENT",
+        reason: "pdp_denied",
+        action: "pick_another",
+      }),
+    };
   }
 
-  await setUserPreference({ tenantId: ctx.tenantId, userId: ctx.subject, agentId, field });
-  result[field] = agentId;
-  return null;
+  return { value: agentId, error: null };
 }
 
 export const PUT = withErrorHandler(async (request: NextRequest) => {
@@ -180,30 +194,36 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     });
   }
 
-  // Only act on fields the caller actually included, so a Web-default update
-  // never disturbs the user's DM default and vice-versa.
+  // Only act on fields the caller actually included, so one surface's update
+  // never disturbs another surface's default.
   const provided = PREFERENCE_FIELDS.filter((field) =>
     Object.prototype.hasOwnProperty.call(body, field),
   );
   if (provided.length === 0) {
     return errorResponse(400, {
-      error: "Provide dm_default_agent_id and/or web_default_agent_id",
+      error: "Provide a supported default-agent preference field",
       code: "INVALID_BODY",
       reason: "invalid_body",
       action: "fix_request",
     });
   }
 
-  const result: Record<string, string | null> = {};
+  const result: Partial<Record<UserAgentPreferenceField,string | null>> = {};
   for (const field of provided) {
-    const failure = await applyPreferenceField(
+    const validation = await validatePreferenceField(
       field,
       (body as Record<string, unknown>)[field],
       { tenantId, subject },
-      result,
     );
-    if (failure) return failure;
+    if (validation.error) return validation.error;
+    result[field] = validation.value;
   }
+
+  await updateUserPreferences({
+    tenantId,
+    userId: subject,
+    preferences: result,
+  });
 
   return successResponse(result);
 });

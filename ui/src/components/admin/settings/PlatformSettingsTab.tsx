@@ -17,7 +17,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceAccountModal";
-import { WebDefaultAgentPanel } from "@/components/settings/WebDefaultAgent/WebDefaultAgentPanel";
+import { UserDefaultAgentsPanel } from "@/components/settings/DefaultAgents/UserDefaultAgentsPanel";
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AlertTriangle,Loader2,Shield } from "lucide-react";
@@ -139,17 +139,17 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
         <CardHeader>
           <CardTitle>Default Agent</CardTitle>
           <CardDescription>
-            Choose your personal default for web chats
+            Choose your personal defaults for new conversations
             {isAdmin
               ? ", or set the platform default for users who have not chosen one."
               : "."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Personal web default — every signed-in user gets one. In an access
+          {/* Personal defaults — every signed-in user gets them. In an access
               preview (readOnly) writes are suppressed because the preferences
               API keys off the signed-in admin, not the previewed user. */}
-          <WebDefaultAgentPanel disabled={readOnly} />
+          <UserDefaultAgentsPanel disabled={readOnly} />
 
           {/* Platform-wide default — admin only, below a divider mirroring the
               Release Notes settings layout. */}
@@ -179,7 +179,8 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
                   >
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                     <span>
-                      Selecting an agent here makes it available to every signed-in user.
+                      Selecting an agent here makes it available to every signed-in user,
+                      regardless of agent sharing permissions.
                     </span>
                   </div>
 
