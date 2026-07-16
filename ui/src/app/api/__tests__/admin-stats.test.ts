@@ -574,18 +574,18 @@ describe('GET /api/admin/stats — Top Users', () => {
 
   // Detects a post-$group $match that strips bot/service-account ids
   // (unknown/USLACKBOT literals, B-prefixed bot ids, service-account-*).
-  const hasHumanOwnerFilter = (calls: any[]) =>
-    calls.some((call: any[]) => {
+  const hasHumanOwnerFilter = (calls: unknown[]) =>
+    calls.some((call: unknown[]) => {
       const pipeline = call[0];
       if (!Array.isArray(pipeline)) return false;
-      const groupIdx = pipeline.findIndex((s: Record<string, any>) => s.$group);
+      const groupIdx = pipeline.findIndex((s: Record<string, unknown>) => s.$group);
       if (groupIdx === -1) return false;
-      return pipeline.slice(groupIdx + 1).some((stage: Record<string, any>) => {
+      return pipeline.slice(groupIdx + 1).some((stage: Record<string, unknown>) => {
         const and = stage.$match?.$and;
         if (!Array.isArray(and)) return false;
-        const hasNin = and.some((c: Record<string, any>) => Array.isArray(c._id?.$nin));
+        const hasNin = and.some((c: Record<string, unknown>) => Array.isArray(c._id?.$nin));
         const hasBotRegex = and.some(
-          (c: Record<string, any>) => c._id?.$not instanceof RegExp
+          (c: Record<string, unknown>) => c._id?.$not instanceof RegExp
         );
         return hasNin && hasBotRegex;
       });
@@ -627,16 +627,16 @@ describe('GET /api/admin/stats — Top Agents', () => {
     // Slack routes per-conversation: agent lives on
     // conversations.metadata.thread_owner_agent_id (fallbacks excluded).
     const aggregateCalls = convCol.aggregate.mock.calls;
-    const hasAgentPipeline = aggregateCalls.some((call: any[]) => {
+    const hasAgentPipeline = aggregateCalls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             Array.isArray(stage.$match?.['metadata.thread_owner_agent_id']?.$nin)
         ) &&
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             stage.$group?._id === '$metadata.thread_owner_agent_id'
         )
       );
@@ -651,25 +651,25 @@ describe('GET /api/admin/stats — Top Agents', () => {
 
     // Web routes per-message: agent lives on messages.metadata.agent_name.
     // We count distinct conversations per agent, excluding the Default fallback.
-    const hasWebAgentPipeline = msgCol.aggregate.mock.calls.some((call: any[]) => {
+    const hasWebAgentPipeline = msgCol.aggregate.mock.calls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             Array.isArray(stage.$match?.['metadata.agent_name']?.$nin) &&
             stage.$match['metadata.agent_name'].$nin.includes('Default')
         ) &&
         // Distinct conversations per agent via a two-stage $group (DocumentDB
         // compatible — no $project/$size): first group by agent+conversation…
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             stage.$group?._id?.agent === '$metadata.agent_name' &&
             stage.$group?._id?.conv === '$conversation_id'
         ) &&
         // …then tally per agent.
         pipeline.some(
-          (stage: Record<string, any>) =>
+          (stage: Record<string, unknown>) =>
             stage.$group?._id === '$_id.agent' && stage.$group?.count?.$sum === 1
         )
       );
@@ -1230,13 +1230,13 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     await GET(makeRequest('/api/admin/stats'));
 
     // Conversations are keyed by the agent id.
-    const convHasAgent = convCol.countDocuments.mock.calls.some((call: any[]) =>
+    const convHasAgent = convCol.countDocuments.mock.calls.some((call: unknown[]) =>
       JSON.stringify(call[0] ?? {}).includes('agent-hello-agent')
     );
     expect(convHasAgent).toBe(true);
 
     // Messages are keyed by the display name.
-    const msgHasAgent = msgCol.countDocuments.mock.calls.some((call: any[]) =>
+    const msgHasAgent = msgCol.countDocuments.mock.calls.some((call: unknown[]) =>
       JSON.stringify(call[0] ?? {}).includes('Hello Agent')
     );
     expect(msgHasAgent).toBe(true);
@@ -1251,7 +1251,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
 
     await GET(makeRequest('/api/admin/stats'));
 
-    const matchStage = feedbackCol.aggregate.mock.calls[0][0].find((s: any) => s.$match);
+    const matchStage = feedbackCol.aggregate.mock.calls[0][0].find((s: Record<string, unknown>) => s.$match);
     const inspect = JSON.stringify(matchStage);
     expect(inspect).toContain('conv-1');
     expect(inspect).toContain('conv-2');
@@ -1287,7 +1287,7 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     // Request an agent the caller does NOT own → must resolve to nothing.
     await GET(makeRequest('/api/admin/stats?agent=agent-not-mine'));
 
-    const convHasUnowned = convCol.countDocuments.mock.calls.some((call: any[]) =>
+    const convHasUnowned = convCol.countDocuments.mock.calls.some((call: unknown[]) =>
       JSON.stringify(call[0] ?? {}).includes('agent-not-mine')
     );
     expect(convHasUnowned).toBe(false);
@@ -1317,11 +1317,11 @@ describe('GET /api/admin/stats — agent filter (admin)', () => {
     await GET(makeRequest('/api/admin/stats?agent=agent-x'));
 
     expect(mockGetAgentsByIds).toHaveBeenCalledWith(['agent-x']);
-    const convHasAgent = convCol.countDocuments.mock.calls.some((call: any[]) =>
+    const convHasAgent = convCol.countDocuments.mock.calls.some((call: unknown[]) =>
       JSON.stringify(call[0] ?? {}).includes('agent-x')
     );
     expect(convHasAgent).toBe(true);
-    const msgHasAgent = msgCol.countDocuments.mock.calls.some((call: any[]) =>
+    const msgHasAgent = msgCol.countDocuments.mock.calls.some((call: unknown[]) =>
       JSON.stringify(call[0] ?? {}).includes('X Agent')
     );
     expect(msgHasAgent).toBe(true);
@@ -1335,7 +1335,7 @@ describe('GET /api/admin/stats — agent filter (admin)', () => {
 
     // The Slack aggregations run off slackFilter; the agent id must be merged
     // into its $and so Slack stats respect the filter too (not just web).
-    const slackScoped = convCol.aggregate.mock.calls.some((call: any[]) => {
+    const slackScoped = convCol.aggregate.mock.calls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
@@ -1351,7 +1351,7 @@ describe('GET /api/admin/stats — Configured Channels', () => {
   beforeEach(resetMocks);
 
   /** channel_team_mappings.find(query, opts).toArray() → docs. */
-  function stubChannelMappings(docs: any[]) {
+  function stubChannelMappings(docs: Record<string, unknown>[]) {
     const col = createMockCollection();
     col.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(docs) });
     mockCollections['channel_team_mappings'] = col;
@@ -1359,7 +1359,7 @@ describe('GET /api/admin/stats — Configured Channels', () => {
   }
 
   /** Some queries in the Slack block call .find(...).toArray() directly. */
-  function stubFindToArray(col: any) {
+  function stubFindToArray(col: ReturnType<typeof createMockCollection>) {
     col.find = jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue([]),
       sort: jest.fn().mockReturnValue({

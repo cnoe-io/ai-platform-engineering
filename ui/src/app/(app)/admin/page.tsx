@@ -2345,7 +2345,7 @@ function AdminPage() {
                       </div>
                     )}
                     <OverviewStatsCards
-                      overview={stats.overview}
+                      overview={globalOverview ?? stats.overview}
                       platformSummary={stats.platform_summary}
                       rangeLabel={rangeLabel}
                     />
