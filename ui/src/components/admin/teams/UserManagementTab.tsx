@@ -276,7 +276,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     slackFilter,
     webexFilter,
     enabledFilter,
-    teams,
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
