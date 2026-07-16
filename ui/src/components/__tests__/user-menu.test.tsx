@@ -99,6 +99,7 @@ jest.mock("lucide-react", () => ({
   Eye: () => <span data-testid="icon-eye" />,
   ArrowDownToLine: () => <span data-testid="icon-arrowdown" />,
   Info: () => <span data-testid="icon-info" />,
+  Loader2: () => <span data-testid="icon-loader" />,
 }));
 
 jest.mock("@/store/feature-flag-store", () => ({
@@ -220,6 +221,10 @@ describe("UserMenu", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/settings/chat",
+    );
   });
 
   it("shows Admin badge and Personal Insights when role is admin and mongodb is enabled", () => {

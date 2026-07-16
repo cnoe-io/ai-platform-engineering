@@ -34,7 +34,11 @@ test.describe("mocked admin settings browser regression", () => {
       "true",
     );
     await expect(page.getByRole("tab", { name: "Default Agent" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Manage Unlinked Access" })).toBeVisible();
+    await expect(page.getByText("Platform settings moved")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Platform defaults/ })).toHaveAttribute(
+      "href",
+      "/settings/platform/defaults",
+    );
   });
 
   test("does not expose the removed Knowledge Bases settings tab", async ({ page }) => {
@@ -57,7 +61,7 @@ test.describe("mocked admin settings browser regression", () => {
     await expect(page.getByText("RAG Team Access")).toHaveCount(0);
   });
 
-  test("explains Unlinked Access on the settings card and modal", async ({ page }) => {
+  test("routes Unlinked Access through the canonical platform settings page", async ({ page }) => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
@@ -67,13 +71,16 @@ test.describe("mocked admin settings browser regression", () => {
       waitUntil: "domcontentloaded",
     });
 
-    await expect(page.getByText(/Set the starting access for people who message/)).toBeVisible();
-    await expect(page.getByText(/before they have signed in to the web UI/)).toBeVisible();
-    await expect(
-      page.getByText(/available to every unlinked caller and bot/),
-    ).toBeVisible();
+    const accessLink = page.getByRole("link", { name: /Access before sign-in/ });
+    await expect(accessLink).toHaveAttribute("href", "/settings/platform/access");
+    await accessLink.click();
 
-    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    await expect(page).toHaveURL(/\/settings\/platform\/access$/);
+    await expect(page.getByRole("heading", { level: 2, name: "Access before sign-in" })).toBeVisible();
+    await expect(page.getByText(/before linking their identity/)).toBeVisible();
+    await expect(page.getByText(/available to every unlinked caller and bot/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Review unlinked access" }).click();
 
     const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
     await expect(dialog).toBeVisible();
