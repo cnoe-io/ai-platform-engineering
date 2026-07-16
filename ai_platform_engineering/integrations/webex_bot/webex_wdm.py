@@ -156,7 +156,7 @@ class WebexWdmRuntime:
         runtime: WebexWebSocketRuntime | None = None,
         responder: WebexResponder | None = None,
         device_name: str = "CAIPE-Webex-Bot",
-        bot_id: str = "default",
+        bot_id: str,
         bot_name: str = "Webex bot",
         require_bot_mention: bool = False,
     ) -> None:
@@ -466,17 +466,17 @@ def message_targets_bot(
 
 
 def start_webex_wdm_listener(
-    access_token: str | None = None,
+    access_token: str,
     *,
-    bot_id: str = "default",
+    bot_id: str,
     bot_name: str = "Webex bot",
     require_bot_mention: bool = False,
 ) -> threading.Thread | None:
     """Start the Webex WDM listener in a daemon thread when a bot token is configured."""
 
-    token = (access_token or os.environ.get("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") or "").strip()
+    token = access_token.strip()
     if not token:
-        logger.info("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is not configured; WDM listener disabled")
+        logger.info("Webex bot token is empty for id=%s; WDM listener disabled", bot_id)
         return None
 
     runtime = WebexWdmRuntime(

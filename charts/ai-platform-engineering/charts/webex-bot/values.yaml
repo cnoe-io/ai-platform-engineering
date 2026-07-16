@@ -43,14 +43,12 @@ config:
   OPENFGA_STORE_NAME: "caipe-openfga"
 
 # Bot identities multiplexed by one runtime pod. Tokens are resolved from
-# Secret-backed environment variables; never place token values here. With
-# multiple bots, mark at most one entry `default: true`; list order is not a
-# legacy ownership signal.
+# Secret-backed environment variables; never place token values here. Every
+# route and migration selects a bot ID explicitly.
 bots: []
   # - id: "primary"
   #   name: "Primary bot"
   #   tokenEnv: "PRIMARY_WEBEX_BOT_TOKEN"
-  #   default: true
   # - id: "secondary"
   #   name: "Secondary bot"
   #   tokenEnv: "SECONDARY_WEBEX_BOT_TOKEN"

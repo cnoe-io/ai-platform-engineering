@@ -20,6 +20,7 @@ from ai_platform_engineering.integrations.webex_bot.utils.webex_agent_routes imp
     WebexAgentRouteResolver,
     resolve_webex_agent_route,
     webex_agent_route_mode,
+    webex_bot_installation_openfga_subject,
     webex_space_openfga_subject,
     webex_workspace_ref,
 )
@@ -92,6 +93,9 @@ def test_webex_space_openfga_subject_respects_explicit_workspace_id(monkeypatch)
     # Explicit workspace_id is used as-is so _load_routes' "unknown" fallback works.
     assert webex_space_openfga_subject("CAIPE-WEBEX", "space-abc") == "webex_space:CAIPE-WEBEX--space-abc"
     assert webex_space_openfga_subject("unknown", "space-abc") == "webex_space:unknown--space-abc"
+    assert webex_bot_installation_openfga_subject(
+        "primary", "CAIPE-WEBEX", "space-abc"
+    ) == "webex_bot_installation:primary--CAIPE-WEBEX--space-abc"
 
 
 def test_resolver_matches_enabled_routes_by_listen_and_priority() -> None:
@@ -119,7 +123,7 @@ def test_resolver_matches_enabled_routes_by_listen_and_priority() -> None:
     )
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: collection,
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: [
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: [
             "low-priority-agent",
             "high-priority-agent",
         ],
@@ -154,7 +158,7 @@ def test_resolve_direct_webex_message_uses_existing_mention_route(monkeypatch) -
     )
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: collection,
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["personal-agent"],
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: ["personal-agent"],
     )
 
     async def _run() -> tuple[str | None, str | None]:
@@ -190,7 +194,7 @@ def test_plain_group_message_route_mismatch_uses_plain_language() -> None:
     )
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: collection,
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["mention-only-agent"],
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: ["mention-only-agent"],
     )
 
     explanation = resolver.explain_no_route_match(
@@ -237,7 +241,7 @@ def test_resolver_ignores_mongo_routes_without_openfga_tuple() -> None:
     )
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: collection,
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["tuple-backed-agent"],
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: ["tuple-backed-agent"],
     )
 
     matches = resolver.match_routes(
@@ -279,9 +283,8 @@ def test_same_space_routes_are_isolated_by_bot() -> None:
     )
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: collection,
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: [
-            "primary-agent",
-            "secondary-agent",
+        openfga_agent_ids_factory=lambda bot_id, _workspace_id, _space_id: [
+            f"{bot_id}-agent",
         ],
     )
 
@@ -306,14 +309,7 @@ def test_same_space_routes_are_isolated_by_bot() -> None:
     assert [match.agent_id for match in secondary] == ["secondary-agent"]
 
 
-def test_default_bot_can_use_legacy_route_during_startup_migration(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(
-        "WEBEX_INTEGRATION_BOTS_JSON",
-        '[{"id":"primary","name":"Primary","tokenEnv":"PRIMARY_TOKEN","default":true},'
-        '{"id":"secondary","name":"Secondary","tokenEnv":"SECONDARY_TOKEN"}]',
-    )
+def test_botless_legacy_route_is_not_used_before_explicit_migration() -> None:
     collection = _Collection([
         {
             "bot_id": None,
@@ -328,7 +324,7 @@ def test_default_bot_can_use_legacy_route_during_startup_migration(
     ])
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: collection,
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: ["legacy-agent"],
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: ["legacy-agent"],
     )
 
     matches = resolver.match_routes(
@@ -348,10 +344,9 @@ def test_default_bot_can_use_legacy_route_during_startup_migration(
         listen="mention",
     )
 
-    assert [match.agent_id for match in matches] == ["legacy-agent"]
+    assert matches == []
     assert secondary_matches == []
-    assert "$or" in collection.filters[1]
-    assert all("$or" not in query for query in collection.filters[2:])
+    assert all("$or" not in query for query in collection.filters)
 
 
 def test_openfga_read_includes_tuple_key_filter_and_pagination(monkeypatch) -> None:
@@ -370,7 +365,7 @@ def test_openfga_read_includes_tuple_key_filter_and_pagination(monkeypatch) -> N
                     "tuples": [
                         {
                             "key": {
-                                "user": "webex_space:CAIPE-WEBEX--space12345",
+                                "user": "webex_bot_installation:primary--CAIPE-WEBEX--space12345",
                                 "relation": "user",
                                 "object": "agent:page-one",
                             }
@@ -384,7 +379,7 @@ def test_openfga_read_includes_tuple_key_filter_and_pagination(monkeypatch) -> N
                 "tuples": [
                     {
                         "key": {
-                            "user": "webex_space:CAIPE-WEBEX--space12345",
+                            "user": "webex_bot_installation:primary--CAIPE-WEBEX--space12345",
                             "relation": "user",
                             "object": "agent:page-two",
                         }
@@ -411,7 +406,7 @@ def test_openfga_read_includes_tuple_key_filter_and_pagination(monkeypatch) -> N
     assert matches == []
     assert len(post_calls) == 2
     assert post_calls[0]["tuple_key"] == {
-        "user": "webex_space:CAIPE-WEBEX--space12345",
+        "user": "webex_bot_installation:primary--CAIPE-WEBEX--space12345",
         "relation": "user",
         "object": "agent:",
     }
@@ -508,7 +503,10 @@ def _resolve_denies_when_last_error(mode: str, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.delenv("WEBEX_DEFAULT_AGENT_ID", raising=False)
 
     class _FailingResolver(WebexAgentRouteResolver):
-        def _load_openfga_agent_ids(self, workspace_id: str, space_id: str) -> list[str] | None:
+        def _load_openfga_agent_ids(
+            self, bot_id: str, workspace_id: str, space_id: str
+        ) -> list[str] | None:
+            del bot_id
             self._last_errors[(workspace_id, space_id)] = "openfga down"
             return None
 
@@ -542,7 +540,7 @@ def test_resolve_webex_agent_route_denies_on_openfga_outage_db_only(monkeypatch)
 def test_route_required_without_space_agent_association_uses_setup_message() -> None:
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: _Collection([]),
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: [],
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: [],
     )
 
     explanation = resolver.explain_no_route_match(
@@ -567,7 +565,7 @@ def test_resolve_webex_agent_route_db_prefer_falls_back_to_default_agent(monkeyp
 
     resolver = WebexAgentRouteResolver(
         collection_factory=lambda: _Collection([]),
-        openfga_agent_ids_factory=lambda _workspace_id, _space_id: [],
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: [],
     )
 
     async def _run() -> tuple[str | None, str | None]:

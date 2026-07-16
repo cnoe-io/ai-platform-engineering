@@ -9,7 +9,7 @@ computeConnectorHealthSummary,
 computeConnectorHealthSummaries,
 } from "@/lib/rbac/connector-diagnostics";
 import {
-listOpenFgaWebexSpaceAgentIds,
+listOpenFgaWebexBotAgentIds,
 webexSpaceOpenFgaUser,
 } from "@/lib/rbac/webex-space-openfga";
 import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
@@ -57,7 +57,7 @@ function webexDiagnosticsAdapter(botId: string): ConnectorDiagnosticsAdapter {
   auditResourceRef: (workspaceId, spaceId) => webexSpaceOpenFgaUser(workspaceId, spaceId),
   listOpenFgaAgentIds: async (workspaceId, spaceId) => {
     const [agentIds, routes] = await Promise.all([
-      listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId),
+      listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId),
       listWebexSpaceAgentRoutes(workspaceId, spaceId, botId),
     ]);
     const routeAgentIds = new Set(routes.map((route) => route.agent_id));

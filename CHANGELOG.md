@@ -1,3 +1,62 @@
+## 0.5.52-dev.2 (2026-07-15)
+
+### Feat
+
+- **keycloak**: configurable SSO session lifetime, default 7d idle / 14d max
+
+### Fix
+
+- **ui**: remove AccessTokenMissing dead code and clear auth flag on recovery
+
+## 0.5.52-dev.1 (2026-07-15)
+
+### Feat
+
+- **ui**: add 'Choose agent' button alongside 'Resume with default agent' in deprecated-agent banner
+
+### Fix
+
+- **ci**: resolve ruff and jest failures blocking deprecated-agent PR
+- **ui**: patch Zustand store after re-linking deprecated-agent conversation
+- **ui**: show history and resume CTA for deprecated-agent conversations
+
+## 0.5.52 (2026-07-15)
+
+### Fix
+
+- **ui**: scroll unlinked access modal body instead of overflowing
+
+## 0.5.51-dev.5 (2026-07-15)
+
+### Fix
+
+- **slack-bot**: pass agent_id when resolving conversation for message delete
+- **slack-bot**: pass agent_id when resolving conversation for Get help escalation
+
+## 0.5.51-dev.4 (2026-07-15)
+
+## 0.5.51-dev.3 (2026-07-15)
+
+### Fix
+
+- **ui**: tolerate transient silent-refresh failures before forcing logout (#2220)
+- **ui**: add deep links for agent resources (#2212)
+
+## 0.5.51-dev.2 (2026-07-14)
+
+### Feat
+
+- **dynamic-agents**: pass METRICS_PORT through in dev compose
+- **dynamic-agents**: make metrics port configurable
+
+## 0.5.51-dev.1 (2026-07-14)
+
+### Fix
+
+- **ui**: repair admin view-as access preview (#2206)
+
+## 0.5.51 (2026-07-13)
+
 ## 0.5.50-dev.2 (2026-07-13)
 
 ### Fix

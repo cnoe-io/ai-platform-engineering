@@ -24,10 +24,12 @@ from .webex_agent_routes import (
     DEFAULT_OPENFGA_HTTP,
     WebexAgentRouteResolver,
     get_webex_agent_route_resolver,
+    webex_bot_installation_openfga_subject,
     webex_agent_route_mode,
     webex_space_openfga_subject,
     webex_workspace_ref,
 )
+from .webex_bot_catalog import configured_webex_bots
 from .webex_config_models import WebexBotConfig
 from .webex_ids import canonicalize_webex_space_id
 
@@ -228,19 +230,23 @@ class WebexBotAdminService:
     def sync_from_config(
         self,
         *,
+        bot_id: str,
         workspace_id: str | None = None,
         dry_run: bool = True,
         actor: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         workspace_ref = webex_workspace_ref(workspace_id)
+        if bot_id not in {bot.id for bot in configured_webex_bots()}:
+            raise ValueError(f"Unknown Webex bot: {bot_id}")
         routes = self._collection("webex_space_agent_routes")
         if routes is None and not dry_run:
             raise RuntimeError("MongoDB is not configured for Webex route sync")
 
         now = datetime.now(timezone.utc).isoformat()
-        planned = self._planned_routes(workspace_ref)
+        planned = self._planned_routes(bot_id, workspace_ref)
         summary: dict[str, Any] = {
             "dry_run": dry_run,
+            "bot_id": bot_id,
             "workspace_id": workspace_ref,
             "spaces_seen": len(self._config.spaces),
             "routes_planned": len(planned),
@@ -259,6 +265,7 @@ class WebexBotAdminService:
             try:
                 routes.update_one(
                     {
+                        "bot_id": route["bot_id"],
                         "workspace_id": route["workspace_id"],
                         "space_id": route["space_id"],
                         "agent_id": route["agent_id"],
@@ -267,21 +274,42 @@ class WebexBotAdminService:
                     upsert=True,
                 )
                 summary["routes_upserted"] += 1
-                self._write_openfga_tuple(
+                self._resolver.invalidate(
+                    str(route["bot_id"]),
+                    str(route["workspace_id"]),
+                    str(route["space_id"]),
+                )
+                installation = webex_bot_installation_openfga_subject(
+                    str(route["bot_id"]),
+                    str(route["workspace_id"]),
+                    str(route["space_id"]),
+                )
+                for tuple_key in (
+                    {
+                        "user": f"webex_bot:{route['bot_id']}",
+                        "relation": "bot",
+                        "object": installation,
+                    },
                     {
                         "user": webex_space_openfga_subject(
                             str(route["workspace_id"]), str(route["space_id"])
                         ),
+                        "relation": "space",
+                        "object": installation,
+                    },
+                    {
+                        "user": installation,
                         "relation": "user",
                         "object": f"agent:{route['agent_id']}",
-                    }
-                )
-                summary["openfga_tuples_written"] += 1
-                self._resolver.invalidate_all()
+                    },
+                ):
+                    self._write_openfga_tuple(tuple_key)
+                    summary["openfga_tuples_written"] += 1
             except Exception as exc:  # noqa: BLE001
                 summary["openfga_write_failed"] = True
                 summary["error"] = str(exc)
                 summary["failed_route"] = {
+                    "bot_id": route.get("bot_id"),
                     "workspace_id": route.get("workspace_id"),
                     "space_id": route.get("space_id"),
                     "agent_id": route.get("agent_id"),
@@ -292,13 +320,15 @@ class WebexBotAdminService:
         self._last_sync = summary
         return summary
 
-    def _planned_routes(self, workspace_ref: str) -> list[dict[str, Any]]:
+    def _planned_routes(self, bot_id: str, workspace_ref: str) -> list[dict[str, Any]]:
         planned: list[dict[str, Any]] = []
         for space_id, space in self._config.spaces.items():
             canonical_space_id = canonicalize_webex_space_id(space_id)
             for index, agent in enumerate(space.agents):
                 planned.append(
-                    _route_from_agent_binding(workspace_ref, canonical_space_id, agent, index)
+                    _route_from_agent_binding(
+                        bot_id, workspace_ref, canonical_space_id, agent, index
+                    )
                 )
         return planned
 
@@ -320,12 +350,14 @@ class WebexBotAdminService:
 
 
 def _route_from_agent_binding(
+    bot_id: str,
     workspace_ref: str,
     space_id: str,
     agent: AgentBinding,
     index: int,
 ) -> dict[str, Any]:
     route: dict[str, Any] = {
+        "bot_id": bot_id,
         "workspace_id": workspace_ref,
         "space_id": space_id,
         "agent_id": agent.agent_id,
@@ -408,6 +440,7 @@ class _WebexAdminRequestHandler(BaseHTTPRequestHandler):
                 return
             try:
                 summary = self.service.sync_from_config(
+                    bot_id=_required_string(body.get("bot_id"), "bot_id"),
                     workspace_id=_optional_string(body.get("workspace_id")),
                     dry_run=body.get("dry_run") is not False,
                     actor=body.get("actor") if isinstance(body.get("actor"), dict) else {},
@@ -466,6 +499,13 @@ def _optional_string(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _required_string(value: object, field: str) -> str:
+    normalized = _optional_string(value)
+    if normalized is None:
+        raise ValueError(f"{field} is required")
+    return normalized
 
 
 def load_webex_bot_config() -> WebexBotConfig:

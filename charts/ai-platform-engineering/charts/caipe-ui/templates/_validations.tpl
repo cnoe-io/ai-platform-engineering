@@ -95,11 +95,10 @@
 {{- end -}}
 {{- end -}}
 
-{{/* Validate Webex bot identities and the optional default marker. */}}
+{{/* Validate Webex bot identities. */}}
 {{- define "caipe-ui.validate.webexBots" -}}
 {{- $webexBots := .Values.webexBots | default list -}}
 {{- $webexBotIds := dict -}}
-{{- $webexDefaultBotCount := 0 -}}
 {{- range $index, $bot := $webexBots -}}
 {{- if not (kindIs "map" $bot) -}}
 {{- fail (printf "caipe-ui.webexBots[%d] must be an object" $index) -}}
@@ -121,16 +120,8 @@
 {{- fail (printf "caipe-ui.webexBots[%d].tokenEnv must be a valid environment variable name" $index) -}}
 {{- end -}}
 {{- if hasKey $bot "default" -}}
-{{- if not (kindIs "bool" $bot.default) -}}
-{{- fail (printf "caipe-ui.webexBots[%d].default must be a boolean" $index) -}}
+{{- fail (printf "caipe-ui.webexBots[%d].default is not supported; select bot identities explicitly" $index) -}}
 {{- end -}}
-{{- if $bot.default -}}
-{{- $webexDefaultBotCount = add1 $webexDefaultBotCount -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- if gt $webexDefaultBotCount 1 -}}
-{{- fail "caipe-ui.webexBots may contain only one default bot" -}}
 {{- end -}}
 {{- end -}}
 

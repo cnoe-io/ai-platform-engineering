@@ -88,10 +88,20 @@ def test_auto_assign_writes_explicit_mappings_when_enabled(monkeypatch) -> None:
     assert result.agent_id == "default-agent"
     assert openfga_writes == [
         {
+            "user": "webex_bot:primary",
+            "relation": "bot",
+            "object": "webex_bot_installation:primary--CAIPE-WEBEX--space-new",
+        },
+        {
             "user": "webex_space:CAIPE-WEBEX--space-new",
+            "relation": "space",
+            "object": "webex_bot_installation:primary--CAIPE-WEBEX--space-new",
+        },
+        {
+            "user": "webex_bot_installation:primary--CAIPE-WEBEX--space-new",
             "relation": "user",
             "object": "agent:default-agent",
-        }
+        },
     ]
     assert routes.updates[0]["update"]["$set"]["source_type"] == "auto"
 

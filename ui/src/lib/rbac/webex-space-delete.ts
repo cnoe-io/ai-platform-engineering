@@ -12,6 +12,7 @@ import {
   webexWorkspaceRef,
 } from "@/lib/rbac/webex-space-grant-store";
 import { deleteWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
+import { webexBotInstallationUser } from "@/lib/rbac/webex-bot-openfga";
 
 interface WebexSpaceTeamMappingDoc extends Document {
   bot_id?: string;
@@ -63,6 +64,19 @@ async function listSpaceTuples(workspaceId: string, spaceId: string): Promise<Op
   });
 }
 
+async function listBotInstallationTuples(
+  botId: string,
+  workspaceId: string,
+  spaceId: string,
+): Promise<OpenFgaTupleKey[]> {
+  const installation = webexBotInstallationUser(botId, workspaceId, spaceId);
+  const reads = await Promise.all([
+    readAllTuples({ object: installation }),
+    readAllTuples({ user: installation }),
+  ]);
+  return reads.flat();
+}
+
 export async function deleteWebexSpaceState(input: {
   workspaceId: string;
   spaceId: string;
@@ -92,6 +106,20 @@ export async function deleteWebexSpaceState(input: {
   const remainingOwners = Math.max(0, ownerCount - selectedOwnerCount);
 
   let openfgaDeleted = 0;
+  if (input.botId) {
+    try {
+      const result = await deleteExactOpenFgaTuples(
+        await listBotInstallationTuples(input.botId, workspaceId, input.spaceId),
+      );
+      if (!result.enabled && input.requireOpenFga) {
+        throw new Error("OpenFGA is not configured");
+      }
+      openfgaDeleted += result.deletes;
+    } catch (error) {
+      if (input.requireOpenFga) throw error;
+      console.warn("[Webex bot ownership cleanup] OpenFGA cleanup failed", error);
+    }
+  }
   if (remainingOwners === 0) {
     try {
       const result = await deleteExactOpenFgaTuples(
@@ -100,7 +128,7 @@ export async function deleteWebexSpaceState(input: {
       if (!result.enabled && input.requireOpenFga) {
         throw new Error("OpenFGA is not configured");
       }
-      openfgaDeleted = result.deletes;
+      openfgaDeleted += result.deletes;
     } catch (error) {
       if (input.requireOpenFga) throw error;
       console.warn("[Webex ownership cleanup] OpenFGA cleanup failed", error);

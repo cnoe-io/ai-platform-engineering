@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
-import { APIClientError } from "@/lib/api-client";
+import { apiClient,APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getConfig } from "@/lib/config";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
@@ -18,11 +18,14 @@ import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } fro
 import { cn,deduplicateByKey } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
+import { buildParticipants,ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
 import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
@@ -54,6 +57,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const agentSkills = agent?.skills;
   const { data: session } = useSession();
   const { toast } = useToast();
+  const router = useRouter();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
 
@@ -170,6 +174,64 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     loadMessagesFromServer,
     updateConversationTitle,
   } = useChatStore();
+
+  // Re-link this deprecated/deleted-agent conversation to the platform default agent,
+  // then reload the page so ChatContainer picks up the new participants.
+  const handleStartNewConversation = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const agentId = await resolveUsableChatAgentId();
+      const newParticipants = buildParticipants(agentId);
+      await apiClient.updateConversation(conversationId, {
+        participants: newParticipants,
+      });
+      // Patch the Zustand store in-place so ChatContainer sees the new participants
+      // immediately — it skips the API fetch when the conversation is already cached.
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, participants: newParticipants } : c,
+        ),
+      }));
+      router.refresh();
+    } catch (err) {
+      toast(`Could not resume conversation: ${(err as Error).message}`, "error", 8000);
+    }
+  }, [conversationId, router, toast]);
+
+  // "Choose agent" picker state — loaded lazily when the deprecated-agent banner is shown.
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<{ value: string; label: string }[]>([]);
+  const [chosenAgentId, setChosenAgentId] = useState("");
+
+  useEffect(() => {
+    const isDeprecatedBanner = readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled';
+    if (!isDeprecatedBanner || availableAgents.length > 0) return;
+    fetch("/api/dynamic-agents/available", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const list: DynamicAgentConfig[] = Array.isArray(data?.data) ? data.data : [];
+        setAvailableAgents(
+          list.filter((a) => a.enabled).map((a) => ({ value: a._id, label: a.name })),
+        );
+      })
+      .catch(() => {/* non-critical — picker just stays empty */});
+  }, [readOnlyReason, availableAgents.length]);
+
+  const handleResumeWithChosenAgent = useCallback(async () => {
+    if (!conversationId || !chosenAgentId) return;
+    try {
+      const newParticipants = buildParticipants(chosenAgentId);
+      await apiClient.updateConversation(conversationId, { participants: newParticipants });
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, participants: newParticipants } : c,
+        ),
+      }));
+      router.refresh();
+    } catch (err) {
+      toast(`Could not resume conversation: ${(err as Error).message}`, "error", 8000);
+    }
+  }, [conversationId, chosenAgentId, router, toast]);
 
   // Slash command registry
   const slashCommands = useSlashCommands(agentSkills);
@@ -1842,8 +1904,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 </>
               ) : readOnlyReason === 'agent_deleted' ? (
                 <>
-                  <span className="text-sm font-medium">Agent No Longer Exists</span>
-                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deleted. You can view the history but cannot send new messages.</span>
+                  <span className="text-sm font-medium">Agent No Longer Available</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deprecated or deleted. You can view the history but cannot send new messages.</span>
                 </>
               ) : readOnlyReason === 'agent_disabled' ? (
                 <>
@@ -1857,7 +1919,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 </>
               )}
             </div>
-            {readOnlyReason === 'admin_audit' && (
+            {readOnlyReason === 'admin_audit' ? (
             <a
               href="/admin?tab=feedback"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
@@ -1865,7 +1927,51 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <ArrowLeft className="h-3 w-3" />
               Back to Feedback
             </a>
-            )}
+            ) : (readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled') ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              {showAgentPicker ? (
+                <>
+                  <div className="w-56">
+                    <AgentPicker
+                      options={availableAgents}
+                      value={chosenAgentId}
+                      onChange={setChosenAgentId}
+                      placeholder="Select an agent…"
+                      hideIdSuffix
+                    />
+                  </div>
+                  <button
+                    onClick={handleResumeWithChosenAgent}
+                    disabled={!chosenAgentId}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600/20 text-red-700 dark:text-red-300 hover:bg-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Resume
+                  </button>
+                  <button
+                    onClick={() => setShowAgentPicker(false)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleStartNewConversation}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600/20 text-red-700 dark:text-red-300 hover:bg-red-600/30 transition-colors"
+                  >
+                    Resume with default agent
+                  </button>
+                  <button
+                    onClick={() => setShowAgentPicker(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Choose agent
+                  </button>
+                </>
+              )}
+            </div>
+            ) : null}
           </div>
         </div>
       ) : (

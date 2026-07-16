@@ -267,6 +267,22 @@ describe("Webex space ReBAC resource APIs", () => {
         active: true,
       },
     ]);
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "incident-agent",
+        status: "active",
+      },
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: "space-private",
+        agent_id: "leadership-agent",
+        status: "active",
+      },
+    ]);
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
       allowed:
         tuple.object === `webex_space:${workspaceAlias}--${spaceId}` &&
@@ -302,6 +318,22 @@ describe("Webex space ReBAC resource APIs", () => {
         webex_space_id: "space-private",
         space_name: "Private Leadership",
         active: true,
+      },
+    ]);
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "incident-agent",
+        status: "active",
+      },
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: "space-private",
+        agent_id: "leadership-agent",
+        status: "active",
       },
     ]);
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: {
@@ -359,7 +391,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources`, {
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources?bot_id=primary`, {
         method: "PUT",
         body: JSON.stringify({ grants: [agentGrant] }),
       }),
@@ -380,7 +412,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources`, {
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources?bot_id=primary`, {
         method: "PUT",
         body: JSON.stringify({
           grants: [{ resource: { type: "agent", id: "incident-agent" }, actions: ["not-a-real-action"] }],
@@ -393,7 +425,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
-  it("replaces space resource grants and writes webex_space OpenFGA tuples with filtered reads", async () => {
+  it("replaces space resource grants and writes bot-scoped OpenFGA tuples with filtered reads", async () => {
     // Not an org admin (organization:caipe denied) so the per-space can_manage
     // check is what authorizes the actor — exercise that path explicitly.
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
@@ -413,7 +445,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources`, {
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources?bot_id=primary`, {
         method: "PUT",
         body: JSON.stringify({ grants: [agentGrant] }),
       }),
@@ -431,23 +463,23 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
       expect.objectContaining({
         tuple: {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:",
         },
       })
     );
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
+      writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:incident-agent",
         },
-      ],
+      ]),
       deletes: [
         {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:stale-agent",
         },
@@ -569,7 +601,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--${rawRoomId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${rawRoomId}`,
           relation: "user",
           object: "agent:agent-sri-demo-agent",
         },
@@ -721,7 +753,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--space-config-managed`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--space-config-managed`,
           relation: "user",
           object: "agent:incident-agent",
         },
@@ -732,7 +764,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--space-new-manual`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--space-new-manual`,
           relation: "user",
           object: "agent:incident-agent",
         },

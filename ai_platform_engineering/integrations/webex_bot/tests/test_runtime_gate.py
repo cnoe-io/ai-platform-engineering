@@ -38,6 +38,7 @@ def _event(
     is_bot: bool = False,
 ) -> dict[str, Any]:
     return {
+        "botId": "primary",
         "person_id": person_id,
         "space_id": space_id,
         "text": text,
@@ -62,7 +63,7 @@ class FakeIdentityLinker:
 class FakeTeamResolver:
     team_slug: Optional[str] = "platform-eng"
     deny_message: Optional[str] = None
-    bot_id: Optional[str] = "default"
+    bot_id: Optional[str] = "primary"
 
     async def resolve(self, bot_id: str, space_id: str) -> SpaceTeamResolution:
         del bot_id, space_id
@@ -413,6 +414,7 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
 
     direct = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "text": "use github",
@@ -424,6 +426,7 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
 
     group = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "text": "use github",
@@ -435,6 +438,7 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
 
     unspecified = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "text": "hello",

@@ -660,31 +660,31 @@ export function UserMenu() {
 
           <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "rbac") fetchRbacPosture(); }}>
             <div className="px-6 pt-2 border-b border-border">
-              <TabsList className="bg-transparent h-auto p-0 gap-4">
+              <TabsList className="bg-transparent h-auto p-0 gap-4" indicator="underline">
                 <TabsTrigger
                   value="preferences"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
                 >
                   <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
                   Preferences
                 </TabsTrigger>
                 <TabsTrigger
                   value="rbac"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
                 >
                   <KeyRound className="h-3.5 w-3.5 mr-1.5" />
                   My RBAC
                 </TabsTrigger>
                 <TabsTrigger
                   value="oidc"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
                 >
                   <Code className="h-3.5 w-3.5 mr-1.5" />
                   OIDC Token
                 </TabsTrigger>
                 <TabsTrigger
                   value="debug"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
                 >
                   <Bug className="h-3.5 w-3.5 mr-1.5" />
                   Debug

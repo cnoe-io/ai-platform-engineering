@@ -17,6 +17,7 @@ import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-que
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { WebexDirectUsersPanel } from "./WebexDirectUsersPanel";
+import { WebexBotMigrationPanel } from "./WebexBotMigrationPanel";
 import type {
 ConnectorAdminAdapter,
 DiagnosticRoute,
@@ -149,6 +150,11 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     description: "Choose which deployment users can message each Webex bot and which agent handles their messages.",
     render: ({ disabled }) => <WebexDirectUsersPanel disabled={disabled} />,
   },
+  migrationPanel: {
+    title: "Legacy migration",
+    description: "Assign pre-multi-bot Webex spaces to an explicit bot.",
+    render: ({ disabled }) => <WebexBotMigrationPanel disabled={disabled} />,
+  },
 
   api: {
     list: "/api/admin/webex/spaces",
@@ -165,6 +171,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     runtimeStatus: "/api/admin/webex/runtime/status",
     runtimeReload: "/api/admin/webex/runtime/reload",
     runtimeSyncFromConfig: "/api/admin/webex/runtime/sync-from-config",
+    runtimeSyncUsesDiscoveryIdentity: true,
     routesFor: (ws, sp, botId) => `/api/admin/webex/spaces/${encodeURIComponent(ws)}/${encodeURIComponent(sp)}/routes?bot_id=${encodeURIComponent(botId ?? "")}`,
     diagnosticsFor: (ws, sp, botId) => `/api/admin/webex/spaces/${encodeURIComponent(ws)}/${encodeURIComponent(sp)}/diagnostics?bot_id=${encodeURIComponent(botId ?? "")}`,
     legacyConfigDefaults: null,
@@ -308,8 +315,8 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   authzDisclaimer: (
     <>
       <div>
-        The Webex bot checks that the space has
-        <code className="mx-1">can_use agent:&lt;id&gt;</code> (a space→agent grant).
+        The Webex bot checks that its installation in the space has
+        <code className="mx-1">can_use agent:&lt;id&gt;</code> (a bot-scoped route grant).
         User-level <code className="mx-1">can_use</code> on the agent is enforced when
         the conversation is created — any user with agent access can use it in spaces
         where that agent is assigned.

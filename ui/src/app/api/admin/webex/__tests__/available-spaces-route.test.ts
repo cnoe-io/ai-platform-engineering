@@ -71,6 +71,16 @@ describe("GET /api/admin/webex/available-spaces", () => {
   const originalBotsConfig = process.env.WEBEX_INTEGRATION_BOTS_JSON;
   const originalSecondaryToken = process.env.WEBEX_SECONDARY_BOT_TOKEN;
 
+  beforeEach(() => {
+    process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
+      {
+        id: "primary",
+        name: "Primary",
+        tokenEnv: "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN",
+      },
+    ]);
+  });
+
   afterEach(() => {
     __resetWebexSpaceDiscoveryCacheForTests();
     if (originalIntegrationToken === undefined) {
@@ -85,7 +95,7 @@ describe("GET /api/admin/webex/available-spaces", () => {
     jest.restoreAllMocks();
   });
 
-  it("uses WEBEX_INTEGRATION_BOT_ACCESS_TOKEN for Webex API calls", async () => {
+  it("uses the token environment variable configured for the selected bot", async () => {
     process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN = "integration-token";
     const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({
       ok: true,

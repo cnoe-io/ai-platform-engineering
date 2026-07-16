@@ -13,8 +13,6 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from .keycloak_admin import get_user_by_email
-from .webex_bot_catalog import default_webex_bot_id
-
 logger = logging.getLogger("caipe.webex_bot.webex_direct_users")
 
 WebexDmAccessMode = Literal["disabled", "allowlist", "all_users"]
@@ -127,9 +125,6 @@ class WebexDirectUserResolver:
 
         if mode == "allowlist":
             return WebexDirectUserAccess(False, None, None, "not_onboarded")
-
-        if bot_id != default_webex_bot_id():
-            return WebexDirectUserAccess(False, None, None, "wrong_bot")
 
         if not email:
             return WebexDirectUserAccess(False, None, None, "email_missing")

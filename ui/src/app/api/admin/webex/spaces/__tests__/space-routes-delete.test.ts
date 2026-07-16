@@ -138,7 +138,7 @@ describe("DELETE /api/admin/webex/spaces/.../routes", () => {
       writes: [],
       deletes: [
         {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:incident-agent",
         },

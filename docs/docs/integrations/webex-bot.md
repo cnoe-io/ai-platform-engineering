@@ -51,8 +51,8 @@ Define the same bot catalog in both places:
 Each entry has a stable `id`, a display `name`, and a `tokenEnv`. The token
 itself must be supplied through `existingSecret` or `externalSecrets`; it must
 not be placed in Helm values. The two catalogs must use the same IDs and token
-environment variable names. Mark the same entry `default: true` in both
-catalogs when more than one bot is configured.
+environment variable names. Bot identity is always selected explicitly; there
+is no deployment default bot.
 
 ```yaml
 tags:
@@ -63,7 +63,6 @@ caipe-ui:
     - id: primary
       name: Primary Webex bot
       tokenEnv: WEBEX_PRIMARY_BOT_TOKEN
-      default: true
     - id: secondary
       name: Secondary Webex bot
       tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
@@ -76,7 +75,6 @@ webex-bot:
     - id: primary
       name: Primary Webex bot
       tokenEnv: WEBEX_PRIMARY_BOT_TOKEN
-      default: true
     - id: secondary
       name: Secondary Webex bot
       tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
@@ -123,7 +121,7 @@ Messages to a bot without a matching active allowlist entry are ignored.
 |---|---|
 | `disabled` | The runtime does not handle direct messages. |
 | `allowlist` | Only bot/user pairs explicitly configured by an admin are handled. |
-| `all_users` | Deployment users may use the resolved default bot and `WEBEX_DEFAULT_AGENT_ID`. |
+| `all_users` | Deployment users may use each explicitly addressed bot with `WEBEX_DEFAULT_AGENT_ID`. |
 
 Set `WEBEX_DM_ACCESS_MODE` to the same value on the UI and Webex bot workloads.
 `allowlist` is the recommended mode when admins must control access and agent
@@ -137,33 +135,20 @@ Bot-specific ownership is stored in MongoDB:
 - Agent route: `bot_id`, `workspace_id`, `space_id`, and `agent_id`
 - Direct-message route: `bot_id` and Keycloak user ID
 
-OpenFGA grants remain attached to the physical Webex space as
-`webex_space:<workspace>--<space>`. This allows two bots in the same physical
-space to share the space's authorization boundary while preserving separate
-MongoDB routes. Runtime lookup never falls back to another bot's route.
+Agent route grants use a bot-scoped OpenFGA subject:
+`webex_bot_installation:<bot_id>--<workspace>--<space>`. Each installation is
+linked to its `webex_bot:<bot_id>` and physical
+`webex_space:<workspace>--<space>` objects. Team visibility remains attached to
+the physical space, while runtime agent authorization cannot cross bot IDs.
 
 ### Legacy single-bot records
 
-On UI startup, legacy `webex_space_team_mappings` and
-`webex_space_agent_routes` documents without `bot_id` are assigned only when
-the original bot is unambiguous. The resolver uses this order:
-
-1. The single entry marked `default: true`.
-2. The single entry whose `tokenEnv` is the legacy
-   `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN`.
-3. The only configured bot when the catalog contains one entry.
-
-It never selects a bot from list order. If a multi-bot catalog has no explicit
-default and no unique legacy-token entry, startup reports the number of legacy
-records and leaves them unchanged. Add `default: true` to the intended bot in
-both catalogs, then restart the UI and Webex bot workloads.
-
-While the UI startup migration is pending, the Webex runtime may read a legacy
-space mapping or agent route only for the resolved default bot. It attributes
-that record to the default bot before authorization is evaluated. A
-non-default bot cannot inherit or use a legacy record. Re-onboarding the space
-after migration updates the existing logical mapping instead of creating a
-second mapping because the legacy document has a different MongoDB `_id`.
+Legacy ownership is never inferred at startup. Go to **Admin > Integrations >
+Webex > Legacy migration** and select **Probe legacy data**. For each botless
+Mongo mapping/route or physical-space OpenFGA agent grant, an administrator must
+select the bot that originally owned the space. Applying a row writes the new
+bot-scoped OpenFGA tuples, stamps the matching Mongo records with `bot_id`, and
+then deletes that space's old physical-space agent tuples.
 
 The migration intentionally does not modify:
 
@@ -174,16 +159,13 @@ The migration intentionally does not modify:
 
 Legacy MongoDB documents do not contain the historical bot identity. The
 platform therefore cannot independently prove which bot originally owned a
-record. Operators must ensure that `default: true`, or the bot using the legacy
-`WEBEX_INTEGRATION_BOT_ACCESS_TOKEN`, still identifies the original bot before
-allowing migration to run.
+record; the admin selection is intentionally mandatory.
 
 ## Important Environment Variables
 
 | Variable | Purpose |
 |---|---|
 | `WEBEX_INTEGRATION_BOTS_JSON` | Bot catalog generated from Helm `bots` or `webexBots` |
-| `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN` | Legacy single-bot token used only when no bot catalog is configured |
 | `CAIPE_API_URL` | UI/BFF base URL |
 | `WEBEX_AGENT_ROUTES_MODE` | `db_prefer`, `config`, or `db_only` |
 | `WEBEX_DM_ACCESS_MODE` | `disabled`, `allowlist`, or `all_users` |

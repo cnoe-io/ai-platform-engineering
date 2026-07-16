@@ -183,6 +183,11 @@ export interface ConnectorAdminAdapter {
     description: string;
     render: (options: { disabled: boolean }) => ReactNode;
   };
+  migrationPanel?: {
+    title: string;
+    description: string;
+    render: (options: { disabled: boolean }) => ReactNode;
+  };
 
   // ── API paths ─────────────────────────────────────────────────────────
   api: {
@@ -202,6 +207,7 @@ export interface ConnectorAdminAdapter {
     runtimeStatus: string;
     runtimeReload: string;
     runtimeSyncFromConfig: string;
+    runtimeSyncUsesDiscoveryIdentity?: boolean;
     routesFor: (workspaceId: string, itemId: string, identityId?: string) => string;
     diagnosticsFor: (workspaceId: string, itemId: string, identityId?: string) => string;
     legacyConfigDefaults?: string | null;                            // Slack only

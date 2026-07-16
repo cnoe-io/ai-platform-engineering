@@ -261,6 +261,7 @@ describe("webex-space stores", () => {
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
     const { checkWebexSpaceAccess } = await import("../webex-space-rebac");
     const result = await checkWebexSpaceAccess({
+      bot_id: "primary",
       workspace_id: "org-123",
       space_id: "space-abc",
       resource: { type: "agent", id: "a1" },
@@ -273,7 +274,10 @@ describe("webex-space stores", () => {
       reason: "allowed",
     });
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith({
-      subject: { type: "webex_space", id: "CAIPE-WEBEX--space-abc" },
+      subject: {
+        type: "webex_bot_installation",
+        id: "primary--CAIPE-WEBEX--space-abc",
+      },
       action: "use",
       resource: { type: "agent", id: "a1" },
     });
@@ -311,6 +315,7 @@ describe("webex-space stores", () => {
     const { checkWebexSpaceAccess } = await import("../webex-space-rebac");
 
     const result = await checkWebexSpaceAccess({
+      bot_id: "primary",
       workspace_id: "org-123",
       space_id: "space-abc",
       resource: { type: "conversation", id: "c1" },
@@ -331,6 +336,7 @@ describe("webex-space stores", () => {
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
     const { checkWebexSpaceAccess } = await import("../webex-space-rebac");
     const result = await checkWebexSpaceAccess({
+      bot_id: "primary",
       workspace_id: "org-123",
       space_id: "space-abc",
       resource: { type: "agent", id: "a1" },

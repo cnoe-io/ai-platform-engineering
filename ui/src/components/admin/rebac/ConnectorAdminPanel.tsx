@@ -34,8 +34,8 @@ import type {
   TeamOption,
 } from "./connector-admin-adapter";
 
-type PanelView = "channels" | "onboard" | "direct" | "advanced";
-const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "direct", "advanced"];
+type PanelView = "channels" | "onboard" | "direct" | "migration" | "advanced";
+const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "direct", "migration", "advanced"];
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
 
@@ -861,7 +861,14 @@ export function ConnectorAdminPanel({
     setLoading(true); setMessage(null);
     try {
       const res = await fetch(adapter.api.runtimeSyncFromConfig, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dry_run: dryRun }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dry_run: dryRun,
+          ...(adapter.api.runtimeSyncUsesDiscoveryIdentity
+            ? { bot_id: selectedDiscoveryIdentityId }
+            : {}),
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const raw = apiData<Record<string, unknown>>(await res.json());
@@ -1256,16 +1263,20 @@ export function ConnectorAdminPanel({
     channels: adapter.copy.configuredTabTitle,
     onboard: adapter.copy.onboardTabTitle,
     direct: adapter.directMessagesPanel?.title ?? "1:1 Messages",
+    migration: adapter.migrationPanel?.title ?? "Migration",
     advanced: adapter.copy.advancedTabTitle,
   };
   const viewDescription: Record<PanelView, string> = {
     channels: adapter.copy.configuredTabDescription,
     onboard: adapter.copy.onboardTabDescription,
     direct: adapter.directMessagesPanel?.description ?? "Configure direct-message access.",
+    migration: adapter.migrationPanel?.description ?? "Migrate legacy connector data.",
     advanced: adapter.copy.advancedTabDescription,
   };
   const availablePanelViews = PANEL_VIEWS.filter(
-    (key) => key !== "direct" || Boolean(adapter.directMessagesPanel),
+    (key) =>
+      (key !== "direct" || Boolean(adapter.directMessagesPanel)) &&
+      (key !== "migration" || Boolean(adapter.migrationPanel)),
   );
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -1349,10 +1360,19 @@ export function ConnectorAdminPanel({
                 {viewTitle.direct}
               </Button>
             )}
+            {adapter.migrationPanel && (
+              <Button role="tab" type="button" size="sm"
+                variant={panelView === "migration" ? "default" : "ghost"}
+                aria-selected={panelView === "migration"}
+                onClick={() => setLocalSingleView("migration")}>
+                {viewTitle.migration}
+              </Button>
+            )}
           </div>
         )}
 
         {!selfService && panelView === "direct" && adapter.directMessagesPanel?.render({ disabled })}
+        {!selfService && panelView === "migration" && adapter.migrationPanel?.render({ disabled })}
 
         {/* Auth disclaimer */}
         {(selfService || (panelView === "onboard" && !showCompactOnboardingHeader)) && (

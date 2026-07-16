@@ -41,6 +41,7 @@ jest.mock("../_lib", () => ({
 const WORKSPACE_ID = "Cisco";
 const SPACE_ID = "space-123";
 const SPACE_REF = `webex_space:${WORKSPACE_ID}--${SPACE_ID}`;
+const INSTALLATION_REF = `webex_bot_installation:primary--${WORKSPACE_ID}--${SPACE_ID}`;
 
 function request(): NextRequest {
   return new NextRequest(
@@ -82,7 +83,9 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
     expect(response.status).toBe(200);
 
     const tupleFilters = mockReadOpenFgaTuples.mock.calls.map((call) => call[0].tuple);
-    expect(mockReadOpenFgaTuples).toHaveBeenCalledTimes(1 + WEBEX_SPACE_USABLE_OBJECT_TYPES.length);
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledTimes(3 + WEBEX_SPACE_USABLE_OBJECT_TYPES.length);
+    expect(tupleFilters).toContainEqual({ object: INSTALLATION_REF });
+    expect(tupleFilters).toContainEqual({ user: INSTALLATION_REF });
     expect(tupleFilters).toContainEqual({ object: SPACE_REF });
     for (const type of WEBEX_SPACE_USABLE_OBJECT_TYPES) {
       expect(tupleFilters).toContainEqual({ object: `${type}:`, user: SPACE_REF });
@@ -106,8 +109,8 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
 
     await DELETE(request(), context());
 
-    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledTimes(1);
-    expect(mockDeleteExactOpenFgaTuples.mock.calls[0][0]).toEqual([
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledTimes(2);
+    expect(mockDeleteExactOpenFgaTuples.mock.calls[1][0]).toEqual([
       teamTuple,
       agentTuple,
     ]);
@@ -149,7 +152,7 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
     expect(body.data.deleted).toMatchObject({
       workspace_id: WORKSPACE_ID,
       space_id: SPACE_ID,
-      openfga_tuples: 3,
+      openfga_tuples: 6,
       routes: 4,
       grants: 5,
       team_mappings: 2,

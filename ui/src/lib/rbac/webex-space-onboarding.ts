@@ -6,9 +6,12 @@ import { ensureWebexBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import {
+  webexBotInstallationAgentTuple,
+  webexBotInstallationIdentityTuples,
+} from "@/lib/rbac/webex-bot-openfga";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import {
-webexSpaceGrantRelationship,
 webexSpaceTeamVisibilityRelationships,
 } from "@/lib/rbac/webex-space-rebac";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
@@ -306,7 +309,6 @@ export async function onboardWebexSpace(
   }
 
   const writes: UniversalRebacRelationship[] = [
-    webexSpaceGrantRelationship(workspaceId, canonicalSpaceId, { type: "agent", id: agentId }, "use"),
     {
       subject: { type: "team", id: teamSlug, relation: "member" },
       action: "use",
@@ -318,7 +320,15 @@ export async function onboardWebexSpace(
     // channel onboarding fix in defaults/route.ts.
     ...webexSpaceTeamVisibilityRelationships(workspaceId, canonicalSpaceId, teamSlug),
   ];
-  const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] }));
+  const relationshipDiff = buildUniversalRebacTupleDiff({ writes, deletes: [] });
+  const openfga = await writeOpenFgaTuples({
+    writes: [
+      ...relationshipDiff.writes,
+      ...webexBotInstallationIdentityTuples(botId, workspaceId, canonicalSpaceId),
+      webexBotInstallationAgentTuple(botId, workspaceId, canonicalSpaceId, agentId),
+    ],
+    deletes: relationshipDiff.deletes,
+  });
   if (!openfga.enabled) {
     throw new ApiError("OpenFGA is not configured", 502);
   }

@@ -14,7 +14,12 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
-from .webex_agent_routes import DEFAULT_OPENFGA_HTTP, webex_space_openfga_subject, webex_workspace_ref
+from .webex_agent_routes import (
+    DEFAULT_OPENFGA_HTTP,
+    webex_bot_installation_openfga_subject,
+    webex_space_openfga_subject,
+    webex_workspace_ref,
+)
 
 logger = logging.getLogger("caipe.webex_bot.webex_space_auto_assign")
 
@@ -121,11 +126,26 @@ class WebexSpaceAutoAssigner:
         now = datetime.now(timezone.utc).isoformat()
         display_name = (space_title or space_id).strip()
 
-        tuple_key = {
-            "user": webex_space_openfga_subject(workspace_id, space_id),
-            "relation": "user",
-            "object": f"agent:{agent_id}",
-        }
+        installation = webex_bot_installation_openfga_subject(
+            bot_id, workspace_id, space_id
+        )
+        tuple_keys = [
+            {
+                "user": f"webex_bot:{bot_id}",
+                "relation": "bot",
+                "object": installation,
+            },
+            {
+                "user": webex_space_openfga_subject(workspace_id, space_id),
+                "relation": "space",
+                "object": installation,
+            },
+            {
+                "user": installation,
+                "relation": "user",
+                "object": f"agent:{agent_id}",
+            },
+        ]
         route_filter = {
             "bot_id": bot_id,
             "workspace_id": workspace_ref,
@@ -180,11 +200,11 @@ class WebexSpaceAutoAssigner:
                 upsert=True,
             )
             mapping_written = True
-            # `_write_openfga_tuple` is the last step in the try block; if it
+            # `_write_openfga_tuples` is the last step in the try block; if it
             # raises, control flows to except with no OpenFGA write to roll
             # back. If it succeeds, no later statement can raise. Therefore
             # we never need to roll back an OpenFGA tuple here.
-            self._write_openfga_tuple(tuple_key)
+            self._write_openfga_tuples(tuple_keys)
         except (PyMongoError, requests.RequestException) as exc:
             logger.warning("Webex space auto-assignment failed for space=%s: %s", space_id, exc)
             if mapping_written:
@@ -208,9 +228,10 @@ class WebexSpaceAutoAssigner:
             team_id=team_id,
         )
 
-    def _write_openfga_tuple(self, tuple_key: dict[str, str]) -> None:
+    def _write_openfga_tuples(self, tuple_keys: list[dict[str, str]]) -> None:
         if self._openfga_writer is not None:
-            self._openfga_writer(tuple_key)
+            for tuple_key in tuple_keys:
+                self._openfga_writer(tuple_key)
             return
 
         base_url = (os.environ.get("OPENFGA_HTTP", "").strip() or DEFAULT_OPENFGA_HTTP).rstrip("/")
@@ -218,7 +239,7 @@ class WebexSpaceAutoAssigner:
         response = requests.post(
             f"{base_url}/stores/{store_id}/write",
             headers={"Content-Type": "application/json"},
-            json={"writes": {"tuple_keys": [tuple_key]}},
+            json={"writes": {"tuple_keys": tuple_keys}},
             timeout=5,
         )
         if response.status_code >= 400 and "already" not in response.text.lower():

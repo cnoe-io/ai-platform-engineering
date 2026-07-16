@@ -62,6 +62,7 @@ class ParsedWebexEvent:
     text: str
     is_bot: bool
     is_self: bool
+    bot_id: str
     message_id: Optional[str] = None
     thread_parent_id: Optional[str] = None
     webex_room_id: Optional[str] = None
@@ -72,7 +73,6 @@ class ParsedWebexEvent:
     # change behavior in a shared group space.
     is_direct: bool = False
     person_email: Optional[str] = None
-    bot_id: str = "default"
 
 
 @dataclass(frozen=True)
@@ -126,6 +126,7 @@ class RebacCheckerProtocol(Protocol):
     def check_space_grant(
         self,
         *,
+        bot_id: str,
         workspace_id: str,
         space_id: str,
         agent_id: str,
@@ -312,11 +313,13 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
         or event.get("personEmail")
         or event.get("person_email")
     )
-    bot_id_value = data.get("botId") or event.get("botId") or "default"
+    bot_id_value = data.get("botId") or event.get("botId")
 
     if not isinstance(person_id, str) or not person_id.strip():
         return None
     if not isinstance(raw_space_id, str) or not raw_space_id.strip():
+        return None
+    if not isinstance(bot_id_value, str) or not bot_id_value.strip():
         return None
     space_id = canonicalize_webex_space_id(raw_space_id)
     if not is_valid_webex_person_id(person_id):
@@ -347,11 +350,7 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
             if isinstance(person_email_value, str) and person_email_value.strip()
             else None
         ),
-        bot_id=(
-            bot_id_value.strip()
-            if isinstance(bot_id_value, str) and bot_id_value.strip()
-            else "default"
-        ),
+        bot_id=bot_id_value.strip(),
     )
 
 
@@ -770,6 +769,7 @@ async def handle_webex_message(
         rebac_decision = None
     else:
         rebac_decision = rebac.check_space_grant(
+            bot_id=parsed.bot_id,
             workspace_id=parsed.workspace_id,
             space_id=parsed.space_id,
             agent_id=agent_id,

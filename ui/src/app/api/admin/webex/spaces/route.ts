@@ -82,11 +82,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       await Promise.all(
         rows.map(async (row) => {
           const workspaceId = webexWorkspaceRef(row.webex_workspace_id);
-          const access = subject
-            ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
-            : { canRead: false, canManage: false };
-          if (!access.canRead) return null;
-          return { row, workspaceId, access };
+          const [access, routes] = await Promise.all([
+            subject
+              ? webexSpaceAccess(subject, workspaceId, row.webex_space_id)
+              : Promise.resolve({ canRead: false, canManage: false }),
+            listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id, botId),
+          ]);
+          if (!access.canRead || routes.length === 0) return null;
+          return { row, workspaceId, access, routes };
         })
       )
     ).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
@@ -111,11 +114,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       : [];
 
     const spaces = await Promise.all(
-      visibleRows.map(async ({ row, workspaceId, access }, index) => {
-        const [grants, routes] = await Promise.all([
-          listWebexSpaceGrants(workspaceId, row.webex_space_id),
-          listWebexSpaceAgentRoutes(workspaceId, row.webex_space_id, botId),
-        ]);
+      visibleRows.map(async ({ row, workspaceId, access, routes }, index) => {
+        const grants = await listWebexSpaceGrants(workspaceId, row.webex_space_id);
         const health = includeHealth ? healthSummaries[index] : undefined;
         return {
           workspace_id: workspaceId,

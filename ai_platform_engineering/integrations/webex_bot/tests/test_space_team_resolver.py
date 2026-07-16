@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from unittest.mock import Mock
 
 import pytest
@@ -69,23 +68,16 @@ def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.deny_message is not None
 
 
-def test_legacy_mapping_is_attributed_only_to_explicit_default_bot(
+def test_botless_legacy_mapping_is_not_used_at_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(
-        "WEBEX_INTEGRATION_BOTS_JSON",
-        json.dumps([
-            {"id": "primary", "name": "Primary", "tokenEnv": "PRIMARY_TOKEN", "default": True},
-            {"id": "secondary", "name": "Secondary", "tokenEnv": "SECONDARY_TOKEN"},
-        ]),
-    )
     mapping = {
         "webex_space_id": "space-12345678",
         "team_id": "507f1f77bcf86cd799439011",
         "active": True,
     }
     mappings = Mock()
-    mappings.find_one.side_effect = [None, mapping]
+    mappings.find_one.return_value = None
     teams = Mock()
     teams.find_one.return_value = {
         "_id": "507f1f77bcf86cd799439011",
@@ -101,6 +93,6 @@ def test_legacy_mapping_is_attributed_only_to_explicit_default_bot(
 
     result = resolver._load_space_team_sync("primary", "space-12345678")
 
-    assert result is not None
-    assert result["bot_id"] == "primary"
-    assert mappings.find_one.call_count == 2
+    assert result is None
+    assert mappings.find_one.call_count == 1
+    assert mappings.find_one.call_args.args[0]["bot_id"] == "primary"

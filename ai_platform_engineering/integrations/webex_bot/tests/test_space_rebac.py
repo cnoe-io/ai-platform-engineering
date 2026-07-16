@@ -26,6 +26,7 @@ def test_space_grant_check_posts_resource_without_user_subject() -> None:
 
     evaluator = WebexRebacEvaluator(base_url="http://caipe-ui", post_check=fake_post)
     decision = evaluator.check_space_grant(
+        bot_id="primary",
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",
@@ -37,6 +38,7 @@ def test_space_grant_check_posts_resource_without_user_subject() -> None:
         (
             "/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check",
             {
+                "bot_id": "primary",
                 "resource": {"type": "agent", "id": "incident-agent"},
                 "action": "use",
             },
@@ -55,6 +57,7 @@ def test_space_grant_check_denies_when_space_grant_missing() -> None:
 
     evaluator = WebexRebacEvaluator(base_url="http://caipe-ui", post_check=fake_post)
     decision = evaluator.check_space_grant(
+        bot_id="primary",
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",
@@ -73,6 +76,7 @@ def test_space_grant_check_fail_closed_on_http_failure() -> None:
         side_effect=urllib.error.URLError("connection refused"),
     ):
         decision = evaluator.check_space_grant(
+            bot_id="primary",
             workspace_id="CAIPE-WEBEX",
             space_id="space-abc",
             agent_id="incident-agent",
@@ -87,6 +91,7 @@ def test_space_grant_check_fail_closed_on_http_failure() -> None:
 def test_space_grant_check_fail_closed_when_bff_url_unconfigured() -> None:
     evaluator = WebexRebacEvaluator(base_url="")
     decision = evaluator.check_space_grant(
+        bot_id="primary",
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",
@@ -99,6 +104,7 @@ def test_space_grant_check_fail_closed_when_bff_url_unconfigured() -> None:
 def test_space_grant_check_fail_closed_when_obo_token_missing() -> None:
     evaluator = WebexRebacEvaluator(base_url="http://caipe-ui")
     decision = evaluator.check_space_grant(
+        bot_id="primary",
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",

@@ -84,6 +84,16 @@ def _config() -> WebexBotConfig:
     )
 
 
+@pytest.fixture(autouse=True)
+def _configured_bot_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [{"id": "primary", "name": "Primary bot", "tokenEnv": "PRIMARY_TOKEN"}]
+        ),
+    )
+
+
 def test_status_reports_route_cache_and_static_config() -> None:
     service = WebexBotAdminService(config=_config(), resolver=_Resolver())
 
@@ -138,9 +148,12 @@ def test_sync_from_config_dry_run_plans_without_writes() -> None:
         openfga_writer=lambda tuple_key: openfga_writes.append(tuple_key),
     )
 
-    summary = service.sync_from_config(workspace_id="CAIPE-WEBEX", dry_run=True)
+    summary = service.sync_from_config(
+        bot_id="primary", workspace_id="CAIPE-WEBEX", dry_run=True
+    )
 
     assert summary["dry_run"] is True
+    assert summary["bot_id"] == "primary"
     assert summary["spaces_seen"] == 1
     assert summary["routes_planned"] == 1
     assert summary["routes_upserted"] == 0
@@ -160,24 +173,37 @@ def test_sync_from_config_upserts_routes_writes_openfga_and_invalidates_cache() 
         openfga_writer=lambda tuple_key: openfga_writes.append(tuple_key),
     )
 
-    summary = service.sync_from_config(workspace_id="CAIPE-WEBEX", dry_run=False)
+    summary = service.sync_from_config(
+        bot_id="primary", workspace_id="CAIPE-WEBEX", dry_run=False
+    )
 
     assert summary["dry_run"] is False
     assert summary["routes_upserted"] == 1
-    assert summary["openfga_tuples_written"] == 1
+    assert summary["openfga_tuples_written"] == 3
     assert routes.update_calls[0][0] == {
+        "bot_id": "primary",
         "workspace_id": "CAIPE-WEBEX",
         "space_id": "space-abc",
         "agent_id": "incident-agent",
     }
     assert openfga_writes == [
         {
+            "user": "webex_bot:primary",
+            "relation": "bot",
+            "object": "webex_bot_installation:primary--CAIPE-WEBEX--space-abc",
+        },
+        {
             "user": "webex_space:CAIPE-WEBEX--space-abc",
+            "relation": "space",
+            "object": "webex_bot_installation:primary--CAIPE-WEBEX--space-abc",
+        },
+        {
+            "user": "webex_bot_installation:primary--CAIPE-WEBEX--space-abc",
             "relation": "user",
             "object": "agent:incident-agent",
-        }
+        },
     ]
-    assert resolver.invalidated == [(None, None, None)]
+    assert resolver.invalidated == [("primary", "CAIPE-WEBEX", "space-abc")]
 
 
 def test_sync_from_config_replaces_existing_agent_metadata_without_touching_others() -> None:
@@ -202,13 +228,16 @@ def test_sync_from_config_replaces_existing_agent_metadata_without_touching_othe
         openfga_writer=lambda _tuple_key: None,
     )
 
-    summary = service.sync_from_config(workspace_id="CAIPE-WEBEX", dry_run=False)
+    summary = service.sync_from_config(
+        bot_id="primary", workspace_id="CAIPE-WEBEX", dry_run=False
+    )
 
     assert summary["routes_upserted"] == 1
     assert len(routes.update_calls) == 1
     filter_query, update, upsert = routes.update_calls[0]
     assert upsert is True
     assert filter_query == {
+        "bot_id": "primary",
         "workspace_id": "CAIPE-WEBEX",
         "space_id": "space-abc",
         "agent_id": "incident-agent",
@@ -238,13 +267,96 @@ def test_sync_from_config_canonicalizes_public_webex_room_ids() -> None:
         openfga_writer=lambda tuple_key: openfga_writes.append(tuple_key),
     )
 
-    service.sync_from_config(workspace_id="CAIPE-WEBEX", dry_run=False)
+    service.sync_from_config(
+        bot_id="primary", workspace_id="CAIPE-WEBEX", dry_run=False
+    )
 
     assert routes.update_calls[0][0]["space_id"] == "6f91b070-531a-11f1-926d-6fd3c20dfdc4"
-    assert openfga_writes[0]["user"] == (
-        "webex_space:CAIPE-WEBEX--6f91b070-531a-11f1-926d-6fd3c20dfdc4"
+    assert openfga_writes[2]["user"] == (
+        "webex_bot_installation:primary--CAIPE-WEBEX--6f91b070-531a-11f1-926d-6fd3c20dfdc4"
     )
-    assert resolver.invalidated == [(None, None, None)]
+    assert resolver.invalidated == [
+        ("primary", "CAIPE-WEBEX", "6f91b070-531a-11f1-926d-6fd3c20dfdc4")
+    ]
+
+
+def test_sync_from_config_uses_explicit_requested_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                {
+                    "id": "primary",
+                    "name": "Primary bot",
+                    "tokenEnv": "WEBEX_PRIMARY_TOKEN",
+                },
+                {
+                    "id": "secondary",
+                    "name": "Secondary bot",
+                    "tokenEnv": "WEBEX_SECONDARY_TOKEN",
+                },
+            ]
+        ),
+    )
+    routes = _RoutesCollection()
+    resolver = _Resolver()
+    service = WebexBotAdminService(
+        config=_config(),
+        resolver=resolver,
+        collection_factory=lambda _name: routes,
+        openfga_writer=lambda _tuple_key: None,
+    )
+
+    summary = service.sync_from_config(
+        bot_id="secondary", workspace_id="CAIPE-WEBEX", dry_run=False
+    )
+
+    assert summary["bot_id"] == "secondary"
+    filter_query, update, upsert = routes.update_calls[0]
+    assert filter_query["bot_id"] == "secondary"
+    assert update["$set"]["bot_id"] == "secondary"  # type: ignore[index]
+    assert upsert is True
+    assert resolver.invalidated == [("secondary", "CAIPE-WEBEX", "space-abc")]
+
+
+def test_sync_from_config_rejects_unknown_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                {
+                    "id": "primary",
+                    "name": "Primary bot",
+                    "tokenEnv": "WEBEX_PRIMARY_TOKEN",
+                },
+                {
+                    "id": "secondary",
+                    "name": "Secondary bot",
+                    "tokenEnv": "WEBEX_SECONDARY_TOKEN",
+                },
+            ]
+        ),
+    )
+    routes = _RoutesCollection()
+    resolver = _Resolver()
+    service = WebexBotAdminService(
+        config=_config(),
+        resolver=resolver,
+        collection_factory=lambda _name: routes,
+        openfga_writer=lambda _tuple_key: None,
+    )
+
+    with pytest.raises(ValueError, match="Unknown Webex bot"):
+        service.sync_from_config(
+            bot_id="missing", workspace_id="CAIPE-WEBEX", dry_run=False
+        )
+
+    assert routes.update_calls == []
+    assert resolver.invalidated == []
 
 
 def test_load_webex_bot_config_from_inline_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -489,13 +601,15 @@ def test_sync_from_config_stops_on_second_openfga_write_failure() -> None:
     )
 
     with pytest.raises(OpenFgaWriteError) as exc_info:
-        service.sync_from_config(workspace_id="CAIPE-WEBEX", dry_run=False)
+        service.sync_from_config(
+            bot_id="primary", workspace_id="CAIPE-WEBEX", dry_run=False
+        )
 
     summary = exc_info.value.summary
-    assert summary["routes_upserted"] == 2
+    assert summary["routes_upserted"] == 1
     assert summary["openfga_tuples_written"] == 1
     assert summary["openfga_write_failed"] is True
-    assert summary["failed_route"]["agent_id"] == "agent-b"
+    assert summary["failed_route"]["agent_id"] == "agent-a"
     assert len(write_calls) == 2
 
 

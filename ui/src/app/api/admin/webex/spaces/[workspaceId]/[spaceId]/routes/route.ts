@@ -1,21 +1,22 @@
 import { NextRequest } from "next/server";
 
-import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { type OpenFgaTupleKey, writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { ensureRouteOwnedAgentGrants } from "@/lib/rbac/webex-space-grant-store";
 import {
-listOpenFgaWebexSpaceAgentIds,
-parseWebexSpaceRouteParams,
+  listOpenFgaWebexBotAgentIds,
+  parseWebexSpaceRouteParams,
 } from "@/lib/rbac/webex-space-openfga";
-import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
+import {
+  webexBotInstallationAgentTuple,
+  webexBotInstallationIdentityTuples,
+} from "@/lib/rbac/webex-bot-openfga";
 import {
 deleteWebexSpaceAgentRoute,
 listWebexSpaceAgentRoutes,
 replaceWebexSpaceAgentRoutes,
 type WebexSpaceAgentRouteInput,
 } from "@/lib/rbac/webex-space-route-store";
-import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type {
 WebexRouteEscalationConfig,
 WebexRouteSideConfig,
@@ -23,18 +24,18 @@ WebexSpaceAgentRoute,
 } from "@/types/webex-rebac";
 import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
 
-import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../../../_lib";
+import { withWebexSpaceRebacManageAuth, withWebexSpaceRebacViewAuth } from "../../../_lib";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; spaceId: string }>;
 }
 
 async function writeRequiredOpenFgaTuples(
-  writes: UniversalRebacRelationship[],
-  deletes: UniversalRebacRelationship[]
+  writes: OpenFgaTupleKey[],
+  deletes: OpenFgaTupleKey[],
 ) {
   try {
-    const result = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes }));
+    const result = await writeOpenFgaTuples({ writes, deletes });
     if (!result.enabled) {
       throw new Error("OpenFGA is not configured");
     }
@@ -154,7 +155,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
   return withWebexSpaceRebacViewAuth(request, async () => {
     const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
     const [agentIds, metadataRoutes] = await Promise.all([
-      listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId),
+      listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId),
       listWebexSpaceAgentRoutes(workspaceId, spaceId, botId),
     ]);
     const routes = mergeOpenFgaAgentsWithMetadata(agentIds, metadataRoutes);
@@ -175,24 +176,35 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
     const actor = "api";
     const routes = body.routes.map((route, index) => parseRoute(route, index, workspaceId, spaceId));
     const previousRoutes = toRouteInputs(await listWebexSpaceAgentRoutes(workspaceId, spaceId, botId));
-    const existingAgentIds = await listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId);
+    const existingAgentIds = await listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId);
     const saved = await replaceWebexSpaceAgentRoutes(workspaceId, spaceId, botId, routes, actor);
     const allRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
+    const botRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId, botId);
     const activeAgentIds = Array.from(new Set(
-      allRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+      botRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
     ));
-    const writes = activeAgentIds
+    const writes = [
+      ...webexBotInstallationIdentityTuples(botId, workspaceId, spaceId),
+      ...activeAgentIds
       .filter((agentId) => !existingAgentIds.includes(agentId))
       .map((agentId) =>
-        webexSpaceGrantRelationship(workspaceId, spaceId, { type: "agent", id: agentId }, "use")
-      );
+        webexBotInstallationAgentTuple(botId, workspaceId, spaceId, agentId),
+      ),
+    ];
     const deletes = existingAgentIds
       .filter((agentId) => !activeAgentIds.includes(agentId))
       .map((agentId) =>
-        webexSpaceGrantRelationship(workspaceId, spaceId, { type: "agent", id: agentId }, "use")
+        webexBotInstallationAgentTuple(botId, workspaceId, spaceId, agentId),
       );
 
-    await ensureRouteOwnedAgentGrants(workspaceId, spaceId, activeAgentIds, actor);
+    await ensureRouteOwnedAgentGrants(
+      workspaceId,
+      spaceId,
+      Array.from(new Set(
+        allRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
+      )),
+      actor,
+    );
     try {
       const openfga = await writeRequiredOpenFgaTuples(writes, deletes);
       return successResponse({ routes: saved, openfga });
@@ -231,18 +243,14 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
     const routeMetadataDeleted = await deleteWebexSpaceAgentRoute(workspaceId, spaceId, botId, agentId);
     try {
       const remainingRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
-      const activeAgentIds = Array.from(new Set(
+      const activeAgentIdsAcrossBots = Array.from(new Set(
         remainingRoutes.filter((route) => route.enabled !== false).map((route) => route.agent_id),
       ));
-      await ensureRouteOwnedAgentGrants(workspaceId, spaceId, activeAgentIds, "api");
-      const openfga = activeAgentIds.includes(agentId)
-        ? { enabled: true, writes: 0, deletes: 0 }
-        : await writeRequiredOpenFgaTuples([], [webexSpaceGrantRelationship(
-            workspaceId,
-            spaceId,
-            { type: "agent", id: agentId },
-            "use",
-          )]);
+      await ensureRouteOwnedAgentGrants(workspaceId, spaceId, activeAgentIdsAcrossBots, "api");
+      const openfga = await writeRequiredOpenFgaTuples(
+        [],
+        [webexBotInstallationAgentTuple(botId, workspaceId, spaceId, agentId)],
+      );
       return successResponse({
         deleted: {
           agent_id: agentId,

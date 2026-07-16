@@ -79,6 +79,13 @@ describe("Webex runtime access-check route", () => {
   beforeEach(() => {
     jest.resetModules();
     mockCheckUniversalRebacRelationship.mockReset();
+    process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
+      { id: "primary", name: "Primary", tokenEnv: "PRIMARY_TOKEN" },
+    ]);
+  });
+
+  afterEach(() => {
+    delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
   });
 
   it("checks space grant only (user can_use is enforced by conversations API)", async () => {
@@ -89,6 +96,7 @@ describe("Webex runtime access-check route", () => {
       request("/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check", {
         method: "POST",
         body: JSON.stringify({
+          bot_id: "primary",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -105,7 +113,10 @@ describe("Webex runtime access-check route", () => {
     });
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith({
-      subject: { type: "webex_space", id: "CAIPE-WEBEX--space-abc" },
+      subject: {
+        type: "webex_bot_installation",
+        id: "primary--CAIPE-WEBEX--space-abc",
+      },
       action: "use",
       resource: { type: "agent", id: "incident-agent" },
     });
@@ -119,6 +130,7 @@ describe("Webex runtime access-check route", () => {
       request("/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check", {
         method: "POST",
         body: JSON.stringify({
+          bot_id: "primary",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),

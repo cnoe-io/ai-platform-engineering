@@ -26,17 +26,13 @@ from ai_platform_engineering.integrations.webex_bot.utils.user_messages import (
     WEBEX_SPACE_MENTION_REQUIRED_MESSAGE,
     WEBEX_SPACE_SETUP_REQUIRED_MESSAGE,
 )
-from ai_platform_engineering.integrations.webex_bot.utils.webex_bot_catalog import (
-    default_webex_bot_id,
-)
-
 logger = logging.getLogger("caipe.webex_bot.webex_agent_routes")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
 WebexAgentRouteMode = Literal["config", "db_prefer", "db_only"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
 AuditEventWriter = Callable[[dict[str, Any]], None]
-OpenFgaAgentIdsFactory = Callable[[str, str], list[str] | None]
+OpenFgaAgentIdsFactory = Callable[[str, str, str], list[str] | None]
 
 
 def webex_agent_route_mode() -> WebexAgentRouteMode:
@@ -79,6 +75,15 @@ def webex_space_openfga_subject(workspace_id: str, space_id: str) -> str:
 
     workspace_ref = webex_workspace_ref(workspace_id)
     return f"webex_space:{workspace_ref}--{space_id}"
+
+
+def webex_bot_installation_openfga_subject(
+    bot_id: str, workspace_id: str, space_id: str
+) -> str:
+    """OpenFGA subject for one configured bot operating in one Webex space."""
+
+    workspace_ref = webex_workspace_ref(workspace_id)
+    return f"webex_bot_installation:{bot_id}--{workspace_ref}--{space_id}"
 
 
 def infer_listen_mode(text: str) -> Literal["message", "mention"]:
@@ -189,11 +194,11 @@ class WebexAgentRouteResolver:
     def _load_routes(
         self, bot_id: str, workspace_id: str, space_id: str
     ) -> list[dict[str, Any]]:
-        agent_ids = self._load_openfga_agent_ids(workspace_id, space_id)
+        agent_ids = self._load_openfga_agent_ids(bot_id, workspace_id, space_id)
         if agent_ids is None:
             return []
         if not agent_ids and workspace_id != "unknown":
-            agent_ids = self._load_openfga_agent_ids("unknown", space_id)
+            agent_ids = self._load_openfga_agent_ids(bot_id, "unknown", space_id)
             if agent_ids is None:
                 return []
         if not agent_ids:
@@ -212,12 +217,16 @@ class WebexAgentRouteResolver:
             logger.warning("WebexAgentRouteResolver: route query failed: %s", exc)
             return []
 
-    def _load_openfga_agent_ids(self, workspace_id: str, space_id: str) -> list[str] | None:
+    def _load_openfga_agent_ids(
+        self, bot_id: str, workspace_id: str, space_id: str
+    ) -> list[str] | None:
         if self._openfga_agent_ids_factory is not None:
-            return self._openfga_agent_ids_factory(workspace_id, space_id)
+            return self._openfga_agent_ids_factory(bot_id, workspace_id, space_id)
 
         base_url = (os.environ.get("OPENFGA_HTTP", "").strip() or DEFAULT_OPENFGA_HTTP).rstrip("/")
-        space_subject = webex_space_openfga_subject(workspace_id, space_id)
+        space_subject = webex_bot_installation_openfga_subject(
+            bot_id, workspace_id, space_id
+        )
 
         try:
             store_id = _openfga_store_id(base_url)
@@ -289,22 +298,7 @@ class WebexAgentRouteResolver:
             routes = list(cursor.to_list())  # type: ignore[no-any-return, operator]
         else:
             routes = list(cursor)
-        if routes or bot_id != default_webex_bot_id():
-            return routes
-
-        cursor = collection.find(
-            {
-                **base_query,
-                "$or": [
-                    {"bot_id": {"$exists": False}},
-                    {"bot_id": None},
-                    {"bot_id": ""},
-                ],
-            }
-        ).sort([("priority", 1), ("agent_id", 1)])
-        if hasattr(cursor, "to_list"):
-            return list(cursor.to_list())  # type: ignore[no-any-return, operator]
-        return list(cursor)
+        return routes
 
     def _cached_routes(
         self, bot_id: str, workspace_id: str, space_id: str

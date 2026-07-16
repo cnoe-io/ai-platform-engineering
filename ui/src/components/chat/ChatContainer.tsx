@@ -375,35 +375,21 @@ export function ChatContainer() {
   // having no messages is legitimate (e.g., messages were deleted) — not a loading state.
   const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && !fetchDone && conversation?.title !== "New Conversation");
 
-  // Every conversation is bound to a dynamic agent. If somehow none is selected
-  // (e.g. a legacy conversation with no agent participant), prompt the user to
-  // pick one rather than falling back to a default chat surface.
-  if (!selectedAgentId) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            This conversation isn’t linked to an agent. Select an agent to start chatting.
-          </p>
-          <button
-            onClick={() => router.push("/chat")}
-            className="text-sm text-primary hover:underline"
-          >
-            Start a new conversation
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Legacy conversations from the deprecated supervisor-agent era have no agent
+  // participant (participants: []). Treat them the same as conversations whose
+  // agent was later deleted: show the full chat history in read-only mode with
+  // an "agent deleted" banner and a CTA to start a new conversation.
+  const effectiveAgentId = selectedAgentId ?? "deprecated-supervisor-agent";
+  const isAgentGone = agentNotFound || !selectedAgentId;
 
   return (
     <ChatView
       endpoint={chatEndpoint}
       conversationId={uuid}
       conversationTitle={conversationTitle}
-      selectedAgentId={selectedAgentId}
+      selectedAgentId={effectiveAgentId}
       agent={agentInfo}
-      agentNotFound={agentNotFound}
+      agentNotFound={isAgentGone}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
       adminOrigin={adminOrigin}
