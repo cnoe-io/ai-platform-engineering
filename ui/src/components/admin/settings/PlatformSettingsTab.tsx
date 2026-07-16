@@ -18,8 +18,9 @@ DialogTitle,
 import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceAccountModal";
 import { WebDefaultAgentPanel } from "@/components/settings/WebDefaultAgent/WebDefaultAgentPanel";
+import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { AlertTriangle,Info,Loader2,Shield } from "lucide-react";
+import { AlertTriangle,Loader2,Shield } from "lucide-react";
 import { useEffect,useState } from "react";
 
 interface PlatformSettingsTabProps {
@@ -46,10 +47,8 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
     // (auto-granting `user:*` `user` on every visibility:"global" agent in
     // OpenFGA) runs before we read the platform default. Otherwise a fresh
     // viewer can race: platform-config returns default_agent_id="hello-world",
-    // but their agents list doesn't include it yet, the <select> can't bind
-    // to a non-existent option and silently falls through to the
-    // "No default agent" placeholder option — making it look like there's
-    // no platform default when there really is one.
+    // but their agents list doesn't include it yet, making it look like there
+    // is no platform default when there really is one.
     let cancelled = false;
     (async () => {
       const agentsRes = await fetch('/api/dynamic-agents/available')
@@ -119,17 +118,19 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
   const selectedAgent = agents.find((a) => a._id === selectedAgentId);
   const savedAgentMissing = Boolean(savedAgentId) && !agents.find((a) => a._id === savedAgentId);
   // When the saved/selected agent isn't in the viewer's `available` list,
-  // we still inject a synthetic <option> for it so:
-  //   1. <select> binds correctly (otherwise it silently falls through to
-  //      the first option — the "No default agent" placeholder — and
-  //      misleads the viewer into thinking no default is configured).
-  //   2. The viewer sees the actual configured agent id, even if they don't
-  //      have `agent#use` on it (e.g. read-only admins, federated SSO users
-  //      whose OpenFGA bootstrap hasn't fully reconciled yet).
+  // inject a synthetic picker option so the viewer still sees the configured
+  // id (e.g. read-only admins or users whose access has not reconciled yet).
   const missingSelectedOption =
     selectedAgentId && !agents.find((a) => a._id === selectedAgentId)
       ? { _id: selectedAgentId, label: `${selectedAgentId} (not visible to you)` }
       : null;
+  const platformPickerOptions: AgentPickerOption[] = [
+    { value: "", label: "No default agent" },
+    ...agents.map((agent) => ({ value: agent._id, label: agent.name })),
+    ...(missingSelectedOption
+      ? [{ value: missingSelectedOption._id, label: missingSelectedOption.label }]
+      : []),
+  ];
   const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "this agent";
 
   return (
@@ -138,10 +139,9 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
         <CardHeader>
           <CardTitle>Default Agent</CardTitle>
           <CardDescription>
-            Choose which agent new chats open with. Your personal choice applies to your
-            own web chats
+            Choose your personal default for web chats
             {isAdmin
-              ? "; the platform default below applies to everyone who hasn't set their own."
+              ? ", or set the platform default for users who have not chosen one."
               : "."}
           </CardDescription>
         </CardHeader>
@@ -155,7 +155,17 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
               Release Notes settings layout. */}
           {isAdmin && (
             <div className="space-y-4 border-t pt-4">
-              <AdminBadge />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">Platform default agent</p>
+                  <AdminBadge />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Choose the agent that opens new direct-message and Web UI chats for
+                  users without a personal default. Select <em>No default agent</em> to
+                  have users rely only on access granted through their teams.
+                </p>
+              </div>
 
               {loadingConfig || loadingAgents ? (
                 <div className="flex items-center justify-center py-6">
@@ -164,21 +174,13 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
               ) : (
                 <>
                   <div
-                    className="flex gap-2 px-3 py-2 rounded-md bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-sm"
-                    data-testid="default-agent-public-banner"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                    data-testid="default-agent-access-note"
                   >
-                    <Info className="h-4 w-4 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <p className="font-medium">
-                        This choice gives every signed-in user access to the selected agent.
-                      </p>
-                      <p className="text-xs">
-                        The platform default is the agent new users land on in direct messages and the
-                        Web UI before any team grants kick in. Choose <em>No default agent</em> if
-                        you don&apos;t want any agent to be public by default — users will only see agents
-                        their teams have granted them.
-                      </p>
-                    </div>
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span>
+                      Selecting an agent here makes it available to every signed-in user.
+                    </span>
                   </div>
 
                   {savedAgentMissing && (
@@ -206,32 +208,26 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
                   )}
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Platform default agent for new chats</label>
-                    <select
-                      aria-label="Platform default agent for new chats"
+                    <label htmlFor="platform-default-agent" className="text-sm font-medium">
+                      Agent for new chats
+                    </label>
+                    <AgentPicker
+                      id="platform-default-agent"
+                      ariaLabel="Platform default agent for new chats"
+                      options={platformPickerOptions}
                       value={selectedAgentId ?? ''}
-                      onChange={(e) => setSelectedAgentId(e.target.value || null)}
+                      onChange={(value) => setSelectedAgentId(value || null)}
                       disabled={readOnly}
-                      className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 md:ml-4"
-                    >
-                      <option value="">No default agent</option>
-                      {agents.map((a) => (
-                        <option key={a._id} value={a._id}>
-                          {a.name}
-                        </option>
-                      ))}
-                      {missingSelectedOption && (
-                        <option
-                          key={missingSelectedOption._id}
-                          value={missingSelectedOption._id}
-                          data-testid="default-agent-missing-option"
-                        >
-                          {missingSelectedOption.label}
-                        </option>
-                      )}
-                    </select>
+                      hideIdSuffix
+                      placeholder="Select the platform default agent..."
+                      searchPlaceholder="Search agents..."
+                      emptyLabel="No agents match"
+                      triggerClassName="max-w-sm md:ml-4"
+                    />
                     {selectedAgent && (
-                      <p className="text-xs text-muted-foreground">{selectedAgent.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {`Agent Description: ${selectedAgent.description}`}
+                      </p>
                     )}
                   </div>
 
@@ -242,6 +238,7 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
                       dirty={selectedAgentId !== savedAgentId}
                       disabled={readOnly}
                       result={saveResult}
+                      ariaLabel="Save platform default agent"
                       testId="default-agent-save"
                     />
                   </div>

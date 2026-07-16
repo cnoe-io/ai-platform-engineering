@@ -50,6 +50,7 @@ function mockFetch({
     }
     if (href.includes('/api/admin/platform-config')) {
       return Promise.resolve({
+        ok: true,
         json: () => Promise.resolve(config),
       } as Response);
     }
@@ -89,9 +90,12 @@ describe('PlatformSettingsTab', () => {
   it('labels the empty default option as No default agent', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'No default agent' })).toBeInTheDocument();
-    });
+    fireEvent.click(await screen.findByRole('button', {
+      name: /Platform default agent for new chats/i,
+    }));
+    expect(
+      await screen.findByRole('option', { name: 'No default agent' }),
+    ).toBeInTheDocument();
   });
 
   it('selects the configured default dynamic agent and shows its description', async () => {
@@ -99,36 +103,48 @@ describe('PlatformSettingsTab', () => {
 
     render(<PlatformSettingsTab isAdmin />);
 
-    const select = await screen.findByRole('combobox', {
+    const picker = await screen.findByRole('button', {
       name: /Platform default agent for new chats/i,
     });
-    expect(select).toHaveValue('sre');
-    expect(screen.getByText('Handles SRE workflows')).toBeInTheDocument();
+    expect(picker).toHaveTextContent('Basic SRE');
+    expect(
+      screen.getAllByText('Agent Description: Handles SRE workflows'),
+    ).toHaveLength(2);
     expect(screen.getByTestId('default-agent-save')).toBeDisabled();
+    expect(screen.getByTestId('web-default-agent-save')).toBeDisabled();
   });
 
   it('shows the personal Default Agent picker for non-admins (no platform controls)', async () => {
     render(<PlatformSettingsTab isAdmin={false} />);
 
-    // Non-admins get the personal web-default dropdown, not the
-    // platform-default <select> or its save button.
-    const personal = await screen.findByRole('combobox', { name: /My default agent/i });
+    // Non-admins get the personal web-default picker, not the
+    // platform-default picker or its save button.
+    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
     expect(personal).toBeInTheDocument();
+    fireEvent.click(personal);
     expect(
-      screen.getByRole('option', { name: /Use platform default/i }),
+      await screen.findByRole('option', { name: /Use platform default/i }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('combobox', { name: /Platform default agent for new chats/i }),
+      screen.queryByRole('button', { name: /Platform default agent for new chats/i }),
     ).not.toBeInTheDocument();
+    expect(screen.getByTestId('web-default-agent-save')).toBeInTheDocument();
     expect(screen.queryByTestId('default-agent-save')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('default-agent-public-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('default-agent-access-note')).not.toBeInTheDocument();
   });
 
   it('persists the non-admin personal web default via /api/user/preferences', async () => {
     render(<PlatformSettingsTab isAdmin={false} />);
 
-    const personal = await screen.findByRole('combobox', { name: /My default agent/i });
-    fireEvent.change(personal, { target: { value: 'sre' } });
+    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
+    fireEvent.click(personal);
+    fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
+
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/user/preferences',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    fireEvent.click(screen.getByTestId('web-default-agent-save'));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -141,11 +157,55 @@ describe('PlatformSettingsTab', () => {
     });
   });
 
+  it('shows the resolved platform default and clears a personal override back to it', async () => {
+    mockFetch({ config: { success: true, data: { default_agent_id: 'sre' } } });
+
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
+    await waitFor(() => {
+      expect(personal).toHaveTextContent('Use platform default (Basic SRE)');
+    });
+    expect(
+      screen.getByText('Agent Description: Handles SRE workflows'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(personal);
+    fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
+    fireEvent.click(screen.getByTestId('web-default-agent-save'));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/user/preferences',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ web_default_agent_id: 'sre' }),
+        }),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId('web-default-agent-save')).toBeDisabled());
+
+    fireEvent.click(screen.getByLabelText('Clear agent selection'));
+    fireEvent.click(screen.getByTestId('web-default-agent-save'));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/user/preferences',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ web_default_agent_id: null }),
+        }),
+      );
+    });
+    expect(personal).toHaveTextContent('Use platform default (Basic SRE)');
+    expect(screen.queryByLabelText('Clear agent selection')).not.toBeInTheDocument();
+  });
+
   it('suppresses writes in the non-admin picker when readOnly (preview)', async () => {
     render(<PlatformSettingsTab isAdmin={false} readOnly />);
 
-    const personal = await screen.findByRole('combobox', { name: /My default agent/i });
+    const personal = await screen.findByRole('button', { name: /^My default agent$/i });
     expect(personal).toBeDisabled();
+    expect(screen.getByTestId('web-default-agent-save')).toBeDisabled();
   });
 
   it('warns when the saved default agent is not in the viewer accessible list (admin variant)', async () => {
@@ -168,29 +228,26 @@ describe('PlatformSettingsTab', () => {
 
     expect(screen.queryByTestId('default-agent-missing-banner')).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('combobox', { name: /Platform default agent for new chats/i }),
+      screen.queryByRole('button', { name: /Platform default agent for new chats/i }),
     ).not.toBeInTheDocument();
     expect(
-      await screen.findByRole('combobox', { name: /My default agent/i }),
+      await screen.findByRole('button', { name: /^My default agent$/i }),
     ).toBeInTheDocument();
   });
 
-  it('injects a synthetic <option> so the <select> binds to the configured agent even when it is not in the agents list', async () => {
-    // This is the bug we keep regressing: the "No default agent" placeholder
-    // is the first <option>, so when value="hello-world" matches NO option in
-    // the dropdown, the browser silently falls through to "No default agent" —
-    // making it look like no platform default is configured when one is. The
-    // fix injects a synthetic option for the missing id so binding still works.
+  it('injects a synthetic picker option for a configured agent outside the accessible list', async () => {
     mockFetch({ config: { success: true, data: { default_agent_id: 'hello-world' } } });
 
     render(<PlatformSettingsTab isAdmin />);
 
-    const select = (await screen.findByRole('combobox', { name: /Platform default agent for new chats/i })) as HTMLSelectElement;
-    // Bound value must reflect the configured agent, NOT the empty placeholder.
-    expect(select.value).toBe('hello-world');
-    // And the synthetic option must be in the DOM with a clear label.
-    const synthetic = screen.getByTestId('default-agent-missing-option');
-    expect(synthetic).toHaveTextContent(/hello-world.*not visible to you/i);
+    const picker = await screen.findByRole('button', {
+      name: /Platform default agent for new chats/i,
+    });
+    expect(picker).toHaveTextContent(/hello-world.*not visible to you/i);
+    fireEvent.click(picker);
+    expect(
+      await screen.findByRole('option', { name: /hello-world.*not visible to you/i }),
+    ).toBeInTheDocument();
   });
 
   it('sequences /api/dynamic-agents/available BEFORE /api/admin/platform-config so the user:* OpenFGA grant is reconciled before the default is read', async () => {
@@ -228,7 +285,7 @@ describe('PlatformSettingsTab', () => {
 
     render(<PlatformSettingsTab isAdmin />);
 
-    await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
+    await screen.findByRole('button', { name: /Platform default agent for new chats/i });
 
     // The tab reads the platform default AFTER auto-granting via `available`.
     // The personal picker also reads platform-config independently, so assert
@@ -257,8 +314,11 @@ describe('PlatformSettingsTab', () => {
 
     render(<PlatformSettingsTab isAdmin />);
 
-    const select = await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
-    fireEvent.change(select, { target: { value: '' } });
+    const picker = await screen.findByRole('button', {
+      name: /Platform default agent for new chats/i,
+    });
+    fireEvent.click(picker);
+    fireEvent.click(await screen.findByRole('option', { name: 'No default agent' }));
     fireEvent.click(screen.getByTestId('default-agent-save'));
 
     // Lighter "Remove default" confirmation appears first.
@@ -281,17 +341,17 @@ describe('PlatformSettingsTab', () => {
   it('does not render release notes controls in the Default Agent tab', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
-    await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
+    await screen.findByRole('button', { name: /Platform default agent for new chats/i });
     expect(screen.queryByText('Release notes')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Active release version')).not.toBeInTheDocument();
   });
 
-  it('renders the public-access banner above the default-agent picker', async () => {
+  it('renders a neutral all-users access note above the platform picker', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
-    await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
-    expect(screen.getByTestId('default-agent-public-banner')).toHaveTextContent(
-      /gives every signed-in user access/i,
+    await screen.findByRole('button', { name: /Platform default agent for new chats/i });
+    expect(screen.getByTestId('default-agent-access-note')).toHaveTextContent(
+      /available to every signed-in user/i,
     );
   });
 
@@ -300,7 +360,7 @@ describe('PlatformSettingsTab', () => {
     render(<PlatformSettingsTab isAdmin />);
 
     // Wait for the component to finish loading.
-    await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
+    await screen.findByRole('button', { name: /Platform default agent for new chats/i });
 
     const btn = screen.getByTestId("unlinked-access-button")
     expect(btn).toBeInTheDocument();
@@ -310,7 +370,7 @@ describe('PlatformSettingsTab', () => {
   it('non-admin does NOT see the Unlinked Access card or button', async () => {
     render(<PlatformSettingsTab isAdmin={false} />);
 
-    await screen.findByRole('combobox', { name: /My default agent/i });
+    await screen.findByRole('button', { name: /^My default agent$/i });
 
     expect(screen.queryByTestId("unlinked-access-button")).toBeNull();
   });
@@ -318,8 +378,11 @@ describe('PlatformSettingsTab', () => {
   it('opens the public-access confirmation modal when selecting a new default', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
-    const select = await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
-    fireEvent.change(select, { target: { value: 'sre' } });
+    const picker = await screen.findByRole('button', {
+      name: /Platform default agent for new chats/i,
+    });
+    fireEvent.click(picker);
+    fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
     fireEvent.click(screen.getByTestId('default-agent-save'));
 
     expect(
@@ -338,8 +401,11 @@ describe('PlatformSettingsTab', () => {
   it('does not send PATCH when the public-access modal is cancelled', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
-    const select = await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
-    fireEvent.change(select, { target: { value: 'sre' } });
+    const picker = await screen.findByRole('button', {
+      name: /Platform default agent for new chats/i,
+    });
+    fireEvent.click(picker);
+    fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
     fireEvent.click(screen.getByTestId('default-agent-save'));
 
     fireEvent.click(await screen.findByRole('button', { name: /cancel/i }));
@@ -356,8 +422,11 @@ describe('PlatformSettingsTab', () => {
   it('includes acknowledge_public_access in the PATCH after confirmation', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
-    const select = await screen.findByRole('combobox', { name: /Platform default agent for new chats/i });
-    fireEvent.change(select, { target: { value: 'sre' } });
+    const picker = await screen.findByRole('button', {
+      name: /Platform default agent for new chats/i,
+    });
+    fireEvent.click(picker);
+    fireEvent.click(await screen.findByRole('option', { name: 'Basic SRE' }));
     fireEvent.click(screen.getByTestId('default-agent-save'));
 
     const confirmButton = await screen.findByRole('button', { name: /make it the default/i });

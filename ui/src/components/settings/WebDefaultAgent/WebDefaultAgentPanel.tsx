@@ -2,7 +2,9 @@
 
 import React,{ useCallback,useEffect,useState } from "react";
 
+import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { useAccessibleAgents } from "@/components/settings/DmAgentPreference/useAccessibleAgents";
+import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 
 const PLATFORM_DEFAULT_KEY = "__platform_default__";
 
@@ -96,9 +98,9 @@ interface WebDefaultAgentPanelProps {
 
 /**
  * Personal "Default Agent" section for the Web UI. Lists the agents the user
- * has access to, plus a synthetic "Platform default" entry. Selecting an
- * agent upserts the user's `web_default_agent_id`; selecting platform default
- * clears it so new chats fall through to the admin-configured default.
+ * has access to, plus a synthetic "Platform default" entry. Saving an agent
+ * upserts the user's `web_default_agent_id`; saving platform default clears it
+ * so new chats fall through to the admin-configured default.
  *
  * Renders as a bare section (no Card) so it can be embedded as the "user"
  * portion of the combined Default Agent card, above the admin platform-default
@@ -110,9 +112,11 @@ export function WebDefaultAgentPanel({
   const { agents, loading: agentsLoading, error: agentsError, refresh: refreshAgents } =
     useAccessibleAgents();
   const [selected, setSelected] = useState<string>(PLATFORM_DEFAULT_KEY);
+  const [saved, setSaved] = useState<string>(PLATFORM_DEFAULT_KEY);
   const [preferenceLoading, setPreferenceLoading] = useState<boolean>(true);
   const [platformDefaultId, setPlatformDefaultId] = useState<string | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
+  const [saveResult, setSaveResult] = useState<"success" | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -123,7 +127,9 @@ export function WebDefaultAgentPanel({
         fetchPlatformDefaultAgentId(),
       ]);
       if (cancelled) return;
-      setSelected(agentId ?? PLATFORM_DEFAULT_KEY);
+      const savedKey = agentId ?? PLATFORM_DEFAULT_KEY;
+      setSelected(savedKey);
+      setSaved(savedKey);
       setPlatformDefaultId(platformId);
       if (error) {
         setSaveError(error);
@@ -136,19 +142,33 @@ export function WebDefaultAgentPanel({
   }, []);
 
   const handleSelect = useCallback(
-    async (key: string) => {
-      if (disabled || key === selected) return;
+    (key: string) => {
+      if (disabled) return;
       setSelected(key);
-      setSaving(true);
+      setSaveResult(null);
       setSaveError(null);
-      const agentIdOrNull = key === PLATFORM_DEFAULT_KEY ? null : key;
+    },
+    [disabled],
+  );
+
+  const handleSave = useCallback(
+    async () => {
+      if (disabled || selected === saved) return;
+      setSaving(true);
+      setSaveResult(null);
+      setSaveError(null);
+      const agentIdOrNull = selected === PLATFORM_DEFAULT_KEY ? null : selected;
       const { ok, error } = await persistPreference(agentIdOrNull);
-      if (!ok) {
+      if (ok) {
+        setSaved(selected);
+        setSaveResult("success");
+        setTimeout(() => setSaveResult(null), 3000);
+      } else {
         setSaveError(error ?? "Failed to save preference");
       }
       setSaving(false);
     },
-    [disabled, selected],
+    [disabled, saved, selected],
   );
 
   const loading = agentsLoading || preferenceLoading;
@@ -164,15 +184,22 @@ export function WebDefaultAgentPanel({
   const platformDefaultLabel = platformDefaultName
     ? `Use platform default (${platformDefaultName})`
     : "Use platform default";
+  const pickerOptions: AgentPickerOption[] = [
+    { value: PLATFORM_DEFAULT_KEY, label: platformDefaultLabel },
+    ...agents.map((agent) => ({ value: agent.id, label: agent.name })),
+  ];
+  const selectedAgentId =
+    selected === PLATFORM_DEFAULT_KEY ? platformDefaultId : selected;
+  const selectedAgentDescription = selectedAgentId
+    ? agents.find((agent) => agent.id === selectedAgentId)?.description
+    : null;
 
   return (
     <div className="space-y-3">
       <div>
         <p className="text-sm font-medium">My default agent</p>
         <p className="text-xs text-muted-foreground">
-          Choose the agent your new web chats open with. This overrides the
-          platform default just for you. Pick <em>Use platform default</em> to
-          follow whatever your administrators have configured.
+          Choose the agent your new web chats open with.
         </p>
       </div>
 
@@ -197,23 +224,38 @@ export function WebDefaultAgentPanel({
           access to an agent or to add you to a team that has one.
         </p>
       ) : (
-        // A user may own hundreds of agents, so this is a dropdown rather than
-        // a radio list. Defaults to "Use platform default".
-        <select
-          aria-label="My default agent"
+        <AgentPicker
+          ariaLabel="My default agent"
+          options={pickerOptions}
           value={selected}
-          onChange={(e) => void handleSelect(e.target.value)}
+          onChange={(value) => void handleSelect(value)}
           disabled={inputsDisabled}
-          className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-        >
-          <option value={PLATFORM_DEFAULT_KEY}>{platformDefaultLabel}</option>
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
+          clearValue={PLATFORM_DEFAULT_KEY}
+          hideIdSuffix
+          placeholder="Select your default agent..."
+          searchPlaceholder="Search agents..."
+          emptyLabel="No agents match"
+          triggerClassName="max-w-sm"
+        />
       )}
+
+      {!loading && !agentsError && selectedAgentDescription ? (
+        <p className="text-xs text-muted-foreground">
+          {`Agent Description: ${selectedAgentDescription}`}
+        </p>
+      ) : null}
+
+      {!loading && !agentsError && agents.length > 0 ? (
+        <SaveButton
+          onSave={handleSave}
+          saving={saving}
+          dirty={selected !== saved}
+          disabled={disabled}
+          result={saveResult}
+          ariaLabel="Save my default agent"
+          testId="web-default-agent-save"
+        />
+      ) : null}
 
       {saveError ? (
         <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-sm">
