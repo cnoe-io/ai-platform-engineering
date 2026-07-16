@@ -53,6 +53,11 @@ export interface StreamParams {
   forwardedProps?: Record<string, unknown>;
   /** Opaque client context passed to the backend for system prompt rendering */
   clientContext?: Record<string, unknown>;
+  /**
+   * Multimodal attachments for this turn. Forwarded verbatim as the request's
+   * top-level `files` field; the backend maps each to an image/document block.
+   */
+  files?: Array<{ mime_type: string; data: string; name: string }>;
 }
 
 // ═══════════════════════════════════════════════════════════════
