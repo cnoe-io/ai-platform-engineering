@@ -28,7 +28,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -52,7 +52,7 @@ const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
 
 const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
 jest.mock('@/lib/rbac/user-insights-scope', () => ({
-  getReadableSlackChannelNames: (...args: any[]) => mockGetReadableSlackChannelNames(...args),
+  getReadableSlackChannelNames: (...args: unknown[]) => mockGetReadableSlackChannelNames(...args),
 }));
 
 const mockCheckOpenFgaTuple = jest.fn();
@@ -73,7 +73,7 @@ jest.mock('@/lib/config', () => ({
   },
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -83,7 +83,7 @@ const mockGetCollection = jest.fn((name: string) => {
 
 let mockIsMongoDBConfigured = true;
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   get isMongoDBConfigured() {
     return mockIsMongoDBConfigured;
   },
@@ -166,27 +166,8 @@ function userSessionNoSub() {
   };
 }
 
-function makeFeedbackMessage(overrides: Partial<any> = {}) {
-  return {
-    _id: new ObjectId(),
-    message_id: 'msg-1',
-    conversation_id: 'conv-1',
-    content: 'Test assistant response content',
-    role: 'assistant',
-    feedback: {
-      rating: 'positive',
-      comment: 'Very Helpful',
-      submitted_at: new Date('2026-03-01'),
-      submitted_by: 'user@example.com',
-    },
-    created_at: new Date('2026-03-01'),
-    owner_id: 'user@example.com',
-    ...overrides,
-  };
-}
-
 /** Unified feedback doc (new schema) */
-function makeFeedbackDoc(overrides: Partial<any> = {}) {
+function makeFeedbackDoc(overrides: Partial<unknown> = {}) {
   return {
     _id: new ObjectId(),
     message_id: 'msg-1',
@@ -202,7 +183,7 @@ function makeFeedbackDoc(overrides: Partial<any> = {}) {
 }
 
 /** Setup feedback collection with chainable find mock */
-function setupFeedbackCollection(docs: any[], totalCount: number) {
+function setupFeedbackCollection(docs: unknown[], totalCount: number) {
   const feedbackCol = createMockCollection();
   feedbackCol.find.mockReturnValue({
     sort: jest.fn().mockReturnValue({
@@ -369,10 +350,10 @@ describe('GET /api/admin/feedback', () => {
 
     await GET(makeRequest('/api/admin/feedback'));
     const channelDistinctArgs = feedbackCol.distinct.mock.calls.find(
-      (call: any[]) => call[0] === 'channel_name'
+      (call: unknown[]) => call[0] === 'channel_name'
     );
     const userDistinctArgs = feedbackCol.distinct.mock.calls.find(
-      (call: any[]) => call[0] === 'user_email'
+      (call: unknown[]) => call[0] === 'user_email'
     );
     expect(channelDistinctArgs?.[1].$or).toBeDefined();
     expect(userDistinctArgs?.[1].$or).toBeDefined();

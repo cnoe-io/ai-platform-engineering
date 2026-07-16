@@ -65,7 +65,7 @@ jest.mock('@/lib/config', () => ({
 
 // Mock MongoDB - use getter for isMongoDBConfigured to support 503 tests
 let mockIsMongoDBConfigured = true;
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -253,7 +253,7 @@ beforeEach(() => {
 // ============================================================================
 
 describe('PATCH /api/admin/users/[id]/role', () => {
-  let PATCH: any;
+  let PATCH: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -405,7 +405,7 @@ describe('PATCH /api/admin/users/[id]/role', () => {
 // ============================================================================
 
 describe('POST /api/admin/teams/[id]/members', () => {
-  let POST: any;
+  let POST: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -554,7 +554,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
 // ============================================================================
 
 describe('DELETE /api/admin/teams/[id]/members', () => {
-  let DELETE: any;
+  let DELETE: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -679,7 +679,7 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
 // ============================================================================
 
 describe('POST /api/admin/migrate-conversations', () => {
-  let POST: any;
+  let POST: unknown;
 
   beforeEach(async () => {
     resetRouteModules();

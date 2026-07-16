@@ -17,7 +17,6 @@ import { signLocalSkillsToken } from '@/lib/jwt-validation';
 import { NextRequest,NextResponse } from 'next/server';
 
 const MAX_DAYS = 90;
-const ALLOWED_DAYS = [30, 60, 90];
 
 export async function POST(request: NextRequest) {
   try {

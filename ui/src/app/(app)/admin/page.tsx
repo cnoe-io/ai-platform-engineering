@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 // assisted-by Codex Codex-sonnet-4-6
 
 import {
@@ -63,7 +65,7 @@ import type { Team as TeamType } from "@/types/teams";
 import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
-import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
+import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
 
 interface AdminStats {
   platform_summary?: {
@@ -543,7 +545,6 @@ function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
-  const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const [simulationType, setSimulationType] = useState<"user" | "team">(simulationTarget?.type ?? "user");
   const [simulationId, setSimulationId] = useState(simulationTarget?.id ?? "");
   const [simulationRelation, setSimulationRelation] = useState<"member" | "admin">(
@@ -888,9 +889,8 @@ function AdminPage() {
       setLoading(false);
     }
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
-    loadTabData(activeTab);
+    loadTabDataEvent(activeTab);
   }, [activeTab, simulationScopeKey, status]);
-
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
       cache: 'no-store',
@@ -910,7 +910,7 @@ function AdminPage() {
   const loadTeams = async () => {
     try {
       setTeams(await fetchTeamsFromDb());
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to refresh teams:', err);
     }
   };
@@ -939,7 +939,7 @@ function AdminPage() {
       setGridTotal(result.data?.total ?? 0);
       setGridPage(result.data?.page ?? page);
       setGridLoaded(true);
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to load teams page:', err);
     } finally {
       setGridLoading(false);
@@ -995,7 +995,7 @@ function AdminPage() {
   };
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, teams });
   const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     const requestScopeKey = simulationScopeKey;
@@ -1025,15 +1025,17 @@ function AdminPage() {
       }
     }
   };
+  const fetchStatsWithFiltersEvent = useEffectEvent(fetchStatsWithFilters);
   useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter };
+    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, teams };
     if (statsFilterRef.current.range === current.range
       && statsFilterRef.current.source === current.source
       && statsFilterRef.current.users === current.users
-      && statsFilterRef.current.channels === current.channels) return; // skip initial
+      && statsFilterRef.current.channels === current.channels
+      && statsFilterRef.current.teams === current.teams) return; // skip initial
     statsFilterRef.current = current;
-    fetchStatsWithFilters();
-  }, [dateRange, sourceFilter, userFilter, status]);
+    fetchStatsWithFiltersEvent();
+  }, [dateRange, sourceFilter, userFilter, statsChannelFilter, status, teams]);
 
   const loadStats = async () => {
     const requestScopeKey = simulationScopeKey;
@@ -1077,10 +1079,10 @@ function AdminPage() {
       } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
-    } catch (err: any) {
+    } catch (err) {
       if (activeDataScopeKeyRef.current !== requestScopeKey) return;
       console.error('[Admin] Failed to load stats:', err);
-      setError(err.message || 'Failed to load stats');
+      setError(getErrorMessage(err, "") || 'Failed to load stats');
     } finally {
       if (activeDataScopeKeyRef.current === requestScopeKey) {
         setLoading(false);
@@ -1091,7 +1093,7 @@ function AdminPage() {
   const loadTeamsData = async () => {
     try {
       setTeams(await fetchTeamsFromDb());
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to load teams:', err);
     }
   };
@@ -1162,6 +1164,14 @@ function AdminPage() {
     const loader = loaders[tab];
     if (loader) await loader();
   };
+
+  const loadTabDataEvent = useEffectEvent(loadTabData);
+
+  // Load data once when a tab is first visited.
+  useEffect(() => {
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    loadTabDataEvent(activeTab);
+  }, [activeTab, status]);
 
   const loadFeedback = async (
     rating?: 'positive' | 'negative' | 'all',
@@ -1244,9 +1254,9 @@ function AdminPage() {
       refreshAfterTeamMutation(nextPage);
       setTeamPendingDelete(null);
       console.log(`[Admin] Team deleted: ${team.name}`);
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to delete team:', err);
-      alert(`Failed to delete team: ${err.message}`);
+      alert(`Failed to delete team: ${getErrorMessage(err, "")}`);
     } finally {
       setDeletingTeam(null);
     }
@@ -2877,7 +2887,7 @@ function AdminPage() {
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
-                  <AuditLogsTab isAdmin={canMutateAdminData} onUserClick={setSelectedUserEmail} />
+                  <AuditLogsTab onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 

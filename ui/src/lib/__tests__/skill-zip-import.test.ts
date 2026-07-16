@@ -16,7 +16,6 @@ import {
   buildConflictDecisions,
   getMaxZipEntries,
   DEFAULT_MAX_ZIP_ENTRIES,
-  MAX_TOTAL_UNCOMPRESSED_BYTES,
   MAX_ANCILLARY_FILE_BYTES,
   MAX_SKILLS_PER_ZIP,
 } from "@/lib/skill-zip-import";

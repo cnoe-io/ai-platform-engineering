@@ -21,7 +21,7 @@ jest.mock("@/components/admin/shared/SimpleLineChart", () => ({
 
 // Mock cn utility
 jest.mock("@/lib/utils", () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(" "),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
 
 // Mock DateRangeFilter to render simple preset buttons
@@ -44,7 +44,7 @@ jest.mock("@/components/admin/shared/DateRangeFilter", () => {
   return {
     __esModule: true,
     presetToRange,
-    DateRangeFilter: ({ value, onChange }: any) => (
+    DateRangeFilter: ({ onChange }: unknown) => (
       <div data-testid="date-range-filter">
         {["24h", "7d", "30d", "90d"].map((p) => (
           <button key={p} onClick={() => onChange(p, presetToRange(p))}>{p}</button>
@@ -99,7 +99,7 @@ describe("CheckpointStatsSection", () => {
   });
 
   it("shows loading state initially", () => {
-    global.fetch = jest.fn(() => new Promise(() => {})) as any;
+    global.fetch = jest.fn(() => new Promise(() => {})) as unknown;
     render(<CheckpointStatsSection />);
     expect(screen.getByText("Loading checkpoint stats...")).toBeInTheDocument();
   });
@@ -110,7 +110,7 @@ describe("CheckpointStatsSection", () => {
         ok: false,
         json: () => Promise.resolve({ error: "MongoDB not configured" }),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -125,7 +125,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -146,7 +146,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -164,7 +164,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -182,7 +182,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
     global.fetch = fetchMock;
 
     render(<CheckpointStatsSection />);
@@ -210,7 +210,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -233,7 +233,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(cleanStats),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -248,7 +248,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 
@@ -263,7 +263,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(MOCK_STATS),
       }),
-    ) as any;
+    ) as unknown;
     global.fetch = fetchMock;
 
     render(<CheckpointStatsSection />);
@@ -304,7 +304,7 @@ describe("CheckpointStatsSection", () => {
         ok: true,
         json: () => Promise.resolve(statsWithPeek),
       }),
-    ) as any;
+    ) as unknown;
 
     render(<CheckpointStatsSection />);
 

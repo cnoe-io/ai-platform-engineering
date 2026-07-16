@@ -1,3 +1,4 @@
+import { getErrorMessage } from "@/lib/error-utils";
 import { Button } from "@/components/ui/button";
 import {
 Dialog,
@@ -83,9 +84,9 @@ export function CreateTeamDialog({
       // Close dialog and trigger refresh
       onOpenChange(false);
       onSuccess();
-    } catch (err: any) {
+    } catch (err) {
       console.error("[CreateTeamDialog] Failed to create team:", err);
-      setError(err.message || "Failed to create team");
+      setError(getErrorMessage(err, "") || "Failed to create team");
     } finally {
       setLoading(false);
     }

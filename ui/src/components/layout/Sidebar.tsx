@@ -41,7 +41,6 @@ import { useEffect,useState,useTransition } from "react";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";
-  onTabChange: (tab: "chat" | "gallery" | "knowledge" | "admin") => void;
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
   onUseCaseSaved?: () => void;
@@ -71,7 +70,7 @@ function getScheduleBadge(conv: Conversation): { label: string; title: string } 
   return { label: legacyMatch[0], title: `Scheduled run ${legacyMatch[0]}` };
 }
 
-export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
+export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
   const router = useRouter();
   const {
     conversations,
@@ -88,7 +87,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [sidebarWidth, setSidebarWidth] = useState(320); // Track sidebar width
   const [isResizing, setIsResizing] = useState(false);
   const [isReloading, setIsReloading] = useState(false);

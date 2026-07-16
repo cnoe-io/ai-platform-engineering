@@ -21,6 +21,7 @@ resolveKeycloakUserSubject,
 writeTeamMembershipTuples,
 } from '@/lib/rbac/team-membership-sync';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
+import type { Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,15 @@ interface CreateTeamRequest {
   slug?: string;
   description?: string;
   members?: string[];
+}
+
+interface TeamListDocument extends Document {
+  created_at?: Date;
+  description?: string;
+  name?: string;
+  owner_id?: string;
+  slug?: string;
+  status?: string;
 }
 
 /**
@@ -101,7 +111,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
   }
 
-  const teams = await getCollection('teams');
+  const teams = await getCollection<TeamListDocument>('teams');
 
   // Pagination + server-side search are OPT-IN via the `page` query param.
   // The Admin Teams grid sends `?page=&page_size=&search=` so it only ever
@@ -145,7 +155,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const query: Record<string, unknown> = andClauses.length > 0 ? { $and: andClauses } : {};
 
   // The page (or full set) of team documents to decorate + return.
-  let pageTeams: Record<string, any>[];
+  let pageTeams: TeamListDocument[];
   let total: number;
   if (paginated) {
     total = await teams.countDocuments(query);
@@ -278,7 +288,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    const teams = await getCollection('teams');
+    const teams = await getCollection<TeamListDocument>('teams');
     
     // Check if team name already exists
     const existing = await teams.findOne({ name: body.name });

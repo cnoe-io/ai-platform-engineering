@@ -31,7 +31,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -47,13 +47,13 @@ jest.mock('@/lib/config', () => ({
 const mockFilterConversations = jest.fn();
 const mockGetDirectSharingAccessConversationIds = jest.fn();
 jest.mock('@/lib/rbac/conversation-implicit-authz', () => ({
-  filterConversationsByImplicitOrExplicitPermission: (...args: any[]) =>
+  filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
     mockFilterConversations(...args),
-  getDirectSharingAccessConversationIds: (...args: any[]) =>
+  getDirectSharingAccessConversationIds: (...args: unknown[]) =>
     mockGetDirectSharingAccessConversationIds(...args),
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -62,7 +62,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 
@@ -102,7 +102,7 @@ function userSession(email = 'caller@example.com') {
   return { user: { email, name: 'Test User' }, role: 'user' };
 }
 
-function makeConversation(overrides: Record<string, any> = {}) {
+function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     _id: 'conv-' + Math.random().toString(36).slice(2, 10),
     title: 'Test Conversation',
@@ -126,13 +126,13 @@ const CALLER = 'caller@example.com';
 // Setup
 // ============================================================================
 
-let GET: any;
+let GET: unknown;
 
 beforeEach(async () => {
   jest.clearAllMocks();
   Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
   // Default: filterConversations passes everything through
-  mockFilterConversations.mockImplementation((_session: any, _email: string, items: any[]) =>
+  mockFilterConversations.mockImplementation((_session: unknown, _email: string, items: unknown[]) =>
     Promise.resolve(items)
   );
   mockGetDirectSharingAccessConversationIds.mockResolvedValue([]);
@@ -207,7 +207,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
     await GET(makeRequest('/api/chat/shared'));
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const orClauses: any[] = findCall.$or;
+    const orClauses: unknown[] = findCall.$or;
     const directShareClause = orClauses.find(
       (c) => c['sharing.shared_with'] === CALLER
     );
@@ -270,7 +270,7 @@ describe('security — MongoDB pre-filter (issue #1979)', () => {
     expect(findCall.$or).toBeDefined();
     // None of the $or clauses should be a bare { owner_id: anything } — i.e.
     // the query must require some sharing signal
-    const orClauses: any[] = findCall.$or;
+    const orClauses: unknown[] = findCall.$or;
     const hasUnguardedClause = orClauses.some(
       (c) => !Object.keys(c).some((k) => k.startsWith('sharing.')) && !('_id' in c)
     );

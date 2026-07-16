@@ -193,7 +193,7 @@ export function InterruptConfigPicker({
       if (row.namespace !== "builtin" && (val === true || (Array.isArray(val) && val.length === 0))) return false;
       return !available.includes(row.tool);
     },
-    [allowedTools, builtinTools],
+    [allowedTools, builtinTools, probedTools],
   );
 
   const addRow = () => {

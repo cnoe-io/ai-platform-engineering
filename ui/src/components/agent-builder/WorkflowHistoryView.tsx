@@ -234,8 +234,6 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
             const config = STATUS_CONFIG[run.status];
             const Icon = config.icon;
             const startedAt = new Date(run.started_at);
-            const completedAt = run.completed_at ? new Date(run.completed_at) : null;
-
             const isExpanded = expandedRunId === run.id;
             
             return (

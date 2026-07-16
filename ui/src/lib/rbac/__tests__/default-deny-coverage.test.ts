@@ -19,13 +19,13 @@ jest.mock("@/lib/authz", () => ({
 import { requireResourcePermission } from "../resource-authz";
 import { UNIVERSAL_REBAC_RESOURCE_TYPES } from "../resource-model";
 import { isUnsafeRbacBypassEnabled } from "../bypass";
-import type { OpenFgaCheckResult, OpenFgaTupleKey } from "../openfga";
+import type { OpenFgaCheckResult } from "../openfga";
 import type { ResourcePermissionAction } from "../resource-authz";
 
 const registryTypes = UNIVERSAL_REBAC_RESOURCE_TYPES.map((d) => d.type);
 
 /** Simulates an OpenFGA store with NO tuples for this subject — everything denied. */
-const denyAll = async (_tuple: OpenFgaTupleKey): Promise<OpenFgaCheckResult> => ({
+const denyAll = async (): Promise<OpenFgaCheckResult> => ({
   allowed: false,
 });
 

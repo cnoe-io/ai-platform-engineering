@@ -2,14 +2,13 @@
 
 import { useSigma } from "@react-sigma/core";
 import { FC,PropsWithChildren,useEffect } from "react";
+import type { GraphEdgeAttributes,GraphNodeAttributes,KnowledgeGraph } from '../../graphTypes';
 
-export interface GraphFilters {
-    [key: string]: any;
-}
+export type GraphFilters = Record<string, unknown>;
 
 interface GraphDataControllerProps {
     filters: GraphFilters;
-    customFilterLogic?: (graph: any, filters: GraphFilters) => void;
+    customFilterLogic?: (graph: KnowledgeGraph, filters: GraphFilters) => void;
 }
 
 /**
@@ -17,7 +16,7 @@ interface GraphDataControllerProps {
  * Can be customized with custom filter logic or uses default entity type filtering.
  */
 const GraphDataController: FC<PropsWithChildren<GraphDataControllerProps>> = ({ filters, customFilterLogic, children }) => {
-    const sigma = useSigma();
+    const sigma = useSigma<GraphNodeAttributes,GraphEdgeAttributes>();
     const graph = sigma.getGraph();
 
     /**

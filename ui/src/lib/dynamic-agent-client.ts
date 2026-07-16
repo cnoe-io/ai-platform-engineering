@@ -235,14 +235,6 @@ export class DynamicAgentClient {
     }
   }
 
-  async *resumeStream(
-    _conversationId: string,
-    _agentId: string,
-    _formData: string,
-  ): AsyncGenerator<SSEAgentEvent, void, undefined> {
-    console.warn("[DynamicAgentClient] resumeStream is a no-op stub — this code path is dead.");
-  }
-
   /**
    * Parse SSE stream from a fetch Response using getReader (Safari-compatible).
    */

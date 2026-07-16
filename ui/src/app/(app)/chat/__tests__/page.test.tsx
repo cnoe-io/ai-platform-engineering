@@ -51,7 +51,7 @@ jest.mock("@/lib/chat-agent-selection", () => ({
 
 const mockCreateConversation = jest.fn(() => "new-conv-id");
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined);
-let mockConversations: any[] = [];
+let mockConversations: unknown[] = [];
 let mockActiveConversationId: string | null = null;
 const mockGetLastActiveConversationId = jest.fn(() => null);
 
@@ -61,7 +61,7 @@ jest.mock("@/store/chat-store", () => {
     activeConversationId: mockActiveConversationId,
   });
 
-  const store = (selector?: (s: any) => any) => {
+  const store = (selector?: (s: unknown) => unknown) => {
     const state = {
       createConversation: mockCreateConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,

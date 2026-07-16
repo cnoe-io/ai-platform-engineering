@@ -17,9 +17,48 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from '@/lib/server-response-cache';
+import type { Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 const adminStatsCache = createJsonResponseCacheStore();
+
+interface SlackStats {
+  channels: {
+    ai_enabled?: number;
+    alerts_enabled?: number;
+    qanda_enabled?: number;
+    total?: number;
+  };
+  daily: Array<{
+    date: string;
+    escalated: number;
+    interactions: number;
+    resolved: number;
+    unique_users: number;
+  }>;
+  resolution: {
+    estimated_hours_saved: number;
+    resolution_rate: number;
+    resolved_threads: number;
+    total_threads: number;
+  };
+  top_channels: Array<{
+    channel_name: string;
+    interactions: number;
+    resolution_rate: number;
+    resolved: number;
+  }>;
+  total_interactions: number;
+  unique_users: number;
+}
+
+interface ChannelStatsDocument extends Document {
+  _id: string;
+  ai_enabled?: number;
+  alerts_enabled?: number;
+  qanda_enabled?: number;
+  total?: number;
+}
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
 function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {
@@ -130,8 +169,8 @@ async function getAdminStats(request: NextRequest) {
     // must derive from the scoped conversations, never from the platform-wide
     // users collection (which would leak global active-user counts).
     const hasFilters = !!sourceFilter || userEmails.length > 0 || !!nonAdminScope;
-    const convSourceFilter: Record<string, any> = {};
-    const msgOwnerFilter: Record<string, any> = {};
+    const convSourceFilter: Document = {};
+    const msgOwnerFilter: Document = {};
     if (sourceFilter === 'web') {
       convSourceFilter.source = { $ne: 'slack' };
       convSourceFilter.client_type = { $ne: 'slack' };
@@ -318,7 +357,7 @@ async function getAdminStats(request: NextRequest) {
     // ═══════════════════════════════════════════════════════════════
     const feedbackColl = await getCollection('feedback'); // collection ref is instant; fetch inside the batch below
 
-    const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
+    const fbFilter: Document = { created_at: { $gte: rangeStart } };
     if (sourceFilter === 'web') fbFilter.source = 'web';
     else if (sourceFilter === 'slack') {
       fbFilter.source = 'slack';
@@ -655,7 +694,7 @@ async function getAdminStats(request: NextRequest) {
     // ═══════════════════════════════════════════════════════════════
     // SLACK STATS (from conversations with source:"slack" or client_type:"slack")
     // ═══════════════════════════════════════════════════════════════
-    let slack: any = undefined;
+    let slack: SlackStats | undefined;
 
     // Slack block channel scope: admins use the `channel` query param; a
     // non-admin is hard-bounded to their readable channels (their web
@@ -665,7 +704,7 @@ async function getAdminStats(request: NextRequest) {
     const skipSlackBlock = !!nonAdminScope && nonAdminChannelNames.length === 0;
 
     try {
-      const slackFilter: Record<string, any> = { ...SLACK_CONV_MATCH, created_at: { $gte: rangeStart } };
+      const slackFilter: Document = { ...SLACK_CONV_MATCH, created_at: { $gte: rangeStart } };
       if (slackChannelScope.length > 0) {
         const names = slackChannelScope.length === 1 ? slackChannelScope[0] : { $in: slackChannelScope };
         // Override $or with $and to combine slack match + channel match
@@ -680,7 +719,7 @@ async function getAdminStats(request: NextRequest) {
       const slackHasData = skipSlackBlock ? 0 : await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
 
       if (slackHasData > 0) {
-        const platformConfig = await getCollection('platform_config');
+        const platformConfig = await getCollection<ChannelStatsDocument>('platform_config');
 
         // Helper: coalesce old slack_meta and new metadata fields
         const userId = { $ifNull: ['$metadata.user_id', '$slack_meta.user_id'] };
@@ -690,7 +729,7 @@ async function getAdminStats(request: NextRequest) {
         const [configDoc, slackTotal, slackUniqueUsers, slackResolution, slackDailyAgg, slackTopChannels] =
           await Promise.all([
             // Channel config
-            platformConfig.findOne({ _id: 'channel_stats' as any }),
+            platformConfig.findOne({ _id: 'channel_stats' }),
             // Total interactions (threads) in range
             conversations.countDocuments(slackFilter),
             // Unique Slack users
