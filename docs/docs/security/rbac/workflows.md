@@ -1180,8 +1180,8 @@ sequenceDiagram
     else linked
         MDB-->>Bot: keycloak_user_id
         alt direct message (DM / 1:1)
-            note over Bot: DM dispatch chain (post-Phase-3):<br/>override → dm_default_agent_id → realm dm_agent_id → default_agent_id → deny.<br/>No team context, no team-scope OBO.
-            Bot->>BFF: GET /api/user/preferences (load dm_default_agent_id)
+            note over Bot: DM dispatch chain:<br/>override → surface preference/platform default → deployment fallback → deny.<br/>No team context, no team-scope OBO.
+            Bot->>BFF: GET /api/user/preferences<br/>(load surface + platform defaults)
             Bot->>Bot: Resolve effective agent_id
             alt no agent resolvable
                 Bot-->>User: "no default agent" + /caipe-list hint
@@ -1307,42 +1307,44 @@ operator-facing render of exactly which `team:<slug>#member` tuples the
 next save will write to OpenFGA, so admins can confirm the transitive
 grant before the form is submitted.
 
-### `/use default` workflow (DM personal default)
+### Personal defaults and `/use default`
 
-`/caipe-use default <agent_id>` and `/caipe-use default` (no agent) update a
-single per-user preference (`dm_default_agent_id`) in one round-trip. The
-bot resolves the agent (or `null`), checks the user can `can_use` it (when
-setting), then writes the preference. The next DM dispatches via the
-personal chain and lands on the new default.
+Users save independent Web, Slack, and Webex defaults in Admin → Settings.
+Each non-null selection is checked against the user's effective access before
+all changed fields are written atomically. A null selection uses the platform
+default. Slack `/caipe-use default` and Webex `use default` clear the current
+surface preference together with the active conversation override.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as Slack/Webex user
+    actor U as Signed-in user
+    participant UI as Admin → Settings
     participant Bot as Slack/Webex bot
     participant BFF as CAIPE UI BFF
     participant FGA as OpenFGA
     participant MDB as MongoDB user_preferences
 
-    U->>Bot: /caipe-use default my-agent<br/>(or /caipe-use default to clear)
-    Bot->>BFF: POST /api/user/check_agent_access<br/>(skip when clearing)
+    U->>UI: Select Web, Slack, and/or Webex defaults
+    UI->>BFF: PUT /api/user/preferences<br/>{ surface_default_agent_id: "my-agent" }
     BFF->>FGA: Check user:{sub} can_use agent:{my-agent}
     FGA-->>BFF: allowed | denied
     alt setting + denied
-        BFF-->>Bot: { allowed: false, reason }
-        Bot-->>U: "you don't have access to my-agent"
-    else clearing or allowed
-        Bot->>BFF: PUT /api/user/preferences<br/>{ dm_default_agent_id: "my-agent" | null }
+        BFF-->>UI: "you don't have access to my-agent"
+    else allowed
         BFF->>MDB: upsert user_preferences row
         MDB-->>BFF: ok
-        BFF-->>Bot: 204
-        Bot-->>U: "default agent set to my-agent" / "default cleared"
+        BFF-->>UI: saved
     end
+    U->>Bot: /caipe-use default or use default
+    Bot->>BFF: PUT /api/user/preferences<br/>{ slack_default_agent_id: null }<br/>or { webex_default_agent_id: null }
+    BFF->>MDB: clear surface preference
+    Bot-->>U: override cleared; platform default restored
 ```
 
-Both the override (live DM dispatch) and the preference (next-DM default)
-are cleared in a single round-trip when the user passes the bare form,
-matching FR-029a in spec 2026-05-24-derive-team-from-channel.
+The historical shared DM field is no longer read or written. Existing users
+without a surface-specific selection return to the platform default and can
+choose a new value in Settings.
 
 ```mermaid
 sequenceDiagram

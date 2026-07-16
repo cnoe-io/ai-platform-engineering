@@ -9,7 +9,7 @@
 #   1) Initial state — clear any saved pref so the user is on deployment default.
 #   2) GET /api/user/preferences returns source="not_set".
 #   3) Manual: send DM to bot — expects deployment dm_agent_id reply.
-#   4) PUT /api/user/preferences sets dm_default_agent_id.
+#   4) PUT /api/user/preferences sets slack_default_agent_id.
 #   5) GET returns source="saved" with the new agent_id.
 #   6) Manual: send DM — expects saved-pref agent reply.
 #   7) Manual: /caipe-use <override-agent> — expects "use_ok" ephemeral.
@@ -34,8 +34,8 @@ wait_for_bff
 # Pin 1 — clear any pre-existing preference so we start clean
 # ---------------------------------------------------------------------------
 _log "Pin 1 — clearing any pre-existing DM preference"
-clear_body=$(_curl /api/user/preferences -X PUT -d '{"dm_default_agent_id": null}')
-assert_jq_eq "Pin 1" "$clear_body" '.data.dm_default_agent_id' "null"
+clear_body=$(_curl /api/user/preferences -X PUT -d '{"slack_default_agent_id": null}')
+assert_jq_eq "Pin 1" "$clear_body" '.data.slack_default_agent_id' "null"
 
 # ---------------------------------------------------------------------------
 # Pin 2 — read back: source should be "not_set"
@@ -44,11 +44,11 @@ _log "Pin 2 — GET /api/user/preferences"
 get_body=$(_curl /api/user/preferences)
 # We accept either "not_set" or a null agent_id with source="saved" depending
 # on BFF semantics — both mean "no override; resolver will use deployment default".
-agent_after_clear=$(jq -r '.data.dm_default_agent_id // "null"' <<<"$get_body")
+agent_after_clear=$(jq -r '.data.slack_default_agent_id // "null"' <<<"$get_body")
 if [[ "$agent_after_clear" == "null" ]]; then
-  _pass "Pin 2: dm_default_agent_id is null after clear"
+  _pass "Pin 2: slack_default_agent_id is null after clear"
 else
-  _fail "Pin 2: expected dm_default_agent_id=null, got $agent_after_clear"
+  _fail "Pin 2: expected slack_default_agent_id=null, got $agent_after_clear"
 fi
 
 # ---------------------------------------------------------------------------
@@ -66,15 +66,15 @@ read -r _
 # Pin 4 — set saved preference
 # ---------------------------------------------------------------------------
 _log "Pin 4 — PUT saved preference to ${TEST_AGENT_ID}"
-put_body=$(_curl /api/user/preferences -X PUT -d "{\"dm_default_agent_id\": \"${TEST_AGENT_ID}\"}")
-assert_jq_eq "Pin 4" "$put_body" '.data.dm_default_agent_id' "$TEST_AGENT_ID"
+put_body=$(_curl /api/user/preferences -X PUT -d "{\"slack_default_agent_id\": \"${TEST_AGENT_ID}\"}")
+assert_jq_eq "Pin 4" "$put_body" '.data.slack_default_agent_id' "$TEST_AGENT_ID"
 
 # ---------------------------------------------------------------------------
 # Pin 5 — read back saved
 # ---------------------------------------------------------------------------
 _log "Pin 5 — GET saved preference"
 get_body=$(_curl /api/user/preferences)
-assert_jq_eq "Pin 5" "$get_body" '.data.dm_default_agent_id' "$TEST_AGENT_ID"
+assert_jq_eq "Pin 5" "$get_body" '.data.slack_default_agent_id' "$TEST_AGENT_ID"
 
 # ---------------------------------------------------------------------------
 # Pin 6 — MANUAL: DM expects saved-pref agent
@@ -123,7 +123,7 @@ read -r _
 # ---------------------------------------------------------------------------
 _log "Pin 10 — GET after /caipe-use default — expect null preference"
 get_body=$(_curl /api/user/preferences)
-agent_after_default=$(jq -r '.data.dm_default_agent_id // "null"' <<<"$get_body")
+agent_after_default=$(jq -r '.data.slack_default_agent_id // "null"' <<<"$get_body")
 if [[ "$agent_after_default" == "null" ]]; then
   _pass "Pin 10: preference cleared by /caipe-use default"
 else

@@ -20,9 +20,18 @@ from ai_platform_engineering.integrations.webex_bot.app import (
     WebexRouteResolution,
     handle_webex_message,
 )
+from ai_platform_engineering.integrations.webex_bot.utils.dm_authz_client import (
+    DmAgentAccessDecision,
+)
+from ai_platform_engineering.integrations.webex_bot.utils.dm_thread_overrides import (
+    OverrideStore,
+)
 from ai_platform_engineering.integrations.webex_bot.utils.obo_exchange import OboToken
 from ai_platform_engineering.integrations.webex_bot.utils.space_team_resolver import (
     SpaceTeamResolution,
+)
+from ai_platform_engineering.integrations.webex_bot.utils.user_preferences_client import (
+    UserPreferenceResult,
 )
 from ai_platform_engineering.integrations.webex_bot.utils.webex_rebac import (
     WebexSpaceRebacDecision,
@@ -437,3 +446,55 @@ def test_direct_webex_event_passes_direct_flag_to_route_resolver() -> None:
     assert result.dispatched is True
     assert route_resolver.calls[0]["is_direct"] is True
     assert dispatcher.calls[0]["agent_id"] == "incident-agent"
+
+
+def test_default_direct_route_uses_webex_preference(monkeypatch) -> None:
+    import ai_platform_engineering.integrations.webex_bot.app as app_module
+
+    class _Preferences:
+        def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
+            assert bearer_token == "obo-access"
+            return UserPreferenceResult(agent_id="personal-webex-agent", source="saved")
+
+    class _Authz:
+        def check_agent_access(
+            self, *, agent_id: str, bearer_token: str
+        ) -> DmAgentAccessDecision:
+            assert agent_id == "personal-webex-agent"
+            assert bearer_token == "obo-access"
+            return DmAgentAccessDecision(
+                allowed=True,
+                reason="ALLOW",
+                path="direct_user_grant",
+                available=True,
+                matched_team_slug=None,
+            )
+
+    monkeypatch.setattr(app_module, "_user_preferences_client", _Preferences())
+    monkeypatch.setattr(app_module, "_dm_authz_client", _Authz())
+    monkeypatch.setattr(
+        app_module,
+        "get_default_override_store",
+        lambda: OverrideStore(),
+    )
+
+    dispatcher = FakeDispatcher()
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="howdy") | {"roomType": "direct"},
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            # Direct messages use the personal-access check above, not a
+            # shared-space assignment.
+            rebac_checker=FakeRebacChecker(
+                allowed=False,
+                reason="missing_space_grant",
+            ),
+            dispatcher=dispatcher,
+        )
+    )
+
+    assert result.allowed is True
+    assert result.agent_id == "personal-webex-agent"
+    assert dispatcher.calls[0]["agent_id"] == "personal-webex-agent"

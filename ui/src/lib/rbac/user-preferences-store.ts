@@ -5,27 +5,25 @@ import { getRbacCollection } from "./mongo-collections";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const USER_ID_PATTERN = /^[A-Za-z0-9._%+@-]+$/;
 
-/**
- * The per-user agent-default fields. `dm_default_agent_id` routes direct
- * messages to the bot (Slack/Webex); `web_default_agent_id` is the agent the
- * Web UI opens new chats with, overriding the platform default. They are
- * independent so a user can prefer different agents per surface.
- */
+/** Per-surface default agents. A null value means "use platform default". */
 export type UserAgentPreferenceField =
-  | "dm_default_agent_id"
-  | "web_default_agent_id";
+  | "web_default_agent_id"
+  | "slack_default_agent_id"
+  | "webex_default_agent_id";
 
 export interface UserPreferenceDocument extends Document {
   tenant_id: string;
   user_id: string;
-  dm_default_agent_id: string | null;
   web_default_agent_id?: string | null;
+  slack_default_agent_id?: string | null;
+  webex_default_agent_id?: string | null;
   updated_at: string;
 }
 
 export interface UserPreference {
-  dm_default_agent_id: string | null;
   web_default_agent_id: string | null;
+  slack_default_agent_id: string | null;
+  webex_default_agent_id: string | null;
 }
 
 export interface UserPreferenceScope {
@@ -33,11 +31,8 @@ export interface UserPreferenceScope {
   userId: string;
 }
 
-export interface SetUserPreferenceInput extends UserPreferenceScope {
-  /** Agent identifier the user has chosen. */
-  agentId: string;
-  /** Which default to write. Defaults to the DM default for back-compat. */
-  field?: UserAgentPreferenceField;
+export interface UpdateUserPreferencesInput extends UserPreferenceScope {
+  preferences: Partial<Record<UserAgentPreferenceField,string | null>>;
 }
 
 function assertValidUserId(userId: string): void {
@@ -56,11 +51,7 @@ async function getCollectionRef(): Promise<Collection<UserPreferenceDocument>> {
   return getRbacCollection<UserPreferenceDocument>("userPreferences");
 }
 
-/**
- * Read the user's saved DM default agent. Returns `{ dm_default_agent_id: null }`
- * when the user has never saved a preference; the bot interprets that as
- * "fall through to deployment default" (see spec FR-023).
- */
+/** Read all surface defaults. Null values use the platform default. */
 export async function getUserPreference(
   scope: UserPreferenceScope,
 ): Promise<UserPreference> {
@@ -71,26 +62,34 @@ export async function getUserPreference(
     user_id: scope.userId,
   });
   if (!doc) {
-    return { dm_default_agent_id: null, web_default_agent_id: null };
+    return {
+      web_default_agent_id: null,
+      slack_default_agent_id: null,
+      webex_default_agent_id: null,
+    };
   }
   return {
-    dm_default_agent_id: doc.dm_default_agent_id ?? null,
     web_default_agent_id: doc.web_default_agent_id ?? null,
+    slack_default_agent_id: doc.slack_default_agent_id ?? null,
+    webex_default_agent_id: doc.webex_default_agent_id ?? null,
   };
 }
 
-/**
- * Upsert the user's saved DM default agent.
- *
- * Callers are expected to have already verified that the user has `can_use`
- * on `agentId` via the BFF PDP. This function does NOT re-check authorization
- * — that's the route's responsibility, and the bot re-verifies again at
- * dispatch time per FR-024.
- */
-export async function setUserPreference(input: SetUserPreferenceInput): Promise<void> {
+/** Atomically update one or more surface defaults in the user's document. */
+export async function updateUserPreferences(
+  input: UpdateUserPreferencesInput,
+): Promise<void> {
   assertValidUserId(input.userId);
-  assertValidAgentId(input.agentId);
-  const field: UserAgentPreferenceField = input.field ?? "dm_default_agent_id";
+  const entries = Object.entries(input.preferences) as Array<
+    [UserAgentPreferenceField,string | null]
+  >;
+  if (entries.length === 0) {
+    throw new Error("userPreferences: at least one preference is required");
+  }
+  for (const [, agentId] of entries) {
+    if (agentId !== null) assertValidAgentId(agentId);
+  }
+
   const collection = await getCollectionRef();
   const now = new Date().toISOString();
   await collection.updateOne(
@@ -99,36 +98,7 @@ export async function setUserPreference(input: SetUserPreferenceInput): Promise<
       $set: {
         tenant_id: input.tenantId,
         user_id: input.userId,
-        [field]: input.agentId,
-        updated_at: now,
-      },
-    },
-    { upsert: true },
-  );
-}
-
-/**
- * Clear the user's saved DM default agent (`dm_default_agent_id := null`).
- *
- * Used by the Web UI "clear preference" button and by the in-DM `/use default`
- * command (spec FR-029a). We keep the document around (rather than deleting it)
- * so `updated_at` reflects intent — "the user actively chose deployment
- * default" is different from "the user has never set a preference".
- */
-export async function clearUserPreference(
-  scope: UserPreferenceScope,
-  field: UserAgentPreferenceField = "dm_default_agent_id",
-): Promise<void> {
-  assertValidUserId(scope.userId);
-  const collection = await getCollectionRef();
-  const now = new Date().toISOString();
-  await collection.updateOne(
-    { tenant_id: scope.tenantId, user_id: scope.userId },
-    {
-      $set: {
-        tenant_id: scope.tenantId,
-        user_id: scope.userId,
-        [field]: null,
+        ...input.preferences,
         updated_at: now,
       },
     },
