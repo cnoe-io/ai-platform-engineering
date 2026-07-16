@@ -329,7 +329,7 @@ test.describe("mocked RBAC Self Check browser regression", () => {
       waitUntil: "domcontentloaded",
     });
 
-    await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveClass(/bg-primary/);
+    await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("tab", { name: "Self Check" })).toHaveAttribute(
       "aria-selected",
       "true",

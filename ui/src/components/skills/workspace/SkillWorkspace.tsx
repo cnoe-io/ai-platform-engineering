@@ -695,6 +695,7 @@ export function SkillWorkspace({
           <TabsList
             className="mx-auto flex h-auto w-full max-w-3xl items-center justify-between gap-0 bg-transparent p-0"
             aria-label="Skill builder steps"
+            indicator="none"
           >
             {STEPS.map((s, idx) => {
               const Icon = s.icon;
