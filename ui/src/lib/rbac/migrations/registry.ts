@@ -35,6 +35,13 @@ import {
   LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
 } from "./legacy-runtime-cleanup";
 import {
+  applyUserPreferencesDefaultAgentCleanupMigration,
+  deriveUserPreferencesDefaultAgentCleanupPlan,
+  LEGACY_DM_DEFAULT_AGENT_FILTER,
+  USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_CONFIRMATION,
+  USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
+} from "./user-preferences-default-agent-cleanup";
+import {
   applyTeamToolWildcardSlashMigration,
   planTeamToolWildcardSlashMigration,
   TEAM_TOOL_WILDCARD_SLASH_CONFIRMATION,
@@ -563,6 +570,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  {
+    id: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "user_preferences",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Remove legacy shared DM default-agent preference",
+    description:
+      "Remove the ignored `dm_default_agent_id` field from user preference documents after Slack and Webex moved to independent per-surface defaults. Existing values are intentionally not copied; unset surfaces follow the platform default.",
+    confirmation: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_CONFIRMATION,
+    required: false,
+    implemented: true,
+  },
   {
     id: LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
     release: RELEASE_060,
@@ -2184,6 +2205,11 @@ async function loadLegacyRuntimeCleanupInputs() {
   return { collectionNames, conversationsWithDeprecatedFields, messagesWithA2aEvents };
 }
 
+async function loadUserPreferencesDefaultAgentCleanupInputs(): Promise<number> {
+  const userPreferences = await getCollection("user_preferences");
+  return userPreferences.countDocuments(LEGACY_DM_DEFAULT_AGENT_FILTER);
+}
+
 /** Apply-time collection adapter for the 0.6.0 legacy-runtime cleanup. Wraps
  *  the raw mongodb driver so the migration module stays driver-agnostic. */
 async function buildLegacyRuntimeCleanupCollections() {
@@ -2918,6 +2944,11 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
     return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
   }
+  if (migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
+    return deriveUserPreferencesDefaultAgentCleanupPlan(
+      await loadUserPreferencesDefaultAgentCleanupInputs(),
+    );
+  }
   if (migrationId === UNIVERSAL_REBAC_MIGRATION_ID) {
     const { teamDocs, userDocs, agentDocs, configDoc } = await loadUniversalMigrationInputs();
     return deriveUniversalRebacPlan({
@@ -3266,6 +3297,20 @@ export async function applyMigration(input: {
       actor: input.actor,
       now,
       collections,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
+    const userPreferences = await getCollection("user_preferences");
+    const result = await applyUserPreferencesDefaultAgentCleanupMigration({
+      actor: input.actor,
+      now,
+      collection: {
+        countDocuments: (filter) => userPreferences.countDocuments(filter),
+        updateMany: (filter, update) => userPreferences.updateMany(filter, update),
+      },
     });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;

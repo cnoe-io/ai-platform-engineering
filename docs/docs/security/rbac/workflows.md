@@ -1344,7 +1344,10 @@ sequenceDiagram
 
 The historical shared DM field is no longer read or written. Existing users
 without a surface-specific selection return to the platform default and can
-choose a new value in Settings.
+choose a new value in Settings. The tracked 0.6.0 migration
+`user_preferences_default_agent_cleanup_v1` removes the retired
+`dm_default_agent_id` field after upgraded UI pods are running; it deliberately
+does not copy the old value into either surface-specific preference.
 
 ```mermaid
 sequenceDiagram
