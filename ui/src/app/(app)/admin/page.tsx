@@ -27,9 +27,7 @@ import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
-import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
-import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
-import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { SettingsCenterLinks } from "@/components/admin/settings/SettingsCenterLinks";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
@@ -1847,13 +1845,11 @@ function AdminPage() {
 
               {tabGateValues.settings && (
                 <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
-                  />
-                  <ReleaseNotesSettingsTab
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
+                  <SettingsCenterLinks
+                    readOnly={!effectiveOrganizationAdmin || isSimulationActive}
+                    readOnlyReason={isSimulationActive
+                      ? "Exit access preview to manage platform settings"
+                      : undefined}
                   />
                 </TabsContent>
               )}
@@ -1887,7 +1883,13 @@ function AdminPage() {
 
               {tabGateValues.ai_review && (
                 <TabsContent value="ai-review" className="space-y-4">
-                  <ReviewConfigsTab readOnly={isSimulationActive} />
+                  <SettingsCenterLinks
+                    readOnly={!effectiveOrganizationAdmin || isSimulationActive}
+                    readOnlyReason={isSimulationActive
+                      ? "Exit access preview to manage platform settings"
+                      : undefined}
+                    section="ai-review"
+                  />
                 </TabsContent>
               )}
 
