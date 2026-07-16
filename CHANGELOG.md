@@ -1,3 +1,44 @@
+## 0.5.53-dev.5 (2026-07-16)
+
+## 0.5.53-dev.4 (2026-07-16)
+
+### Fix
+
+- **slack-bot**: resolve channel_id from view.private_metadata for modal submits
+- **slack-bot**: bind OBO token in feedback/retry/escalation handlers
+- **slack-bot**: register conversation before VictorOps on-call lookup
+
+## 0.5.53-dev.3 (2026-07-16)
+
+### Feat
+
+- **ui**: improve admin access preview and default agents (#2218)
+
+### Fix
+
+- **admin-users**: create team_membership_sources index at boot, not via migration
+- **admin-users**: drop stray teams dep causing double-fetch on Users tab
+- **admin-users**: paginate team membership lookup in Mongo, not Node
+- **admin-users**: page team-scoped Keycloak lookups for plain members
+
+## 0.5.53-dev.2 (2026-07-16)
+
+### Feat
+
+- **ci**: add prebuild webex bot. WHY WAS THIS NOT ADDED BEFORE?
+
+### Fix
+
+- **ui**: eliminate lint violations and enforce CI (#2211)
+
+## 0.5.53-dev.1 (2026-07-16)
+
+### Feat
+
+- **ui**: animate shared tab selectors (#2217)
+
+## 0.5.53 (2026-07-15)
+
 ## 0.5.52-dev.2 (2026-07-15)
 
 ### Feat
