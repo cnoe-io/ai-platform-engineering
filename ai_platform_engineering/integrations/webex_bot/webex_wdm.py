@@ -316,6 +316,18 @@ class WebexWdmRuntime:
                 type(exc).__name__,
                 retry_delay,
             )
+            # assisted-by claude code claude-sonnet-4-6
+            # A clean ConnectionClosedError means the server closed the socket — the
+            # cached webSocketUrl may have expired.  Force a fresh device registration
+            # so the next connect gets a valid URL instead of looping on a stale one.
+            from websockets.exceptions import ConnectionClosedError  # noqa: PLC0415
+
+            if (
+                isinstance(exc, ConnectionClosedError)
+                and self._handshake_refresh_attempts < MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+            ):
+                self._handshake_refresh_attempts += 1
+                await self._refresh_wdm_device(session)
 
         await asyncio.sleep(retry_delay)
         return min(retry_delay * 2, 60)
