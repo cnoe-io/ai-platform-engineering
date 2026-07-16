@@ -26,6 +26,7 @@ on:
           - skill-scanner
           - dynamic-agents
           - slack-bot
+          - webex-bot
           - rag
 
 permissions:
@@ -51,6 +52,7 @@ jobs:
       skill_scanner_changed: ${{ steps.pr.outputs.skill_scanner_changed }}
       dynamic_agents_changed: ${{ steps.pr.outputs.dynamic_agents_changed }}
       slack_bot_changed: ${{ steps.pr.outputs.slack_bot_changed }}
+      webex_bot_changed: ${{ steps.pr.outputs.webex_bot_changed }}
       rag_changed: ${{ steps.pr.outputs.rag_changed }}
       helm_changed: ${{ steps.pr.outputs.helm_changed }}
     steps:
@@ -157,6 +159,10 @@ jobs:
               ],
               slack_bot: [
                 'ai_platform_engineering/integrations/slack_bot/**',
+              ],
+              webex_bot: [
+                'ai_platform_engineering/integrations/webex_bot/**',
+                'build/Dockerfile.webex-bot',
               ],
               rag: [
                 'ai_platform_engineering/knowledge_bases/rag/**',
@@ -288,6 +294,23 @@ jobs:
       packages: write
       pull-requests: write
     uses: ./.github/workflows/prebuild-slack-bot.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-webex-bot:
+    name: Webex Bot Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'webex-bot' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.webex_bot_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    uses: ./.github/workflows/prebuild-webex-bot.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
       head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
