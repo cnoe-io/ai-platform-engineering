@@ -117,7 +117,7 @@ export function UserDetailPanel({
       setData(null);
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: fetch user data when email changes and update loading/error/tab state
+
     setLoading(true);
     setError(null);
     setActiveTab("overview");

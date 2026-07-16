@@ -105,12 +105,6 @@ export function TrySkillsGateway() {
   const [selectedScope, setSelectedScope] = useState<InstallScope | null>(
     "user",
   );
-  // After the skills-only overhaul, every supported agent reads the same
-  // agentskills.io SKILL.md format, so there's no layout toggle anymore.
-  // The local `AgentLayout` alias is kept for compatibility with API JSON
-  // that may still reference legacy fields, but no UI control consumes
-  // it.
-  type AgentLayout = "skills";
   const [copiedOneLiner, setCopiedOneLiner] = useState(false);
   const [copiedUpgrade, setCopiedUpgrade] = useState(false);
   const [copiedDownload, setCopiedDownload] = useState(false);
@@ -158,11 +152,28 @@ export function TrySkillsGateway() {
     agents: AgentMeta[];
     source: string;
   }
+
+  interface PreviewSkill {
+    id?: string;
+    name?: string;
+    description?: string;
+    source?: string;
+    metadata?: {
+      tags?: string[];
+    };
+  }
+
+  interface PreviewResponse {
+    skills: PreviewSkill[];
+    meta?: {
+      total?: number;
+    };
+  }
   const [liveSkills, setLiveSkills] = useState<LiveSkillsResponse | null>(null);
   const [liveSkillsTemplateSource, setLiveSkillsTemplateSource] = useState<
     string | null
   >(null);
-  const [agents, setAgents] = useState<AgentMeta[]>([]);
+  const [, setAgents] = useState<AgentMeta[]>([]);
 
   const [mintedKey, setMintedKey] = useState<string | null>(null);
   const [showMintedKey, setShowMintedKey] = useState(false);
@@ -179,7 +190,7 @@ export function TrySkillsGateway() {
   const [queryTags, setQueryTags] = useState("");
   const [queryVisibility, setQueryVisibility] = useState("");
   const [queryIncludeContent, setQueryIncludeContent] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -723,7 +734,7 @@ export function TrySkillsGateway() {
                   </tr>
                 </thead>
                 <tbody>
-                  {previewData.skills.map((skill: any, i: number) => (
+                  {previewData.skills.map((skill, i) => (
                     <tr key={skill.id || i} className="border-t border-border hover:bg-muted/50">
                       <td className="px-3 py-1.5 font-medium">{skill.name}</td>
                       <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[200px] lg:max-w-[420px]">{skill.description}</td>
@@ -2098,4 +2109,3 @@ function CopyableBlock({
     </div>
   );
 }
-

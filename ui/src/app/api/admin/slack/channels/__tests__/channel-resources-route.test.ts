@@ -18,7 +18,7 @@ const mockEnsureSlackBotOboPermissions = jest.fn();
 // (See Phase 3 comment above the removed mockEnsureTeamClientScope.)
 const mockCallSlackBotAdmin = jest.fn();
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 
 jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
@@ -114,7 +114,7 @@ jest.mock("@/lib/auth-config", () => ({
   REQUIRED_ADMIN_GROUP: "",
 }));
 
-function matchesFilter(row: any, filter: Record<string, any>): boolean {
+function matchesFilter(row: unknown, filter: Record<string, unknown>): boolean {
   return Object.entries(filter).every(([key, value]) => {
     const resolved = key.includes(".")
       ? key.split(".").reduce((acc, part) => acc?.[part], row)
@@ -129,10 +129,10 @@ function matchesFilter(row: any, filter: Record<string, any>): boolean {
   });
 }
 
-function createMockCollection(rows: any[]) {
+function createMockCollection(rows: unknown[]) {
   return {
     rows,
-    find: jest.fn((filter: Record<string, any> = {}) => {
+    find: jest.fn((filter: Record<string, unknown> = {}) => {
       const matching = rows.filter((row) => matchesFilter(row, filter));
       return {
         sort: jest.fn().mockReturnThis(),
@@ -140,10 +140,10 @@ function createMockCollection(rows: any[]) {
         toArray: jest.fn().mockResolvedValue(matching),
       };
     }),
-    findOne: jest.fn(async (filter: Record<string, any>) =>
+    findOne: jest.fn(async (filter: Record<string, unknown>) =>
       rows.find((row) => matchesFilter(row, filter)) ?? null
     ),
-    updateOne: jest.fn(async (filter: Record<string, any>, update: any, options?: any) => {
+    updateOne: jest.fn(async (filter: Record<string, unknown>, update: unknown, options?: unknown) => {
       const row = rows.find((candidate) => matchesFilter(candidate, filter));
       if (row && update.$set) Object.assign(row, update.$set);
       if (!row && options?.upsert) {
@@ -151,14 +151,14 @@ function createMockCollection(rows: any[]) {
       }
       return { matchedCount: row ? 1 : 0, modifiedCount: row ? 1 : 0, upsertedCount: row ? 0 : 1 };
     }),
-    updateMany: jest.fn(async (filter: Record<string, any>, update: any) => {
+    updateMany: jest.fn(async (filter: Record<string, unknown>, update: unknown) => {
       const matching = rows.filter((candidate) => matchesFilter(candidate, filter));
       for (const row of matching) {
         if (update.$set) Object.assign(row, update.$set);
       }
       return { matchedCount: matching.length, modifiedCount: matching.length };
     }),
-    deleteOne: jest.fn(async (filter: Record<string, any>) => {
+    deleteOne: jest.fn(async (filter: Record<string, unknown>) => {
       const index = rows.findIndex((candidate) => matchesFilter(candidate, filter));
       if (index >= 0) {
         rows.splice(index, 1);

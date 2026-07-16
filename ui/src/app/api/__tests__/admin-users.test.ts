@@ -313,7 +313,7 @@ describe('GET /api/admin/users — Keycloak list', () => {
         }),
       }),
       findOne: jest.fn(),
-    } as any;
+    } as unknown;
 
     const res = await GET(makeRequest('/api/admin/users?slackStatus=pending'));
 

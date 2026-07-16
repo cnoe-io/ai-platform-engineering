@@ -423,6 +423,12 @@ const { user, session } = await getAuthFromBearerOrSession(request);
 await requireRbacPermission(session, "rag", "kb.query");
 ```
 
+The middleware keeps the authenticated session, route-handler context, and
+conversation-access MongoDB result explicitly typed. Values that cross those
+boundaries use concrete interfaces or `unknown` plus runtime narrowing rather
+than an unchecked `any`; this is a compile-time safety constraint and does not
+change the authorization decisions described below.
+
 Two authorization paths:
 
 1. **Primary PDP:** `requireRbacPermission()` calls Keycloak Authorization Services with the caller's bearer/session access token and the requested `resource#scope`.

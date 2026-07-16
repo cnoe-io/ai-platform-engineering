@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { detectHubProviderFromUrl } from "@/app/api/skill-hubs/_lib/normalize";
 import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
 import { Badge } from "@/components/ui/badge";
@@ -134,8 +136,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       const data = await readJson<{ hubs?: SkillHub[] }>(res);
       setHubs(data.hubs || []);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || "Failed to load skill hubs");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to load skill hubs");
     } finally {
       setLoading(false);
     }
@@ -222,8 +224,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       setShowAdvanced(false);
       setShowAddForm(false);
       await loadHubs();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setAdding(false);
     }
@@ -239,8 +241,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         throw new Error(data.error || "Failed to delete hub");
       }
       setHubs(hubs.filter((h) => h.id !== hubId));
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setDeletingId(null);
     }
@@ -256,8 +258,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       });
       if (!res.ok) throw new Error("Failed to update hub");
       await loadHubs();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setTogglingId(null);
     }
@@ -303,7 +305,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       }
       await loadHubs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update hub");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to update hub");
     }
   };
 
@@ -337,7 +339,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       }
       await loadHubs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update hub");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to update hub");
     }
   };
 
@@ -361,8 +363,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         throw new Error(data.error || data.message || `Failed to update teams (${res.status})`);
       }
       await loadHubs();
-    } catch (err: any) {
-      setError(err.message || "Failed to update hub teams");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to update hub teams");
     }
   };
 
@@ -422,8 +424,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
             : `Recrawl failed (${finalRun.status})`;
         throw new Error(errMsg);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setRecrawlingId(null);
     }
@@ -519,7 +521,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         setCrawlTruncation(data.truncation as HubLastCrawlTruncation);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Crawl preview failed");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Crawl preview failed");
     } finally {
       setCrawlLoading(false);
     }

@@ -672,7 +672,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         }
       },
       persistSkill: async (skill, mode) => {
-        const { shared_with_teams: _omit, ...mongoRow } = skill;
+        const mongoRow = { ...skill };
+        delete mongoRow.shared_with_teams;
         if (mode === "create") {
           await collection.insertOne(mongoRow as AgentSkill);
         } else {

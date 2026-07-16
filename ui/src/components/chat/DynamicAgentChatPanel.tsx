@@ -26,6 +26,7 @@ import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
@@ -39,9 +40,7 @@ import { useSlashCommands } from "./useSlashCommands";
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
 interface ChatPanelProps {
-  endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
-  conversationTitle?: string;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
@@ -49,7 +48,7 @@ interface ChatPanelProps {
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
   const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
@@ -170,7 +169,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     cancelConversationRequest,
     updateMessageFeedback,
     consumePendingMessage,
-    evictOldMessageContent,
     loadMessagesFromServer,
     updateConversationTitle,
   } = useChatStore();
@@ -357,11 +355,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
   // Auto-scroll during streaming only if user is near the bottom
   // Depend on both message content AND streamEvents length since timeline renders from SSE events
+  const latestMessageContent = conversation?.messages?.at(-1)?.content;
+  const streamEventCount = conversation?.streamEvents?.length;
   useEffect(() => {
     if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, conversation?.streamEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
+  }, [latestMessageContent, streamEventCount, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // ResizeObserver-based auto-scroll: catches DOM changes from morphdom patches
   // that happen asynchronously after React renders (marked parses async, then
@@ -1053,7 +1053,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() } as any,
+      client: { abort: () => adapter.abort() },
       streamAdapter: adapter,
     });
 
@@ -1095,7 +1095,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1195,13 +1195,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       "*Type `/` to see the autocomplete menu. Use Arrow keys + Tab to select.*",
     ].join("\n");
 
-    addMessage(convId, { role: "assistant", content: helpText, isFinal: true } as any, turnId);
-  }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
+    addMessage(convId, { role: "assistant", content: helpText, isFinal: true }, turnId);
+  }, [activeConversationId, agentId, createConversation, addMessage, updateConversationTitle]);
 
   // Handle /clear command
   const handleClearCommand = useCallback(async () => {
     await createConversation(agentId);
   }, [createConversation, agentId]);
+
+  const handleStop = useCallback(() => {
+    if (activeConversationId) {
+      cancelConversationRequest(activeConversationId);
+    }
+  }, [activeConversationId, cancelConversationRequest]);
 
   // Unified slash command executor
   const executeSlashCommand = useCallback(async (commandId: string) => {
@@ -1271,7 +1277,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand, handleStop]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -1281,24 +1287,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
   }, [activeConversationId, consumePendingMessage, submitMessage]);
 
-  const handleStop = useCallback(() => {
-    if (activeConversationId) {
-      cancelConversationRequest(activeConversationId);
-    }
-  }, [activeConversationId, cancelConversationRequest]);
-
   // Stable callback for feedback changes
   const handleFeedbackChange = useCallback((messageId: string, feedback: Feedback) => {
     if (activeConversationId) {
       updateMessageFeedback(activeConversationId, messageId, feedback);
     }
   }, [activeConversationId, updateMessageFeedback]);
-
-  // Feedback submission is handled by FeedbackButton → POST /api/feedback
-  // which writes to both Langfuse and the unified feedback MongoDB collection.
-  const handleFeedbackSubmit = useCallback(async (_messageId: string, _feedback: Feedback) => {
-    // no-op: POST /api/feedback handles both Langfuse + MongoDB
-  }, []);
 
   // Handle user input form submission via SSE/Dynamic Agents resume
   const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
@@ -1345,7 +1339,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() } as any,
+      client: { abort: () => adapter.abort() },
       streamAdapter: adapter,
     });
 
@@ -1464,7 +1458,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() } as any,
+      client: { abort: () => adapter.abort() },
       streamAdapter: adapter,
     });
 
@@ -1765,11 +1759,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           isCopied={copiedId === msg.id}
                           isStreaming={isAssistantStreaming}
                           isLatestAnswer={isLastAssistantMessage}
-                          onStop={isAssistantStreaming ? handleStop : undefined}
                           onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
                           feedback={msg.feedback}
                           onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
-                          onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
                           isRecovering={recoveringMessageId === msg.id}
                           conversationId={conversationId}
                           userDisplayName={userDisplayName}
@@ -2197,11 +2189,9 @@ interface ChatMessageProps {
   isCopied: boolean;
   isStreaming?: boolean;
   isLatestAnswer?: boolean;
-  onStop?: () => void;
   onRetry?: () => void;
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
-  onFeedbackSubmit?: (feedback: Feedback) => void;
   conversationId?: string;
   isRecovering?: boolean;
   userDisplayName?: string;
@@ -2230,11 +2220,9 @@ const ChatMessage = React.memo(function ChatMessage({
   isCopied,
   isStreaming = false,
   isLatestAnswer = false,
-  onStop,
   onRetry,
   feedback,
   onFeedbackChange,
-  onFeedbackSubmit,
   conversationId,
   isRecovering = false,
   userDisplayName = "You",
@@ -2288,9 +2276,12 @@ const ChatMessage = React.memo(function ChatMessage({
           )}
         >
           {message.senderImage ? (
-            <img
+            <Image
               src={message.senderImage}
               alt={message.senderName || userDisplayName}
+              width={36}
+              height={36}
+              unoptimized
               className="w-9 h-9 rounded-xl object-cover"
             />
           ) : (
@@ -2539,7 +2530,6 @@ const ChatMessage = React.memo(function ChatMessage({
                   conversationId={conversationId}
                   feedback={feedback}
                   onFeedbackChange={onFeedbackChange}
-                  onFeedbackSubmit={onFeedbackSubmit}
                 />
               </motion.div>
             )}

@@ -7,16 +7,17 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
 import type { UserSettings } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest } from 'next/server';
 
 // PATCH /api/settings/defaults
 export const PATCH = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user) => {
-    const body = await request.json();
+    const body: Partial<UserSettings['defaults']> = await request.json();
 
     const settings = await getCollection<UserSettings>('user_settings');
 
-    const update: any = {
+    const update: Document = {
       updated_at: new Date(),
     };
 

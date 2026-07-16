@@ -9,6 +9,7 @@ import { config,getLogoFilterClass } from "@/lib/config";
 import { motion } from "framer-motion";
 import { AlertCircle,Loader2,LogIn } from "lucide-react";
 import { signIn,useSession } from "next-auth/react";
+import Image from "next/image";
 import { useRouter,useSearchParams } from "next/navigation";
 import { Suspense,useEffect,useState } from "react";
 
@@ -172,7 +173,14 @@ function LoginContent() {
             {/* Header */}
             <div className="p-8 text-center border-b border-border bg-muted/30">
               <div className="w-16 h-16 mx-auto mb-4 rounded-2xl gradient-primary-br flex items-center justify-center animate-pulse-glow">
-                <img src={config.logoUrl} alt={config.appName} className={`h-10 w-10 ${getLogoFilterClass(config.logoStyle)}`} />
+                <Image
+                  src={config.logoUrl}
+                  alt={config.appName}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className={`h-10 w-10 ${getLogoFilterClass(config.logoStyle)}`}
+                />
               </div>
               <div className="flex items-center justify-center gap-2">
                 <h1 className="text-2xl font-bold gradient-text">{config.appName}</h1>

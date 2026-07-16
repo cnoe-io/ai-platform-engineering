@@ -42,7 +42,7 @@ jest.mock("@/lib/config", () => ({
 }));
 
 let mockStreamEvents: Array<{ type: string; text?: string; message?: string }> = [];
-const mockStreamMessage = jest.fn(async (_params: any, callbacks: any) => {
+const mockStreamMessage = jest.fn(async (_params: unknown, callbacks: unknown) => {
   for (const event of mockStreamEvents) {
     if (event.type === "content") {
       callbacks.onContent?.(event.text ?? "", []);
@@ -70,7 +70,7 @@ const mockCreateConversation = jest.fn().mockResolvedValue({
 
 jest.mock("@/lib/api-client", () => ({
   apiClient: {
-    createConversation: (...args: any[]) => mockCreateConversation(...args),
+    createConversation: (...args: unknown[]) => mockCreateConversation(...args),
   },
 }));
 

@@ -119,7 +119,7 @@ export default function SkillWorkspacePage({
     if (configs.length === 0) return;
     const found = getSkillById(id);
     if (found) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: sync skill state from configs when id resolves
+
       setSkill(found);
       setNotFound(false);
       setReady(true);

@@ -72,10 +72,10 @@ describe("GET /api/admin/rebac/enforcement-status", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.statuses.map((item: any) => item.resource_type)).toEqual(
+    expect(body.data.statuses.map((item: unknown) => item.resource_type)).toEqual(
       listResourceTypeDefinitions().map((definition) => definition.type)
     );
-    expect(body.data.statuses.every((item: any) => item.enforcement_status)).toBe(true);
+    expect(body.data.statuses.every((item: unknown) => item.enforcement_status)).toBe(true);
   });
 
   it("merges stored overrides into default enforcement status", async () => {
@@ -92,7 +92,7 @@ describe("GET /api/admin/rebac/enforcement-status", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.statuses.find((item: any) => item.resource_type === "agent")).toEqual(
+    expect(body.data.statuses.find((item: unknown) => item.resource_type === "agent")).toEqual(
       expect.objectContaining({
         enforcement_status: "rebac_enforced",
         surface: "dynamic_agents",

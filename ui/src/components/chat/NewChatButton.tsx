@@ -2,10 +2,9 @@
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { Button } from "@/components/ui/button";
-import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { Bot,ChevronDown,Loader2,Plus,Search } from "lucide-react";
+import { ChevronDown,Loader2,Plus,Search } from "lucide-react";
 import React,{ useEffect,useRef,useState } from "react";
 
 interface NewChatButtonProps {

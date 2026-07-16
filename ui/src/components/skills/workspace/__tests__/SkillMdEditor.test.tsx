@@ -40,29 +40,30 @@ jest.mock("@/components/skills/workspace/RichCodeEditor", () => {
     height?: string;
   };
   const RichCodeEditor = (props: Props) => {
+    const { fillContainer, lintSource, maxHeight, minHeight, readOnly, value, wrap } = props;
     const [diags, setDiags] = React.useState<
       Array<{ from: number; to: number; severity: string; message: string }>
     >([]);
     React.useEffect(() => {
-      if (!props.lintSource) {
+      if (!lintSource) {
         setDiags([]);
         return;
       }
-      const result = props.lintSource(props.value);
+      const result = lintSource(value);
       Promise.resolve(result).then((d) => setDiags(Array.isArray(d) ? d : []));
-    }, [props.value, props.lintSource]);
+    }, [lintSource, value]);
     return (
       <div
         data-rich-editor
-        data-fill-container={props.fillContainer ? "true" : "false"}
-        data-min-height={props.minHeight ?? ""}
-        data-max-height={props.maxHeight ?? ""}
+        data-fill-container={fillContainer ? "true" : "false"}
+        data-min-height={minHeight ?? ""}
+        data-max-height={maxHeight ?? ""}
       >
         <textarea
           aria-label="rich-editor"
-          value={props.value}
-          readOnly={props.readOnly}
-          data-wrap={props.wrap ? "on" : "off"}
+          value={value}
+          readOnly={readOnly}
+          data-wrap={wrap ? "on" : "off"}
           onChange={(e) => props.onChange?.(e.target.value)}
         />
         <ul data-testid="lint-diagnostics">
@@ -144,10 +145,8 @@ describe("SkillMdEditor — download", () => {
   it("creates a blob URL and triggers an anchor click on Download", () => {
     const createObjectURL = jest.fn(() => "blob:fake");
     const revokeObjectURL = jest.fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (URL as any).createObjectURL = createObjectURL;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (URL as any).revokeObjectURL = revokeObjectURL;
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
     const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, "click");
 
     render(

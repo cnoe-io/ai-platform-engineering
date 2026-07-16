@@ -34,9 +34,9 @@ jest.mock('next-themes', () => ({
 // Mock framer-motion to simplify animation testing
 jest.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    div: ({ children, ...props }: unknown) => <div {...props}>{children}</div>,
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }));
 
 // Mock api-client
@@ -44,19 +44,19 @@ const mockGetSettings = jest.fn();
 const mockUpdatePreferences = jest.fn();
 jest.mock('@/lib/api-client', () => ({
   apiClient: {
-    getSettings: (...args: any[]) => mockGetSettings(...args),
-    updatePreferences: (...args: any[]) => mockUpdatePreferences(...args),
+    getSettings: (...args: unknown[]) => mockGetSettings(...args),
+    updatePreferences: (...args: unknown[]) => mockUpdatePreferences(...args),
   },
 }));
 
 // Mock createPortal to render in place (not in document.body)
 jest.mock('react-dom', () => ({
   ...jest.requireActual('react-dom'),
-  createPortal: (node: any) => node,
+  createPortal: (node: unknown) => node,
 }));
 
 // Mock config — defaults can be overridden per test via mockConfigValues
-let mockConfigValues: Record<string, any> = {
+let mockConfigValues: Record<string, unknown> = {
   defaultFontSize: 'medium',
   defaultFontFamily: 'inter',
   defaultTheme: 'dark',

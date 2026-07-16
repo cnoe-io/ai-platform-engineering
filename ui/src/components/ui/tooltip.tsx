@@ -114,7 +114,15 @@ export function Tooltip({
     <TooltipStateContext.Provider
       value={{ open, setOpen, triggerRef, hoverHoldRef, cancelPendingClose, scheduleClose }}
     >
-      <span className="relative inline-block">{children}</span>
+      <span
+        ref={(node) => {
+          const firstChild = node?.firstElementChild;
+          triggerRef.current = firstChild instanceof HTMLElement ? firstChild : node;
+        }}
+        className="relative inline-block"
+      >
+        {children}
+      </span>
     </TooltipStateContext.Provider>
   );
 }
@@ -124,14 +132,39 @@ interface TooltipTriggerProps {
   asChild?: boolean;
 }
 
+type TooltipTriggerChildProps = React.HTMLAttributes<HTMLElement>;
+
+interface TooltipTriggerSlotProps {
+  child: React.ReactElement<TooltipTriggerChildProps>;
+  onBlur: React.FocusEventHandler<HTMLElement>;
+  onFocus: React.FocusEventHandler<HTMLElement>;
+  onMouseEnter: React.MouseEventHandler<HTMLElement>;
+  onMouseLeave: React.MouseEventHandler<HTMLElement>;
+}
+
+function TooltipTriggerSlot({
+  child,
+  onBlur,
+  onFocus,
+  onMouseEnter,
+  onMouseLeave,
+}: TooltipTriggerSlotProps) {
+  return React.cloneElement(child, {
+    onBlur,
+    onFocus,
+    onMouseEnter,
+    onMouseLeave,
+  });
+}
+
 export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
   const { setOpen, triggerRef, hoverHoldRef, cancelPendingClose, scheduleClose } =
     React.useContext(TooltipStateContext);
   const { delayDuration } = React.useContext(TooltipContext);
   const openTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-  const elementRef = React.useRef<HTMLElement | null>(null);
 
-  const handleMouseEnter = () => {
+  const handleMouseEnter = (event: React.MouseEvent<HTMLElement>) => {
+    triggerRef.current = event.currentTarget;
     // Cursor is on the trigger — make sure no pending close fires.
     cancelPendingClose();
     hoverHoldRef.current += 1;
@@ -152,48 +185,38 @@ export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
   };
 
   React.useEffect(() => {
-    if (elementRef.current) {
-      triggerRef.current = elementRef.current;
-    }
     return () => {
       if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
     };
-  }, [triggerRef]);
+  }, []);
 
-  if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(children as React.ReactElement<any>, {
-      ref: (node: HTMLElement | null) => {
-        elementRef.current = node;
-        if (typeof (children as any).ref === 'function') {
-          (children as any).ref(node);
-        } else if ((children as any).ref) {
-          // eslint-disable-next-line react-hooks/immutability
-          (children as any).ref.current = node;
-        }
-      },
-      onMouseEnter: handleMouseEnter,
-      onMouseLeave: handleMouseLeave,
-      onFocus: () => {
+  if (asChild && React.isValidElement<TooltipTriggerChildProps>(children)) {
+    return (
+      <TooltipTriggerSlot
+        child={children}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={(event) => {
+        triggerRef.current = event.currentTarget;
         cancelPendingClose();
         setOpen(true);
-      },
-      onBlur: () => {
+        }}
+        onBlur={() => {
         // Focus left the trigger; let the close timer decide. The
         // tooltip body is not focusable by default, so for a11y the
         // focus path is straightforward: close on blur.
         setOpen(false);
-      },
-    });
+        }}
+      />
+    );
   }
 
   return (
     <span
-      ref={(node) => {
-        elementRef.current = node;
-      }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onFocus={() => {
+      onFocus={(event) => {
+        triggerRef.current = event.currentTarget;
         cancelPendingClose();
         setOpen(true);
       }}

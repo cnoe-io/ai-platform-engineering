@@ -286,6 +286,7 @@ export function UserManagementTab({
   }, [
     page,
     searchFromUrl,
+    teamsFilter,
     teamsFilterKey,
     slackFilter,
     webexFilter,

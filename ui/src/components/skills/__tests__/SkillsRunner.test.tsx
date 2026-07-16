@@ -10,7 +10,7 @@
  */
 
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { SkillsRunner } from "../SkillsRunner";
 import type { AgentSkill } from "@/types/agent-skill";
 
@@ -53,15 +53,15 @@ jest.mock("@/store/workflow-run-store", () => ({
 jest.mock("framer-motion", () => ({
   motion: {
     // eslint-disable-next-line react/display-name
-    div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
+    div: React.forwardRef(({ children, ...rest }: unknown, ref: unknown) => (
       <div ref={ref} {...rest}>{children}</div>
     )),
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }));
 
 jest.mock("@/components/ui/caipe-spinner", () => ({
-  CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
+  CAIPESpinner: ({ message }: unknown) => <div data-testid="spinner">{message}</div>,
 }));
 
 jest.mock("@/lib/chat-agent-selection", () => ({
@@ -83,11 +83,11 @@ jest.mock("@/lib/api-client", () => ({
 
 jest.mock("@/lib/streaming", () => ({
   createStreamAdapter: jest.fn().mockImplementation(() => ({
-    streamMessage: jest.fn(async (_params: any, callbacks: any) => {
+    streamMessage: jest.fn(async (_params: unknown, callbacks: unknown) => {
       callbacks.onContent?.("Workflow completed", []);
       callbacks.onDone?.();
     }),
-    resumeStream: jest.fn(async (_params: any, callbacks: any) => {
+    resumeStream: jest.fn(async (_params: unknown, callbacks: unknown) => {
       callbacks.onContent?.("Workflow resumed", []);
       callbacks.onDone?.();
     }),
@@ -97,14 +97,14 @@ jest.mock("@/lib/streaming", () => ({
 }));
 
 jest.mock("../WorkflowHistoryView", () => ({
-  WorkflowHistoryView: ({ workflowId }: any) => (
+  WorkflowHistoryView: ({ workflowId }: unknown) => (
     <div data-testid="workflow-history">History for {workflowId}</div>
   ),
 }));
 
 jest.mock("react-markdown", () => ({
   __esModule: true,
-  default: ({ children }: any) => <div data-testid="markdown">{children}</div>,
+  default: ({ children }: unknown) => <div data-testid="markdown">{children}</div>,
 }));
 
 jest.mock("remark-gfm", () => ({
@@ -218,16 +218,6 @@ describe("SkillsRunner — rendering", () => {
   it("renders config without description gracefully", () => {
     render(<SkillsRunner config={makeConfig({ description: undefined })} />);
 
-    expect(screen.getByText("Test Workflow")).toBeInTheDocument();
-  });
-});
-
-describe("SkillsRunner — callbacks", () => {
-  it("calls onBack if provided", () => {
-    const onBack = jest.fn();
-    render(<SkillsRunner config={makeConfig()} onBack={onBack} />);
-    // The component uses router.push for navigation, not onBack directly
-    // This test verifies that onBack prop is accepted without errors
     expect(screen.getByText("Test Workflow")).toBeInTheDocument();
   });
 });

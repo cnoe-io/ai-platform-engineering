@@ -112,7 +112,7 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
         scan_status: cs.scan_status,
       }));
       setAvailableSkills(skills);
-    } catch (err) {
+    } catch {
       setError("Failed to load skills");
     } finally {
       setLoading(false);

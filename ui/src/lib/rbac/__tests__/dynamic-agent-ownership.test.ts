@@ -14,6 +14,7 @@ import {
   resolveOwnerTeamSlug,
   validateAgentOwnership,
 } from "../dynamic-agent-ownership";
+import type { VisibilityType } from "@/types/dynamic-agent";
 
 describe("normalizeLegacyVisibility", () => {
   it("coerces 'private' to 'team' and flags it deprecated", () => {
@@ -120,8 +121,7 @@ describe("validateAgentOwnership", () => {
 
   it("rejects an invalid visibility value", () => {
     const result = validateAgentOwnership({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      visibility: "private" as any,
+      visibility: "private" as unknown as VisibilityType,
       ownerTeamSlug: "platform",
       ownerTeamId: null,
     });
@@ -155,8 +155,7 @@ describe("isLegacyPrivateDoc", () => {
   it("identifies legacy private docs", () => {
     expect(
       isLegacyPrivateDoc({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        visibility: "private" as any,
+        visibility: "private" as unknown as VisibilityType,
         owner_team_slug: undefined,
       }),
     ).toBe(true);

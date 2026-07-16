@@ -183,8 +183,20 @@ jest.mock('@/lib/api-client', () => ({
 
 jest.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-    span: ({ animate, children, initial, layoutId, transition, ...props }: any) => {
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+    span: ({
+      animate,
+      children,
+      initial,
+      layoutId,
+      transition,
+      ...props
+    }: React.HTMLAttributes<HTMLSpanElement> & {
+      animate?: unknown;
+      initial?: unknown;
+      layoutId?: string;
+      transition?: unknown;
+    }) => {
       void animate;
       void initial;
       void layoutId;
@@ -319,7 +331,11 @@ const baselineUserGates = {
   migrations: false,
 };
 
-function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
+function setupFetchMock(overrides: {
+  tabGates?: Record<string, boolean>;
+  integrationPanelModes?: { slack: string; webex: string };
+  simulation?: unknown;
+} = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
     if (url.includes('/api/rbac/admin-tab-gates')) {
       return Promise.resolve({
@@ -408,7 +424,7 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
       json: () => Promise.resolve({ success: true, data: {} }),
     });
   });
-  global.fetch = mock as any;
+  global.fetch = mock as unknown;
   return mock;
 }
 

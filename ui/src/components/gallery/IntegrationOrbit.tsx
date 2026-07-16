@@ -2,6 +2,7 @@
 
 import { getConfig,getLogoFilterClass } from "@/lib/config";
 import { motion } from "framer-motion";
+import Image from "next/image";
 import { useMemo } from "react";
 
 // Integration logos - simple single-color icons for small containers
@@ -144,7 +145,7 @@ const integrations = [
     // Webex logo from public folder
     icon: (
       <div className="w-full h-full flex items-center justify-center" style={{ transform: 'scale(1.5)' }}>
-        <img src="/webex.svg" alt="Webex" className="w-full h-full object-contain" />
+        <Image src="/webex.svg" alt="Webex" width={128} height={128} className="w-full h-full object-contain" />
       </div>
     )
   },
@@ -154,7 +155,7 @@ const integrations = [
     // Full Kubernetes logo from public folder
     icon: (
       <div className="w-full h-full flex items-center justify-center" style={{ transform: 'scale(1.5)' }}>
-        <img src="/kubernetes.svg" alt="Kubernetes" className="w-full h-full object-contain" />
+        <Image src="/kubernetes.svg" alt="Kubernetes" width={128} height={128} className="w-full h-full object-contain" />
       </div>
     )
   },
@@ -224,7 +225,7 @@ const integrations = [
     // Linux logo from public folder
     icon: (
       <div className="w-full h-full flex items-center justify-center" style={{ transform: 'scale(1.4)' }}>
-        <img src="/linux.svg" alt="Linux" className="w-full h-full object-contain" />
+        <Image src="/linux.svg" alt="Linux" width={128} height={128} className="w-full h-full object-contain" />
       </div>
     )
   },
@@ -319,7 +320,14 @@ export function IntegrationOrbit() {
         }}
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
       >
-        <img src={getConfig('logoUrl')} alt={getConfig('appName')} className={`w-14 h-14 ${getLogoFilterClass()}`} />
+        <Image
+          src={getConfig('logoUrl')}
+          alt={getConfig('appName')}
+          width={56}
+          height={56}
+          unoptimized
+          className={`w-14 h-14 ${getLogoFilterClass()}`}
+        />
       </motion.div>
 
       {/* Inner Orbit - closer integrations */}

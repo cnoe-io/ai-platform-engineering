@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { DateRange,DateRangeFilter,DateRangePreset,presetToRange } from "@/components/admin/shared/DateRangeFilter";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { Button } from "@/components/ui/button";
@@ -37,7 +39,7 @@ interface AgentCheckpoint {
 interface PeekEntry {
   agent: string;
   collection: string;
-  documents: Record<string, any>[];
+  documents: Record<string, unknown>[];
 }
 
 interface CheckpointStats {
@@ -122,8 +124,8 @@ export function CheckpointStatsSection() {
       }
       const json = await res.json();
       setStats(json.data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load checkpoint stats");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to load checkpoint stats");
     } finally {
       setLoading(false);
     }

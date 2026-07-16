@@ -340,7 +340,7 @@ export function UserDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [userId, readOnly, refreshProfile, loadTeams, loadAccess, loadIdentity]);
+  }, [userId, readOnly, teamOptionsProp, refreshProfile, loadTeams, loadAccess, loadIdentity]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {

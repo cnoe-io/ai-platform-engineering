@@ -6,9 +6,18 @@ import forceAtlas2 from 'graphology-layout-forceatlas2';
 import { Loader2 } from 'lucide-react';
 import { useTheme } from "next-themes";
 import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import type Sigma from 'sigma';
 import { exploreEntityNeighborhood } from '../../api';
 import { getColorForNode } from '../shared/graphStyles';
 import { extractRelationId,generateEdgeKey,generateNodeId } from '../shared/graphUtils';
+import type {
+    GraphEdgeAttributes,
+    GraphEntity,
+    GraphNodeAttributes,
+    GraphProperties,
+    GraphRelation,
+    SelectedGraphNode,
+} from '../shared/graphTypes';
 import '../shared/sigma-styles.css';
 import DataNodeDetailsCard from './DataNodeDetailsCard';
 import DataNodeHoverCard from './DataNodeHoverCard';
@@ -25,20 +34,13 @@ interface DataGraphSigmaProps {
     onExploreComplete?: () => void;
 }
 
-interface EntityData {
+type EntityData = GraphEntity & {
+    all_properties: GraphProperties;
     entity_type: string;
     primary_key: string;
-    all_properties: any;
-    [key: string]: any;
-}
+};
 
-interface RelationData {
-    from_entity: { entity_type: string; primary_key: string };
-    to_entity: { entity_type: string; primary_key: string };
-    relation_name: string;
-    relation_properties: any;
-    relation_pk?: string;
-}
+type RelationData = GraphRelation;
 
 // Truncate label helper
 const truncateLabel = (text: string, maxLength: number = 25): string => {
@@ -52,16 +54,16 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
     const isDarkMode = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord";
 
     // Graph instance
-    const graph = useMemo(() => new MultiDirectedGraph(), []);
+    const graph = useMemo(() => new MultiDirectedGraph<GraphNodeAttributes,GraphEdgeAttributes>(), []);
 
     // State management
     const [dataReady, setDataReady] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const [selectedElement, setSelectedElement] = useState<{ type: 'node'; id: string; data: any } | null>(null);
-    const [exploredEntity, setExploredEntity] = useState<any>(null);
+    const [selectedElement, setSelectedElement] = useState<SelectedGraphNode | null>(null);
+    const [exploredEntity, setExploredEntity] = useState<GraphEntity | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState<boolean>(false);
-    const [sigmaInstance, setSigmaInstance] = useState<any>(null);
+    const [, setSigmaInstance] = useState<Sigma<GraphNodeAttributes,GraphEdgeAttributes> | null>(null);
     const [graphStats, setGraphStats] = useState<{ node_count: number; relation_count: number } | null>(null);
     const [layoutKey, setLayoutKey] = useState(0);
 
@@ -76,6 +78,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
 
     // Initial entity to restore on clear
     const initialEntity = useRef<{ entityType: string; primaryKey: string } | null>(null);
+    const buildGraphRef = useRef<(centerNodeId: string, relations: RelationData[]) => Promise<void>>(async () => {});
 
     // Main exploration function
     const exploreEntity = useCallback(async (entityType: string, primaryKey: string, merge: boolean = false) => {
@@ -121,10 +124,10 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
 
                     if (pk) {
                         const entityData: EntityData = {
+                            ...ent,
                             primary_key: pk,
                             entity_type: entType,
                             all_properties: ent.all_properties || ent,
-                            ...ent
                         };
                         graphData.current.entitiesById.set(entNodeId, entityData);
                     }
@@ -132,8 +135,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             }
 
             // Build the graph
-            // eslint-disable-next-line react-hooks/immutability
-            await buildGraph(centerNodeId, relations || []);
+            await buildGraphRef.current(centerNodeId, relations || []);
             setExploredEntity(entity);
             setDataReady(true);
             setLayoutKey(k => k + 1); // Force remount
@@ -157,7 +159,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
     }, [graph]);
 
     // Build graph from stored data
-    const buildGraph = async (centerNodeId: string, relations: RelationData[]) => {
+    const buildGraph = useCallback(async (centerNodeId: string, relations: RelationData[]) => {
         const nodeDegrees = new Map<string, number>();
 
         // Add all entities as nodes
@@ -193,7 +195,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
         });
 
         // Group relations
-        const relationGroups = new Map<string, any[]>();
+        const relationGroups = new Map<string, RelationData[]>();
 
         relations.forEach((relation) => {
             const sourceNodeId = generateNodeId(relation.from_entity.entity_type, relation.from_entity.primary_key);
@@ -212,7 +214,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
         });
 
         // Add edges
-        relationGroups.forEach((groupRelations, normalizedKey) => {
+        relationGroups.forEach((groupRelations) => {
             const primaryRelation = groupRelations[0];
             const sourceNodeId = generateNodeId(
                 primaryRelation.from_entity.entity_type,
@@ -223,11 +225,11 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
                 primaryRelation.to_entity.primary_key
             );
 
-            const hasBidirectional = groupRelations.some((r: any) =>
-                r.from_entity.primary_key === primaryRelation.to_entity.primary_key
+            const hasBidirectional = groupRelations.some((relation) =>
+                relation.from_entity.primary_key === primaryRelation.to_entity.primary_key
             );
 
-            const relationIds = groupRelations.map((r: any) => extractRelationId(r) || '');
+            const relationIds = groupRelations.map((relation) => extractRelationId(relation) || '');
             const edgeKey = generateEdgeKey(sourceNodeId, targetNodeId, relationIds, 'DATA');
 
             const edgeColor = '#94a3b8'; // slate-400
@@ -290,10 +292,14 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
         });
 
         console.log(`Graph built: ${graph.order} nodes, ${graph.size} edges`);
-    };
+    }, [graph]);
+
+    useEffect(() => {
+        buildGraphRef.current = buildGraph;
+    }, [buildGraph]);
 
     // Node click handler
-    const handleNodeClick = useCallback((nodeId: string, nodeData: any) => {
+    const handleNodeClick = useCallback((nodeId: string, nodeData: GraphNodeAttributes) => {
         console.log('Node clicked:', nodeId);
         setSelectedElement({ type: 'node', id: nodeId, data: nodeData });
     }, []);
@@ -321,10 +327,12 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
 
     // Handle entity exploration from SearchView
     useEffect(() => {
-        if (exploreEntityData) {
-            exploreEntity(exploreEntityData.entityType, exploreEntityData.primaryKey, false);
+        if (!exploreEntityData) return;
+        const timeout = window.setTimeout(() => {
+            void exploreEntity(exploreEntityData.entityType, exploreEntityData.primaryKey, false);
             onExploreComplete?.();
-        }
+        }, 0);
+        return () => window.clearTimeout(timeout);
     }, [exploreEntityData, onExploreComplete, exploreEntity]);
 
     // Empty state

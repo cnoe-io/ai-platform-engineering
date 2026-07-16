@@ -12,8 +12,8 @@ import { NextRequest } from 'next/server';
 
 // GET /api/users/search
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user) => {
-    const url = new URL(request.url);
+  return withAuth(request, async (req) => {
+    const url = new URL(req.url);
     const query = url.searchParams.get('q');
 
     if (!query || query.length < 2) {

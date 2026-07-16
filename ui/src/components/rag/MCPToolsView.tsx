@@ -61,14 +61,6 @@ const DEFAULT_PARALLEL_SEARCH: ParallelSearch = {
   semantic_weight: 0.5,
 };
 
-const DEFAULT_TOOL: Omit<MCPToolConfig, "created_at" | "updated_at"> = {
-  tool_id: "",
-  description: "",
-  parallel_searches: [{ ...DEFAULT_PARALLEL_SEARCH }],
-  allow_runtime_filters: false,
-  enabled: true,
-};
-
 // ============================================================================
 // DatasourceChipPicker — reusable chip picker for datasource IDs
 // ============================================================================

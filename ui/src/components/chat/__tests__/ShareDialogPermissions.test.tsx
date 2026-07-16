@@ -5,7 +5,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 const mockUpdateConversationSharing = jest.fn()
 
 jest.mock('@/store/chat-store', () => ({
-  useChatStore: (selector: any) => selector({
+  useChatStore: (selector: unknown) => selector({
     updateConversationSharing: mockUpdateConversationSharing,
   }),
 }))
