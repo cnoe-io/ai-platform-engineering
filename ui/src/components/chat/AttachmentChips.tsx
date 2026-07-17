@@ -12,7 +12,7 @@ import { formatBytes } from "@/lib/file-attachments";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileText, X } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useCallback } from "react";
 
 /** One staged attachment: the browser File plus a stable id for keying/removal. */
 export interface PendingAttachment {
@@ -29,18 +29,25 @@ interface AttachmentChipsProps {
 
 /** An image thumbnail backed by an object URL that is revoked on unmount. */
 function ImageThumb({ file }: { file: File }) {
-  // Create the object URL during render (deterministic for a given File) and
-  // revoke it on unmount — avoids a setState-in-effect cascade.
-  const url = useMemo(() => URL.createObjectURL(file), [file]);
-
-  useEffect(() => {
-    return () => URL.revokeObjectURL(url);
-  }, [url]);
+  // Bind the object URL to the <img> DOM node's lifecycle via a ref callback:
+  // create + assign src when the element mounts, revoke on unmount (React 19
+  // ref-cleanup). This is Strict-Mode-safe — the dev remount recreates a fresh
+  // URL — unlike creating it in useMemo, where the effect cleanup revoked the
+  // URL but the memo never re-ran, leaving a broken-image icon.
+  const imgRef = useCallback(
+    (node: HTMLImageElement | null) => {
+      if (!node) return;
+      const objectUrl = URL.createObjectURL(file);
+      node.src = objectUrl;
+      return () => URL.revokeObjectURL(objectUrl);
+    },
+    [file],
+  );
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={url}
+      ref={imgRef}
       alt={file.name}
       className="h-9 w-9 shrink-0 rounded-md object-cover"
     />

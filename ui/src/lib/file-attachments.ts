@@ -49,6 +49,13 @@ export const ACCEPT_ATTRIBUTE = ACCEPTED_MIME_TYPES.join(",");
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 /** Cumulative cap across all attachments in one turn (40 MiB). */
 export const MAX_TOTAL_BYTES = 40 * 1024 * 1024;
+/**
+ * Max attachment size (bytes) whose base64 data we persist inline in Mongo.
+ * Above this we keep the name/size but drop the data, so the transcript still
+ * shows a document chip on reload without bloating conversation documents.
+ * ~1.5 MiB of original bytes ≈ ~2 MiB of base64.
+ */
+export const MAX_INLINE_PERSIST_BYTES = Math.floor(1.5 * 1024 * 1024);
 
 export function isAcceptedMimeType(mimeType: string): boolean {
   return ACCEPTED_MIME_TYPES.includes(mimeType);

@@ -65,6 +65,21 @@ export function buildParticipants(agentId?: string, ownerEmail?: string): Partic
   return participants;
 }
 
+/**
+ * An attachment retained on a rendered message so uploaded files stay visible
+ * in the transcript (not just sent to the model). Mirrors the composer's
+ * InputFile shape — `data` is base64 with no `data:` URI prefix — plus the
+ * original byte size for display. Persisted via the message `artifacts` field.
+ */
+export interface MessageAttachment {
+  mime_type: string;
+  name: string;
+  /** base64 payload (no `data:` prefix); omitted when too large to persist. */
+  data?: string;
+  /** Original file size in bytes, for the size label. */
+  size?: number;
+}
+
 // Feedback types - matching agent-forge
 export interface MessageFeedback {
   type: "like" | "dislike" | null;
@@ -110,6 +125,9 @@ export interface ChatMessage {
   /** End-to-end client-measured turn latency in milliseconds (request → final
    *  response). Persisted to metadata.latency_ms for response-time analytics. */
   latencyMs?: number;
+  /** Files the user attached to this turn — kept so the upload shows in the
+   *  transcript and survives reload (persisted via the message `artifacts` field). */
+  attachments?: MessageAttachment[];
 }
 
 // Input field configuration for use case forms

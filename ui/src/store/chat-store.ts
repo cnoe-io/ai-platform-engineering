@@ -7,7 +7,8 @@ import { generateId } from "@/lib/utils";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
-import type { Message as StoredMessage, StoredStreamEvent } from "@/types/mongodb";
+import type { Artifact, Message as StoredMessage, StoredStreamEvent } from "@/types/mongodb";
+import { MAX_INLINE_PERSIST_BYTES } from "@/lib/file-attachments";
 
 const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
 
@@ -917,6 +918,26 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
               console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
             }
 
+            // Persist user attachments as artifacts so the upload stays in the
+            // transcript across reloads. Inline base64 is capped: above the
+            // cap we keep name/mime/size but drop the data (a document chip
+            // still renders) to avoid bloating conversation documents.
+            const attachmentArtifacts: Artifact[] | undefined = msg.attachments?.length
+              ? msg.attachments.map((att) => {
+                  const persistData = att.data != null
+                    && (att.size == null || att.size <= MAX_INLINE_PERSIST_BYTES);
+                  return {
+                    type: "attachment",
+                    name: att.name,
+                    data: {
+                      mime_type: att.mime_type,
+                      ...(att.size != null && { size: att.size }),
+                      ...(persistData && { data: att.data }),
+                    },
+                  };
+                })
+              : undefined;
+
             // The API does upsert on message_id — inserts on first call,
             // updates content/metadata/events on subsequent calls.
             await apiClient.addMessage(conversationId, {
@@ -941,6 +962,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
                 ...(msg.latencyMs != null && { latency_ms: msg.latencyMs }),
               },
               stream_events: serializedStreamEvents,
+              ...(attachmentArtifacts && { artifacts: attachmentArtifacts }),
             });
 
             savedCount++;
@@ -1045,6 +1067,22 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
             const hasHitlForm = streamEvents.some((event) => event.type === 'input_required');
+
+            // Rehydrate user attachments from artifacts (type: "attachment").
+            // Data may be absent for large files (dropped at persist time) — the
+            // renderer falls back to a document chip in that case.
+            const attachments = (msg.artifacts || [])
+              .filter((a) => a.type === 'attachment')
+              .map((a) => {
+                const d = a.data as { mime_type?: string; size?: number; data?: string };
+                return {
+                  name: a.name,
+                  mime_type: d?.mime_type || 'application/octet-stream',
+                  ...(typeof d?.size === 'number' && { size: d.size }),
+                  ...(typeof d?.data === 'string' && { data: d.data }),
+                };
+              });
+
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
@@ -1071,6 +1109,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
               senderEmail: msg.sender_email,
               senderName: msg.sender_name,
               senderImage: msg.sender_image,
+              ...(attachments.length > 0 && { attachments }),
             };
 
             return chatMsg;

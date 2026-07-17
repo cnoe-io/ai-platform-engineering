@@ -19,7 +19,7 @@ import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } fro
 import { cn,deduplicateByKey } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { buildParticipants,ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
+import { buildParticipants,ChatMessage as ChatMessageType,Conversation,type MessageAttachment,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
 import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,Paperclip,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
@@ -35,6 +35,7 @@ import { AgentTimeline,type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { Feedback,FeedbackButton } from "./FeedbackButton";
 import { MetadataInputForm,type InputField,type UserInputMetadata } from "./MetadataInputForm";
 import { AttachmentChips,type PendingAttachment } from "./AttachmentChips";
+import { MessageAttachments } from "./MessageAttachments";
 import { getFilteredCommands,SlashCommandMenu,type SlashCommand } from "./SlashCommandMenu";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { useSlashCommands } from "./useSlashCommands";
@@ -1038,14 +1039,24 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     };
     clearStreamEvents(convId);
 
-    // Add user message - generate turnId for this request/response pair
+    // Add user message - generate turnId for this request/response pair.
+    // Retain the attachments on the rendered turn so the upload shows in the
+    // transcript (base64 size ≈ 3/4 of the string length, close enough for the
+    // size label). Persistence caps large images in saveMessagesToServer.
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const attachments: MessageAttachment[] = filesToSend.map((f) => ({
+      mime_type: f.mime_type,
+      name: f.name,
+      data: f.data,
+      size: Math.floor((f.data.length * 3) / 4),
+    }));
     addMessage(convId, {
       role: "user",
       content: messageToSend,
       senderEmail: session?.user?.email ?? undefined,
       senderName: session?.user?.name ?? undefined,
       senderImage: session?.user?.image ?? undefined,
+      ...(attachments.length > 0 && { attachments }),
     }, turnId);
 
     // Add assistant message placeholder with same turnId
@@ -2489,13 +2500,20 @@ const ChatMessage = React.memo(function ChatMessage({
         {isUser ? (
           // ── User message bubble ──
           <>
-            <div
-              className="rounded-xl rounded-tr-sm relative overflow-hidden inline-block bg-primary text-primary-foreground px-4 py-3 max-w-full selection:bg-primary-foreground selection:text-primary"
-            >
-              <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
-                <MarkdownRenderer content={message.content} variant="user" />
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mb-2 flex w-full justify-end">
+                <MessageAttachments attachments={message.attachments} align="end" />
               </div>
-            </div>
+            )}
+            {message.content.trim() && (
+              <div
+                className="rounded-xl rounded-tr-sm relative overflow-hidden inline-block bg-primary text-primary-foreground px-4 py-3 max-w-full selection:bg-primary-foreground selection:text-primary"
+              >
+                <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
+                  <MarkdownRenderer content={message.content} variant="user" />
+                </div>
+              </div>
+            )}
 
             <motion.div
               initial={{ opacity: 0 }}
