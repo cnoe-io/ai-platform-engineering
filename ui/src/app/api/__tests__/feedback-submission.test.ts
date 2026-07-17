@@ -20,7 +20,7 @@ import { NextRequest } from 'next/server';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -34,8 +34,8 @@ const mockFlushAsync = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('langfuse', () => ({
   Langfuse: jest.fn().mockImplementation(() => ({
-    score: (...args: any[]) => mockScore(...args),
-    flushAsync: (...args: any[]) => mockFlushAsync(...args),
+    score: (...args: unknown[]) => mockScore(...args),
+    flushAsync: (...args: unknown[]) => mockFlushAsync(...args),
   })),
 }));
 
@@ -46,8 +46,8 @@ const mockUpdateOne = jest.fn().mockResolvedValue({ upsertedCount: 1 });
 jest.mock('@/lib/mongodb', () => ({
   getCollection: jest.fn(() =>
     Promise.resolve({
-      insertOne: (...args: any[]) => mockInsertOne(...args),
-      updateOne: (...args: any[]) => mockUpdateOne(...args),
+      insertOne: (...args: unknown[]) => mockInsertOne(...args),
+      updateOne: (...args: unknown[]) => mockUpdateOne(...args),
     }),
   ),
   get isMongoDBConfigured() {
@@ -63,7 +63,7 @@ jest.spyOn(console, 'error').mockImplementation(() => {});
 // Dynamic import — ensures env vars are set before module-level reads
 // ============================================================================
 
-let POST: any;
+let POST: unknown;
 
 beforeAll(async () => {
   // Set Langfuse env vars before the route module reads them
@@ -147,7 +147,7 @@ describe('POST /api/feedback — Web: 2 Langfuse scores + insertOne', () => {
     // Exactly 2 scores
     expect(mockScore).toHaveBeenCalledTimes(2);
 
-    const scoreNames = mockScore.mock.calls.map((c: any[]) => c[0].name);
+    const scoreNames = mockScore.mock.calls.map((c: unknown[]) => c[0].name);
     expect(scoreNames).toEqual(['all web', 'all']);
 
     // Both use the conversation ID as traceId (priority: conversationId > traceId > messageId)
@@ -206,7 +206,7 @@ describe('POST /api/feedback — Slack with channel: 3 Langfuse scores + upsert'
 
     expect(mockScore).toHaveBeenCalledTimes(3);
 
-    const scoreNames = mockScore.mock.calls.map((c: any[]) => c[0].name);
+    const scoreNames = mockScore.mock.calls.map((c: unknown[]) => c[0].name);
     expect(scoreNames).toEqual(['ask-platform', 'all slack channels', 'all']);
 
     // All scores use the granular value and the same traceId
@@ -275,7 +275,7 @@ describe('POST /api/feedback — Slack without channel: 2 Langfuse scores', () =
     // So only 2 scores total
     expect(mockScore).toHaveBeenCalledTimes(2);
 
-    const scoreNames = mockScore.mock.calls.map((c: any[]) => c[0].name);
+    const scoreNames = mockScore.mock.calls.map((c: unknown[]) => c[0].name);
     expect(scoreNames).toEqual(['all slack channels', 'all']);
   });
 });

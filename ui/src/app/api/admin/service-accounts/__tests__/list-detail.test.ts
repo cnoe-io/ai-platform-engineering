@@ -197,6 +197,8 @@ describe("GET /api/admin/service-accounts (list)", () => {
     mockResolveAuthorizedAdminSimulationScope.mockResolvedValue({
       openfgaUser: "user:target-sub",
       ownerEmail: "target@example.com",
+      subjectType: "user",
+      subjectId: "target-sub",
     });
     mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:target-team"] });
     mockListByOwningTeams.mockResolvedValue([]);
@@ -214,6 +216,29 @@ describe("GET /api/admin/service-accounts (list)", () => {
       type: "team",
     });
     expect(mockListByOwningTeams).toHaveBeenCalledWith(["target-team"], {
+      includeRevoked: false,
+    });
+  });
+
+  it("limits a team userset preview to the selected team's service accounts", async () => {
+    mockResolveAuthorizedAdminSimulationScope.mockResolvedValue({
+      openfgaUser: "team:platform#member",
+      ownerEmail: "",
+      subjectType: "team",
+      subjectId: "platform",
+      teamRelation: "member",
+    });
+    mockListByOwningTeams.mockResolvedValue([]);
+
+    const res = await listGET(
+      listRequest(
+        "http://localhost:3000/api/admin/service-accounts?simulate_type=team&simulate_id=platform",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["platform"], {
       includeRevoked: false,
     });
   });

@@ -31,7 +31,7 @@ jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
@@ -97,13 +97,13 @@ describe("GET /api/admin/rebac/catalog", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.resource_types.map((item: any) => item.type)).toEqual(
+    expect(body.data.resource_types.map((item: unknown) => item.type)).toEqual(
       listResourceTypeDefinitions().map((definition) => definition.type)
     );
     expect(body.data.actions.tool).toContain("call");
     expect(body.data.actions.knowledge_base).toContain("ingest");
 
-    const representedTypes = new Set(body.data.resources.map((resource: any) => resource.type));
+    const representedTypes = new Set(body.data.resources.map((resource: unknown) => resource.type));
     for (const definition of listResourceTypeDefinitions()) {
       expect(representedTypes).toContain(definition.type);
     }
@@ -117,6 +117,6 @@ describe("GET /api/admin/rebac/catalog", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.resources.length).toBeGreaterThan(0);
-    expect(body.data.resources.every((resource: any) => resource.type === "agent")).toBe(true);
+    expect(body.data.resources.every((resource: unknown) => resource.type === "agent")).toBe(true);
   });
 });

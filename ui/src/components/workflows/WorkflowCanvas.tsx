@@ -90,15 +90,20 @@ function useDynamicAgents() {
         const res = await fetch("/api/dynamic-agents/available");
         if (!res.ok) throw new Error("Failed to fetch agents");
         const data = await res.json();
-        const list = Array.isArray(data)
+        const list = (Array.isArray(data)
           ? data
           : Array.isArray(data.data)
             ? data.data
-            : [];
+            : []) as Array<{
+              _id?: string;
+              id?: string;
+              name?: string;
+              description?: string;
+              ui?: AgentAvatarAgent["ui"];
+            }>;
         if (!cancelled) {
           setAgents(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            list.map((a: any) => ({
+            list.map((a) => ({
               value: a._id || a.id,
               label: a.name || a._id || a.id,
               description: a.description || undefined,

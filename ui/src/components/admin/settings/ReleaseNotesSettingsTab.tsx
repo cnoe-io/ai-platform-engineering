@@ -1,5 +1,6 @@
 "use client";
 
+import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Bell,Eye,Loader2 } from "lucide-react";
 import { useEffect,useState } from "react";
@@ -257,9 +258,7 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
 
         {isAdmin && (
           <div className="space-y-3 border-t pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Admin
-            </p>
+            <AdminBadge />
             {loadingConfig ? (
               <div className="flex items-center justify-center py-2">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

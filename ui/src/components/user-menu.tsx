@@ -23,6 +23,7 @@ type FeatureFlagIcon,
 import { AnimatePresence,motion } from "framer-motion";
 import { ArrowDownToLine,Brain,Bug,Check,ChevronDown,ChevronRight,ChevronUp,Clock,Code,Copy,ExternalLink,Eye,FileText,Hash,Info,KeyRound,Layers,Lightbulb,LogIn,LogOut,RefreshCw,Search,Settings,Shield,SlidersHorizontal,Sparkles,Tag,Users,Wrench,X } from "lucide-react";
 import { signIn,signOut,useSession } from "next-auth/react";
+import Image from "next/image";
 import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 /**
@@ -432,7 +433,7 @@ export function UserMenu() {
           .join('')
       );
       return JSON.parse(jsonPayload);
-    } catch (e) {
+    } catch {
       return null;
     }
   };
@@ -483,9 +484,7 @@ export function UserMenu() {
         .slice(0, 2)
     : "U";
 
-  // Get display name (first name or full name)
   const displayName = session?.user?.name || "User";
-  const firstName = displayName.split(" ")[0];
 
   // Role display
   const userRole = session?.role || 'user';
@@ -502,7 +501,14 @@ export function UserMenu() {
         )}
       >
         {session?.user?.image ? (
-          <img src={session.user.image} alt={displayName} className="h-6 w-6 rounded-full" />
+          <Image
+            src={session.user.image}
+            alt={displayName}
+            width={24}
+            height={24}
+            unoptimized
+            className="h-6 w-6 rounded-full"
+          />
         ) : (
           <div className="h-6 w-6 rounded-full gradient-primary-br flex items-center justify-center">
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
@@ -524,9 +530,12 @@ export function UserMenu() {
             <div className="p-3 border-b border-border">
               <div className="flex items-center gap-3">
                 {session?.user?.image ? (
-                  <img
+                  <Image
                     src={session.user.image}
                     alt={session.user.name || "User"}
+                    width={40}
+                    height={40}
+                    unoptimized
                     className="h-10 w-10 rounded-full"
                   />
                 ) : (

@@ -45,33 +45,39 @@ jest.mock('next-auth/react', () => ({
 jest.mock('framer-motion', () => ({
   motion: {
     // eslint-disable-next-line react/display-name
-    div: React.forwardRef(({ children, initial, animate, exit, transition, className, onClick, ...props }: any, ref: any) => (
-      <div ref={ref} className={className} onClick={onClick} {...props}>{children}</div>
-    )),
+    div: React.forwardRef((props: unknown, ref: unknown) => {
+      const domProps = { ...props }
+      delete domProps.initial
+      delete domProps.animate
+      delete domProps.exit
+      delete domProps.transition
+      const { children, className, onClick, ...rest } = domProps
+      return <div ref={ref} className={className} onClick={onClick} {...rest}>{children}</div>
+    }),
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }))
 
 // Mock AuthGuard — passes children through
 jest.mock('@/components/auth-guard', () => ({
-  AuthGuard: ({ children }: any) => <div data-testid="auth-guard">{children}</div>,
+  AuthGuard: ({ children }: unknown) => <div data-testid="auth-guard">{children}</div>,
 }))
 
 // Mock UI components
 jest.mock('@/components/ui/card', () => ({
-  Card: ({ children, className, ...props }: any) => <div className={className} data-testid="card" {...props}>{children}</div>,
-  CardContent: ({ children, className, ...props }: any) => <div className={className} {...props}>{children}</div>,
-  CardDescription: ({ children }: any) => <p>{children}</p>,
-  CardHeader: ({ children }: any) => <div>{children}</div>,
-  CardTitle: ({ children, className }: any) => <h3 className={className}>{children}</h3>,
+  Card: ({ children, className, ...props }: unknown) => <div className={className} data-testid="card" {...props}>{children}</div>,
+  CardContent: ({ children, className, ...props }: unknown) => <div className={className} {...props}>{children}</div>,
+  CardDescription: ({ children }: unknown) => <p>{children}</p>,
+  CardHeader: ({ children }: unknown) => <div>{children}</div>,
+  CardTitle: ({ children, className }: unknown) => <h3 className={className}>{children}</h3>,
 }))
 
 jest.mock('@/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, ...props }: any) => <div data-testid="scroll-area" {...props}>{children}</div>,
+  ScrollArea: ({ children, ...props }: unknown) => <div data-testid="scroll-area" {...props}>{children}</div>,
 }))
 
 jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
-  SimpleLineChart: ({ data, height, color }: any) => (
+  SimpleLineChart: ({ data, height, color }: unknown) => (
     <div data-testid="line-chart" data-height={height} data-color={color}>
       {data?.length} data points
     </div>
@@ -85,11 +91,11 @@ jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
 }))
 
 jest.mock('@/components/ui/caipe-spinner', () => ({
-  CAIPESpinner: ({ size }: any) => <div data-testid="caipe-spinner" data-size={size}>Loading...</div>,
+  CAIPESpinner: ({ size }: unknown) => <div data-testid="caipe-spinner" data-size={size}>Loading...</div>,
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }))
 
 let mockStorageMode = 'mongodb'
@@ -107,7 +113,7 @@ import Insights from '../page'
 // Helpers
 // ============================================================================
 
-function makeInsightsData(overrides: Record<string, any> = {}) {
+function makeInsightsData(overrides: Record<string, unknown> = {}) {
   return {
     overview: {
       total_conversations: 42,
@@ -566,7 +572,7 @@ describe('Insights Page', () => {
 
   describe('Session handling', () => {
     it('does not fetch data when not authenticated', () => {
-      mockSession.status = 'loading' as any
+      mockSession.status = 'loading' as unknown
 
       render(<Insights />)
 

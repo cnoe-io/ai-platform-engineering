@@ -2,6 +2,10 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import {
+  withAdminSimulationParams,
+  type AdminSimulationQueryTarget,
+} from "@/lib/rbac/admin-simulation-query";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -12,6 +16,7 @@ export interface UserDetailModalProps {
   onClose: () => void;
   onSaved: () => void;
   readOnly?: boolean;
+  simulationTarget?: AdminSimulationQueryTarget | null;
   /** Pre-loaded team list from the parent page — skips the /api/admin/teams fetch. */
   teamOptions?: Array<{ teamId: string; label: string }>;
 }
@@ -165,6 +170,7 @@ export function UserDetailModal({
   onClose,
   onSaved,
   readOnly = false,
+  simulationTarget = null,
   teamOptions: teamOptionsProp,
 }: UserDetailModalProps) {
   const { update: updateSession } = useSession();
@@ -190,10 +196,16 @@ export function UserDetailModal({
   // Identity section (lazy — sessions + federated identities from Keycloak)
   const [identity, setIdentity] = useState<IdentityInfo | null>(null);
   const [identityLoading, setIdentityLoading] = useState(true);
+  const withPreviewScope = useCallback(
+    (path: string) => withAdminSimulationParams(path, simulationTarget),
+    [simulationTarget],
+  );
 
   const refreshProfile = useCallback(async () => {
     setProfileError(null);
-    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`);
+    const res = await fetch(
+      withPreviewScope(`/api/admin/users/${encodeURIComponent(userId)}`),
+    );
     const json = (await readJson(res)) as {
       success?: boolean;
       data?: { user?: ProfileUser };
@@ -207,7 +219,7 @@ export function UserDetailModal({
       );
     }
     setUser(json.data.user);
-  }, [userId]);
+  }, [userId, withPreviewScope]);
 
   const loadTeams = useCallback(async () => {
     if (teamOptionsProp) return; // parent already supplied the list
@@ -236,7 +248,9 @@ export function UserDetailModal({
   const loadIdentity = useCallback(async () => {
     setIdentityLoading(true);
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/identity`);
+      const res = await fetch(
+        withPreviewScope(`/api/admin/users/${encodeURIComponent(userId)}/identity`),
+      );
       const json = (await readJson(res)) as {
         success?: boolean;
         data?: IdentityInfo;
@@ -248,14 +262,14 @@ export function UserDetailModal({
     } finally {
       setIdentityLoading(false);
     }
-  }, [userId]);
+  }, [userId, withPreviewScope]);
 
   const loadAccess = useCallback(async () => {
     setAccessError(null);
     setAccessLoading(true);
     try {
       const res = await fetch(
-        `/api/admin/users/${encodeURIComponent(userId)}/access`
+        withPreviewScope(`/api/admin/users/${encodeURIComponent(userId)}/access`),
       );
       const json = (await readJson(res)) as {
         success?: boolean;
@@ -272,7 +286,7 @@ export function UserDetailModal({
     } finally {
       setAccessLoading(false);
     }
-  }, [userId]);
+  }, [userId, withPreviewScope]);
 
   useEffect(() => {
     setMounted(true);
@@ -326,7 +340,7 @@ export function UserDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [userId, readOnly, refreshProfile, loadTeams, loadAccess, loadIdentity]);
+  }, [userId, readOnly, teamOptionsProp, refreshProfile, loadTeams, loadAccess, loadIdentity]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {

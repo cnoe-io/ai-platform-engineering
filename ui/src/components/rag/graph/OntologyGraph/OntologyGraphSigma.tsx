@@ -6,6 +6,7 @@ import forceAtlas2 from "graphology-layout-forceatlas2";
 import { Filter,Loader2,RefreshCw,RotateCcw,Settings,Trash2,X } from 'lucide-react';
 import { useTheme } from "next-themes";
 import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import type Sigma from 'sigma';
 import '../shared/sigma-styles.css';
 
 import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
@@ -13,6 +14,7 @@ import { clearOntology,getOntologyAgentStatus,getOntologyEntitiesBatch,getOntolo
 import { CameraController,GraphDragController,GraphEventsController,GraphSettingsController,SigmaInstanceCapture } from '../shared/SigmaGraph';
 import { EvaluationResult,getColorForNode,getEvaluationResult } from '../shared/graphStyles';
 import { extractRelationId,generateEdgeKey,generateNodeId } from '../shared/graphUtils';
+import type { GraphEdgeAttributes,GraphNodeAttributes,GraphRelation } from '../shared/graphTypes';
 import OntologyGraphDataController,{ OntologyFilters } from './OntologyGraphDataController';
 import OntologyNodeDetailsCard from './OntologyNodeDetailsCard';
 import OntologyNodeHoverCard from './OntologyNodeHoverCard';
@@ -35,7 +37,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     const isDarkMode = resolvedTheme === "dark" || resolvedTheme?.includes("night") || resolvedTheme === "midnight" || resolvedTheme === "nord";
 
     // Graph instance - use MultiDirectedGraph to allow multiple edges between same nodes
-    const graph = useMemo(() => new MultiDirectedGraph(), []);
+    const graph = useMemo(() => new MultiDirectedGraph<GraphNodeAttributes,GraphEdgeAttributes>(), []);
 
     // State management
     const [dataReady, setDataReady] = useState(false);
@@ -44,11 +46,11 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     const [layoutKey, setLayoutKey] = useState(0); // Used to force SigmaContainer remount after layout
     const [allEntityTypes, setAllEntityTypes] = useState<string[]>([]);
     const [selectedEntityTypes, setSelectedEntityTypes] = useState<Set<string>>(new Set());
-    const [selectedNode, setSelectedNode] = useState<{ id: string; data: any } | null>(null);
+    const [selectedNode, setSelectedNode] = useState<{ id: string; data: GraphNodeAttributes } | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [graphStats, setGraphStats] = useState<{ node_count: number; relation_count: number } | null>(null);
-    const [sigmaInstance, setSigmaInstance] = useState<any>(null);
+    const [, setSigmaInstance] = useState<Sigma<GraphNodeAttributes,GraphEdgeAttributes> | null>(null);
     const [relationFilterMode, setRelationFilterMode] = useState<'accepted-only' | 'all' | 'rejected-uncertain-only'>('all');
 
     // Advanced mode state (shared between node and edge cards)
@@ -83,7 +85,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
     const [isApplyingLayout, setIsApplyingLayout] = useState(false);
 
     // Node click handler
-    const handleNodeClick = useCallback((nodeId: string, nodeData: any) => {
+    const handleNodeClick = useCallback((nodeId: string, nodeData: GraphNodeAttributes) => {
         console.log('Node clicked:', nodeId);
         setSelectedNode({ id: nodeId, data: nodeData });
     }, []);
@@ -274,7 +276,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                 const nodeDegrees = new Map<string, number>();
 
                 // Add nodes (skip duplicates to prevent graph errors)
-                entities.forEach((entity: any) => {
+                entities.forEach((entity) => {
                     const pk = entity.all_properties?._entity_pk || entity._entity_pk;
                     const entityType = entity.entity_type || entity.all_properties?._entity_type;
 
@@ -308,9 +310,9 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                 });
 
                 // Group relations and add edges
-                const relationGroups = new Map<string, any[]>();
+                const relationGroups = new Map<string, GraphRelation[]>();
 
-                relations.forEach((relation: any) => {
+                relations.forEach((relation) => {
                     const fromPk = relation.from_entity?.primary_key;
                     const toPk = relation.to_entity?.primary_key;
                     const fromType = relation.from_entity?.entity_type;
@@ -364,7 +366,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                         edgeColor = '#9ca3af';
                     }
 
-                    const relationIds = groupRelations.map((r: any) => extractRelationId(r) || '');
+                    const relationIds = groupRelations.map((relation) => extractRelationId(relation) || '');
                     const edgeKey = generateEdgeKey(sourceNodeId, targetNodeId, relationIds, status);
 
                     const label = groupRelations.length === 1
@@ -482,7 +484,7 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
         });
 
         return { nodes: visibleNodes, edges: visibleEdges };
-    }, [graph, filters]);
+    }, [graph]);
 
     return (
         <div className="absolute inset-0 bg-background flex flex-col">

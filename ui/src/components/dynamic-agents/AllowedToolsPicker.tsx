@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 // assisted-by Codex Codex-sonnet-4-6
 
 import { Badge } from "@/components/ui/badge";
@@ -67,8 +69,8 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
         } else {
           setError(data.error || "Failed to fetch servers");
         }
-      } catch (err: any) {
-        setError(err.message || "Failed to fetch servers");
+      } catch (err) {
+        setError(getErrorMessage(err, "") || "Failed to fetch servers");
       } finally {
         setLoading(false);
       }
@@ -130,10 +132,10 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
           [serverId]: { loading: false, error: data.error || "Probe failed" },
         }));
       }
-    } catch (err: any) {
+    } catch (err) {
       setProbeStates((prev) => ({
         ...prev,
-        [serverId]: { loading: false, error: err.message || "Probe failed" },
+        [serverId]: { loading: false, error: getErrorMessage(err, "") || "Probe failed" },
       }));
     }
   };

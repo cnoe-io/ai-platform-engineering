@@ -34,7 +34,7 @@ export const GET = withErrorHandler(
       throw new ApiError("Skill id and revision id are required", 400);
     }
     return await withAuth(request, async (_req, user, session) => {
-      const skill = await getAgentSkillVisibleToUser(id, user.email);
+      const skill = await getAgentSkillVisibleToUser(id);
       if (!skill) {
         throw new ApiError("Skill not found", 404);
       }

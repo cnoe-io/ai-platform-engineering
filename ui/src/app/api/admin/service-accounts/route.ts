@@ -193,6 +193,14 @@ export async function GET(request: NextRequest) {
     if (teamFilter && isAdmin) {
       // Admins can see SAs for any team — no membership intersection needed.
       owningTeamIds = [teamFilter];
+    } else if (simulationScope?.subjectType === "team") {
+      // A team userset preview represents membership in that selected team.
+      // Keep the list bounded to it instead of asking OpenFGA to infer a
+      // user's team memberships from a userset subject.
+      owningTeamIds = [simulationScope.subjectId];
+      if (teamFilter && teamFilter !== simulationScope.subjectId) {
+        owningTeamIds = [];
+      }
     } else {
       // Visibility boundary: the caller's own team memberships (FR-021).
       const teamObjects = await listOpenFgaObjects({

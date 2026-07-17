@@ -2,6 +2,8 @@
  * Common utility functions for graph visualization
  */
 
+import type { GraphRelation } from './graphTypes';
+
 /**
  * Generate a unique node ID from entity type and entity primary key
  */
@@ -43,14 +45,14 @@ export const generateRelationId = (
  * @param relation - The relation object
  * @returns The extracted relation ID or undefined if not found
  */
-export const extractRelationId = (relation: any): string | undefined => {
+export const extractRelationId = (relation: GraphRelation): string | undefined => {
     // Try different possible locations for relation ID
     return (
         relation.relation_pk ||
         relation.relation_properties?._relation_pk ||
         relation.relation_properties?._ontology_relation_id ||
-        (relation as any)._ontology_relation_id ||
-        (relation as any)._relation_pk
+        relation._ontology_relation_id ||
+        relation._relation_pk
     );
 };
 
@@ -61,7 +63,7 @@ export const extractRelationId = (relation: any): string | undefined => {
  * @param relation - The relation object
  * @returns A unique key for the graph edge
  */
-export const generateRelationKey = (relation: any): string => {
+export const generateRelationKey = (relation: GraphRelation): string => {
     const extractedId = extractRelationId(relation);
 
     if (extractedId) {

@@ -298,14 +298,6 @@ function enabledEnv(name: string): boolean {
 }
 
 /**
- * Read a browser-facing runtime env var dynamically so Next.js does not inline
- * a build-time NEXT_PUBLIC_* value into the server bundle.
- */
-function publicEnv(name: string): string | undefined {
-  return process.env[`NEXT_PUBLIC_${name}`] || undefined;
-}
-
-/**
  * Server-only config values that must NEVER be sent to the browser.
  * Access via getServerOnlyConfig().
  */

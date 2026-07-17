@@ -8,12 +8,8 @@ import { useCallback,useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 
 interface ChatViewProps {
-  /** The dynamic agent backend endpoint */
-  endpoint: string;
   /** MongoDB conversation UUID */
   conversationId: string;
-  /** Conversation title for display */
-  conversationTitle?: string;
   /** The selected dynamic agent ID */
   selectedAgentId: string;
   /** Full agent config (null while loading) */
@@ -24,8 +20,6 @@ interface ChatViewProps {
   readOnly?: boolean;
   /** Reason for read-only mode */
   readOnlyReason?: "admin_audit" | "shared_readonly";
-  /** Which admin tab the user navigated from */
-  adminOrigin?: "audit-logs" | "feedback" | null;
   /** Whether messages are still loading (show skeleton) */
   isLoadingMessages?: boolean;
 }
@@ -35,15 +29,12 @@ interface ChatViewProps {
  * Combines ChatPanel with a resizable DynamicAgentContext panel.
  */
 export function ChatView({
-  endpoint,
   conversationId,
-  conversationTitle,
   selectedAgentId,
   agent,
   agentNotFound,
   readOnly,
   readOnlyReason,
-  adminOrigin,
   isLoadingMessages,
 }: ChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
@@ -74,9 +65,7 @@ export function ChatView({
       <ResizablePanel minSize={40}>
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden h-full">
           <ChatPanel
-            endpoint={endpoint}
             conversationId={conversationId}
-            conversationTitle={conversationTitle}
             readOnly={readOnly || isDisabled}
             readOnlyReason={agentNotFound ? 'agent_deleted' : agent?.enabled === false ? 'agent_disabled' : readOnlyReason}
             agentId={selectedAgentId}

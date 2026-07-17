@@ -6,6 +6,10 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import {
+  getWebexIntegrationToken,
+  isWebexIntegrationEnabled,
+} from "@/lib/integration-config";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 
@@ -19,51 +23,6 @@ interface WebexBotRuntimeStatus {
   static_spaces?: number;
   static_routes?: number;
   cache_size?: number;
-}
-
-const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
-
-function envValue(name: string): string | null {
-  const value = process.env[name]?.trim();
-  if (!value || value.startsWith("#")) return null;
-  if (value.startsWith("<") && value.endsWith(">")) return null;
-  if (value.toLowerCase().includes("your-")) return null;
-  return value;
-}
-
-function envEnabled(name: string): boolean {
-  const value = envValue(name)?.toLowerCase();
-  return value ? ENABLED_VALUES.has(value) : false;
-}
-
-function hasComposeProfile(...profileNames: string[]): boolean {
-  const profiles = new Set(
-    (process.env.COMPOSE_PROFILES ?? "")
-      .split(",")
-      .map((profile) => profile.trim())
-      .filter(Boolean),
-  );
-  return profileNames.some((profile) => profiles.has(profile));
-}
-
-function webexIntegrationToken(): string | null {
-  return (
-    envValue("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") ??
-    envValue("WEBEX_ACCESS_TOKEN") ??
-    envValue("WEBEX_TOKEN")
-  );
-}
-
-function webexIntegrationEnabled(): boolean {
-  return (
-    Boolean(
-      envEnabled("WEBEX_INTEGRATION_ENABLED") ||
-        webexIntegrationToken() ||
-        envValue("WEBEX_BOT_ADMIN_CLIENT_SECRET") ||
-        envValue("KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET"),
-    ) ||
-    hasComposeProfile("webex-bot", "all-integrations")
-  );
 }
 
 async function webexPlatformConfigSummary(): Promise<{
@@ -121,8 +80,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
 
-  const enabled = webexIntegrationEnabled();
-  const integrationToken = webexIntegrationToken();
+  const enabled = isWebexIntegrationEnabled();
+  const integrationToken = getWebexIntegrationToken();
   if (integrationToken) {
     warmWebexSpaceDiscovery(integrationToken);
   }

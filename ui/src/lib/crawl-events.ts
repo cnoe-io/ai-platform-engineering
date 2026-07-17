@@ -224,7 +224,7 @@ export interface CrawlEventEmitter {
  * code path has zero allocations in the hot loop.
  */
 export const NOOP_EMITTER: CrawlEventEmitter = Object.freeze({
-  emit(_: CrawlEvent): void {
+  emit(): void {
     // Intentionally empty — see class docstring.
   },
 });

@@ -109,9 +109,6 @@ function bootstrapAdminEmails(): Set<string> {
   );
 }
 
-const BOOTSTRAP_ADMIN_EMAILS = bootstrapAdminEmails();
-
-
 export function isBootstrapAdmin(email: string | undefined | null): boolean {
   if (!email) return false;
   const emails = bootstrapAdminEmails();
@@ -270,6 +267,11 @@ type ExchangeResult = {
   expires_in?: number;
 } | null; // null = graceful race (see safety net 2)
 
+type OidcExchangeResponse = Exclude<ExchangeResult, null> & {
+  error?: string;
+  error_description?: string;
+};
+
 const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -413,10 +415,10 @@ async function refreshAccessToken(token: {
 
       // Check content-type before parsing - OIDC providers may return HTML error pages
       const contentType = response.headers.get("content-type") || "";
-      let data: any;
+      let data: OidcExchangeResponse;
 
       if (contentType.includes("application/json")) {
-        data = await response.json();
+        data = await response.json() as OidcExchangeResponse;
       } else {
         const text = await response.text();
         console.error("[Auth] Token refresh returned non-JSON response:", text.substring(0, 200));
@@ -826,15 +828,13 @@ export const authOptions: NextAuthOptions = {
           idToken: token.idToken as string | undefined,
         });
       }
-      const {
-        accessToken: _at,
-        refreshToken: _rt,
-        idToken: _idt,
-        ...slimToken
-      } = (token ?? {}) as Record<string, unknown>;
+      const slimToken = { ...(token ?? {}) } as Record<string, unknown>;
+      delete slimToken.accessToken;
+      delete slimToken.refreshToken;
+      delete slimToken.idToken;
       // Dynamic import avoids top-level ESM/CJS conflict with jose in test environments
       const { encode } = await import("next-auth/jwt");
-      return encode({ token: slimToken as any, secret, maxAge });
+      return encode({ token: slimToken, secret, maxAge });
     },
     async decode({ token, secret }) {
       const { decode } = await import("next-auth/jwt");

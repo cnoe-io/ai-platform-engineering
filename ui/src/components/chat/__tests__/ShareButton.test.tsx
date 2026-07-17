@@ -4,26 +4,26 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 const mockShareDialog = jest.fn(() => null);
 
 jest.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: any) => (
+  Button: ({ children, ...props }: unknown) => (
     <button {...props}>{children}</button>
   ),
 }));
 
 jest.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: any) => <>{children}</>,
-  TooltipContent: ({ children }: any) => <>{children}</>,
-  TooltipProvider: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: ({ children }: any) => <>{children}</>,
+  Tooltip: ({ children }: unknown) => <>{children}</>,
+  TooltipContent: ({ children }: unknown) => <>{children}</>,
+  TooltipProvider: ({ children }: unknown) => <>{children}</>,
+  TooltipTrigger: ({ children }: unknown) => <>{children}</>,
 }));
 
 jest.mock("lucide-react", () => ({
-  Check: (props: any) => <span data-testid="icon-check" {...props} />,
-  Share2: (props: any) => <span data-testid="icon-share2" {...props} />,
-  Users2: (props: any) => <span data-testid="icon-users2" {...props} />,
+  Check: (props: unknown) => <span data-testid="icon-check" {...props} />,
+  Share2: (props: unknown) => <span data-testid="icon-share2" {...props} />,
+  Users2: (props: unknown) => <span data-testid="icon-users2" {...props} />,
 }));
 
 jest.mock("../ShareDialog", () => ({
-  ShareDialog: (props: any) => {
+  ShareDialog: (props: unknown) => {
     mockShareDialog(props);
     return props.open ? <div data-testid="share-dialog" /> : null;
   },

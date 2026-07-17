@@ -175,8 +175,9 @@ export function ImportConflictDialog({
       );
       setValidationErrors((prev) => {
         if (!prev[candidateId]) return prev;
-        const { [candidateId]: _, ...rest } = prev;
-        return rest;
+        const next = { ...prev };
+        delete next[candidateId];
+        return next;
       });
     },
     [existingNamesSet],
@@ -193,8 +194,9 @@ export function ImportConflictDialog({
       // Apply.
       setValidationErrors((prev) => {
         if (!prev[candidateId]) return prev;
-        const { [candidateId]: _, ...rest } = prev;
-        return rest;
+        const next = { ...prev };
+        delete next[candidateId];
+        return next;
       });
     },
     [],

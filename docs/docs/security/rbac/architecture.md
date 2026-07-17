@@ -423,6 +423,12 @@ const { user, session } = await getAuthFromBearerOrSession(request);
 await requireRbacPermission(session, "rag", "kb.query");
 ```
 
+The middleware keeps the authenticated session, route-handler context, and
+conversation-access MongoDB result explicitly typed. Values that cross those
+boundaries use concrete interfaces or `unknown` plus runtime narrowing rather
+than an unchecked `any`; this is a compile-time safety constraint and does not
+change the authorization decisions described below.
+
 Two authorization paths:
 
 1. **Primary PDP:** `requireRbacPermission()` calls Keycloak Authorization Services with the caller's bearer/session access token and the requested `resource#scope`.
@@ -510,7 +516,7 @@ both bots intercept text/slash commands before route resolution.
 |---------|----------|---------|
 | Bot → BFF | `POST /api/user/check_agent_access` | Pure PDP probe for the DM dispatch chain. Wraps `evaluateAgentAccess(subject, agent_id)` (direct grant → team-union fallback) and returns `{allowed, reason, path, matched_team_slug}`. No team scope needed on the token. |
 | Bot → BFF | `GET /api/user/accessible-agents` | Pagination-friendly list of agents the calling user can `can_use`. Drives `/caipe-list` (Slack) and `list` (Webex). |
-| Bot → BFF | `GET/PUT /api/user/preferences` | Per-user saved `dm_default_agent_id`. `PUT {"dm_default_agent_id": null}` clears the preference (FR-029a, invoked by `/caipe-use default`). |
+| Bot/Web UI → BFF | `GET/PUT /api/user/preferences` | Per-user Web, Slack, and Webex defaults. A `null` surface value uses the resolved platform default returned by the same endpoint. Slack `/caipe-use default` and Webex `use default` clear their own surface value. |
 | Web UI | `requireAgentUsePermission` | New `ALLOW_TEAM_UNION` audit reason code. When direct user→agent grants miss, the helper probes the caller's team slugs (`listUserTeamSlugs`) and accepts `team:<slug>#member can_use agent:<id>`. This aligns the Web UI with the bots, which already honored team-mediated grants. |
 
 The bots' DM dispatch chain is:
@@ -518,16 +524,17 @@ The bots' DM dispatch chain is:
 1. **Thread/space override** (`dm_thread_overrides.OverrideStore` — LRU
    capped at 1000 entries, no TTL, cleared on bot restart or explicit
    `/caipe-use default`).
-2. **Saved preference** (`user_preferences.dm_default_agent_id` via the
-   BFF).
-3. **Deployment `dm_agent_id`** (`SLACK_INTEGRATION_DM_AGENT_ID` /
+2. **Saved surface preference** (`slack_default_agent_id` or
+   `webex_default_agent_id` via the BFF).
+3. **Platform default agent** returned by the BFF when that surface
+   preference is `null`.
+4. **Deployment `dm_agent_id`** (`SLACK_INTEGRATION_DM_AGENT_ID` /
    `WEBEX_INTEGRATION_DM_AGENT_ID`).
-4. **Platform default agent** (fallback). The Slack bot resolves this from
+5. **Deployment default fallback.** The platform value comes from
    `platform_config.default_agent_id` (set in Admin → Settings → Default
-   Agent, the same value the Web UI uses) and falls back to the
-   `SLACK_INTEGRATION_DEFAULT_AGENT_ID` env/YAML value when the DB is unset
-   or unreachable. So the platform default now governs Slack channel
-   fallback and DMs in addition to the Web UI.
+   Agent), with deployment configuration used when it is unset or
+   unreachable. The same platform selection therefore governs Web, Slack,
+   and Webex defaults.
 
 Every candidate is re-checked via `POST /api/user/check_agent_access`
 before being returned. A stale override that fails the PDP is auto-cleared

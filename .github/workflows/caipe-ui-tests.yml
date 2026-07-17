@@ -452,5 +452,4 @@ jobs:
 
       - name: Run ESLint
         working-directory: ui
-        continue-on-error: true
         run: npm run lint

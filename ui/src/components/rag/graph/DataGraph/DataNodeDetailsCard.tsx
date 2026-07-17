@@ -1,14 +1,14 @@
 "use client";
 
-import { MultiDirectedGraph } from 'graphology';
 import { ChevronDown,ChevronRight,X } from 'lucide-react';
 import { useState } from 'react';
 import { getColorForNode } from '../shared/graphStyles';
+import type { GraphNodeAttributes,KnowledgeGraph } from '../shared/graphTypes';
 
 interface DataNodeDetailsCardProps {
     nodeId: string;
-    nodeData: any;
-    graph: MultiDirectedGraph;
+    nodeData: GraphNodeAttributes;
+    graph: KnowledgeGraph;
     onClose: () => void;
     onExplore?: (entityType: string, primaryKey: string) => void;
 }
@@ -23,7 +23,7 @@ export default function DataNodeDetailsCard({
     const [showProperties, setShowProperties] = useState(true);
     const [showInternal, setShowInternal] = useState(false);
 
-    const entityData = nodeData.entityData || nodeData;
+    const entityData = nodeData.entityData;
     const entityType = entityData?.entity_type || nodeData.entityType || 'Entity';
     const nodeColor = nodeData.color || getColorForNode(entityType);
     const primaryKey = entityData?.primary_key || entityData?.all_properties?._entity_pk || '';
@@ -44,7 +44,7 @@ export default function DataNodeDetailsCard({
     const inDegree = graph.hasNode(nodeId) ? graph.inDegree(nodeId) : 0;
 
     // Format value for display
-    const formatValue = (value: any): string => {
+    const formatValue = (value: unknown): string => {
         if (value === null || value === undefined) return '';
         if (Array.isArray(value)) return value.join(', ');
         if (typeof value === 'object') return JSON.stringify(value);

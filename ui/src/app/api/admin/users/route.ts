@@ -17,9 +17,14 @@ import {
 curateRealmRolesForUser,
 type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
+import {
+resolveAuthorizedAdminSimulationScope,
+simulationSubjectCanAuditOrganization,
+} from "@/lib/rbac/admin-simulation-server";
 import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import {
+listActiveTeamMemberEmailsBySlugsPaged,
 listActiveTeamMembershipSourcesBySlug,
 listTeamMembershipSources,
 } from "@/lib/rbac/team-membership-source-store";
@@ -222,13 +227,16 @@ function userMatchesFilters(
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireBaselineAdminSurfaceRead(session, "users");
-
-  const hasAdminView = await requireRbacPermission(session, "admin_ui", "view").then(
-    () => true,
-    () => false
-  );
-
   const url = new URL(request.url);
+  const simulationScope = await resolveAuthorizedAdminSimulationScope(url.searchParams, session);
+
+  const hasAdminView = simulationScope
+    ? await simulationSubjectCanAuditOrganization(simulationScope)
+    : await requireRbacPermission(session, "admin_ui", "view").then(
+        () => true,
+        () => false
+      );
+
   // Per-user role enrichment is opt-in. The Users-tab table, the team
   // typeaheads, the simulation picker, and the ReBAC graph filters do not
   // render role fields; they should not pay for N extra Keycloak round-trips
@@ -237,25 +245,50 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const includeRolesRaw = (url.searchParams.get("includeRoles") ?? "").trim().toLowerCase();
   const includeRoles = includeRolesRaw === "true" || includeRolesRaw === "1";
 
+  // Parsed once up front so both the plain-member (team-scoped) branch below
+  // and the admin/team-admin branch can page their Keycloak round-trips
+  // instead of resolving every row in one request.
+  const page = parseInt(url.searchParams.get("page") ?? "1", 10);
+  const pageSize = parseInt(url.searchParams.get("pageSize") ?? "20", 10);
+  if (Number.isNaN(page) || page < 1) {
+    throw new ApiError("page must be >= 1", 400);
+  }
+  if (Number.isNaN(pageSize) || pageSize < 1 || pageSize > 100) {
+    throw new ApiError("pageSize must be between 1 and 100", 400);
+  }
+  const skip = (page - 1) * pageSize;
+
   // Resolve the caller's subject + the teams they administer (`team#admin`).
   // Org/super admins keep the unscoped full-list view. A TEAM admin (not org
   // admin) is now widened to the same full-list view so they can VIEW any
   // user, but each row is stamped `can_edit` only for users on a team they
   // administer. Plain members fall back to the self/team-scoped listing.
-  const subject = typeof session.sub === "string" ? session.sub.trim() : "";
+  const selfSubjectId = simulationScope
+    ? simulationScope.subjectType === "user"
+      ? simulationScope.subjectId
+      : ""
+    : typeof session.sub === "string"
+      ? session.sub.trim()
+      : "";
+  const actor = simulationScope?.openfgaUser
+    ?? (selfSubjectId ? `user:${selfSubjectId}` : "");
   let adminSlugs = new Set<string>();
-  if (!hasAdminView && subject) {
-    try {
-      const adminObjects = await listOpenFgaObjects({
-        user: `user:${subject}`,
-        relation: "admin",
-        type: "team",
-      });
-      adminSlugs = new Set(
-        adminObjects.objects.map((obj) => obj.split(":").slice(1).join(":")).filter(Boolean)
-      );
-    } catch {
-      // fail-closed: treat as non-team-admin
+  if (!hasAdminView) {
+    if (simulationScope?.subjectType === "team" && simulationScope.teamRelation === "admin") {
+      adminSlugs = new Set([simulationScope.subjectId]);
+    } else if (actor) {
+      try {
+        const adminObjects = await listOpenFgaObjects({
+          user: actor,
+          relation: "admin",
+          type: "team",
+        });
+        adminSlugs = new Set(
+          adminObjects.objects.map((obj) => obj.split(":").slice(1).join(":")).filter(Boolean)
+        );
+      } catch {
+        // fail-closed: treat as non-team-admin
+      }
     }
   }
   const isTeamAdmin = adminSlugs.size > 0;
@@ -283,78 +316,79 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     rows.map((row) => ({ ...row, can_edit: orgAdmin || canEditEmail(row.email) }));
 
   if (!orgAdmin && !isTeamAdmin) {
-    if (!subject) {
+    if (!actor) {
       throw new ApiError("A stable user subject is required to load your user profile.", 401);
     }
     const pendingSlackIds = await loadPendingSlackIds();
 
-    let teamSlugs: string[] = [];
-    try {
-      const teamObjects = await listOpenFgaObjects({
-        user: `user:${subject}`,
-        relation: "member",
-        type: "team",
+    const selfOnlyResponse = async (): Promise<NextResponse> => {
+      if (!selfSubjectId) {
+        return NextResponse.json({
+          users: [],
+          total: 0,
+          page: 1,
+          pageSize: 0,
+          scoped: "team",
+        });
+      }
+      const self = await enrichListRow(
+        await getRealmUserById(selfSubjectId),
+        pendingSlackIds,
+        true
+      );
+      return NextResponse.json({
+        users: [{ ...self, can_edit: self.id === selfSubjectId }],
+        total: 1,
+        page: 1,
+        pageSize: 1,
+        scoped: "self",
       });
-      teamSlugs = teamObjects.objects
-        .map((obj) => {
-          const parts = obj.split(":");
-          return parts.length >= 2 ? parts.slice(1).join(":") : "";
-        })
-        .filter(Boolean);
-    } catch {
-      // fall through to self-only
+    };
+
+    let teamSlugs: string[] = [];
+    if (simulationScope?.subjectType === "team") {
+      teamSlugs = [simulationScope.subjectId];
+    } else {
+      try {
+        const teamObjects = await listOpenFgaObjects({
+          user: actor,
+          relation: "member",
+          type: "team",
+        });
+        teamSlugs = teamObjects.objects
+          .map((obj) => {
+            const parts = obj.split(":");
+            return parts.length >= 2 ? parts.slice(1).join(":") : "";
+          })
+          .filter(Boolean);
+      } catch {
+        // fall through to self-only
+      }
     }
 
     if (teamSlugs.length === 0) {
-      const self = await enrichListRow(
-        await getRealmUserById(subject),
-        pendingSlackIds,
-        true
-      );
-      return NextResponse.json({
-        users: [{ ...self, can_edit: self.id === subject }],
-        total: 1,
-        page: 1,
-        pageSize: 1,
-        scoped: "self",
-      });
+      return selfOnlyResponse();
     }
 
-    const teamEmailUnion = new Set<string>();
-    await Promise.all(
-      teamSlugs.map(async (slug) => {
-        try {
-          const emails = await loadTeamMemberEmailsBySlug(slug);
-          for (const email of emails) teamEmailUnion.add(email);
-        } catch {
-          // skip this team on error
-        }
-      })
-    );
+    // Dedup + sort + page happen in Mongo (`listActiveTeamMemberEmailsBySlugsPaged`)
+    // rather than in Node. A team can be arbitrarily large (e.g. an
+    // Okta-synced org-wide group with thousands of members) — fetching every
+    // member row into Node on every Users-tab load, just to slice a page out
+    // of it in JS, meant the request cost the full team size regardless of
+    // `pageSize`. It also used to fan out one Keycloak call per member in one
+    // unbounded `Promise.all`, which OOMKilled the istio-proxy sidecar in prod;
+    // this still resolves at most `pageSize` emails via Keycloak per request.
+    const { emails: pageEmails, total: teamMemberTotal } =
+      await listActiveTeamMemberEmailsBySlugsPaged(teamSlugs, skip, pageSize);
 
-    if (teamEmailUnion.size === 0) {
-      const self = await enrichListRow(
-        await getRealmUserById(subject),
-        pendingSlackIds,
-        true
-      );
-      return NextResponse.json({
-        users: [{ ...self, can_edit: self.id === subject }],
-        total: 1,
-        page: 1,
-        pageSize: 1,
-        scoped: "self",
-      });
+    if (teamMemberTotal === 0) {
+      return selfOnlyResponse();
     }
 
-    // Resolve each team member by exact email rather than scanning the whole
-    // realm. The membership store already gives us the exact set of emails, so
-    // an indexed per-email lookup is O(team size) instead of O(realm size) —
-    // critical now that every non-admin pays this on each Users-tab load.
     const seenIds = new Set<string>();
     const teamUsers: AdminUsersListItem[] = [];
     await Promise.all(
-      [...teamEmailUnion].map(async (email) => {
+      pageEmails.map(async (email) => {
         try {
           const matches = await findRealmUsersByExactEmail(email);
           for (const u of matches) {
@@ -371,10 +405,10 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
 
     // Plain members can only edit their own profile.
     return NextResponse.json({
-      users: teamUsers.map((u) => ({ ...u, can_edit: u.id === subject })),
-      total: teamUsers.length,
-      page: 1,
-      pageSize: teamUsers.length,
+      users: teamUsers.map((u) => ({ ...u, can_edit: u.id === selfSubjectId })),
+      total: teamMemberTotal,
+      page,
+      pageSize,
       scoped: "team",
     });
   }
@@ -403,15 +437,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
             })();
 
     const enabled = parseBoolParam(url.searchParams.get("enabled"));
-
-    const page = parseInt(url.searchParams.get("page") ?? "1", 10);
-    const pageSize = parseInt(url.searchParams.get("pageSize") ?? "20", 10);
-    if (Number.isNaN(page) || page < 1) {
-      throw new ApiError("page must be >= 1", 400);
-    }
-    if (Number.isNaN(pageSize) || pageSize < 1 || pageSize > 100) {
-      throw new ApiError("pageSize must be between 1 and 100", 400);
-    }
 
     if (team && !isMongoDBConfigured) {
       return NextResponse.json(
@@ -452,8 +477,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       Boolean(webexStatus);
     const pendingSlackIds =
       needsScan || !slackStatus ? await loadPendingSlackIds() : new Set<string>();
-
-    const skip = (page - 1) * pageSize;
 
     if (!needsScan) {
       const first = skip;

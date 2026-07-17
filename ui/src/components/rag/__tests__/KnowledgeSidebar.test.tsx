@@ -33,27 +33,27 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("framer-motion", () => ({
-  motion: { div: ({ children, ...rest }: any) => <div {...rest}>{children}</div> },
+  motion: { div: ({ children, ...rest }: unknown) => <div {...rest}>{children}</div> },
 }));
 
 jest.mock("lucide-react", () => ({
-  Database: (p: any) => <svg data-testid="icon-database" {...p} />,
-  Search: (p: any) => <svg data-testid="icon-search" {...p} />,
-  GitFork: (p: any) => <svg data-testid="icon-gitfork" {...p} />,
-  ChevronLeft: (p: any) => <svg data-testid="icon-chev-left" {...p} />,
-  ChevronRight: (p: any) => <svg data-testid="icon-chev-right" {...p} />,
-  BookOpen: (p: any) => <svg data-testid="icon-bookopen" {...p} />,
-  Wrench: (p: any) => <svg data-testid="icon-wrench" {...p} />,
-  Lock: (p: any) => <svg data-testid="icon-lock" {...p} />,
-  ShieldQuestion: (p: any) => <svg data-testid="icon-shieldq" {...p} />,
+  Database: (p: unknown) => <svg data-testid="icon-database" {...p} />,
+  Search: (p: unknown) => <svg data-testid="icon-search" {...p} />,
+  GitFork: (p: unknown) => <svg data-testid="icon-gitfork" {...p} />,
+  ChevronLeft: (p: unknown) => <svg data-testid="icon-chev-left" {...p} />,
+  ChevronRight: (p: unknown) => <svg data-testid="icon-chev-right" {...p} />,
+  BookOpen: (p: unknown) => <svg data-testid="icon-bookopen" {...p} />,
+  Wrench: (p: unknown) => <svg data-testid="icon-wrench" {...p} />,
+  Lock: (p: unknown) => <svg data-testid="icon-lock" {...p} />,
+  ShieldQuestion: (p: unknown) => <svg data-testid="icon-shieldq" {...p} />,
 }));
 
 jest.mock("@/lib/utils", () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(" "),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
 
 jest.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...rest }: any) => <button {...rest}>{children}</button>,
+  Button: ({ children, ...rest }: unknown) => <button {...rest}>{children}</button>,
 }));
 
 jest.mock("@/components/rag/RagAuthBanner", () => ({

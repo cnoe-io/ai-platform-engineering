@@ -6,6 +6,7 @@ withErrorHandler,
 import { getServerConfig } from '@/lib/config';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { Conversation } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 const MAX_EXPORT_ROWS = 10000;
@@ -17,10 +18,14 @@ function escapeCSV(value: string): string {
   return value;
 }
 
-function toISOSafe(date: any): string {
+function toISOSafe(date: unknown): string {
   if (!date) return '';
   try {
-    return new Date(date).toISOString();
+    if (date instanceof Date) return date.toISOString();
+    if (typeof date === 'string' || typeof date === 'number') {
+      return new Date(date).toISOString();
+    }
+    return '';
   } catch {
     return '';
   }
@@ -52,7 +57,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const includeDeleted = url.searchParams.get('include_deleted') === 'true';
     const status = url.searchParams.get('status') as 'active' | 'archived' | 'deleted' | null;
 
-    const matchStage: Record<string, any> = {};
+    const matchStage: Document = {};
 
     if (ownerEmail) {
       matchStage.owner_id = { $regex: ownerEmail, $options: 'i' };
@@ -84,7 +89,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    const pipeline: any[] = [
+    const pipeline: Document[] = [
       { $match: matchStage },
       {
         $lookup: {
@@ -145,7 +150,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       'Is Public',
     ];
 
-    const rows = items.map((conv: any) => [
+    const rows = items.map((conv) => [
       escapeCSV(conv._id || ''),
       escapeCSV(conv.owner_id || ''),
       escapeCSV(conv.title || ''),

@@ -10,6 +10,7 @@
  * keeps the UI focused and matches how AI Suggest's task registry works.
  */
 
+import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
@@ -85,6 +86,7 @@ export function ReviewConfigsTab({ readOnly = false }: { readOnly?: boolean }) {
           <h3 className="text-base font-semibold flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
             AI Review configurations
+            <AdminBadge />
           </h3>
           <p className="text-xs text-muted-foreground">
             Edit the rubric that grades content before save in each consumer

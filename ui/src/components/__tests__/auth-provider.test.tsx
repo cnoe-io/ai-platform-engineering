@@ -7,8 +7,8 @@ import React from 'react'
 import { render } from '@testing-library/react'
 
 jest.mock('next-auth/react', () => {
-  const SessionProvider = jest.fn(({ children, ...props }: any) => {
-    ;(SessionProvider as any).__lastProps = props
+  const SessionProvider = jest.fn(({ children, ...props }: unknown) => {
+    ;(SessionProvider as unknown).__lastProps = props
     return children
   })
   return { SessionProvider }
@@ -23,6 +23,6 @@ test('passes refetchInterval and refetchOnWindowFocus to SessionProvider', () =>
       <div>child</div>
     </AuthProvider>
   )
-  expect((SessionProvider as any).__lastProps.refetchInterval).toBe(240)
-  expect((SessionProvider as any).__lastProps.refetchOnWindowFocus).toBe(true)
+  expect((SessionProvider as unknown).__lastProps.refetchInterval).toBe(240)
+  expect((SessionProvider as unknown).__lastProps.refetchOnWindowFocus).toBe(true)
 })

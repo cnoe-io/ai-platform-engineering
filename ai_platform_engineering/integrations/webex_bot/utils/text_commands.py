@@ -85,8 +85,8 @@ USE_OK_MESSAGE = (
 )
 
 USE_DEFAULT_OK_MESSAGE = (
-    "Cleared your saved DM preference and any active space override. "
-    "Future direct messages will route to the deployment default."
+    "Cleared your Webex default and any active space override. Future direct "
+    "messages will use the platform default."
 )
 
 USE_DEFAULT_PARTIAL_OK_MESSAGE = (
@@ -105,8 +105,8 @@ HELP_MESSAGE = (
     "(type `use default` to clear your saved preference)\n"
     "• `help` — show this message\n"
     "\n"
-    "Direct messages dispatch via: space override → your saved default → "
-    "the deployment default."
+    "Direct messages dispatch via: space override → your Webex default "
+    "→ the deployment direct-message default → the platform default."
 )
 
 

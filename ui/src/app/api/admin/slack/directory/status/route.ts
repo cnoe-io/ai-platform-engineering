@@ -6,6 +6,10 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import {
+  getSlackIntegrationToken,
+  isSlackIntegrationEnabled,
+} from "@/lib/integration-config";
 import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
 import {
   getSlackEmojiDirectoryStatus,
@@ -15,46 +19,6 @@ import {
   getSlackUsersDirectoryStatus,
   warmSlackUsersDirectory,
 } from "../../users/lookup/route";
-
-const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
-
-function envValue(name: string): string | null {
-  const value = process.env[name]?.trim();
-  if (!value || value.startsWith("#")) return null;
-  if (value.startsWith("<") && value.endsWith(">")) return null;
-  if (value.toLowerCase().includes("your-")) return null;
-  return value;
-}
-
-function envEnabled(name: string): boolean {
-  const value = envValue(name)?.toLowerCase();
-  return value ? ENABLED_VALUES.has(value) : false;
-}
-
-function hasComposeProfile(...profileNames: string[]): boolean {
-  const profiles = new Set(
-    (process.env.COMPOSE_PROFILES ?? "")
-      .split(",")
-      .map((profile) => profile.trim())
-      .filter(Boolean),
-  );
-  return profileNames.some((profile) => profiles.has(profile));
-}
-
-function slackDirectoryToken(): string | null {
-  return envValue("SLACK_BOT_TOKEN") ?? envValue("SLACK_INTEGRATION_BOT_TOKEN");
-}
-
-function slackIntegrationEnabled(): boolean {
-  return (
-    Boolean(
-      envEnabled("SLACK_INTEGRATION_ENABLED") ||
-        envEnabled("SLACK_ADMIN_API_ENABLED") ||
-        envEnabled("SLACK_BOT_ADMIN_DEV_AUTH_ENABLED"),
-    ) ||
-    hasComposeProfile("slack-bot", "all-integrations")
-  );
-}
 
 function emptyUsersDirectoryStatus(error?: string) {
   return {
@@ -94,8 +58,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
 
-  const enabled = slackIntegrationEnabled();
-  const token = slackDirectoryToken();
+  const enabled = isSlackIntegrationEnabled();
+  const token = getSlackIntegrationToken();
   if (!enabled) {
     return successResponse({
       configured: false,

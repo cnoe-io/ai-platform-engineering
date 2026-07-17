@@ -18,7 +18,11 @@ from typing import Any, Mapping
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
 from .utils.webex_bot_catalog import configured_webex_bots
 from .app import handle_webex_message
-from .webex_responder import WebexResponder, WebexRestApi, WebexThreadedStreamDispatcher
+from .webex_responder import (
+    WebexResponder,
+    WebexRestApi,
+    WebexThreadedStreamDispatcher,
+)
 from .webex_websocket import WebexWebSocketRuntime
 
 logger = logging.getLogger("caipe.webex_bot.webex_wdm")

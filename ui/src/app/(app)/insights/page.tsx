@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import {
 CategoryBreakdown,
 RunStatsTable,
@@ -159,8 +161,8 @@ function InsightsPage() {
           const skillsJson = await skillsRes.json();
           if (skillsJson.success) setSkillMetrics(skillsJson.data);
         }
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err) {
+        setError(getErrorMessage(err, ""));
       } finally {
         setLoading(false);
       }
@@ -374,7 +376,7 @@ function InsightsPage() {
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {data.favorite_agents.map((agent, i) => {
+                  {data.favorite_agents.map((agent) => {
                     const maxCount = data.favorite_agents[0].count;
                     const pct = maxCount > 0 ? (agent.count / maxCount) * 100 : 0;
                     return (

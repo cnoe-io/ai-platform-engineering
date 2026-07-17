@@ -1,7 +1,6 @@
 "use client";
 
 import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
-import { MultiDirectedGraph } from 'graphology';
 import { ArrowLeftRight,Check,ChevronDown,ChevronRight,Loader2,RefreshCw,RotateCcw,Settings2,X,XIcon } from 'lucide-react';
 import { useCallback,useState } from 'react';
 import {
@@ -14,11 +13,19 @@ syncOntologyRelation,
 undoOntologyRelationEvaluation
 } from '../../api';
 import { getColorForNode } from '../shared/graphStyles';
+import type {
+    GraphNodeAttributes,
+    KnowledgeGraph,
+    RelationEvaluation,
+    RelationEvaluationsResponse,
+    RelationHeuristic,
+    RelationHeuristicsResponse,
+} from '../shared/graphTypes';
 
 interface OntologyNodeDetailsCardProps {
     nodeId: string;
-    nodeData: any;
-    graph: MultiDirectedGraph;
+    nodeData: GraphNodeAttributes;
+    graph: KnowledgeGraph;
     onClose: () => void;
     advancedMode?: boolean;
     onToggleAdvanced?: () => void;
@@ -33,6 +40,38 @@ interface RelationInfo {
     isOutgoing: boolean;
     edgeId: string;
     relationIds: string[];
+}
+
+interface RelationDetailsState {
+    error?: string;
+    evaluations?: RelationEvaluation[];
+    heuristics?: RelationHeuristic[];
+    loading: boolean;
+    rawEvaluations?: unknown;
+    rawHeuristics?: unknown;
+}
+
+function parseHeuristicsResponse(response: RelationHeuristicsResponse): RelationHeuristic[] {
+    const records = (response.heuristics ?? response) as Record<
+        string,
+        Omit<RelationHeuristic, 'relationId'>
+    >;
+    return Object.entries(records).map(([relationId, data]) => ({
+        ...data,
+        relationId,
+    })) as RelationHeuristic[];
+}
+
+function parseEvaluationsResponse(response: RelationEvaluationsResponse): RelationEvaluation[] {
+    const records = (response.evaluations ?? response) as Record<string, {
+        evaluation?: Omit<RelationEvaluation, 'relationId' | 'sync_status'>;
+        sync_status?: RelationEvaluation['sync_status'];
+    }>;
+    return Object.entries(records).map(([relationId, data]) => ({
+        relationId,
+        ...(data.evaluation ?? {}),
+        sync_status: data.sync_status,
+    }));
 }
 
 export default function OntologyNodeDetailsCard({
@@ -54,18 +93,11 @@ export default function OntologyNodeDetailsCard({
     
     // Expanded relation state (for Advanced mode)
     const [expandedRelationId, setExpandedRelationId] = useState<string | null>(null);
-    const [relationDetails, setRelationDetails] = useState<{
-        heuristics?: any[];
-        evaluations?: any[];
-        rawHeuristics?: any;
-        rawEvaluations?: any;
-        loading: boolean;
-        error?: string;
-    }>({ loading: false });
+    const [relationDetails, setRelationDetails] = useState<RelationDetailsState>({ loading: false });
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [showRawRelationData, setShowRawRelationData] = useState(false);
 
-    const entityData = nodeData.entityData || nodeData;
+    const entityData = nodeData.entityData;
     const entityType = entityData?.entity_type || nodeData.entityType || 'Entity';
     const nodeColor = nodeData.color || getColorForNode(entityType);
 
@@ -120,7 +152,7 @@ export default function OntologyNodeDetailsCard({
     const rejectedRelations = allRelations.filter(r => r.evaluationResult === 'REJECTED');
 
     // Format property value (handles arrays)
-    const formatValue = (value: any): string => {
+    const formatValue = (value: unknown): string => {
         if (Array.isArray(value)) {
             return value.join(', ');
         }
@@ -164,27 +196,8 @@ export default function OntologyNodeDetailsCard({
                 console.log('Evaluations response:', evaluationsResponse);
                 
                 // Response structure is: { heuristics: { [relationId]: { ...heuristicData } }, evaluations: { [relationId]: { evaluation: {...}, sync_status: {...} } } }
-                let heuristics: any[] = [];
-                let evaluations: any[] = [];
-                
-                // Parse heuristics - keyed by relation ID
-                const heuristicsData = (heuristicsResponse as any).heuristics || heuristicsResponse;
-                if (heuristicsData && typeof heuristicsData === 'object') {
-                    heuristics = Object.entries(heuristicsData).map(([relationId, data]: [string, any]) => ({
-                        relationId,
-                        ...data
-                    }));
-                }
-                
-                // Parse evaluations - keyed by relation ID, with nested evaluation object
-                const evaluationsData = (evaluationsResponse as any).evaluations || evaluationsResponse;
-                if (evaluationsData && typeof evaluationsData === 'object') {
-                    evaluations = Object.entries(evaluationsData).map(([relationId, data]: [string, any]) => ({
-                        relationId,
-                        ...(data.evaluation || {}),
-                        sync_status: data.sync_status
-                    }));
-                }
+                const heuristics = parseHeuristicsResponse(heuristicsResponse);
+                const evaluations = parseEvaluationsResponse(evaluationsResponse);
                 
                 setRelationDetails({
                     loading: false,
@@ -193,7 +206,7 @@ export default function OntologyNodeDetailsCard({
                     // Store raw responses for debugging
                     rawHeuristics: heuristicsResponse,
                     rawEvaluations: evaluationsResponse
-                } as any);
+                });
             } catch (err) {
                 console.error('Failed to load relation details:', err);
                 setRelationDetails({ loading: false, error: 'Failed to load details' });
@@ -435,7 +448,7 @@ export default function OntologyNodeDetailsCard({
                                         {relationDetails.heuristics.length}
                                     </span>
                                 </div>
-                                {relationDetails.heuristics.map((h: any, idx: number) => (
+                                {relationDetails.heuristics.map((h, idx) => (
                                     <div key={idx} className="bg-muted/20 rounded border border-border/30 p-2 space-y-2">
                                         {/* Entity types header */}
                                         <div className="flex items-center gap-2 font-medium">
@@ -457,7 +470,7 @@ export default function OntologyNodeDetailsCard({
                                             <div className="p-1.5 rounded border border-border/50 bg-background">
                                                 <div className="font-medium text-muted-foreground mb-1">Property Mappings:</div>
                                                 <div className="space-y-1">
-                                                    {h.property_mappings.map((pm: any, pmIdx: number) => (
+                                                    {h.property_mappings.map((pm, pmIdx) => (
                                                         <div key={pmIdx} className="flex items-center gap-1 flex-wrap">
                                                             <span className="font-mono font-medium" style={{ color: getColorForNode(h.entity_a_type) }}>
                                                                 {pm.entity_a_property}
@@ -518,10 +531,10 @@ export default function OntologyNodeDetailsCard({
                                             <div className="p-1.5 rounded border border-border/50 bg-background">
                                                 <div className="font-medium text-muted-foreground mb-1">Match Patterns:</div>
                                                 <div className="space-y-1">
-                                                    {Object.entries(h.property_match_patterns).map(([mapping, patterns]: [string, any], pIdx: number) => (
+                                                    {Object.entries(h.property_match_patterns).map(([mapping, patterns], pIdx) => (
                                                         <div key={pIdx} className="flex items-center gap-1 flex-wrap">
                                                             <span className="font-mono text-foreground text-[9px]">{mapping}:</span>
-                                                            {Object.entries(patterns).map(([matchType, count]: [string, any], mtIdx: number) => (
+                                                            {Object.entries(patterns).map(([matchType, count], mtIdx) => (
                                                                 <span key={mtIdx} className="px-1 py-0.5 bg-blue-500/10 text-blue-600 rounded text-[9px]">
                                                                     {matchType.replace('ValueMatchType.', '')}: {count}
                                                                 </span>
@@ -551,7 +564,7 @@ export default function OntologyNodeDetailsCard({
                                                     <span className="text-muted-foreground text-[9px]">▼</span>
                                                 </button>
                                                 <div className="hidden mt-1 space-y-0.5 max-h-24 overflow-y-auto">
-                                                    {h.example_matches.map((ex: any, exIdx: number) => (
+                                                    {h.example_matches.map((ex, exIdx) => (
                                                         <div key={exIdx} className="font-mono text-[9px] p-1 rounded bg-muted/30 flex items-start gap-1">
                                                             <span className="text-muted-foreground shrink-0">{exIdx + 1}.</span>
                                                             <div className="min-w-0">
@@ -577,7 +590,7 @@ export default function OntologyNodeDetailsCard({
                         {!relationDetails.loading && relationDetails.evaluations && relationDetails.evaluations.length > 0 && (
                             <div className="text-[10px] border-t border-border/50 pt-2 mt-1 space-y-2">
                                 <span className="text-muted-foreground font-medium uppercase tracking-wide">Evaluations ({relationDetails.evaluations.length}):</span>
-                                {relationDetails.evaluations.map((e: any, idx: number) => (
+                                {relationDetails.evaluations.map((e, idx) => (
                                     <div key={idx} className="pl-2 border-l-2 border-green-500/30 ml-1 space-y-1">
                                         {/* Result and relation name */}
                                         <div className="flex items-center gap-2 flex-wrap">
@@ -611,7 +624,7 @@ export default function OntologyNodeDetailsCard({
                                         {e.property_mappings && e.property_mappings.length > 0 && (
                                             <div className="text-muted-foreground text-[9px]">
                                                 <span className="font-medium">Mappings: </span>
-                                                {e.property_mappings.map((pm: any, pmIdx: number) => (
+                                                {e.property_mappings.map((pm, pmIdx) => (
                                                     <span key={pmIdx} className="font-mono">
                                                         {pm.entity_a_property} → {pm.entity_b_idkey_property || pm.entity_b_property}
                                                         {pm.match_type && ` (${pm.match_type})`}
@@ -856,7 +869,7 @@ export default function OntologyNodeDetailsCard({
                                                     {primaryKeyProperties
                                                         .map((prop: string) => allProperties[prop])
                                                         .filter(Boolean)
-                                                        .map((v: any) => formatValue(v))
+                                                        .map((value) => formatValue(value))
                                                         .join(' | ') || 'N/A'}
                                                 </span>
                                             </div>
