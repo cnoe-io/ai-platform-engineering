@@ -328,6 +328,7 @@ export function ServiceAccountsTab({
             <Button
               variant="outline"
               size="sm"
+              aria-label="Previous page"
               onClick={() => setPage((p) => p - 1)}
               disabled={page <= 1 || loading}
             >
@@ -336,6 +337,7 @@ export function ServiceAccountsTab({
             <Button
               variant="outline"
               size="sm"
+              aria-label="Next page"
               onClick={() => setPage((p) => p + 1)}
               disabled={page >= totalPages || loading}
             >
