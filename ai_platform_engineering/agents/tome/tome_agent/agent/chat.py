@@ -18,12 +18,12 @@ from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
+    ClaudeSDKClient,
     ResultMessage,
     SystemMessage,
     TextBlock,
     ToolUseBlock,
     UserMessage,
-    query,
 )
 from claude_agent_sdk.types import StreamEvent
 
@@ -158,10 +158,27 @@ async def stream_chat(
     sdk_session_id: str | None,
     snapshot: ProjectSnapshot,
     stable_pages: dict[str, str],
+    is_compact: bool = False,
 ) -> AsyncIterator[ChatEventPayload]:
     """Run one chat turn against the SDK and yield ChatEventPayloads the
-    agent's HTTP handler turns into SSE."""
+    agent's HTTP handler turns into SSE.
 
+    `is_compact` sends the SDK's own `/compact` slash command instead of
+    `user_message`, resuming `sdk_session_id` (required — compaction acts on
+    an existing transcript, there is nothing to compact on a fresh session).
+    The SDK replies with a `SystemMessage(subtype="compact_boundary")`,
+    translated below into a `compact_boundary` event; no retry-on-fresh-session
+    fallback applies here since a missing/dead session is a real failure, not
+    one this call can recover from."""
+
+    if is_compact and not sdk_session_id:
+        yield ChatEventPayload(
+            type="error",
+            data={"message": "Cannot compact: no active session to compact."},
+        )
+        return
+
+    prompt = "/compact" if is_compact else user_message
     system_prompt = build_system_prompt(snapshot, stable_pages)
 
     # BHAG chat reads its tagged children's on-disk wikis (kept fresh by the
@@ -184,15 +201,33 @@ async def stream_chat(
     # One attempt. Records progress in `state` and captures (never raises) any
     # exception, so the caller can decide whether to fall back to a fresh
     # session. A fresh `init`/`done` event carries the new session_id back to
-    # the client, so it stops reusing a dead id.
+    # the client, so it stops reusing a dead id. Uses ClaudeSDKClient (not the
+    # one-shot `query()`) so we can pull a live context-window snapshot via
+    # `get_context_usage()` once the turn completes — same call the ingest
+    # pane already surfaces (`run_stream.py`), giving chat the same visibility
+    # (there's no other way to tell the user whether Compact will help at all).
     async def _attempt(resume: str | None, state: dict) -> AsyncIterator[ChatEventPayload]:
         try:
-            async for message in query(prompt=user_message, options=_options(resume)):
-                if isinstance(message, ResultMessage):
-                    state["result_seen"] = True
-                async for event in _translate(message):
-                    state["emitted"] = True
-                    yield event
+            async with ClaudeSDKClient(options=_options(resume)) as client:
+                await client.query(prompt)
+                async for message in client.receive_response():
+                    if isinstance(message, ResultMessage):
+                        state["result_seen"] = True
+                    async for event in _translate(message):
+                        state["emitted"] = True
+                        yield event
+                try:
+                    ctx = await client.get_context_usage()
+                    yield ChatEventPayload(
+                        type="context_usage",
+                        data={
+                            "percentage": ctx.get("percentage"),
+                            "total_tokens": ctx.get("totalTokens"),
+                            "max_tokens": ctx.get("maxTokens"),
+                        },
+                    )
+                except Exception:
+                    log.debug("get_context_usage failed after chat turn", exc_info=True)
         except Exception as e:  # noqa: BLE001 — surfaced/handled by the caller
             state["error"] = e
 
@@ -210,9 +245,35 @@ async def stream_chat(
         return
 
     # Resume failed before producing anything — almost always a lost/evicted
-    # transcript ("No conversation found with session ID"). Retry once on a
-    # fresh session so chat self-heals instead of staying wedged on a dead id.
-    if sdk_session_id and not state["emitted"]:
+    # transcript ("No conversation found with session ID"; the SDK's on-disk
+    # session store isn't yet persisted across agent container recreates —
+    # #63). For compact this is the ONLY way a resume can fail before emitting
+    # anything (there's no fresh-session path to fall into), so report it as
+    # what it is instead of the raw ProcessError repr, which buries the real
+    # cause behind a generic "Check stderr output for details".
+    if is_compact and sdk_session_id and not state["emitted"]:
+        log.warning(
+            "compact failed to resume session %s (%s) — likely an evicted transcript",
+            sdk_session_id,
+            type(err).__name__,
+        )
+        yield ChatEventPayload(
+            type="error",
+            data={
+                "message": (
+                    "This session's history is no longer available, so there's "
+                    "nothing to compact. Send a message to continue, or use Clear "
+                    "to start over."
+                )
+            },
+        )
+        return
+
+    # Retry once on a fresh session so chat self-heals instead of staying
+    # wedged on a dead id. Never for compact: a fresh session has nothing to
+    # compact, so surface the failure instead of silently starting over
+    # (handled above).
+    if sdk_session_id and not state["emitted"] and not is_compact:
         log.warning(
             "chat resume failed for session %s (%s) — retrying with a fresh session",
             sdk_session_id,
@@ -285,6 +346,18 @@ async def _translate(message: Any) -> AsyncIterator[ChatEventPayload]:
             sid = (message.data or {}).get("session_id")
             if sid:
                 yield ChatEventPayload(type="session", data={"session_id": sid})
+        elif message.subtype == "compact_boundary":
+            # Numbers live under `compact_metadata`, not flat on `data` —
+            # confirmed against a real SDK response (2026-07-17).
+            meta = (message.data or {}).get("compact_metadata") or {}
+            yield ChatEventPayload(
+                type="compact_boundary",
+                data={
+                    "pre_tokens": meta.get("pre_tokens"),
+                    "post_tokens": meta.get("post_tokens"),
+                    "trigger": meta.get("trigger"),
+                },
+            )
         return
 
     if isinstance(message, ResultMessage):

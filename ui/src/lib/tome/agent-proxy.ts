@@ -114,6 +114,7 @@ interface ProjectSnapshot {
 export interface AgentChatRequest {
   message: string;
   sdk_session_id: string | null;
+  is_compact?: boolean;
   snapshot: ProjectSnapshot;
   stable_pages: Record<string, string>;
   role: "viewer" | "editor";
@@ -282,7 +283,7 @@ export async function loadStablePages(
 /** Assemble the agent `ChatRequest` for one chat turn. */
 export async function buildChatRequest(
   ctx: TomeProjectContext,
-  opts: { message: string; sdkSessionId: string | null },
+  opts: { message: string; sdkSessionId: string | null; isCompact?: boolean },
 ): Promise<AgentChatRequest> {
   const [stablePages, credentials] = await Promise.all([
     loadStablePages(ctx.projectId),
@@ -298,6 +299,7 @@ export async function buildChatRequest(
   return {
     message: opts.message,
     sdk_session_id: opts.sdkSessionId,
+    ...(opts.isCompact ? { is_compact: true } : {}),
     snapshot,
     stable_pages: stablePages,
     role: ctx.canEdit ? "editor" : "viewer",

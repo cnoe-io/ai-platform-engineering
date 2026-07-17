@@ -36,14 +36,24 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const body = (await request.json().catch(() => ({}))) as {
     message?: string;
     sdk_session_id?: string | null;
+    is_compact?: boolean;
   };
-  if (!body.message || typeof body.message !== "string") {
+  if (body.is_compact) {
+    if (!body.sdk_session_id) {
+      throw new ApiError(
+        "`sdk_session_id` is required to compact",
+        400,
+        "BAD_REQUEST",
+      );
+    }
+  } else if (!body.message || typeof body.message !== "string") {
     throw new ApiError("`message` (string) is required", 400, "BAD_REQUEST");
   }
 
   const chatRequest = await buildChatRequest(tctx, {
-    message: body.message,
+    message: body.message ?? "",
     sdkSessionId: body.sdk_session_id ?? null,
+    isCompact: body.is_compact,
   });
 
   const upstream = await fetch(`${agentUrl.replace(/\/$/, "")}/chat`, {

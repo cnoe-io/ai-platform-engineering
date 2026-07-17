@@ -18,6 +18,7 @@ import {
 import { loadTomeProject } from "@/lib/tome/tome-api";
 import {
   appendMessage,
+  clearSession,
   ensureSession,
   loadHistory,
   setSdkSessionId,
@@ -89,4 +90,13 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     sessionId: session._id,
     messageId: message._id,
   });
+});
+
+// Clear: start a fresh session. Old history is left untouched (not deleted),
+// just no longer active — see `clearSession` for the "why".
+export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
+  const { slug } = await ctx.params;
+  const tctx = await loadTomeProject(request, slug);
+  const session = await clearSession(tctx.projectId, userIdOf(tctx.user.email));
+  return successResponse({ sessionId: session._id });
 });

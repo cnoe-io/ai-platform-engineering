@@ -119,3 +119,26 @@ export async function setSdkSessionId(
     { $set: { sdk_session_id: sdkSessionId, updated_at: new Date() } },
   );
 }
+
+/**
+ * Start over: create a brand-new, empty session for (project, user). The old
+ * session/messages are left in place (untouched history, just no longer
+ * "active" — `findActiveSession` sorts by `updated_at` so the new row wins on
+ * the very next read) rather than deleted, so Clear can't destroy data.
+ */
+export async function clearSession(
+  projectId: string,
+  userId: string,
+): Promise<ChatSession> {
+  const sessions = await getTomeChatSessionsCollection();
+  const now = new Date();
+  const session: ChatSession = {
+    _id: crypto.randomUUID(),
+    project_id: projectId,
+    user_id: userId,
+    created_at: now,
+    updated_at: now,
+  };
+  await sessions.insertOne(session);
+  return session;
+}

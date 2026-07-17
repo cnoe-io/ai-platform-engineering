@@ -166,6 +166,7 @@ async def chat_endpoint(body: ChatRequest):
                 sdk_session_id=body.sdk_session_id,
                 snapshot=body.snapshot,
                 stable_pages=body.stable_pages,
+                is_compact=body.is_compact,
             ):
                 yield _sse_format(event)
         finally:

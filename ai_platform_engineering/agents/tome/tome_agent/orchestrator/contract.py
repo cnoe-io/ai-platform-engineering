@@ -88,6 +88,10 @@ class ProjectSnapshot(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     sdk_session_id: str | None = None
+    is_compact: bool = False
+    """When true, ignore `message` and run the SDK's own `/compact` slash
+    command against `sdk_session_id` (required) — summarizes the transcript
+    in place rather than sending a user turn."""
     snapshot: ProjectSnapshot
     stable_pages: dict[str, str] = Field(default_factory=dict)
     """Map of `path -> markdown` for stable pages the chat prompt references
@@ -158,7 +162,8 @@ class AppendLogRequest(BaseModel):
 # the browser (chat).
 
 ChatEventType = Literal[
-    "token", "tool_call", "tool_result", "session", "done", "error", "lifecycle"
+    "token", "tool_call", "tool_result", "session", "done", "error", "lifecycle",
+    "compact_boundary", "context_usage",
 ]
 
 IngestEventType = Literal[

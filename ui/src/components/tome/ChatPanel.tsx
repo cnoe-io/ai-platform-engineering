@@ -1,10 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, Loader2, Wrench } from "lucide-react";
+import { ArrowUp, Bot, Eraser, Loader2, Sparkles, Wrench } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
@@ -32,6 +40,8 @@ interface ChatMsg {
   role: Role;
   parts: Part[];
   pending?: boolean;
+  /** Rendered as a centered system notice (e.g. "Context compacted"), not a chat bubble. */
+  system?: boolean;
 }
 
 interface Props {
@@ -48,7 +58,10 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [contextUsage, setContextUsage] = useState<{ percentage: number } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<"clear" | "compact" | null>(null);
   // sdk_session_id (agent resume hint) + tome session _id (durable transcript).
   const sessionRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -146,9 +159,91 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   const textOf = (parts: Part[]): string =>
     parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
 
+  // Clear: start a fresh session. Wipes the visible transcript and the SDK
+  // resume hint together — a deliberate full reset, not just an internal
+  // state fixup (old history stays in Mongo, just no longer "active").
+  const handleClear = useCallback(async () => {
+    if (streaming || compacting) return;
+    try {
+      const res = await fetch(`/api/tome/projects/${slug}/chat/history`, {
+        method: "DELETE",
+      });
+      const sid = res.ok
+        ? (await res.json().catch(() => null))?.data?.sessionId
+        : null;
+      sessionIdRef.current = typeof sid === "string" ? sid : null;
+    } finally {
+      sessionRef.current = null;
+      setMessages([]);
+      setContextUsage(null);
+    }
+  }, [slug, streaming, compacting]);
+
+  // Compact: trigger the SDK's own `/compact` against the current session.
+  // No-op if there's no session yet (nothing to compact).
+  const handleCompact = useCallback(async () => {
+    if (streaming || compacting || !sessionRef.current) return;
+    setCompacting(true);
+    try {
+      const res = await fetch(`/api/tome/projects/${slug}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sdk_session_id: sessionRef.current,
+          is_compact: true,
+        }),
+      });
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => "");
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", system: true, parts: [{ kind: "text", text: `⚠️ Compact failed. ${detail.slice(0, 300)}` }] },
+        ]);
+        return;
+      }
+      // Only claim success if the SDK actually emitted a compact_boundary —
+      // an errored/no-op stream must not tell the user it worked.
+      let boundarySeen = false;
+      let preTokens: number | null = null;
+      let erroredMessage: string | null = null;
+      await consumeSse(res.body, {
+        onToken: () => {},
+        onTool: () => {},
+        onSession: (id) => {
+          sessionRef.current = id;
+        },
+        onPageWritten: () => {},
+        onError: (message) => {
+          erroredMessage = message;
+        },
+        // Deliberately NOT wired to setContextUsage here: the post-compact
+        // snapshot only reflects the compacted transcript, not the wiki system
+        // prompt (rebuilt fresh on the next real turn) — showing it produces a
+        // misleading dip-then-jump. Let the next turn's own snapshot land instead.
+        onCompact: (data) => {
+          boundarySeen = true;
+          preTokens = data.pre_tokens ?? null;
+        },
+      });
+      const text = boundarySeen
+        ? preTokens
+          ? `Context compacted from ~${preTokens.toLocaleString()} tokens.`
+          : "Context compacted."
+        : `⚠️ Compact did not complete${erroredMessage ? `: ${erroredMessage}` : " (no confirmation from the agent)."}`;
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", system: true, parts: [{ kind: "text", text }] },
+      ]);
+    } finally {
+      setCompacting(false);
+    }
+  }, [slug, streaming, compacting]);
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    // Also blocked while compacting: both calls resume the same sdk_session_id,
+    // so a concurrent send would race the SDK's compaction turn.
+    if (!text || streaming || compacting) return;
     setInput("");
     setStreaming(true);
     setMessages((m) => [
@@ -241,6 +336,9 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         },
         onPageWritten: () => onPagesChanged?.(),
         onError: pushErrorIfEmpty,
+        onContextUsage: (data) => {
+          if (typeof data.percentage === "number") setContextUsage({ percentage: data.percentage });
+        },
       });
       patchLast((m) => ({ ...m, pending: false }));
       // Persist the assistant turn + the latest SDK session id (resume hint).
@@ -257,10 +355,46 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, slug, onPagesChanged, persist]);
+  }, [input, streaming, compacting, slug, onPagesChanged, persist]);
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex items-center justify-end gap-1 border-b px-3 py-1.5">
+        {contextUsage && (
+          <span
+            className="mr-1 text-xs text-muted-foreground"
+            title="Live context-window occupancy for this session"
+          >
+            context: {Math.round(contextUsage.percentage)}%
+          </span>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+          onClick={() => setConfirmDialog("compact")}
+          disabled={streaming || compacting || !messages.length}
+          title="Summarize the conversation so far to free up context"
+        >
+          {compacting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
+          Compact
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+          onClick={() => setConfirmDialog("clear")}
+          disabled={streaming || compacting || !messages.length}
+          title="Start a fresh chat session"
+        >
+          <Eraser className="h-3.5 w-3.5" />
+          Clear
+        </Button>
+      </div>
       <ScrollArea viewportRef={scrollRef} className="flex-1">
         <div className="mx-auto flex max-w-4xl flex-col gap-5 px-6 py-8">
           {messages.length === 0 && !loadingHistory && <EmptyState slug={slug} />}
@@ -289,15 +423,16 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             }}
             minRows={1}
             maxRows={10}
-            placeholder="Ask about this project…"
-            className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
+            disabled={compacting}
+            placeholder={compacting ? "Compacting…" : "Ask about this project…"}
+            className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
           />
           <Button
             size="icon"
             className="shrink-0 rounded-full"
             onClick={() => void send()}
-            disabled={!input.trim() || streaming}
-            title="Send"
+            disabled={!input.trim() || streaming || compacting}
+            title={compacting ? "Compacting…" : "Send"}
           >
             {streaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -307,6 +442,55 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           </Button>
         </div>
       </div>
+
+      <Dialog open={confirmDialog === "compact"} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compact this conversation?</DialogTitle>
+            <DialogDescription>
+              Older turns will be summarized to free up context. This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmDialog(null);
+                void handleCompact();
+              }}
+            >
+              Compact
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDialog === "clear"} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start a fresh chat session?</DialogTitle>
+            <DialogDescription>
+              The current conversation won&apos;t be active anymore — history isn&apos;t deleted, just retired.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmDialog(null);
+                void handleClear();
+              }}
+            >
+              Clear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -336,6 +520,17 @@ function MessageRow({
   onOpenPage?: (path: string) => void;
   glossaryPreview?: GlossaryResolver;
 }) {
+  if (msg.system) {
+    const text = msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
+    return (
+      <div className="flex justify-center">
+        <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+          {text}
+        </span>
+      </div>
+    );
+  }
+
   const isUser = msg.role === "user";
 
   if (isUser) {
@@ -534,6 +729,12 @@ interface SseHandlers {
   onSession: (id: string) => void;
   onPageWritten: () => void;
   onError: (message: string) => void;
+  onCompact?: (data: {
+    pre_tokens?: number | null;
+    post_tokens?: number | null;
+    trigger?: string | null;
+  }) => void;
+  onContextUsage?: (data: { percentage?: number | null }) => void;
 }
 
 async function consumeSse(
@@ -630,6 +831,18 @@ function handleFrame(frame: string, h: SseHandlers): void {
       break;
     case "error":
       h.onError(String(data.message ?? "agent error"));
+      break;
+    case "compact_boundary":
+      h.onCompact?.({
+        pre_tokens: typeof data.pre_tokens === "number" ? data.pre_tokens : null,
+        post_tokens: typeof data.post_tokens === "number" ? data.post_tokens : null,
+        trigger: typeof data.trigger === "string" ? data.trigger : null,
+      });
+      break;
+    case "context_usage":
+      h.onContextUsage?.({
+        percentage: typeof data.percentage === "number" ? data.percentage : null,
+      });
       break;
     case "done":
       break;
