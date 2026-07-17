@@ -15,9 +15,6 @@ from ai_platform_engineering.integrations.webex_bot.utils.dm_thread_overrides im
     OverrideStore,
 )
 from ai_platform_engineering.integrations.webex_bot.utils.obo_exchange import OboToken
-from ai_platform_engineering.integrations.webex_bot.utils.user_preferences_client import (
-    UserPreferenceResult,
-)
 from ai_platform_engineering.integrations.webex_bot.utils.webex_direct_users import (
     WebexDirectUserAccess,
 )
@@ -67,17 +64,22 @@ class _Obo:
 @dataclass
 class _DmAuthz:
     allowed: bool = True
+    allowed_agents: set[str] | None = None
     available: bool = True
     calls: list[dict[str, str]] = field(default_factory=list)
 
     def check_agent_access(self, **kwargs: str) -> DmAgentAccessDecision:
         self.calls.append(kwargs)
+        allowed = (
+            kwargs["agent_id"] in self.allowed_agents
+            if self.allowed_agents is not None
+            else self.allowed
+        )
         return DmAgentAccessDecision(
-            allowed=self.allowed,
-            reason="ALLOW" if self.allowed else "DENY_AGENT",
+            allowed=allowed,
+            reason="ALLOW" if allowed else "DENY_AGENT",
             path="user",
             available=self.available,
-            matched_team_slug=None,
         )
 
 
@@ -194,52 +196,55 @@ def test_direct_agent_still_requires_user_openfga_access() -> None:
     assert result.reason_code == "DENY_AGENT"
 
 
-def test_all_users_uses_personal_webex_default(monkeypatch) -> None:
-    class _Preferences:
-        def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
-            assert bearer_token == "obo-token"
-            return UserPreferenceResult("agent-personal", "saved")
-
+def test_all_users_uses_live_bot_default(monkeypatch) -> None:
     async def _to_thread_inline(function, /, *args, **kwargs):
         return function(*args, **kwargs)
 
-    monkeypatch.setattr(app_module, "_user_preferences_client", _Preferences())
     monkeypatch.setattr(app_module, "get_default_override_store", OverrideStore)
     monkeypatch.setattr(app_module.asyncio, "to_thread", _to_thread_inline)
     authz = _DmAuthz()
     calls: list[dict[str, Any]] = []
 
     result = _run(
-        _DirectUsers(WebexDirectUserAccess(True, "kc-user-1", None, "all_users")),
+        _DirectUsers(
+            WebexDirectUserAccess(
+                True,
+                "kc-user-1",
+                "agent-bot-default",
+                "all_users",
+            )
+        ),
         _Identity(),
         dm_authz=authz,
         dispatch_calls=calls,
     )
 
     assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
-    assert calls[0]["agent_id"] == "agent-personal"
+    assert calls[0]["agent_id"] == "agent-bot-default"
     assert authz.calls == [
-        {"agent_id": "agent-personal", "bearer_token": "obo-token"}
+        {"agent_id": "agent-bot-default", "bearer_token": "obo-token"}
     ]
 
 
-def test_all_users_uses_temporary_override_before_personal_default(monkeypatch) -> None:
-    class _Preferences:
-        def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
-            raise AssertionError("temporary override must be resolved first")
-
+def test_all_users_uses_temporary_override_before_bot_default(monkeypatch) -> None:
     async def _to_thread_inline(function, /, *args, **kwargs):
         return function(*args, **kwargs)
 
     overrides = OverrideStore()
     overrides.set(OverrideKey("person1234", "space12345"), "agent-temporary")
-    monkeypatch.setattr(app_module, "_user_preferences_client", _Preferences())
     monkeypatch.setattr(app_module, "get_default_override_store", lambda: overrides)
     monkeypatch.setattr(app_module.asyncio, "to_thread", _to_thread_inline)
     calls: list[dict[str, Any]] = []
 
     result = _run(
-        _DirectUsers(WebexDirectUserAccess(True, "kc-user-1", None, "all_users")),
+        _DirectUsers(
+            WebexDirectUserAccess(
+                True,
+                "kc-user-1",
+                "agent-bot-default",
+                "all_users",
+            )
+        ),
         _Identity(),
         dispatch_calls=calls,
     )
@@ -248,28 +253,36 @@ def test_all_users_uses_temporary_override_before_personal_default(monkeypatch) 
     assert calls[0]["agent_id"] == "agent-temporary"
 
 
-def test_all_users_falls_back_to_deployment_default(monkeypatch) -> None:
-    class _Preferences:
-        def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
-            return UserPreferenceResult(None, "not_set")
-
+def test_all_users_clears_denied_temporary_override_and_uses_bot_default(
+    monkeypatch,
+) -> None:
     async def _to_thread_inline(function, /, *args, **kwargs):
         return function(*args, **kwargs)
 
-    monkeypatch.setenv("WEBEX_DEFAULT_AGENT_ID", "agent-deployment")
-    monkeypatch.setattr(app_module, "_user_preferences_client", _Preferences())
-    monkeypatch.setattr(app_module, "get_default_override_store", OverrideStore)
+    overrides = OverrideStore()
+    overrides.set(OverrideKey("person1234", "space12345"), "agent-denied")
+    monkeypatch.setattr(app_module, "get_default_override_store", lambda: overrides)
     monkeypatch.setattr(app_module.asyncio, "to_thread", _to_thread_inline)
+    authz = _DmAuthz(allowed_agents={"agent-bot-default"})
     calls: list[dict[str, Any]] = []
 
     result = _run(
-        _DirectUsers(WebexDirectUserAccess(True, "kc-user-1", None, "all_users")),
+        _DirectUsers(
+            WebexDirectUserAccess(
+                True,
+                "kc-user-1",
+                "agent-bot-default",
+                "all_users",
+            )
+        ),
         _Identity(),
+        dm_authz=authz,
         dispatch_calls=calls,
     )
 
     assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
-    assert calls[0]["agent_id"] == "agent-deployment"
+    assert calls[0]["agent_id"] == "agent-bot-default"
+    assert overrides.get(OverrideKey("person1234", "space12345")) is None
 
 
 def test_parser_carries_direct_identity_and_bot() -> None:

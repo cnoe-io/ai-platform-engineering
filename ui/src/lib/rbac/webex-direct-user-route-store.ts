@@ -2,8 +2,6 @@ import type { Document } from "mongodb";
 
 import { getRbacCollection } from "./mongo-collections";
 
-export type WebexDmAccessMode = "disabled" | "allowlist" | "all_users";
-
 export interface WebexDirectUserRouteDocument extends Document {
   bot_id: string;
   keycloak_user_id: string;
@@ -36,12 +34,6 @@ function normalizedEmail(value: string, field: string): string {
   return normalized;
 }
 
-export function webexDmAccessMode(env: NodeJS.ProcessEnv = process.env): WebexDmAccessMode {
-  const value = (env.WEBEX_DM_ACCESS_MODE ?? "disabled").trim().toLowerCase();
-  if (value === "disabled" || value === "allowlist" || value === "all_users") return value;
-  throw new Error("WEBEX_DM_ACCESS_MODE must be disabled, allowlist, or all_users");
-}
-
 function routeId(botId: string, keycloakUserId: string): string {
   return JSON.stringify([botId, keycloakUserId]);
 }
@@ -62,6 +54,7 @@ export async function upsertWebexDirectUserRoute(input: {
   expectedWebexEmail: string;
   webexUserId?: string;
   agentId: string;
+  enabled: boolean;
   actor: string;
 }): Promise<void> {
   const collection = await getRbacCollection<WebexDirectUserRouteDocument>("webexDirectUserRoutes");
@@ -79,10 +72,11 @@ export async function upsertWebexDirectUserRoute(input: {
         expected_webex_email: normalizedEmail(input.expectedWebexEmail, "expected_webex_email"),
         ...(input.webexUserId?.trim() ? { webex_user_id: input.webexUserId.trim() } : {}),
         agent_id: requiredId(input.agentId, "agent_id"),
-        status: "active",
+        status: input.enabled ? "active" : "disabled",
         updated_at: now,
         updated_by: actor,
       },
+      $unset: { team_slug: "" },
       $setOnInsert: { created_at: now, created_by: actor },
     } as never,
     { upsert: true },

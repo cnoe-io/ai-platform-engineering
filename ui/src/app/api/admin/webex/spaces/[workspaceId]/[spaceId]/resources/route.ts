@@ -19,7 +19,7 @@ import {
   webexBotInstallationIdentityTuples,
 } from "@/lib/rbac/webex-bot-openfga";
 import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
-import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
 import type { WebexSpaceGrantResourceType } from "@/types/webex-rebac";
 
@@ -110,7 +110,9 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacViewAuth(request, async () => {
-    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     const grants = await listOpenFgaAgentGrants(botId, workspaceId, spaceId);
     return successResponse({ grants });
   }, { workspaceId, spaceId });
@@ -120,7 +122,9 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacManageAuth(request, async () => {
-    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     const body = (await request.json()) as { grants?: unknown };
     if (!Array.isArray(body.grants)) {
       throw new ApiError("grants must be an array", 400);

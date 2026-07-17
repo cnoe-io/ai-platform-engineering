@@ -152,12 +152,14 @@ runtime resolves `bot_id + Keycloak user` in `webex_direct_user_routes`. A user
 may be allowed for one bot and denied for another. A missing or disabled entry
 is ignored without a bot response.
 
-In `all_users` mode, the runtime admits any enabled deployment user and does not
-read `webex_direct_user_routes`. It resolves the agent in this order: an
-in-memory `use <agent>` override for the user and DM room, the user's
-`webex_default_agent_id`, the platform default returned by the preferences API,
-and `WEBEX_DEFAULT_AGENT_ID` as the final deployment fallback. Each candidate
-must pass the linked user's agent-access check before it can be dispatched.
+In `all_users` mode, the runtime admits any enabled deployment user. A missing
+`webex_direct_user_routes` row inherits the selected bot's policy; an explicit
+row may override the agent or deny that user. Agent resolution checks an
+in-memory `use <agent>` override for the user and DM room, then the selected
+bot's live `directMessages.defaultAgentId`.
+Every candidate is checked against the linked user's complete OpenFGA access.
+A matched team may be returned as audit context, but no team is configured or
+stored on a direct-message route.
 
 ## Data States and UI Ownership
 

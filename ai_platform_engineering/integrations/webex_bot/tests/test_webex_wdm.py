@@ -32,6 +32,24 @@ RAW_ROOM_ID = "6f91b070-531a-11f1-926d-6fd3c20dfdc4"
 PUBLIC_ROOM_ID = "Y2lzY29zcGFyazovL3VzL1JPT00vNmY5MWIwNzAtNTMxYS0xMWYxLTkyNmQtNmZkM2MyMGRmZGM0"
 
 
+def _bot_entry(
+    bot_id: str, token_env: str, *, dm_mode: str = "allowlist"
+) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "id": bot_id,
+        "name": bot_id.title(),
+        "tokenEnv": token_env,
+        "spaces": {"accessMode": "allowlist"},
+        "directMessages": {"accessMode": dm_mode},
+    }
+    if dm_mode == "all_users":
+        entry["directMessages"] = {
+            "accessMode": "all_users",
+            "defaultAgentId": "agent-default",
+        }
+    return entry
+
+
 def test_public_webex_room_id_from_uuid_matches_api_shape() -> None:
     encoded = public_webex_room_id_from_uuid(RAW_ROOM_ID)
 
@@ -48,8 +66,8 @@ def test_configured_webex_bot_listeners_resolves_multiple_token_envs() -> None:
         {
             "WEBEX_INTEGRATION_BOTS_JSON": json.dumps(
                 [
-                    {"id": "primary", "name": "Primary", "tokenEnv": "PRIMARY_BOT_TOKEN"},
-                    {"id": "secondary", "name": "Secondary", "tokenEnv": "SECONDARY_BOT_TOKEN"},
+                    _bot_entry("primary", "PRIMARY_BOT_TOKEN"),
+                    _bot_entry("secondary", "SECONDARY_BOT_TOKEN"),
                 ]
             ),
             "PRIMARY_BOT_TOKEN": "token-a",
@@ -67,8 +85,8 @@ def test_start_webex_wdm_listeners_isolates_each_bot_token() -> None:
     env = {
         "WEBEX_INTEGRATION_BOTS_JSON": json.dumps(
             [
-                {"id": "primary", "name": "Primary", "tokenEnv": "PRIMARY_BOT_TOKEN"},
-                {"id": "secondary", "name": "Secondary", "tokenEnv": "SECONDARY_BOT_TOKEN"},
+                _bot_entry("primary", "PRIMARY_BOT_TOKEN"),
+                _bot_entry("secondary", "SECONDARY_BOT_TOKEN"),
             ]
         ),
         "PRIMARY_BOT_TOKEN": "token-a",
@@ -212,7 +230,15 @@ def _runtime() -> WebexWdmRuntime:
 
 
 def test_all_users_creates_one_command_dispatcher_per_bot(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "all_users")
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                _bot_entry("primary", "PRIMARY_TOKEN", dm_mode="all_users"),
+                _bot_entry("secondary", "SECONDARY_TOKEN", dm_mode="all_users"),
+            ]
+        ),
+    )
     with patch(
         "ai_platform_engineering.integrations.webex_bot.webex_wdm.WebexCommandDispatcher"
     ) as dispatcher:
@@ -226,7 +252,10 @@ def test_all_users_creates_one_command_dispatcher_per_bot(monkeypatch) -> None:
 
 
 def test_allowlist_does_not_enable_personal_dm_commands(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "allowlist")
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps([_bot_entry("primary", "PRIMARY_TOKEN")]),
+    )
     with patch(
         "ai_platform_engineering.integrations.webex_bot.webex_wdm.WebexCommandDispatcher"
     ) as dispatcher:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from ai_platform_engineering.integrations.webex_bot.utils.webex_direct_users import (
@@ -21,8 +22,29 @@ class _Collection:
         )
 
 
+def _set_bot_policy(
+    monkeypatch,
+    *,
+    mode: str,
+    bot_id: str = "primary",
+) -> None:
+    candidate: dict[str, object] = {
+        "id": bot_id,
+        "name": bot_id.title(),
+        "tokenEnv": f"{bot_id.upper()}_TOKEN",
+        "spaces": {"accessMode": "allowlist"},
+        "directMessages": {"accessMode": mode},
+    }
+    if mode == "all_users":
+        candidate["directMessages"] = {
+            "accessMode": "all_users",
+            "defaultAgentId": "agent-default",
+        }
+    monkeypatch.setenv("WEBEX_INTEGRATION_BOTS_JSON", json.dumps([candidate]))
+
+
 def test_disabled_mode_never_reads_storage(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "disabled")
+    _set_bot_policy(monkeypatch, mode="disabled")
     resolver = WebexDirectUserResolver(
         collection_factory=lambda: (_ for _ in ()).throw(AssertionError("storage read")),
     )
@@ -34,7 +56,7 @@ def test_disabled_mode_never_reads_storage(monkeypatch) -> None:
 
 
 def test_allowlist_matches_bot_and_email(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "allowlist")
+    _set_bot_policy(monkeypatch, mode="allowlist", bot_id="secondary")
     collection = _Collection([
         {
             "bot_id": "secondary",
@@ -53,17 +75,14 @@ def test_allowlist_matches_bot_and_email(monkeypatch) -> None:
     assert result.agent_id == "agent-1"
 
 
-def test_all_users_admits_enabled_deployment_user_without_reading_allowlist(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "all_users")
-    monkeypatch.delenv("WEBEX_DEFAULT_AGENT_ID", raising=False)
+def test_all_users_admits_enabled_deployment_user_with_bot_defaults(monkeypatch) -> None:
+    _set_bot_policy(monkeypatch, mode="all_users")
 
     async def user_by_email(email: str) -> dict[str, Any] | None:
         return {"id": "kc-user-1", "email": email, "enabled": True}
 
     resolver = WebexDirectUserResolver(
-        collection_factory=lambda: (_ for _ in ()).throw(
-            AssertionError("all_users must not read allowlist routes")
-        ),
+        collection_factory=lambda: _Collection([]),  # type: ignore[arg-type]
         user_by_email=user_by_email,
     )
     result = asyncio.run(
@@ -71,12 +90,26 @@ def test_all_users_admits_enabled_deployment_user_without_reading_allowlist(monk
     )
     assert result.allowed is True
     assert result.keycloak_user_id == "kc-user-1"
-    assert result.agent_id is None
+    assert result.agent_id == "agent-default"
     assert result.reason == "all_users"
 
 
 def test_same_user_can_have_independent_routes_for_multiple_bots(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "allowlist")
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                {
+                    "id": bot_id,
+                    "name": bot_id.title(),
+                    "tokenEnv": f"{bot_id.upper()}_TOKEN",
+                    "spaces": {"accessMode": "allowlist"},
+                    "directMessages": {"accessMode": "allowlist"},
+                }
+                for bot_id in ("primary", "secondary")
+            ]
+        ),
+    )
     collection = _Collection([
         {
             "bot_id": "primary",
@@ -105,3 +138,31 @@ def test_same_user_can_have_independent_routes_for_multiple_bots(monkeypatch) ->
 
     assert result.allowed is True
     assert result.agent_id == "agent-2"
+
+
+def test_all_users_explicit_deny_overrides_inherited_access(monkeypatch) -> None:
+    _set_bot_policy(monkeypatch, mode="all_users")
+    collection = _Collection(
+        [
+            {
+                "bot_id": "primary",
+                "status": "disabled",
+                "expected_webex_email": "user@example.com",
+                "keycloak_user_id": "kc-user-1",
+            }
+        ]
+    )
+    resolver = WebexDirectUserResolver(
+        collection_factory=lambda: collection,  # type: ignore[arg-type]
+    )
+
+    result = asyncio.run(
+        resolver.resolve(
+            bot_id="primary",
+            webex_user_id="person1234",
+            person_email="user@example.com",
+        )
+    )
+
+    assert result.allowed is False
+    assert result.reason == "explicit_deny"

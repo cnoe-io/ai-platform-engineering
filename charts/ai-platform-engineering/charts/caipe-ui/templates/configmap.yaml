@@ -6,7 +6,6 @@
 {{- end -}}
 {{- $oauthConnectors := .Values.oauthConnectors | default list -}}
 {{- $credentialSecretRefs := .Values.credentialSecretRefs | default list -}}
-{{- $webexBots := .Values.webexBots | default list -}}
 {{- $_ := include "caipe-ui.validate.bootstrapConfig" . -}}
 apiVersion: v1
 kind: ConfigMap
@@ -47,9 +46,6 @@ data:
   {{- end }}
   {{- if and (gt (len $credentialSecretRefs) 0) (not (hasKey .Values.config "CREDENTIAL_BOOTSTRAP_SECRET_REFS_JSON")) }}
   CREDENTIAL_BOOTSTRAP_SECRET_REFS_JSON: {{ mustToJson $credentialSecretRefs | quote }}
-  {{- end }}
-  {{- if and (gt (len $webexBots) 0) (not (hasKey .Values.config "WEBEX_INTEGRATION_BOTS_JSON")) }}
-  WEBEX_INTEGRATION_BOTS_JSON: {{ mustToJson $webexBots | quote }}
   {{- end }}
   {{- /* Okta directory sync — flatten the structured `oktaSync:` block
          (Backstage-style) into IDENTITY_SYNC_OKTA_* env vars. Only the

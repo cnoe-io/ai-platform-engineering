@@ -66,10 +66,9 @@ class TestWebexDmAuthzClient:
             reason="ALLOW_DIRECT",
             path="direct_user_grant",
             available=True,
-            matched_team_slug=None,
         )
 
-    def test_allow_team_union(self) -> None:
+    def test_allow_team_union_does_not_add_dm_team_context(self) -> None:
         client = DmAuthzClient(base_url="http://bff.local")
         with patch.object(
             DmAuthzClient,
@@ -93,7 +92,7 @@ class TestWebexDmAuthzClient:
                 agent_id="incident-agent", bearer_token="obo"
             )
         assert decision.allowed is True
-        assert decision.matched_team_slug == "ops"
+        assert not hasattr(decision, "matched_team_slug")
 
     def test_deny(self) -> None:
         client = DmAuthzClient(base_url="http://bff.local")

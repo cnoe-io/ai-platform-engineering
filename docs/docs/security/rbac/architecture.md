@@ -1000,12 +1000,13 @@ offers one-click repairs for zero-agent spaces, stale metadata, and listen-mode
 mismatches; the zero-agent repair creates a default/selected agent association
 with `listen: mention` through the same route API used by manual association saves.
 
-For opt-in onboarding, `WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=true` with
-`WEBEX_DEFAULT_TEAM_SLUG` and `WEBEX_DEFAULT_AGENT_ID` creates an explicit
-space-team mapping, route metadata row, and OpenFGA tuple for a previously
-unmapped space. The feature is disabled by default, writes MongoDB before
-OpenFGA to avoid orphan grants, rolls back on failure, and never overwrites an
-existing active space mapping. The onboarding writer
+For opt-in onboarding, a bot configured with `spaces.accessMode: all_spaces`
+and explicit `spaces.defaultTeamSlug` and `spaces.defaultAgentId` creates an explicit
+bot-scoped space-team mapping, route metadata row, and OpenFGA tuple for a
+previously unmapped space observed by that bot. `allowlist` remains the default
+example. Automatic onboarding writes MongoDB before OpenFGA to avoid orphan
+grants, rolls back on failure, and never overwrites an existing active space
+mapping. The onboarding writer
 (`webex-space-onboarding.ts`) also emits the inbound
 `team:<slug>#member user webex_space:<workspace>--<space>` and
 `team:<slug>#admin manager webex_space:<workspace>--<space>` visibility tuples

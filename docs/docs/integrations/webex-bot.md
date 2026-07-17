@@ -42,46 +42,41 @@ Agents.
 
 ## Configure Multiple Bots
 
-Define the same bot catalog in both places:
+Define each bot once in `webex-bot.bots`. The runtime starts the configured bot
+clients and exposes a token-free catalog, policy, and space-discovery API to the
+UI. The UI does not receive bot tokens and does not maintain a second catalog.
 
-- `webex-bot.bots` tells the runtime which bot clients to start.
-- `caipe-ui.webexBots` lets the admin UI discover spaces and configure routes
-  for those bots.
-
-Each entry has a stable `id`, a display `name`, and a `tokenEnv`. The token
-itself must be supplied through `existingSecret` or `externalSecrets`; it must
-not be placed in Helm values. The two catalogs must use the same IDs and token
-environment variable names. Bot identity is always selected explicitly; there
-is no deployment default bot.
+Each entry has a stable `id`, display `name`, `tokenEnv`, and independent policy
+for group spaces and direct messages. The token itself must be supplied through
+`existingSecret` or `externalSecrets`; it must not be placed in Helm values.
+Bot identity is always selected explicitly; there is no deployment default bot.
 
 ```yaml
 tags:
   webex-bot: true
-
-caipe-ui:
-  webexBots:
-    - id: primary
-      name: Primary Webex bot
-      tokenEnv: WEBEX_PRIMARY_BOT_TOKEN
-    - id: secondary
-      name: Secondary Webex bot
-      tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
-  config:
-    WEBEX_DM_ACCESS_MODE: allowlist
-  existingSecret: webex-bot-tokens
 
 webex-bot:
   bots:
     - id: primary
       name: Primary Webex bot
       tokenEnv: WEBEX_PRIMARY_BOT_TOKEN
+      spaces:
+        accessMode: allowlist
+      directMessages:
+        accessMode: allowlist
     - id: secondary
       name: Secondary Webex bot
       tokenEnv: WEBEX_SECONDARY_BOT_TOKEN
+      spaces:
+        accessMode: all_spaces
+        defaultTeamSlug: platform
+        defaultAgentId: agent-platform
+      directMessages:
+        accessMode: all_users
+        defaultAgentId: agent-personal
   config:
     CAIPE_API_URL: http://ai-platform-engineering-caipe-ui:3000
     WEBEX_AGENT_ROUTES_MODE: db_prefer
-    WEBEX_DM_ACCESS_MODE: allowlist
   existingSecret: webex-bot-tokens
 ```
 
@@ -107,9 +102,12 @@ Go to **Admin > Integrations > Webex**. Both **Configure spaces** and **1:1
 Messages** have a **Webex bot** selector at the top. The selected bot scopes
 discovery and configuration for the entire tab.
 
-For a group space, select a bot, refresh its spaces, and choose the team, agent,
-and listen mode. A space containing multiple configured bots can intentionally
-be onboarded once for each bot; each bot retains its own route.
+For a group space in `allowlist` mode, select a bot, refresh its spaces, and
+choose the team, agent, and listen mode. A space containing multiple configured
+bots can intentionally be onboarded once for each bot; each bot retains its own
+route. `disabled` ignores all group spaces for that bot. `all_spaces`
+automatically creates missing routes using that bot's
+`spaces.defaultTeamSlug` and `spaces.defaultAgentId`.
 
 For a direct message in `allowlist` mode, select a bot, then assign a deployment
 user and agent. The same user can be onboarded independently for multiple bots.
@@ -121,14 +119,18 @@ Messages to a bot without a matching active allowlist entry are ignored.
 |---|---|
 | `disabled` | The runtime does not handle direct messages. |
 | `allowlist` | Only bot/user pairs explicitly configured by an admin are handled; the admin-selected agent is authoritative. |
-| `all_users` | Any enabled deployment user may use each explicitly addressed bot. The runtime resolves a temporary `use` override, the user's Webex default, the platform default, and finally `WEBEX_DEFAULT_AGENT_ID`. |
+| `all_users` | Any enabled deployment user may use the bot. The runtime resolves a temporary `use` override and then that bot's live `directMessages.defaultAgentId`. |
 
-Set `WEBEX_DM_ACCESS_MODE` to the same value on the UI and Webex bot workloads.
-`allowlist` is the recommended mode when admins must control access and agent
-assignment explicitly. In `all_users` mode, `use <agent>` sets an in-memory
-override for that user and direct-message room; it is cleared when the bot pod
-restarts. Every selected agent is checked against the linked user's effective
-OpenFGA access before dispatch.
+Set `directMessages.accessMode` independently on every bot. `allowlist` is the
+recommended mode when admins must control access and agent assignment
+explicitly. In `all_users` mode, the UI lists every enabled deployment user as
+allowed with the bot defaults selected. An admin can save a per-user agent/team
+override, explicitly deny that user for the selected bot, or reset the row to
+the inherited bot policy. `use <agent>` remains an in-memory override for that
+user and direct-message room and is cleared when the bot pod restarts. Every
+selected agent is checked against the linked user's effective OpenFGA access
+before dispatch. The final bot fallback additionally requires membership in
+the configured default team and that team's grant to the configured agent.
 
 ## Routing and Authorization
 
@@ -168,12 +170,9 @@ record; the admin selection is intentionally mandatory.
 
 | Variable | Purpose |
 |---|---|
-| `WEBEX_INTEGRATION_BOTS_JSON` | Bot catalog generated from Helm `bots` or `webexBots` |
+| `WEBEX_INTEGRATION_BOTS_JSON` | Runtime bot catalog generated by Helm from `webex-bot.bots` |
 | `CAIPE_API_URL` | UI/BFF base URL |
 | `WEBEX_AGENT_ROUTES_MODE` | `db_prefer`, `config`, or `db_only` |
-| `WEBEX_DM_ACCESS_MODE` | `disabled`, `allowlist`, or `all_users` |
-| `WEBEX_DEFAULT_TEAM_SLUG` | Team used for auto-assignment |
-| `WEBEX_DEFAULT_AGENT_ID` | Dynamic-agent ID used for group-space auto-assignment and the final `all_users` DM fallback |
 | `WEBEX_THREAD_CONTEXT_ENABLED` | Include bounded thread context |
 | `MONGODB_URI` | Route/link/team metadata storage |
 | `MONGODB_DATABASE` | MongoDB database name |

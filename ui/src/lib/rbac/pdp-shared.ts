@@ -9,6 +9,8 @@ export interface EvaluateAgentAccessInput {
   subject: string;
   /** The target agent's identifier. */
   agentId: string;
+  /** Optional team context that must itself authorize the user and agent. */
+  teamSlug?: string;
 }
 
 export type AgentAccessPath =
@@ -87,9 +89,35 @@ async function probeTeamGrant(
 export async function evaluateAgentAccess(
   input: EvaluateAgentAccessInput,
 ): Promise<AgentAccessDecision> {
-  const { subject, agentId } = input;
+  const { subject, agentId, teamSlug } = input;
   assertValidSubject(subject);
   assertValidAgentId(agentId);
+
+  if (teamSlug !== undefined) {
+    assertValidAgentId(teamSlug);
+    const teamSlugs = await listUserTeamSlugs({ subject });
+    if (!teamSlugs.includes(teamSlug)) {
+      return {
+        allowed: false,
+        path: "denied",
+        reasonCode: "DENY_NO_CAPABILITY",
+      };
+    }
+    const matchedTeamSlug = await probeTeamGrant(teamSlug, agentId);
+    if (matchedTeamSlug) {
+      return {
+        allowed: true,
+        path: "team_union",
+        matchedTeamSlug,
+        reasonCode: "ALLOW_TEAM_UNION",
+      };
+    }
+    return {
+      allowed: false,
+      path: "denied",
+      reasonCode: "DENY_NO_CAPABILITY",
+    };
+  }
 
   const directDecision = await checkOpenFgaTuple({
     user: `user:${subject}`,

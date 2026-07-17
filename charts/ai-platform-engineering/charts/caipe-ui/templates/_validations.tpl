@@ -95,36 +95,8 @@
 {{- end -}}
 {{- end -}}
 
-{{/* Validate Webex bot identities. */}}
-{{- define "caipe-ui.validate.webexBots" -}}
-{{- $webexBots := .Values.webexBots | default list -}}
-{{- $webexBotIds := dict -}}
-{{- range $index, $bot := $webexBots -}}
-{{- if not (kindIs "map" $bot) -}}
-{{- fail (printf "caipe-ui.webexBots[%d] must be an object" $index) -}}
-{{- end -}}
-{{- if or (hasKey $bot "token") (hasKey $bot "accessToken") -}}
-{{- fail (printf "caipe-ui.webexBots[%d] cannot contain an inline token; use tokenEnv with existingSecret or externalSecrets" $index) -}}
-{{- end -}}
-{{- $botId := required (printf "caipe-ui.webexBots[%d].id is required" $index) $bot.id -}}
-{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" $botId) -}}
-{{- fail (printf "caipe-ui.webexBots[%d].id is invalid" $index) -}}
-{{- end -}}
-{{- if hasKey $webexBotIds $botId -}}
-{{- fail (printf "caipe-ui.webexBots id %q is configured more than once" $botId) -}}
-{{- end -}}
-{{- $_ := set $webexBotIds $botId true -}}
-{{- $_ := required (printf "caipe-ui.webexBots[%d].name is required" $index) $bot.name -}}
-{{- $tokenEnv := required (printf "caipe-ui.webexBots[%d].tokenEnv is required" $index) $bot.tokenEnv -}}
-{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $tokenEnv) -}}
-{{- fail (printf "caipe-ui.webexBots[%d].tokenEnv must be a valid environment variable name" $index) -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
 {{/* Run all validation needed by the bootstrap ConfigMap. */}}
 {{- define "caipe-ui.validate.bootstrapConfig" -}}
 {{- $_ := include "caipe-ui.validate.oauthConnectors" . -}}
 {{- $_ := include "caipe-ui.validate.credentialSecretRefs" . -}}
-{{- $_ := include "caipe-ui.validate.webexBots" . -}}
 {{- end -}}

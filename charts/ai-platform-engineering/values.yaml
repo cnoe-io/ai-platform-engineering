@@ -852,11 +852,6 @@ caipe-ui:
     WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
     WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
     # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
-    WEBEX_DEFAULT_TEAM_SLUG: ""
-    WEBEX_DEFAULT_AGENT_ID: ""
-    # Direct-message policy: disabled, allowlist, or all_users. The UI and bot
-    # must use the same mode.
-    WEBEX_DM_ACCESS_MODE: "disabled"
     WEBEX_THREAD_CONTEXT_ENABLED: "true"
     WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
     WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
@@ -1308,13 +1303,6 @@ webex-bot:
     WEBEX_THREAD_CONTEXT_ENABLED: "true"
     WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
     WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
-    WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
-    WEBEX_DEFAULT_TEAM_SLUG: ""
-    WEBEX_DEFAULT_AGENT_ID: ""
-    # Direct messages are fail-closed by default. allowlist uses the admin's
-    # bot/user agent assignment; all_users uses personal/platform defaults and
-    # falls back to WEBEX_DEFAULT_AGENT_ID.
-    WEBEX_DM_ACCESS_MODE: "disabled"
     WEBEX_ADMIN_API_ENABLED: "false"
     WEBEX_ADMIN_API_HOST: "0.0.0.0"
     WEBEX_ADMIN_API_PORT: "3002"
@@ -1334,6 +1322,20 @@ webex-bot:
       key: "KC_WEBEX_BOT_CLIENT_SECRET"
 
   existingSecret: "webex-bot-secrets"
+
+  # One runtime pod can host multiple bot identities. Each bot owns its group
+  # space and direct-message policy. Automatic modes require both defaults.
+  bots: []
+    # - id: "primary"
+    #   name: "Primary bot"
+    #   tokenEnv: "PRIMARY_WEBEX_BOT_TOKEN"
+    #   spaces:
+    #     accessMode: "all_spaces"
+    #     defaultTeamSlug: "platform"
+    #     defaultAgentId: "agent-platform"
+    #   directMessages:
+    #     accessMode: "all_users"
+    #     defaultAgentId: "agent-personal"
 
   botConfig: {}
 

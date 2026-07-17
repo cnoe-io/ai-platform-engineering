@@ -121,6 +121,7 @@ function setupFetchMock() {
           items: [
             { _id: "test-april-2025", name: "Test April 2025" },
             { _id: "incident-agent", name: "Incident Agent" },
+            { _id: "fallback-agent", name: "Fallback Agent" },
           ],
         },
       });
@@ -139,10 +140,13 @@ function setupFetchMock() {
               webex_user_id: null,
               enabled: false,
               configured: false,
+              inherited: false,
+              state: "not_allowed",
               expected_webex_email: "user@example.com",
               agent_id: "",
             },
           ],
+          bot_id: "primary",
           dm_access_mode: "allowlist",
           default_agent_id: null,
         },
@@ -422,6 +426,32 @@ it("opens Configure spaces from the empty configured-spaces action", async () =>
   expect(screen.getByRole("button", { name: "Find spaces" })).toBeInTheDocument();
 });
 
+it("refreshes configured spaces when the tab opens and on explicit refresh", async () => {
+  render(<WebexSpaceRebacPanel />);
+
+  await screen.findByRole("button", { name: "Find spaces" });
+  const callsBeforeTab = fetchMock.mock.calls.filter(([url]) =>
+    String(url).startsWith("/api/admin/webex/spaces?health=1"),
+  ).length;
+
+  fireEvent.click(screen.getByRole("tab", { name: "Configured spaces" }));
+  await waitFor(() => expect(
+    fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith("/api/admin/webex/spaces?health=1"),
+    ).length,
+  ).toBeGreaterThan(callsBeforeTab));
+
+  const callsBeforeRefresh = fetchMock.mock.calls.filter(([url]) =>
+    String(url).startsWith("/api/admin/webex/spaces?health=1"),
+  ).length;
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh configured spaces" }));
+  await waitFor(() => expect(
+    fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith("/api/admin/webex/spaces?health=1"),
+    ).length,
+  ).toBeGreaterThan(callsBeforeRefresh));
+});
+
 it("ignores stale Webex subtab URL params and stays on onboarding", async () => {
   currentSearchParams = new URLSearchParams("subtab=advanced");
   render(<WebexSpaceRebacPanel />);
@@ -547,6 +577,72 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
   );
   expect(screen.queryByText("Ready to set up")).not.toBeInTheDocument();
   expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
+});
+
+it("uses all-spaces bot defaults for new spaces and preserves saved overrides", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/webex/bots") {
+      return response({
+        data: {
+          bots: [{
+            id: "primary",
+            name: "Primary bot",
+            available: true,
+            spaces: {
+              accessMode: "all_spaces",
+              defaultTeamSlug: "default-team",
+              defaultAgentId: "default-agent",
+            },
+            directMessages: { accessMode: "allowlist", defaultAgentId: null },
+          }],
+        },
+      });
+    }
+    if (url === "/api/dynamic-agents/teams") {
+      return response({
+        success: true,
+        data: [
+          { _id: "team-default", slug: "default-team", name: "Default Team" },
+          { _id: "team-saved", slug: "saved-team", name: "Saved Team" },
+        ],
+      });
+    }
+    if (String(url).startsWith("/api/dynamic-agents?enabled_only=true")) {
+      return response({
+        data: {
+          items: [
+            { _id: "default-agent", name: "Default Agent" },
+            { _id: "saved-agent", name: "Saved Agent" },
+          ],
+        },
+      });
+    }
+    if (String(url).startsWith("/api/admin/webex/spaces?health=1")) {
+      return response({
+        data: {
+          spaces: [{
+            workspace_id: "WEBEX-WORKSPACE",
+            space_id: "space-abc",
+            space_name: "Saved Space",
+            team_slug: "saved-team",
+            primary_agent_id: "saved-agent",
+            bot_id: "primary",
+            active_grants: 1,
+          }],
+        },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+  await clickFindSpaces();
+
+  expect(await screen.findByLabelText("Team for Incident War Room")).toHaveTextContent("Default Team");
+  expect(screen.getByLabelText("Dynamic Agent for Incident War Room")).toHaveTextContent("Default Agent");
+  expect(screen.getByLabelText("Team for Platform Alerts")).toHaveTextContent("Saved Team");
+  expect(screen.getByLabelText("Dynamic Agent for Platform Alerts")).toHaveTextContent("Saved Agent");
 });
 
 it("uses one top-level Webex bot selector for space discovery", async () => {
@@ -675,7 +771,7 @@ it("onboards deployment users independently for the bot selected above the table
   })).toBe(true));
 });
 
-it("shows personal agent selection without allowlist controls in all-users mode", async () => {
+it("shows inherited defaults and allows overrides in all-users mode", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (
@@ -684,7 +780,20 @@ it("shows personal agent selection without allowlist controls in all-users mode"
     ) {
       return response({
         data: {
-          users: [],
+          users: [
+            {
+              keycloak_user_id: "user-1",
+              email: "user@example.com",
+              display_name: "Example User",
+              webex_user_id: null,
+              enabled: true,
+              configured: false,
+              inherited: true,
+              state: "inherited",
+              expected_webex_email: "user@example.com",
+              agent_id: "fallback-agent",
+            },
+          ],
           bot_id: "primary",
           dm_access_mode: "all_users",
           default_agent_id: "fallback-agent",
@@ -700,18 +809,22 @@ it("shows personal agent selection without allowlist controls in all-users mode"
 
   expect(await screen.findByText("All deployment users")).toBeInTheDocument();
   expect(
-    screen.getByText(/temporary override, Webex default, then platform default/i),
+    screen.getByText(/configured default unless an admin saves an explicit override/i),
   ).toBeInTheDocument();
   expect(
-    screen.getByText("Deployment fallback: fallback-agent"),
+    screen.getByText("Bot default agent: fallback-agent"),
   ).toBeInTheDocument();
   expect(
-    screen.queryByLabelText(/Allow direct messages for/i),
-  ).not.toBeInTheDocument();
-  expect(screen.queryByLabelText(/Agent for/i)).not.toBeInTheDocument();
+    screen.getByLabelText("Allow direct messages for user@example.com"),
+  ).toBeChecked();
+  expect(screen.queryByRole("combobox", { name: "Team for user@example.com" })).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Agent for user@example.com" })).toHaveValue(
+    "fallback-agent",
+  );
+  expect(screen.getByText("inherited")).toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /Save 1:1 access/i }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("button", { name: "Save 1:1 access for user@example.com" }),
+  ).toBeEnabled();
 });
 
 it("allows discovery before global defaults are configured", async () => {

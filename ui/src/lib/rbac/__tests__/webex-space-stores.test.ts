@@ -204,13 +204,13 @@ describe("webex-space stores", () => {
     );
   });
 
-  it("trims agent_id and skips blank routes during replacement", async () => {
-    const updateMany = jest.fn().mockResolvedValue({ modifiedCount: 0 });
+  it("stores one mutable agent route per bot and space", async () => {
     const updateOne = jest.fn().mockResolvedValue({ upsertedCount: 1 });
+    const deleteMany = jest.fn().mockResolvedValue({ deletedCount: 1 });
     const toArray = jest.fn().mockResolvedValue([]);
     const sort = jest.fn().mockReturnValue({ toArray });
     const find = jest.fn().mockReturnValue({ sort });
-    getRbacCollection.mockResolvedValue({ updateMany, updateOne, find });
+    getRbacCollection.mockResolvedValue({ deleteMany, updateOne, find });
 
     const { replaceWebexSpaceAgentRoutes } = await import("../webex-space-route-store");
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
@@ -226,18 +226,61 @@ describe("webex-space stores", () => {
     );
 
     expect(getRbacCollection).toHaveBeenCalledWith("webexSpaceAgentRoutes");
-    expect(updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ agent_id: { $nin: ["agent-trimmed"] } }),
-      expect.any(Object)
-    );
     expect(updateOne).toHaveBeenCalledTimes(1);
     expect(updateOne).toHaveBeenCalledWith(
-      expect.objectContaining({ agent_id: "agent-trimmed" }),
+      { _id: '["primary","CAIPE-WEBEX","space-abc"]' },
       expect.objectContaining({
-        $set: expect.objectContaining({ agent_id: "agent-trimmed" }),
+        $set: expect.objectContaining({
+          bot_id: "primary",
+          workspace_id: "CAIPE-WEBEX",
+          space_id: "space-abc",
+          agent_id: "agent-trimmed",
+        }),
       }),
       { upsert: true }
     );
+    expect(deleteMany).toHaveBeenCalledWith({
+      bot_id: "primary",
+      workspace_id: "CAIPE-WEBEX",
+      space_id: "space-abc",
+      _id: { $ne: '["primary","CAIPE-WEBEX","space-abc"]' },
+    });
+  });
+
+  it("reads only the newest route when legacy duplicates exist", async () => {
+    const toArray = jest.fn().mockResolvedValue([
+      {
+        bot_id: "primary",
+        workspace_id: "CAIPE-WEBEX",
+        space_id: "space-abc",
+        agent_id: "old-agent",
+        status: "active",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        bot_id: "primary",
+        workspace_id: "CAIPE-WEBEX",
+        space_id: "space-abc",
+        agent_id: "new-agent",
+        status: "active",
+        updated_at: "2026-02-01T00:00:00.000Z",
+      },
+    ]);
+    const sort = jest.fn().mockReturnValue({ toArray });
+    const find = jest.fn().mockReturnValue({ sort });
+    getRbacCollection.mockResolvedValue({ find });
+
+    const { listWebexSpaceAgentRoutes } = await import("../webex-space-route-store");
+    process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
+    const routes = await listWebexSpaceAgentRoutes(
+      "org-123",
+      "space-abc",
+      "primary",
+    );
+
+    expect(routes).toEqual([
+      expect.objectContaining({ agent_id: "new-agent" }),
+    ]);
   });
 
   it("builds webex_space subject refs for OpenFGA relationships", async () => {
@@ -295,14 +338,14 @@ describe("webex-space stores", () => {
   });
 
   it("trims agent id when deleting a route", async () => {
-    const deleteOne = jest.fn().mockResolvedValue({ deletedCount: 1 });
-    getRbacCollection.mockResolvedValue({ deleteOne });
+    const deleteMany = jest.fn().mockResolvedValue({ deletedCount: 1 });
+    getRbacCollection.mockResolvedValue({ deleteMany });
 
     const { deleteWebexSpaceAgentRoute } = await import("../webex-space-route-store");
     process.env.WEBEX_WORKSPACE_ALIAS = "CAIPE-WEBEX";
     await deleteWebexSpaceAgentRoute("org-123", "space-abc", "primary", "  agent-trimmed  ");
 
-    expect(deleteOne).toHaveBeenCalledWith({
+    expect(deleteMany).toHaveBeenCalledWith({
       workspace_id: "CAIPE-WEBEX",
       space_id: "space-abc",
       bot_id: "primary",

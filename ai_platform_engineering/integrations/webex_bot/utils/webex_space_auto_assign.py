@@ -8,24 +8,28 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 import requests
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from .webex_bot_catalog import configured_webex_bot
 from .webex_agent_routes import (
     DEFAULT_OPENFGA_HTTP,
     webex_bot_installation_openfga_subject,
     webex_space_openfga_subject,
     webex_workspace_ref,
 )
+from .webex_ids import public_webex_room_id_from_uuid
 
 logger = logging.getLogger("caipe.webex_bot.webex_space_auto_assign")
 
 CollectionFactory = Callable[[str], Optional[Collection[Any]]]
 OpenFgaWriter = Callable[[dict[str, str]], None]
 OpenFgaDeleter = Callable[[dict[str, str]], None]
+RequestGet = Callable[..., requests.Response]
 
 
 @dataclass(frozen=True)
@@ -48,10 +52,12 @@ class WebexSpaceAutoAssigner:
         collection_factory: CollectionFactory | None = None,
         openfga_writer: OpenFgaWriter | None = None,
         openfga_deleter: OpenFgaDeleter | None = None,
+        webex_request_get: RequestGet = requests.get,
     ) -> None:
         self._collection_factory = collection_factory
         self._openfga_writer = openfga_writer
         self._openfga_deleter = openfga_deleter
+        self._webex_request_get = webex_request_get
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
 
@@ -76,11 +82,51 @@ class WebexSpaceAutoAssigner:
         return client[self._db_name][name]
 
     @staticmethod
-    def _enabled_config() -> tuple[bool, str, str]:
-        enabled = os.environ.get("WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES", "false").lower() == "true"
-        team_slug = os.environ.get("WEBEX_DEFAULT_TEAM_SLUG", "").strip()
-        agent_id = os.environ.get("WEBEX_DEFAULT_AGENT_ID", "").strip()
-        return enabled and bool(team_slug) and bool(agent_id), team_slug, agent_id
+    def _enabled_config(bot_id: str) -> tuple[bool, str, str]:
+        bot = configured_webex_bot(bot_id)
+        if bot is None or bot.spaces_access_mode != "all_spaces":
+            return False, "", ""
+        return (
+            True,
+            bot.spaces.default_team_slug or "",
+            bot.spaces.default_agent_id or "",
+        )
+
+    def _space_display_name(
+        self,
+        *,
+        bot_id: str,
+        space_id: str,
+        space_title: str | None,
+    ) -> str:
+        explicit_title = (space_title or "").strip()
+        if explicit_title:
+            return explicit_title
+
+        bot = configured_webex_bot(bot_id)
+        token = os.environ.get(bot.token_env, "").strip() if bot else ""
+        if not token:
+            return space_id
+
+        room_id = public_webex_room_id_from_uuid(space_id)
+        try:
+            response = self._webex_request_get(
+                f"https://webexapis.com/v1/rooms/{quote(room_id, safe='')}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            title = str(payload.get("title") or "").strip() if isinstance(payload, dict) else ""
+            return title or space_id
+        except (requests.RequestException, ValueError) as exc:
+            logger.warning(
+                "Unable to resolve Webex space title bot=%s space=%s: %s",
+                bot_id,
+                space_id,
+                exc,
+            )
+            return space_id
 
     def assign_space(
         self,
@@ -96,7 +142,7 @@ class WebexSpaceAutoAssigner:
         Writes are auditable via ``source_type`` and ``created_by`` fields.
         """
 
-        enabled, team_slug, agent_id = self._enabled_config()
+        enabled, team_slug, agent_id = self._enabled_config(bot_id)
         if not enabled:
             return WebexSpaceAutoAssignResult(False, "disabled")
 
@@ -124,12 +170,26 @@ class WebexSpaceAutoAssigner:
             [bot_id, workspace_ref, space_id], separators=(",", ":")
         )
         now = datetime.now(timezone.utc).isoformat()
-        display_name = (space_title or space_id).strip()
+        display_name = self._space_display_name(
+            bot_id=bot_id,
+            space_id=space_id,
+            space_title=space_title,
+        )
 
         installation = webex_bot_installation_openfga_subject(
             bot_id, workspace_id, space_id
         )
         tuple_keys = [
+            {
+                "user": f"team:{team_slug}#admin",
+                "relation": "manager",
+                "object": f"webex_space:{workspace_ref}--{space_id}",
+            },
+            {
+                "user": f"team:{team_slug}#member",
+                "relation": "user",
+                "object": f"webex_space:{workspace_ref}--{space_id}",
+            },
             {
                 "user": f"webex_bot:{bot_id}",
                 "relation": "bot",
@@ -146,11 +206,11 @@ class WebexSpaceAutoAssigner:
                 "object": f"agent:{agent_id}",
             },
         ]
-        route_filter = {
+        route_filter = {"_id": mapping_id}
+        route_key = {
             "bot_id": bot_id,
             "workspace_id": workspace_ref,
             "space_id": space_id,
-            "agent_id": agent_id,
         }
         routes_written = False
         mapping_written = False
@@ -159,9 +219,7 @@ class WebexSpaceAutoAssigner:
                 route_filter,
                 {
                     "$set": {
-                        "bot_id": bot_id,
-                        "workspace_id": workspace_ref,
-                        "space_id": space_id,
+                        **route_key,
                         "agent_id": agent_id,
                         "enabled": True,
                         "priority": 100,
@@ -200,11 +258,10 @@ class WebexSpaceAutoAssigner:
                 upsert=True,
             )
             mapping_written = True
-            # `_write_openfga_tuples` is the last step in the try block; if it
-            # raises, control flows to except with no OpenFGA write to roll
-            # back. If it succeeds, no later statement can raise. Therefore
-            # we never need to roll back an OpenFGA tuple here.
+            # The tuple writer is independently idempotent and compensates any
+            # successful writes if a later tuple fails.
             self._write_openfga_tuples(tuple_keys)
+            routes.delete_many({**route_key, "_id": {"$ne": mapping_id}})
         except (PyMongoError, requests.RequestException) as exc:
             logger.warning("Webex space auto-assignment failed for space=%s: %s", space_id, exc)
             if mapping_written:
@@ -228,22 +285,105 @@ class WebexSpaceAutoAssigner:
             team_id=team_id,
         )
 
-    def _write_openfga_tuples(self, tuple_keys: list[dict[str, str]]) -> None:
-        if self._openfga_writer is not None:
-            for tuple_key in tuple_keys:
-                self._openfga_writer(tuple_key)
-            return
+    def ensure_space_agent_grant(
+        self,
+        *,
+        bot_id: str,
+        workspace_id: str,
+        space_id: str,
+        agent_id: str,
+        team_slug: str | None = None,
+    ) -> bool:
+        """Idempotently repair the OpenFGA grants for an existing assignment."""
 
-        base_url = (os.environ.get("OPENFGA_HTTP", "").strip() or DEFAULT_OPENFGA_HTTP).rstrip("/")
-        store_id = _openfga_store_id(base_url)
-        response = requests.post(
-            f"{base_url}/stores/{store_id}/write",
-            headers={"Content-Type": "application/json"},
-            json={"writes": {"tuple_keys": tuple_keys}},
-            timeout=5,
+        workspace_ref = webex_workspace_ref(workspace_id)
+        installation = webex_bot_installation_openfga_subject(
+            bot_id, workspace_ref, space_id
         )
-        if response.status_code >= 400 and "already" not in response.text.lower():
-            response.raise_for_status()
+        tuple_keys: list[dict[str, str]] = []
+        if team_slug:
+            tuple_keys.extend(
+                [
+                    {
+                        "user": f"team:{team_slug}#admin",
+                        "relation": "manager",
+                        "object": f"webex_space:{workspace_ref}--{space_id}",
+                    },
+                    {
+                        "user": f"team:{team_slug}#member",
+                        "relation": "user",
+                        "object": f"webex_space:{workspace_ref}--{space_id}",
+                    },
+                ]
+            )
+        tuple_keys.extend(
+            [
+                {
+                    "user": f"webex_bot:{bot_id}",
+                    "relation": "bot",
+                    "object": installation,
+                },
+                {
+                    "user": webex_space_openfga_subject(workspace_ref, space_id),
+                    "relation": "space",
+                    "object": installation,
+                },
+                {
+                    "user": installation,
+                    "relation": "user",
+                    "object": f"agent:{agent_id}",
+                },
+            ]
+        )
+        try:
+            self._write_openfga_tuples(tuple_keys)
+            return True
+        except requests.RequestException as exc:
+            logger.warning(
+                "Unable to repair Webex space agent grant bot=%s space=%s agent=%s: %s",
+                bot_id,
+                space_id,
+                agent_id,
+                exc,
+            )
+            return False
+
+    def _write_openfga_tuples(self, tuple_keys: list[dict[str, str]]) -> None:
+        written: list[dict[str, str]] = []
+        try:
+            for tuple_key in tuple_keys:
+                if self._openfga_writer is not None:
+                    self._openfga_writer(tuple_key)
+                    written.append(tuple_key)
+                    continue
+
+                base_url = (
+                    os.environ.get("OPENFGA_HTTP", "").strip()
+                    or DEFAULT_OPENFGA_HTTP
+                ).rstrip("/")
+                store_id = _openfga_store_id(base_url)
+                response = requests.post(
+                    f"{base_url}/stores/{store_id}/write",
+                    headers={"Content-Type": "application/json"},
+                    json={"writes": {"tuple_keys": [tuple_key]}},
+                    timeout=5,
+                )
+                if response.status_code >= 400:
+                    if "already" in response.text.lower():
+                        continue
+                    response.raise_for_status()
+                written.append(tuple_key)
+        except requests.RequestException:
+            for tuple_key in reversed(written):
+                try:
+                    self._delete_openfga_tuple(tuple_key)
+                except requests.RequestException as rollback_error:
+                    logger.warning(
+                        "Unable to roll back Webex OpenFGA tuple %s: %s",
+                        tuple_key,
+                        rollback_error,
+                    )
+            raise
 
     def _delete_openfga_tuple(self, tuple_key: dict[str, str]) -> None:
         if self._openfga_deleter is not None:

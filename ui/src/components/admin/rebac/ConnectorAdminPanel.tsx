@@ -627,6 +627,16 @@ export function ConnectorAdminPanel({
     team_slug: "",
     agent_id: "",
   });
+  const onboardingDefaultsForIdentity = useCallback(
+    (identityId: string): OnboardingDefaultSelection =>
+      discoveryIdentities.find((identity) => identity.id === identityId)?.onboardingDefaults ??
+      onboardingDefaults,
+    [discoveryIdentities, onboardingDefaults],
+  );
+  const effectiveOnboardingDefaults = useMemo(
+    () => onboardingDefaultsForIdentity(selectedDiscoveryIdentityId),
+    [onboardingDefaultsForIdentity, selectedDiscoveryIdentityId],
+  );
   const [legacyChannelAgents, setLegacyChannelAgents] = useState<Record<string, string>>({});
   const paginatedDiscovery = adapter.discoveryPaginated === true;
   const [itemsLoading, setItemsLoading] = useState(true);
@@ -644,6 +654,7 @@ export function ConnectorAdminPanel({
   // between that view and the configured-channels view via a compact 2-tab bar.
   const [localSingleView, setLocalSingleView] = useState<PanelView>(singlePanelView ?? "channels");
   const panelView: PanelView = selfService ? "channels" : singlePanelView ? localSingleView : view;
+  const previousPanelViewRef = useRef(panelView);
   const showTabBar = !selfService && !singlePanelView;
   const showSinglePanelSwitcher = !selfService && Boolean(singlePanelView);
   const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
@@ -891,6 +902,13 @@ export function ConnectorAdminPanel({
 
   useLayoutEffect(() => { void loadItems(); }, [loadItems]);
   useEffect(() => {
+    const previousView = previousPanelViewRef.current;
+    previousPanelViewRef.current = panelView;
+    if (panelView === "channels" && previousView !== "channels") {
+      void loadItems();
+    }
+  }, [loadItems, panelView]);
+  useEffect(() => {
     if (selfService) return;
     void loadOnboardingDefaults();
   }, [loadOnboardingDefaults, selfService]);
@@ -974,7 +992,11 @@ export function ConnectorAdminPanel({
   // ── Discovery / onboarding ───────────────────────────────────────────────────
 
   const buildDiscoveredRows = useCallback(
-    (discovered: DiscoveredItem[], previousRows: DiscoveredRow[]): DiscoveredRow[] => {
+    (
+      discovered: DiscoveredItem[],
+      previousRows: DiscoveredRow[],
+      defaults: OnboardingDefaultSelection = effectiveOnboardingDefaults,
+    ): DiscoveredRow[] => {
       const prevById = new Map(previousRows.map((row) => [row.id, row]));
       const built = discovered.map((item) => {
         const prev = prevById.get(item.id);
@@ -1014,7 +1036,7 @@ export function ConnectorAdminPanel({
       });
       return enrichDiscoveredRows(built, {
         configuredItemsById,
-        globalDefaults: onboardingDefaults,
+        globalDefaults: defaults,
         legacyChannelAgents,
       });
     },
@@ -1022,7 +1044,7 @@ export function ConnectorAdminPanel({
       adapter.discoveryAutoSelectNewItems,
       configuredItemIds,
       configuredItemsById,
-      onboardingDefaults,
+      effectiveOnboardingDefaults,
       legacyChannelAgents,
     ],
   );
@@ -1032,11 +1054,11 @@ export function ConnectorAdminPanel({
     setDiscoveredRows((rows) =>
       enrichDiscoveredRows(rows, {
         configuredItemsById,
-        globalDefaults: onboardingDefaults,
+        globalDefaults: effectiveOnboardingDefaults,
         legacyChannelAgents,
       }),
     );
-  }, [configuredItemsById, onboardingDefaults, legacyChannelAgents, panelView, discoveredRows.length]);
+  }, [configuredItemsById, effectiveOnboardingDefaults, legacyChannelAgents, panelView, discoveredRows.length]);
 
   const fetchDiscoveryPage = useCallback(
     async (opts: {
@@ -1134,7 +1156,9 @@ export function ConnectorAdminPanel({
     setDiscoverError(null);
     const seeded = itemsToDiscovered(items);
     setDiscoveredItems(seeded);
-    setDiscoveredRows(buildDiscoveredRows(seeded, []));
+    setDiscoveredRows(
+      buildDiscoveredRows(seeded, [], onboardingDefaultsForIdentity(identityId)),
+    );
   };
 
   useEffect(() => {
@@ -1231,8 +1255,8 @@ export function ConnectorAdminPanel({
           selectable: r.selectable,
           botId: r.botId || (!adapter.discoveryIdentityPerItem ? selectedDiscoveryIdentityId : ""),
         })),
-        defaultTeamSlug: onboardingDefaults.team_slug,
-        defaultAgentId: onboardingDefaults.agent_id,
+        defaultTeamSlug: effectiveOnboardingDefaults.team_slug,
+        defaultAgentId: effectiveOnboardingDefaults.agent_id,
         createDefaultRoutes: true,
         fetchFn: fetch,
       });
@@ -1491,8 +1515,8 @@ export function ConnectorAdminPanel({
         {/* Configured / self-service channels — one slot: loading, empty, or table */}
         {(selfService || panelView === "channels") && (
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
-            {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
-              <div className="mb-3 flex justify-end">
+            <div className="mb-3 flex justify-end gap-2">
+              {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
                 <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <span>{adapter.discoveryIdentity.label}</span>
                   <select
@@ -1511,8 +1535,19 @@ export function ConnectorAdminPanel({
                     ))}
                   </select>
                 </label>
-              </div>
-            )}
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={`Refresh configured ${adapter.itemPlural}`}
+                title={`Refresh configured ${adapter.itemPlural}`}
+                onClick={() => void loadItems()}
+                disabled={disabled || itemsLoading}
+              >
+                <RefreshCw className={cn("h-4 w-4", itemsLoading && "animate-spin")} aria-hidden="true" />
+              </Button>
+            </div>
             {showConfiguredLoading ? (
               <ConnectorLoadingState label={configuredLoadingLabel} />
             ) : items.length === 0 ? (

@@ -11,13 +11,18 @@ import {
   webexBotInstallationIdentityTuples,
 } from "@/lib/rbac/webex-bot-openfga";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import { listOpenFgaWebexBotAgentIds } from "@/lib/rbac/webex-space-openfga";
 import {
 webexSpaceTeamVisibilityRelationships,
 } from "@/lib/rbac/webex-space-rebac";
+import {
+listWebexSpaceAgentRoutes,
+replaceWebexSpaceAgentRoutes,
+} from "@/lib/rbac/webex-space-route-store";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type { WebexRouteListenMode } from "@/types/webex-rebac";
-import { resolveWebexBotToken } from "@/lib/webex-bot-catalog";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 
 interface WebexSpaceTeamMappingDoc extends Document {
   bot_id: string;
@@ -141,7 +146,9 @@ export async function onboardWebexSpace(
 ): Promise<WebexSpaceOnboardingResult> {
   const teamSlug = readRequiredString(input.team_slug, "team_slug");
   const agentId = readRequiredString(input.agent_id, "agent_id");
-  const botId = resolveWebexBotToken(readRequiredString(input.bot_id, "bot_id")).id;
+  const botId = (
+    await requireAvailableWebexBotPolicy(readRequiredString(input.bot_id, "bot_id"))
+  ).id;
   const canonicalSpaceId = canonicalizeWebexSpaceId(readRequiredString(input.space_id, "space_id"));
   assertSafeSpaceId(canonicalSpaceId);
   const workspaceId = webexWorkspaceRef(input.workspace_id);
@@ -200,10 +207,9 @@ export async function onboardWebexSpace(
   // from the space→team mapping at message time. We still ensure the Webex bot
   // has general OBO permissions in place so token exchange works.
   await ensureWebexBotOboPermissions();
-  const [mappings, grants, routes] = await Promise.all([
+  const [mappings, grants] = await Promise.all([
     getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings"),
     getRbacCollection("webexSpaceGrants"),
-    getRbacCollection("webexSpaceAgentRoutes"),
   ]);
   const now = new Date().toISOString();
   await mappings.updateOne(
@@ -264,48 +270,46 @@ export async function onboardWebexSpace(
   );
 
   let routesEnsured = 0;
-  let routesPreserved = 0;
+  const routesPreserved = 0;
+  let existingOpenFgaAgentIds: string[] = [];
   if (createRoute) {
-    const existingRoute = await routes.findOne({
-      bot_id: botId,
-      workspace_id: workspaceId,
-      space_id: canonicalSpaceId,
-      agent_id: agentId,
-      status: { $ne: "deleted" },
-    } as never);
-    if (existingRoute) {
-      routesPreserved = 1;
-    } else {
-      await routes.updateOne(
-        {
-          bot_id: botId,
-          workspace_id: workspaceId,
-          space_id: canonicalSpaceId,
-          agent_id: agentId,
-        },
-        {
-          $set: {
-            bot_id: botId,
-            workspace_id: workspaceId,
-            space_id: canonicalSpaceId,
-            agent_id: agentId,
-            enabled: true,
-            priority: 100,
-            users: { enabled: true, listen },
-            source_type: "bootstrap",
-            status: "active",
-            updated_by: actor,
-            updated_at: now,
-          },
-          $setOnInsert: {
-            created_by: actor,
-            created_at: now,
-          },
-        },
-        { upsert: true }
-      );
-      routesEnsured = 1;
-    }
+    existingOpenFgaAgentIds = await listOpenFgaWebexBotAgentIds(
+      botId,
+      workspaceId,
+      canonicalSpaceId,
+    );
+    await replaceWebexSpaceAgentRoutes(
+      workspaceId,
+      canonicalSpaceId,
+      botId,
+      [{
+        bot_id: botId,
+        workspace_id: workspaceId,
+        space_id: canonicalSpaceId,
+        agent_id: agentId,
+        enabled: true,
+        priority: 100,
+        users: { enabled: true, listen },
+        created_by: actor,
+      }],
+      actor,
+    );
+    routesEnsured = 1;
+
+    const activeAgentIds = (await listWebexSpaceAgentRoutes(workspaceId, canonicalSpaceId))
+      .filter((route) => route.enabled !== false)
+      .map((route) => route.agent_id);
+    await grants.updateMany(
+      {
+        workspace_id: workspaceId,
+        space_id: canonicalSpaceId,
+        source_type: "bootstrap",
+        status: "active",
+        "resource.type": "agent",
+        "resource.id": { $nin: activeAgentIds },
+      },
+      { $set: { status: "revoked", updated_by: actor, updated_at: now } },
+    );
   }
 
   const writes: UniversalRebacRelationship[] = [
@@ -325,9 +329,23 @@ export async function onboardWebexSpace(
     writes: [
       ...relationshipDiff.writes,
       ...webexBotInstallationIdentityTuples(botId, workspaceId, canonicalSpaceId),
-      webexBotInstallationAgentTuple(botId, workspaceId, canonicalSpaceId, agentId),
+      ...(createRoute
+        ? [webexBotInstallationAgentTuple(botId, workspaceId, canonicalSpaceId, agentId)]
+        : []),
     ],
-    deletes: relationshipDiff.deletes,
+    deletes: [
+      ...relationshipDiff.deletes,
+      ...existingOpenFgaAgentIds
+        .filter((existingAgentId) => !createRoute || existingAgentId !== agentId)
+        .map((existingAgentId) =>
+          webexBotInstallationAgentTuple(
+            botId,
+            workspaceId,
+            canonicalSpaceId,
+            existingAgentId,
+          ),
+        ),
+    ],
   });
   if (!openfga.enabled) {
     throw new ApiError("OpenFGA is not configured", 502);

@@ -6,23 +6,23 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
-import {
-  getWebexIntegrationToken,
-  isWebexIntegrationEnabled,
-} from "@/lib/integration-config";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
-
-import {
-  getWebexSpaceDiscoveryStatus,
-  warmWebexSpaceDiscovery,
-} from "../../available-spaces/route";
 
 interface WebexBotRuntimeStatus {
   route_mode?: string;
   static_spaces?: number;
   static_routes?: number;
   cache_size?: number;
+  bots_available?: number;
+  space_discovery?: {
+    bots?: Record<string, {
+      spaces_indexed?: number;
+      fetched_at?: number;
+      last_error?: string;
+    }>;
+    last_errors?: Record<string, string>;
+  };
 }
 
 async function webexPlatformConfigSummary(): Promise<{
@@ -61,7 +61,11 @@ async function webexBotAdminStatus(): Promise<{
       route_mode?: string;
       static_config?: { spaces?: number; routes?: number };
       route_cache?: { cache_size?: number };
+      space_discovery?: WebexBotRuntimeStatus["space_discovery"];
     };
+    const catalog = await callWebexBotAdmin<{
+      bots?: Array<{ available?: boolean }>;
+    }>("/admin/webex/bots");
     return {
       reachable: true,
       runtime: {
@@ -69,6 +73,8 @@ async function webexBotAdminStatus(): Promise<{
         static_spaces: status.static_config?.spaces,
         static_routes: status.static_config?.routes,
         cache_size: status.route_cache?.cache_size,
+        bots_available: (catalog.bots ?? []).filter((bot) => bot.available).length,
+        space_discovery: status.space_discovery,
       },
     };
   } catch (err) {
@@ -80,34 +86,32 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
 
-  const enabled = isWebexIntegrationEnabled();
-  const integrationToken = getWebexIntegrationToken();
-  if (integrationToken) {
-    warmWebexSpaceDiscovery(integrationToken);
-  }
-
   const bot_admin = await webexBotAdminStatus();
   const platform = await webexPlatformConfigSummary();
   const configured =
-    enabled ||
     bot_admin.reachable ||
     platform.spaces_onboarded > 0 ||
     platform.routes_configured > 0;
-  const space_discovery = integrationToken
-    ? {
-        configured: true,
-        ...(await getWebexSpaceDiscoveryStatus(integrationToken)),
-      }
-    : {
-        configured: false,
-        status: "empty" as const,
-        spaces_indexed: 0,
-        fetched_at: null,
-        updated_at: null,
-        started_at: null,
-        ttl_seconds: 0,
-        last_error: undefined,
-      };
+  const discoveryBots = Object.values(bot_admin.runtime?.space_discovery?.bots ?? {});
+  const spacesIndexed = discoveryBots.reduce(
+    (total, bot) => total + Number(bot.spaces_indexed ?? 0),
+    0,
+  );
+  const fetchedAt = discoveryBots.reduce<number | null>((latest, bot) => {
+    const value = Number(bot.fetched_at ?? 0);
+    return value > (latest ?? 0) ? value : latest;
+  }, null);
+  const errors = Object.values(bot_admin.runtime?.space_discovery?.last_errors ?? {});
+  const space_discovery = {
+    configured: (bot_admin.runtime?.bots_available ?? 0) > 0,
+    status: errors.length > 0 ? "stale" as const : spacesIndexed > 0 ? "ready" as const : "empty" as const,
+    spaces_indexed: spacesIndexed,
+    fetched_at: fetchedAt,
+    updated_at: fetchedAt,
+    started_at: null,
+    ttl_seconds: 0,
+    last_error: errors[0],
+  };
 
   return successResponse({
     configured,

@@ -13,7 +13,7 @@ import {
   webexBotInstallationIdentityTuples,
 } from "@/lib/rbac/webex-bot-openfga";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
-import { configuredWebexBots } from "@/lib/webex-bot-catalog";
+import { listWebexBotPolicies } from "@/lib/webex-bot-policy";
 
 interface LegacyTeamMapping extends Document {
   bot_id?: string | null;
@@ -313,7 +313,7 @@ export async function migrateLegacyWebexBotOwnership(
   if (assignments.length === 0) {
     throw new ApiError("At least one migration assignment is required", 400);
   }
-  const configuredBotIds = new Set(configuredWebexBots().map((bot) => bot.id));
+  const configuredBotIds = new Set((await listWebexBotPolicies()).map((bot) => bot.id));
   const mappings = await getRbacCollection<LegacyTeamMapping>("webexSpaceTeamMappings");
   const routes = await getRbacCollection<LegacyAgentRoute>("webexSpaceAgentRoutes");
   const now = new Date().toISOString();

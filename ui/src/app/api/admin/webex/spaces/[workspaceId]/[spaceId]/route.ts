@@ -7,7 +7,7 @@ import {
   deleteWebexSpaceState,
   WEBEX_SPACE_USABLE_OBJECT_TYPES,
 } from "@/lib/rbac/webex-space-delete";
-import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 
 import { withWebexSpaceRebacManageAuth } from "../../_lib";
 
@@ -22,7 +22,9 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
 
   return withWebexSpaceRebacManageAuth(request, async () => {
-    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     let deleted;
     try {
       deleted = await deleteWebexSpaceState({

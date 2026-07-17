@@ -9,6 +9,7 @@ const mockCheckPermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockRequireAvailableWebexBotPolicy = jest.fn();
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
 
 jest.mock("@/lib/rbac/keycloak-authz", () => ({
@@ -23,6 +24,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: jest.fn(async () => undefined),
+}));
+jest.mock("@/lib/webex-bot-policy", () => ({
+  requireAvailableWebexBotPolicy: (...args: unknown[]) =>
+    mockRequireAvailableWebexBotPolicy(...args),
 }));
 
 jest.mock("@/lib/jwt-validation", () => ({
@@ -71,10 +76,10 @@ function createMockCollection(rows: Record<string, unknown>[]) {
     ),
     updateOne: jest.fn(),
     updateMany: jest.fn(),
-    deleteOne: jest.fn(async (filter: Record<string, unknown>) => {
-      const index = rows.findIndex((row) => row.agent_id === filter.agent_id);
-      if (index >= 0) rows.splice(index, 1);
-      return { deletedCount: index >= 0 ? 1 : 0 };
+    deleteMany: jest.fn(async (filter: Record<string, unknown>) => {
+      const matching = rows.filter((row) => row.agent_id === filter.agent_id);
+      for (const row of matching) rows.splice(rows.indexOf(row), 1);
+      return { deletedCount: matching.length };
     }),
   };
 }
@@ -86,10 +91,11 @@ const spaceId = "space-abc";
 beforeEach(() => {
   jest.clearAllMocks();
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
-  process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
-    { id: "primary", name: "Primary", tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN" },
-  ]);
-  process.env.WEBEX_PRIMARY_BOT_TOKEN = "token";
+  mockRequireAvailableWebexBotPolicy.mockResolvedValue({
+    id: "primary",
+    name: "Primary",
+    available: true,
+  });
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
@@ -110,8 +116,6 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.WEBEX_WORKSPACE_ALIAS;
-  delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
-  delete process.env.WEBEX_PRIMARY_BOT_TOKEN;
 });
 
 describe("DELETE /api/admin/webex/spaces/.../routes", () => {
@@ -144,6 +148,6 @@ describe("DELETE /api/admin/webex/spaces/.../routes", () => {
         },
       ],
     });
-    expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].deleteOne).toHaveBeenCalled();
+    expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].deleteMany).toHaveBeenCalled();
   });
 });

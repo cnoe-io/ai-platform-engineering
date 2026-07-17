@@ -6,10 +6,11 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
-import { listWebexBotOptions } from "@/lib/webex-bot-catalog";
+import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
-  return successResponse({ bots: listWebexBotOptions() });
+  const catalog = await callWebexBotAdmin<{ bots: unknown[] }>("/admin/webex/bots");
+  return successResponse(catalog);
 });

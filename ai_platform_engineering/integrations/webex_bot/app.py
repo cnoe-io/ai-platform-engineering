@@ -9,15 +9,14 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
 from .utils.audit import log_webex_authz_decision
-from .utils.dm_agent_resolver import resolve_dm_agent
 from .utils.dm_authz_client import DmAgentAccessDecision, DmAuthzClient
 from .utils.dm_thread_overrides import OverrideKey, get_default_override_store
 from .utils.identity_linker import WebexIdentityLinker
 from .utils.obo_exchange import OboExchangeError, OboToken, impersonate_user
 from .utils.space_team_resolver import SpaceTeamResolution, WebexSpaceTeamResolver
-from .utils.user_preferences_client import UserPreferencesClient
 from .utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
 from .utils.webex_agent_routes import infer_listen_mode
+from .utils.webex_bot_catalog import configured_webex_bot
 from .utils.webex_direct_users import (
     WebexDirectUserAccess,
     WebexDirectUserResolver,
@@ -83,6 +82,7 @@ class ParsedWebexEvent:
 class WebexRouteResolution:
     agent_id: Optional[str]
     deny_message: Optional[str] = None
+    team_slug: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -169,7 +169,10 @@ class DirectUserResolverProtocol(Protocol):
 
 class DmAuthzCheckerProtocol(Protocol):
     def check_agent_access(
-        self, *, agent_id: str, bearer_token: str
+        self,
+        *,
+        agent_id: str,
+        bearer_token: str,
     ) -> DmAgentAccessDecision:
         raise NotImplementedError
 
@@ -404,22 +407,13 @@ class _DefaultOboExchanger:
         return await impersonate_user(keycloak_user_id)
 
 
-_user_preferences_client: UserPreferencesClient | None = None
-
-
-def _default_user_preferences_client() -> UserPreferencesClient:
-    global _user_preferences_client
-    if _user_preferences_client is None:
-        _user_preferences_client = UserPreferencesClient()
-    return _user_preferences_client
-
-
 async def _resolve_all_users_dm_route(
     *,
     person_id: str,
     space_id: str,
     bearer_token: str,
     authz_client: DmAuthzCheckerProtocol,
+    default_agent_id: str | None,
 ) -> WebexRouteResolution:
     try:
         override_key = OverrideKey(person_id=person_id, room_id=space_id)
@@ -429,33 +423,32 @@ async def _resolve_all_users_dm_route(
             deny_message="This Webex direct-message context is invalid.",
         )
 
-    resolution = await asyncio.to_thread(
-        resolve_dm_agent,
-        override_key=override_key,
-        overrides=get_default_override_store(),
-        prefs_client=_default_user_preferences_client(),
-        authz_client=authz_client,
-        dm_agent_id=None,
-        default_agent_id=os.environ.get("WEBEX_DEFAULT_AGENT_ID"),
-        bearer_token=bearer_token,
-    )
-    for notice in resolution.notices:
-        logger.info("Webex direct-message route notice: %s", notice)
-    if resolution.agent_id:
-        return WebexRouteResolution(agent_id=resolution.agent_id)
-    if resolution.source == "pdp_unavailable":
-        return WebexRouteResolution(
-            agent_id=None,
-            deny_message=(
-                "I can't verify your agent access right now. "
-                "Please try again in a moment."
-            ),
+    override_store = get_default_override_store()
+    override_agent_id = override_store.get(override_key)
+    if override_agent_id:
+        decision = await asyncio.to_thread(
+            authz_client.check_agent_access,
+            agent_id=override_agent_id,
+            bearer_token=bearer_token,
         )
+        if not decision.available:
+            return WebexRouteResolution(
+                agent_id=None,
+                deny_message=(
+                    "I can't verify your agent access right now. "
+                    "Please try again in a moment."
+                ),
+            )
+        if decision.allowed:
+            return WebexRouteResolution(agent_id=override_agent_id)
+        override_store.clear(override_key)
+
     return WebexRouteResolution(
-        agent_id=None,
+        agent_id=default_agent_id,
         deny_message=(
-            "No agent is available for this Webex direct message. "
-            "Choose a Webex default agent in CAIPE or ask an admin for access."
+            None
+            if default_agent_id
+            else "No default agent is configured for this Webex bot."
         ),
     )
 
@@ -549,6 +542,12 @@ async def handle_webex_message(
         )
         return _ignore(REASON_IGNORED_SELF)
 
+    bot_config = configured_webex_bot(parsed.bot_id)
+    if bot_config is None:
+        return _ignore(REASON_BOT_NOT_ASSIGNED)
+    if not parsed.is_direct and bot_config.spaces_access_mode == "disabled":
+        return _ignore(REASON_BOT_NOT_ASSIGNED)
+
     direct_access: WebexDirectUserAccess | None = None
     if parsed.is_direct:
         try:
@@ -615,8 +614,7 @@ async def handle_webex_message(
             return _ignore(REASON_BOT_NOT_ASSIGNED)
         if (
             not team_resolution.team_slug
-            and os.environ.get("WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES", "false").lower()
-            == "true"
+            and bot_config.spaces_access_mode == "all_spaces"
         ):
             from .utils.webex_agent_routes import get_webex_agent_route_resolver
             from .utils.webex_space_auto_assign import get_webex_space_auto_assigner
@@ -714,12 +712,11 @@ async def handle_webex_message(
         )
         return _ignore(REASON_DM_NOT_ONBOARDED)
 
-    team_slug = team_resolution.team_slug
+    team_slug = None if parsed.is_direct else team_resolution.team_slug
 
     try:
-        # Phase 2 (spec 2026-05-24): OBO is team-agnostic. We still pass
-        # `team_slug` into the ReBAC checker below to enforce the
-        # channel-team binding, but the token itself doesn't carry it.
+        # OBO is user-scoped. Group-space team context is enforced separately;
+        # direct messages let OpenFGA derive any team-mediated agent grant.
         obo_token = await obo.impersonate(keycloak_user_id)
     except (OboExchangeError, ValueError) as exc:
         logger.error(
@@ -787,6 +784,7 @@ async def handle_webex_message(
             space_id=parsed.space_id,
             bearer_token=obo_token.access_token,
             authz_client=dm_authz,
+            default_agent_id=direct_access.agent_id,
         )
     elif direct_access is not None:
         route = WebexRouteResolution(agent_id=direct_access.agent_id)
@@ -801,6 +799,8 @@ async def handle_webex_message(
             was_bot_mentioned=parsed.was_bot_mentioned,
         )
     agent_id = route.agent_id
+    if not parsed.is_direct and route.team_slug:
+        team_slug = route.team_slug
     if not agent_id:
         log_webex_authz_decision(
             tenant_id=tenant_id,
@@ -818,7 +818,7 @@ async def handle_webex_message(
             explicit_invocation=explicit_invocation,
         )
 
-    if parsed.is_direct and not all_users_dm:
+    if parsed.is_direct:
         dm_decision = dm_authz.check_agent_access(
             agent_id=agent_id,
             bearer_token=obo_token.access_token,
@@ -860,6 +860,28 @@ async def handle_webex_message(
             obo_token=obo_token.access_token,
         )
     if rebac_decision is not None and not rebac_decision.space_allowed:
+        if (
+            rebac_decision.reason == "missing_space_grant"
+            and bot_config.spaces_access_mode == "all_spaces"
+        ):
+            from .utils.webex_space_auto_assign import get_webex_space_auto_assigner
+
+            repaired = await asyncio.to_thread(
+                get_webex_space_auto_assigner().ensure_space_agent_grant,
+                bot_id=parsed.bot_id,
+                workspace_id=parsed.workspace_id,
+                space_id=parsed.space_id,
+                agent_id=agent_id,
+                team_slug=team_slug,
+            )
+            if repaired:
+                rebac_decision = WebexSpaceRebacDecision(
+                    allowed=True,
+                    space_allowed=True,
+                    reason="allowed",
+                )
+
+    if rebac_decision is not None and not rebac_decision.space_allowed:
         audit_reason = (
             "DENY_PDP_UNAVAILABLE"
             if rebac_decision.reason == "pdp_unavailable"
@@ -880,6 +902,8 @@ async def handle_webex_message(
                 parsed.space_id,
                 agent_id,
             )
+        if rebac_decision.reason == "missing_space_grant":
+            return _ignore(rebac_decision.reason)
         return _deny(
             rebac_decision.reason,
             deny_message=(

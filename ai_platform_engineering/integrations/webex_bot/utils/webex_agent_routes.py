@@ -26,6 +26,9 @@ from ai_platform_engineering.integrations.webex_bot.utils.user_messages import (
     WEBEX_SPACE_MENTION_REQUIRED_MESSAGE,
     WEBEX_SPACE_SETUP_REQUIRED_MESSAGE,
 )
+from ai_platform_engineering.integrations.webex_bot.utils.webex_bot_catalog import (
+    configured_webex_bot,
+)
 logger = logging.getLogger("caipe.webex_bot.webex_agent_routes")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
@@ -292,8 +295,15 @@ class WebexAgentRouteResolver:
             "enabled": {"$ne": False},
         }
         cursor = collection.find({**base_query, "bot_id": bot_id}).sort(
-            [("priority", 1), ("agent_id", 1)]
+            [
+                ("updated_at", -1),
+                ("created_at", -1),
+                ("priority", 1),
+                ("agent_id", 1),
+            ]
         )
+        if hasattr(cursor, "limit"):
+            cursor = cursor.limit(1)
         if hasattr(cursor, "to_list"):
             routes = list(cursor.to_list())  # type: ignore[no-any-return, operator]
         else:
@@ -436,11 +446,16 @@ async def resolve_webex_agent_route(
         else infer_listen_mode(text)
     )
     active = resolver or get_webex_agent_route_resolver()
+    bot = configured_webex_bot(bot_id)
+    default_agent_id = (
+        bot.spaces.default_agent_id
+        if bot is not None and bot.spaces_access_mode == "all_spaces"
+        else None
+    )
 
     if mode == "config":
-        agent_id = os.environ.get("WEBEX_DEFAULT_AGENT_ID", "").strip() or None
-        if agent_id:
-            return agent_id, None
+        if default_agent_id:
+            return default_agent_id, None
         return None, "No agent route is configured for this Webex space."
 
     matches = active.match_routes(
@@ -477,9 +492,8 @@ async def resolve_webex_agent_route(
         )
         return None, deny or "No agent route is configured for this Webex space."
 
-    agent_id = os.environ.get("WEBEX_DEFAULT_AGENT_ID", "").strip() or None
-    if agent_id:
-        return agent_id, None
+    if default_agent_id:
+        return default_agent_id, None
     deny = active.explain_no_route_match(
         bot_id=bot_id,
         workspace_id=workspace_id,
@@ -488,7 +502,7 @@ async def resolve_webex_agent_route(
         user_id=person_id,
         listen=listen,
         is_direct=is_direct,
-        route_required=not bool(agent_id),
+        route_required=not bool(default_agent_id),
     )
     return None, deny or "No agent route is configured for this Webex space."
 

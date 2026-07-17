@@ -50,9 +50,8 @@ const WEBEX_SPACE_ID_RE = /^[a-zA-Z0-9._-]{8,128}$/;
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
   withWebexSpaceRebacViewAuth(request, async () => {
-    // DB-first read so admin's saved picks survive a page reload.
-    // Falls back to `WEBEX_DEFAULT_TEAM_SLUG` / `WEBEX_DEFAULT_AGENT_ID`
-    // when nothing has been saved yet.
+    // These are UI-saved manual onboarding picks. Runtime automatic defaults
+    // come only from the selected bot policy and are not duplicated here.
     const defaults = await readOnboardingDefaults("webex");
     return successResponse({ defaults });
   }),

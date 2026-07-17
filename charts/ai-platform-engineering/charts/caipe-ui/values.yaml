@@ -251,8 +251,6 @@ config:
   # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
   # WEBEX_BOT_ADMIN_SCOPE: "webex:routes:read webex:routes:reload webex:routes:sync"
   # WEBEX_LINK_HMAC_SECRET is sensitive and must come from existingSecret/externalSecrets.
-  WEBEX_DEFAULT_TEAM_SLUG: ""
-  WEBEX_DEFAULT_AGENT_ID: ""
   WEBEX_THREAD_CONTEXT_ENABLED: "true"
   WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
   WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
@@ -364,18 +362,6 @@ oauthConnectors: []
   #     - "meeting:schedules_read"
   #     - "meeting:transcripts_read"
   #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
-
-# Webex bot identities available to Admin -> Integrations -> Webex space
-# discovery. `tokenEnv` references a key supplied through `existingSecret` or
-# `externalSecrets`; token values must never be placed in this list. Every
-# discovery, route, and legacy migration selects a bot ID explicitly.
-webexBots: []
-  # - id: "primary"
-  #   name: "Primary Webex bot"
-  #   tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN"
-  # - id: "secondary"
-  #   name: "Secondary Webex bot"
-  #   tokenEnv: "WEBEX_SECONDARY_BOT_TOKEN"
 
 # Declarative encrypted secrets to upsert into the credential store at UI
 # startup. `id` is stable and can be referenced by an MCP server's

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, RefreshCw, Save } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,8 @@ interface DirectUserRow {
   webex_user_id: string | null;
   enabled: boolean;
   configured: boolean;
+  inherited: boolean;
+  state: "disabled" | "inherited" | "denied" | "allowlisted" | "overridden" | "not_allowed";
   expected_webex_email: string;
   agent_id: string;
 }
@@ -139,7 +141,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     }
     setSavingUserId(row.keycloak_user_id);
     try {
-      const shouldDelete = data.dm_access_mode === "allowlist" ? !row.enabled : !row.agent_id;
+      const shouldDelete = data.dm_access_mode === "allowlist" && !row.enabled;
       const response = await fetch("/api/admin/webex/direct-users", {
         method: shouldDelete ? "DELETE" : "PUT",
         headers: { "Content-Type": "application/json" },
@@ -147,6 +149,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
           bot_id: selectedBotId,
           keycloak_user_id: row.keycloak_user_id,
           agent_id: row.agent_id,
+          enabled: row.enabled,
           expected_webex_email: row.expected_webex_email,
         }),
       });
@@ -155,6 +158,27 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
       await loadUsers(selectedBotId);
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "Failed to save 1:1 access", "error");
+    } finally {
+      setSavingUserId(null);
+    }
+  };
+
+  const resetRow = async (row: DirectUserRow) => {
+    setSavingUserId(row.keycloak_user_id);
+    try {
+      const response = await fetch("/api/admin/webex/direct-users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bot_id: selectedBotId,
+          keycloak_user_id: row.keycloak_user_id,
+        }),
+      });
+      if (!response.ok) throw new Error(await responseError(response, "Failed to reset 1:1 access"));
+      toast(`Reset 1:1 access for ${row.email} to the bot policy.`, "success");
+      await loadUsers(selectedBotId);
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "Failed to reset 1:1 access", "error");
     } finally {
       setSavingUserId(null);
     }
@@ -197,25 +221,24 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
       {error && <div className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</div>}
       {data?.dm_access_mode === "disabled" && (
         <div className="rounded-md border p-3 text-sm text-muted-foreground">
-          Direct messages are disabled for this deployment.
+          Direct messages are disabled for this bot.
         </div>
       )}
       {data?.dm_access_mode === "all_users" && (
         <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
           <p>
-            All enabled deployment users can message this bot. Agent selection
-            uses each user&apos;s temporary override, Webex default, then platform
-            default.
+            All enabled deployment users can message this bot. Each user uses
+            this bot&apos;s configured default unless an admin saves an explicit
+            override.
           </p>
           <p className="mt-1 text-muted-foreground">
             {data.default_agent_id
-              ? `Deployment fallback: ${data.default_agent_id}`
-              : "No deployment fallback is configured."}
+              ? `Bot default agent: ${data.default_agent_id}`
+              : "No bot fallback is configured."}
           </p>
         </div>
       )}
 
-      {data?.dm_access_mode !== "all_users" && (
       <div className="rounded-md border bg-background/60">
         <div className="border-b p-3">
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search deployment users" aria-label="Search deployment users" />
@@ -231,7 +254,8 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                   <th className="px-3 py-2 text-left font-medium">User</th>
                   <th className="px-3 py-2 text-left font-medium">Webex identity</th>
                   <th className="px-3 py-2 text-left font-medium">Agent</th>
-                  <th className="w-24 px-3 py-2 text-right font-medium">Action</th>
+                  <th className="w-28 px-3 py-2 text-left font-medium">Source</th>
+                  <th className="w-24 px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,7 +270,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                           className="h-4 w-4"
                           checked={row.enabled}
                           onChange={(event) => updateRow(row.keycloak_user_id, { enabled: event.target.checked })}
-                          disabled={disabled || modeDisabled || data?.dm_access_mode === "all_users" || saving}
+                          disabled={disabled || modeDisabled || saving}
                           aria-label={`Allow direct messages for ${row.email}`}
                         />
                       </td>
@@ -276,24 +300,36 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                           {agents.map((agent) => <option key={agent._id} value={agent._id}>{agent.name || agent._id}</option>)}
                         </select>
                       </td>
+                      <td className="px-3 py-2">
+                        <Badge variant={row.state === "denied" || row.state === "disabled" ? "outline" : "secondary"}>
+                          {row.state.replace("_", " ")}
+                        </Badge>
+                      </td>
                       <td className="px-3 py-2 text-right">
-                        <Button type="button" size="icon" variant="ghost" title="Save 1:1 access" onClick={() => void saveRow(row)} disabled={disabled || modeDisabled || saving}>
-                          {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-                          <span className="sr-only">Save 1:1 access for {row.email}</span>
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          {data?.dm_access_mode === "all_users" && row.configured && (
+                            <Button type="button" size="icon" variant="ghost" title="Reset to inherited policy" onClick={() => void resetRow(row)} disabled={disabled || modeDisabled || saving}>
+                              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                              <span className="sr-only">Reset 1:1 access for {row.email}</span>
+                            </Button>
+                          )}
+                          <Button type="button" size="icon" variant="ghost" title="Save 1:1 access" onClick={() => void saveRow(row)} disabled={disabled || modeDisabled || saving}>
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+                            <span className="sr-only">Save 1:1 access for {row.email}</span>
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
                 {filteredRows.length === 0 && (
-                  <tr><td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">No deployment users found.</td></tr>
+                  <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">No deployment users found.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         )}
       </div>
-      )}
     </div>
   );
 }

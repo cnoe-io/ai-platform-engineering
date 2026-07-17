@@ -181,7 +181,7 @@ class WebexWdmRuntime:
         dispatcher = WebexThreadedStreamDispatcher(webex_api=webex_api)
         command_handler = (
             WebexCommandDispatcher(webex_api=webex_api)
-            if webex_dm_access_mode() == "all_users"
+            if webex_dm_access_mode(bot_id) == "all_users"
             else None
         )
         self._runtime = runtime or WebexWebSocketRuntime(

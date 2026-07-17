@@ -11,6 +11,7 @@ const mockDeleteExactOpenFgaTuples = jest.fn();
 const mockDeleteWebexSpaceAgentRoutes = jest.fn();
 const mockDeleteWebexSpaceGrants = jest.fn();
 const mockGetRbacCollection = jest.fn();
+const mockRequireAvailableWebexBotPolicy = jest.fn();
 
 jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
@@ -29,6 +30,10 @@ jest.mock("@/lib/rbac/webex-space-route-store", () => ({
 
 jest.mock("@/lib/rbac/mongo-collections", () => ({
   getRbacCollection: (...args: unknown[]) => mockGetRbacCollection(...args),
+}));
+jest.mock("@/lib/webex-bot-policy", () => ({
+  requireAvailableWebexBotPolicy: (...args: unknown[]) =>
+    mockRequireAvailableWebexBotPolicy(...args),
 }));
 
 jest.mock("../_lib", () => ({
@@ -56,10 +61,11 @@ function context() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
-    { id: "primary", name: "Primary", tokenEnv: "WEBEX_PRIMARY_BOT_TOKEN" },
-  ]);
-  process.env.WEBEX_PRIMARY_BOT_TOKEN = "token";
+  mockRequireAvailableWebexBotPolicy.mockResolvedValue({
+    id: "primary",
+    name: "Primary",
+    available: true,
+  });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, deletes: 0 });
   mockDeleteWebexSpaceAgentRoutes.mockResolvedValue(0);
@@ -68,11 +74,6 @@ beforeEach(() => {
     countDocuments: jest.fn(async () => 1),
     deleteMany: jest.fn(async () => ({ deletedCount: 1 })),
   });
-});
-
-afterEach(() => {
-  delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
-  delete process.env.WEBEX_PRIMARY_BOT_TOKEN;
 });
 
 describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
@@ -85,8 +86,10 @@ describe("DELETE /api/admin/webex/spaces/[workspaceId]/[spaceId]", () => {
     const tupleFilters = mockReadOpenFgaTuples.mock.calls.map((call) => call[0].tuple);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledTimes(3 + WEBEX_SPACE_USABLE_OBJECT_TYPES.length);
     expect(tupleFilters).toContainEqual({ object: INSTALLATION_REF });
-    expect(tupleFilters).toContainEqual({ user: INSTALLATION_REF });
+    expect(tupleFilters).toContainEqual({ object: "agent:", user: INSTALLATION_REF });
     expect(tupleFilters).toContainEqual({ object: SPACE_REF });
+    expect(tupleFilters).not.toContainEqual({ user: INSTALLATION_REF });
+    expect(tupleFilters.every((filter) => typeof filter.object === "string")).toBe(true);
     for (const type of WEBEX_SPACE_USABLE_OBJECT_TYPES) {
       expect(tupleFilters).toContainEqual({ object: `${type}:`, user: SPACE_REF });
     }

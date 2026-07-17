@@ -5,11 +5,16 @@
 import { NextRequest } from "next/server";
 
 const mockCheckUniversalRebacRelationship = jest.fn();
+const mockRequireAvailableWebexBotPolicy = jest.fn();
 
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn(),
   checkUniversalRebacRelationship: (...args: unknown[]) =>
     mockCheckUniversalRebacRelationship(...args),
+}));
+jest.mock("@/lib/webex-bot-policy", () => ({
+  requireAvailableWebexBotPolicy: (...args: unknown[]) =>
+    mockRequireAvailableWebexBotPolicy(...args),
 }));
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
@@ -79,13 +84,11 @@ describe("Webex runtime access-check route", () => {
   beforeEach(() => {
     jest.resetModules();
     mockCheckUniversalRebacRelationship.mockReset();
-    process.env.WEBEX_INTEGRATION_BOTS_JSON = JSON.stringify([
-      { id: "primary", name: "Primary", tokenEnv: "PRIMARY_TOKEN" },
-    ]);
-  });
-
-  afterEach(() => {
-    delete process.env.WEBEX_INTEGRATION_BOTS_JSON;
+    mockRequireAvailableWebexBotPolicy.mockResolvedValue({
+      id: "primary",
+      name: "Primary",
+      available: true,
+    });
   });
 
   it("checks space grant only (user can_use is enforced by conversations API)", async () => {

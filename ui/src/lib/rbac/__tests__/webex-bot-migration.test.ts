@@ -2,6 +2,7 @@ const getRbacCollection = jest.fn();
 const readOpenFgaTuples = jest.fn();
 const writeOpenFgaTuples = jest.fn();
 const deleteExactOpenFgaTuples = jest.fn();
+const listWebexBotPolicies = jest.fn();
 
 jest.mock("../mongo-collections", () => ({
   getRbacCollection: (...args: unknown[]) => getRbacCollection(...args),
@@ -11,6 +12,9 @@ jest.mock("../openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => writeOpenFgaTuples(...args),
   deleteExactOpenFgaTuples: (...args: unknown[]) => deleteExactOpenFgaTuples(...args),
 }));
+jest.mock("@/lib/webex-bot-policy", () => ({
+  listWebexBotPolicies: (...args: unknown[]) => listWebexBotPolicies(...args),
+}));
 
 import {
   deleteLegacyWebexBotOwnership,
@@ -19,7 +23,6 @@ import {
 } from "../webex-bot-migration";
 
 describe("legacy Webex bot ownership migration", () => {
-  const originalEnv = process.env;
   const mapping = {
     _id: "mapping-1",
     webex_workspace_id: "workspace-1",
@@ -36,22 +39,15 @@ describe("legacy Webex bot ownership migration", () => {
   };
 
   beforeEach(() => {
-    process.env = {
-      ...originalEnv,
-      WEBEX_INTEGRATION_BOTS_JSON: JSON.stringify([
-        { id: "primary", name: "Primary", tokenEnv: "PRIMARY_TOKEN" },
-        { id: "secondary", name: "Secondary", tokenEnv: "SECONDARY_TOKEN" },
-      ]),
-    };
     delete process.env.WEBEX_WORKSPACE_ALIAS;
     getRbacCollection.mockReset();
     readOpenFgaTuples.mockReset();
     writeOpenFgaTuples.mockReset();
     deleteExactOpenFgaTuples.mockReset();
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
+    listWebexBotPolicies.mockResolvedValue([
+      { id: "primary", name: "Primary", available: true },
+      { id: "secondary", name: "Secondary", available: true },
+    ]);
   });
 
   it("probes botless Mongo records and physical-space OpenFGA grants", async () => {

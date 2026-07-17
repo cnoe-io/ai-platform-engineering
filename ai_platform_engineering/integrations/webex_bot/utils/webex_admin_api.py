@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import jwt
 import requests
@@ -32,6 +32,11 @@ from .webex_agent_routes import (
 from .webex_bot_catalog import configured_webex_bots
 from .webex_config_models import WebexBotConfig
 from .webex_ids import canonicalize_webex_space_id
+from .webex_space_discovery import (
+    DEFAULT_CACHE_TTL_SECONDS,
+    MAX_PAGE_SIZE,
+    WebexSpaceDiscovery,
+)
 
 logger = logging.getLogger("caipe.webex_bot.webex_admin_api")
 
@@ -171,11 +176,13 @@ class WebexBotAdminService:
         resolver: WebexAgentRouteResolver,
         collection_factory: CollectionFactory | None = None,
         openfga_writer: OpenFgaWriter | None = None,
+        space_discovery: WebexSpaceDiscovery | None = None,
     ) -> None:
         self._config = config
         self._resolver = resolver
         self._collection_factory = collection_factory
         self._openfga_writer = openfga_writer
+        self._space_discovery = space_discovery or WebexSpaceDiscovery()
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
         self._last_sync: dict[str, Any] | None = None
@@ -206,7 +213,66 @@ class WebexBotAdminService:
             },
             "thread_context": _thread_context_status(),
             "route_cache": self._resolver.cache_status(),
+            "space_discovery": self._space_discovery.status(),
             "last_sync": self._last_sync,
+        }
+
+    def bot_catalog(self) -> dict[str, list[dict[str, object]]]:
+        return {"bots": [bot.public_dict() for bot in configured_webex_bots()]}
+
+    def bot_policy(self, bot_id: str) -> dict[str, object]:
+        bot = next(
+            (candidate for candidate in configured_webex_bots() if candidate.id == bot_id),
+            None,
+        )
+        if bot is None:
+            raise ValueError(f"Unknown Webex bot: {bot_id}")
+        return bot.public_dict()
+
+    def discover_spaces(
+        self,
+        *,
+        bot_id: str,
+        refresh: bool = False,
+        cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
+        query: str = "",
+        cursor: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        result = self._space_discovery.list_spaces(
+            bot_id=bot_id,
+            refresh=refresh,
+            cache_ttl_seconds=cache_ttl_seconds,
+        )
+        normalized_query = query.strip().casefold()
+        filtered = result.spaces
+        if normalized_query:
+            filtered = [
+                space
+                for space in filtered
+                if normalized_query in str(space["name"]).casefold()
+            ]
+        total_matches = len(filtered)
+        if cursor:
+            normalized_cursor = cursor.casefold()
+            filtered = [
+                space
+                for space in filtered
+                if str(space["name"]).casefold() > normalized_cursor
+            ]
+        page_size = max(1, min(limit, MAX_PAGE_SIZE))
+        page = filtered[:page_size]
+        has_more = len(filtered) > page_size
+        return {
+            "spaces": page,
+            "total_matches": total_matches,
+            "total_visible": len(result.spaces),
+            "next_cursor": str(page[-1]["name"]) if has_more and page else None,
+            "has_more": has_more,
+            "cached": result.cache_hit,
+            "fetched_at": result.fetched_at,
+            "query": {"q": query, "limit": page_size},
+            "bot": self.bot_policy(bot_id),
         }
 
     def reload_routes(
@@ -412,12 +478,53 @@ class _WebexAdminRequestHandler(BaseHTTPRequestHandler):
     validator: WebexAdminTokenValidator
 
     def do_GET(self) -> None:  # noqa: N802
-        if urlparse(self.path).path != "/admin/webex/routes/status":
-            self._write_json({"error": "not_found"}, status=404)
-            return
+        parsed = urlparse(self.path)
+        path = parsed.path
         if not self._authorize(scope_env="WEBEX_ADMIN_STATUS_SCOPE"):
             return
-        self._write_json(self.service.status())
+        if path == "/admin/webex/routes/status":
+            self._write_json(self.service.status())
+            return
+        if path == "/admin/webex/bots":
+            self._write_json(self.service.bot_catalog())
+            return
+        if path.startswith("/admin/webex/bots/"):
+            suffix = path.removeprefix("/admin/webex/bots/")
+            parts = suffix.split("/")
+            if len(parts) == 2 and parts[0]:
+                bot_id = unquote(parts[0])
+                try:
+                    if parts[1] == "policy":
+                        self._write_json(self.service.bot_policy(bot_id))
+                        return
+                    if parts[1] == "spaces":
+                        query = parse_qs(parsed.query)
+                        self._write_json(
+                            self.service.discover_spaces(
+                                bot_id=bot_id,
+                                refresh=_query_value(query, "refresh") == "1",
+                                cache_ttl_seconds=_query_int(
+                                    query,
+                                    "cache_ttl_seconds",
+                                    DEFAULT_CACHE_TTL_SECONDS,
+                                ),
+                                query=_query_value(query, "q") or "",
+                                cursor=_query_value(query, "cursor"),
+                                limit=_query_int(query, "limit", 200),
+                            )
+                        )
+                        return
+                except ValueError as exc:
+                    self._write_json({"error": str(exc)}, status=400)
+                    return
+                except RuntimeError as exc:
+                    self._write_json({"error": str(exc)}, status=503)
+                    return
+                except requests.RequestException as exc:
+                    logger.warning("Webex space discovery failed: %s", exc)
+                    self._write_json({"error": "webex_api_unavailable"}, status=502)
+                    return
+        self._write_json({"error": "not_found"}, status=404)
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
@@ -499,6 +606,23 @@ def _optional_string(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _query_value(query: dict[str, list[str]], field: str) -> str | None:
+    values = query.get(field, [])
+    return values[0] if values else None
+
+
+def _query_int(
+    query: dict[str, list[str]], field: str, default: int
+) -> int:
+    value = _query_value(query, field)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an integer") from exc
 
 
 def _required_string(value: object, field: str) -> str:

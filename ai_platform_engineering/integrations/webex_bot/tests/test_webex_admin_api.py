@@ -84,13 +84,21 @@ def _config() -> WebexBotConfig:
     )
 
 
+def _catalog_bot(bot_id: str, token_env: str) -> dict[str, object]:
+    return {
+        "id": bot_id,
+        "name": f"{bot_id.title()} bot",
+        "tokenEnv": token_env,
+        "spaces": {"accessMode": "allowlist"},
+        "directMessages": {"accessMode": "allowlist"},
+    }
+
+
 @pytest.fixture(autouse=True)
 def _configured_bot_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "WEBEX_INTEGRATION_BOTS_JSON",
-        json.dumps(
-            [{"id": "primary", "name": "Primary bot", "tokenEnv": "PRIMARY_TOKEN"}]
-        ),
+        json.dumps([_catalog_bot("primary", "PRIMARY_TOKEN")]),
     )
 
 
@@ -102,6 +110,35 @@ def test_status_reports_route_cache_and_static_config() -> None:
     assert status["route_mode"] in {"config", "db_prefer", "db_only"}
     assert status["static_config"]["spaces"] == 1
     assert status["route_cache"]["cache_size"] == 1
+
+
+def test_bot_catalog_exposes_policy_without_token_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRIMARY_TOKEN", "secret-token")
+    service = WebexBotAdminService(config=_config(), resolver=_Resolver())
+
+    catalog = service.bot_catalog()
+
+    assert catalog == {
+        "bots": [
+            {
+                "id": "primary",
+                "name": "Primary bot",
+                "available": True,
+                "spaces": {
+                    "accessMode": "allowlist",
+                    "defaultTeamSlug": None,
+                    "defaultAgentId": None,
+                },
+                "directMessages": {
+                    "accessMode": "allowlist",
+                    "defaultAgentId": None,
+                },
+            }
+        ]
+    }
+    assert "tokenEnv" not in catalog["bots"][0]
 
 
 def test_status_reports_thread_context_runtime_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -287,16 +324,8 @@ def test_sync_from_config_uses_explicit_requested_bot(
         "WEBEX_INTEGRATION_BOTS_JSON",
         json.dumps(
             [
-                {
-                    "id": "primary",
-                    "name": "Primary bot",
-                    "tokenEnv": "WEBEX_PRIMARY_TOKEN",
-                },
-                {
-                    "id": "secondary",
-                    "name": "Secondary bot",
-                    "tokenEnv": "WEBEX_SECONDARY_TOKEN",
-                },
+                _catalog_bot("primary", "WEBEX_PRIMARY_TOKEN"),
+                _catalog_bot("secondary", "WEBEX_SECONDARY_TOKEN"),
             ]
         ),
     )
@@ -328,16 +357,8 @@ def test_sync_from_config_rejects_unknown_bot(
         "WEBEX_INTEGRATION_BOTS_JSON",
         json.dumps(
             [
-                {
-                    "id": "primary",
-                    "name": "Primary bot",
-                    "tokenEnv": "WEBEX_PRIMARY_TOKEN",
-                },
-                {
-                    "id": "secondary",
-                    "name": "Secondary bot",
-                    "tokenEnv": "WEBEX_SECONDARY_TOKEN",
-                },
+                _catalog_bot("primary", "WEBEX_PRIMARY_TOKEN"),
+                _catalog_bot("secondary", "WEBEX_SECONDARY_TOKEN"),
             ]
         ),
     )

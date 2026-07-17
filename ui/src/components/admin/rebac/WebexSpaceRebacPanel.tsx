@@ -252,15 +252,31 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   discoveryIdentity: {
     label: "Webex bot",
     parseResponse: (json) => {
-      const data = apiData<{ bots?: Array<{ id?: unknown; name?: unknown; available?: unknown }> }>(
-        json as { bots?: Array<{ id?: unknown; name?: unknown; available?: unknown }> },
+      const data = apiData<{ bots?: Array<{
+        id?: unknown;
+        name?: unknown;
+        available?: unknown;
+        spaces?: {
+          accessMode?: unknown;
+          defaultTeamSlug?: unknown;
+          defaultAgentId?: unknown;
+        };
+      }> }>(
+        json as { bots?: Array<Record<string, unknown>> },
       );
       return (data.bots ?? [])
-        .map((bot) => ({
-          id: String(bot.id ?? "").trim(),
-          name: String(bot.name ?? bot.id ?? "").trim(),
-          available: bot.available === true,
-        }))
+        .map((bot) => {
+          const teamSlug = String(bot.spaces?.defaultTeamSlug ?? "").trim();
+          const agentId = String(bot.spaces?.defaultAgentId ?? "").trim();
+          return {
+            id: String(bot.id ?? "").trim(),
+            name: String(bot.name ?? bot.id ?? "").trim(),
+            available: bot.available === true,
+            ...(bot.spaces?.accessMode === "all_spaces" && teamSlug && agentId
+              ? { onboardingDefaults: { team_slug: teamSlug, agent_id: agentId } }
+              : {}),
+          };
+        })
         .filter((bot) => bot.id && bot.name);
     },
   },
@@ -407,7 +423,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       return acc;
     }, {});
     return {
-      toastMessage: `Discovered Webex spaces applied: onboarded ${s.spaces_onboarded ?? 0} spaces, assigned ${s.spaces_assigned_team ?? 0} spaces, ensured ${s.space_grants_ensured ?? 0} space grants, ensured ${s.routes_ensured ?? 0} routes, preserved ${s.routes_preserved ?? 0} existing routes.`,
+      toastMessage: `Discovered Webex spaces applied: onboarded ${s.spaces_onboarded ?? 0} spaces, assigned ${s.spaces_assigned_team ?? 0} spaces, ensured ${s.space_grants_ensured ?? 0} space grants, set ${s.routes_ensured ?? 0} routes.`,
     };
   },
 

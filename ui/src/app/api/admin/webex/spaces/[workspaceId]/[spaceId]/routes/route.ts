@@ -22,7 +22,7 @@ WebexRouteEscalationConfig,
 WebexRouteSideConfig,
 WebexSpaceAgentRoute,
 } from "@/types/webex-rebac";
-import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 
 import { withWebexSpaceRebacManageAuth, withWebexSpaceRebacViewAuth } from "../../../_lib";
 
@@ -153,7 +153,9 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacViewAuth(request, async () => {
-    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     const [agentIds, metadataRoutes] = await Promise.all([
       listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId),
       listWebexSpaceAgentRoutes(workspaceId, spaceId, botId),
@@ -167,7 +169,9 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacManageAuth(request, async () => {
-    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     const body = (await request.json()) as { routes?: unknown };
     if (!Array.isArray(body.routes)) {
       throw new ApiError("routes must be an array", 400);
@@ -175,6 +179,9 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
 
     const actor = "api";
     const routes = body.routes.map((route, index) => parseRoute(route, index, workspaceId, spaceId));
+    if (routes.length > 1) {
+      throw new ApiError("A Webex bot can have only one agent route per space", 400);
+    }
     const previousRoutes = toRouteInputs(await listWebexSpaceAgentRoutes(workspaceId, spaceId, botId));
     const existingAgentIds = await listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId);
     const saved = await replaceWebexSpaceAgentRoutes(workspaceId, spaceId, botId, routes, actor);
@@ -231,7 +238,9 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacManageAuth(request, async () => {
-    const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     const body = (await request.json()) as { agent_id?: unknown };
     const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     if (!agentId) {

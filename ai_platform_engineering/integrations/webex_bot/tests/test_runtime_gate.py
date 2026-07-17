@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -173,7 +174,6 @@ def test_linked_allowed_dispatches() -> None:
 
 
 def test_missing_team_mapping_is_silently_ignored(monkeypatch) -> None:
-    monkeypatch.setenv("WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES", "false")
     dispatcher = FakeDispatcher()
     result = asyncio.run(
         handle_webex_message(
@@ -263,7 +263,8 @@ def test_rebac_denial_preserves_reason_category() -> None:
     )
     assert result.allowed is False
     assert result.reason_code == "missing_space_grant"
-    assert result.rebac_reason == "missing_space_grant"
+    assert result.ignored is True
+    assert result.deny_message is None
     assert dispatcher.calls == []
 
 
@@ -448,7 +449,21 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
     assert unspecified.is_direct is False
 
 
-def test_direct_webex_event_is_silent_when_dm_access_is_disabled() -> None:
+def test_direct_webex_event_is_silent_when_dm_access_is_disabled(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                {
+                    "id": "primary",
+                    "name": "Primary bot",
+                    "tokenEnv": "PRIMARY_TOKEN",
+                    "spaces": {"accessMode": "allowlist"},
+                    "directMessages": {"accessMode": "disabled"},
+                }
+            ]
+        ),
+    )
     route_resolver = FakeRouteResolver(agent_id="incident-agent")
     dispatcher = FakeDispatcher()
     result = asyncio.run(

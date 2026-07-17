@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { computeWebexSpaceDiagnostics } from "@/lib/rbac/webex-space-diagnostics";
 import { parseWebexSpaceRouteParams } from "@/lib/rbac/webex-space-openfga";
-import { requireAvailableWebexBotId } from "@/lib/webex-bot-catalog";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 
 import { withWebexSpaceRebacViewAuth } from "../../../_lib";
 
@@ -17,7 +17,9 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
   return withWebexSpaceRebacViewAuth(
     request,
     async () => {
-      const botId = requireAvailableWebexBotId(request.nextUrl.searchParams.get("bot_id"));
+      const botId = (
+        await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+      ).id;
       return successResponse(await computeWebexSpaceDiagnostics(workspaceId, spaceId, botId));
     },
     { workspaceId, spaceId },

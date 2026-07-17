@@ -1,21 +1,23 @@
 import { NextRequest } from "next/server";
 
 import {
-ApiError,
-getAuthFromBearerOrSession,
-requireRbacPermission,
-successResponse,
-withErrorHandler,
+  ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
+  successResponse,
+  withErrorHandler,
 } from "@/lib/api-middleware";
-import { listWebexBotOptions } from "@/lib/webex-bot-catalog";
 import { getCollection } from "@/lib/mongodb";
-import { getRealmUserById,listRealmUsersPage } from "@/lib/rbac/keycloak-admin";
+import { getRealmUserById, listRealmUsersPage } from "@/lib/rbac/keycloak-admin";
 import {
-deleteWebexDirectUserRoute,
-listWebexDirectUserRoutes,
-upsertWebexDirectUserRoute,
-webexDmAccessMode,
+  deleteWebexDirectUserRoute,
+  listWebexDirectUserRoutes,
+  upsertWebexDirectUserRoute,
 } from "@/lib/rbac/webex-direct-user-route-store";
+import {
+  requireAvailableWebexBotPolicy,
+  type WebexBotPolicy,
+} from "@/lib/webex-bot-policy";
 
 function userAttributes(user: Record<string, unknown>): Record<string, unknown> {
   const value = user.attributes;
@@ -30,12 +32,9 @@ function firstAttribute(attributes: Record<string, unknown>, key: string): strin
   return typeof first === "string" && first.trim() ? first.trim() : undefined;
 }
 
-function requireBotId(value: unknown): string {
+async function requireBot(value: unknown): Promise<WebexBotPolicy> {
   const botId = typeof value === "string" ? value.trim() : "";
-  if (!botId || !listWebexBotOptions().some((bot) => bot.id === botId && bot.available)) {
-    throw new ApiError("Unknown Webex bot", 400);
-  }
-  return botId;
+  return requireAvailableWebexBotPolicy(botId);
 }
 
 const SAFE_ID = /^[A-Za-z0-9._@+-]+$/;
@@ -56,10 +55,10 @@ function requireEmail(value: unknown, field: string): string {
   return email;
 }
 
-function requireAllowlistMode(): void {
-  if (webexDmAccessMode() !== "allowlist") {
+function requireMutableMode(policy: WebexBotPolicy): void {
+  if (policy.directMessages.accessMode === "disabled") {
     throw new ApiError(
-      "Direct-user routes can only be modified when WEBEX_DM_ACCESS_MODE=allowlist",
+      `Direct messages are disabled for Webex bot "${policy.name}"`,
       409,
     );
   }
@@ -69,20 +68,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
 
-  const accessMode = webexDmAccessMode();
-  const defaultAgentId = process.env.WEBEX_DEFAULT_AGENT_ID?.trim() || null;
-  const botId = requireBotId(request.nextUrl.searchParams.get("bot_id"));
-  if (accessMode === "all_users") {
-    return successResponse({
-      users: [],
-      bot_id: botId,
-      dm_access_mode: accessMode,
-      default_agent_id: defaultAgentId,
-    });
-  }
+  const bot = await requireBot(request.nextUrl.searchParams.get("bot_id"));
+  const accessMode = bot.directMessages.accessMode;
+  const defaultAgentId = bot.directMessages.defaultAgentId;
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim().toLowerCase();
   const [routes, users] = await Promise.all([
-    listWebexDirectUserRoutes(botId),
+    listWebexDirectUserRoutes(bot.id),
     (async () => {
       const all: Array<Record<string, unknown>> = [];
       const seen = new Set<string>();
@@ -108,6 +99,23 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       const email = String(user.email ?? "").trim().toLowerCase();
       const attributes = userAttributes(user);
       const route = routeByUser.get(id);
+      const inherited = accessMode === "all_users" && !route;
+      const enabled =
+        accessMode === "all_users"
+          ? route?.status !== "disabled"
+          : accessMode === "allowlist" && route?.status === "active";
+      const state =
+        accessMode === "disabled"
+          ? "disabled"
+          : inherited
+            ? "inherited"
+            : route?.status === "disabled"
+              ? "denied"
+              : route?.status === "active"
+                ? accessMode === "allowlist"
+                  ? "allowlisted"
+                  : "overridden"
+                : "not_allowed";
       return {
         keycloak_user_id: id,
         email,
@@ -115,18 +123,26 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
           String(user.username ?? email),
         webex_user_id: firstAttribute(attributes, "webex_user_id") ?? null,
-        enabled: route?.status === "active",
-        configured: route?.status === "active",
+        enabled,
+        configured: Boolean(route),
+        inherited,
+        state,
         expected_webex_email: route?.expected_webex_email ?? email,
-        agent_id: route?.agent_id ?? "",
+        agent_id: route?.agent_id ?? (accessMode === "all_users" ? defaultAgentId ?? "" : ""),
       };
     })
     .filter((row) => row.keycloak_user_id && row.email)
-    .filter((row) => !query || [row.display_name, row.email].some((value) => value.toLowerCase().includes(query)));
+    .filter(
+      (row) =>
+        !query ||
+        [row.display_name, row.email].some((value) =>
+          value.toLowerCase().includes(query),
+        ),
+    );
 
   return successResponse({
     users: rows,
-    bot_id: botId,
+    bot_id: bot.id,
     dm_access_mode: accessMode,
     default_agent_id: defaultAgentId,
   });
@@ -135,11 +151,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
-  requireAllowlistMode();
   const body = await request.json() as Record<string, unknown>;
-  const botId = requireBotId(body.bot_id);
+  const bot = await requireBot(body.bot_id);
+  requireMutableMode(bot);
   const keycloakUserId = requireId(body.keycloak_user_id, "keycloak_user_id");
   const agentId = requireId(body.agent_id, "agent_id");
+  const enabled = body.enabled !== false;
+  if (bot.directMessages.accessMode === "allowlist" && !enabled) {
+    throw new ApiError("Remove an allowlist route instead of disabling it", 400);
+  }
 
   const realmUser = await getRealmUserById(keycloakUserId);
   if (realmUser.enabled === false) throw new ApiError("Disabled users cannot be onboarded", 400);
@@ -153,24 +173,25 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   if (!agent) throw new ApiError("The selected agent does not exist or is disabled", 400);
   const attributes = userAttributes(realmUser);
   await upsertWebexDirectUserRoute({
-    botId,
+    botId: bot.id,
     keycloakUserId,
     userEmail: email,
     expectedWebexEmail,
     webexUserId: firstAttribute(attributes, "webex_user_id"),
     agentId,
+    enabled,
     actor: user.email,
   });
-  return successResponse({ saved: true, bot_id: botId, keycloak_user_id: keycloakUserId });
+  return successResponse({ saved: true, bot_id: bot.id, keycloak_user_id: keycloakUserId });
 });
 
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
-  requireAllowlistMode();
   const body = await request.json() as Record<string, unknown>;
-  const botId = requireBotId(body.bot_id);
+  const bot = await requireBot(body.bot_id);
+  requireMutableMode(bot);
   const keycloakUserId = requireId(body.keycloak_user_id, "keycloak_user_id");
-  const deleted = await deleteWebexDirectUserRoute(botId, keycloakUserId);
-  return successResponse({ deleted, bot_id: botId, keycloak_user_id: keycloakUserId });
+  const deleted = await deleteWebexDirectUserRoute(bot.id, keycloakUserId);
+  return successResponse({ deleted, bot_id: bot.id, keycloak_user_id: keycloakUserId });
 });

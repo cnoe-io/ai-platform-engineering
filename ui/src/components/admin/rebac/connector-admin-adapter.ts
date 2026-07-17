@@ -170,6 +170,10 @@ export interface DiscoveryIdentityOption {
   id: string;
   name: string;
   available: boolean;
+  onboardingDefaults?: {
+    team_slug: string;
+    agent_id: string;
+  };
 }
 
 export interface ConnectorAdminAdapter {

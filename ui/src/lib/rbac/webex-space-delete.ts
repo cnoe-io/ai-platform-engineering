@@ -72,7 +72,7 @@ async function listBotInstallationTuples(
   const installation = webexBotInstallationUser(botId, workspaceId, spaceId);
   const reads = await Promise.all([
     readAllTuples({ object: installation }),
-    readAllTuples({ user: installation }),
+    readAllTuples({ object: "agent:", user: installation }),
   ]);
   return reads.flat();
 }
