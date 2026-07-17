@@ -14,6 +14,7 @@ import {
   WEBEX_SPACE_GRANT_RESOURCE_TYPES,
   webexSpaceSubjectId,
 } from "./webex-space-grant-store";
+import { webexBotInstallationId } from "./webex-bot-openfga";
 
 export function webexSpaceSubjectRef(
   workspaceId: string,
@@ -66,6 +67,7 @@ export function webexSpaceTeamVisibilityRelationships(
 }
 
 export async function checkWebexSpaceAccess(input: {
+  bot_id: string;
   workspace_id: string;
   space_id: string;
   resource: UniversalRebacResourceRef;
@@ -80,7 +82,10 @@ export async function checkWebexSpaceAccess(input: {
   }
 
   const spaceResult = await checkUniversalRebacRelationship({
-    subject: { type: "webex_space", id: webexSpaceSubjectId(input.workspace_id, input.space_id) },
+    subject: {
+      type: "webex_bot_installation",
+      id: webexBotInstallationId(input.bot_id, input.workspace_id, input.space_id),
+    },
     action: input.action,
     resource: input.resource,
   });

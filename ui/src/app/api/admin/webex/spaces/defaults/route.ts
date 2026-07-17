@@ -31,6 +31,7 @@ interface WebexMigrationDefaultsRequest {
 }
 
 interface WebexSpaceTeamMappingDoc extends Document {
+  bot_id: string;
   webex_workspace_id?: string;
   webex_space_id: string;
   space_name?: string;
@@ -39,6 +40,7 @@ interface WebexSpaceTeamMappingDoc extends Document {
 }
 
 interface ManualWebexSpace {
+  bot_id: string;
   workspace_id: string;
   space_id: string;
   space_name: string;
@@ -48,9 +50,8 @@ const WEBEX_SPACE_ID_RE = /^[a-zA-Z0-9._-]{8,128}$/;
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
   withWebexSpaceRebacViewAuth(request, async () => {
-    // DB-first read so admin's saved picks survive a page reload.
-    // Falls back to `WEBEX_DEFAULT_TEAM_SLUG` / `WEBEX_DEFAULT_AGENT_ID`
-    // when nothing has been saved yet.
+    // These are UI-saved manual onboarding picks. Runtime automatic defaults
+    // come only from the selected bot policy and are not duplicated here.
     const defaults = await readOnboardingDefaults("webex");
     return successResponse({ defaults });
   }),
@@ -116,7 +117,9 @@ function normalizeManualSpaces(value: unknown): ManualWebexSpace[] {
     }
     const workspaceId = webexWorkspaceRef(readOptionalString(record.workspace_id));
     const spaceName = readOptionalString(record.name) || readOptionalString(record.space_name) || spaceId;
-    byKey.set(`${workspaceId}/${spaceId}`, {
+    const botId = readRequiredString(record.bot_id, `manual_spaces[${index}].bot_id`);
+    byKey.set(`${botId}/${workspaceId}/${spaceId}`, {
+      bot_id: botId,
       workspace_id: workspaceId,
       space_id: spaceId,
       space_name: spaceName,
@@ -137,6 +140,7 @@ function validateDefaultsBody(body: Record<string, unknown>): void {
 function activeMappingToManualSpace(mapping: WebexSpaceTeamMappingDoc): ManualWebexSpace {
   const workspaceId = webexWorkspaceRef(mapping.webex_workspace_id);
   return {
+    bot_id: mapping.bot_id,
     workspace_id: workspaceId,
     space_id: mapping.webex_space_id,
     space_name: mapping.space_name || mapping.space_title || mapping.webex_space_id,
@@ -183,7 +187,9 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     if (targetSpaces.length === 0) {
       const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
       const spaces = await mappings
-        .find({ active: { $ne: false } } as never)
+        .find({
+          active: { $ne: false },
+        } as never)
         .sort({ space_name: 1 })
         .limit(500)
         .toArray();
@@ -198,6 +204,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     for (const space of targetSpaces) {
       results.push(
         await onboardWebexSpace({
+          bot_id: space.bot_id,
           workspace_id: space.workspace_id,
           space_id: space.space_id,
           space_name: space.space_name,

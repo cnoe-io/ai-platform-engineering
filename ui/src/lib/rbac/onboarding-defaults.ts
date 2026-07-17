@@ -6,7 +6,7 @@
 // Why this file exists
 // --------------------
 // The Slack/Webex defaults routes used to return env-only values
-// (`SLACK_DEFAULT_TEAM_SLUG`, `WEBEX_DEFAULT_AGENT_ID`, ...). Picking a
+// (`SLACK_DEFAULT_TEAM_SLUG`, `SLACK_DEFAULT_AGENT_ID`). Picking a
 // team/agent in the UI did nothing durable — the admin's choice lived
 // in component state for the lifetime of the page and got lost on
 // reload. The migration POST also did NOT save the choice; it ran the
@@ -39,8 +39,7 @@
 // Resolution order on read
 // ------------------------
 //   1. DB value, if present and non-empty.
-//   2. Env-var fallback (preserves the legacy bootstrap behaviour so
-//      compose/helm overrides still work for fresh installs).
+//   2. Slack-only env-var fallback for the legacy Slack bootstrap path.
 //   3. Empty string (UI shows "not configured").
 
 import type { Document } from "mongodb";
@@ -98,9 +97,8 @@ const PLATFORM_CONFIG_ID = "platform_settings";
  * picked these up at boot, so we keep them as a fallback for fresh
  * installs that haven't saved a DB value yet.
  */
-const ENV_FALLBACKS: Record<OnboardingChannel, { team: string; agent: string }> = {
+const ENV_FALLBACKS: Partial<Record<OnboardingChannel, { team: string; agent: string }>> = {
   slack: { team: "SLACK_DEFAULT_TEAM_SLUG", agent: "SLACK_DEFAULT_AGENT_ID" },
-  webex: { team: "WEBEX_DEFAULT_TEAM_SLUG", agent: "WEBEX_DEFAULT_AGENT_ID" },
 };
 
 function readString(value: unknown): string {
@@ -152,9 +150,9 @@ export async function readOnboardingDefaults(
   }
 
   const envFallback = ENV_FALLBACKS[channel];
-  const envTeam = readString(process.env[envFallback.team]);
-  const envAgent = readString(process.env[envFallback.agent]);
-  if (envTeam || envAgent) {
+  const envTeam = envFallback ? readString(process.env[envFallback.team]) : "";
+  const envAgent = envFallback ? readString(process.env[envFallback.agent]) : "";
+  if (envFallback && (envTeam || envAgent)) {
     return {
       team_slug: envTeam,
       agent_id: envAgent,

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import patch
 from typing import Any
 
 import pytest
@@ -13,7 +14,10 @@ import pytest
 from ai_platform_engineering.integrations.webex_bot.webex_wdm import (
     MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS,
     WebexWdmRuntime,
+    configured_webex_bot_listeners,
+    message_targets_bot,
     should_refresh_wdm_device_on_handshake,
+    start_webex_wdm_listeners,
     webex_event_from_wdm_activity,
     websocket_connect_header_kwargs,
     websocket_handshake_status,
@@ -28,6 +32,24 @@ RAW_ROOM_ID = "6f91b070-531a-11f1-926d-6fd3c20dfdc4"
 PUBLIC_ROOM_ID = "Y2lzY29zcGFyazovL3VzL1JPT00vNmY5MWIwNzAtNTMxYS0xMWYxLTkyNmQtNmZkM2MyMGRmZGM0"
 
 
+def _bot_entry(
+    bot_id: str, token_env: str, *, dm_mode: str = "allowlist"
+) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "id": bot_id,
+        "name": bot_id.title(),
+        "tokenEnv": token_env,
+        "spaces": {"accessMode": "allowlist"},
+        "directMessages": {"accessMode": dm_mode},
+    }
+    if dm_mode == "all_users":
+        entry["directMessages"] = {
+            "accessMode": "all_users",
+            "defaultAgentId": "agent-default",
+        }
+    return entry
+
+
 def test_public_webex_room_id_from_uuid_matches_api_shape() -> None:
     encoded = public_webex_room_id_from_uuid(RAW_ROOM_ID)
 
@@ -37,6 +59,62 @@ def test_public_webex_room_id_from_uuid_matches_api_shape() -> None:
 def test_canonicalize_webex_space_id_decodes_public_room_id() -> None:
     assert canonicalize_webex_space_id(PUBLIC_ROOM_ID) == RAW_ROOM_ID
     assert canonicalize_webex_space_id(RAW_ROOM_ID) == RAW_ROOM_ID
+
+
+def test_configured_webex_bot_listeners_resolves_multiple_token_envs() -> None:
+    listeners = configured_webex_bot_listeners(
+        {
+            "WEBEX_INTEGRATION_BOTS_JSON": json.dumps(
+                [
+                    _bot_entry("primary", "PRIMARY_BOT_TOKEN"),
+                    _bot_entry("secondary", "SECONDARY_BOT_TOKEN"),
+                ]
+            ),
+            "PRIMARY_BOT_TOKEN": "token-a",
+            "SECONDARY_BOT_TOKEN": "token-b",
+        }
+    )
+
+    assert [(item.id, item.token_env, item.access_token) for item in listeners] == [
+        ("primary", "PRIMARY_BOT_TOKEN", "token-a"),
+        ("secondary", "SECONDARY_BOT_TOKEN", "token-b"),
+    ]
+
+
+def test_start_webex_wdm_listeners_isolates_each_bot_token() -> None:
+    env = {
+        "WEBEX_INTEGRATION_BOTS_JSON": json.dumps(
+            [
+                _bot_entry("primary", "PRIMARY_BOT_TOKEN"),
+                _bot_entry("secondary", "SECONDARY_BOT_TOKEN"),
+            ]
+        ),
+        "PRIMARY_BOT_TOKEN": "token-a",
+        "SECONDARY_BOT_TOKEN": "token-b",
+    }
+    with patch(
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.start_webex_wdm_listener",
+        side_effect=[object(), object()],
+    ) as start:
+        threads = start_webex_wdm_listeners(env)
+
+    assert len(threads) == 2
+    assert start.call_count == 2
+    assert start.call_args_list[0].kwargs == {
+        "bot_id": "primary",
+        "bot_name": "Primary",
+        "require_bot_mention": True,
+    }
+    assert start.call_args_list[0].args == ("token-a",)
+    assert start.call_args_list[1].args == ("token-b",)
+
+
+def test_multiplexed_group_message_targets_only_the_mentioned_bot() -> None:
+    detail = {"roomType": "group", "mentionedPeople": ["secondary-person-id"]}
+
+    assert message_targets_bot(detail, "primary-person-id") is False
+    assert message_targets_bot(detail, "secondary-person-id") is True
+    assert message_targets_bot({"roomType": "direct"}, "primary-person-id") is True
 
 
 def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
@@ -59,12 +137,14 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
     event = webex_event_from_wdm_activity(
         activity,
         message_detail=message_detail,
+        bot_id="primary",
         bot_person_id="bot-person-id",
     )
 
     assert event == {
         "event": "message",
         "data": {
+            "botId": "primary",
             "id": "message-public-id",
             "parentId": "root-message-public-id",
             "roomId": RAW_ROOM_ID,
@@ -74,12 +154,14 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
             "roomType": "direct",
             "text": "neo-coder hello",
             "mentionedPeople": ["bot-person-id"],
+            "botMentioned": True,
             "isSelf": False,
         },
     }
     parsed = parse_webex_event(event)
     assert parsed is not None
     assert parsed.is_direct is True
+    assert parsed.was_bot_mentioned is True
 
 
 # ── WDM device reuse + message dedup ───────────────────────────────────────
@@ -140,7 +222,46 @@ def _bot_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _runtime() -> WebexWdmRuntime:
-    return WebexWdmRuntime(access_token="test-token", device_name="CAIPE-Webex-Bot")
+    return WebexWdmRuntime(
+        access_token="test-token",
+        bot_id="primary",
+        device_name="CAIPE-Webex-Bot",
+    )
+
+
+def test_all_users_creates_one_command_dispatcher_per_bot(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                _bot_entry("primary", "PRIMARY_TOKEN", dm_mode="all_users"),
+                _bot_entry("secondary", "SECONDARY_TOKEN", dm_mode="all_users"),
+            ]
+        ),
+    )
+    with patch(
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.WebexCommandDispatcher"
+    ) as dispatcher:
+        WebexWdmRuntime(access_token="token-a", bot_id="primary")
+        WebexWdmRuntime(access_token="token-b", bot_id="secondary")
+
+    assert dispatcher.call_count == 2
+    first_api = dispatcher.call_args_list[0].kwargs["webex_api"]
+    second_api = dispatcher.call_args_list[1].kwargs["webex_api"]
+    assert first_api is not second_api
+
+
+def test_allowlist_does_not_enable_personal_dm_commands(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps([_bot_entry("primary", "PRIMARY_TOKEN")]),
+    )
+    with patch(
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.WebexCommandDispatcher"
+    ) as dispatcher:
+        WebexWdmRuntime(access_token="token-a", bot_id="primary")
+
+    dispatcher.assert_not_called()
 
 
 def test_get_websocket_url_reuses_existing_device_and_prunes_extras() -> None:

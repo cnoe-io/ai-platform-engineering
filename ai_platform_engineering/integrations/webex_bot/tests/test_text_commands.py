@@ -27,7 +27,6 @@ from ai_platform_engineering.integrations.webex_bot.utils.text_commands import (
     PDP_UNAVAILABLE_MESSAGE,
     RATE_LIMITED_MESSAGE,
     USE_DEFAULT_OK_MESSAGE,
-    USE_DEFAULT_PARTIAL_OK_MESSAGE,
     USE_DENIED_MESSAGE,
     USE_DM_ONLY_MESSAGE,
     USE_MISSING_ARG_MESSAGE,
@@ -78,23 +77,12 @@ class _FakeDmAuthzClient:
         return self.decisions.pop(0)
 
 
-@dataclass
-class _FakeUserPreferencesClient:
-    clear_result: bool = True
-    clear_calls: List[str] = field(default_factory=list)
-
-    def clear_dm_default_agent(self, *, bearer_token: str) -> bool:
-        self.clear_calls.append(bearer_token)
-        return self.clear_result
-
-
 def _allowed(agent_id: str) -> DmAgentAccessDecision:
     return DmAgentAccessDecision(
         allowed=True,
         reason="ALLOWED",
         path=f"direct:user→agent({agent_id})",
         available=True,
-        matched_team_slug=None,
     )
 
 
@@ -104,7 +92,6 @@ def _denied(agent_id: str) -> DmAgentAccessDecision:
         reason="NOT_ALLOWED",
         path="",
         available=True,
-        matched_team_slug=None,
     )
 
 
@@ -114,7 +101,6 @@ def _pdp_unavailable() -> DmAgentAccessDecision:
         reason="PDP_UNAVAILABLE",
         path="",
         available=False,
-        matched_team_slug=None,
     )
 
 
@@ -258,7 +244,6 @@ def test_use_missing_arg() -> None:
         override_key=_override_key(),
         override_store=OverrideStore(),
         dm_authz_client=_FakeDmAuthzClient(),
-        user_preferences_client=_FakeUserPreferencesClient(),
     )
     assert result.code == "use_missing_arg"
     assert result.text == USE_MISSING_ARG_MESSAGE
@@ -273,7 +258,6 @@ def test_use_outside_dm_is_refused() -> None:
         override_key=None,
         override_store=OverrideStore(),
         dm_authz_client=_FakeDmAuthzClient(),
-        user_preferences_client=_FakeUserPreferencesClient(),
     )
     assert result.code == "use_dm_only"
     assert result.text == USE_DM_ONLY_MESSAGE
@@ -290,7 +274,6 @@ def test_use_allowed_sets_override() -> None:
         override_key=key,
         override_store=store,
         dm_authz_client=_FakeDmAuthzClient(decisions=[_allowed("github")]),
-        user_preferences_client=_FakeUserPreferencesClient(),
     )
     assert result.code == "use_ok"
     assert result.text == USE_OK_MESSAGE.format(agent_id="github")
@@ -312,7 +295,6 @@ def test_use_denied_known_agent() -> None:
         override_key=_override_key(),
         override_store=OverrideStore(),
         dm_authz_client=_FakeDmAuthzClient(decisions=[_denied("github")]),
-        user_preferences_client=_FakeUserPreferencesClient(),
         accessible_agents_client=fake_list,
     )
     assert result.code == "use_denied"
@@ -334,7 +316,6 @@ def test_use_denied_unknown_agent() -> None:
         override_key=_override_key(),
         override_store=OverrideStore(),
         dm_authz_client=_FakeDmAuthzClient(decisions=[_denied("github-agent")]),
-        user_preferences_client=_FakeUserPreferencesClient(),
         accessible_agents_client=fake_list,
     )
     assert result.code == "use_unknown"
@@ -350,17 +331,15 @@ def test_use_pdp_unavailable() -> None:
         override_key=_override_key(),
         override_store=OverrideStore(),
         dm_authz_client=_FakeDmAuthzClient(decisions=[_pdp_unavailable()]),
-        user_preferences_client=_FakeUserPreferencesClient(),
     )
     assert result.code == "pdp_unavailable"
     assert result.text == PDP_UNAVAILABLE_MESSAGE
 
 
-def test_use_default_clears_override_and_preference() -> None:
+def test_use_default_clears_override() -> None:
     store = OverrideStore()
     key = _override_key()
     store.set(key, "github")
-    prefs = _FakeUserPreferencesClient(clear_result=True)
     result = handle_use_command(
         user_key="p1",
         raw_text="default",
@@ -369,29 +348,7 @@ def test_use_default_clears_override_and_preference() -> None:
         override_key=key,
         override_store=store,
         dm_authz_client=_FakeDmAuthzClient(),
-        user_preferences_client=prefs,
     )
     assert result.code == "use_default_ok"
     assert result.text == USE_DEFAULT_OK_MESSAGE
-    assert store.get(key) is None
-    assert prefs.clear_calls == ["tok"]
-
-
-def test_use_default_partial_when_clear_fails() -> None:
-    store = OverrideStore()
-    key = _override_key()
-    store.set(key, "github")
-    prefs = _FakeUserPreferencesClient(clear_result=False)
-    result = handle_use_command(
-        user_key="p1",
-        raw_text="DEFAULT",
-        bearer_token="tok",
-        is_dm=True,
-        override_key=key,
-        override_store=store,
-        dm_authz_client=_FakeDmAuthzClient(),
-        user_preferences_client=prefs,
-    )
-    assert result.code == "use_default_partial"
-    assert result.text == USE_DEFAULT_PARTIAL_OK_MESSAGE
     assert store.get(key) is None

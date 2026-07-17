@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 import asyncio
-import sys
+import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ai_platform_engineering.integrations.webex_bot.app import (
     REASON_COMMAND_HANDLED,
+    REASON_BOT_NOT_ASSIGNED,
     REASON_DISPATCH_ALLOWED,
     REASON_IGNORED_BOT,
     REASON_IGNORED_MALFORMED,
@@ -21,18 +22,9 @@ from ai_platform_engineering.integrations.webex_bot.app import (
     WebexRouteResolution,
     handle_webex_message,
 )
-from ai_platform_engineering.integrations.webex_bot.utils.dm_authz_client import (
-    DmAgentAccessDecision,
-)
-from ai_platform_engineering.integrations.webex_bot.utils.dm_thread_overrides import (
-    OverrideStore,
-)
 from ai_platform_engineering.integrations.webex_bot.utils.obo_exchange import OboToken
 from ai_platform_engineering.integrations.webex_bot.utils.space_team_resolver import (
     SpaceTeamResolution,
-)
-from ai_platform_engineering.integrations.webex_bot.utils.user_preferences_client import (
-    UserPreferenceResult,
 )
 from ai_platform_engineering.integrations.webex_bot.utils.webex_rebac import (
     WebexSpaceRebacDecision,
@@ -47,6 +39,7 @@ def _event(
     is_bot: bool = False,
 ) -> dict[str, Any]:
     return {
+        "botId": "primary",
         "person_id": person_id,
         "space_id": space_id,
         "text": text,
@@ -71,13 +64,16 @@ class FakeIdentityLinker:
 class FakeTeamResolver:
     team_slug: Optional[str] = "platform-eng"
     deny_message: Optional[str] = None
+    bot_id: Optional[str] = "primary"
 
-    async def resolve(self, space_id: str) -> SpaceTeamResolution:
+    async def resolve(self, bot_id: str, space_id: str) -> SpaceTeamResolution:
+        del bot_id, space_id
         return SpaceTeamResolution(
             team_slug=self.team_slug,
             team_id="team-mongo-id" if self.team_slug else None,
             team_name="Platform Eng" if self.team_slug else None,
             deny_message=self.deny_message,
+            bot_id=self.bot_id,
         )
 
 
@@ -145,6 +141,7 @@ def test_unlinked_webex_user_denies_before_dispatch() -> None:
         handle_webex_message(
             _event(),
             identity_linker=FakeIdentityLinker(linked=False),
+            team_resolver=FakeTeamResolver(),
             dispatcher=dispatcher,
         )
     )
@@ -176,7 +173,7 @@ def test_linked_allowed_dispatches() -> None:
     assert dispatcher.calls[0]["team_slug"] == "platform-eng"
 
 
-def test_missing_team_mapping_denies() -> None:
+def test_missing_team_mapping_is_silently_ignored(monkeypatch) -> None:
     dispatcher = FakeDispatcher()
     result = asyncio.run(
         handle_webex_message(
@@ -190,7 +187,27 @@ def test_missing_team_mapping_denies() -> None:
         )
     )
     assert result.reason_code == REASON_SPACE_TEAM_NOT_FOUND
+    assert result.ignored is True
+    assert result.deny_message is None
     assert dispatcher.calls == []
+
+
+def test_message_received_by_non_owner_bot_is_ignored_before_identity_linking() -> None:
+    class NeverIdentity(FakeIdentityLinker):
+        async def resolve(self, webex_user_id: str) -> Optional[str]:
+            raise AssertionError("wrong bot must be rejected before identity lookup")
+
+    result = asyncio.run(
+        handle_webex_message(
+            _event(),
+            identity_linker=NeverIdentity(),
+            team_resolver=FakeTeamResolver(bot_id="secondary"),
+        )
+    )
+
+    assert result.ignored is True
+    assert result.reason_code == REASON_BOT_NOT_ASSIGNED
+    assert result.deny_message is None
 
 
 def test_obo_failure_denies() -> None:
@@ -246,7 +263,8 @@ def test_rebac_denial_preserves_reason_category() -> None:
     )
     assert result.allowed is False
     assert result.reason_code == "missing_space_grant"
-    assert result.rebac_reason == "missing_space_grant"
+    assert result.ignored is True
+    assert result.deny_message is None
     assert dispatcher.calls == []
 
 
@@ -397,6 +415,7 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
 
     direct = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "text": "use github",
@@ -408,6 +427,7 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
 
     group = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "text": "use github",
@@ -419,6 +439,7 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
 
     unspecified = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "text": "hello",
@@ -428,7 +449,21 @@ def test_parsed_webex_event_carries_is_direct_flag() -> None:
     assert unspecified.is_direct is False
 
 
-def test_direct_webex_event_passes_direct_flag_to_route_resolver() -> None:
+def test_direct_webex_event_is_silent_when_dm_access_is_disabled(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOTS_JSON",
+        json.dumps(
+            [
+                {
+                    "id": "primary",
+                    "name": "Primary bot",
+                    "tokenEnv": "PRIMARY_TOKEN",
+                    "spaces": {"accessMode": "allowlist"},
+                    "directMessages": {"accessMode": "disabled"},
+                }
+            ]
+        ),
+    )
     route_resolver = FakeRouteResolver(agent_id="incident-agent")
     dispatcher = FakeDispatcher()
     result = asyncio.run(
@@ -443,59 +478,8 @@ def test_direct_webex_event_passes_direct_flag_to_route_resolver() -> None:
         )
     )
 
-    assert result.allowed is True
-    assert result.dispatched is True
-    assert route_resolver.calls[0]["is_direct"] is True
-    assert dispatcher.calls[0]["agent_id"] == "incident-agent"
-
-
-def test_default_direct_route_uses_webex_preference(monkeypatch) -> None:
-    app_module = sys.modules[handle_webex_message.__module__]
-
-    class _Preferences:
-        def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
-            assert bearer_token == "obo-access"
-            return UserPreferenceResult(agent_id="personal-webex-agent", source="saved")
-
-    class _Authz:
-        def check_agent_access(
-            self, *, agent_id: str, bearer_token: str
-        ) -> DmAgentAccessDecision:
-            assert agent_id == "personal-webex-agent"
-            assert bearer_token == "obo-access"
-            return DmAgentAccessDecision(
-                allowed=True,
-                reason="ALLOW",
-                path="direct_user_grant",
-                available=True,
-                matched_team_slug=None,
-            )
-
-    monkeypatch.setattr(app_module, "_user_preferences_client", _Preferences())
-    monkeypatch.setattr(app_module, "_dm_authz_client", _Authz())
-    monkeypatch.setattr(
-        app_module,
-        "get_default_override_store",
-        OverrideStore,
-    )
-
-    dispatcher = FakeDispatcher()
-    result = asyncio.run(
-        handle_webex_message(
-            _event(text="howdy") | {"roomType": "direct"},
-            identity_linker=FakeIdentityLinker(),
-            team_resolver=FakeTeamResolver(),
-            obo_exchanger=FakeOboExchanger(),
-            # Direct messages use the personal-access check above, not a
-            # shared-space assignment.
-            rebac_checker=FakeRebacChecker(
-                allowed=False,
-                reason="missing_space_grant",
-            ),
-            dispatcher=dispatcher,
-        )
-    )
-
-    assert result.allowed is True
-    assert result.agent_id == "personal-webex-agent"
-    assert dispatcher.calls[0]["agent_id"] == "personal-webex-agent"
+    assert result.allowed is False
+    assert result.ignored is True
+    assert result.reason_code == "WEBEX_DM_NOT_ONBOARDED"
+    assert route_resolver.calls == []
+    assert dispatcher.calls == []

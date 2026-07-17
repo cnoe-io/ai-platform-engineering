@@ -46,13 +46,14 @@ function directSubjectTypes(
 function expectMessagingSubjectParity(
   modelPath: string,
   resourceType: string,
-  relation: string
+  relation: string,
+  webexSubjectType: "webex_bot_installation" | "webex_space"
 ): void {
   const subjects = directSubjectTypes(loadAuthorizationModel(modelPath), resourceType, relation);
   expect(subjects).toContain("slack_channel");
-  expect(subjects).toContain("webex_space");
+  expect(subjects).toContain(webexSubjectType);
   const slackIndex = subjects.indexOf("slack_channel");
-  const webexIndex = subjects.indexOf("webex_space");
+  const webexIndex = subjects.indexOf(webexSubjectType);
   expect(webexIndex).toBe(slackIndex + 1);
 }
 
@@ -93,22 +94,27 @@ describe("universal ReBAC OpenFGA tuple builders", () => {
     });
   });
 
-  it("accepts webex_space subjects on grant relations in shipped authorization models", () => {
-    const grantRelations: Array<{ resourceType: string; relation: string }> = [
-      { resourceType: "agent", relation: "user" },
-      { resourceType: "tool", relation: "user" },
-      { resourceType: "tool", relation: "caller" },
-      { resourceType: "knowledge_base", relation: "reader" },
-      { resourceType: "skill", relation: "user" },
+  it("accepts bot-scoped Webex subjects on agent grants in shipped authorization models", () => {
+    const grantRelations: Array<{
+      resourceType: string;
+      relation: string;
+      webexSubjectType: "webex_bot_installation" | "webex_space";
+    }> = [
+      { resourceType: "agent", relation: "user", webexSubjectType: "webex_bot_installation" },
+      { resourceType: "tool", relation: "user", webexSubjectType: "webex_space" },
+      { resourceType: "tool", relation: "caller", webexSubjectType: "webex_space" },
+      { resourceType: "knowledge_base", relation: "reader", webexSubjectType: "webex_space" },
+      { resourceType: "skill", relation: "user", webexSubjectType: "webex_space" },
     ];
 
     for (const modelPath of AUTHORIZATION_MODEL_PATHS) {
       const model = loadAuthorizationModel(modelPath);
       expect(model.type_definitions?.some((entry) => entry.type === "webex_workspace")).toBe(true);
       expect(model.type_definitions?.some((entry) => entry.type === "webex_space")).toBe(true);
+      expect(model.type_definitions?.some((entry) => entry.type === "webex_bot_installation")).toBe(true);
 
-      for (const { resourceType, relation } of grantRelations) {
-        expectMessagingSubjectParity(modelPath, resourceType, relation);
+      for (const { resourceType, relation, webexSubjectType } of grantRelations) {
+        expectMessagingSubjectParity(modelPath, resourceType, relation, webexSubjectType);
       }
     }
   });

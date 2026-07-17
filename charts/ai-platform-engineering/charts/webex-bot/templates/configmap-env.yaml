@@ -5,6 +5,13 @@ metadata:
   labels:
     {{- include "webex-bot.labels" . | nindent 4 }}
 data:
+  {{- $_ := include "webex-bot.validate.bots" . -}}
+  {{- if .Values.bots }}
+  {{- if hasKey .Values.config "WEBEX_INTEGRATION_BOTS_JSON" }}
+  {{- fail "webex-bot.config.WEBEX_INTEGRATION_BOTS_JSON is managed by webex-bot.bots" }}
+  {{- end }}
+  WEBEX_INTEGRATION_BOTS_JSON: {{ .Values.bots | toJson | quote }}
+  {{- end }}
   {{- range $key, $value := .Values.config }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}

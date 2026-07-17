@@ -36,18 +36,9 @@ export function isSlackIntegrationEnabled(): boolean {
   );
 }
 
-export function getWebexIntegrationToken(): string | null {
-  return (
-    envValue("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") ??
-    envValue("WEBEX_ACCESS_TOKEN") ??
-    envValue("WEBEX_TOKEN")
-  );
-}
-
 export function isWebexIntegrationEnabled(): boolean {
   return (
     envEnabled("WEBEX_INTEGRATION_ENABLED") ||
-    Boolean(getWebexIntegrationToken()) ||
     Boolean(envValue("WEBEX_BOT_ADMIN_CLIENT_SECRET")) ||
     Boolean(envValue("KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET")) ||
     hasComposeProfile("webex-bot", "all-integrations")

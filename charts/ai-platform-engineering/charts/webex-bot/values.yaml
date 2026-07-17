@@ -26,9 +26,6 @@ config:
   WEBEX_THREAD_CONTEXT_ENABLED: "true"
   WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
   WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
-  WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
-  WEBEX_DEFAULT_TEAM_SLUG: ""
-  WEBEX_DEFAULT_AGENT_ID: ""
   WEBEX_ADMIN_API_ENABLED: "false"
   WEBEX_ADMIN_API_HOST: "0.0.0.0"
   WEBEX_ADMIN_API_PORT: "3002"
@@ -41,6 +38,28 @@ config:
   KEYCLOAK_REALM: "caipe"
   OPENFGA_HTTP: ""
   OPENFGA_STORE_NAME: "caipe-openfga"
+
+# Bot identities multiplexed by one runtime pod. Tokens are resolved from
+# Secret-backed environment variables; never place token values here. Every
+# route and migration selects a bot ID explicitly.
+bots: []
+  # - id: "primary"
+  #   name: "Primary bot"
+  #   tokenEnv: "PRIMARY_WEBEX_BOT_TOKEN"
+  #   spaces:
+  #     accessMode: "allowlist" # disabled, allowlist, or all_spaces
+  #   directMessages:
+  #     accessMode: "allowlist" # disabled, allowlist, or all_users
+  # - id: "secondary"
+  #   name: "Secondary bot"
+  #   tokenEnv: "SECONDARY_WEBEX_BOT_TOKEN"
+  #   spaces:
+  #     accessMode: "all_spaces"
+  #     defaultTeamSlug: "platform"
+  #     defaultAgentId: "agent-platform"
+  #   directMessages:
+  #     accessMode: "all_users"
+  #     defaultAgentId: "agent-personal"
 
 # -- OBO client secret for caipe-webex-bot (Keycloak-managed; prefer keycloakBot below).
 # Deprecated alias: use keycloakBot.clientSecretFromSecret (same Secret/key as Keycloak chart).
