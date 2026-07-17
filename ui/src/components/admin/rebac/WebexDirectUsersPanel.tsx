@@ -200,7 +200,22 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
           Direct messages are disabled for this deployment.
         </div>
       )}
+      {data?.dm_access_mode === "all_users" && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+          <p>
+            All enabled deployment users can message this bot. Agent selection
+            uses each user&apos;s temporary override, Webex default, then platform
+            default.
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {data.default_agent_id
+              ? `Deployment fallback: ${data.default_agent_id}`
+              : "No deployment fallback is configured."}
+          </p>
+        </div>
+      )}
 
+      {data?.dm_access_mode !== "all_users" && (
       <div className="rounded-md border bg-background/60">
         <div className="border-b p-3">
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search deployment users" aria-label="Search deployment users" />
@@ -278,6 +293,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

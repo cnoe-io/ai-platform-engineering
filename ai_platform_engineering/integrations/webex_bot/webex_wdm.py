@@ -15,6 +15,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from .utils.webex_command_dispatcher import WebexCommandDispatcher
+from .utils.webex_direct_users import webex_dm_access_mode
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
 from .utils.webex_bot_catalog import configured_webex_bots
 from .app import handle_webex_message
@@ -177,10 +179,16 @@ class WebexWdmRuntime:
         self._access_token = access_token
         webex_api = WebexRestApi(access_token=access_token)
         dispatcher = WebexThreadedStreamDispatcher(webex_api=webex_api)
+        command_handler = (
+            WebexCommandDispatcher(webex_api=webex_api)
+            if webex_dm_access_mode() == "all_users"
+            else None
+        )
         self._runtime = runtime or WebexWebSocketRuntime(
             message_handler=lambda event, **kwargs: handle_webex_message(
                 event,
                 dispatcher=dispatcher,
+                command_handler=command_handler,
                 **kwargs,
             )
         )

@@ -120,12 +120,15 @@ Messages to a bot without a matching active allowlist entry are ignored.
 | Mode | Behavior |
 |---|---|
 | `disabled` | The runtime does not handle direct messages. |
-| `allowlist` | Only bot/user pairs explicitly configured by an admin are handled. |
-| `all_users` | Deployment users may use each explicitly addressed bot with `WEBEX_DEFAULT_AGENT_ID`. |
+| `allowlist` | Only bot/user pairs explicitly configured by an admin are handled; the admin-selected agent is authoritative. |
+| `all_users` | Any enabled deployment user may use each explicitly addressed bot. The runtime resolves a temporary `use` override, the user's Webex default, the platform default, and finally `WEBEX_DEFAULT_AGENT_ID`. |
 
 Set `WEBEX_DM_ACCESS_MODE` to the same value on the UI and Webex bot workloads.
 `allowlist` is the recommended mode when admins must control access and agent
-assignment explicitly.
+assignment explicitly. In `all_users` mode, `use <agent>` sets an in-memory
+override for that user and direct-message room; it is cleared when the bot pod
+restarts. Every selected agent is checked against the linked user's effective
+OpenFGA access before dispatch.
 
 ## Routing and Authorization
 
@@ -170,7 +173,7 @@ record; the admin selection is intentionally mandatory.
 | `WEBEX_AGENT_ROUTES_MODE` | `db_prefer`, `config`, or `db_only` |
 | `WEBEX_DM_ACCESS_MODE` | `disabled`, `allowlist`, or `all_users` |
 | `WEBEX_DEFAULT_TEAM_SLUG` | Team used for auto-assignment |
-| `WEBEX_DEFAULT_AGENT_ID` | Dynamic-agent ID used for auto-assignment |
+| `WEBEX_DEFAULT_AGENT_ID` | Dynamic-agent ID used for group-space auto-assignment and the final `all_users` DM fallback |
 | `WEBEX_THREAD_CONTEXT_ENABLED` | Include bounded thread context |
 | `MONGODB_URI` | Route/link/team metadata storage |
 | `MONGODB_DATABASE` | MongoDB database name |

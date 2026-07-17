@@ -675,6 +675,45 @@ it("onboards deployment users independently for the bot selected above the table
   })).toBe(true));
 });
 
+it("shows personal agent selection without allowlist controls in all-users mode", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (
+      String(url).startsWith("/api/admin/webex/direct-users") &&
+      !init?.method
+    ) {
+      return response({
+        data: {
+          users: [],
+          bot_id: "primary",
+          dm_access_mode: "all_users",
+          default_agent_id: "fallback-agent",
+        },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "1:1 Messages" }));
+
+  expect(await screen.findByText("All deployment users")).toBeInTheDocument();
+  expect(
+    screen.getByText(/temporary override, Webex default, then platform default/i),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText("Deployment fallback: fallback-agent"),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByLabelText(/Allow direct messages for/i),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/Agent for/i)).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: /Save 1:1 access/i }),
+  ).not.toBeInTheDocument();
+});
+
 it("allows discovery before global defaults are configured", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {

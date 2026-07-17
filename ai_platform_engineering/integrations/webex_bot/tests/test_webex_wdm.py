@@ -211,6 +211,30 @@ def _runtime() -> WebexWdmRuntime:
     )
 
 
+def test_all_users_creates_one_command_dispatcher_per_bot(monkeypatch) -> None:
+    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "all_users")
+    with patch(
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.WebexCommandDispatcher"
+    ) as dispatcher:
+        WebexWdmRuntime(access_token="token-a", bot_id="primary")
+        WebexWdmRuntime(access_token="token-b", bot_id="secondary")
+
+    assert dispatcher.call_count == 2
+    first_api = dispatcher.call_args_list[0].kwargs["webex_api"]
+    second_api = dispatcher.call_args_list[1].kwargs["webex_api"]
+    assert first_api is not second_api
+
+
+def test_allowlist_does_not_enable_personal_dm_commands(monkeypatch) -> None:
+    monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "allowlist")
+    with patch(
+        "ai_platform_engineering.integrations.webex_bot.webex_wdm.WebexCommandDispatcher"
+    ) as dispatcher:
+        WebexWdmRuntime(access_token="token-a", bot_id="primary")
+
+    dispatcher.assert_not_called()
+
+
 def test_get_websocket_url_reuses_existing_device_and_prunes_extras() -> None:
     session = _FakeSession(
         devices=[

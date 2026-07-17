@@ -9,10 +9,13 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
 from .utils.audit import log_webex_authz_decision
+from .utils.dm_agent_resolver import resolve_dm_agent
 from .utils.dm_authz_client import DmAgentAccessDecision, DmAuthzClient
+from .utils.dm_thread_overrides import OverrideKey, get_default_override_store
 from .utils.identity_linker import WebexIdentityLinker
 from .utils.obo_exchange import OboExchangeError, OboToken, impersonate_user
 from .utils.space_team_resolver import SpaceTeamResolution, WebexSpaceTeamResolver
+from .utils.user_preferences_client import UserPreferencesClient
 from .utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
 from .utils.webex_agent_routes import infer_listen_mode
 from .utils.webex_direct_users import (
@@ -401,6 +404,62 @@ class _DefaultOboExchanger:
         return await impersonate_user(keycloak_user_id)
 
 
+_user_preferences_client: UserPreferencesClient | None = None
+
+
+def _default_user_preferences_client() -> UserPreferencesClient:
+    global _user_preferences_client
+    if _user_preferences_client is None:
+        _user_preferences_client = UserPreferencesClient()
+    return _user_preferences_client
+
+
+async def _resolve_all_users_dm_route(
+    *,
+    person_id: str,
+    space_id: str,
+    bearer_token: str,
+    authz_client: DmAuthzCheckerProtocol,
+) -> WebexRouteResolution:
+    try:
+        override_key = OverrideKey(person_id=person_id, room_id=space_id)
+    except ValueError:
+        return WebexRouteResolution(
+            agent_id=None,
+            deny_message="This Webex direct-message context is invalid.",
+        )
+
+    resolution = await asyncio.to_thread(
+        resolve_dm_agent,
+        override_key=override_key,
+        overrides=get_default_override_store(),
+        prefs_client=_default_user_preferences_client(),
+        authz_client=authz_client,
+        dm_agent_id=None,
+        default_agent_id=os.environ.get("WEBEX_DEFAULT_AGENT_ID"),
+        bearer_token=bearer_token,
+    )
+    for notice in resolution.notices:
+        logger.info("Webex direct-message route notice: %s", notice)
+    if resolution.agent_id:
+        return WebexRouteResolution(agent_id=resolution.agent_id)
+    if resolution.source == "pdp_unavailable":
+        return WebexRouteResolution(
+            agent_id=None,
+            deny_message=(
+                "I can't verify your agent access right now. "
+                "Please try again in a moment."
+            ),
+        )
+    return WebexRouteResolution(
+        agent_id=None,
+        deny_message=(
+            "No agent is available for this Webex direct message. "
+            "Choose a Webex default agent in CAIPE or ask an admin for access."
+        ),
+    )
+
+
 class _WebexAgentRouteResolver:
     """Resolve routes via OpenFGA + Mongo when DB modes are enabled."""
 
@@ -721,7 +780,15 @@ async def handle_webex_message(
                 agent_id=None,
             )
 
-    if direct_access is not None:
+    all_users_dm = direct_access is not None and direct_access.reason == "all_users"
+    if all_users_dm:
+        route = await _resolve_all_users_dm_route(
+            person_id=parsed.person_id,
+            space_id=parsed.space_id,
+            bearer_token=obo_token.access_token,
+            authz_client=dm_authz,
+        )
+    elif direct_access is not None:
         route = WebexRouteResolution(agent_id=direct_access.agent_id)
     else:
         route = await routes.resolve_route(
@@ -751,7 +818,7 @@ async def handle_webex_message(
             explicit_invocation=explicit_invocation,
         )
 
-    if parsed.is_direct:
+    if parsed.is_direct and not all_users_dm:
         dm_decision = dm_authz.check_agent_access(
             agent_id=agent_id,
             bearer_token=obo_token.access_token,
@@ -782,6 +849,7 @@ async def handle_webex_message(
                 keycloak_user_id=keycloak_user_id,
                 explicit_invocation=True,
             )
+    if parsed.is_direct:
         rebac_decision = None
     else:
         rebac_decision = rebac.check_space_grant(

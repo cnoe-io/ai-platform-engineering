@@ -13,11 +13,14 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from .keycloak_admin import get_user_by_email
+
 logger = logging.getLogger("caipe.webex_bot.webex_direct_users")
 
 WebexDmAccessMode = Literal["disabled", "allowlist", "all_users"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
 UserByEmail = Callable[[str], Awaitable[Optional[dict[str, Any]]]]
+
+
 @dataclass(frozen=True)
 class WebexDirectUserAccess:
     allowed: bool
@@ -35,7 +38,7 @@ def webex_dm_access_mode() -> WebexDmAccessMode:
 
 
 class WebexDirectUserResolver:
-    """Resolve an incoming DM to one deployment user and one configured agent."""
+    """Resolve DM admission and the allowlist-selected agent, when applicable."""
 
     def __init__(
         self,
@@ -102,28 +105,27 @@ class WebexDirectUserResolver:
             return WebexDirectUserAccess(False, None, None, "disabled")
 
         email = (person_email or "").strip().lower()
-        route_args = {
-            "bot_id": bot_id,
-            "webex_user_id": webex_user_id,
-            "person_email": email,
-        }
-        route = (
-            self._route(**route_args)
-            if self._collection_factory is not None
-            else await asyncio.to_thread(self._route, **route_args)
-        )
-        if route is not None:
-            keycloak_user_id = str(route.get("keycloak_user_id") or "").strip()
-            agent_id = str(route.get("agent_id") or "").strip()
-            if keycloak_user_id and agent_id:
-                return WebexDirectUserAccess(
-                    True,
-                    keycloak_user_id,
-                    agent_id,
-                    "allowlist_route",
-                )
-
         if mode == "allowlist":
+            route_args = {
+                "bot_id": bot_id,
+                "webex_user_id": webex_user_id,
+                "person_email": email,
+            }
+            route = (
+                self._route(**route_args)
+                if self._collection_factory is not None
+                else await asyncio.to_thread(self._route, **route_args)
+            )
+            if route is not None:
+                keycloak_user_id = str(route.get("keycloak_user_id") or "").strip()
+                agent_id = str(route.get("agent_id") or "").strip()
+                if keycloak_user_id and agent_id:
+                    return WebexDirectUserAccess(
+                        True,
+                        keycloak_user_id,
+                        agent_id,
+                        "allowlist_route",
+                    )
             return WebexDirectUserAccess(False, None, None, "not_onboarded")
 
         if not email:
@@ -140,7 +142,6 @@ class WebexDirectUserResolver:
             return WebexDirectUserAccess(False, None, None, "not_deployment_user")
 
         user_id = str(user.get("id") or "").strip()
-        agent_id = os.environ.get("WEBEX_DEFAULT_AGENT_ID", "").strip()
-        if not user_id or not agent_id:
-            return WebexDirectUserAccess(False, None, None, "default_agent_missing")
-        return WebexDirectUserAccess(True, user_id, agent_id, "all_users")
+        if not user_id:
+            return WebexDirectUserAccess(False, None, None, "user_id_missing")
+        return WebexDirectUserAccess(True, user_id, None, "all_users")

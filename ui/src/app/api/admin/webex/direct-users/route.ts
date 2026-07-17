@@ -56,6 +56,15 @@ function requireEmail(value: unknown, field: string): string {
   return email;
 }
 
+function requireAllowlistMode(): void {
+  if (webexDmAccessMode() !== "allowlist") {
+    throw new ApiError(
+      "Direct-user routes can only be modified when WEBEX_DM_ACCESS_MODE=allowlist",
+      409,
+    );
+  }
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
@@ -63,6 +72,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const accessMode = webexDmAccessMode();
   const defaultAgentId = process.env.WEBEX_DEFAULT_AGENT_ID?.trim() || null;
   const botId = requireBotId(request.nextUrl.searchParams.get("bot_id"));
+  if (accessMode === "all_users") {
+    return successResponse({
+      users: [],
+      bot_id: botId,
+      dm_access_mode: accessMode,
+      default_agent_id: defaultAgentId,
+    });
+  }
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim().toLowerCase();
   const [routes, users] = await Promise.all([
     listWebexDirectUserRoutes(botId),
@@ -98,10 +115,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
           String(user.username ?? email),
         webex_user_id: firstAttribute(attributes, "webex_user_id") ?? null,
-        enabled: accessMode === "all_users" || route?.status === "active",
+        enabled: route?.status === "active",
         configured: route?.status === "active",
         expected_webex_email: route?.expected_webex_email ?? email,
-        agent_id: route?.agent_id ?? (accessMode === "all_users" ? defaultAgentId ?? "" : ""),
+        agent_id: route?.agent_id ?? "",
       };
     })
     .filter((row) => row.keycloak_user_id && row.email)
@@ -118,9 +135,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
-  if (webexDmAccessMode() === "disabled") {
-    throw new ApiError("Webex direct messages are disabled for this deployment", 409);
-  }
+  requireAllowlistMode();
   const body = await request.json() as Record<string, unknown>;
   const botId = requireBotId(body.bot_id);
   const keycloakUserId = requireId(body.keycloak_user_id, "keycloak_user_id");
@@ -152,6 +167,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
+  requireAllowlistMode();
   const body = await request.json() as Record<string, unknown>;
   const botId = requireBotId(body.bot_id);
   const keycloakUserId = requireId(body.keycloak_user_id, "keycloak_user_id");

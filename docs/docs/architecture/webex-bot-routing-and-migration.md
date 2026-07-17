@@ -152,6 +152,13 @@ runtime resolves `bot_id + Keycloak user` in `webex_direct_user_routes`. A user
 may be allowed for one bot and denied for another. A missing or disabled entry
 is ignored without a bot response.
 
+In `all_users` mode, the runtime admits any enabled deployment user and does not
+read `webex_direct_user_routes`. It resolves the agent in this order: an
+in-memory `use <agent>` override for the user and DM room, the user's
+`webex_default_agent_id`, the platform default returned by the preferences API,
+and `WEBEX_DEFAULT_AGENT_ID` as the final deployment fallback. Each candidate
+must pass the linked user's agent-access check before it can be dispatched.
+
 ## Data States and UI Ownership
 
 The UI must classify each physical space before rendering it.

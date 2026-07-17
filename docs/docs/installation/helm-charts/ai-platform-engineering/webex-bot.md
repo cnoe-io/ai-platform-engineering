@@ -16,7 +16,8 @@ applies authz and streams through Dynamic Agents.
 |---|---|
 | `config.CAIPE_API_URL` | UI/BFF URL |
 | `config.WEBEX_AGENT_ROUTES_MODE` | Route source mode |
-| `config.WEBEX_DEFAULT_AGENT_ID` | Default dynamic-agent ID for auto-assignment |
+| `config.WEBEX_DM_ACCESS_MODE` | Direct-message policy: `disabled`, `allowlist`, or `all_users` |
+| `config.WEBEX_DEFAULT_AGENT_ID` | Group-space auto-assignment default and final `all_users` DM fallback |
 | `config.WEBEX_THREAD_CONTEXT_ENABLED` | Include bounded Webex thread context |
 | `existingSecret` | Webex tokens and sensitive env vars |
 | `keycloakBot.clientSecretFromSecret` | Keycloak OBO client secret reference |

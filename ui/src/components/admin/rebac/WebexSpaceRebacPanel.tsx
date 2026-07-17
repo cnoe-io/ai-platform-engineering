@@ -147,7 +147,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   singlePanelView: "onboard",
   directMessagesPanel: {
     title: "1:1 Messages",
-    description: "Choose which deployment users can message each Webex bot and which agent handles their messages.",
+    description: "Configure who can message each Webex bot and how their agent is selected.",
     render: ({ disabled }) => <WebexDirectUsersPanel disabled={disabled} />,
   },
   migrationPanel: {

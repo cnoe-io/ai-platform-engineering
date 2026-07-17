@@ -53,19 +53,17 @@ def test_allowlist_matches_bot_and_email(monkeypatch) -> None:
     assert result.agent_id == "agent-1"
 
 
-def test_all_users_requires_exact_enabled_deployment_user_and_default_agent(monkeypatch) -> None:
+def test_all_users_admits_enabled_deployment_user_without_reading_allowlist(monkeypatch) -> None:
     monkeypatch.setenv("WEBEX_DM_ACCESS_MODE", "all_users")
-    monkeypatch.setenv("WEBEX_DEFAULT_AGENT_ID", "agent-default")
-    monkeypatch.setenv(
-        "WEBEX_INTEGRATION_BOTS_JSON",
-        '[{"id":"primary","name":"Primary","tokenEnv":"BOT_TOKEN"}]',
-    )
+    monkeypatch.delenv("WEBEX_DEFAULT_AGENT_ID", raising=False)
 
     async def user_by_email(email: str) -> dict[str, Any] | None:
         return {"id": "kc-user-1", "email": email, "enabled": True}
 
     resolver = WebexDirectUserResolver(
-        collection_factory=lambda: None,
+        collection_factory=lambda: (_ for _ in ()).throw(
+            AssertionError("all_users must not read allowlist routes")
+        ),
         user_by_email=user_by_email,
     )
     result = asyncio.run(
@@ -73,7 +71,8 @@ def test_all_users_requires_exact_enabled_deployment_user_and_default_agent(monk
     )
     assert result.allowed is True
     assert result.keycloak_user_id == "kc-user-1"
-    assert result.agent_id == "agent-default"
+    assert result.agent_id is None
+    assert result.reason == "all_users"
 
 
 def test_same_user_can_have_independent_routes_for_multiple_bots(monkeypatch) -> None:
