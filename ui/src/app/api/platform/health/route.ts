@@ -9,7 +9,6 @@ import {
 } from "@/lib/config";
 import {
   getSlackIntegrationToken,
-  getWebexIntegrationToken,
   isSlackIntegrationEnabled,
   isWebexIntegrationEnabled,
 } from "@/lib/integration-config";
@@ -966,10 +965,6 @@ async function probeWebexIntegration(): Promise<CapabilityResult | null> {
 
   const startedAt = Date.now();
   const issues: string[] = [];
-
-  if (!getWebexIntegrationToken()) {
-    issues.push("Webex integration token is not configured on the UI service");
-  }
 
   try {
     await withTimeout(

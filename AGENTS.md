@@ -85,6 +85,14 @@ Do not add Slack/Webex bots to that default path.
 - **Type hints required** - Python functions should have type hints for parameters and return values
 - **Error handling** - Use specific exceptions, log errors with context, don't silently swallow exceptions
 
+## Test Data and Generic Examples
+
+- Never use real or deployment-specific names in tests, fixtures, examples, docs, seeds, screenshots, or generic source defaults.
+- This includes company and product names, people, email addresses, bot identities, cluster names, environment names, customer names, and internal project names.
+- Use neutral identifiers such as `primary`, `secondary`, `example`, `test-user`, and `example-bot`.
+- Use reserved domains such as `example.com`, `example.org`, and `example.test` for URLs and email addresses.
+- Environment-specific identities belong only in environment-owned deployment configuration, never in reusable source or tests.
+
 ## Active Technologies
 - TypeScript (Next.js, React) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)

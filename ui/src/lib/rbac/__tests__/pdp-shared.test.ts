@@ -87,6 +87,47 @@ describe("evaluateAgentAccess", () => {
     });
   });
 
+  it("allows an explicit team only when the user belongs to it and it grants the agent", async () => {
+    mockListUserTeamSlugs.mockResolvedValue(["platform", "support"]);
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    const result = await evaluateAgentAccess({
+      subject: "alice-sub",
+      agentId: "agent-1",
+      teamSlug: "support",
+    });
+
+    expect(result).toEqual({
+      allowed: true,
+      path: "team_union",
+      matchedTeamSlug: "support",
+      reasonCode: "ALLOW_TEAM_UNION",
+    });
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "team:support#member",
+      relation: "can_use",
+      object: "agent:agent-1",
+    });
+  });
+
+  it("denies an explicit team when the user is not a member", async () => {
+    mockListUserTeamSlugs.mockResolvedValue(["platform"]);
+
+    const result = await evaluateAgentAccess({
+      subject: "alice-sub",
+      agentId: "agent-1",
+      teamSlug: "support",
+    });
+
+    expect(result).toEqual({
+      allowed: false,
+      path: "denied",
+      reasonCode: "DENY_NO_CAPABILITY",
+    });
+    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+  });
+
   it("denies when neither direct grant nor any team grants access", async () => {
     mockListUserTeamSlugs.mockResolvedValue(["platform"]);
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });

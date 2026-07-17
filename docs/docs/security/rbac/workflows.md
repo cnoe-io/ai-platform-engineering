@@ -745,7 +745,7 @@ sequenceDiagram
     else linked
         WB->>MDB: resolve webex_space_team_mappings
         alt no active mapping
-            opt WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=true
+            opt selected bot spaces.accessMode=all_spaces
                 WB->>MDB: create explicit space-team mapping and route metadata
                 WB->>FGA: write webex_space:<alias>--<space> user agent:<default_agent>
             end

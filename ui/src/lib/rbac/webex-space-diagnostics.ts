@@ -9,7 +9,7 @@ computeConnectorHealthSummary,
 computeConnectorHealthSummaries,
 } from "@/lib/rbac/connector-diagnostics";
 import {
-listOpenFgaWebexSpaceAgentIds,
+listOpenFgaWebexBotAgentIds,
 webexSpaceOpenFgaUser,
 } from "@/lib/rbac/webex-space-openfga";
 import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
@@ -47,16 +47,24 @@ function buildExtraRouteWarnings(route: ConnectorRuntimeRouteDiagnostic): string
   return warnings;
 }
 
-const WEBEX_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
+function webexDiagnosticsAdapter(botId: string): ConnectorDiagnosticsAdapter {
+  return {
   kind: "webex_space",
   botLabel: "Webex bot",
   runtimeLabel: "Webex runtime",
   tupleNoun: "space-agent",
   auditComponent: "webex_bot",
   auditResourceRef: (workspaceId, spaceId) => webexSpaceOpenFgaUser(workspaceId, spaceId),
-  listOpenFgaAgentIds: listOpenFgaWebexSpaceAgentIds,
+  listOpenFgaAgentIds: async (workspaceId, spaceId) => {
+    const [agentIds, routes] = await Promise.all([
+      listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId),
+      listWebexSpaceAgentRoutes(workspaceId, spaceId, botId),
+    ]);
+    const routeAgentIds = new Set(routes.map((route) => route.agent_id));
+    return agentIds.filter((agentId) => routeAgentIds.has(agentId));
+  },
   listRouteMetadata: async (workspaceId, spaceId): Promise<ConnectorRouteMetadata[]> => {
-    const rows = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
+    const rows = await listWebexSpaceAgentRoutes(workspaceId, spaceId, botId);
     return rows.map((route) => ({
       agent_id: route.agent_id,
       priority: route.priority,
@@ -72,13 +80,15 @@ const WEBEX_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
     if (!openfgaError && lastError.reason_code === "OPENFGA_READ_FAILED") return false;
     return true;
   },
-};
+  };
+}
 
 export async function computeWebexSpaceDiagnostics(
   workspaceId: string,
   spaceId: string,
+  botId: string,
 ): Promise<WebexSpaceDiagnostics> {
-  const diagnostics = await computeConnectorDiagnostics(WEBEX_DIAGNOSTICS_ADAPTER, workspaceId, spaceId);
+  const diagnostics = await computeConnectorDiagnostics(webexDiagnosticsAdapter(botId), workspaceId, spaceId);
   return {
     workspace_id: diagnostics.workspace_id,
     space_id: diagnostics.item_id,
@@ -92,15 +102,17 @@ export async function computeWebexSpaceDiagnostics(
 export async function computeWebexSpaceHealthSummary(
   workspaceId: string,
   spaceId: string,
+  botId: string,
 ): Promise<WebexSpaceHealthSummary> {
-  return computeConnectorHealthSummary(WEBEX_DIAGNOSTICS_ADAPTER, workspaceId, spaceId);
+  return computeConnectorHealthSummary(webexDiagnosticsAdapter(botId), workspaceId, spaceId);
 }
 
 export async function computeWebexSpaceHealthSummaries(
   targets: WebexSpaceHealthSummaryTarget[],
+  botId: string,
 ): Promise<WebexSpaceHealthSummary[]> {
   return computeConnectorHealthSummaries(
-    WEBEX_DIAGNOSTICS_ADAPTER,
+    webexDiagnosticsAdapter(botId),
     targets.map((target) => ({ workspaceId: target.workspaceId, itemId: target.spaceId })),
   );
 }

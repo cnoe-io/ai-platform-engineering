@@ -18,9 +18,6 @@ from ai_platform_engineering.integrations.webex_bot.utils.dm_authz_client import
 from ai_platform_engineering.integrations.webex_bot.utils.dm_thread_overrides import (
     OverrideStore,
 )
-from ai_platform_engineering.integrations.webex_bot.utils.user_preferences_client import (
-    UserPreferenceResult,
-)
 from ai_platform_engineering.integrations.webex_bot.utils.webex_command_dispatcher import (
     WebexCommandDispatcher,
 )
@@ -86,21 +83,7 @@ class _FakeDmAuthz:
             reason="ALLOW" if self.allowed else "DENY",
             path="direct" if self.allowed else "team",
             available=self.available,
-            matched_team_slug=None,
         )
-
-
-@dataclass
-class _FakePrefs:
-    cleared: bool = True
-
-    def clear_dm_default_agent(self, *, bearer_token: str) -> bool:
-        return self.cleared
-
-    def get_dm_default_agent(
-        self, *, bearer_token: str
-    ) -> UserPreferenceResult:
-        return UserPreferenceResult(agent_id=None, source="missing")
 
 
 def _build(
@@ -108,14 +91,12 @@ def _build(
     webex_api: Optional[_FakeWebexApi] = None,
     accessible: Optional[_FakeAccessibleAgents] = None,
     authz: Optional[_FakeDmAuthz] = None,
-    prefs: Optional[_FakePrefs] = None,
     overrides: Optional[OverrideStore] = None,
 ) -> WebexCommandDispatcher:
     return WebexCommandDispatcher(
         webex_api=webex_api or _FakeWebexApi(),
         accessible_agents_client=accessible or _FakeAccessibleAgents(),
         dm_authz_client=authz or _FakeDmAuthz(),
-        user_preferences_client=prefs or _FakePrefs(),
         override_store=overrides or OverrideStore(),
     )
 
@@ -236,11 +217,10 @@ def test_use_in_group_space_is_rejected_with_dm_only_message() -> None:
     assert overrides._snapshot_for_test() == []
 
 
-def test_use_default_clears_override_and_saved_preference() -> None:
+def test_use_default_clears_override() -> None:
     api = _FakeWebexApi()
     overrides = OverrideStore()
-    prefs = _FakePrefs(cleared=True)
-    dispatcher = _build(webex_api=api, overrides=overrides, prefs=prefs)
+    dispatcher = _build(webex_api=api, overrides=overrides)
     # Pre-populate an override so we can assert it's cleared.
     from ai_platform_engineering.integrations.webex_bot.utils.dm_thread_overrides import (
         OverrideKey,

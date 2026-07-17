@@ -43,6 +43,8 @@ const CHART_JSON = join(
 const SUBJECT_ONLY_TYPES: Record<string, string> = {
   service_account: "Non-human principal; a subject in tuples, never an action target.",
   anonymous: "Unauthenticated-caller placeholder used by the AGW bridge; grants nothing.",
+  webex_bot: "Configured Webex bot identity used only to identify an installation.",
+  webex_bot_installation: "Bot-in-space identity used as an authorization subject.",
 };
 
 function parseModelFgaTypes(text: string): Set<string> {
@@ -62,6 +64,14 @@ function parseChartJsonTypes(text: string): Set<string> {
 
 const modelTypes = parseModelFgaTypes(readFileSync(MODEL_FGA, "utf8"));
 const chartTypes = parseChartJsonTypes(readFileSync(CHART_JSON, "utf8"));
+const chartModel = JSON.parse(readFileSync(CHART_JSON, "utf8")) as {
+  type_definitions: Array<{
+    type: string;
+    metadata?: {
+      relations?: Record<string, { directly_related_user_types?: Array<{ type: string }> }>;
+    };
+  }>;
+};
 const unionTypes = new Set<string>(UNIVERSAL_REBAC_RESOURCE_TYPE_NAMES);
 const registryTypes = new Set<string>(UNIVERSAL_REBAC_RESOURCE_TYPES.map((d) => d.type));
 
@@ -86,6 +96,22 @@ describe("fga type coverage", () => {
 
   it("the TS union and the runtime registry are identical", () => {
     expect(sorted(unionTypes)).toEqual(sorted(registryTypes));
+  });
+
+  it("authorizes Webex agent routes only through bot-scoped installations", () => {
+    const authoredAgent = readFileSync(MODEL_FGA, "utf8")
+      .split("type agent\n", 2)[1]
+      ?.split("\ntype ", 1)[0];
+    expect(authoredAgent).toContain("webex_bot_installation");
+    expect(authoredAgent).not.toMatch(/define (reader|user): .*\bwebex_space\b/);
+
+    const chartAgent = chartModel.type_definitions.find((definition) => definition.type === "agent");
+    for (const relation of ["reader", "user"]) {
+      const subjectTypes = chartAgent?.metadata?.relations?.[relation]
+        ?.directly_related_user_types?.map((subject) => subject.type) ?? [];
+      expect(subjectTypes).toContain("webex_bot_installation");
+      expect(subjectTypes).not.toContain("webex_space");
+    }
   });
 
   it("no registry/union type is missing from the authored model (no orphan registrations)", () => {
