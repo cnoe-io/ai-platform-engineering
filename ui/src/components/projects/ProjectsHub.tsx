@@ -18,6 +18,7 @@ import {
   Rocket,
   Sparkles,
   Target,
+  UserX,
 } from "lucide-react";
 
 import { BackstageSyncDialog } from "@/components/projects/BackstageSyncDialog";
@@ -207,6 +208,13 @@ function groupProjects(
   return groups;
 }
 
+function stewardInitials(email: string): string {
+  const local = email.split("@")[0];
+  const parts = local.split(/[.\-_]/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return local.slice(0, 2).toUpperCase();
+}
+
 function ProjectCard({ project }: { project: EnrichedProject }) {
   const freshness = freshnessLabel(project.last_ingested_at);
   const activeRun = project.active_ingests?.[0];
@@ -215,8 +223,6 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
   const confluenceCount = (project.sources?.confluence_spaces?.length ?? 0) ||
     (project.sources?.confluence_url ? 1 : 0);
   const hasSources = repoCount > 0 || confluenceCount > 0 || webexCount > 0;
-  const initiatives = (project.labels?.initiatives ?? []).filter(Boolean);
-  const swimlanes = (project.labels?.swimlanes ?? []).filter(Boolean);
 
   return (
     <Link
@@ -252,7 +258,30 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
           </Tooltip>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground/40">{project.team_name}</p>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            {project.data_steward ? (
+              <>
+                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[8px] font-semibold text-primary">
+                  {stewardInitials(project.data_steward)}
+                </span>
+                <span className="truncate max-w-[100px]">{project.data_steward.split("@")[0]}</span>
+              </>
+            ) : (
+              <>
+                <UserX className="h-3 w-3" />
+                <span>No data steward</span>
+              </>
+            )}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          {project.data_steward
+            ? `Data steward: ${project.data_steward}`
+            : "No data steward assigned. Set one in project settings."}
+        </TooltipContent>
+      </Tooltip>
 
       <p className="mt-2 line-clamp-2 flex-grow text-sm text-muted-foreground">
         {project.description}
@@ -310,30 +339,6 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
           </div>
         )}
 
-        {(initiatives.length > 0 || swimlanes.length > 0) && (
-          <div className="flex flex-wrap gap-1">
-            {initiatives.slice(0, 3).map((l) => (
-              <Tooltip key={l}>
-                <TooltipTrigger asChild>
-                  <span className="rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary/80">
-                    {l}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>BHAG / Initiative</TooltipContent>
-              </Tooltip>
-            ))}
-            {swimlanes.slice(0, 3).map((l) => (
-              <Tooltip key={l}>
-                <TooltipTrigger asChild>
-                  <span className="rounded-full border border-sky-500/30 px-2 py-0.5 text-[10px] text-sky-500/80">
-                    {l}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Area</TooltipContent>
-              </Tooltip>
-            ))}
-          </div>
-        )}
       </div>
     </Link>
   );

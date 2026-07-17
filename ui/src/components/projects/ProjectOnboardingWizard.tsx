@@ -2,6 +2,7 @@
 
 // assisted-by Cursor Composer
 
+import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Boxes,
@@ -120,6 +121,8 @@ export function ProjectOnboardingWizard({
   onComplete?: (project: ProjectDocument) => void;
   initialOpen?: boolean;
 }) {
+  const { data: session } = useSession();
+  const currentUserEmail = session?.user?.email ?? undefined;
   const [open, setOpen] = useState(initialOpen);
   const [configSteps, setConfigSteps] = useState<OnboardingStepConfig[]>([]);
   // Which integrations the user has enabled (id → on), seeded from the config's
@@ -660,7 +663,7 @@ export function ProjectOnboardingWizard({
                         )}
                         {defaultTeam && teamId === defaultTeam.slug && (
                           <span className="block text-xs text-muted-foreground">
-                            Defaulted to {defaultTeam.name} — most projects belong here. Change it if this one is different.
+                            Defaulted to {defaultTeam.name}. Most projects belong here. Change it if this one is different.
                           </span>
                         )}
                       </div>
@@ -669,7 +672,8 @@ export function ProjectOnboardingWizard({
                         <UserEmailPicker
                           value={stewardEmail}
                           onChange={setStewardEmail}
-                          placeholder="Defaults to you (the creator)"
+                          placeholder="Optional: leave blank to skip"
+                          currentUserEmail={currentUserEmail}
                         />
                         <span className="block text-xs text-muted-foreground">
                           The person (by email) whose GitHub connection powers this

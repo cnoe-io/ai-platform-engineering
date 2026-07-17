@@ -286,7 +286,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // "blank means owner". BHAGs have no sources, so no steward.
     ...(isBhag
       ? {}
-      : { data_steward: body.data_steward?.trim().toLowerCase() || user.email }),
+      : { data_steward: body.data_steward?.trim().toLowerCase() || undefined }),
     domain,
     labels: sanitizeLabels(
       { domain, initiatives: body.initiatives, swimlanes: body.swimlanes },

@@ -7,7 +7,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, Search, UserPlus, X } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -23,11 +23,13 @@ export function UserEmailPicker({
   onChange,
   placeholder = "Search people by email",
   disabled,
+  currentUserEmail,
 }: {
   value: string;
   onChange: (email: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  currentUserEmail?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
@@ -107,9 +109,23 @@ export function UserEmailPicker({
         </div>
         <div className="max-h-64 overflow-y-auto p-1">
           {term.length < 2 ? (
-            <p className="px-2 py-3 text-xs text-muted-foreground">
-              Type at least 2 characters to search.
-            </p>
+            currentUserEmail && value !== currentUserEmail ? (
+              <button
+                type="button"
+                onClick={() => pick(currentUserEmail)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+              >
+                <UserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">Add yourself</span>
+                  <span className="block truncate text-xs text-muted-foreground">{currentUserEmail}</span>
+                </span>
+              </button>
+            ) : (
+              <p className="px-2 py-3 text-xs text-muted-foreground">
+                Type at least 2 characters to search.
+              </p>
+            )
           ) : loading ? (
             <p className="px-2 py-3 text-xs text-muted-foreground">Searching...</p>
           ) : results.length === 0 && !canUseTyped ? (

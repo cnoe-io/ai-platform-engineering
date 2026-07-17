@@ -1,5 +1,6 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -66,6 +67,8 @@ export function ProjectSettingsPanel({
   // Source-activity feed: the data steward (whose GitHub connection the
   // feed runs as) + the per-project on/off. `stewardEmail` empty = fall back to
   // the owner.
+  const { data: session } = useSession();
+  const currentUserEmail = session?.user?.email ?? undefined;
   const [feedEnabled, setFeedEnabled] = useState(true);
   const [stewardEmail, setStewardEmail] = useState("");
   const [feedStatus, setFeedStatus] = useState<{
@@ -326,7 +329,7 @@ export function ProjectSettingsPanel({
               >
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <UserEmailPicker value={stewardEmail} onChange={setStewardEmail} />
+                    <UserEmailPicker value={stewardEmail} onChange={setStewardEmail} currentUserEmail={currentUserEmail} />
                   </div>
                   {feedStatus?.owner && stewardEmail.trim().toLowerCase() !== feedStatus.owner && (
                     <Button

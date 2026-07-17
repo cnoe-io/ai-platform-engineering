@@ -20,6 +20,7 @@ import {
   Settings,
   Target,
   Upload,
+  UserX,
   Users,
 } from "lucide-react";
 
@@ -198,7 +199,8 @@ export function TomeWiki({ slug }: { slug: string }) {
     status: string | null;
     teamName: string | null;
     tags: string[];
-  }>({ description: null, status: null, teamName: null, tags: [] });
+    dataSteward: string | null;
+  }>({ description: null, status: null, teamName: null, tags: [], dataSteward: null });
   const [projectMetaLoading, setProjectMetaLoading] = useState(true);
   // BHAG awareness: this project's kind, the initiatives it's tagged with, and
   // the BHAG entities those initiatives resolve to (for the up-link chip).
@@ -285,6 +287,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           status: typeof p.status === "string" ? p.status : null,
           teamName: typeof p.team_name === "string" ? p.team_name : null,
           tags: Array.isArray(p.tags) ? p.tags.filter((t: unknown) => typeof t === "string") : [],
+          dataSteward: typeof p.data_steward === "string" ? p.data_steward : null,
         });
       })
       .catch(() => undefined)
@@ -688,10 +691,6 @@ export function TomeWiki({ slug }: { slug: string }) {
                   {projectMeta.description}
                 </p>
               )}
-              {(isBhag ||
-              initiatives.length > 0 ||
-              projectMeta.teamName ||
-              projectMeta.tags.length > 0) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {isBhag && (
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-primary">
@@ -739,13 +738,35 @@ export function TomeWiki({ slug }: { slug: string }) {
                     {projectMeta.teamName}
                   </Badge>
                 )}
+                {projectMeta.dataSteward ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="gap-1">
+                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[8px] font-semibold text-primary">
+                          {projectMeta.dataSteward.split("@")[0].split(/[.\-_]/).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join("")}
+                        </span>
+                        {projectMeta.dataSteward.split("@")[0]}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>Data steward: {projectMeta.dataSteward}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="gap-1 text-muted-foreground">
+                        <UserX className="h-3 w-3" />
+                        No data steward
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>No data steward assigned. Set one in project settings.</TooltipContent>
+                  </Tooltip>
+                )}
                 {projectMeta.tags.map((tag) => (
                   <Badge key={tag} variant="outline">
                     {tag}
                   </Badge>
                 ))}
               </div>
-              )}
             </>
           )}
         </div>
