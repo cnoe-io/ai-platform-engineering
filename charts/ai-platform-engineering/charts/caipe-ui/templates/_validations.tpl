@@ -119,9 +119,6 @@
 {{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $tokenEnv) -}}
 {{- fail (printf "caipe-ui.webexBots[%d].tokenEnv must be a valid environment variable name" $index) -}}
 {{- end -}}
-{{- if hasKey $bot "default" -}}
-{{- fail (printf "caipe-ui.webexBots[%d].default is not supported; select bot identities explicitly" $index) -}}
-{{- end -}}
 {{- end -}}
 {{- end -}}
 

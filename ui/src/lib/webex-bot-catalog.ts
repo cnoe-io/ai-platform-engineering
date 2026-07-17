@@ -52,9 +52,6 @@ export function configuredWebexBots(env: Env = process.env): WebexBotConfig[] {
       throw new ApiError(`${CONFIG_ENV}[${index}] must be an object`, 500);
     }
     const candidate = value as Record<string, unknown>;
-    if ("default" in candidate) {
-      throw new ApiError("Webex bot defaults are not supported; select a bot explicitly", 500);
-    }
     if ("token" in candidate || "accessToken" in candidate) {
       throw new ApiError(`${CONFIG_ENV}[${index}] cannot contain an inline token`, 500);
     }

@@ -41,8 +41,6 @@ def configured_webex_bots(
             raise ValueError(f"WEBEX_INTEGRATION_BOTS_JSON[{index}] must be an object")
         if "token" in candidate or "accessToken" in candidate:
             raise ValueError("Webex bot tokens must be supplied through tokenEnv")
-        if "default" in candidate:
-            raise ValueError("Webex bot defaults are not supported; select a bot explicitly")
         bot_id = str(candidate.get("id") or "").strip()
         name = str(candidate.get("name") or "").strip()
         token_env = str(candidate.get("tokenEnv") or "").strip()

@@ -43,7 +43,7 @@ describe("Webex bot catalog", () => {
     expect(listWebexBotOptions({})).toEqual([]);
   });
 
-  it("rejects inline tokens, duplicate IDs, and default markers", () => {
+  it("rejects inline tokens and duplicate IDs", () => {
     expect(() => configuredWebexBots({
       WEBEX_INTEGRATION_BOTS_JSON: JSON.stringify([
         { id: "primary", name: "Primary bot", tokenEnv: "PRIMARY_BOT_TOKEN", token: "nope" },
@@ -57,10 +57,5 @@ describe("Webex bot catalog", () => {
       ]),
     })).toThrow("duplicate bot id primary");
 
-    expect(() => configuredWebexBots({
-      WEBEX_INTEGRATION_BOTS_JSON: JSON.stringify([
-        { id: "primary", name: "Primary", tokenEnv: "PRIMARY_TOKEN", default: true },
-      ]),
-    })).toThrow("defaults are not supported");
   });
 });

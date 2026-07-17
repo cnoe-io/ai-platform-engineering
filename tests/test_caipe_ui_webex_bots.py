@@ -83,25 +83,3 @@ def test_rejects_inline_webex_bot_token() -> None:
     assert result.returncode != 0
     assert "cannot contain an inline token" in result.stderr
     assert "plaintext-must-not-render" not in result.stdout
-
-
-def test_rejects_multiple_default_webex_bots() -> None:
-    result = _render({
-        "webexBots": [
-            {
-                "id": "primary",
-                "name": "Primary bot",
-                "tokenEnv": "PRIMARY_BOT_TOKEN",
-                "default": True,
-            },
-            {
-                "id": "secondary",
-                "name": "Secondary bot",
-                "tokenEnv": "SECONDARY_BOT_TOKEN",
-                "default": True,
-            },
-        ],
-    })
-
-    assert result.returncode != 0
-    assert "may contain only one default bot" in result.stderr

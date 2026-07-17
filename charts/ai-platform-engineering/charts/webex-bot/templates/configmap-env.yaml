@@ -21,9 +21,6 @@ data:
   {{- fail (printf "duplicate webex-bot bot id: %s" $id) }}
   {{- end }}
   {{- $_ := set $ids $id true }}
-  {{- if hasKey $bot "default" }}
-  {{- fail (printf "webex-bot.bots[%d].default is not supported; bot identity must be explicit" $index) }}
-  {{- end }}
   {{- end }}
   WEBEX_INTEGRATION_BOTS_JSON: {{ .Values.bots | toJson | quote }}
   {{- end }}
