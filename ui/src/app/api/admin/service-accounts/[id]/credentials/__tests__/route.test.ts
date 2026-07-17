@@ -30,6 +30,11 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
+const mockHasOrganizationAdmin = jest.fn();
+jest.mock("@/lib/rbac/platform-admin", () => ({
+  hasOrganizationAdmin: (...args: unknown[]) => mockHasOrganizationAdmin(...args),
+}));
+
 const mockLogOpenFgaRebacAuditEvent = jest.fn();
 jest.mock("@/lib/rbac/audit", () => ({
   logOpenFgaRebacAuditEvent: (...args: unknown[]) =>
@@ -126,6 +131,7 @@ beforeEach(() => {
   mockIsEnabled.mockReturnValue(true);
   mockGetServerSession.mockResolvedValue(SESSION);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+  mockHasOrganizationAdmin.mockResolvedValue(false);
   mockGetBySub.mockResolvedValue(DOC);
   mockListConnections.mockResolvedValue([CONN]);
   mockRegisterStaticToken.mockResolvedValue(CONN);
@@ -218,6 +224,17 @@ describe("GET .../[id]/credentials", () => {
     const res = await GET(makeRequest("GET"), ctx());
     expect(res.status).toBe(404);
     expect(mockListConnections).not.toHaveBeenCalled();
+  });
+
+  it("org admin can view credentials for a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    const res = await GET(makeRequest("GET"), ctx());
+    expect(res.status).toBe(200);
+    expect(mockListConnections).toHaveBeenCalledWith({
+      type: "service_account",
+      id: SA_SUB,
+    });
   });
 });
 
@@ -342,6 +359,18 @@ describe("POST .../[id]/credentials", () => {
     );
     expect(res.status).toBe(404);
     expect(mockRegisterStaticToken).not.toHaveBeenCalled();
+  });
+
+  it("org admin can register a credential for a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockListConnections.mockResolvedValue([]);
+    const res = await POST(
+      makeRequest("POST", { provider: "gitlab", token: "glpat-abc123" }),
+      ctx(),
+    );
+    expect(res.status).toBe(201);
+    expect(mockRegisterStaticToken).toHaveBeenCalled();
   });
 });
 
@@ -470,6 +499,17 @@ describe("DELETE .../[id]/credentials", () => {
       ctx(),
     );
     // Still succeeds despite payload cleanup failure
+    expect(res.status).toBe(200);
+    expect(mockConnectionsDeleteOne).toHaveBeenCalledWith({ id: "conn-1" });
+  });
+
+  it("org admin can delete a credential for a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    const res = await DELETE(
+      makeRequest("DELETE", { connection_id: "conn-1" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     expect(mockConnectionsDeleteOne).toHaveBeenCalledWith({ id: "conn-1" });
   });

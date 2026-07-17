@@ -291,4 +291,18 @@ describe("GET /api/admin/service-accounts/[id] (detail)", () => {
     const res = await detailGET(new Request("http://localhost"), detailCtx("sa-123"));
     expect(res.status).toBe(401);
   });
+
+  it("org admin can view a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockGetBySub.mockResolvedValue(SA_DOC);
+    mockListOpenFgaObjects
+      .mockResolvedValueOnce({ objects: ["agent:incident-resolver"] })
+      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] });
+
+    const res = await detailGET(new Request("http://localhost"), detailCtx("sa-123"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.id).toBe("sa-123");
+  });
 });
