@@ -15,6 +15,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const result = await callWebexBotAdmin("/admin/webex/routes/sync-from-config", {
     method: "POST",
     body: {
+      bot_id: body.bot_id,
       dry_run: body.dry_run !== false,
       actor: {
         email: user.email,

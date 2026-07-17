@@ -14,6 +14,11 @@ import {
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import {
+  webexBotInstallationAgentTuple,
+  webexBotInstallationIdentityTuples,
+  webexBotInstallationId,
+} from "@/lib/rbac/webex-bot-openfga";
 import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type { Document } from "mongodb";
@@ -494,7 +499,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     to_version: 2,
     kind: "explicit",
     title: "Webex space ReBAC grants",
-    description: "Backfill Webex space resource grants and route-owned agent grants into OpenFGA provenance.",
+    description: "Backfill physical-space resource grants and bot-scoped route-owned agent grants into OpenFGA provenance. Botless legacy routes require explicit bot assignment in the Webex migration UI.",
     confirmation: "MIGRATE webex_space_rebac TO v2",
     required: true,
     implemented: true,
@@ -1751,6 +1756,7 @@ type MessagingGrantSurface = {
   subjectType: "slack_channel" | "webex_space";
   idField: "channel_id" | "space_id";
   routeIdField: "channel_id" | "space_id";
+  botScopedAgentRoutes?: boolean;
 };
 
 function relationshipForAction(action: unknown): string | null {
@@ -1760,7 +1766,7 @@ function relationshipForAction(action: unknown): string | null {
 
 function addMessagingRelationship(
   relationships: NonNullable<MigrationRuntimePlan["relationships"]>,
-  subjectType: "slack_channel" | "webex_space",
+  subjectType: "slack_channel" | "webex_space" | "webex_bot_installation",
   subjectId: string,
   action: string,
   resource: { type: string; id: string }
@@ -1780,6 +1786,8 @@ export function deriveMessagingRebacPlan(input: {
   let unsupportedActions = 0;
   let activeGrants = 0;
   let activeRoutes = 0;
+  let agentGrantsSkipped = 0;
+  let legacyRoutesRequiringBotAssignment = 0;
 
   for (const grant of input.grants) {
     if (grant.status && grant.status !== "active") continue;
@@ -1797,6 +1805,13 @@ export function deriveMessagingRebacPlan(input: {
     if (![workspaceId, resourceOwnerId, subjectId, resourceType, resourceId].every(isOpenFgaId)) {
       invalidIdentifiers += 1;
       warnings.push(`Skipping ${input.surface.subjectType} grant with invalid OpenFGA identifiers.`);
+      continue;
+    }
+    if (input.surface.botScopedAgentRoutes && resourceType === "agent") {
+      agentGrantsSkipped += 1;
+      warnings.push(
+        "Skipping Webex space agent grant; bot-scoped authorization is derived from routes with bot_id.",
+      );
       continue;
     }
 
@@ -1832,6 +1847,36 @@ export function deriveMessagingRebacPlan(input: {
       warnings.push(`Skipping ${input.surface.subjectType} route with incomplete identifiers.`);
       continue;
     }
+
+    if (input.surface.botScopedAgentRoutes) {
+      const botId = normalizeString(route.bot_id);
+      if (!botId) {
+        legacyRoutesRequiringBotAssignment += 1;
+        warnings.push(
+          `Skipping legacy Webex route for ${workspaceId}--${resourceOwnerId}; assign a bot in the Webex Legacy migration tab.`,
+        );
+        continue;
+      }
+      const installationId = webexBotInstallationId(botId, workspaceId, resourceOwnerId);
+      if (![botId, installationId].every(isOpenFgaId)) {
+        invalidIdentifiers += 1;
+        warnings.push("Skipping Webex route with invalid bot-scoped OpenFGA identifiers.");
+        continue;
+      }
+      tuples.push(...webexBotInstallationIdentityTuples(botId, workspaceId, resourceOwnerId));
+      tuples.push(
+        webexBotInstallationAgentTuple(botId, workspaceId, resourceOwnerId, agentId),
+      );
+      addMessagingRelationship(
+        relationships,
+        "webex_bot_installation",
+        installationId,
+        "use",
+        { type: "agent", id: agentId },
+      );
+      continue;
+    }
+
     const subjectId = `${workspaceId}--${resourceOwnerId}`;
     if (![workspaceId, resourceOwnerId, subjectId, agentId].every(isOpenFgaId)) {
       invalidIdentifiers += 1;
@@ -1865,6 +1910,8 @@ export function deriveMessagingRebacPlan(input: {
       relationships_planned: relationships.length,
       invalid_identifiers: invalidIdentifiers,
       unsupported_actions: unsupportedActions,
+      agent_grants_skipped: agentGrantsSkipped,
+      legacy_routes_requiring_bot_assignment: legacyRoutesRequiringBotAssignment,
     },
     warnings,
     sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
@@ -3061,6 +3108,7 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
         subjectType: "webex_space",
         idField: "space_id",
         routeIdField: "space_id",
+        botScopedAgentRoutes: true,
       },
       grants: grantDocs as Array<Document>,
       routes: routeDocs as Array<Document>,

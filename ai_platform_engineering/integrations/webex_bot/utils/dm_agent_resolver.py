@@ -40,7 +40,10 @@ class DmAgentResolution:
 
 class _AuthzClientProtocol(Protocol):
     def check_agent_access(
-        self, *, agent_id: str, bearer_token: str
+        self,
+        *,
+        agent_id: str,
+        bearer_token: str,
     ) -> DmAgentAccessDecision:
         raise NotImplementedError
 
@@ -126,13 +129,16 @@ def resolve_dm_agent(
             )
         if decision.allowed:
             return DmAgentResolution(
-                agent_id=dm_default, source="dm_agent_id", notices=notices
+                agent_id=dm_default,
+                source="dm_agent_id",
+                notices=notices,
             )
 
     deployment_default = _normalize_agent(default_agent_id)
     if deployment_default:
         decision = authz_client.check_agent_access(
-            agent_id=deployment_default, bearer_token=bearer_token
+            agent_id=deployment_default,
+            bearer_token=bearer_token,
         )
         if not decision.available:
             return DmAgentResolution(

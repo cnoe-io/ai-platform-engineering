@@ -215,6 +215,28 @@ def test_webex_bot_configmap_includes_in_cluster_service_urls() -> None:
     assert "http://ai-platform-engineering-openfga:8080" in rendered
 
 
+def test_webex_bot_catalog_renders_default_marker() -> None:
+    rendered = _helm_template_webex_bot(
+        "--set-json",
+        'webex-bot.bots=[{"id":"primary","name":"Primary bot","tokenEnv":"PRIMARY_TOKEN","default":true}]',
+    )
+    docs = [doc for doc in yaml.safe_load_all(rendered) if isinstance(doc, dict)]
+    config = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "caipe-webex-bot-config"
+    )
+    assert json.loads(config["data"]["WEBEX_INTEGRATION_BOTS_JSON"]) == [
+        {
+            "id": "primary",
+            "name": "Primary bot",
+            "tokenEnv": "PRIMARY_TOKEN",
+            "default": True,
+        }
+    ]
+
+
 def test_openfga_helm_model_is_the_single_json_artifact() -> None:
     root = _repo_root()
     helm_model = root / "charts/ai-platform-engineering/charts/openfga/authorization-model.json"

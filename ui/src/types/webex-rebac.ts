@@ -51,6 +51,7 @@ export interface WebexRouteEscalationConfig {
 }
 
 export interface WebexSpaceAgentRoute {
+  bot_id?: string;
   workspace_id: string;
   space_id: string;
   agent_id: string;
