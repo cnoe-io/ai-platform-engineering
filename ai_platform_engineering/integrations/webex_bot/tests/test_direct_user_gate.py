@@ -6,15 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-import ai_platform_engineering.integrations.webex_bot.app as app_module
-from ai_platform_engineering.integrations.webex_bot.app import (
-    REASON_DISPATCH_ALLOWED,
-    REASON_DM_NOT_ONBOARDED,
-    REASON_USER_NOT_LINKED,
-    WebexMessageResult,
-    handle_webex_message,
-    parse_webex_event,
-)
+from ai_platform_engineering.integrations.webex_bot import app as app_module
 from ai_platform_engineering.integrations.webex_bot.utils.dm_authz_client import (
     DmAgentAccessDecision,
 )
@@ -115,10 +107,10 @@ def _run(
     *,
     dm_authz: _DmAuthz | None = None,
     dispatch_calls: list[dict[str, Any]] | None = None,
-) -> WebexMessageResult:
+) -> app_module.WebexMessageResult:
     calls = dispatch_calls if dispatch_calls is not None else []
     return asyncio.run(
-        handle_webex_message(
+        app_module.handle_webex_message(
             _event(),
             direct_user_resolver=direct_users,
             identity_linker=identity,
@@ -142,7 +134,7 @@ def test_unonboarded_direct_user_is_silently_ignored_before_identity_linking(mon
     )
 
     assert result.ignored is True
-    assert result.reason_code == REASON_DM_NOT_ONBOARDED
+    assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
     assert result.deny_message is None
     assert identity.resolve_calls == 0
     assert identity.link_calls == 0
@@ -155,7 +147,7 @@ def test_onboarded_unlinked_user_receives_identity_link() -> None:
         identity,
     )
 
-    assert result.reason_code == REASON_USER_NOT_LINKED
+    assert result.reason_code == app_module.REASON_USER_NOT_LINKED
     assert result.linking_url == "https://ui.example/link"
 
 
@@ -167,7 +159,7 @@ def test_onboarded_direct_user_dispatches_selected_agent_with_user_obo() -> None
     )
     result = _run(direct_users, _Identity(), dm_authz=authz, dispatch_calls=calls)
 
-    assert result.reason_code == REASON_DISPATCH_ALLOWED
+    assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
     assert result.dispatched is True
     assert direct_users.calls == [{
         "bot_id": "secondary",
@@ -188,7 +180,7 @@ def test_linked_identity_must_match_onboarded_deployment_user() -> None:
     )
 
     assert result.ignored is True
-    assert result.reason_code == REASON_DM_NOT_ONBOARDED
+    assert result.reason_code == app_module.REASON_DM_NOT_ONBOARDED
 
 
 def test_direct_agent_still_requires_user_openfga_access() -> None:
@@ -224,7 +216,7 @@ def test_all_users_uses_personal_webex_default(monkeypatch) -> None:
         dispatch_calls=calls,
     )
 
-    assert result.reason_code == REASON_DISPATCH_ALLOWED
+    assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
     assert calls[0]["agent_id"] == "agent-personal"
     assert authz.calls == [
         {"agent_id": "agent-personal", "bearer_token": "obo-token"}
@@ -252,7 +244,7 @@ def test_all_users_uses_temporary_override_before_personal_default(monkeypatch) 
         dispatch_calls=calls,
     )
 
-    assert result.reason_code == REASON_DISPATCH_ALLOWED
+    assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
     assert calls[0]["agent_id"] == "agent-temporary"
 
 
@@ -276,12 +268,12 @@ def test_all_users_falls_back_to_deployment_default(monkeypatch) -> None:
         dispatch_calls=calls,
     )
 
-    assert result.reason_code == REASON_DISPATCH_ALLOWED
+    assert result.reason_code == app_module.REASON_DISPATCH_ALLOWED
     assert calls[0]["agent_id"] == "agent-deployment"
 
 
 def test_parser_carries_direct_identity_and_bot() -> None:
-    parsed = parse_webex_event(_event())
+    parsed = app_module.parse_webex_event(_event())
     assert parsed is not None
     assert parsed.is_direct is True
     assert parsed.person_email == "user@example.com"

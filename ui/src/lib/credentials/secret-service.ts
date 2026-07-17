@@ -395,7 +395,8 @@ export class SecretService {
       return "created";
     }
     if (metadataChanged || secretChanged) {
-      const { description: _description, ...requiredDoc } = doc;
+      const requiredDoc = { ...doc };
+      delete requiredDoc.description;
       await this.secretRefsCollection.updateOne(
         { id },
         {
