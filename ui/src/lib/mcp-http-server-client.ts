@@ -47,7 +47,13 @@ export function diagnosticAgentId(serverId: string, session: AuthSession): strin
   return `mcp-test-${serverId}-${hash}`.replace(/[^A-Za-z0-9._~@|*+=,/-]/g, "-").slice(0, 191);
 }
 
-function buildAgentContextHeaders(agentId: string): Record<string, string> {
+export function multiServerAgentContextId(session: AuthSession): string {
+  const subject = typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : "unknown";
+  const hash = crypto.createHash("sha256").update(subject).digest("hex").slice(0, 16);
+  return `mcp-agent-context-${hash}`.replace(/[^A-Za-z0-9._~@|*+=,/-]/g, "-").slice(0, 191);
+}
+
+export function buildAgentContextHeaders(agentId: string): Record<string, string> {
   const secret = process.env.CAIPE_AGENT_CONTEXT_HMAC_SECRET?.trim();
   if (!secret) return {};
 
@@ -99,6 +105,22 @@ export async function grantDiagnosticAgentAccess(
 ): Promise<OpenFgaTupleKey[]> {
   const writes = diagnosticOpenFgaTuples(serverId, agentId, session);
   if (!writes.length) return [];
+  await writeOpenFgaTuples({ writes, deletes: [] });
+  return writes;
+}
+
+export async function grantDiagnosticAgentAccessForServers(
+  serverIds: string[],
+  agentId: string,
+  session: AuthSession,
+): Promise<OpenFgaTupleKey[]> {
+  const subject = typeof session?.sub === "string" ? session.sub.trim() : "";
+  if (!subject || serverIds.length === 0) return [];
+
+  const writes: OpenFgaTupleKey[] = [{ user: `user:${subject}`, relation: "user", object: `agent:${agentId}` }];
+  for (const serverId of serverIds) {
+    writes.push({ user: `agent:${agentId}`, relation: "caller", object: `tool:${serverId}/*` });
+  }
   await writeOpenFgaTuples({ writes, deletes: [] });
   return writes;
 }
