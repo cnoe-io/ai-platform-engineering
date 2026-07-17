@@ -178,6 +178,45 @@ def test_resolve_direct_webex_message_uses_existing_mention_route(monkeypatch) -
     assert deny is None
 
 
+def test_wdm_bot_mention_uses_mention_route_without_at_prefix(monkeypatch) -> None:
+    monkeypatch.setenv("WEBEX_AGENT_ROUTES_MODE", "db_only")
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE-WEBEX",
+                "space_id": "space12345",
+                "agent_id": "mention-agent",
+                "enabled": True,
+                "priority": 10,
+                "status": "active",
+                "users": {"enabled": True, "listen": "mention"},
+            },
+        ]
+    )
+    resolver = WebexAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _bot_id, _workspace_id, _space_id: [
+            "mention-agent"
+        ],
+    )
+
+    async def _run() -> tuple[str | None, str | None]:
+        return await resolve_webex_agent_route(
+            bot_id="primary",
+            workspace_id="CAIPE-WEBEX",
+            space_id="space12345",
+            person_id="person1234",
+            text="Primary please help",
+            was_bot_mentioned=True,
+            resolver=resolver,
+        )
+
+    agent_id, deny = asyncio.run(_run())
+
+    assert agent_id == "mention-agent"
+    assert deny is None
+
+
 def test_plain_group_message_route_mismatch_uses_plain_language() -> None:
     collection = _Collection(
         [

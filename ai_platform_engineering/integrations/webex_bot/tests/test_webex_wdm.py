@@ -136,12 +136,14 @@ def test_wdm_activity_uses_fetched_message_detail_for_gate_payload() -> None:
             "roomType": "direct",
             "text": "neo-coder hello",
             "mentionedPeople": ["bot-person-id"],
+            "botMentioned": True,
             "isSelf": False,
         },
     }
     parsed = parse_webex_event(event)
     assert parsed is not None
     assert parsed.is_direct is True
+    assert parsed.was_bot_mentioned is True
 
 
 # ── WDM device reuse + message dedup ───────────────────────────────────────

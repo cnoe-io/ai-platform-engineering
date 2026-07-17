@@ -123,6 +123,12 @@ def webex_event_from_wdm_activity(
     person_id = message_detail.get("personId")
     public_room_id = str(message_detail.get("roomId") or base64_encode_webex_id(raw_room_id, "ROOM"))
     canonical_space_id = canonicalize_webex_space_id(public_room_id or str(raw_room_id or ""))
+    mentioned_people = message_detail.get("mentionedPeople") or []
+    normalized_mentions = (
+        {str(value).strip() for value in mentioned_people}
+        if isinstance(mentioned_people, list)
+        else set()
+    )
 
     data = {
         "id": message_detail.get("id") or base64_encode_webex_id(raw_message_id, "MESSAGE"),
@@ -133,7 +139,11 @@ def webex_event_from_wdm_activity(
         "personEmail": message_detail.get("personEmail"),
         "roomType": message_detail.get("roomType"),
         "text": message_detail.get("text") or message_detail.get("markdown") or "",
-        "mentionedPeople": message_detail.get("mentionedPeople") or [],
+        "mentionedPeople": mentioned_people,
+        "botMentioned": bool(
+            bot_person_id
+            and (bot_person_id in normalized_mentions or "all" in normalized_mentions)
+        ),
         "isSelf": bool(bot_person_id and person_id == bot_person_id),
     }
     if bot_id:
@@ -424,7 +434,8 @@ class WebexWdmRuntime:
         result = await self._runtime.handle_payload(event)
         await self._responder.reply_to_result(event, result)
         logger.info(
-            "Webex WDM event processed allowed=%s dispatched=%s ignored=%s reason=%s",
+            "Webex WDM event processed bot_id=%s allowed=%s dispatched=%s ignored=%s reason=%s",
+            self._bot_id,
             result.allowed,
             result.dispatched,
             result.ignored,

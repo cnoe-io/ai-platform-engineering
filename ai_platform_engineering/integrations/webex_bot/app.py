@@ -63,6 +63,7 @@ class ParsedWebexEvent:
     is_bot: bool
     is_self: bool
     bot_id: str
+    was_bot_mentioned: bool = False
     message_id: Optional[str] = None
     thread_parent_id: Optional[str] = None
     webex_room_id: Optional[str] = None
@@ -146,6 +147,7 @@ class RouteResolverProtocol(Protocol):
         person_id: str,
         text: str,
         is_direct: bool = False,
+        was_bot_mentioned: bool = False,
     ) -> WebexRouteResolution:
         """Resolve the agent route to dispatch this message to."""
         raise NotImplementedError
@@ -295,6 +297,12 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
         event.get("is_self"),
         event.get("isSelf"),
     )
+    was_bot_mentioned = parse_event_flag(
+        data.get("botMentioned"),
+        data.get("bot_mentioned"),
+        event.get("botMentioned"),
+        event.get("bot_mentioned"),
+    )
 
     # Webex tells us the room type via ``roomType`` on the webhook
     # payload. ``direct`` means a 1:1 conversation with the bot;
@@ -351,6 +359,7 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
             else None
         ),
         bot_id=bot_id_value.strip(),
+        was_bot_mentioned=was_bot_mentioned,
     )
 
 
@@ -404,6 +413,7 @@ class _WebexAgentRouteResolver:
         person_id: str,
         text: str,
         is_direct: bool = False,
+        was_bot_mentioned: bool = False,
     ) -> WebexRouteResolution:
         from .utils.webex_agent_routes import resolve_webex_agent_route
 
@@ -414,6 +424,7 @@ class _WebexAgentRouteResolver:
             person_id=person_id,
             text=text,
             is_direct=is_direct,
+            was_bot_mentioned=was_bot_mentioned,
         )
         return WebexRouteResolution(agent_id=agent_id, deny_message=deny_message)
 
@@ -520,7 +531,11 @@ async def handle_webex_message(
             ),
         )
 
-    explicit_invocation = parsed.is_direct or infer_listen_mode(parsed.text) == "mention"
+    explicit_invocation = (
+        parsed.is_direct
+        or parsed.was_bot_mentioned
+        or infer_listen_mode(parsed.text) == "mention"
+    )
     team_resolution = SpaceTeamResolution(
         team_slug=None,
         team_id=None,
@@ -716,6 +731,7 @@ async def handle_webex_message(
             person_id=parsed.person_id,
             text=parsed.text,
             is_direct=parsed.is_direct,
+            was_bot_mentioned=parsed.was_bot_mentioned,
         )
     agent_id = route.agent_id
     if not agent_id:

@@ -419,6 +419,7 @@ async def resolve_webex_agent_route(
     person_id: str,
     text: str,
     is_direct: bool = False,
+    was_bot_mentioned: bool = False,
     resolver: WebexAgentRouteResolver | None = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Resolve the agent for a Webex message (agent_id, deny_message)."""
@@ -427,7 +428,13 @@ async def resolve_webex_agent_route(
     # assisted-by Codex Codex-sonnet-4-6
     # 1:1 Webex rooms have no mention gesture, so direct messages should
     # use any active user route for that room instead of requiring message mode.
-    listen = None if is_direct else infer_listen_mode(text)
+    listen = (
+        None
+        if is_direct
+        else "mention"
+        if was_bot_mentioned
+        else infer_listen_mode(text)
+    )
     active = resolver or get_webex_agent_route_resolver()
 
     if mode == "config":
