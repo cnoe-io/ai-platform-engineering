@@ -34,10 +34,17 @@ jest.mock("@/lib/rbac/admin-simulation-server", () => ({
     mockResolveAuthorizedAdminSimulationScope(...args),
 }));
 
+const mockHasOrganizationAdmin = jest.fn();
+jest.mock("@/lib/rbac/platform-admin", () => ({
+  hasOrganizationAdmin: (...args: unknown[]) => mockHasOrganizationAdmin(...args),
+}));
+
 const mockListByOwningTeams = jest.fn();
+const mockCountByOwningTeams = jest.fn();
 const mockGetBySub = jest.fn();
 jest.mock("@/lib/service-accounts", () => ({
   listByOwningTeams: (...args: unknown[]) => mockListByOwningTeams(...args),
+  countByOwningTeams: (...args: unknown[]) => mockCountByOwningTeams(...args),
   getBySub: (...args: unknown[]) => mockGetBySub(...args),
 }));
 
@@ -91,6 +98,7 @@ beforeEach(() => {
   mockGetServerSession.mockResolvedValue(SESSION);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
   mockResolveAuthorizedAdminSimulationScope.mockResolvedValue(null);
+  mockHasOrganizationAdmin.mockResolvedValue(false);
 });
 
 describe("GET /api/admin/service-accounts (list)", () => {
@@ -158,7 +166,7 @@ describe("GET /api/admin/service-accounts (list)", () => {
   });
 
   it("admin + ?team= bypasses the membership intersection entirely", async () => {
-    mockGetServerSession.mockResolvedValue({ ...SESSION, role: "admin" });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
     mockListByOwningTeams.mockResolvedValue([SA_DOC]);
 
     const res = await listGET(
@@ -174,9 +182,8 @@ describe("GET /api/admin/service-accounts (list)", () => {
     expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
   });
 
-  it("admin WITHOUT ?team= still uses normal membership-based listing", async () => {
-    mockGetServerSession.mockResolvedValue({ ...SESSION, role: "admin" });
-    mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:team-sre"] });
+  it("admin WITHOUT ?team= sees SAs across every team (org-wide, unbounded)", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(true);
     mockListByOwningTeams.mockResolvedValue([SA_DOC]);
 
     const res = await listGET(listRequest());
@@ -184,13 +191,11 @@ describe("GET /api/admin/service-accounts (list)", () => {
     const body = await res.json();
     expect(body.data.items).toHaveLength(1);
 
-    // No team filter means the bypass branch never triggers, even for an admin.
-    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
-      user: `user:${SESSION.sub}`,
-      relation: "member",
-      type: "team",
-    });
-    expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
+    // No team filter, no preview subject: the admin sees every team's SAs, so
+    // the caller's own membership lookup is never consulted, and the Mongo
+    // query is unbounded (owningTeamIds === null, not the caller's teams).
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(null, { includeRevoked: false });
   });
 
   it("uses the preview subject's team memberships for a read-only simulation", async () => {
