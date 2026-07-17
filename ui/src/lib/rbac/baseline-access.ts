@@ -29,6 +29,9 @@ export const PRIVILEGED_ADMIN_SURFACES = [
   // relying on the (otherwise reliable) model inheritance from
   // `organization#admin`.
   "rag_datasources",
+  // TOME admin surface — gates the /projects/admin page and template config CRUD.
+  // Org admins inherit can_manage automatically via organization#admin → admin_surface#manager.
+  "tome",
 ] as const;
 
 export type BaselineAdminSurface = (typeof BASELINE_ADMIN_SURFACES)[number];

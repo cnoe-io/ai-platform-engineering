@@ -32,6 +32,16 @@ export async function register() {
     console.warn("[instrumentation] IdP sync scheduler not started:", err);
   }
 
+  // Seed the DB-backed page-template config from the hardcoded defaults when
+  // absent. Insert-if-absent only — admin edits survive restarts. Failures
+  // must not take down the server; the schema.ts fallback still applies.
+  try {
+    const { seedPageTemplates } = await import("./lib/tome/page-templates-store");
+    await seedPageTemplates();
+  } catch (err) {
+    console.warn("[instrumentation] Tome page-template seed skipped:", err);
+  }
+
   // Start the Tome ingest queue worker so BHAG-cascade runs (status "queued")
   // actually get drained. Idempotent; failures must not take down the server.
   try {

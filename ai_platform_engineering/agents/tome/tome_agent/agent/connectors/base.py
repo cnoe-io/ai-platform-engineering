@@ -136,12 +136,6 @@ class Connector(ABC, Generic[ExtraT]):
 def format_pages(specs: tuple[PageSpec, ...]) -> str:
     """Render a tuple of PageSpecs as a markdown bullet list for agent
     prompts."""
-    out: list[str] = []
-    for spec in specs:
-        grounded = (
-            f" — grounded by: {', '.join(spec.grounded_by)}"
-            if spec.grounded_by
-            else ""
-        )
-        out.append(f"  - `{spec.path}` ({spec.kind}) — {spec.title}{grounded}")
-    return "\n".join(out)
+    return "\n".join(
+        f"  - `{spec.path}` ({spec.kind}) — {spec.title}" for spec in specs
+    )

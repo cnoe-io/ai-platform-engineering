@@ -16,6 +16,7 @@ import {
   Plus,
   RefreshCw,
   Rocket,
+  Settings,
   Sparkles,
   Target,
   UserX,
@@ -443,6 +444,7 @@ export function ProjectsHub() {
   const [canOpenSync, setCanOpenSync] = useState(false);
   const [, setSyncBlockedReason] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [isTomeAdmin, setIsTomeAdmin] = useState(false);
 
   // First-run walkthrough, once per browser (shared key with the wiki). The
   // Help button reopens it any time.
@@ -552,6 +554,11 @@ export function ProjectsHub() {
       })
       .catch(() => undefined);
 
+    fetch("/api/tome/admin")
+      .then((res) => res.json())
+      .then((body) => setIsTomeAdmin(Boolean(body.isTomeAdmin)))
+      .catch(() => undefined);
+
     fetch("/api/projects/backstage/status")
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
@@ -588,24 +595,37 @@ export function ProjectsHub() {
           </div>
           <div className="flex flex-col items-stretch gap-3 md:items-end">
             <ProjectOnboardingWizard onComplete={() => void load()} />
-            <Link
-              href="/projects/dashboard"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
-            >
-              <Sparkles className="h-4 w-4" />
-              Executive Dashboard
-            </Link>
-            {canOpenSync ? (
-              <button
-                type="button"
-                onClick={() => setSyncOpen(true)}
-                title="Super admins can import kind: System entities from the Backstage developer portal, assign a team, and resolve conflicts before apply."
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              <Link
+                href="/projects/dashboard"
+                title="Executive Dashboard"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
               >
-                <RefreshCw className="h-4 w-4" />
-                Sync from Backstage
-              </button>
-            ) : null}
+                <Sparkles className="h-3.5 w-3.5" />
+                Dashboard
+              </Link>
+              {canOpenSync ? (
+                <button
+                  type="button"
+                  onClick={() => setSyncOpen(true)}
+                  title="Import kind: System entities from the Backstage developer portal, assign a team, and resolve conflicts before apply."
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Backstage
+                </button>
+              ) : null}
+              {isTomeAdmin && (
+                <Link
+                  href="/projects/admin"
+                  title="TOME Admin"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Admin
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </section>

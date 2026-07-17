@@ -46,7 +46,7 @@ def _build_synthesis_system_prompt(
     strictly in what the child wikis say."""
     from tome_agent.agent.connectors.base import format_pages
 
-    top_level = format_pages(report_schema.DEFAULT_PAGES)
+    top_level = format_pages(report_schema.default_pages())
 
     write_root = project_root(snapshot.project_id)
     children = snapshot.child_projects or []

@@ -147,6 +147,18 @@ export interface IngestRun {
   queued_at?: Date;
   /** Latest cumulative token usage, updated live during the run for the header. */
   usage?: { output: number; input: number };
+  /**
+   * Latest exact context-window occupancy, from the Claude Agent SDK's own
+   * live accounting (the same figure the CLI's `/context` shows) — accounts
+   * for system prompt, tool defs, memory files, and the real model max /
+   * autocompact threshold. Updated live during the run for the header.
+   */
+  context_usage?: {
+    percentage: number;
+    total_tokens: number;
+    max_tokens: number;
+    model: string;
+  };
 }
 
 /** One in-flight run, as surfaced on the projects hub (GET /api/projects). */

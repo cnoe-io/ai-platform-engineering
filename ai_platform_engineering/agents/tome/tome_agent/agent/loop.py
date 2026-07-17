@@ -295,8 +295,12 @@ def sources_for_connector(snapshot, connector) -> list[SourceItem]:
     return []
 
 
-def log_pre_tool(input_data, _tool_use_id, _context):
-    """Triggered right BEFORE the agent executes a tool."""
+async def log_pre_tool(input_data, _tool_use_id, _context):
+    """Triggered right BEFORE the agent executes a tool.
+
+    Must be async: the SDK `await`s every hook callback, so a sync function
+    returning None raises `TypeError: object NoneType can't be used in 'await'`
+    on each tool call and eventually wedges the CLI's stream reader."""
     log.info(
         f"🤖 Agent invoking tool: '{input_data.get('tool_name')}' | "
         f"Arguments: {input_data.get('tool_input')} | "
@@ -304,8 +308,9 @@ def log_pre_tool(input_data, _tool_use_id, _context):
     )
 
 
-def log_post_tool(input_data, _tool_use_id, _context):
-    """Triggered right AFTER the tool finishes executing."""
+async def log_post_tool(input_data, _tool_use_id, _context):
+    """Triggered right AFTER the tool finishes executing. Async for the same
+    reason as log_pre_tool — the SDK awaits the return value."""
     # Truncate output if it's too massive for standard logs
     preview_result = str(input_data.get("result"))[:200]
     if len(str(input_data.get("result"))) > 200:

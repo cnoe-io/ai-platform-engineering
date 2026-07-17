@@ -33,6 +33,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     cascade_id: run.cascade_id ?? null,
     cascade_role: run.cascade_role ?? null,
     usage: run.usage ?? null,
+    context_usage: run.context_usage ?? null,
     log: (run.log ?? []).join("\n"),
   });
 });

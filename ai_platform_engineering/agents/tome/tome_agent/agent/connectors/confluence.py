@@ -7,11 +7,6 @@ from tome_agent.agent.connectors.base import Connector, SourceItem, format_pages
 from tome_agent.agent.mcp_confluence import build_confluence_mcp
 from tome_agent.reports.schema import PageSpec, frontmatter_example, CONFLUENCE_PAGE_FRONTMATTER
 
-CONFLUENCE_TEMPLATE: tuple[PageSpec, ...] = (
-    PageSpec("overview.md", "dynamic", "Overview", 0),
-    PageSpec("activity.md", "dynamic", "Recent Activity", 1),
-)
-
 
 def _atlassian_cloud_id() -> str:
     """Resolve the active request's Atlassian cloud_id from forwarded
@@ -76,7 +71,9 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
         return urls
 
     def page_template(self) -> tuple[PageSpec, ...]:
-        return CONFLUENCE_TEMPLATE
+        from tome_agent.reports import schema as report_schema
+
+        return report_schema.confluence_template()
 
     def system_prompt_block(
         self,
@@ -88,10 +85,11 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
         if not sources:
             return "(no Confluence spaces attached)"
 
+        template = report_schema.confluence_template()
         blocks = []
         for source in sources:
             expanded = report_schema.expand_template(
-                f"confluence/{source.slug}", CONFLUENCE_TEMPLATE
+                f"confluence/{source.slug}", template
             )
             key = source.extra.get("space_key", "") or source.slug
             blocks.append(

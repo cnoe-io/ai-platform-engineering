@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Square } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { formatTokens } from "@/lib/tome/ingest-format";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 
 /**
@@ -27,7 +26,12 @@ interface RunDetail {
   log: string;
   cascade_id?: string | null;
   cascade_role?: "child" | "parent" | null;
-  usage?: { output: number; input: number } | null;
+  context_usage?: {
+    percentage: number;
+    total_tokens: number;
+    max_tokens: number;
+    model: string;
+  } | null;
 }
 
 interface CascadeChild {
@@ -184,7 +188,19 @@ function RunLogPane({
 
   const status = run?.status ?? "queued";
   const active = status === "running" || status === "queued";
-  const tokens = run?.usage ? formatTokens(run.usage) : "";
+  const ctxPct = run?.context_usage?.percentage;
+  const ctxTitle =
+    run?.context_usage &&
+    `${Math.round(run.context_usage.total_tokens / 1000)}k / ` +
+      `${Math.round(run.context_usage.max_tokens / 1000)}k tokens · ${run.context_usage.model}`;
+  const ctxColorClass =
+    ctxPct == null
+      ? ""
+      : ctxPct >= 90
+        ? "text-red-400"
+        : ctxPct >= 75
+          ? "text-amber-400"
+          : "text-neutral-500";
 
   // Auto-scroll to bottom on new log lines, but only if the user hasn't
   // scrolled up to read earlier output.
@@ -199,9 +215,12 @@ function RunLogPane({
           <span className="truncate text-xs font-medium uppercase tracking-wider text-neutral-400">
             {label} · {status}
           </span>
-          {tokens && (
-            <span className="truncate text-xs font-medium tabular-nums text-neutral-500">
-              · tokens: {tokens}
+          {ctxPct != null && (
+            <span
+              className={`truncate text-xs font-medium tabular-nums ${ctxColorClass}`}
+              title={ctxTitle}
+            >
+              · context: {Math.round(ctxPct)}%
             </span>
           )}
         </div>

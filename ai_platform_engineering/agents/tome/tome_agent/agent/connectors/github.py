@@ -7,15 +7,6 @@ from tome_agent.agent.mcp_github import build_github_mcp
 from tome_agent.agent.wiki_steering import fetch_steering
 from tome_agent.reports.schema import PageSpec
 
-REPO_TEMPLATE: tuple[PageSpec, ...] = (
-    PageSpec("overview.md",       "dynamic", "Overview",        0),
-    PageSpec("team.md",           "dynamic", "Team",           10),
-    PageSpec("architecture.md",   "dynamic", "Architecture",   30),
-    PageSpec("status.md",         "dynamic", "Status",         40),
-    PageSpec("activity.md",       "dynamic", "Activity",       50),
-    PageSpec("conversations.md",  "dynamic", "Conversations",  60),
-)
-
 
 class GitHubExtra(BaseModel):
     """GitHub's extra payload is connector-fetched (not user-supplied) — populated by
@@ -54,7 +45,9 @@ class GitHubConnector(Connector[GitHubExtra]):
         ]
 
     def page_template(self) -> tuple[PageSpec, ...]:
-        return REPO_TEMPLATE
+        from tome_agent.reports import schema as report_schema
+
+        return report_schema.repo_template()
 
     def system_prompt_block(
         self,
@@ -66,10 +59,11 @@ class GitHubConnector(Connector[GitHubExtra]):
         if not sources:
             return "PER-REPO SUBTREES:\n\n(no repos attached — top-level pages only)"
 
+        template = report_schema.repo_template()
         blocks: list[str] = []
         for source in sources:
             expanded = report_schema.expand_template(
-                f"repos/{source.slug}", REPO_TEMPLATE
+                f"repos/{source.slug}", template
             )
             blocks.append(
                 f"### Repo `{source.slug}` ({source.display_name})\n"

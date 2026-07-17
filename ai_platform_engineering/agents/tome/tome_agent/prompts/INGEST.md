@@ -109,28 +109,29 @@ in your final summary so it shows in the run log.
 
 ## Wiki tree shape
 
-**Top-level pages** explain the Project as a whole (this is where synthesis
-lives — the most valuable pages):
-- `overview.md` — what this effort is, who's involved, the goals, where it stands
-- `product.md` — roadmap, mPRD, customer signals, learnings
-- `architecture.md` — how the pieces fit together across sources
-- `marketing.md` — positioning, comms, GTM (sparse until there's signal)
-- `conversations.md` — the cross-source narrative: what's being debated/decided
-- `standup.md` — report-card surface (special format, see below)
-- `glossary/` — the project's vocabulary, one file per term (see Glossary below)
-- `memory.md` — your hidden working memory
+The exact page set (paths, kinds, and per-page guidance) is enumerated in the
+system prompt below — it's admin-configurable, so treat that enumeration as
+authoritative and follow each page's guidance comment. The shape is:
+
+**Stable pages** — human-owned beliefs & commitments; preserve, don't rewrite:
+`charter.md`, `objectives.md`, `roadmap.md`, `commitments.md`, `agreements.md`.
+
+**Dynamic top-level pages** — where cross-source synthesis lives (the most
+valuable pages): `overview.md`, `status.md`, `activity.md`, `architecture.md`,
+`discovery.md`, `design.md`, `market.md`, `campaigns.md`, `actions.md`. Plus
+`standup.md` (report-card surface), `glossary/` (vocabulary, one file per term),
+and `memory.md` (hidden working memory).
 
 **Per-source subtrees** are *thin* — orientation, not transcripts. Synthesis
 belongs up top; per-source pages cover what's specific to that one source.
-- `repos/<slug>/` — per GitHub repo: `overview.md`, `architecture.md`,
-  `status.md`, `activity.md`, plus `team.md`/`conversations.md`
-  where warranted. Code-level specifics live here.
-- `webex/<slug>/` — per Webex room: `overview.md`, `activity.md`. Use the
+- `repos/<slug>/` — per GitHub repo (`overview`, `activity`, `architecture`,
+  `status`, `conversations`). Code-level specifics live here.
+- `webex/<slug>/` — per Webex room (`overview`, `actions`, `activity`). Use the
   `mcp__webex__*` tools: `webex_list_messages(roomId)` lists messages newest-first
-  (your recency signal), then `webex_get_message(messageId)` for bodies; use
-  `webex_get_person(personId)` to resolve message authors (cached). The system
-  prompt below has the per-room scan instructions.
-- `confluence/<slug>/` — per Confluence space: `overview.md`, `activity.md`.
+  (your recency signal), then `webex_get_message(messageId)` for bodies;
+  `webex_get_person(personId)` resolves authors (cached).
+- `confluence/<slug>/` — per Confluence space (`overview`, `activity`,
+  `references`).
 
 The system prompt below enumerates the exact paths for this Project's sources.
 Don't invent extra source folders.
@@ -142,7 +143,8 @@ Decide where a piece of understanding belongs by **scope**:
 - Specific to one repo (its code, its team) → that repo's subtree.
 - Specific to one chat room or space → that source's subtree.
 - A decision that surfaced in one place but matters to the whole effort →
-  top-level `conversations.md`, citing where it came from.
+  the relevant top-level page (`status.md`, `actions.md`, or a tracked
+  `decisions/` entry), citing where it came from.
 
 When in doubt, synthesize up top and link down to specifics.
 
@@ -301,6 +303,23 @@ edges from speculation, and don't create one just because two projects share a
 vague theme (`relates-to` is a last resort, not a default). A handful of real
 edges beats a dense web of weak ones.
 
+## Tracked entities — Issues, Decisions, Suggestions
+
+Same one-file-per-entry primitive as the glossary and edges — a project-level
+collection, one file per entry with typed frontmatter and a prose body:
+
+- `issues/<slug>.md` — `type: issue`, `status: open | resolved`
+- `decisions/<slug>.md` — `type: decision`, `status: proposed | accepted | rejected`
+- `suggestions/<slug>.md` — `type: suggestion`, `status: proposed | accepted | rejected`
+
+Frontmatter floor: `type` + `title` + `status`. Add `owner` and `opened`
+(`YYYY-MM-DD`) when known. Body: what it is, why it matters, and any evidence
+links (`tome://…` / source URLs). Create one only for a *concrete* issue,
+decision, or suggestion that surfaced in the sources — not speculation. Update
+an existing entry's `status` in place rather than duplicating it; don't delete
+resolved/accepted entries (the record is the point). These tracked entries are
+the individual records; narrative pages like `actions.md` summarize across them.
+
 ## Frontmatter format
 
 Every page MUST keep this YAML frontmatter intact:
@@ -310,7 +329,6 @@ Every page MUST keep this YAML frontmatter intact:
 title: <Title>
 kind: <stable|dynamic|hidden|report>
 order: <integer>
-[grounded_by: [comma, separated, list]]
 ---
 ```
 
@@ -341,29 +359,12 @@ Write conceptually (per the rule at the top). A few specifics:
     use this when you actually know the other project's slug; otherwise keep
     links same-project (relative).
 
-- **`standup.md`** (report card — keep this exact structure, it's UI-rendered):
-  - `## What is this` (one or two sentences)
-  - `## Headline` (the single most important thing this period, across the effort)
-  - `## Asks / Blockers` (bullets — anything blocked / needing help; cite)
-  - `## Up next` (bullets — upcoming milestones / deadlines)
-
-  Under ~200 words.
-
-- **`overview.md`** — what the effort is and where it stands, as prose. Purpose,
-  active goals, who's leading, lifecycle phase. Not per-repo detail.
-
-- **`status.md`** (per repo) — where this repo *is* right now: what's the current
-  focus, what moved, what's stuck, what's surprising. Write it as a few short
-  paragraphs a teammate would say — not fixed slots, not a commit list. Cite
-  claims. If little changed, say so in a sentence.
-
-- **`activity.md`** (per source) — NOT a feed. A short, *interpreted* read of
-  what the recent activity adds up to, organized by theme/goal, citing the few
-  items that actually matter. If the recent window is quiet, a sentence saying so
-  is the correct content.
-
-- **`conversations.md`** — the narrative of what's being debated and decided,
-  organized by topic, citing where each thread lives. Not a meeting log.
+- **Per-page guidance lives in the page itself.** A freshly seeded page may
+  open with an HTML comment (`<!-- Guidance for the ingest agent … -->`)
+  describing what that page should contain. Follow it, then leave the comment
+  in place (it's invisible when rendered) or refine it. `standup.md` is a
+  UI-rendered report card — keep the exact `##` section structure its guidance
+  comment specifies.
 
 ## Output discipline
 

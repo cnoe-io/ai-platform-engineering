@@ -30,7 +30,8 @@ import {
   infoLine,
   type IngestEvent,
 } from "./ingest-format";
-import { parseFrontmatter, stableSeedTemplates } from "./schema";
+import { parseFrontmatter } from "./schema";
+import { getStableSeedTemplates } from "./page-templates-store";
 import { injectCharterIntro } from "./seed";
 import { auditTome } from "./audit";
 import { isMyceliumConfigured, postEvent } from "./mycelium";
@@ -153,7 +154,7 @@ async function seedGreenfieldStablePages(
   reportId: string,
   runId: string,
 ): Promise<void> {
-  const seeds: Record<string, string> = stableSeedTemplates();
+  const seeds: Record<string, string> = await getStableSeedTemplates();
   const desc = (project.description ?? "").trim();
   if (desc && seeds["charter.md"]) {
     seeds["charter.md"] = injectCharterIntro(seeds["charter.md"], desc);
@@ -471,6 +472,24 @@ async function setRunUsage(
   await runs.updateOne({ _id: runId }, { $set: { usage } });
 }
 
+/** Store the latest exact context-window occupancy so the run header can show
+ * it live. Skips the write if the agent's snapshot was missing a percentage
+ * (a get_context_usage() hiccup) rather than persisting a bogus 0%. */
+async function setRunContextUsage(
+  runId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (typeof data.percentage !== "number") return;
+  const context_usage = {
+    percentage: data.percentage,
+    total_tokens: Number(data.total_tokens ?? 0),
+    max_tokens: Number(data.max_tokens ?? 0),
+    model: String(data.model ?? ""),
+  };
+  const runs = await getTomeIngestRunsCollection();
+  await runs.updateOne({ _id: runId }, { $set: { context_usage } });
+}
+
 async function driveIngest(
   projectId: string,
   runId: string,
@@ -503,6 +522,8 @@ async function driveIngest(
       // not the log — a per-turn token line floods the tail.
       if (ev.type === "usage") {
         await setRunUsage(runId, ev.data);
+      } else if (ev.type === "context_usage") {
+        await setRunContextUsage(runId, ev.data);
       } else {
         await appendLog(runId, formatIngestEvent(ev));
       }

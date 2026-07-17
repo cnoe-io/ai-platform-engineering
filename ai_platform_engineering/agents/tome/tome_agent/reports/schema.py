@@ -4,15 +4,18 @@ A report version is a tree of markdown pages, addressable by path under
 `<project_id>/`. Each page declares its `kind` (stable | dynamic) in YAML
 frontmatter. Stable pages are agent-drafted once at founding, then human-owned
 — the autonomous ingest loop only preserves them; humans edit them directly or
-via chat. Dynamic pages are agent-rewritten every ingest, grounded by the
-stable pages.
+via chat. Dynamic pages are agent-rewritten every ingest.
 """
 
 from __future__ import annotations
 
+import contextvars
+import logging
 import re
-from dataclasses import dataclass, field
-from typing import Literal, cast, get_args
+from dataclasses import dataclass, field, replace
+from typing import Any, Literal, cast, get_args
+
+log = logging.getLogger("tome_agent.reports.schema")
 
 PageKind = Literal["stable", "dynamic", "hidden", "report"]
 _PAGE_KINDS: tuple[str, ...] = get_args(PageKind)
@@ -27,7 +30,9 @@ class PageSpec:
     kind: PageKind
     title: str
     order: int
-    grounded_by: tuple[str, ...] = field(default_factory=tuple)
+    # When False, the page is excluded from seeding and the ingest prompt —
+    # templating for it is turned off without deleting the row.
+    enabled: bool = True
 
 
 # Top-level seed pages for a Project — these describe the strategic effort
@@ -41,18 +46,27 @@ class PageSpec:
 # `charter.md` / `objectives.md` / `roadmap.md` seed as `kind=stable`: the
 # agent drafts them once at founding (from the charter field + sources), then
 # the autonomous ingest loop only preserves them — only human-directed edits
-# (Crepe or chat) change them thereafter. Dynamic pages are grounded by them.
+# (Crepe or chat) change them thereafter.
 # Unfilled sections render as "answer this" cards in the UI, so seeding them
 # for every project costs nothing when a team hasn't filled them in yet.
 DEFAULT_PAGES: tuple[PageSpec, ...] = (
-    PageSpec("standup.md",        "report",  "The Standup",   -10, ("overview.md",)),
+    PageSpec("standup.md",        "report",  "The Standup",   -10),
+    # 5 stable — human-curated beliefs & commitments.
     PageSpec("charter.md",        "stable",  "Charter",        -5),
-    PageSpec("objectives.md",     "stable",  "Objectives",     -4, ("charter.md",)),
-    PageSpec("roadmap.md",        "stable",  "Roadmap",        -3, ("charter.md",)),
-    PageSpec("overview.md",       "dynamic", "Overview",        0, ("charter.md",)),
-    PageSpec("architecture.md",   "dynamic", "Architecture",   20, ("charter.md",)),
-    PageSpec("marketing.md",      "dynamic", "Marketing",      30, ("charter.md",)),
-    PageSpec("conversations.md",  "dynamic", "Conversations",  40, ("overview.md",)),
+    PageSpec("objectives.md",     "stable",  "Objectives",     -4),
+    PageSpec("roadmap.md",        "stable",  "Roadmap",        -3),
+    PageSpec("commitments.md",    "stable",  "Commitments",    -2),
+    PageSpec("agreements.md",     "stable",  "Agreements",     -1),
+    # 9 dynamic flat pages (glossary is a directory, agent-maintained per term).
+    PageSpec("overview.md",       "dynamic", "Overview",        0),
+    PageSpec("status.md",         "dynamic", "Status",         10),
+    PageSpec("activity.md",       "dynamic", "Activity",       20),
+    PageSpec("architecture.md",   "dynamic", "Architecture",   30),
+    PageSpec("discovery.md",      "dynamic", "Discovery",      40),
+    PageSpec("design.md",         "dynamic", "Design",         50),
+    PageSpec("market.md",         "dynamic", "Market",         60),
+    PageSpec("campaigns.md",      "dynamic", "Campaigns",      70),
+    PageSpec("actions.md",        "dynamic", "Actions",        80),
     PageSpec("memory.md",         "hidden",  "Memory",        100),
 )
 
@@ -116,51 +130,149 @@ _What we chose not to do — and what would make us revisit._
 |  |  |  |
 """
 
+_COMMITMENTS_BODY = """## What we've promised
+_What was promised, to whom, by when, and who owns it. The commitments this effort is accountable to._
+
+| Commitment | To whom | By when | Owner | Status |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+"""
+
+_AGREEMENTS_BODY = """## How we work
+_Decision rights, cadences, and the definition of done. The operating agreements the team holds each other to._
+
+## Decision rights
+_Who decides what, and who is consulted or informed._
+
+## Cadences
+_Standing rhythms: standups, reviews, planning, retros._
+
+## Definition of done
+_What "done" means here, so nothing ships half-finished._
+"""
+
 STABLE_SEED_BODIES: dict[str, str] = {
     "charter.md": _CHARTER_BODY,
     "objectives.md": _OBJECTIVES_BODY,
     "roadmap.md": _ROADMAP_BODY,
+    "commitments.md": _COMMITMENTS_BODY,
+    "agreements.md": _AGREEMENTS_BODY,
 }
 
 
 # Per-source page templates. Materialized into actual page paths by the
 # ingest agent — e.g. for a Repo with slug `mycelium`, REPO_TEMPLATE expands
-# into pages at `repos/mycelium/overview.md`, `repos/mycelium/team.md`, etc.
-#
-# Templates are intentionally minimal at first; we'll grow them once we have
-# a feel for what's useful per-source.
+# into pages at `repos/mycelium/overview.md`, `repos/mycelium/status.md`, etc.
 
 REPO_TEMPLATE: tuple[PageSpec, ...] = (
     PageSpec("overview.md",       "dynamic", "Overview",        0),
-    PageSpec("team.md",           "dynamic", "Team",           10),
-    PageSpec("architecture.md",   "dynamic", "Architecture",   30),
-    PageSpec("status.md",         "dynamic", "Status",         40),
-    PageSpec("activity.md",       "dynamic", "Activity",       50),
-    PageSpec("conversations.md",  "dynamic", "Conversations",  60),
+    PageSpec("activity.md",       "dynamic", "Activity",       10),
+    PageSpec("architecture.md",   "dynamic", "Architecture",   20),
+    PageSpec("status.md",         "dynamic", "Status",         30),
+    PageSpec("conversations.md",  "dynamic", "Conversations",  40),
 )
 
 WEBEX_TEMPLATE: tuple[PageSpec, ...] = (
     PageSpec("overview.md",       "dynamic", "Overview",        0),
-    PageSpec("activity.md",       "dynamic", "Activity",       10),
+    PageSpec("actions.md",        "dynamic", "Actions",        10),
+    PageSpec("activity.md",       "dynamic", "Activity",       20),
 )
 
 CONFLUENCE_TEMPLATE: tuple[PageSpec, ...] = (
     PageSpec("overview.md",       "dynamic", "Overview",        0),
+    PageSpec("activity.md",       "dynamic", "Activity",       10),
+    PageSpec("references.md",     "dynamic", "References",      20),
 )
+
+
+# ---------------------------------------------------------------------------
+# Live template overrides (DB-backed config, fetched per ingest run).
+#
+# The constants above (DEFAULT_PAGES / *_TEMPLATE) are the hardcoded fallback.
+# When a run fetches the admin-editable config from the backend, it calls
+# `set_template_overrides()` with the parsed scopes; the accessors below then
+# prefer that config. Task-local so concurrent runs can't clobber each other,
+# and so a run that never sets overrides transparently gets the constants.
+# ---------------------------------------------------------------------------
+
+# Scope keys mirror the backend's TEMPLATE_SCOPES.
+SCOPE_TOP_LEVEL = "top-level"
+SCOPE_GITHUB = "github"
+SCOPE_CONFLUENCE = "confluence"
+SCOPE_WEBEX = "webex"
+
+_template_overrides: contextvars.ContextVar[dict[str, tuple[PageSpec, ...]] | None] = (
+    contextvars.ContextVar("tome_template_overrides", default=None)
+)
+
+
+def _spec_from_dict(raw: dict[str, Any]) -> PageSpec | None:
+    """Parse one page dict from the config API into a PageSpec, or None if it
+    is malformed (missing path/kind/title) so one bad row can't break a run."""
+    path = raw.get("path")
+    kind = raw.get("kind")
+    title = raw.get("title")
+    if not isinstance(path, str) or not path or kind not in _PAGE_KINDS:
+        return None
+    order = raw.get("order")
+    return PageSpec(
+        path=path,
+        kind=cast(PageKind, kind),
+        title=str(title) if title else path,
+        order=int(order) if isinstance(order, (int, float)) else 0,
+        enabled=raw.get("enabled") is not False,
+    )
+
+
+def set_template_overrides(by_scope: dict[str, list[dict[str, Any]]] | None) -> None:
+    """Install per-run template config fetched from the backend. Silently keeps
+    the hardcoded fallback for any scope that is absent or fails to parse."""
+    if not by_scope:
+        _template_overrides.set(None)
+        return
+    parsed: dict[str, tuple[PageSpec, ...]] = {}
+    for scope, pages in by_scope.items():
+        if not isinstance(pages, list):
+            continue
+        # Drop disabled pages here so every consumer (prompt + seeding) honors
+        # the toggle without repeating the filter.
+        specs = tuple(
+            s
+            for s in (_spec_from_dict(p) for p in pages)
+            if s is not None and s.enabled
+        )
+        if specs:
+            parsed[scope] = specs
+    _template_overrides.set(parsed or None)
+
+
+def _override(scope: str) -> tuple[PageSpec, ...] | None:
+    overrides = _template_overrides.get()
+    return overrides.get(scope) if overrides else None
+
+
+def default_pages() -> tuple[PageSpec, ...]:
+    """Top-level project pages — config override if set, else DEFAULT_PAGES."""
+    return _override(SCOPE_TOP_LEVEL) or DEFAULT_PAGES
+
+
+def repo_template() -> tuple[PageSpec, ...]:
+    return _override(SCOPE_GITHUB) or REPO_TEMPLATE
+
+
+def webex_template() -> tuple[PageSpec, ...]:
+    return _override(SCOPE_WEBEX) or WEBEX_TEMPLATE
+
+
+def confluence_template() -> tuple[PageSpec, ...]:
+    return _override(SCOPE_CONFLUENCE) or CONFLUENCE_TEMPLATE
 
 
 def expand_template(prefix: str, template: tuple[PageSpec, ...]) -> tuple[PageSpec, ...]:
     """Materialize a per-source template under `<prefix>/`. Used to build the
     full page enumeration shown to the ingest agent."""
     return tuple(
-        PageSpec(
-            path=f"{prefix}/{spec.path}",
-            kind=spec.kind,
-            title=spec.title,
-            order=spec.order,
-            grounded_by=spec.grounded_by,
-        )
-        for spec in template
+        replace(spec, path=f"{prefix}/{spec.path}") for spec in template
     )
 
 
@@ -196,7 +308,6 @@ EMPTY_PAGE_PLACEHOLDER = "_(no content yet)_"
 FM_TITLE = "title"
 FM_KIND = "kind"
 FM_ORDER = "order"
-FM_GROUNDED_BY = "grounded_by"
 
 # `type` marks a structured entry whose body is preceded by typed frontmatter
 # the UI renders as a form (e.g. glossary terms). Distinct from `kind` (the page
@@ -344,6 +455,77 @@ def edge_slug(label: str) -> str:
     """Derive a filename slug from a short edge label (same rule as glossary_slug)."""
     s = re.sub(r"[^a-z0-9]+", "-", label.strip().lower()).strip("-")
     return s or "edge"
+
+
+# ---------------------------------------------------------------------------
+# Tracked entities — Issues, Decisions, Suggestions (#157). Same one-file-per-
+# entry structured primitive as the glossary and edges: one file per entry
+# under `<dir>/<slug>.md` with `type` + `status` frontmatter and a prose body.
+# Doc/storage surface only; the MCP lifecycle tools land in a follow-up. Keep
+# vocabularies in sync with ui/src/lib/tome/schema.ts.
+# ---------------------------------------------------------------------------
+
+ISSUES_DIR = "issues"
+ISSUE_TYPE = "issue"
+ISSUE_STATUSES: tuple[str, ...] = ("open", "resolved")
+
+DECISIONS_DIR = "decisions"
+DECISION_TYPE = "decision"
+DECISION_STATUSES: tuple[str, ...] = ("proposed", "accepted", "rejected")
+
+SUGGESTIONS_DIR = "suggestions"
+SUGGESTION_TYPE = "suggestion"
+SUGGESTION_STATUSES: tuple[str, ...] = ("proposed", "accepted", "rejected")
+
+# Shared frontmatter keys for tracked entities (FM_STATUS is reused).
+FM_OWNER = "owner"
+FM_OPENED = "opened"
+
+# Per-type frontmatter shapes — used to generate agent prompt instructions.
+ISSUE_FRONTMATTER: dict[str, str] = {
+    FM_TYPE: ISSUE_TYPE,
+    FM_TITLE: "<short issue title>",
+    FM_KIND: "dynamic",
+    FM_STATUS: "open | resolved",
+    FM_OWNER: "<who owns it, if known>",
+    FM_OPENED: "<YYYY-MM-DD>",
+}
+DECISION_FRONTMATTER: dict[str, str] = {
+    FM_TYPE: DECISION_TYPE,
+    FM_TITLE: "<short decision title>",
+    FM_KIND: "dynamic",
+    FM_STATUS: "proposed | accepted | rejected",
+    FM_OWNER: "<decision owner, if known>",
+    FM_OPENED: "<YYYY-MM-DD>",
+}
+SUGGESTION_FRONTMATTER: dict[str, str] = {
+    FM_TYPE: SUGGESTION_TYPE,
+    FM_TITLE: "<short suggestion title>",
+    FM_KIND: "dynamic",
+    FM_STATUS: "proposed | accepted | rejected",
+    FM_OWNER: "<who raised it, if known>",
+    FM_OPENED: "<YYYY-MM-DD>",
+}
+
+_TRACKED_ENTITY_TYPES: frozenset[str] = frozenset(
+    {ISSUE_TYPE, DECISION_TYPE, SUGGESTION_TYPE}
+)
+
+
+def is_tracked_entity(fm: dict[str, object]) -> bool:
+    """True when a page's frontmatter marks it as a tracked entity."""
+    return str(fm.get(FM_TYPE, "")).lower() in _TRACKED_ENTITY_TYPES
+
+
+def tracked_entity_path(dir_name: str, slug: str) -> str:
+    """Path for a tracked-entity file, e.g. `issues/<slug>.md`."""
+    return f"{dir_name}/{slug}.md"
+
+
+def tracked_entity_slug(title: str) -> str:
+    """Derive a filename slug from a short entity title (glossary rule)."""
+    s = re.sub(r"[^a-z0-9]+", "-", title.strip().lower()).strip("-")
+    return s or "entry"
 
 
 def frontmatter_example(fields: dict[str, str]) -> str:
@@ -520,8 +702,6 @@ def page_with_frontmatter(spec: PageSpec, body: str) -> str:
         "kind": spec.kind,
         "order": spec.order,
     }
-    if spec.grounded_by:
-        fm["grounded_by"] = list(spec.grounded_by)
     return serialize_frontmatter(fm, body)
 
 

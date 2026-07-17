@@ -221,6 +221,34 @@ def fetch_all_projects() -> list[dict[str, str]]:
         return projects if isinstance(projects, list) else []
 
 
+def fetch_page_templates() -> dict[str, list[dict[str, Any]]] | None:
+    """Fetch the live page-template config as `{scope: [page, ...]}`.
+
+    Scopes: `top-level`, `github`, `confluence`, `webex`. Each page is
+    `{path, kind, title, order, enabled, body}`. Returns None on any error so
+    the caller falls back to the hardcoded schema.py constants — ingest must
+    never hard-depend on this endpoint. Agent-token authed; no per-request scope."""
+    url = f"{_backend_url()}/api/internal/page-templates"
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            resp = client.get(url, headers=_auth_headers())
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        log.warning("fetch_page_templates failed; using hardcoded defaults", exc_info=True)
+        return None
+    templates = data.get("templates") if isinstance(data, dict) else None
+    if not isinstance(templates, list):
+        return None
+    by_scope: dict[str, list[dict[str, Any]]] = {}
+    for entry in templates:
+        scope = entry.get("scope")
+        pages = entry.get("pages")
+        if isinstance(scope, str) and isinstance(pages, list):
+            by_scope[scope] = pages
+    return by_scope or None
+
+
 def fetch_all_pages_sync(project_id: str | None = None) -> dict[str, str]:
     """All current pages as `{path: markdown}` from the backend. Used to
     materialize a project's on-disk working copy (startup load, periodic sync,

@@ -9,39 +9,39 @@
  */
 
 import {
-  DEFAULT_PAGES,
   EMPTY_PAGE_PLACEHOLDER,
   MEMORY_SEED,
   pageWithFrontmatter,
-  stableSeedPage,
 } from "./schema";
 import { getPageStore } from "./page-store";
+import { getPageTemplate } from "./page-templates-store";
 
 /**
- * Build the initial `{path: markdown}` for a fresh project. Pure — no I/O — so
- * it's easy to test and the ingest worker can reuse it.
+ * Build the initial `{path: markdown}` for a fresh project from the live
+ * top-level template config (admin-editable; falls back to the hardcoded
+ * defaults). Stable/hidden pages seed with their configured body scaffold;
+ * dynamic/report pages seed as empty placeholders the ingest agent fills.
  *
  * @param description CAIPE `project.description`, prepended to the charter.
  */
-export function buildGreenfieldPages(
+export async function buildGreenfieldPages(
   description: string,
-): Record<string, string> {
+): Promise<Record<string, string>> {
+  const template = await getPageTemplate("top-level");
   const pages: Record<string, string> = {};
 
-  for (const spec of DEFAULT_PAGES) {
-    if (spec.kind === "stable") {
-      let body = stableSeedPage(spec.path) ?? pageWithFrontmatter(spec, "");
-      // Seed the charter's intro from the project description (decision A).
-      if (spec.path === "charter.md" && description.trim()) {
-        body = injectCharterIntro(body, description.trim());
-      }
-      pages[spec.path] = body;
-    } else if (spec.kind === "hidden") {
-      pages[spec.path] = pageWithFrontmatter(spec, MEMORY_SEED);
-    } else {
-      // dynamic + report: empty placeholder until the agent fills them.
-      pages[spec.path] = pageWithFrontmatter(spec, EMPTY_PAGE_PLACEHOLDER);
+  for (const spec of template.pages) {
+    if (spec.enabled === false) continue; // templating off for this page
+    // Every page seeds with its configured body (stable scaffolds, the memory
+    // page, or a dynamic/report guidance comment); pages without one seed as an
+    // empty placeholder the ingest agent fills.
+    const bodyText = spec.body ?? (spec.kind === "hidden" ? MEMORY_SEED : EMPTY_PAGE_PLACEHOLDER);
+    let body = pageWithFrontmatter(spec, bodyText);
+    // Seed the charter's intro from the project description (decision A).
+    if (spec.path === "charter.md" && description.trim()) {
+      body = injectCharterIntro(body, description.trim());
     }
+    pages[spec.path] = body;
   }
   return pages;
 }
@@ -74,7 +74,7 @@ export async function seedGreenfieldIfEmpty(
   const store = await getPageStore();
   const existing = await store.listPages(projectId);
   if (Object.keys(existing).length > 0) return 0;
-  const pages = buildGreenfieldPages(description);
+  const pages = await buildGreenfieldPages(description);
   await store.writePages(projectId, pages, {
     message: "seed: greenfield wiki",
     author,

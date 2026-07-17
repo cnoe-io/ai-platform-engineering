@@ -12,6 +12,7 @@ The backend re-emits these as `IngestRun.log` lines, finalizes the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -19,6 +20,7 @@ from typing import Any
 from uuid import UUID
 
 from tome_agent import prompts
+from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.connectors.base import format_pages
 from tome_agent.agent.connectors.github import GitHubExtra
@@ -41,14 +43,68 @@ def _ingest_model() -> str:
     return os.environ.get("TTT_INGEST_MODEL", INGEST_MODEL_DEFAULT)
 
 
+def _template_change_note(
+    snapshot: ProjectSnapshot,
+    existing_pages: dict[str, str],
+) -> str:
+    """Diff the current templates against pages already on disk.
+
+    Returns a prompt block listing templated pages that don't exist yet (a
+    template edit added them) and pages whose on-disk kind no longer matches
+    the template, or "" when everything is in sync. Lets an incremental run
+    act on template edits made since the last ingest instead of silently
+    receiving the new page list."""
+    expected: dict[str, report_schema.PageSpec] = {
+        spec.path: spec for spec in report_schema.default_pages()
+    }
+    for connector in REGISTRY:
+        sources = sources_for_connector(snapshot, connector)
+        if not sources:
+            continue
+        template = connector.page_template()
+        for source in sources:
+            for spec in report_schema.expand_template(
+                f"{connector.source_prefix}/{source.slug}", template
+            ):
+                expected[spec.path] = spec
+
+    existing_kinds = report_schema.kinds_from_pages(existing_pages)
+    missing = sorted(p for p in expected if p not in existing_pages)
+    kind_changed = sorted(
+        (p, existing_kinds[p], expected[p].kind)
+        for p in expected
+        if p in existing_kinds and existing_kinds[p] != expected[p].kind
+    )
+    if not missing and not kind_changed:
+        return ""
+
+    lines = [
+        "TEMPLATE CHANGES SINCE LAST INGEST (the page-template config was "
+        "edited — reconcile the wiki to match):"
+    ]
+    for path in missing:
+        spec = expected[path]
+        lines.append(
+            f"- NEW page `{path}` ({spec.kind}) — \"{spec.title}\" is in the "
+            "template but not yet on disk. Create it this run."
+        )
+    for path, old_kind, new_kind in kind_changed:
+        lines.append(
+            f"- `{path}` kind changed {old_kind} → {new_kind} in the template. "
+            f"Treat it as {new_kind} going forward."
+        )
+    return "\n".join(lines) + "\n\n"
+
+
 def _build_system_prompt(
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
     connector_extras: dict[str, Any] | None = None,
     seed_stable_pages: bool = False,
+    template_note: str = "",
 ) -> str:
     """Compose the ingest agent's system prompt by iterating REGISTRY."""
-    top_level = format_pages(report_schema.DEFAULT_PAGES)
+    top_level = format_pages(report_schema.default_pages())
 
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []
@@ -154,7 +210,7 @@ PROJECT CHARTER (seed context, may be empty):
 
 {connector_sections}
 
-{mode_block}"""
+{template_note}{mode_block}"""
 
     if citation_section:
         project_block += f"\n\n{citation_section}"
@@ -196,6 +252,25 @@ async def stream_ingest(
     log_buf: list[IngestEventPayload] = []
     _emit_log = emit_log
 
+    # Load the admin-editable page-template config for this run. Sets a
+    # task-local override the schema accessors prefer; falls back to the
+    # hardcoded constants when the backend is unreachable.
+    templates = await asyncio.to_thread(http_client.fetch_page_templates)
+    report_schema.set_template_overrides(templates)
+
+    # On incremental runs, note any template pages missing from disk or whose
+    # kind changed, so the agent reconciles template edits made since the last
+    # ingest. Greenfield writes everything anyway, so skip the diff there.
+    template_note = ""
+    if not is_greenfield:
+        try:
+            existing = await asyncio.to_thread(
+                http_client.fetch_all_pages_sync, snapshot.project_id
+            )
+            template_note = _template_change_note(snapshot, existing)
+        except Exception:
+            log.warning("template-change diff skipped", exc_info=True)
+
     extras = await _resolve_extras(snapshot, connector_data)
 
     # `on_write` callback from the persist hook: emit a `page_written`
@@ -211,7 +286,11 @@ async def stream_ingest(
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=_build_system_prompt(
-            snapshot, is_greenfield, extras, seed_stable_pages=seed_stable_pages
+            snapshot,
+            is_greenfield,
+            extras,
+            seed_stable_pages=seed_stable_pages,
+            template_note=template_note,
         ),
         model=_ingest_model(),
         max_turns=MAX_TURNS,

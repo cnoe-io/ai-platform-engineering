@@ -6,11 +6,6 @@ from tome_agent.agent.connectors.base import Connector, SourceItem, format_pages
 from tome_agent.agent.mcp_webex import build_webex_mcp
 from tome_agent.reports.schema import PageSpec, frontmatter_example, WEBEX_MEETING_FRONTMATTER
 
-WEBEX_TEMPLATE: tuple[PageSpec, ...] = (
-    PageSpec("overview.md",       "dynamic", "Overview",        0),
-    PageSpec("activity.md",       "dynamic", "Activity",       10),
-)
-
 
 class WebexMeetingItem(BaseModel):
     id: str
@@ -52,7 +47,9 @@ class WebexConnector(Connector[WebexExtra]):
         ]
 
     def page_template(self) -> tuple[PageSpec, ...]:
-        return WEBEX_TEMPLATE
+        from tome_agent.reports import schema as report_schema
+
+        return report_schema.webex_template()
 
     def system_prompt_block(
         self,
@@ -64,10 +61,11 @@ class WebexConnector(Connector[WebexExtra]):
         if not sources:
             rooms_section = "(no Webex rooms attached)"
         else:
+            template = report_schema.webex_template()
             blocks = []
             for source in sources:
                 expanded = report_schema.expand_template(
-                    f"webex/{source.slug}", WEBEX_TEMPLATE
+                    f"webex/{source.slug}", template
                 )
                 room_id = source.extra.get("room_id", "") or source.slug
                 blocks.append(

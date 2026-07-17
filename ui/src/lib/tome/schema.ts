@@ -7,7 +7,7 @@
  * `<project_id>/`. Each page declares its `kind` (stable | dynamic | hidden |
  * report) in YAML frontmatter. Stable pages are agent-drafted once at founding,
  * then human-owned — the autonomous ingest loop only preserves them. Dynamic
- * pages are agent-rewritten every ingest, grounded by the stable pages.
+ * pages are agent-rewritten every ingest.
  */
 
 import type { PageKind, NodeKind } from "@/types/tome";
@@ -18,7 +18,6 @@ export interface PageSpec {
   kind: PageKind;
   title: string;
   order: number;
-  groundedBy: readonly string[];
 }
 
 function spec(
@@ -26,9 +25,8 @@ function spec(
   kind: PageKind,
   title: string,
   order: number,
-  groundedBy: readonly string[] = [],
 ): PageSpec {
-  return { path, kind, title, order, groundedBy };
+  return { path, kind, title, order };
 }
 
 /**
@@ -45,14 +43,23 @@ function spec(
  * by them.
  */
 export const DEFAULT_PAGES: readonly PageSpec[] = [
-  spec("standup.md", "report", "The Standup", -10, ["overview.md"]),
+  spec("standup.md", "report", "The Standup", -10),
+  // 5 stable — human-curated beliefs & commitments.
   spec("charter.md", "stable", "Charter", -5),
-  spec("objectives.md", "stable", "Objectives", -4, ["charter.md"]),
-  spec("roadmap.md", "stable", "Roadmap", -3, ["charter.md"]),
-  spec("overview.md", "dynamic", "Overview", 0, ["charter.md"]),
-  spec("architecture.md", "dynamic", "Architecture", 20, ["charter.md"]),
-  spec("marketing.md", "dynamic", "Marketing", 30, ["charter.md"]),
-  spec("conversations.md", "dynamic", "Conversations", 40, ["overview.md"]),
+  spec("objectives.md", "stable", "Objectives", -4),
+  spec("roadmap.md", "stable", "Roadmap", -3),
+  spec("commitments.md", "stable", "Commitments", -2),
+  spec("agreements.md", "stable", "Agreements", -1),
+  // 9 dynamic flat pages (glossary is a directory, agent-maintained per term).
+  spec("overview.md", "dynamic", "Overview", 0),
+  spec("status.md", "dynamic", "Status", 10),
+  spec("activity.md", "dynamic", "Activity", 20),
+  spec("architecture.md", "dynamic", "Architecture", 30),
+  spec("discovery.md", "dynamic", "Discovery", 40),
+  spec("design.md", "dynamic", "Design", 50),
+  spec("market.md", "dynamic", "Market", 60),
+  spec("campaigns.md", "dynamic", "Campaigns", 70),
+  spec("actions.md", "dynamic", "Actions", 80),
   spec("memory.md", "hidden", "Memory", 100),
 ];
 
@@ -113,10 +120,33 @@ _What we chose not to do, and what would make us revisit._
 |  |  |  |
 `;
 
+const COMMITMENTS_BODY = `## What we've promised
+_What was promised, to whom, by when, and who owns it. The commitments this effort is accountable to._
+
+| Commitment | To whom | By when | Owner | Status |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+`;
+
+const AGREEMENTS_BODY = `## How we work
+_Decision rights, cadences, and the definition of done. The operating agreements the team holds each other to._
+
+## Decision rights
+_Who decides what, and who is consulted or informed._
+
+## Cadences
+_Standing rhythms: standups, reviews, planning, retros._
+
+## Definition of done
+_What "done" means here, so nothing ships half-finished._
+`;
+
 export const STABLE_SEED_BODIES: Record<string, string> = {
   "charter.md": CHARTER_BODY,
   "objectives.md": OBJECTIVES_BODY,
   "roadmap.md": ROADMAP_BODY,
+  "commitments.md": COMMITMENTS_BODY,
+  "agreements.md": AGREEMENTS_BODY,
 };
 
 // Per-source page templates. Materialized into actual page paths by the ingest
@@ -124,20 +154,22 @@ export const STABLE_SEED_BODIES: Record<string, string> = {
 // pages at `repos/mycelium/overview.md`, etc.
 export const REPO_TEMPLATE: readonly PageSpec[] = [
   spec("overview.md", "dynamic", "Overview", 0),
-  spec("team.md", "dynamic", "Team", 10),
-  spec("architecture.md", "dynamic", "Architecture", 30),
-  spec("status.md", "dynamic", "Status", 40),
-  spec("activity.md", "dynamic", "Activity", 50),
-  spec("conversations.md", "dynamic", "Conversations", 60),
+  spec("activity.md", "dynamic", "Activity", 10),
+  spec("architecture.md", "dynamic", "Architecture", 20),
+  spec("status.md", "dynamic", "Status", 30),
+  spec("conversations.md", "dynamic", "Conversations", 40),
 ];
 
 export const WEBEX_TEMPLATE: readonly PageSpec[] = [
   spec("overview.md", "dynamic", "Overview", 0),
-  spec("activity.md", "dynamic", "Activity", 10),
+  spec("actions.md", "dynamic", "Actions", 10),
+  spec("activity.md", "dynamic", "Activity", 20),
 ];
 
 export const CONFLUENCE_TEMPLATE: readonly PageSpec[] = [
   spec("overview.md", "dynamic", "Overview", 0),
+  spec("activity.md", "dynamic", "Activity", 10),
+  spec("references.md", "dynamic", "References", 20),
 ];
 
 /**
@@ -180,7 +212,6 @@ export const EMPTY_PAGE_PLACEHOLDER = "_(no content yet)_";
 export const FM_TITLE = "title";
 export const FM_KIND = "kind";
 export const FM_ORDER = "order";
-export const FM_GROUNDED_BY = "grounded_by";
 
 // `type` marks a structured entry whose frontmatter the UI renders as a form
 // (e.g. glossary terms). Distinct from `kind` (the page lifecycle:
@@ -280,6 +311,50 @@ export function edgeSlug(label: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return s || "edge";
+}
+
+// ---------------------------------------------------------------------------
+// Tracked entities — Issues, Decisions, Suggestions (#157). Same one-file-per-
+// entry structured primitive as the glossary and edges: one file per entry
+// under `<dir>/<slug>.md` with `type` + `status` frontmatter and a prose body.
+// This is the doc/storage surface only; the MCP lifecycle tools
+// (tome_issue_mark_complete, etc.) land in a follow-up. Keep vocabularies in
+// sync with reports/schema.py.
+// ---------------------------------------------------------------------------
+
+export const ISSUES_DIR = "issues";
+export const ISSUE_TYPE = "issue";
+export const ISSUE_STATUSES = ["open", "resolved"] as const;
+export type IssueStatus = (typeof ISSUE_STATUSES)[number];
+
+export const DECISIONS_DIR = "decisions";
+export const DECISION_TYPE = "decision";
+export const DECISION_STATUSES = ["proposed", "accepted", "rejected"] as const;
+export type DecisionStatus = (typeof DECISION_STATUSES)[number];
+
+export const SUGGESTIONS_DIR = "suggestions";
+export const SUGGESTION_TYPE = "suggestion";
+export const SUGGESTION_STATUSES = ["proposed", "accepted", "rejected"] as const;
+export type SuggestionStatus = (typeof SUGGESTION_STATUSES)[number];
+
+// Shared frontmatter keys for tracked entities (FM_STATUS is reused).
+export const FM_OWNER = "owner";
+export const FM_OPENED = "opened";
+
+/** True when a page's frontmatter marks it as one of the tracked-entity types. */
+export function isTrackedEntity(fm: Record<string, FrontmatterValue>): boolean {
+  const t = String(fm[FM_TYPE] ?? "").toLowerCase();
+  return t === ISSUE_TYPE || t === DECISION_TYPE || t === SUGGESTION_TYPE;
+}
+
+/** Derive a tracked-entity filename slug from a short title (glossary rule). */
+export function trackedEntitySlug(title: string): string {
+  const s = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return s || "entry";
 }
 
 // ---------- Default-list helpers (seed-only) ----------
@@ -416,7 +491,6 @@ export function pageWithFrontmatter(s: PageSpec, body: string): string {
     kind: s.kind,
     order: s.order,
   };
-  if (s.groundedBy.length > 0) fm.grounded_by = [...s.groundedBy];
   return serializeFrontmatter(fm, body);
 }
 
