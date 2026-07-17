@@ -1020,6 +1020,46 @@ describe('getAuthenticatedUser', () => {
     expect(mockGetServerSession).not.toHaveBeenCalled();
     expect(mockValidateBearerJWT).toHaveBeenCalledTimes(2);
   });
+
+  it('resolves session.sub from the persisted keycloak_sub mapping for skills-API-key callers', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'skills-user@test.com',
+      name: 'Skills User',
+    });
+    const mockFindOne = jest.fn().mockResolvedValue({ keycloak_sub: 'oidc-sub-123' });
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/mcp/tome', {
+        headers: { authorization: 'Bearer skills-token' },
+      }) as unknown as NextRequest;
+
+    const { session } = await getAuthFromBearerOrSession(makeRequest());
+
+    expect(mockFindOne).toHaveBeenCalledWith(
+      { email: 'skills-user@test.com' },
+      { projection: { keycloak_sub: 1 } }
+    );
+    expect(session.sub).toBe('oidc-sub-123');
+  });
+
+  it('omits session.sub when no keycloak_sub mapping exists for the skills-API-key email', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'unmapped@test.com',
+      name: 'Unmapped User',
+    });
+    const mockFindOne = jest.fn().mockResolvedValue(null);
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/mcp/tome', {
+        headers: { authorization: 'Bearer skills-token' },
+      }) as unknown as NextRequest;
+
+    const { session } = await getAuthFromBearerOrSession(makeRequest());
+
+    expect(session.sub).toBeUndefined();
+  });
 });
 
 describe('withAuth', () => {

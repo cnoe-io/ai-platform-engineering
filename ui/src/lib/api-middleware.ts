@@ -264,6 +264,17 @@ function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: u
   }
 }
 
+async function resolveKeycloakSubByEmail(email: string): Promise<string | undefined> {
+  try {
+    const users = await getCollection<User>('users');
+    const record = await users.findOne({ email }, { projection: { keycloak_sub: 1 } });
+    const sub = record?.keycloak_sub;
+    return typeof sub === 'string' && sub.trim() ? sub.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function persistKeycloakSubMapping(
   session: { sub?: unknown; accessToken?: unknown; user?: { email?: string; name?: string } },
   user: { email: string; name: string; role: string }
@@ -556,9 +567,14 @@ export async function getAuthFromBearerOrSession(
     // Try local skills API token first (fast HS256, no network)
     const localIdentity = await validateLocalSkillsJWT(token);
     if (localIdentity) {
+      // Forwarded-credential lookups (resolveForwardedCredentials, sessionSub) key
+      // off session.sub — resolve it from the persisted email->keycloak_sub mapping
+      // so skills-API-key callers (Claude Code, MCP) see the same connected
+      // credentials as a browser session for the same person.
+      const sub = await resolveKeycloakSubByEmail(localIdentity.email);
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        session: { role: 'user' },
+        session: { role: 'user', ...(sub ? { sub } : {}) },
       };
     }
 
