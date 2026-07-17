@@ -3,7 +3,7 @@
 // assisted-by claude code claude-opus-4-8
 //
 // Executive dashboard (FR-010/011/012): rolls the project portfolio up by each
-// label dimension — Domain, BHAG/Initiative, Swim Lane — with counts + status
+// label dimension — Domain, BHAG/Initiative, Area — with counts + status
 // breakdown, and cross-filters the three facets against each other. Budget
 // health is a placeholder until the manual provider lands (FR-019).
 //
@@ -49,7 +49,7 @@ const DIMENSION_META: Record<
     dot: "bg-amber-500",
     gradient: "from-amber-500 to-orange-600",
   },
-  swimlane: { title: "By Swim Lane", Icon: Waves, dot: "bg-emerald-500", gradient: "from-emerald-500 to-teal-600" },
+  swimlane: { title: "By Area", Icon: Waves, dot: "bg-emerald-500", gradient: "from-emerald-500 to-teal-600" },
 };
 
 const PICKERS: Record<Dimension, (p: ProjectDocument) => string[]> = {
@@ -161,7 +161,7 @@ export function ProjectsDashboard() {
             <span className="text-gradient-primary">Executive Dashboard</span>
           </h1>
           <p className="text-sm text-muted-foreground">
-            Portfolio rolled up by Domain, BHAG / Initiative, and Swim Lane.
+            Portfolio rolled up by Domain, BHAG / Initiative, and Area.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -195,7 +195,7 @@ export function ProjectsDashboard() {
         <StatTag
           dot={DIMENSION_META.swimlane.dot}
           value={dims.swimlane.length}
-          label={dims.swimlane.length === 1 ? "swim lane" : "swim lanes"}
+          label={dims.swimlane.length === 1 ? "area" : "areas"}
         />
       </div>
 

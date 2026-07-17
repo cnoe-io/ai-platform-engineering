@@ -154,7 +154,7 @@ export function ProjectOnboardingWizard({
   const [bsResults, setBsResults] = useState<BackstageResult[]>([]);
   const [bsLoading, setBsLoading] = useState(false);
   const bsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Existing label values (for dropdown suggestions on BHAG / Swim Lane).
+  // Existing label values (for dropdown suggestions on BHAG / Area).
   const [labelFacets, setLabelFacets] = useState<{ initiatives: string[]; swimlanes: string[] }>({
     initiatives: [],
     swimlanes: [],
@@ -236,7 +236,7 @@ export function ProjectOnboardingWizard({
         setEnabled({});
       });
 
-    // Existing label values → datalist suggestions for BHAG / Swim Lane.
+    // Existing label values → datalist suggestions for BHAG / Area.
     fetch("/api/projects/facets")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
@@ -622,9 +622,9 @@ export function ProjectOnboardingWizard({
                         <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                       </label>
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium">Swim Lanes</span>
+                        <span className="text-sm font-medium">Areas</span>
                         <LabelComboBox
-                          ariaLabel="Swim Lanes"
+                          ariaLabel="Areas"
                           value={swimlanesRaw}
                           onChange={setSwimlanesRaw}
                           options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
@@ -927,7 +927,7 @@ export function ProjectOnboardingWizard({
                             </Row>
                           ) : null}
                           {swimlanes.length ? (
-                            <Row label="Swim Lanes">{swimlanes.join(", ")}</Row>
+                            <Row label="Areas">{swimlanes.join(", ")}</Row>
                           ) : null}
                         </div>
                       </div>

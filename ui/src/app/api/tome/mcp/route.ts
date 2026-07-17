@@ -417,6 +417,27 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "tome_edit_page",
+    description:
+      "Write new content to a specific wiki page in a project. Goes through the same persist and audit path as the UI editor, and is RBAC-gated identically (editor role required). `project_slug` and `page_path` (e.g. `charter.md` or `repos/mycelium/overview.md`) are required; `markdown` is the full replacement content. Will fail if an ingest is in progress.",
+    inputSchema: schema(
+      { project_slug: STR, page_path: STR, markdown: STR, message: STR },
+      ["project_slug", "page_path", "markdown"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const pagePath = String(args.page_path).replace(/^\/+/, "");
+      const encodedPath = pagePath.split("/").map(encodeURIComponent).join("/");
+      const body: Record<string, unknown> = { markdown: String(args.markdown) };
+      if (args.message) body.message = String(args.message);
+      ensureOk(
+        await fwd("PUT", `/api/tome/projects/${slug}/pages/${encodedPath}`, body),
+        "edit page",
+      );
+      return toolText(`Updated ${pagePath}.`);
+    },
+  },
+  {
     name: "tome_ask",
     description:
       "Ask a question of a project's Tome chat agent. The agent reads the wiki (and attached sources) to answer. Returns the full answer text. `project_slug` and `question` are required.",

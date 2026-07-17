@@ -211,18 +211,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const projects = await getCollection<ProjectDocument>("projects");
+  const projectType: ProjectType = body.type === "bhag" ? "bhag" : "project";
   const existing = await projects.findOne({ slug, team_id: team._id });
   if (existing) {
-    throw new ApiError(
-      `Project "${slug}" already exists for this team`,
-      409,
-      "PROJECT_EXISTS",
-    );
+    const existingKind = existing.type === "bhag" ? "BHAG" : "project";
+    const newKind = projectType === "bhag" ? "BHAG" : "project";
+    const msg =
+      existingKind === newKind
+        ? `${newKind} "${slug}" already exists for this team`
+        : `A ${existingKind} named "${slug}" already exists for this team — BHAGs and projects share the same namespace`;
+    throw new ApiError(msg, 409, "PROJECT_EXISTS");
   }
 
   // A BHAG is synthesis-only: it has no connectors of its own (its sources are
   // the wikis of the projects tagged to it), so we ignore any source inputs.
-  const projectType: ProjectType = body.type === "bhag" ? "bhag" : "project";
   const isBhag = projectType === "bhag";
 
   const description =

@@ -741,6 +741,7 @@ describe('Admin Dashboard Page', () => {
       });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
+        'Navigation',
         'AI Review',
         'Credentials',
         'Skills',
@@ -952,6 +953,7 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
+        'Navigation',
         'AI Review',
         'Credentials',
         'Skills',

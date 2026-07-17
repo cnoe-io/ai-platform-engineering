@@ -32,6 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/toast";
 import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { ProjectDocument } from "@/types/projects";
@@ -328,7 +329,7 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
                     {l}
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>Swim Lane</TooltipContent>
+                <TooltipContent>Area</TooltipContent>
               </Tooltip>
             ))}
           </div>
@@ -422,6 +423,7 @@ function ProjectGroup({
 export function ProjectsHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
   const [projects, setProjects] = useState<EnrichedProject[]>([]);
   const [bhags, setBhags] = useState<EnrichedProject[]>([]);
   const [creatingBhag, setCreatingBhag] = useState<string | null>(null);
@@ -517,7 +519,7 @@ export function ProjectsHub() {
         const slug = body.data?.project?.slug;
         if (slug) router.push(`/projects/${slug}`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        toast(`Could not create BHAG: ${err instanceof Error ? err.message : String(err)}`, "error");
       } finally {
         setCreatingBhag(null);
       }
@@ -637,7 +639,7 @@ export function ProjectsHub() {
               className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             >
               <option value="initiative">Group by BHAG</option>
-              <option value="swimlane">Group by Swim Lane</option>
+              <option value="swimlane">Group by Area</option>
               <option value="none">No grouping</option>
             </select>
           </div>

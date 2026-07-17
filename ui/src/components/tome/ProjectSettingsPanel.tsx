@@ -26,7 +26,7 @@ import type { ProjectDocument, ProjectSources } from "@/types/projects";
 /**
  * Project settings, surfaced as a Tome view (nav item under Activity) so a project
  * can be reconfigured without leaving Tome. Edits title, description,
- * organization (team / BHAG / swim lane), and sources, persisting with
+ * organization (team / BHAG / area), and sources, persisting with
  * `PATCH /api/projects/<slug>`. `onSaved` lets the host refresh anything
  * derived from the project (e.g. the breadcrumb title).
  *
@@ -369,9 +369,9 @@ export function ProjectSettingsPanel({
                 multi
               />
             </Field>
-            <Field label="Swim Lanes" hint="Pick existing or type a new one (comma-separated).">
+            <Field label="Areas" hint="Pick existing or type a new one (comma-separated).">
               <LabelComboBox
-                ariaLabel="Swim Lanes"
+                ariaLabel="Areas"
                 value={swimlanesRaw}
                 onChange={setSwimlanesRaw}
                 options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
