@@ -11,6 +11,7 @@ import {
   openMcpServerEditor,
   openMcpTestModal,
   selectAgentGatewayTarget,
+  selectMcpTestTool,
   waitForMcpTestToolsLoaded,
 } from "./_mcp-browser-fixtures";
 import { mockedRbacEnabled } from "./_mocked-rbac";
@@ -265,7 +266,7 @@ test.describe("RBAC e2e — MCP caller-scoped provider credentials", () => {
     await gotoMcpServersTab(page);
     await openMcpTestModal(page, "Pinned Jira");
     await waitForMcpTestToolsLoaded(page);
-    await page.locator("#mcp-test-tool").selectOption("version");
+    await selectMcpTestTool(page, "version");
     await page.getByRole("button", { name: "Run tool" }).click();
 
     await expect(page.getByText(/Credential resolution/i)).toBeVisible();
