@@ -12,25 +12,39 @@ import base64
 
 import ai_platform_engineering.integrations.slack_bot.utils.file_ingest as fi
 
+# Valid magic-byte prefixes so downloaded bytes pass the content/type sniff.
+# _sniff_ok rejects a declared image/pdf whose leading bytes don't match, so
+# tests that assert a successful download must hand back real signatures.
+_PNG = b"\x89PNG\r\n\x1a\n" + b"payload"
+_JPEG = b"\xff\xd8\xff\xe0" + b"payload"
+_PDF = b"%PDF-1.4" + b"payload"
+
 
 class _FakeResponse:
-    def __init__(self, content: bytes, status: int = 200) -> None:
+    def __init__(
+        self, content: bytes, status: int = 200, content_type: str | None = None
+    ) -> None:
         self.content = content
         self._status = status
+        # Mirror requests.Response.headers (case-insensitive in the real lib;
+        # a plain dict is enough here since the code reads the exact key).
+        self.headers = {"Content-Type": content_type} if content_type else {}
 
     def raise_for_status(self) -> None:
         if self._status >= 400:
             raise RuntimeError(f"HTTP {self._status}")
 
 
-def _install_fake_get(monkeypatch, *, by_url=None, default=b"bytes", status=200):
+def _install_fake_get(
+    monkeypatch, *, by_url=None, default=_PNG, status=200, content_type=None
+):
     """Patch file_ingest.requests.get, recording the auth headers seen."""
     calls: list[dict] = []
 
     def fake_get(url, headers=None, timeout=None):
         calls.append({"url": url, "headers": headers or {}, "timeout": timeout})
         content = (by_url or {}).get(url, default)
-        return _FakeResponse(content, status=status)
+        return _FakeResponse(content, status=status, content_type=content_type)
 
     monkeypatch.setattr(fi.requests, "get", fake_get)
     return calls
@@ -43,13 +57,13 @@ def test_returns_empty_when_no_files(monkeypatch):
 
 
 def test_single_file_is_downloaded_and_base64_encoded(monkeypatch):
-    calls = _install_fake_get(monkeypatch, default=b"hello-bytes")
+    calls = _install_fake_get(monkeypatch, default=_PNG)
     files = [
         {
             "name": "shot.png",
             "mimetype": "image/png",
             "url_private_download": "https://files.slack.com/shot.png",
-            "size": 11,
+            "size": len(_PNG),
         }
     ]
 
@@ -58,7 +72,7 @@ def test_single_file_is_downloaded_and_base64_encoded(monkeypatch):
     assert len(out) == 1
     assert out[0] == {
         "mime_type": "image/png",
-        "data": base64.b64encode(b"hello-bytes").decode("ascii"),
+        "data": base64.b64encode(_PNG).decode("ascii"),
         "name": "shot.png",
     }
     # Auth header carries the bot token — the whole point of ingress.
@@ -69,8 +83,8 @@ def test_multiple_files_preserve_order(monkeypatch):
     _install_fake_get(
         monkeypatch,
         by_url={
-            "https://files.slack.com/a.png": b"aaa",
-            "https://files.slack.com/b.pdf": b"bbbb",
+            "https://files.slack.com/a.png": _PNG,
+            "https://files.slack.com/b.pdf": _PDF,
         },
     )
     files = [
@@ -81,7 +95,7 @@ def test_multiple_files_preserve_order(monkeypatch):
     out = fi.download_slack_files(files, bot_token="t")
 
     assert [o["name"] for o in out] == ["a.png", "b.pdf"]
-    assert out[0]["data"] == base64.b64encode(b"aaa").decode("ascii")
+    assert out[0]["data"] == base64.b64encode(_PNG).decode("ascii")
     assert out[1]["mime_type"] == "application/pdf"
 
 
@@ -182,7 +196,7 @@ def test_http_error_on_one_file_does_not_sink_others(monkeypatch):
     def fake_get(url, headers=None, timeout=None):
         if url.endswith("bad"):
             return _FakeResponse(b"", status=403)
-        return _FakeResponse(b"ok")
+        return _FakeResponse(_PNG)
 
     monkeypatch.setattr(fi.requests, "get", fake_get)
     files = [
@@ -193,3 +207,80 @@ def test_http_error_on_one_file_does_not_sink_others(monkeypatch):
     out = fi.download_slack_files(files, bot_token="t")
 
     assert [o["name"] for o in out] == ["good"]
+
+
+# --- Content/type sanity checks (Slack files:read scope regression) ----------
+
+
+def test_html_login_page_by_content_type_is_skipped(monkeypatch):
+    # Missing files:read scope: Slack returns its login page as HTTP 200 with a
+    # text/html Content-Type. raise_for_status passes, so this must be caught by
+    # the content-type check rather than forwarded as the declared image/png.
+    _install_fake_get(
+        monkeypatch, default=b"<!DOCTYPE html><html>login</html>",
+        content_type="text/html; charset=utf-8",
+    )
+    files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
+
+    out = fi.download_slack_files(files, bot_token="t")
+
+    assert out == []
+
+
+def test_html_login_page_without_content_type_is_sniffed(monkeypatch):
+    # Same failure but Slack omitted/obscured the Content-Type header — the
+    # body still begins with an HTML tag, which a real image never does.
+    _install_fake_get(
+        monkeypatch, default=b"  <html><body>Sign in</body></html>",
+        content_type=None,
+    )
+    files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
+
+    out = fi.download_slack_files(files, bot_token="t")
+
+    assert out == []
+
+
+def test_declared_image_with_wrong_magic_bytes_is_skipped(monkeypatch):
+    # Declared image/png but the bytes are not a PNG (and not HTML either) —
+    # still a content/type mismatch we should not forward to the model.
+    _install_fake_get(monkeypatch, default=b"not-an-image-at-all")
+    files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
+
+    out = fi.download_slack_files(files, bot_token="t")
+
+    assert out == []
+
+
+def test_jpeg_and_webp_magic_bytes_pass(monkeypatch):
+    webp = b"RIFF" + b"\x00\x00\x00\x00" + b"WEBP" + b"payload"
+    _install_fake_get(
+        monkeypatch,
+        by_url={
+            "https://files.slack.com/j.jpg": _JPEG,
+            "https://files.slack.com/w.webp": webp,
+        },
+    )
+    files = [
+        {"name": "j.jpg", "mimetype": "image/jpeg", "url_private": "https://files.slack.com/j.jpg"},
+        {"name": "w.webp", "mimetype": "image/webp", "url_private": "https://files.slack.com/w.webp"},
+    ]
+
+    out = fi.download_slack_files(files, bot_token="t")
+
+    assert [o["name"] for o in out] == ["j.jpg", "w.webp"]
+
+
+def test_text_upload_containing_html_is_not_rejected(monkeypatch):
+    # A real text/plain (or html) upload whose body is HTML source must pass:
+    # the sniff only rejects declared *binary* types, and the content-type
+    # branch only fires when the declared type is not itself HTML/text.
+    _install_fake_get(
+        monkeypatch, default=b"<html>this is the user's actual file</html>",
+        content_type="text/html",
+    )
+    files = [{"name": "page.html", "mimetype": "text/html", "url_private": "https://files.slack.com/p"}]
+
+    out = fi.download_slack_files(files, bot_token="t")
+
+    assert [o["name"] for o in out] == ["page.html"]

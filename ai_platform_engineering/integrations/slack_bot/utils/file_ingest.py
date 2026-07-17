@@ -62,12 +62,14 @@ def _resolve_bot_token(explicit: Optional[str]) -> Optional[str]:
     )
 
 
-def _download_one(url: str, token: str) -> bytes:
+def _download_one(url: str, token: str) -> tuple[bytes, Optional[str]]:
     """Fetch a single Slack private file URL with bot-token auth.
 
-    Raises for any non-2xx response so the caller can skip that file. Slack
-    serves an HTML login page (HTTP 200) for missing/invalid auth, so callers
-    should also sanity-check the returned content type / size upstream.
+    Returns ``(content_bytes, content_type_header)``. Raises for any non-2xx
+    response so the caller can skip that file. Slack serves an HTML login page
+    (HTTP 200) for missing/invalid auth, so ``raise_for_status`` alone is not
+    enough — the caller MUST also sanity-check the returned content type / bytes
+    (see ``_looks_like_html_login`` / ``_sniff_ok``).
     """
     resp = requests.get(
         url,
@@ -75,7 +77,64 @@ def _download_one(url: str, token: str) -> bytes:
         timeout=_DOWNLOAD_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
-    return resp.content
+    content_type = None
+    headers = getattr(resp, "headers", None)
+    if headers is not None:
+        content_type = headers.get("Content-Type")
+    return resp.content, content_type
+
+
+# Magic-byte signatures for the binary types Bedrock ingests. Used to catch the
+# Slack "HTML login page served as HTTP 200" failure — and any other
+# content/declared-type mismatch — before forwarding bad bytes to the model,
+# which would otherwise surface as a confusing provider-side error
+# (e.g. Azure OpenAI ``invalid_image_format``).
+_MAGIC_SIGNATURES: dict[str, tuple[bytes, ...]] = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    # image/webp is RIFF....WEBP — validated specially in _sniff_ok.
+    "application/pdf": (b"%PDF-",),
+}
+
+
+def _looks_like_html_login(
+    data: bytes, content_type: Optional[str], mime_type: str
+) -> bool:
+    """True if the bytes look like Slack's HTML login page, not the real file.
+
+    Slack returns that page with HTTP 200 (so ``raise_for_status`` passes) when
+    the bot token lacks the ``files:read`` scope. Detect it two ways: the
+    response ``Content-Type`` says HTML, or — when that header is absent/generic
+    — the body of a declared *binary* type begins with an HTML tag (a real
+    image/PDF never does; text uploads are left to the header check to avoid
+    false-positives on files that legitimately contain HTML source).
+    """
+    ct = (content_type or "").split(";")[0].strip().lower()
+    if ct in ("text/html", "application/xhtml+xml") and not mime_type.startswith(
+        "text/html"
+    ):
+        return True
+    if mime_type.startswith("image/") or mime_type == "application/pdf":
+        head = data[:512].lstrip().lower()
+        if head.startswith(b"<!doctype html") or head.startswith(b"<html"):
+            return True
+    return False
+
+
+def _sniff_ok(data: bytes, mime_type: str) -> bool:
+    """True if ``data``'s leading bytes match the declared ``mime_type``.
+
+    Only the binary types in ``_MAGIC_SIGNATURES`` are checked; types without a
+    reliable signature (text/*, Office XML, etc.) always pass — the
+    ``_looks_like_html_login`` check is the backstop for those.
+    """
+    if mime_type == "image/webp":
+        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    sigs = _MAGIC_SIGNATURES.get(mime_type)
+    if not sigs:
+        return True
+    return any(data.startswith(sig) for sig in sigs)
 
 
 def download_slack_files(
@@ -141,10 +200,30 @@ def download_slack_files(
             continue
 
         try:
-            data = _download_one(url, token)
+            data, content_type = _download_one(url, token)
         except Exception as exc:  # noqa: BLE001 — one bad file shouldn't sink the turn
             logger.warning(
                 "[file_ingest] Failed to download %r: %s", name, exc
+            )
+            continue
+
+        # Defense-in-depth: Slack returns an HTML login page (HTTP 200) when the
+        # bot token lacks the files:read scope. Forwarding those bytes under the
+        # declared mime_type makes the model provider raise a confusing
+        # invalid_image_format error, so skip+warn on any content/type mismatch.
+        if _looks_like_html_login(data, content_type, mime_type):
+            logger.warning(
+                "[file_ingest] Skipping %r: response looks like an HTML login "
+                "page, not %s — check the bot token has the files:read scope",
+                name, mime_type,
+            )
+            continue
+
+        if not _sniff_ok(data, mime_type):
+            logger.warning(
+                "[file_ingest] Skipping %r: content does not match declared "
+                "type %s (Content-Type=%r) — not forwarding bad bytes to the model",
+                name, mime_type, content_type,
             )
             continue
 
