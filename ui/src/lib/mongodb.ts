@@ -214,6 +214,11 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
     safeCreateIndex(db, 'users', { last_login: -1 }),
 
+    // Skills API key registry — jti lookups on every skills-token request,
+    // active-key lookups per user on generate/status.
+    safeCreateIndex(db, 'skills_api_keys', { jti: 1 }, { unique: true }),
+    safeCreateIndex(db, 'skills_api_keys', { user_email: 1, status: 1 }),
+
     // Conversations collection
     safeCreateIndex(db, 'conversations', { owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { created_at: -1 }),

@@ -1060,6 +1060,61 @@ describe('getAuthenticatedUser', () => {
 
     expect(session.sub).toBeUndefined();
   });
+
+  it('rejects a skills-API-key token whose jti was revoked', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'revoked-user@test.com',
+      name: 'Revoked User',
+      jti: 'revoked-jti',
+    });
+    const mockFindOne = jest.fn().mockResolvedValue({ status: 'revoked' });
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/mcp/tome', {
+        headers: { authorization: 'Bearer revoked-token' },
+      }) as unknown as NextRequest;
+
+    await expect(getAuthFromBearerOrSession(makeRequest())).rejects.toMatchObject({
+      code: 'SKILLS_KEY_REVOKED',
+    });
+  });
+
+  it('accepts a skills-API-key token whose jti is active', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'active-user@test.com',
+      name: 'Active User',
+      jti: 'active-jti',
+    });
+    const mockFindOne = jest.fn().mockResolvedValue({ status: 'active' });
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/mcp/tome', {
+        headers: { authorization: 'Bearer active-token' },
+      }) as unknown as NextRequest;
+
+    const { user } = await getAuthFromBearerOrSession(makeRequest());
+    expect(user.email).toBe('active-user@test.com');
+  });
+
+  it('accepts a skills-API-key token whose jti has no registry entry (pre-registry token)', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'legacy-user@test.com',
+      name: 'Legacy User',
+      jti: 'legacy-jti',
+    });
+    const mockFindOne = jest.fn().mockResolvedValue(null);
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/mcp/tome', {
+        headers: { authorization: 'Bearer legacy-token' },
+      }) as unknown as NextRequest;
+
+    const { user } = await getAuthFromBearerOrSession(makeRequest());
+    expect(user.email).toBe('legacy-user@test.com');
+  });
 });
 
 describe('withAuth', () => {

@@ -12,6 +12,8 @@
  * fallback identity is returned.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { createRemoteJWKSet,errors as joseErrors,jwtVerify,SignJWT,type JWTPayload } from 'jose';
 
 import {
@@ -26,6 +28,9 @@ export interface JWTIdentity {
   groups: string[];
   /** Stable subject identifier from the JWT (`sub` claim). */
   sub?: string;
+  /** Present on local skills API tokens — looked up against the key registry
+   *  (see ui/src/lib/skills-api-keys.ts) to enforce revocation. */
+  jti?: string;
   /**
    * True when the token was minted via the OAuth2 client-credentials grant
    * (a Keycloak *service account*, e.g. the Slack bot) rather than an
@@ -304,12 +309,16 @@ function parseExpiry(expiresIn: string): number {
  * @param email  User email (becomes `sub` claim)
  * @param name   User display name
  * @param expiresIn  Validity period, e.g. "30d", "60d", "90d" (default "90d", max 90d)
+ * @param jti  Unique id for this token, used by the key registry
+ *   (ui/src/lib/skills-api-keys.ts) to support revocation. Callers that mint
+ *   a token should generate one (e.g. `randomUUID()`) and register it.
  * @returns Signed JWT string
  */
 export async function signLocalSkillsToken(
   email: string,
   name: string,
   expiresIn: string = '90d',
+  jti?: string,
 ): Promise<string> {
   const key = getLocalSigningKey();
   const expSeconds = parseExpiry(expiresIn);
@@ -324,6 +333,7 @@ export async function signLocalSkillsToken(
     .setSubject(email)
     .setIssuedAt()
     .setExpirationTime(Math.floor(Date.now() / 1000) + expSeconds)
+    .setJti(jti ?? randomUUID())
     .sign(key);
 }
 
@@ -373,8 +383,9 @@ export async function validateLocalSkillsJWT(
       'unknown';
 
     const name = (payload.name as string) || email;
+    const jti = typeof payload.jti === 'string' ? payload.jti : undefined;
 
-    return { email, name, groups: [] };
+    return { email, name, groups: [], jti };
   } catch (err) {
     if (err instanceof joseErrors.JWTExpired) {
       // It IS a local token, but expired — don't fall through to OIDC

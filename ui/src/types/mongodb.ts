@@ -531,3 +531,21 @@ export function isProtectedServiceAccount(
 ): boolean {
   return sa.is_platform_unlinked === true;
 }
+
+// ============================================================================
+// Skills API Key registry
+// ============================================================================
+
+/** Metadata for a minted local skills API JWT (see ui/src/lib/jwt-validation.ts
+ *  signLocalSkillsToken). The raw JWT is never stored — only its `jti`, so a
+ *  key can be looked up and revoked without recovering the secret. */
+export interface SkillsApiKey {
+  _id?: ObjectId;
+  user_email: string;
+  jti: string; // UNIQUE — the token's `jti` claim.
+  label?: string;
+  created_at: Date;
+  expires_at: Date;
+  status: 'active' | 'revoked';
+  revoked_at?: Date | null;
+}

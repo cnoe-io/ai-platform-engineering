@@ -11,6 +11,7 @@ import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import type { User } from '@/types/mongodb';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
+import { isSkillsApiKeyActive } from '@/lib/skills-api-keys';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
@@ -567,6 +568,15 @@ export async function getAuthFromBearerOrSession(
     // Try local skills API token first (fast HS256, no network)
     const localIdentity = await validateLocalSkillsJWT(token);
     if (localIdentity) {
+      if (localIdentity.jti && !(await isSkillsApiKeyActive(localIdentity.jti))) {
+        throw new ApiError(
+          'This API key has been revoked. Generate a new one.',
+          401,
+          'SKILLS_KEY_REVOKED',
+          'bearer_invalid',
+          'sign_in'
+        );
+      }
       // Forwarded-credential lookups (resolveForwardedCredentials, sessionSub) key
       // off session.sub — resolve it from the persisted email->keycloak_sub mapping
       // so skills-API-key callers (Claude Code, MCP) see the same connected

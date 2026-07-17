@@ -64,6 +64,8 @@ function cursorConfig(endpoint: string, token: string): string {
   );
 }
 
+type ActiveKeyStatus = { hasActiveKey: boolean; createdAt?: string; expiresAt?: string };
+
 export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolean }) {
   const [open, setOpen] = useState(initialOpen);
   const [endpoint, setEndpoint] = useState("/api/tome/mcp");
@@ -71,12 +73,32 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
   const [token, setToken] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState<ActiveKeyStatus | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setEndpoint(`${window.location.origin}/api/tome/mcp`);
     }
   }, []);
+
+  useEffect(() => {
+    if (!open || token) return;
+    let cancelled = false;
+    fetch("/api/skills/token")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body) return;
+        setActiveKey({
+          hasActiveKey: body.has_active_key,
+          createdAt: body.created_at,
+          expiresAt: body.expires_at,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, token]);
 
   const generate = async () => {
     setGenerating(true);
@@ -93,6 +115,7 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
       }
       const body = await res.json();
       setToken(body.token);
+      setActiveKey({ hasActiveKey: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -101,6 +124,7 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
   };
 
   const shownToken = token ?? TOKEN_PLACEHOLDER;
+  const hasExistingKey = !token && activeKey?.hasActiveKey;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -135,20 +159,21 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
             </div>
           </div>
 
-          {/* Endpoint */}
-          <div className="min-w-0 space-y-1.5">
-            <label className="text-sm font-medium">MCP endpoint</label>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md border bg-muted/40 px-3 py-2 text-xs">
-                {endpoint}
-              </code>
-              <CopyButton value={endpoint} label="Copy endpoint" />
-            </div>
-          </div>
-
           {/* API key */}
           <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium">API key</label>
+            <p className="text-xs text-muted-foreground">
+              Endpoint <code>{endpoint}</code> is included in the client config below once generated.
+            </p>
+            {hasExistingKey && (
+              <p className="text-xs text-muted-foreground">
+                You already have an active key
+                {activeKey?.expiresAt
+                  ? ` (expires ${new Date(activeKey.expiresAt).toLocaleDateString()})`
+                  : ""}
+                . Generating a new one will revoke it.
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <select
                 value={days}
@@ -166,7 +191,7 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
                 ) : (
                   <KeyRound className="h-3.5 w-3.5" />
                 )}
-                {token ? "Regenerate" : "Generate key"}
+                {token || hasExistingKey ? "Regenerate" : "Generate key"}
               </Button>
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
@@ -179,50 +204,48 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
                   <CopyButton value={token} label="Copy API key" copiedLabel="Copied key" />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Copy it now. For security this key is shown only once; regenerating issues a new one.
+                  Copy it now. For security this key is shown only once; regenerating revokes it and
+                  issues a new one.
                 </p>
               </div>
             )}
           </div>
 
-          {/* Client config */}
-          <div className="min-w-0 space-y-1.5">
-            <label className="text-sm font-medium">Client configuration</label>
-            <Tabs defaultValue="claude-code" className="min-w-0">
-              <TabsList>
-                <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
-                <TabsTrigger value="claude">Claude Desktop</TabsTrigger>
-                <TabsTrigger value="cursor">Cursor</TabsTrigger>
-              </TabsList>
-              <TabsContent value="claude-code" className="min-w-0 space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  Run this once. Registers the server (user scope) via the native HTTP transport, no
-                  bridge needed. Then <code>/mcp</code> shows <code>tome</code>.
-                </p>
-                <ConfigBlock text={claudeCodeCommand(endpoint, shownToken)} />
-              </TabsContent>
-              <TabsContent value="claude" className="min-w-0 space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  Add to <code>claude_desktop_config.json</code> (uses the <code>mcp-remote</code>{" "}
-                  bridge). Claude Code: <code>claude mcp add</code> the same endpoint with the
-                  Authorization header.
-                </p>
-                <ConfigBlock text={claudeConfig(endpoint, shownToken)} />
-              </TabsContent>
-              <TabsContent value="cursor" className="min-w-0 space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  Add to <code>.cursor/mcp.json</code> (project) or <code>~/.cursor/mcp.json</code>{" "}
-                  (global).
-                </p>
-                <ConfigBlock text={cursorConfig(endpoint, shownToken)} />
-              </TabsContent>
-            </Tabs>
-            {!token && (
-              <p className="text-xs text-muted-foreground">
-                Generate a key above to fill in <code>{TOKEN_PLACEHOLDER}</code> automatically.
-              </p>
-            )}
-          </div>
+          {/* Client config — only shown once there's a real token to embed */}
+          {token && (
+            <div className="min-w-0 space-y-1.5">
+              <label className="text-sm font-medium">Client configuration</label>
+              <Tabs defaultValue="claude-code" className="min-w-0">
+                <TabsList>
+                  <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
+                  <TabsTrigger value="claude">Claude Desktop</TabsTrigger>
+                  <TabsTrigger value="cursor">Cursor</TabsTrigger>
+                </TabsList>
+                <TabsContent value="claude-code" className="min-w-0 space-y-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    Run this once. Registers the server (user scope) via the native HTTP transport, no
+                    bridge needed. Then <code>/mcp</code> shows <code>tome</code>.
+                  </p>
+                  <ConfigBlock text={claudeCodeCommand(endpoint, shownToken)} />
+                </TabsContent>
+                <TabsContent value="claude" className="min-w-0 space-y-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    Add to <code>claude_desktop_config.json</code> (uses the <code>mcp-remote</code>{" "}
+                    bridge). Claude Code: <code>claude mcp add</code> the same endpoint with the
+                    Authorization header.
+                  </p>
+                  <ConfigBlock text={claudeConfig(endpoint, shownToken)} />
+                </TabsContent>
+                <TabsContent value="cursor" className="min-w-0 space-y-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    Add to <code>.cursor/mcp.json</code> (project) or <code>~/.cursor/mcp.json</code>{" "}
+                    (global).
+                  </p>
+                  <ConfigBlock text={cursorConfig(endpoint, shownToken)} />
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
