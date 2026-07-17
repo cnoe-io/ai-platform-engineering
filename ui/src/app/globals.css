@@ -865,6 +865,22 @@ pre code.hljs {
   background: linear-gradient(to bottom right, var(--gradient-from), var(--gradient-to));
 }
 
+/* Restrained brand-gradient selection for Settings navigation. The first
+   layer supplies a quiet tinted surface; the second becomes the border. */
+.settings-navigation-active {
+  background:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--gradient-from) 14%, transparent),
+      color-mix(in srgb, var(--gradient-to) 10%, transparent)
+    ) padding-box,
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--gradient-from) 48%, transparent),
+      color-mix(in srgb, var(--gradient-to) 48%, transparent)
+    ) border-box;
+}
+
 /* Text gradient using theme colors */
 .text-gradient-primary {
   background: linear-gradient(to right, var(--gradient-from), var(--gradient-to));

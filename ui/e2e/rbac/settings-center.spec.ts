@@ -228,6 +228,12 @@ test.describe("mocked Settings Center browser regression",() => {
     await expect(page.getByText("Personal",{ exact: true }).last()).toBeVisible();
     await expect(page.getByRole("button",{ name: /^save$/i })).toHaveCount(0);
     await expect(page.locator(".app-header-active-pill")).toHaveCount(0);
+
+    const activeNavItem = page.getByRole("link",{ name: "Notifications",exact: true });
+    await expect(page.getByRole("navigation",{ name: "Settings sections" })).toBeVisible();
+    await expect(activeNavItem).toHaveAttribute("aria-current","page");
+    await expect(activeNavItem).toHaveClass(/settings-navigation-active/);
+    await expect.poll(async () => (await activeNavItem.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
   });
 
   test("keeps settings switch thumbs inside their tracks in both states",async ({ page }) => {

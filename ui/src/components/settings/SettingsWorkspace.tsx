@@ -71,8 +71,12 @@ export function SettingsWorkspace(): React.ReactElement {
     <main className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <header className="mb-8 flex items-center gap-3">
-          <span className="rounded-xl bg-primary/10 p-2.5 text-primary">
-            <Settings className="h-5 w-5" />
+          <span
+            aria-hidden="true"
+            className="group rounded-xl bg-primary/10 p-2.5 text-primary"
+            data-testid="settings-header-icon"
+          >
+            <Settings className="h-5 w-5 transform-gpu motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-out motion-safe:group-hover:rotate-90" />
           </span>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>

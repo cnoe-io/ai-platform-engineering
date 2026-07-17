@@ -42,10 +42,21 @@ describe("SettingsWorkspace",() => {
 
     expect(screen.getByRole("heading",{ name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Manage your experience.")).toBeInTheDocument();
+    const headerIcon = screen.getByTestId("settings-header-icon");
+    expect(headerIcon).toHaveClass("group");
+    expect(headerIcon.firstElementChild).toHaveClass("motion-safe:group-hover:rotate-90");
     expect(screen.getByRole("heading",{ name: "Appearance" })).toBeInTheDocument();
     expect(screen.getAllByText("Personal").length).toBeGreaterThan(0);
     expect(screen.getByText("Appearance content")).toBeInTheDocument();
     expect(screen.queryByText("Platform defaults content")).not.toBeInTheDocument();
+
+    const navigation = screen.getByRole("navigation",{ name: "Settings sections" });
+    const activeLink = screen.getByRole("link",{ name: "Appearance" });
+    expect(navigation).toContainElement(activeLink);
+    expect(activeLink).toHaveAttribute("aria-current","page");
+    expect(activeLink).toHaveClass("min-h-12","settings-navigation-active");
+    expect(activeLink.querySelector("[aria-hidden='true']")).toHaveClass("gradient-primary-br");
+    expect(screen.getByRole("link",{ name: "Chat & agents" })).not.toHaveAttribute("aria-current");
   });
 
   it("hides all platform navigation from a non-admin",() => {
@@ -71,6 +82,7 @@ describe("SettingsWorkspace",() => {
     expect(screen.getByText("Platform · Admins")).toBeInTheDocument();
     expect(screen.getByText("Platform defaults content")).toBeInTheDocument();
     expect(screen.getByRole("link",{ name: "Announcements" })).toBeInTheDocument();
+    expect(screen.getByRole("region",{ name: "Platform" })).toBeInTheDocument();
   });
 
   it("redirects an unknown settings path to the default personal section",async () => {
