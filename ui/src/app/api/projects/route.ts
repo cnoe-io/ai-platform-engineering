@@ -287,6 +287,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     ...(isBhag
       ? {}
       : { data_steward: body.data_steward?.trim().toLowerCase() || undefined }),
+    ...(body.decision_blast_radius ? { decision_blast_radius: body.decision_blast_radius } : {}),
+    ...(body.optionality?.length ? { optionality: body.optionality } : {}),
     domain,
     labels: sanitizeLabels(
       { domain, initiatives: body.initiatives, swimlanes: body.swimlanes },

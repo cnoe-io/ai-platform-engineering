@@ -14,6 +14,7 @@ import {
   Loader2,
   Rocket,
   Search,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -34,6 +35,19 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
 import type { ProjectDocument } from "@/types/projects";
+
+const BLAST_RADIUS_OPTIONS = [
+  { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
+  { value: "large", label: "Large or permanent (1-way)", hint: "BHAG/SLT stays in the loop" },
+] as const;
+
+const OPTIONALITY_OPTIONS = [
+  "Open Source Community / Foundation",
+  "Peer-Reviewed Paper Publication",
+  "Design Partner Co-Innovation / Marketing",
+  "BU Graduation",
+  "Free Service with Adoption",
+] as const;
 
 type SourceKind = "github" | "confluence" | "webex";
 
@@ -69,8 +83,8 @@ interface WizardStepMeta {
   icon: LucideIcon;
   gradient: string;
   checklist?: string[];
-  /** create = name/team; integrations = enable + configure apps/sources; review = confirm + commit (terminal — navigates to the project). */
-  kind: "create" | "integrations" | "review";
+  /** create = general info; slt = SLT governance fields; access = team/steward; integrations = apps/sources; review = confirm + commit. */
+  kind: "create" | "slt" | "access" | "integrations" | "review";
   source?: SourceKind;
 }
 
@@ -81,14 +95,28 @@ function buildWizardSteps(
 ): WizardStepMeta[] {
   const create: WizardStepMeta = {
     id: "create",
-    title: "Create Project",
-    subtitle: "Name your initiative and assign a team",
+    title: "General",
+    subtitle: "Name your initiative and set its scope",
     icon: FolderKanban,
     gradient: DEFAULT_GRADIENT,
     kind: "create",
   };
-  // Every configured integration (source or app) lives in one Integrations step
-  // where the user enables the ones they want and fills in any details.
+  const slt: WizardStepMeta = {
+    id: "slt",
+    title: "SLT Configuration",
+    subtitle: "Optional. Editable anytime in Project Settings.",
+    icon: Shield,
+    gradient: DEFAULT_GRADIENT,
+    kind: "slt",
+  };
+  const access: WizardStepMeta = {
+    id: "access",
+    title: "Access Control",
+    subtitle: "Assign a team and data steward",
+    icon: Shield,
+    gradient: DEFAULT_GRADIENT,
+    kind: "access",
+  };
   const integrations: WizardStepMeta | null = configSteps.length
     ? {
         id: "integrations",
@@ -99,8 +127,6 @@ function buildWizardSteps(
         kind: "integrations",
       }
     : null;
-  // Review is the terminal step: clicking Create commits the project, provisions
-  // the enabled apps in the background, and lands the user on the project page.
   const review: WizardStepMeta = {
     id: "review",
     title: "Review & Create",
@@ -109,7 +135,7 @@ function buildWizardSteps(
     gradient: DEFAULT_GRADIENT,
     kind: "review",
   };
-  return [create, integrations, review].filter(
+  return [create, slt, access, integrations, review].filter(
     (s): s is WizardStepMeta => Boolean(s),
   );
 }
@@ -140,6 +166,8 @@ export function ProjectOnboardingWizard({
   // Data steward for the source-activity feed: the principal the feed runs as.
   // Blank means the create API assigns the creator (owner) explicitly.
   const [stewardEmail, setStewardEmail] = useState("");
+  const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
+  const [optionality, setOptionality] = useState<string[]>([]);
   const [confluenceUrl, setConfluenceUrl] = useState("");
   // Encoded {room_id, name} blobs from the picker (see lib/projects/webex-room).
   const [webexRooms, setWebexRooms] = useState<string[]>([]);
@@ -181,6 +209,8 @@ export function ProjectOnboardingWizard({
   const phase = wizardSteps[phaseIndex] ?? wizardSteps[0];
   // Flow: create=0, [integrations], review. Review is terminal — Create commits,
   // provisions enabled apps in the background, and navigates to the project.
+  const isSltPhase = phase.kind === "slt";
+  const isAccessPhase = phase.kind === "access";
   const isIntegrationsPhase = phase.kind === "integrations";
   const isReviewPhase = phase.kind === "review";
 
@@ -297,6 +327,8 @@ export function ProjectOnboardingWizard({
     setSwimlanesRaw("");
     setGithubReposRaw("");
     setStewardEmail("");
+    setBlastRadius("");
+    setOptionality([]);
     setConfluenceUrl("");
     setWebexRooms([]);
     setProvisioning(false);
@@ -341,6 +373,8 @@ export function ProjectOnboardingWizard({
           webex_rooms,
           // Blank → the API assigns the creator explicitly (no runtime fallback).
           data_steward: stewardEmail.trim() || undefined,
+          decision_blast_radius: blastRadius || undefined,
+          optionality: optionality.length ? optionality : undefined,
         }),
       });
       const body = await res.json();
@@ -383,18 +417,16 @@ export function ProjectOnboardingWizard({
   }
 
   async function handlePrimaryAction() {
-    // Create + integrations steps just advance toward the review step.
-    if (phase.kind === "create" || phase.kind === "integrations") {
+    if (phase.kind === "create" || phase.kind === "slt" || phase.kind === "access" || phase.kind === "integrations") {
       advanceFromCurrentStep();
       return;
     }
-    // Review is terminal: commit, provision enabled apps, navigate to the project.
     if (isReviewPhase) {
       await createProject();
     }
   }
 
-  const isPreCreate = phase.kind === "create" || phase.kind === "integrations";
+  const isPreCreate = phase.kind === "create" || phase.kind === "slt" || phase.kind === "access" || phase.kind === "integrations";
 
   const primaryLabel = isPreCreate
     ? "Continue"
@@ -408,10 +440,8 @@ export function ProjectOnboardingWizard({
 
   const primaryDisabled =
     provisioning ||
-    // Name + team are required; enforce on the create step and again at the
-    // review/commit step as a guard.
-    ((phase.kind === "create" || isReviewPhase) &&
-      (!projectName.trim() || !teamId));
+    (phase.kind === "create" && !projectName.trim()) ||
+    ((phase.kind === "access" || isReviewPhase) && (!projectName.trim() || !teamId));
 
   const stepSummary =
     configSteps.length > 0
@@ -640,47 +670,127 @@ export function ProjectOnboardingWizard({
                     </div>
                   </div>
 
+                </div>
+              ) : null}
+
+              {isSltPhase ? (
+                <div className="space-y-6">
+                  <p className="text-sm text-muted-foreground">
+                    These fields are optional and can be changed anytime in{" "}
+                    <span className="font-medium text-foreground">Project Settings</span>.
+                  </p>
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Decision Blast Radius
+                    </h3>
+                    <p className="text-xs text-muted-foreground -mt-2">How reversible are this project&apos;s key decisions?</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {BLAST_RADIUS_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setBlastRadius(blastRadius === opt.value ? "" : opt.value)}
+                          className={cn(
+                            "rounded-xl border px-4 py-3 text-left transition",
+                            blastRadius === opt.value
+                              ? "border-primary bg-primary/10 ring-1 ring-primary"
+                              : "border-border/60 bg-muted/30 hover:border-primary/40 hover:bg-accent/30",
+                          )}
+                        >
+                          <span className="flex items-start gap-2">
+                            <span className={cn(
+                              "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                              blastRadius === opt.value ? "border-primary bg-primary" : "border-border",
+                            )}>
+                              {blastRadius === opt.value ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                            </span>
+                            <span>
+                              <span className="block text-sm font-medium">{opt.label}</span>
+                              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="space-y-4 border-t border-border/60 pt-6">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Ownership
+                      Optionality
                     </h3>
-                    <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <span className="block text-sm font-medium">Team <span className="text-red-500">*</span></span>
-                        <TeamPicker
-                          options={teams}
-                          value={teamId}
-                          onChange={setTeamId}
-                          placeholder="Select owning team"
-                          hideSlugSuffix
-                          triggerClassName="flex"
-                        />
-                        {!teamsLoading && teams.length === 0 && (
-                          <span className="block text-xs text-muted-foreground">
-                            No teams available. Ask an admin to add you to one (a
-                            project must belong to a team).
-                          </span>
-                        )}
-                        {defaultTeam && teamId === defaultTeam.slug && (
-                          <span className="block text-xs text-muted-foreground">
-                            Defaulted to {defaultTeam.name}. Most projects belong here. Change it if this one is different.
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-1.5">
-                        <span className="block text-sm font-medium">Data steward</span>
-                        <UserEmailPicker
-                          value={stewardEmail}
-                          onChange={setStewardEmail}
-                          placeholder="Optional: leave blank to skip"
-                          currentUserEmail={currentUserEmail}
-                        />
+                    <p className="text-xs text-muted-foreground -mt-2">What external paths is this project pursuing? (select all that apply)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {OPTIONALITY_OPTIONS.map((opt) => {
+                        const selected = optionality.includes(opt);
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() =>
+                              setOptionality(
+                                selected ? optionality.filter((o) => o !== opt) : [...optionality, opt],
+                              )
+                            }
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                              selected
+                                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary"
+                                : "border-border/60 bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                            )}
+                          >
+                            {selected ? <Check className="h-3 w-3" /> : null}
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {isAccessPhase ? (
+                <div className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <span className="block text-sm font-medium">Team <span className="text-red-500">*</span></span>
+                      <TeamPicker
+                        options={teams}
+                        value={teamId}
+                        onChange={setTeamId}
+                        placeholder="Select owning team"
+                        hideSlugSuffix
+                        triggerClassName="flex"
+                      />
+                      {!teamsLoading && teams.length === 0 && (
                         <span className="block text-xs text-muted-foreground">
-                          The person (by email) whose GitHub connection powers this
-                          project&apos;s source activity feed. Defaults to you. This role will
-                          do more later. Changeable in settings.
+                          No teams available. Ask an admin to add you to one (a
+                          project must belong to a team).
                         </span>
-                      </div>
+                      )}
+                      {defaultTeam && teamId === defaultTeam.slug && (
+                        <span className="block text-xs text-muted-foreground">
+                          Defaulted to {defaultTeam.name}. Most projects belong here. Change it if this one is different.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 border-t border-border/60 pt-6">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Data Steward
+                    </h3>
+                    <div className="space-y-1.5">
+                      <UserEmailPicker
+                        value={stewardEmail}
+                        onChange={setStewardEmail}
+                        placeholder="Optional: leave blank to skip"
+                        currentUserEmail={currentUserEmail}
+                      />
+                      <span className="block text-xs text-muted-foreground">
+                        The person (by email) whose GitHub connection powers this
+                        project&apos;s source activity feed. Defaults to you. This role will
+                        do more later. Changeable in settings.
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -932,6 +1042,20 @@ export function ProjectOnboardingWizard({
                           ) : null}
                           {swimlanes.length ? (
                             <Row label="Areas">{swimlanes.join(", ")}</Row>
+                          ) : null}
+                          {blastRadius ? (
+                            <Row label="Blast Radius">
+                              {BLAST_RADIUS_OPTIONS.find((o) => o.value === blastRadius)?.label ?? blastRadius}
+                            </Row>
+                          ) : null}
+                          {optionality.length ? (
+                            <Row label="Optionality">
+                              <span className="flex flex-wrap gap-1.5">
+                                {optionality.map((o) => (
+                                  <span key={o} className="rounded-md bg-muted px-2 py-0.5 text-xs">{o}</span>
+                                ))}
+                              </span>
+                            </Row>
                           ) : null}
                         </div>
                       </div>

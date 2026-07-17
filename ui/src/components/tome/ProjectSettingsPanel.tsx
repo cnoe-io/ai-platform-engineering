@@ -24,6 +24,19 @@ import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import type { ProjectDocument, ProjectSources } from "@/types/projects";
 
+const BLAST_RADIUS_OPTIONS = [
+  { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
+  { value: "large", label: "Large or permanent (1-way)", hint: "BHAG/SLT stays in the loop" },
+] as const;
+
+const OPTIONALITY_OPTIONS = [
+  "Open Source Community / Foundation",
+  "Peer-Reviewed Paper Publication",
+  "Design Partner Co-Innovation / Marketing",
+  "BU Graduation",
+  "Free Service with Adoption",
+] as const;
+
 /**
  * Project settings, surfaced as a Tome view (nav item under Activity) so a project
  * can be reconfigured without leaving Tome. Edits title, description,
@@ -78,6 +91,10 @@ export function ProjectSettingsPanel({
     github_connected: boolean;
   } | null>(null);
 
+  // SLT governance fields
+  const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
+  const [optionality, setOptionality] = useState<string[]>([]);
+
   // Organization
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
@@ -117,6 +134,8 @@ export function ProjectSettingsPanel({
         setSwimlanesRaw((project.labels?.swimlanes ?? []).join(", "));
         setFeedEnabled(project.sources_feed_enabled !== false);
         setStewardEmail(project.data_steward ?? "");
+        setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
+        setOptionality(project.optionality ?? []);
         setError(null);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -212,6 +231,8 @@ export function ProjectSettingsPanel({
         // Empty steward clears it → the feed falls back to the owner.
         data_steward: stewardEmail.trim() || null,
         sources_feed_enabled: feedEnabled,
+        decision_blast_radius: blastRadius || null,
+        optionality: optionality.length ? optionality : [],
       };
       // Only send team_id when the team actually changed — avoids the
       // reassignment permission/sync path on an ordinary save.
@@ -233,6 +254,8 @@ export function ProjectSettingsPanel({
       setSwimlanesRaw((project.labels?.swimlanes ?? []).join(", "));
       setStewardEmail(project.data_steward ?? "");
       setFeedEnabled(project.sources_feed_enabled !== false);
+      setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
+      setOptionality(project.optionality ?? []);
       setSavedAt(true);
       onSaved?.(project);
       void loadFeedStatus();
@@ -250,6 +273,8 @@ export function ProjectSettingsPanel({
     sources,
     stewardEmail,
     feedEnabled,
+    blastRadius,
+    optionality,
     teamChanged,
     selectedTeamId,
     onSaved,
@@ -381,6 +406,67 @@ export function ProjectSettingsPanel({
                 placeholder="Now, Next, Later"
                 multi
               />
+            </Field>
+          </Section>
+
+          {/* SLT governance fields */}
+          <Section title="SLT Configuration">
+            <Field label="Decision Blast Radius" hint="How reversible are this project's key decisions?">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {BLAST_RADIUS_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setBlastRadius(blastRadius === opt.value ? "" : opt.value)}
+                    className={[
+                      "rounded-lg border px-3 py-2.5 text-left transition",
+                      blastRadius === opt.value
+                        ? "border-primary bg-primary/10 ring-1 ring-primary"
+                        : "border-border/60 bg-muted/30 hover:border-primary/40 hover:bg-accent/30",
+                    ].join(" ")}
+                  >
+                    <span className="flex items-start gap-2">
+                      <span className={[
+                        "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                        blastRadius === opt.value ? "border-primary bg-primary" : "border-border",
+                      ].join(" ")}>
+                        {blastRadius === opt.value ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium">{opt.label}</span>
+                        <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Optionality" hint="What external paths is this project pursuing?">
+              <div className="flex flex-wrap gap-2">
+                {OPTIONALITY_OPTIONS.map((opt) => {
+                  const selected = optionality.includes(opt);
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() =>
+                        setOptionality(
+                          selected ? optionality.filter((o) => o !== opt) : [...optionality, opt],
+                        )
+                      }
+                      className={[
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                        selected
+                          ? "border-primary bg-primary/10 text-primary ring-1 ring-primary"
+                          : "border-border/60 bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      {selected ? <Check className="h-3 w-3" /> : null}
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
             </Field>
           </Section>
 

@@ -214,6 +214,8 @@ export const PATCH = withErrorHandler(
       data_steward?: string | null;
       /** Per-project source-feed on/off. */
       sources_feed_enabled?: boolean;
+      decision_blast_radius?: "small" | "large" | null;
+      optionality?: string[];
     };
 
     // Steward assignment + feed toggle are governance actions: owner or org
@@ -274,6 +276,14 @@ export const PATCH = withErrorHandler(
     }
     if (typeof body.sources_feed_enabled === "boolean") {
       $set["sources_feed_enabled"] = body.sources_feed_enabled;
+    }
+    if ("decision_blast_radius" in body) {
+      if (body.decision_blast_radius) $set["decision_blast_radius"] = body.decision_blast_radius;
+      else $unset["decision_blast_radius"] = "";
+    }
+    if (Array.isArray(body.optionality)) {
+      if (body.optionality.length) $set["optionality"] = body.optionality;
+      else $unset["optionality"] = "";
     }
     if (body.sources) {
       if (Array.isArray(body.sources.repos)) {

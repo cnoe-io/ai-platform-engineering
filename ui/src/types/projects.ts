@@ -157,6 +157,10 @@ export interface ProjectDocument {
    * become a first-class OpenFGA relation with capability enforcement.
    */
   data_steward?: string;
+  /** Governance signal: how reversible this project's decisions are. */
+  decision_blast_radius?: "small" | "large";
+  /** External validation paths this project is pursuing. */
+  optionality?: string[];
   /** Per-project on/off for the source-activity feed. Undefined = on. */
   sources_feed_enabled?: boolean;
   created_at: Date;
@@ -183,6 +187,8 @@ export interface CreateProjectRequest {
   /** Data steward for the source-activity feed: the principal the feed runs as.
    * Defaults to the creator (owner) when omitted. */
   data_steward?: string;
+  decision_blast_radius?: "small" | "large";
+  optionality?: string[];
 }
 
 export interface OnboardProjectRequest {
