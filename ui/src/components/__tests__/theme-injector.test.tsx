@@ -16,7 +16,7 @@ import { render } from '@testing-library/react';
 // Mocks
 // ============================================================================
 
-let mockConfigValues: Record<string, any> = {};
+let mockConfigValues: Record<string, unknown> = {};
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => mockConfigValues[key],

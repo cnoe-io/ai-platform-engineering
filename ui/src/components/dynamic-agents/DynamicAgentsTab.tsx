@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 // assisted-by Codex Codex-sonnet-4-6
 
 import { LastReviewBadge } from "@/components/ai-review";
@@ -62,7 +64,7 @@ function agentCanAutomate(agent: DynamicAgentConfigWithPermissions | null | unde
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  return error instanceof Error && getErrorMessage(error, "") ? getErrorMessage(error, "") : fallback;
 }
 
 interface DynamicAgentsTabProps {
@@ -122,8 +124,8 @@ export function DynamicAgentsTab({
       } else {
         setError(data.error || "Failed to fetch agents");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch agents");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to fetch agents");
     } finally {
       setLoading(false);
     }

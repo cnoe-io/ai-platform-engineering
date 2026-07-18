@@ -3,8 +3,7 @@
 import { AuthGuard } from "@/components/auth-guard";
 import { ChatContainer } from "@/components/chat/ChatContainer";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
-import { useParams,useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import React,{ useState } from "react";
 
 /**
@@ -24,32 +23,17 @@ export default function ChatLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
   const params = useParams();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { conversations, activeConversationId } = useChatStore();
 
   // Check if we're on a specific conversation route
   const hasUuid = !!params?.uuid;
-
-  const handleTabChange = (tab: "chat" | "gallery" | "knowledge" | "admin") => {
-    if (tab === "chat") {
-      router.push(resolveChatNavigationPath({ conversations, activeConversationId }));
-    } else if (tab === "gallery") {
-      router.push("/use-cases");
-    } else if (tab === "admin") {
-      router.push("/admin");
-    } else {
-      router.push("/knowledge-bases");
-    }
-  };
 
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Sidebar - persists across conversation changes */}
       <Sidebar
         activeTab="chat"
-        onTabChange={handleTabChange}
         collapsed={sidebarCollapsed}
         onCollapse={setSidebarCollapsed}
       />

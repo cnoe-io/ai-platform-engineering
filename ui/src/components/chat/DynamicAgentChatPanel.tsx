@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
-import { APIClientError } from "@/lib/api-client";
+import { apiClient,APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getConfig } from "@/lib/config";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
@@ -18,11 +18,15 @@ import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } fro
 import { cn,deduplicateByKey } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
+import { buildParticipants,ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
 import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
@@ -36,9 +40,7 @@ import { useSlashCommands } from "./useSlashCommands";
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
 interface ChatPanelProps {
-  endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
-  conversationTitle?: string;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
@@ -46,7 +48,7 @@ interface ChatPanelProps {
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
   // Derive display values from agent object
   const agentGradient = agent?.ui?.gradient_theme ?? null;
   const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
@@ -54,6 +56,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const agentSkills = agent?.skills;
   const { data: session } = useSession();
   const { toast } = useToast();
+  const router = useRouter();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
 
@@ -166,10 +169,67 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     cancelConversationRequest,
     updateMessageFeedback,
     consumePendingMessage,
-    evictOldMessageContent,
     loadMessagesFromServer,
     updateConversationTitle,
   } = useChatStore();
+
+  // Re-link this deprecated/deleted-agent conversation to the platform default agent,
+  // then reload the page so ChatContainer picks up the new participants.
+  const handleStartNewConversation = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const agentId = await resolveUsableChatAgentId();
+      const newParticipants = buildParticipants(agentId);
+      await apiClient.updateConversation(conversationId, {
+        participants: newParticipants,
+      });
+      // Patch the Zustand store in-place so ChatContainer sees the new participants
+      // immediately — it skips the API fetch when the conversation is already cached.
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, participants: newParticipants } : c,
+        ),
+      }));
+      router.refresh();
+    } catch (err) {
+      toast(`Could not resume conversation: ${(err as Error).message}`, "error", 8000);
+    }
+  }, [conversationId, router, toast]);
+
+  // "Choose agent" picker state — loaded lazily when the deprecated-agent banner is shown.
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<{ value: string; label: string }[]>([]);
+  const [chosenAgentId, setChosenAgentId] = useState("");
+
+  useEffect(() => {
+    const isDeprecatedBanner = readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled';
+    if (!isDeprecatedBanner || availableAgents.length > 0) return;
+    fetch("/api/dynamic-agents/available", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const list: DynamicAgentConfig[] = Array.isArray(data?.data) ? data.data : [];
+        setAvailableAgents(
+          list.filter((a) => a.enabled).map((a) => ({ value: a._id, label: a.name })),
+        );
+      })
+      .catch(() => {/* non-critical — picker just stays empty */});
+  }, [readOnlyReason, availableAgents.length]);
+
+  const handleResumeWithChosenAgent = useCallback(async () => {
+    if (!conversationId || !chosenAgentId) return;
+    try {
+      const newParticipants = buildParticipants(chosenAgentId);
+      await apiClient.updateConversation(conversationId, { participants: newParticipants });
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId ? { ...c, participants: newParticipants } : c,
+        ),
+      }));
+      router.refresh();
+    } catch (err) {
+      toast(`Could not resume conversation: ${(err as Error).message}`, "error", 8000);
+    }
+  }, [conversationId, chosenAgentId, router, toast]);
 
   // Slash command registry
   const slashCommands = useSlashCommands(agentSkills);
@@ -295,11 +355,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
   // Auto-scroll during streaming only if user is near the bottom
   // Depend on both message content AND streamEvents length since timeline renders from SSE events
+  const latestMessageContent = conversation?.messages?.at(-1)?.content;
+  const streamEventCount = conversation?.streamEvents?.length;
   useEffect(() => {
     if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, conversation?.streamEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
+  }, [latestMessageContent, streamEventCount, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // ResizeObserver-based auto-scroll: catches DOM changes from morphdom patches
   // that happen asynchronously after React renders (marked parses async, then
@@ -991,7 +1053,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() } as any,
+      client: { abort: () => adapter.abort() },
       streamAdapter: adapter,
     });
 
@@ -1033,7 +1095,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1133,13 +1195,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       "*Type `/` to see the autocomplete menu. Use Arrow keys + Tab to select.*",
     ].join("\n");
 
-    addMessage(convId, { role: "assistant", content: helpText, isFinal: true } as any, turnId);
-  }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
+    addMessage(convId, { role: "assistant", content: helpText, isFinal: true }, turnId);
+  }, [activeConversationId, agentId, createConversation, addMessage, updateConversationTitle]);
 
   // Handle /clear command
   const handleClearCommand = useCallback(async () => {
     await createConversation(agentId);
   }, [createConversation, agentId]);
+
+  const handleStop = useCallback(() => {
+    if (activeConversationId) {
+      cancelConversationRequest(activeConversationId);
+    }
+  }, [activeConversationId, cancelConversationRequest]);
 
   // Unified slash command executor
   const executeSlashCommand = useCallback(async (commandId: string) => {
@@ -1209,7 +1277,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand, handleStop]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -1219,24 +1287,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
   }, [activeConversationId, consumePendingMessage, submitMessage]);
 
-  const handleStop = useCallback(() => {
-    if (activeConversationId) {
-      cancelConversationRequest(activeConversationId);
-    }
-  }, [activeConversationId, cancelConversationRequest]);
-
   // Stable callback for feedback changes
   const handleFeedbackChange = useCallback((messageId: string, feedback: Feedback) => {
     if (activeConversationId) {
       updateMessageFeedback(activeConversationId, messageId, feedback);
     }
   }, [activeConversationId, updateMessageFeedback]);
-
-  // Feedback submission is handled by FeedbackButton → POST /api/feedback
-  // which writes to both Langfuse and the unified feedback MongoDB collection.
-  const handleFeedbackSubmit = useCallback(async (_messageId: string, _feedback: Feedback) => {
-    // no-op: POST /api/feedback handles both Langfuse + MongoDB
-  }, []);
 
   // Handle user input form submission via SSE/Dynamic Agents resume
   const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
@@ -1283,7 +1339,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() } as any,
+      client: { abort: () => adapter.abort() },
       streamAdapter: adapter,
     });
 
@@ -1402,7 +1458,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() } as any,
+      client: { abort: () => adapter.abort() },
       streamAdapter: adapter,
     });
 
@@ -1703,11 +1759,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           isCopied={copiedId === msg.id}
                           isStreaming={isAssistantStreaming}
                           isLatestAnswer={isLastAssistantMessage}
-                          onStop={isAssistantStreaming ? handleStop : undefined}
                           onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
                           feedback={msg.feedback}
                           onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
-                          onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
                           isRecovering={recoveringMessageId === msg.id}
                           conversationId={conversationId}
                           userDisplayName={userDisplayName}
@@ -1842,8 +1896,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 </>
               ) : readOnlyReason === 'agent_deleted' ? (
                 <>
-                  <span className="text-sm font-medium">Agent No Longer Exists</span>
-                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deleted. You can view the history but cannot send new messages.</span>
+                  <span className="text-sm font-medium">Agent No Longer Available</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deprecated or deleted. You can view the history but cannot send new messages.</span>
                 </>
               ) : readOnlyReason === 'agent_disabled' ? (
                 <>
@@ -1857,7 +1911,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 </>
               )}
             </div>
-            {readOnlyReason === 'admin_audit' && (
+            {readOnlyReason === 'admin_audit' ? (
             <a
               href="/admin?tab=feedback"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
@@ -1865,7 +1919,51 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <ArrowLeft className="h-3 w-3" />
               Back to Feedback
             </a>
-            )}
+            ) : (readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled') ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              {showAgentPicker ? (
+                <>
+                  <div className="w-56">
+                    <AgentPicker
+                      options={availableAgents}
+                      value={chosenAgentId}
+                      onChange={setChosenAgentId}
+                      placeholder="Select an agent…"
+                      hideIdSuffix
+                    />
+                  </div>
+                  <button
+                    onClick={handleResumeWithChosenAgent}
+                    disabled={!chosenAgentId}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600/20 text-red-700 dark:text-red-300 hover:bg-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Resume
+                  </button>
+                  <button
+                    onClick={() => setShowAgentPicker(false)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleStartNewConversation}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600/20 text-red-700 dark:text-red-300 hover:bg-red-600/30 transition-colors"
+                  >
+                    Resume with default agent
+                  </button>
+                  <button
+                    onClick={() => setShowAgentPicker(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Choose agent
+                  </button>
+                </>
+              )}
+            </div>
+            ) : null}
           </div>
         </div>
       ) : (
@@ -2091,11 +2189,9 @@ interface ChatMessageProps {
   isCopied: boolean;
   isStreaming?: boolean;
   isLatestAnswer?: boolean;
-  onStop?: () => void;
   onRetry?: () => void;
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
-  onFeedbackSubmit?: (feedback: Feedback) => void;
   conversationId?: string;
   isRecovering?: boolean;
   userDisplayName?: string;
@@ -2124,11 +2220,9 @@ const ChatMessage = React.memo(function ChatMessage({
   isCopied,
   isStreaming = false,
   isLatestAnswer = false,
-  onStop,
   onRetry,
   feedback,
   onFeedbackChange,
-  onFeedbackSubmit,
   conversationId,
   isRecovering = false,
   userDisplayName = "You",
@@ -2182,9 +2276,12 @@ const ChatMessage = React.memo(function ChatMessage({
           )}
         >
           {message.senderImage ? (
-            <img
+            <Image
               src={message.senderImage}
               alt={message.senderName || userDisplayName}
+              width={36}
+              height={36}
+              unoptimized
               className="w-9 h-9 rounded-xl object-cover"
             />
           ) : (
@@ -2433,7 +2530,6 @@ const ChatMessage = React.memo(function ChatMessage({
                   conversationId={conversationId}
                   feedback={feedback}
                   onFeedbackChange={onFeedbackChange}
-                  onFeedbackSubmit={onFeedbackSubmit}
                 />
               </motion.div>
             )}

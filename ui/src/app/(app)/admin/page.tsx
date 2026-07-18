@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 // assisted-by Codex Codex-sonnet-4-6
 
 import {
@@ -24,6 +26,7 @@ import { MigrationTab } from "@/components/admin/security/MigrationTab";
 import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab";
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
+import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
@@ -51,6 +54,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { MultiSelect,TagInput } from "@/components/ui/multi-select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SlidingSelectorIndicator } from "@/components/ui/sliding-selector";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
@@ -62,7 +66,7 @@ import type { Team as TeamType } from "@/types/teams";
 import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
-import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
+import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
 
 interface AdminStats {
   platform_summary?: {
@@ -227,7 +231,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -262,10 +266,11 @@ const CATEGORIES: Category[] = [
     icon: Settings,
     tabs: [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
-      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
-      { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
+      { value: 'agents', label: 'Agents', icon: Bot, gateKey: 'agents' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
       { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
+      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
+      { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
     ],
   },
   {
@@ -542,7 +547,6 @@ function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
-  const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const [simulationType, setSimulationType] = useState<"user" | "team">(simulationTarget?.type ?? "user");
   const [simulationId, setSimulationId] = useState(simulationTarget?.id ?? "");
   const [simulationRelation, setSimulationRelation] = useState<"member" | "admin">(
@@ -565,6 +569,7 @@ function AdminPage() {
       ? initialCat
       : categoryForTab(activeTab)
   );
+  const categorySelectorLayoutId = React.useId();
 
   const tabGateValues = useMemo<Record<string, boolean>>(
     () => ({
@@ -576,6 +581,8 @@ function AdminPage() {
       // Keep them visible during View As and let the child panels enforce the
       // preview's read-only mode through `canMutateAdminData`.
       settings: true,
+      // Agents subtab (Import Agents from Config) is an admin-only action.
+      agents: effectiveOrganizationAdmin,
       ai_review: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
@@ -881,16 +888,21 @@ function AdminPage() {
       setFeedbackChannels([]);
       setFeedbackUsers([]);
       setTeams([]);
+      setGridTeams([]);
+      setGridTotal(0);
+      setGridPage(1);
+      setGridLoaded(false);
+      setSelectedUserId(null);
+      setSelectedUserEmail(null);
       setStatsRefreshing(false);
       setFeedbackLoading(false);
       setLoading(false);
     }
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
-    loadTabData(activeTab);
+    loadTabDataEvent(activeTab);
   }, [activeTab, simulationScopeKey, status]);
-
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
-    const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
+    const response = await fetch(withAdminSimulationParams(`/api/admin/teams?fresh=${Date.now()}`, simulationTarget), {
       cache: 'no-store',
     });
     const result = await response.json();
@@ -908,7 +920,7 @@ function AdminPage() {
   const loadTeams = async () => {
     try {
       setTeams(await fetchTeamsFromDb());
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to refresh teams:', err);
     }
   };
@@ -926,7 +938,7 @@ function AdminPage() {
       });
       if (search.trim()) params.set('search', search.trim());
       if (showArchivedTeams) params.set('include_archived', 'true');
-      const response = await fetch(`/api/admin/teams?${params.toString()}`, {
+      const response = await fetch(withAdminSimulationParams(`/api/admin/teams?${params.toString()}`, simulationTarget), {
         cache: 'no-store',
       });
       const result = await response.json();
@@ -937,12 +949,12 @@ function AdminPage() {
       setGridTotal(result.data?.total ?? 0);
       setGridPage(result.data?.page ?? page);
       setGridLoaded(true);
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to load teams page:', err);
     } finally {
       setGridLoading(false);
     }
-  }, [showArchivedTeams]);
+  }, [showArchivedTeams, simulationTarget]);
 
   // Debounced server-side search for the Teams grid. Typing resets to page 1
   // and re-queries the server (~250ms after the last keystroke), matching the
@@ -993,7 +1005,7 @@ function AdminPage() {
   };
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, teams });
   const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     const requestScopeKey = simulationScopeKey;
@@ -1023,15 +1035,17 @@ function AdminPage() {
       }
     }
   };
+  const fetchStatsWithFiltersEvent = useEffectEvent(fetchStatsWithFilters);
   useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter };
+    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, teams };
     if (statsFilterRef.current.range === current.range
       && statsFilterRef.current.source === current.source
       && statsFilterRef.current.users === current.users
-      && statsFilterRef.current.channels === current.channels) return; // skip initial
+      && statsFilterRef.current.channels === current.channels
+      && statsFilterRef.current.teams === current.teams) return; // skip initial
     statsFilterRef.current = current;
-    fetchStatsWithFilters();
-  }, [dateRange, sourceFilter, userFilter, status]);
+    fetchStatsWithFiltersEvent();
+  }, [dateRange, sourceFilter, userFilter, statsChannelFilter, status, teams]);
 
   const loadStats = async () => {
     const requestScopeKey = simulationScopeKey;
@@ -1075,10 +1089,10 @@ function AdminPage() {
       } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
-    } catch (err: any) {
+    } catch (err) {
       if (activeDataScopeKeyRef.current !== requestScopeKey) return;
       console.error('[Admin] Failed to load stats:', err);
-      setError(err.message || 'Failed to load stats');
+      setError(getErrorMessage(err, "") || 'Failed to load stats');
     } finally {
       if (activeDataScopeKeyRef.current === requestScopeKey) {
         setLoading(false);
@@ -1089,7 +1103,7 @@ function AdminPage() {
   const loadTeamsData = async () => {
     try {
       setTeams(await fetchTeamsFromDb());
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to load teams:', err);
     }
   };
@@ -1152,14 +1166,24 @@ function AdminPage() {
     // list. The full list (`loadTeamsIfNeeded`) is only needed by tabs whose
     // dropdowns offer every team for selection (Stats and Feedback).
     const loaders: Record<string, () => Promise<void>> = {
-      stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
-      skills: loadSkillStats,
+      // Skill aggregates now render inside the Statistics tab, so they load
+      // alongside the rest of the stats data. The Skills tab keeps only the
+      // Skill Hubs section, which self-loads.
+      stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded(), loadSkillStats()]); },
       feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
     };
 
     const loader = loaders[tab];
     if (loader) await loader();
   };
+
+  const loadTabDataEvent = useEffectEvent(loadTabData);
+
+  // Load data once when a tab is first visited.
+  useEffect(() => {
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    loadTabDataEvent(activeTab);
+  }, [activeTab, status]);
 
   const loadFeedback = async (
     rating?: 'positive' | 'negative' | 'all',
@@ -1242,9 +1266,9 @@ function AdminPage() {
       refreshAfterTeamMutation(nextPage);
       setTeamPendingDelete(null);
       console.log(`[Admin] Team deleted: ${team.name}`);
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Admin] Failed to delete team:', err);
-      alert(`Failed to delete team: ${err.message}`);
+      alert(`Failed to delete team: ${getErrorMessage(err, "")}`);
     } finally {
       setDeletingTeam(null);
     }
@@ -1347,22 +1371,37 @@ function AdminPage() {
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
               {/* Category selector */}
-              <div className="flex flex-wrap gap-1.5">
+              <div
+                aria-label="Admin sections"
+                className="flex flex-wrap gap-1.5"
+                role="group"
+              >
                 {visibleCategories.map((cat) => {
                   const Icon = cat.icon;
                   const isActive = activeCategory === cat.key;
                   return (
                     <button
                       key={cat.key}
+                      type="button"
+                      aria-pressed={isActive}
                       onClick={() => handleCategoryChange(cat.key)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      className={`relative isolate inline-flex items-center gap-1.5 overflow-hidden rounded-full px-3 py-1.5 text-xs font-medium transition-[color,transform,background-color] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] motion-reduce:transform-none ${
                         isActive
-                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          ? 'bg-transparent text-primary-foreground'
                           : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
                       }`}
                     >
-                      <Icon className="h-3.5 w-3.5" />
-                      {cat.label}
+                      {isActive && (
+                        <SlidingSelectorIndicator
+                          className="admin-category-active-pill"
+                          layoutId={categorySelectorLayoutId}
+                          variant="liquid"
+                        />
+                      )}
+                      <span className="relative z-10 inline-flex items-center gap-1.5">
+                        <Icon className="h-3.5 w-3.5" />
+                        {cat.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -1523,7 +1562,10 @@ function AdminPage() {
 
               {/* Filtered sub-tabs for the active category */}
               {visibleTabsForCategory.length > 0 && (
-                <TabsList className="flex w-full justify-start gap-0">
+                <TabsList
+                  className="flex w-full justify-start gap-0"
+                  indicatorScope={activeCategory}
+                >
                   {visibleTabsForCategory.map((t) => {
                     const Icon = t.icon;
                     return (
@@ -1543,6 +1585,15 @@ function AdminPage() {
                     readOnly={isSimulationActive}
                   />
                   <ReleaseNotesSettingsTab
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                </TabsContent>
+              )}
+
+              {tabGateValues.agents && (
+                <TabsContent value="agents" className="space-y-4">
+                  <ImportAgentsFromConfigCard
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
@@ -1592,13 +1643,17 @@ function AdminPage() {
 
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                <UserManagementTab onSelectUser={(id) => setSelectedUserId(id)} />
+                <UserManagementTab
+                  onSelectUser={(id) => setSelectedUserId(id)}
+                  simulationTarget={simulationTarget}
+                />
                 {selectedUserId && (
                   <UserDetailModal
                     userId={selectedUserId}
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
                     readOnly={!canMutateAdminData}
+                    simulationTarget={simulationTarget}
                     teamOptions={teams.length > 0 ? teams.map((t) => ({ teamId: t.name, label: t.name })) : undefined}
                   />
                 )}
@@ -1843,134 +1898,9 @@ function AdminPage() {
                 </TabsContent>
               )}
 
-              {/* Skills Tab */}
+              {/* Skills Tab — skill usage aggregates now live in the
+                  Statistics tab; this tab keeps only Skill Hubs. */}
               <TabsContent value="skills" className="space-y-4">
-                {skillStats ? (
-                  <>
-                    {/* Overview Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                      <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
-                          <Layers className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">{skillStats.total_skills}</div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {skillStats.system_skills} system, {skillStats.user_skills} user-created
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">User Skills</CardTitle>
-                          <Users className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">{skillStats.user_skills}</div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            by {skillStats.top_creators.length} creator{skillStats.top_creators.length !== 1 ? "s" : ""}
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
-                          <Zap className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">{skillStats.overall_run_stats.total_runs}</div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {skillStats.overall_run_stats.success_rate}% success rate
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Categories</CardTitle>
-                          <Activity className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">{skillStats.by_category.length}</div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            unique categories
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {/* Visibility + Category Breakdown */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-base">Visibility Breakdown</CardTitle>
-                          <CardDescription>User-created skills by sharing scope</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <VisibilityBreakdown
-                            byVisibility={skillStats.by_visibility}
-                            total={skillStats.user_skills}
-                          />
-                        </CardContent>
-                      </Card>
-
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-base">Skills by Category</CardTitle>
-                          <CardDescription>Distribution across categories</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <CategoryBreakdown byCategory={skillStats.by_category} />
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {/* Creation Timeline */}
-                    {skillStats.daily_created.length > 0 && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Skills Created (Last 30 Days)</CardTitle>
-                          <CardDescription>New user-created skills per day</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <SimpleLineChart
-                            data={skillStats.daily_created.map((d) => ({
-                              label: new Date(d.date).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                              }),
-                              value: d.count,
-                            }))}
-                            height={200}
-                            color="rgb(139, 92, 246)"
-                          />
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* Top Creators */}
-                    <TopCreatorsCard creators={skillStats.top_creators} onUserClick={setSelectedUserEmail} />
-
-                    {/* Top Skills by Runs */}
-                    <RunStatsTable
-                      runStats={skillStats.top_skills_by_runs}
-                      title="Top Skills by Usage"
-                      description="Most frequently executed skills across the platform"
-                    />
-                  </>
-                ) : (
-                  <Card>
-                    <CardContent className="pt-6 text-center py-12">
-                      <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">No Skill Data</h3>
-                      <p className="text-muted-foreground">
-                        Skill metrics will appear once users start creating skills.
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Skill Hubs */}
                 <SkillHubsSection isAdmin={canMutateAdminData} />
               </TabsContent>
 
@@ -2834,6 +2764,129 @@ function AdminPage() {
                     {canMutateAdminData && <CheckpointStatsSection />}
                   </div>
                 )}
+
+                {/* ─── Skills Section ─── */}
+                {skillStats && (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold">Skills</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Skill creation and usage across the platform
+                      </p>
+                    </div>
+
+                    {/* Overview Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.total_skills}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {skillStats.system_skills} system, {skillStats.user_skills} user-created
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">User Skills</CardTitle>
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.user_skills}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            by {skillStats.top_creators.length} creator{skillStats.top_creators.length !== 1 ? "s" : ""}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
+                          <Zap className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.overall_run_stats.total_runs}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {skillStats.overall_run_stats.success_rate}% success rate
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">Categories</CardTitle>
+                          <Activity className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{skillStats.by_category.length}</div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            unique categories
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Visibility + Category Breakdown */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Visibility Breakdown</CardTitle>
+                          <CardDescription>User-created skills by sharing scope</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <VisibilityBreakdown
+                            byVisibility={skillStats.by_visibility}
+                            total={skillStats.user_skills}
+                          />
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Skills by Category</CardTitle>
+                          <CardDescription>Distribution across categories</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <CategoryBreakdown byCategory={skillStats.by_category} />
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Creation Timeline */}
+                    {skillStats.daily_created.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Skills Created (Last 30 Days)</CardTitle>
+                          <CardDescription>New user-created skills per day</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <SimpleLineChart
+                            data={skillStats.daily_created.map((d) => ({
+                              label: new Date(d.date).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              }),
+                              value: d.count,
+                            }))}
+                            height={200}
+                            color="rgb(139, 92, 246)"
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Top Creators */}
+                    <TopCreatorsCard creators={skillStats.top_creators} onUserClick={setSelectedUserEmail} />
+
+                    {/* Top Skills by Runs */}
+                    <RunStatsTable
+                      runStats={skillStats.top_skills_by_runs}
+                      title="Top Skills by Usage"
+                      description="Most frequently executed skills across the platform"
+                    />
+                  </div>
+                )}
               </TabsContent>
 
               {/* Agent Metrics Tab (Prometheus) */}
@@ -2857,7 +2910,7 @@ function AdminPage() {
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
-                  <AuditLogsTab isAdmin={canMutateAdminData} onUserClick={setSelectedUserEmail} />
+                  <AuditLogsTab onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
@@ -2986,6 +3039,7 @@ function AdminPage() {
       <UserDetailPanel
         email={selectedUserEmail}
         onClose={() => setSelectedUserEmail(null)}
+        simulationTarget={simulationTarget}
       />
     </div>
   );

@@ -2,6 +2,8 @@
 
 import { useSetSettings,useSigma } from "@react-sigma/core";
 import { FC,PropsWithChildren,useEffect } from "react";
+import type { EdgeDisplayData,NodeDisplayData } from 'sigma/types';
+import type { GraphEdgeAttributes,GraphNodeAttributes } from '../../graphTypes';
 
 interface GraphSettingsControllerProps {
     hoveredNode: string | null;
@@ -13,8 +15,8 @@ const GraphSettingsController: FC<PropsWithChildren<GraphSettingsControllerProps
     hoveredNode,
     selectedNodeId
 }) => {
-    const sigma = useSigma();
-    const setSettings = useSetSettings();
+    const sigma = useSigma<GraphNodeAttributes,GraphEdgeAttributes>();
+    const setSettings = useSetSettings<GraphNodeAttributes,GraphEdgeAttributes>();
     const graph = sigma.getGraph();
 
     /**
@@ -23,7 +25,7 @@ const GraphSettingsController: FC<PropsWithChildren<GraphSettingsControllerProps
     useEffect(() => {
         setSettings({
             nodeReducer: (node, data) => {
-                const res: any = { ...data };
+                const res: Partial<NodeDisplayData> & Record<string, unknown> = { ...data };
 
                 // Check if node is marked as highlighted (explored/focused nodes)
                 const isExploredNode = data.highlighted === true;
@@ -99,7 +101,7 @@ const GraphSettingsController: FC<PropsWithChildren<GraphSettingsControllerProps
                 return res;
             },
             edgeReducer: (edge, data) => {
-                const res: any = { ...data };
+                const res: Partial<EdgeDisplayData> & Record<string, unknown> = { ...data };
 
                 // Determine which node to use for highlighting (hovered node only)
                 const activeNode = hoveredNode;

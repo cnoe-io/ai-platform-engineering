@@ -93,6 +93,18 @@ def _log_stage(event: dict, stage: str, **extra) -> None:
     event.get("ts"), stage, _ingestion_lag_ms(event), fields,
   )
 
+
+def _channel_id_from_view_metadata(body: dict) -> str | None:
+  """Recover channel_id for view_submission payloads (modal submits).
+
+  Unlike block_actions/event bodies, a view_submission body carries no
+  top-level channel field at all — the channel only lives in
+  view.private_metadata, which our feedback modal encodes as
+  "channel_id|thread_ts|message_ts|agent_id|feedback_type".
+  """
+  private_metadata = body.get("view", {}).get("private_metadata", "")
+  return private_metadata.split("|")[0] or None if private_metadata else None
+
 # 098 Enterprise RBAC enforcement
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
@@ -142,6 +154,7 @@ if RBAC_ENABLED:
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
             or body.get("channel_id")  # slash command bodies
+            or _channel_id_from_view_metadata(body)  # view_submission (modal submit)
         )
         if channel_id:
             context["slack_channel_id"] = channel_id
@@ -1167,6 +1180,7 @@ def rbac_global_middleware(body, context, next, logger):
         body.get("event", {}).get("channel")
         or body.get("channel", {}).get("id")
         or body.get("channel_id")  # slash command bodies
+        or _channel_id_from_view_metadata(body)  # view_submission (modal submit)
     )
 
     if rbac_status == "unlinked":
@@ -2174,8 +2188,9 @@ def handle_hitl_action(ack, body, client):
 # Feedback Action Handler
 # =============================================================================
 @app.action("caipe_feedback")
-def handle_caipe_feedback(ack, body, client):
+def handle_caipe_feedback(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
@@ -2256,8 +2271,9 @@ def handle_feedback_less_verbose(ack, body, client):
 
 
 @app.action("caipe_retry")
-def handle_caipe_retry(ack, body, client):
+def handle_caipe_retry(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     action = body.get("actions", [{}])[0]
@@ -2330,8 +2346,9 @@ def handle_caipe_retry(ack, body, client):
 # Escalation Action Handlers
 # =============================================================================
 @app.action("caipe_escalation_get_help")
-def handle_escalation_get_help(ack, body, client):
+def handle_escalation_get_help(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     from utils.escalation import execute_escalation
 
@@ -2379,7 +2396,7 @@ def handle_escalation_get_help(ack, body, client):
     session_manager.set_escalated(thread_ts)
 
     # Track escalation in feedback
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -2424,14 +2441,19 @@ def handle_escalation_get_help(ack, body, client):
 
 
 @app.action("caipe_delete_message")
-def handle_delete_message(ack, body, client):
+def handle_delete_message(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
     message = body.get("message", {})
     message_ts = message.get("ts")
     thread_ts = message.get("thread_ts") or message_ts
+
+    action = body.get("actions", [{}])[0]
+    parts = action.get("value", "").split("|")
+    agent_id = parts[3] if len(parts) > 3 else ""
 
     if not channel_id or not message_ts:
       return
@@ -2454,7 +2476,7 @@ def handle_delete_message(ack, body, client):
       logger.warning(f"[{thread_ts}] Unauthorized delete attempt by <@{user_id}>")
       return
 
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -2596,8 +2618,9 @@ def _regen_message_text(feedback_type: str, comment: str) -> str:
 
 
 @app.view("caipe_feedback_modal")
-def handle_feedback_modal_submission(ack, body, client, view):
+def handle_feedback_modal_submission(ack, body, client, view, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     team_id = body.get("team", {}).get("id")

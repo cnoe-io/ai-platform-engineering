@@ -48,9 +48,7 @@ import { WorkflowHistoryView } from "./WorkflowHistoryView";
 
 interface AgentBuilderRunnerProps {
   config: AgentSkill;
-  onBack?: () => void;
   onComplete?: (result: string) => void;
-  cameFromHistory?: boolean;
 }
 
 // Execution step parsed from execution_plan events
@@ -726,9 +724,7 @@ function ResultOrInputForm({
  */
 export function AgentBuilderRunner({
   config,
-  onBack,
   onComplete,
-  cameFromHistory = false,
 }: AgentBuilderRunnerProps) {
   // Workflow state
   const [status, setStatus] = useState<
@@ -754,7 +750,7 @@ export function AgentBuilderRunner({
   const [structuredInputTitle, setStructuredInputTitle] = useState<string>("");
   
   // Workflow run store
-  const { createRun, updateRun, getRunsForWorkflow } = useWorkflowRunStore();
+  const { createRun, updateRun } = useWorkflowRunStore();
 
   // Auth - same pattern as ChatPanel
   const { data: session } = useSession();
@@ -823,43 +819,6 @@ export function AgentBuilderRunner({
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isFullscreen]);
-
-  /**
-   * Parse execution plan from event text
-   * Matches patterns like: ⏳ [ArgoCD] List all applications
-   */
-  const parseExecutionPlan = useCallback(
-    (text: string): ExecutionStep[] => {
-      const todoPattern = /([⏳✅🔄❌📋])\s*\[([^\]]+)\]\s*(.+)/g;
-      const newSteps: ExecutionStep[] = [];
-      let match;
-      let order = 0;
-
-      while ((match = todoPattern.exec(text)) !== null) {
-        const [, statusEmoji, agent, description] = match;
-        const taskId = `${agent}-${description.slice(0, 20)}`
-          .replace(/\s+/g, "-")
-          .toLowerCase();
-
-        let stepStatus: ExecutionStep["status"] = "pending";
-        if (statusEmoji === "✅") stepStatus = "completed";
-        else if (statusEmoji === "🔄" || statusEmoji === "⏳")
-          stepStatus = statusEmoji === "🔄" ? "in_progress" : "pending";
-        else if (statusEmoji === "❌") stepStatus = "failed";
-
-        newSteps.push({
-          id: taskId,
-          agent: agent.trim(),
-          description: description.trim(),
-          status: stepStatus,
-          order: order++,
-        });
-      }
-
-      return newSteps;
-    },
-    []
-  );
 
   /**
    * Handle workflow streaming events
@@ -1019,7 +978,7 @@ export function AgentBuilderRunner({
         setStreamingContent((prev) => prev + content);
       }
     },
-    [parseExecutionPlan, onComplete, steps, toolCalls, streamingContent, updateRun]
+    [onComplete, updateRun]
   );
 
   const createStreamCallbacks = useCallback((): StreamCallbacks => ({
@@ -1306,7 +1265,7 @@ export function AgentBuilderRunner({
     } finally {
       clientRef.current = null;
     }
-  }, [config, accessToken, session?.user?.email, createStreamCallbacks, finalResult, status, steps, toolCalls, streamingContent, createRun, updateRun]);
+  }, [config, accessToken, session?.user?.email, createStreamCallbacks, createRun, updateRun]);
 
   /**
    * Stop workflow execution
@@ -1927,7 +1886,7 @@ export function AgentBuilderRunner({
             <div className="flex-1 overflow-hidden">
               <WorkflowHistoryView
                 workflowId={config.id}
-                onReRun={(run) => {
+                onReRun={() => {
                   setRightPanelTab("output");
                   handleReset();
                   setTimeout(() => handleStart(), 100);

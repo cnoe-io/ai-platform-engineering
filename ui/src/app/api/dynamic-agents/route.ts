@@ -298,7 +298,6 @@ async function canUseTeamSlug(
 async function requireAgentWritePermission(
   session: Parameters<typeof requireAgentPermission>[0],
   agentId: string,
-  _agent: DynamicAgentConfig,
 ): Promise<void> {
   await requireAgentPermission(session, agentId, "write");
 }
@@ -674,7 +673,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!agent) {
       throw new ApiError("Agent not found", 404);
     }
-    await requireAgentWritePermission(session, id, agent);
+    await requireAgentWritePermission(session, id);
 
     // Config-driven guard
     if (agent.config_driven) {

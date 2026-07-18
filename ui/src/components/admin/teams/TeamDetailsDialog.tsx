@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { IngestCapabilityToggle } from "@/components/admin/shared/IngestCapabilityToggle";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { SearchCapabilityToggle } from "@/components/admin/shared/SearchCapabilityToggle";
@@ -437,7 +439,7 @@ export function TeamDetailsDialog({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load agents and MCP access");
+          setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to load agents and MCP access");
         }
       })
       .finally(() => {
@@ -474,7 +476,7 @@ export function TeamDetailsDialog({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load channels");
+          setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to load channels");
         }
       })
       .finally(() => {
@@ -505,7 +507,7 @@ export function TeamDetailsDialog({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load Webex spaces");
+          setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to load Webex spaces");
         }
       })
       .finally(() => {
@@ -547,7 +549,7 @@ export function TeamDetailsDialog({
       );
       onTeamUpdated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save channels");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to save channels");
     } finally {
       setChannelsSaving(false);
     }
@@ -583,7 +585,7 @@ export function TeamDetailsDialog({
       );
       onTeamUpdated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save Webex spaces");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to save Webex spaces");
     } finally {
       setWebexSpacesSaving(false);
     }
@@ -629,7 +631,7 @@ export function TeamDetailsDialog({
       setResourcesNotice("Saved.");
       onTeamUpdated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save agents and MCP access");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to save agents and MCP access");
     } finally {
       setResourcesSaving(false);
     }
@@ -659,7 +661,7 @@ export function TeamDetailsDialog({
       }
     } catch (err) {
       console.error("[TeamDetails] Failed to refresh team:", err);
-      setError(err instanceof Error ? err.message : "Failed to refresh team");
+      setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to refresh team");
     } finally {
       setRefreshingTeam(false);
     }
@@ -690,7 +692,7 @@ export function TeamDetailsDialog({
         setMemberPageNum(payload.page ?? page);
       } catch (err: unknown) {
         console.error("[TeamDetails] Failed to load members:", err);
-        setError(err instanceof Error ? err.message : "Failed to load members");
+        setError(err instanceof Error ? getErrorMessage(err, "") : "Failed to load members");
       } finally {
         setMembersLoading(false);
       }
@@ -751,8 +753,8 @@ export function TeamDetailsDialog({
       } else {
         onTeamUpdated();
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to update team");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to update team");
     } finally {
       setLoading(false);
     }
@@ -799,8 +801,8 @@ export function TeamDetailsDialog({
       } else {
         onTeamUpdated();
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to add member");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to add member");
     } finally {
       setAddingMember(false);
     }
@@ -849,8 +851,8 @@ export function TeamDetailsDialog({
       } else {
         onTeamUpdated();
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to remove member");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to remove member");
     } finally {
       setRemovingMember(null);
     }

@@ -1034,6 +1034,39 @@
       }
     },
     {
+      "type": "webex_bot",
+      "relations": {}
+    },
+    {
+      "type": "webex_bot_installation",
+      "relations": {
+        "bot": {
+          "this": {}
+        },
+        "space": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "bot": {
+            "directly_related_user_types": [
+              {
+                "type": "webex_bot"
+              }
+            ]
+          },
+          "space": {
+            "directly_related_user_types": [
+              {
+                "type": "webex_space"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "type": "webex_space",
       "relations": {
         "reader": {
@@ -1476,7 +1509,7 @@
                 "type": "slack_channel"
               },
               {
-                "type": "webex_space"
+                "type": "webex_bot_installation"
               }
             ]
           },
@@ -1508,7 +1541,7 @@
                 "type": "slack_channel"
               },
               {
-                "type": "webex_space"
+                "type": "webex_bot_installation"
               }
             ]
           },

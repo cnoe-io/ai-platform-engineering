@@ -8,6 +8,13 @@
  */
 
 import { DataSourceInfo,IngestionJob,IngestorInfo } from '../Models';
+import type {
+    GraphEntity,
+    GraphNeighborhoodResponse,
+    GraphRelation,
+    RelationEvaluationsResponse,
+    RelationHeuristicsResponse,
+} from '../graph/shared/graphTypes';
 
 // API configuration - uses Next.js API proxy
 const API_BASE = '/api/rag';
@@ -102,8 +109,26 @@ async function apiDelete<T>(endpoint: string, params?: Record<string, string>): 
 // Health & Configuration
 // ============================================================================
 
-export const getHealthStatus = async () => {
-    return apiGet<any>('/healthz');
+export interface RagHealthStatus {
+    config?: {
+        cleanup?: {
+            enabled: boolean;
+            interval_seconds: number;
+            last_cleanup: number | null;
+        };
+        graph_rag_enabled?: boolean;
+        search?: {
+            filter_keys?: Array<{ key: string; type: string }>;
+            keys?: string[];
+            supported_doc_types?: string[];
+        };
+    };
+    status?: string;
+    [key: string]: unknown;
+}
+
+export const getHealthStatus = async (): Promise<RagHealthStatus> => {
+    return apiGet('/healthz');
 };
 
 // ============================================================================
@@ -370,14 +395,14 @@ export const deleteIngestor = async (ingestorId: string): Promise<void> => {
 // Ontology Graph API
 // ============================================================================
 
-export const getOntologyEntities = async (filterProps: Record<string, any> = {}) => {
+export const getOntologyEntities = async (filterProps: Record<string, unknown> = {}): Promise<GraphEntity[]> => {
     return apiPost('/v1/graph/explore/ontology/entities', {
         entity_type: null,
         filter_by_properties: filterProps
     });
 };
 
-export const getOntologyRelations = async (filterProps: Record<string, any> = {}) => {
+export const getOntologyRelations = async (filterProps: Record<string, unknown> = {}): Promise<GraphRelation[]> => {
     return apiPost('/v1/graph/explore/ontology/relations', {
         from_type: null,
         to_type: null,
@@ -414,15 +439,15 @@ export const getOntologyVersion = async () => {
 // Ontology and Data Graph Neighborhood Exploration API
 // ============================================================================
 
-export const getOntologyStartNodes = async (n: number = 10): Promise<any[]> => {
+export const getOntologyStartNodes = async (n: number = 10): Promise<GraphEntity[]> => {
     return apiGet('/v1/graph/explore/ontology/entity/start', { n });
 };
 
-export const getDataStartNodes = async (n: number = 10): Promise<any[]> => {
+export const getDataStartNodes = async (n: number = 10): Promise<GraphEntity[]> => {
     return apiGet('/v1/graph/explore/data/entity/start', { n });
 };
 
-export const exploreOntologyNeighborhood = async (entityType: string, entityPk: string, depth: number = 1): Promise<any> => {
+export const exploreOntologyNeighborhood = async (entityType: string, entityPk: string, depth: number = 1): Promise<GraphNeighborhoodResponse> => {
     return apiPost('/v1/graph/explore/ontology/entity/neighborhood', {
         entity_type: entityType,
         entity_pk: entityPk,
@@ -430,7 +455,7 @@ export const exploreOntologyNeighborhood = async (entityType: string, entityPk: 
     });
 };
 
-export const exploreDataNeighborhood = async (entityType: string, entityPk: string, depth: number = 1): Promise<any> => {
+export const exploreDataNeighborhood = async (entityType: string, entityPk: string, depth: number = 1): Promise<GraphNeighborhoodResponse> => {
     return apiPost('/v1/graph/explore/data/entity/neighborhood', {
         entity_type: entityType,
         entity_pk: entityPk,
@@ -454,7 +479,7 @@ export const fetchOntologyEntitiesBatch = async (params: {
     offset?: number;
     limit?: number;
     entity_type?: string;
-}): Promise<{ entities: any[]; count: number; offset: number; limit: number }> => {
+}): Promise<{ entities: GraphEntity[]; count: number; offset: number; limit: number }> => {
     const queryParams: Record<string, string> = {};
     if (params.offset !== undefined) queryParams.offset = String(params.offset);
     if (params.limit !== undefined) queryParams.limit = String(params.limit);
@@ -466,7 +491,7 @@ export const fetchOntologyRelationsBatch = async (params: {
     offset?: number;
     limit?: number;
     relation_name?: string;
-}): Promise<{ relations: any[]; count: number; offset: number; limit: number }> => {
+}): Promise<{ relations: GraphRelation[]; count: number; offset: number; limit: number }> => {
     const queryParams: Record<string, string> = {};
     if (params.offset !== undefined) queryParams.offset = String(params.offset);
     if (params.limit !== undefined) queryParams.limit = String(params.limit);
@@ -478,7 +503,7 @@ export const fetchDataEntitiesBatch = async (params: {
     offset?: number;
     limit?: number;
     entity_type?: string;
-}): Promise<{ entities: any[]; count: number; offset: number; limit: number }> => {
+}): Promise<{ entities: GraphEntity[]; count: number; offset: number; limit: number }> => {
     const queryParams: Record<string, string> = {};
     if (params.offset !== undefined) queryParams.offset = String(params.offset);
     if (params.limit !== undefined) queryParams.limit = String(params.limit);
@@ -490,7 +515,7 @@ export const fetchDataRelationsBatch = async (params: {
     offset?: number;
     limit?: number;
     relation_name?: string;
-}): Promise<{ relations: any[]; count: number; offset: number; limit: number }> => {
+}): Promise<{ relations: GraphRelation[]; count: number; offset: number; limit: number }> => {
     const queryParams: Record<string, string> = {};
     if (params.offset !== undefined) queryParams.offset = String(params.offset);
     if (params.limit !== undefined) queryParams.limit = String(params.limit);
@@ -538,11 +563,11 @@ export const syncOntologyRelation = async (relationId: string): Promise<void> =>
     return apiPost(`/v1/graph/ontology/agent/relation/sync/${encodeURIComponent(relationId)}`);
 };
 
-export const getOntologyRelationHeuristicsBatch = async (relationIds: string[]): Promise<Record<string, any>> => {
+export const getOntologyRelationHeuristicsBatch = async (relationIds: string[]): Promise<RelationHeuristicsResponse> => {
     return apiPost('/v1/graph/ontology/agent/relation/heuristics/batch', relationIds);
 };
 
-export const getOntologyRelationEvaluationsBatch = async (relationIds: string[]): Promise<Record<string, any>> => {
+export const getOntologyRelationEvaluationsBatch = async (relationIds: string[]): Promise<RelationEvaluationsResponse> => {
     return apiPost('/v1/graph/ontology/agent/relation/evaluations/batch', relationIds);
 };
 

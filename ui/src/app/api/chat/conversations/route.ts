@@ -23,6 +23,7 @@ import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { buildParticipants } from '@/types/a2a';
 import type { ClientType, Conversation, CreateConversationRequest } from '@/types/mongodb';
 import { VALID_CLIENT_TYPES } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import packageJson from '../../../../../package.json';
@@ -197,7 +198,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   // Fetch only owned or sharing-configured candidates; ReBAC remains the final
   // visibility check for team shares and explicit conversation grants.
-  const query: any = {
+  const query: Document = {
     $and: [
       { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
       conversationVisibilityCandidateQuery(user.email, directShareConversationIds),

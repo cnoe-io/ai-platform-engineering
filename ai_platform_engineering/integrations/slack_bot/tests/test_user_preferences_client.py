@@ -1,6 +1,6 @@
 """Tests for user_preferences_client.
 
-The Slack bot reads a user's saved DM-default agent via the BFF
+The Slack bot reads a user's Slack default via the BFF
 ``/api/user/preferences`` endpoint. The client must:
 
 - Send the user's OBO Bearer token (so the BFF can enforce its own
@@ -44,22 +44,57 @@ def _http_response(status: int, body: object) -> object:
 
 
 class TestUserPreferencesClient:
-    def test_returns_saved_agent_id_when_present(self):
+    def test_returns_slack_agent_from_bff_envelope(self):
         client = UserPreferencesClient(base_url="https://caipe.example")
         with patch.object(
             client,
             "_open",
-            return_value=_http_response(200, {"dm_default_agent_id": "argocd"}),
+            return_value=_http_response(
+                200,
+                {
+                    "success": True,
+                    "data": {
+                        "slack_default_agent_id": "slack-agent",
+                        "web_default_agent_id": "web-agent",
+                    },
+                },
+            ),
         ):
             result = client.get_dm_default_agent(bearer_token="t")
-        assert result == UserPreferenceResult(agent_id="argocd", source="saved")
+        assert result == UserPreferenceResult(
+            agent_id="slack-agent", source="saved"
+        )
 
-    def test_returns_none_agent_when_not_set(self):
+    def test_explicit_null_slack_agent_uses_platform_default(self):
         client = UserPreferencesClient(base_url="https://caipe.example")
         with patch.object(
             client,
             "_open",
-            return_value=_http_response(200, {"dm_default_agent_id": None}),
+            return_value=_http_response(
+                200,
+                {
+                    "slack_default_agent_id": None,
+                    "platform_default_agent_id": "platform-agent",
+                },
+            ),
+        ):
+            result = client.get_dm_default_agent(bearer_token="t")
+        assert result == UserPreferenceResult(
+            agent_id="platform-agent", source="saved"
+        )
+
+    def test_returns_none_agent_when_slack_and_web_are_not_set(self):
+        client = UserPreferencesClient(base_url="https://caipe.example")
+        with patch.object(
+            client,
+            "_open",
+            return_value=_http_response(
+                200,
+                {
+                    "slack_default_agent_id": None,
+                    "platform_default_agent_id": None,
+                },
+            ),
         ):
             result = client.get_dm_default_agent(bearer_token="t")
         assert result == UserPreferenceResult(agent_id=None, source="saved")
@@ -134,7 +169,7 @@ class TestUserPreferencesClient:
         def _fake_open(req, *_args, **_kwargs):
             captured["url"] = req.full_url
             captured["headers"] = {k.lower(): v for k, v in req.header_items()}
-            return _http_response(200, {"dm_default_agent_id": "ops"})
+            return _http_response(200, {"slack_default_agent_id": "ops"})
 
         client = UserPreferencesClient(base_url="https://caipe.example")
         with patch.object(client, "_open", side_effect=_fake_open):
@@ -144,6 +179,22 @@ class TestUserPreferencesClient:
         headers = captured["headers"]
         assert headers.get("authorization") == "Bearer my-token"
         assert headers.get("accept") == "application/json"
+
+    def test_clear_removes_slack_override(self):
+        captured: dict[str, object] = {}
+
+        def _fake_open(req, *_args, **_kwargs):
+            captured["method"] = req.get_method()
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _http_response(200, {"success": True})
+
+        client = UserPreferencesClient(base_url="https://caipe.example")
+        with patch.object(client, "_open", side_effect=_fake_open):
+            result = client.clear_dm_default_agent(bearer_token="my-token")
+
+        assert result is True
+        assert captured["method"] == "PUT"
+        assert captured["body"] == {"slack_default_agent_id": None}
 
 
 class TestUserPreferenceResult:

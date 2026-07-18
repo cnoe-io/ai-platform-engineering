@@ -1,9 +1,8 @@
-"""BFF client for the user-preference (DM default agent) lookup.
+"""BFF client for resolving a user's Slack default agent.
 
-Phase 1 of spec 2026-05-24-derive-team-from-channel adds a saved per-user
-"default DM agent" picker to the CAIPE UI. The Slack bot reads that
-preference *before* dispatching a DM, so the agent the user picked in the
-UI is the one their next DM lands on.
+The Slack bot reads the Slack-specific preference before dispatching a DM.
+When the user has not selected a Slack override, the resolver uses the
+platform default.
 
 Design constraints (FR-019, FR-027, A4):
 
@@ -36,10 +35,10 @@ UserPreferenceSource = Literal["saved", "not_set", "unavailable"]
 class UserPreferenceResult:
     """Outcome of a single BFF lookup.
 
-    ``agent_id`` is the saved DM-default agent (or ``None`` when the user
-    has not set one, or when the BFF was unreachable / returned a bad
-    response). ``source`` distinguishes the three cases so callers can
-    log / metric them separately:
+    ``agent_id`` is the resolved Slack default agent (or ``None`` when the
+    user has not set one, or when the BFF was unreachable / returned a bad
+    response). ``source`` distinguishes the three cases so callers can log
+    or metric them separately:
 
     - ``"saved"``       → BFF returned a valid response; ``agent_id`` may
                           be a string or ``None`` (user explicitly cleared).
@@ -79,7 +78,7 @@ class UserPreferencesClient:
         return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310 — internal HTTPS endpoint
 
     def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
-        """Fetch the user's saved DM-default agent.
+        """Fetch the user's resolved Slack default agent.
 
         Returns ``UserPreferenceResult(source="unavailable")`` for any
         failure mode (no base URL, missing token, network error, non-2xx
@@ -130,17 +129,32 @@ class UserPreferencesClient:
         if not isinstance(payload, dict):
             return UserPreferenceResult(agent_id=None, source="unavailable")
 
-        agent_id = payload.get("dm_default_agent_id")
+        preferences = payload.get("data", payload)
+        if not isinstance(preferences, dict):
+            return UserPreferenceResult(agent_id=None, source="unavailable")
+
+        # Null means "use platform default". The BFF returns the resolved
+        # platform value so Slack and the Web UI stay aligned at runtime.
+        agent_id = preferences.get("slack_default_agent_id")
         if agent_id is not None and not isinstance(agent_id, str):
             return UserPreferenceResult(agent_id=None, source="unavailable")
         agent_id = agent_id.strip() if isinstance(agent_id, str) and agent_id.strip() else None
+        if agent_id is None:
+            platform_agent_id = preferences.get("platform_default_agent_id")
+            if platform_agent_id is not None and not isinstance(platform_agent_id, str):
+                return UserPreferenceResult(agent_id=None, source="unavailable")
+            agent_id = (
+                platform_agent_id.strip()
+                if isinstance(platform_agent_id, str) and platform_agent_id.strip()
+                else None
+            )
         return UserPreferenceResult(agent_id=agent_id, source="saved")
 
     def clear_dm_default_agent(self, *, bearer_token: str) -> bool:
-        """Clear the user's saved DM-default preference (FR-029a).
+        """Clear the user's saved Slack override (FR-029a).
 
-        Sends ``PUT /api/user/preferences {"dm_default_agent_id": null}``.
-        Returns ``True`` on success, ``False`` on any failure mode.
+        Clears the Slack override so DMs use the platform default. Returns
+        ``True`` on success, ``False`` on any failure mode.
 
         Used by ``/use default`` to wipe the user's preference in the
         same round trip that clears the thread override.
@@ -149,7 +163,7 @@ class UserPreferencesClient:
             return False
 
         url = f"{self._base_url}/api/user/preferences"
-        body = json.dumps({"dm_default_agent_id": None}).encode("utf-8")
+        body = json.dumps({"slack_default_agent_id": None}).encode("utf-8")
         request = urllib.request.Request(
             url,
             data=body,

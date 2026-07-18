@@ -98,7 +98,7 @@ export async function checkPermission(
     }
 
     return { allowed: false, reason: `PDP error: ${response.status}` };
-  } catch (error) {
+  } catch {
     return { allowed: false, reason: "DENY_PDP_UNAVAILABLE" };
   }
 }

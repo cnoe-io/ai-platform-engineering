@@ -1,6 +1,13 @@
 // MongoDB collection type definitions
 
+import type { StreamEvent } from '@/lib/streaming/types';
+import type { TimelineSegment } from '@/types/dynamic-agent-timeline';
 import { ObjectId } from 'mongodb';
+
+export type StoredStreamEvent = Omit<StreamEvent, 'raw' | 'timestamp'> & {
+  raw?: unknown;
+  timestamp: Date | string;
+};
 
 // ============================================================================
 // User Collection
@@ -150,17 +157,22 @@ export interface Message {
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
-    timeline_segments?: any[]; // TimelineSegment[] persisted for plan/thinking/answer reconstruction
+    timeline_segments?: TimelineSegment[]; // Persisted for plan/thinking/answer reconstruction
+    task_id?: string;
+    turn_status?: string;
+    is_interrupted?: boolean;
   };
   artifacts?: Artifact[];
-  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
+  stream_events?: StoredStreamEvent[];
+  /** Legacy name used by older conversation records. */
+  sse_events?: StoredStreamEvent[];
   feedback?: MessageFeedback;
 }
 
 export interface Artifact {
   type: string;
   name: string;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 export interface MessageFeedback {
@@ -326,6 +338,8 @@ export interface UpdateConversationRequest {
   tags?: string[];
   is_archived?: boolean;
   is_pinned?: boolean;
+  /** Re-link a conversation to a new agent (e.g. resume a deprecated-agent conversation). */
+  participants?: Participant[];
 }
 
 export interface PatchConversationMetadataRequest {
@@ -363,10 +377,10 @@ export interface AddMessageRequest {
     turn_status?: string; // "done" | "interrupted" | "waiting_for_input"
     is_interrupted?: boolean;
     task_id?: string;
-    timeline_segments?: any[]; // TimelineSegment[] for plan/thinking/answer reconstruction
+    timeline_segments?: TimelineSegment[]; // Plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];
-  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
+  stream_events?: StoredStreamEvent[];
 }
 
 export interface UpdateMessageRequest {
@@ -407,7 +421,7 @@ export interface UpdateSettingsRequest {
 // API Response Types
 // ============================================================================
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -435,7 +449,7 @@ export interface UserActivity {
   action: string;
   resource_type: 'conversation' | 'message' | 'settings' | 'share';
   resource_id: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 // ============================================================================

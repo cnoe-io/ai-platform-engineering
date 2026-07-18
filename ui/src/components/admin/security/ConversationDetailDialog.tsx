@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,8 +74,8 @@ export function ConversationDetailDialog({
       if (!json.success) throw new Error(json.error || "Failed to delete");
       onOpenChange(false);
       onDeleted?.(conversationId);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -90,8 +92,8 @@ export function ConversationDetailDialog({
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Failed to load messages");
       setData(json.data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setLoading(false);
     }

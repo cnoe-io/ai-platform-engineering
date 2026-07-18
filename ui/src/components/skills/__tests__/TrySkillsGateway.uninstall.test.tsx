@@ -127,7 +127,7 @@ const LIVE_SKILLS_BODY = {
 let clipboardWriteTextMock: jest.Mock;
 
 beforeEach(() => {
-  global.fetch = jest.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+  global.fetch = jest.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.startsWith("/api/catalog-api-keys")) {
       return jsonResponse({ ok: true, body: { keys: [] } });

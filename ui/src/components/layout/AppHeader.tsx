@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { AnimatePresence,motion,useReducedMotion } from "framer-motion";
+import Image from "next/image";
 import {
 AlertTriangle,
 BookOpen,
@@ -585,9 +586,12 @@ export function AppHeader() {
             href="/"
             className="brand-link flex items-center gap-2.5 cursor-pointer"
           >
-            <img
+            <Image
               src={config.logoUrl}
               alt={`${config.appName} Logo`}
+              width={32}
+              height={32}
+              unoptimized
               className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
             />
             <span className="brand-lockup relative hidden sm:inline-block">

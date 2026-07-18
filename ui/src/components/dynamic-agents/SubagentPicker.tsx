@@ -125,7 +125,7 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
           }))
         );
       }
-    } catch (err: any) {
+    } catch {
       setError("Failed to load available agents");
     } finally {
       setLoading(false);
@@ -143,7 +143,7 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
       } else {
         setError(data.error || "Failed to load available subagents");
       }
-    } catch (err: any) {
+    } catch {
       setError("Failed to load available subagents");
     } finally {
       setLoading(false);

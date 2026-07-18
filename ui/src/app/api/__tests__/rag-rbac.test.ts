@@ -154,7 +154,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'test@example.com' },
         accessToken: 'access-token',
         groups: [],
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -182,7 +182,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'ingestor@example.com' },
         accessToken: 'access-token',
         groups: ['ingestors'],
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -207,7 +207,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'admin@example.com' },
         accessToken: 'access-token',
         groups: ['admins'],
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -232,7 +232,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'multi@example.com' },
         accessToken: 'access-token',
         groups: ['readers', 'ingestors', 'admins'],
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -257,12 +257,12 @@ describe('RAG RBAC Integration', () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: ['readers'],
-      } as any);
+      } as unknown);
 
       // We can't easily test the actual fetch call, but we can verify
       // the getRbacHeaders function logic by importing it
       // For now, we verify the session mock is set correctly
-      const session = await getServerSession({} as any);
+      const session = await getServerSession({} as unknown);
       expect(session?.user?.email).toBe('test@example.com');
     });
 
@@ -270,9 +270,9 @@ describe('RAG RBAC Integration', () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: ['group1', 'group2', 'group3'],
-      } as any);
+      } as unknown);
 
-      const session = await getServerSession({} as any);
+      const session = await getServerSession({} as unknown);
       expect(session?.groups).toEqual(['group1', 'group2', 'group3']);
     });
 
@@ -280,9 +280,9 @@ describe('RAG RBAC Integration', () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
         groups: [],
-      } as any);
+      } as unknown);
 
-      const session = await getServerSession({} as any);
+      const session = await getServerSession({} as unknown);
       expect(session?.groups).toEqual([]);
     });
   });
@@ -332,7 +332,7 @@ describe('RAG RBAC Integration', () => {
           user: { email: 'test@example.com' },
           accessToken: 'access-token',
           groups,
-        } as any);
+        } as unknown);
         const permissions = [...(canRead ? ['read'] : []), ...(canIngest ? ['ingest'] : []), ...(canDelete ? ['delete'] : [])];
         (global.fetch as jest.Mock).mockResolvedValueOnce({
           ok: true,
@@ -360,7 +360,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'test@example.com' },
         accessToken: 'access-token',
         groups: ['unknown-group'],
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -386,7 +386,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'test@example.com' },
         accessToken: 'access-token',
         groups: ['caipe-admins'],
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -415,7 +415,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'access-token',
         user: { email: 'alice@example.com' },
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
@@ -462,7 +462,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'browser-token',
         user: { email: 'alice@example.com' },
-      } as any);
+      } as unknown);
       mockFilterResourcesByPermission.mockResolvedValue([
         { datasource_id: 'kb-allowed', name: 'Allowed KB' },
       ]);
@@ -517,7 +517,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'browser-token',
         user: { email: 'alice@example.com' },
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 201,
@@ -564,7 +564,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'browser-token',
         user: { email: 'alice@example.com' },
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 201,
@@ -610,7 +610,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'browser-token',
         user: { email: 'admin@example.com' },
-      } as any);
+      } as unknown);
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
@@ -641,7 +641,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'browser-token',
         user: { email: 'alice@example.com' },
-      } as any);
+      } as unknown);
       mockFilterResourcesByPermission.mockResolvedValue([
         { datasource_id: 'kb-allowed', name: 'Allowed KB' },
       ]);
@@ -751,7 +751,7 @@ describe('RAG RBAC Integration', () => {
         org: 'team-alpha',
         accessToken: 'admin-token',
         user: { email: 'admin@example.com' },
-      } as any);
+      } as unknown);
       mockRequireResourcePermission.mockImplementation(async () => {
         throw new ApiError('no ingest', 403, 'data_source#ingest');
       });

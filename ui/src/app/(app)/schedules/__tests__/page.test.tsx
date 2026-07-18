@@ -458,7 +458,10 @@ describe("SchedulesPage", () => {
         ok: true,
         json: async () => ({
           success: true,
-          data: { default_agent_id: "agent-platform-default" },
+          data: {
+            web_default_agent_id: null,
+            platform_default_agent_id: "agent-platform-default",
+          },
         }),
       })
       .mockResolvedValueOnce({
@@ -488,8 +491,12 @@ describe("SchedulesPage", () => {
       expect(mockCreateConversation).toHaveBeenCalledWith("agent-platform-default")
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/admin/platform-config",
+      "/api/user/preferences",
       { cache: "no-store" },
+    );
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/admin/platform-config",
+      expect.anything(),
     );
     expect(mockRouterPush).toHaveBeenCalledWith("/chat/conversation-1");
   });

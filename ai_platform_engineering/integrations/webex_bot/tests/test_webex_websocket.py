@@ -40,6 +40,7 @@ def test_normalize_webex_payload_parses_webhook_shape() -> None:
     payload = {
         "event": "message",
         "data": {
+            "botId": "primary",
             "personId": "person1234",
             "roomId": "space12345",
             "text": "hello team",

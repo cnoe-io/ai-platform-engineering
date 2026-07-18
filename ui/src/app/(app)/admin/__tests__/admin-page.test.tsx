@@ -182,7 +182,29 @@ jest.mock('@/lib/api-client', () => ({
 }));
 
 jest.mock('framer-motion', () => ({
-  motion: { div: ({ children, ...props }: any) => <div {...props}>{children}</div> },
+  motion: {
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+    span: ({
+      animate,
+      children,
+      initial,
+      layoutId,
+      transition,
+      ...props
+    }: React.HTMLAttributes<HTMLSpanElement> & {
+      animate?: unknown;
+      initial?: unknown;
+      layoutId?: string;
+      transition?: unknown;
+    }) => {
+      void animate;
+      void initial;
+      void layoutId;
+      void transition;
+      return <span {...props}>{children}</span>;
+    },
+  },
+  useReducedMotion: () => false,
 }));
 
 const mockStatsResponse = {
@@ -309,7 +331,11 @@ const baselineUserGates = {
   migrations: false,
 };
 
-function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
+function setupFetchMock(overrides: {
+  tabGates?: Record<string, boolean>;
+  integrationPanelModes?: { slack: string; webex: string };
+  simulation?: unknown;
+} = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
     if (url.includes('/api/rbac/admin-tab-gates')) {
       return Promise.resolve({
@@ -398,7 +424,7 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
       json: () => Promise.resolve({ success: true, data: {} }),
     });
   });
-  global.fetch = mock as any;
+  global.fetch = mock as unknown;
   return mock;
 }
 
@@ -708,6 +734,68 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
     });
 
+    it('scopes Teams & Users data requests to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=people&tab=users'
+      );
+      const fetchMock = setupFetchMock({
+        tabGates: baselineUserGates,
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/users?page=1&pageSize=20&simulate_type=user&simulate_id=kc-user'
+        );
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/teams?simulate_type=user&simulate_id=kc-user'
+        );
+      });
+
+    });
+
+    it('scopes the Teams grid request to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=people&tab=teams'
+      );
+      const fetchMock = setupFetchMock({
+        tabGates: baselineUserGates,
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        const gridRequest = fetchMock.mock.calls.find(([url]) =>
+          typeof url === 'string'
+          && url.includes('/api/admin/teams?page=1')
+          && url.includes('simulate_type=user')
+          && url.includes('simulate_id=kc-user')
+        );
+        expect(gridRequest).toBeDefined();
+      });
+    });
+
     it('uses a simulated admin\'s effective access while keeping the preview read-only', async () => {
       currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=admin-target');
       setupFetchMock({
@@ -737,14 +825,15 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByRole('button', { name: /viewing as target admin/i })).toBeInTheDocument();
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+        expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
       expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
@@ -952,10 +1041,11 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       // Release notes lives under General, not as a standalone tab.
@@ -1025,7 +1115,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1043,7 +1133,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       // An unknown tab value falls through to the first visible Settings tab
       // (General), which renders both the platform settings and the release
       // notes preference/config sections.
@@ -1057,6 +1147,7 @@ describe('Admin Dashboard Page', () => {
 
     it.each([
       ['settings', 'settings', /^General$/i],
+      ['settings', 'agents', /^Agents$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
@@ -1092,7 +1183,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Slack',
         'Webex',
@@ -1107,7 +1198,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Webex$/i })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
@@ -1118,7 +1209,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1136,7 +1227,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1161,7 +1252,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1179,7 +1270,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Insights')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Insights' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Insights' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1197,7 +1288,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1215,7 +1306,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Self Check$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1230,7 +1321,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1250,7 +1341,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Slack$/i })).toHaveAttribute(
         'aria-selected',
         'true'

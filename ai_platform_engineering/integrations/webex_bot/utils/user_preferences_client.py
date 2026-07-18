@@ -1,4 +1,4 @@
-"""BFF client for the user-preference (DM default agent) lookup.
+"""BFF client for resolving a user's Webex default agent.
 
 Parallel of slack_bot.utils.user_preferences_client. Two copies — one per
 bot — because the bots are deployed independently and have independent
@@ -54,6 +54,7 @@ class UserPreferencesClient:
         return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310
 
     def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
+        """Return the Webex override; null delegates to the platform default."""
         if not self._base_url or not bearer_token:
             return UserPreferenceResult(agent_id=None, source="unavailable")
 
@@ -98,14 +99,27 @@ class UserPreferencesClient:
         if not isinstance(payload, dict):
             return UserPreferenceResult(agent_id=None, source="unavailable")
 
-        agent_id = payload.get("dm_default_agent_id")
+        preferences = payload.get("data", payload)
+        if not isinstance(preferences, dict):
+            return UserPreferenceResult(agent_id=None, source="unavailable")
+
+        agent_id = preferences.get("webex_default_agent_id")
         if agent_id is not None and not isinstance(agent_id, str):
             return UserPreferenceResult(agent_id=None, source="unavailable")
         agent_id = agent_id.strip() if isinstance(agent_id, str) and agent_id.strip() else None
+        if agent_id is None:
+            platform_agent_id = preferences.get("platform_default_agent_id")
+            if platform_agent_id is not None and not isinstance(platform_agent_id, str):
+                return UserPreferenceResult(agent_id=None, source="unavailable")
+            agent_id = (
+                platform_agent_id.strip()
+                if isinstance(platform_agent_id, str) and platform_agent_id.strip()
+                else None
+            )
         return UserPreferenceResult(agent_id=agent_id, source="saved")
 
     def clear_dm_default_agent(self, *, bearer_token: str) -> bool:
-        """Clear the user's saved DM-default preference (FR-029a).
+        """Clear the user's saved Webex override (FR-029a).
 
         Used by the ``use default`` text command to wipe the user's
         preference in the same round-trip that clears the room override.
@@ -115,7 +129,7 @@ class UserPreferencesClient:
             return False
 
         url = f"{self._base_url}/api/user/preferences"
-        body = json.dumps({"dm_default_agent_id": None}).encode("utf-8")
+        body = json.dumps({"webex_default_agent_id": None}).encode("utf-8")
         request = urllib.request.Request(
             url,
             data=body,

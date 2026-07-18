@@ -13,6 +13,7 @@ Common values:
 - `existingSecret`: existing Secret mounted with `envFrom`
 - `externalSecrets`: optional ExternalSecret integration
 - `oauthConnectors`: arbitrary OAuth connectors bootstrapped into the credential store
+- `credentialSecretRefs`: encrypted secrets bootstrapped from mounted environment variables
 - `appConfig.models`: model selector entries
 - `appConfig.mcp_servers`: dynamic-agent MCP server bootstrap entries
 
@@ -45,3 +46,29 @@ non-empty list is bootstrapped automatically and upserted by `provider` at every
 UI startup. Declarative entries override legacy fixed-provider environment
 bootstrap entries. Removing an entry does not delete or disable the connector
 already stored in MongoDB.
+
+## Declarative credential secrets
+
+Use `credentialSecretRefs` to provision stable secret IDs for config-driven MCP
+servers. The value is read from an environment variable mounted through
+`existingSecret` or `externalSecrets`; plaintext is never rendered into a
+ConfigMap or Helm release value:
+
+```yaml
+caipe-ui:
+  credentialSecretRefs:
+    - id: shared-webex-bot-token
+      name: Shared Webex bot token
+      type: bearer_token
+      valueEnv: SHARED_WEBEX_BOT_TOKEN
+      owner:
+        type: team
+        id: platform-admins
+      sharedWithTeams:
+        - platform-users
+  existingSecret: caipe-ui-secrets
+```
+
+At startup the UI encrypts new or rotated values in the configured credential
+store and reconciles owner/share relationships into OpenFGA. Existing unchanged
+payloads are not re-encrypted.

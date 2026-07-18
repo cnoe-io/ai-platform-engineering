@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const mockUpdateConversationSharing = jest.fn()
 jest.mock('@/store/chat-store', () => ({
-  useChatStore: (selector: any) => selector({ updateConversationSharing: mockUpdateConversationSharing }),
+  useChatStore: (selector: unknown) => selector({ updateConversationSharing: mockUpdateConversationSharing }),
 }))
 
 jest.mock('@/lib/api-client', () => ({
@@ -24,7 +24,7 @@ describe('ShareDialog — public sharing removed', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: any) => {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: unknown) => {
       if (url.includes('/api/dynamic-agents/teams')) {
         return Promise.resolve({
           ok: true,
@@ -80,7 +80,7 @@ describe('ShareDialog — public sharing removed', () => {
       share_link_enabled: false,
     }
 
-    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: any) => {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string, opts?: unknown) => {
       if (url.includes('/api/dynamic-agents/teams')) {
         return Promise.resolve({
           ok: true,
@@ -134,7 +134,7 @@ describe('ShareDialog — public sharing removed', () => {
 
     await waitFor(() => {
       const postCalls = (global.fetch as jest.Mock).mock.calls.filter(
-        ([url, opts]: [string, any]) => url.includes('/share') && opts?.method === 'POST',
+        ([url, opts]: [string, unknown]) => url.includes('/share') && opts?.method === 'POST',
       )
       expect(postCalls.length).toBeGreaterThan(0)
       const body = JSON.parse(postCalls[0][1].body)

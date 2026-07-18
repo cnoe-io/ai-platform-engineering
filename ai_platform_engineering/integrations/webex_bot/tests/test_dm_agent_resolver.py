@@ -48,7 +48,6 @@ class FakeAuthzClient:
                 reason="PDP_UNAVAILABLE",
                 path="unavailable",
                 available=False,
-                matched_team_slug=None,
             )
         ok = agent_id in self.allowed_agents
         return DmAgentAccessDecision(
@@ -56,7 +55,6 @@ class FakeAuthzClient:
             reason="ALLOW_DIRECT" if ok else "DENY_NO_CAPABILITY",
             path="direct_user_grant" if ok else "denied",
             available=True,
-            matched_team_slug=None,
         )
 
 

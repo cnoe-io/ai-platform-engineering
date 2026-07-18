@@ -23,7 +23,7 @@ const mockNextResponseCtor = jest.fn(
 );
 
 jest.mock('next/server', () => ({
-  NextResponse: function (body: string, init: any) {
+  NextResponse: function (body: string, init: unknown) {
     return mockNextResponseCtor(body, init);
   },
 }));
@@ -67,7 +67,7 @@ afterAll(() => {
 });
 
 const callGET = async (url: string) => {
-  const res: any = await GET(new Request(url));
+  const res: unknown = await GET(new Request(url));
   return { body: await res.text(), headers: res.headers as Map<string, string> };
 };
 

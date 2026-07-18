@@ -20,7 +20,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Create user profile if it doesn't exist
     if (!userProfile) {
       const now = new Date();
-      const newUser = {
+      const newUser: Omit<User, '_id'> = {
         email: user.email,
         name: user.name,
         created_at: now,
@@ -33,8 +33,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         },
       };
 
-      const result = await users.insertOne(newUser as any);
-      userProfile = { _id: result.insertedId, ...newUser } as any;
+      const result = await users.insertOne(newUser);
+      userProfile = { _id: result.insertedId, ...newUser };
     } else {
       // Update last login
       await users.updateOne(
@@ -54,7 +54,9 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const users = await getCollection<User>('users');
 
-    const update: any = {
+    const update: Partial<Pick<User, 'avatar_url' | 'name' | 'updated_at'>> & {
+      updated_at: Date;
+    } = {
       updated_at: new Date(),
     };
 

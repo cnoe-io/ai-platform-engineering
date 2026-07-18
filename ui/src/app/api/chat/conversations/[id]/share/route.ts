@@ -15,7 +15,7 @@ import { getCollection } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import type { Conversation,ShareConversationRequest,SharingAccess } from '@/types/mongodb';
-import { ObjectId } from 'mongodb';
+import { ObjectId,type Document } from 'mongodb';
 import { NextRequest } from 'next/server';
 
 type SharePermission = 'view' | 'comment';
@@ -287,7 +287,7 @@ export const POST = withErrorHandler(async (
 
     const now = new Date();
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
-    const update: any = {};
+    const update: Document = {};
 
     // Handle user sharing
     if (body.user_emails && body.user_emails.length > 0) {
@@ -310,7 +310,7 @@ export const POST = withErrorHandler(async (
       }));
 
       if (accessRecords.length > 0) {
-        await sharingAccess.insertMany(accessRecords as any);
+        await sharingAccess.insertMany(accessRecords);
       }
       await writeUserConversationGrantTuplesBestEffort(conversationId, recipientEmails, permission);
 

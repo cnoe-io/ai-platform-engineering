@@ -6,6 +6,12 @@
 import { ApiError,requireRbacPermission,withAuth,withErrorHandler } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
 import {
+normalizePlatformDefaultAgentId,
+PLATFORM_AGENT_ID_PATTERN,
+PLATFORM_CONFIG_ID,
+type PlatformDefaultAgentDocument,
+} from '@/lib/platform-default-agent';
+import {
 DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
 MAX_DISCOVERY_CACHE_TTL_MINUTES,
 MIN_DISCOVERY_CACHE_TTL_MINUTES,
@@ -20,13 +26,9 @@ withJsonResponseCache,
 } from '@/lib/server-response-cache';
 import { NextRequest,NextResponse } from 'next/server';
 
-const CONFIG_ID = 'platform_settings';
-const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 const platformConfigCache = createJsonResponseCacheStore();
 
-interface PlatformConfigDoc {
-  _id?: string;
-  default_agent_id?: unknown;
+interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
   slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
@@ -36,19 +38,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function normalizeDefaultAgentId(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value !== 'string') {
-    throw new ApiError('default_agent_id must be a string or null', 400, 'INVALID_DEFAULT_AGENT_ID');
-  }
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (!OPENFGA_ID_PATTERN.test(trimmed)) {
-    throw new ApiError('default_agent_id is not a valid OpenFGA object id', 400, 'INVALID_DEFAULT_AGENT_ID');
-  }
-  return trimmed;
-}
-
 function normalizeVictoropsAgentId(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value !== 'string') {
@@ -56,7 +45,7 @@ function normalizeVictoropsAgentId(value: unknown): string | null {
   }
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (!OPENFGA_ID_PATTERN.test(trimmed)) {
+  if (!PLATFORM_AGENT_ID_PATTERN.test(trimmed)) {
     throw new ApiError('slack_victorops_escalation_agent_id is not a valid OpenFGA object id', 400, 'INVALID_VICTOROPS_AGENT_ID');
   }
   return trimmed;
@@ -95,13 +84,13 @@ async function getPlatformConfig(request: NextRequest) {
   return await withAuth(request, async (_req, _user, session) => {
     await requireResourcePermission(session, {
       type: 'system_config',
-      id: CONFIG_ID,
+      id: PLATFORM_CONFIG_ID,
       action: 'read',
     });
     const col = await getCollection<PlatformConfigDoc>('platform_config');
-    const doc = await col.findOne({ _id: CONFIG_ID } as never);
+    const doc = await col.findOne({ _id: PLATFORM_CONFIG_ID } as never);
 
-    const defaultAgentId = normalizeDefaultAgentId(doc?.default_agent_id);
+    const defaultAgentId = normalizePlatformDefaultAgentId(doc?.default_agent_id);
     const envFallback = process.env.DEFAULT_AGENT_ID || null;
     const discoveryTtlMinutes =
       normalizeDiscoveryCacheTtlMinutes(doc?.discovery_cache_ttl_minutes) ??
@@ -130,7 +119,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     await requireRbacPermission(session, 'admin_ui', 'admin');
     await requireResourcePermission(session, {
       type: 'system_config',
-      id: CONFIG_ID,
+      id: PLATFORM_CONFIG_ID,
       action: 'admin',
     });
 
@@ -142,7 +131,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     };
 
     const hasDefaultAgentUpdate = Object.prototype.hasOwnProperty.call(body, 'default_agent_id');
-    const nextDefaultAgentId = hasDefaultAgentUpdate ? normalizeDefaultAgentId(body.default_agent_id) : null;
+    const nextDefaultAgentId = hasDefaultAgentUpdate ? normalizePlatformDefaultAgentId(body.default_agent_id) : null;
     if (hasDefaultAgentUpdate) update.default_agent_id = nextDefaultAgentId;
 
     // Slack VictorOps escalation agent (Admin → Integrations → Slack →
@@ -187,9 +176,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
 
     const col = await getCollection<PlatformConfigDoc>('platform_config');
     const previousDoc = hasDefaultAgentUpdate
-      ? await col.findOne({ _id: CONFIG_ID } as never)
+      ? await col.findOne({ _id: PLATFORM_CONFIG_ID } as never)
       : null;
-    const previousDefaultAgentId = normalizeDefaultAgentId(previousDoc?.default_agent_id);
+    const previousDefaultAgentId = normalizePlatformDefaultAgentId(previousDoc?.default_agent_id);
     const defaultAgentChanged = hasDefaultAgentUpdate && previousDefaultAgentId !== nextDefaultAgentId;
 
     // Selecting a non-null default agent grants `user:*` `can_use` on it,
@@ -226,7 +215,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       }
     }
     await col.updateOne(
-      { _id: CONFIG_ID } as never,
+      { _id: PLATFORM_CONFIG_ID } as never,
       {
         $set: update,
       },

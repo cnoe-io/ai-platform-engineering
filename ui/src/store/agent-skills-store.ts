@@ -1,3 +1,4 @@
+import { getErrorMessage } from "@/lib/error-utils";
 import type {
 AgentSkill,
 AgentSkillCategory,
@@ -43,7 +44,12 @@ interface AgentSkillsState {
 }
 
 // Transform API response to ensure proper date handling
-function transformSkill(config: any): AgentSkill {
+type SerializedAgentSkill = Omit<AgentSkill, "created_at" | "updated_at"> & {
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+function transformSkill(config: SerializedAgentSkill): AgentSkill {
   return {
     ...config,
     created_at: new Date(config.created_at),
@@ -282,7 +288,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
 
       set({ configs: transformed, isLoading: false });
       console.log(`[AgentSkillsStore] Loaded ${transformed.length} agent skills from MongoDB`);
-    } catch (error: any) {
+    } catch (error) {
       console.error("[AgentSkillsStore] Failed to load configs:", error);
       set({ configs: [], isLoading: false });
     }
@@ -327,7 +333,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       console.log(`[AgentSkillsStore] Created agent skill "${skillData.name}"`);
 
       return createdId;
-    } catch (error: any) {
+    } catch (error) {
       console.error("[AgentSkillsStore] Failed to create config:", error);
       throw error;
     }
@@ -365,7 +371,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       const updatedSkill = get().configs.find(c => c.id === id);
       console.log(`[AgentSkillsStore] Updated agent skill "${id}"`);
       console.log(`[AgentSkillsStore] Reloaded config:`, updatedSkill);
-    } catch (error: any) {
+    } catch (error) {
       console.error("[AgentSkillsStore] Failed to update config:", error);
       throw error;
     }
@@ -401,7 +407,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       }
       
       console.log(`[AgentSkillsStore] Deleted agent skill "${id}"`);
-    } catch (error: any) {
+    } catch (error) {
       console.error("[AgentSkillsStore] Failed to delete config:", error);
       throw error;
     }
@@ -482,9 +488,9 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       
       console.log(`[AgentSkillsStore] Imported ${createdIds.length} configs from YAML`);
       return createdIds;
-    } catch (error: any) {
+    } catch (error) {
       console.error("[AgentSkillsStore] Failed to import YAML:", error);
-      throw new Error(`Failed to parse YAML: ${error.message}`);
+      throw new Error(`Failed to parse YAML: ${getErrorMessage(error, "")}`);
     }
   },
 

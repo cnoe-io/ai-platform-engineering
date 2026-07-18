@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { type OpenFgaTupleKey, writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { isSupportedResourceAction } from "@/lib/rbac/resource-model";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import {
@@ -11,10 +11,15 @@ WEBEX_SPACE_GRANT_RESOURCE_TYPES,
 type WebexSpaceGrantInput,
 } from "@/lib/rbac/webex-space-grant-store";
 import {
-listOpenFgaWebexSpaceAgentIds,
+listOpenFgaWebexBotAgentIds,
 parseWebexSpaceRouteParams,
 } from "@/lib/rbac/webex-space-openfga";
+import {
+  webexBotInstallationAgentTuple,
+  webexBotInstallationIdentityTuples,
+} from "@/lib/rbac/webex-bot-openfga";
 import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
 import type { WebexSpaceGrantResourceType } from "@/types/webex-rebac";
 
@@ -24,8 +29,12 @@ interface RouteContext {
   params: Promise<{ workspaceId: string; spaceId: string }>;
 }
 
-async function listOpenFgaAgentGrants(workspaceId: string, spaceId: string): Promise<WebexSpaceGrantInput[]> {
-  const agentIds = await listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId);
+async function listOpenFgaAgentGrants(
+  botId: string,
+  workspaceId: string,
+  spaceId: string,
+): Promise<WebexSpaceGrantInput[]> {
+  const agentIds = await listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId);
   return agentIds.map((agentId) => ({
     workspace_id: workspaceId,
     space_id: spaceId,
@@ -36,9 +45,15 @@ async function listOpenFgaAgentGrants(workspaceId: string, spaceId: string): Pro
 
 async function writeRequiredOpenFgaTuples(
   writes: ReturnType<typeof webexSpaceGrantRelationship>[],
-  deletes: ReturnType<typeof webexSpaceGrantRelationship>[]
+  deletes: ReturnType<typeof webexSpaceGrantRelationship>[],
+  rawWrites: OpenFgaTupleKey[] = [],
+  rawDeletes: OpenFgaTupleKey[] = [],
 ) {
-  const result = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes }));
+  const relationshipDiff = buildUniversalRebacTupleDiff({ writes, deletes });
+  const result = await writeOpenFgaTuples({
+    writes: [...relationshipDiff.writes, ...rawWrites],
+    deletes: [...relationshipDiff.deletes, ...rawDeletes],
+  });
   if (!result.enabled) {
     throw new Error("OpenFGA is not configured");
   }
@@ -95,7 +110,10 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacViewAuth(request, async () => {
-    const grants = await listOpenFgaAgentGrants(workspaceId, spaceId);
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
+    const grants = await listOpenFgaAgentGrants(botId, workspaceId, spaceId);
     return successResponse({ grants });
   }, { workspaceId, spaceId });
 });
@@ -104,6 +122,9 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
   const raw = await context.params;
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
   return withWebexSpaceRebacManageAuth(request, async () => {
+    const botId = (
+      await requireAvailableWebexBotPolicy(request.nextUrl.searchParams.get("bot_id"))
+    ).id;
     const body = (await request.json()) as { grants?: unknown };
     if (!Array.isArray(body.grants)) {
       throw new ApiError("grants must be an array", 400);
@@ -120,24 +141,32 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
     const previousMongo = await listWebexSpaceGrants(workspaceId, spaceId);
     const previousGrantInputs = toGrantInputs(workspaceId, spaceId, previousMongo, actor);
 
-    const existingAgentIds = await listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId);
+    const existingAgentIds = await listOpenFgaWebexBotAgentIds(botId, workspaceId, spaceId);
     const nextAgentIds = grants
       .filter((grant) => grant.resource.type === "agent" && grant.actions.includes("use"))
       .map((grant) => grant.resource.id);
-    const writes = grants.flatMap((grant) =>
+    const writes = grants
+      .filter((grant) => grant.resource.type !== "agent")
+      .flatMap((grant) =>
       grant.actions.map((action) =>
         webexSpaceGrantRelationship(workspaceId, spaceId, grant.resource, action)
       )
     );
-    const deletes = existingAgentIds
+    const agentWrites = [
+      ...webexBotInstallationIdentityTuples(botId, workspaceId, spaceId),
+      ...nextAgentIds.map((agentId) =>
+        webexBotInstallationAgentTuple(botId, workspaceId, spaceId, agentId),
+      ),
+    ];
+    const agentDeletes = existingAgentIds
       .filter((agentId) => !nextAgentIds.includes(agentId))
       .map((agentId) =>
-        webexSpaceGrantRelationship(workspaceId, spaceId, { type: "agent", id: agentId }, "use")
+        webexBotInstallationAgentTuple(botId, workspaceId, spaceId, agentId),
       );
 
     const saved = await replaceWebexSpaceGrants(workspaceId, spaceId, grants, actor);
     try {
-      const openfga = await writeRequiredOpenFgaTuples(writes, deletes);
+      const openfga = await writeRequiredOpenFgaTuples(writes, [], agentWrites, agentDeletes);
       return successResponse({ grants: saved, openfga });
     } catch (error) {
       await replaceWebexSpaceGrants(workspaceId, spaceId, previousGrantInputs, actor);

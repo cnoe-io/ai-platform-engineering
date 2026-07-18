@@ -1,3 +1,119 @@
+## 0.5.54-dev.3 (2026-07-17)
+
+### Feat
+
+- support multiple Webex bots and 1:1  (#2184)
+
+## 0.5.54-dev.2 (2026-07-16)
+
+## 0.5.54-dev.1 (2026-07-16)
+
+### Feat
+
+- **platform**: add per-surface default agents (#2233)
+
+## 0.5.54 (2026-07-16)
+
+## 0.5.53-dev.5 (2026-07-16)
+
+## 0.5.53-dev.4 (2026-07-16)
+
+### Fix
+
+- **slack-bot**: resolve channel_id from view.private_metadata for modal submits
+- **slack-bot**: bind OBO token in feedback/retry/escalation handlers
+- **slack-bot**: register conversation before VictorOps on-call lookup
+
+## 0.5.53-dev.3 (2026-07-16)
+
+### Feat
+
+- **ui**: improve admin access preview and default agents (#2218)
+
+### Fix
+
+- **admin-users**: create team_membership_sources index at boot, not via migration
+- **admin-users**: drop stray teams dep causing double-fetch on Users tab
+- **admin-users**: paginate team membership lookup in Mongo, not Node
+- **admin-users**: page team-scoped Keycloak lookups for plain members
+
+## 0.5.53-dev.2 (2026-07-16)
+
+### Feat
+
+- **ci**: add prebuild webex bot. WHY WAS THIS NOT ADDED BEFORE?
+
+### Fix
+
+- **ui**: eliminate lint violations and enforce CI (#2211)
+
+## 0.5.53-dev.1 (2026-07-16)
+
+### Feat
+
+- **ui**: animate shared tab selectors (#2217)
+
+## 0.5.53 (2026-07-15)
+
+## 0.5.52-dev.2 (2026-07-15)
+
+### Feat
+
+- **keycloak**: configurable SSO session lifetime, default 7d idle / 14d max
+
+### Fix
+
+- **ui**: remove AccessTokenMissing dead code and clear auth flag on recovery
+
+## 0.5.52-dev.1 (2026-07-15)
+
+### Feat
+
+- **ui**: add 'Choose agent' button alongside 'Resume with default agent' in deprecated-agent banner
+
+### Fix
+
+- **ci**: resolve ruff and jest failures blocking deprecated-agent PR
+- **ui**: patch Zustand store after re-linking deprecated-agent conversation
+- **ui**: show history and resume CTA for deprecated-agent conversations
+
+## 0.5.52 (2026-07-15)
+
+### Fix
+
+- **ui**: scroll unlinked access modal body instead of overflowing
+
+## 0.5.51-dev.5 (2026-07-15)
+
+### Fix
+
+- **slack-bot**: pass agent_id when resolving conversation for message delete
+- **slack-bot**: pass agent_id when resolving conversation for Get help escalation
+
+## 0.5.51-dev.4 (2026-07-15)
+
+## 0.5.51-dev.3 (2026-07-15)
+
+### Fix
+
+- **ui**: tolerate transient silent-refresh failures before forcing logout (#2220)
+- **ui**: add deep links for agent resources (#2212)
+
+## 0.5.51-dev.2 (2026-07-14)
+
+### Feat
+
+- **dynamic-agents**: pass METRICS_PORT through in dev compose
+- **dynamic-agents**: make metrics port configurable
+
+## 0.5.51-dev.1 (2026-07-14)
+
+### Fix
+
+- **ui**: repair admin view-as access preview (#2206)
+
+## 0.5.51 (2026-07-13)
+
 ## 0.5.50-dev.2 (2026-07-13)
 
 ### Fix

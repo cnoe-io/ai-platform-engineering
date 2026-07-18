@@ -9,6 +9,7 @@ withErrorHandler,
 import { getCollection } from '@/lib/mongodb';
 import type { UpdateSettingsRequest,UserSettings } from '@/types/mongodb';
 import { DEFAULT_USER_SETTINGS } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest } from 'next/server';
 
 // GET /api/settings
@@ -44,7 +45,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const settings = await getCollection<UserSettings>('user_settings');
 
-    const update: any = {
+    const update: Document = {
       updated_at: new Date(),
     };
 

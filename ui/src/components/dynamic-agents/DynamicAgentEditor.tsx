@@ -1,5 +1,8 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+import type { Extension } from "@codemirror/state";
+
 import {
 AiReviewButton,
 AiReviewPanel,
@@ -420,10 +423,11 @@ export function DynamicAgentEditor({
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
+  const hasRequestUserInputInterrupt = !!interruptOn?.builtin?.request_user_input;
   React.useEffect(() => {
     const cfg = (builtinTools as Record<string, { enabled?: boolean } | undefined>)?.["request_user_input"];
     const isEnabled = !!(cfg && cfg.enabled);
-    const hasRule = !!interruptOn?.builtin?.request_user_input;
+    const hasRule = hasRequestUserInputInterrupt;
 
     if (isEnabled && !hasRule) {
       // Tool enabled — add the rule
@@ -436,7 +440,8 @@ export function DynamicAgentEditor({
       setInterruptOn((prev) => {
         const next = { ...prev };
         if (next.builtin) {
-          const { request_user_input: _, ...rest } = next.builtin;
+          const rest = { ...next.builtin };
+          delete rest.request_user_input;
           if (Object.keys(rest).length === 0) {
             delete next.builtin;
           } else {
@@ -446,7 +451,7 @@ export function DynamicAgentEditor({
         return next;
       });
     }
-  }, [builtinTools]);
+  }, [builtinTools, hasRequestUserInputInterrupt]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -455,7 +460,7 @@ export function DynamicAgentEditor({
   const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
     null,
   );
-  const [middlewareError, setMiddlewareError] = React.useState(false);
+  const [, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
   >([]);
@@ -525,7 +530,7 @@ export function DynamicAgentEditor({
   }, [editorHeight]);
 
   // CodeMirror extensions for markdown syntax highlighting
-  const [cmExtensions, setCmExtensions] = React.useState<any[]>([]);
+  const [cmExtensions, setCmExtensions] = React.useState<Extension[]>([]);
   React.useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -874,9 +879,9 @@ export function DynamicAgentEditor({
           break;
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(`AI suggest (${field}) failed:`, err);
-      toast(err.message || "Failed to generate suggestion", "error");
+      toast(getErrorMessage(err, "") || "Failed to generate suggestion", "error");
     } finally {
       setGeneratingField(null);
     }
@@ -1093,14 +1098,19 @@ export function DynamicAgentEditor({
       useUnsavedChangesStore.getState().setUnsaved(false);
 
       onSave();
-    } catch (err: any) {
-      if (err?.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+    } catch (err) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        err.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED"
+      ) {
         setTransferNeedsServerConfirm(true);
         setError(
           "You are not a member of the destination team. Click \"Confirm Transfer\" to transfer ownership anyway.",
         );
       } else {
-        setError(err.message || "An error occurred");
+        setError(getErrorMessage(err, "") || "An error occurred");
       }
     } finally {
       setLoading(false);

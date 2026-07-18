@@ -251,8 +251,6 @@ config:
   # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
   # WEBEX_BOT_ADMIN_SCOPE: "webex:routes:read webex:routes:reload webex:routes:sync"
   # WEBEX_LINK_HMAC_SECRET is sensitive and must come from existingSecret/externalSecrets.
-  WEBEX_DEFAULT_TEAM_SLUG: ""
-  WEBEX_DEFAULT_AGENT_ID: ""
   WEBEX_THREAD_CONTEXT_ENABLED: "true"
   WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
   WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
@@ -372,6 +370,24 @@ oauthConnectors: []
   #     - "meeting:schedules_read"
   #     - "meeting:transcripts_read"
   #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
+
+# Declarative encrypted secrets to upsert into the credential store at UI
+# startup. `id` is stable and can be referenced by an MCP server's
+# `credential_sources[].secret_ref`. `valueEnv` names an environment variable
+# supplied through `existingSecret` or `externalSecrets`; plaintext must never
+# be placed in values. Team/user ownership and optional team shares are
+# reconciled into OpenFGA on every startup.
+credentialSecretRefs: []
+  # - id: "shared-webex-bot-token"
+  #   name: "Shared Webex bot token"
+  #   type: "bearer_token"
+  #   valueEnv: "SHARED_WEBEX_BOT_TOKEN"
+  #   description: "Shared bot identity used by a Webex MCP route"
+  #   owner:
+  #     type: "team"
+  #     id: "platform-admins"
+  #   sharedWithTeams:
+  #     - "platform-users"
 
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).

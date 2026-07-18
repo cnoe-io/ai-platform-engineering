@@ -1190,6 +1190,11 @@ services:
       # demo team/agent/tool bundle on first run of init-idp.sh. Sourced from
       # the same env var the UI uses for bootstrap admin bypass.
       BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}
+      # SSO session / refresh-token lifetimes. Override in .env to tune.
+      # Default: 7d idle (effective refresh-token TTL for Duo SSO), 14d absolute max.
+      KEYCLOAK_ACCESS_TOKEN_LIFESPAN: ${KEYCLOAK_ACCESS_TOKEN_LIFESPAN:-3600}
+      KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT: ${KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT:-604800}
+      KEYCLOAK_SSO_SESSION_MAX_LIFESPAN: ${KEYCLOAK_SSO_SESSION_MAX_LIFESPAN:-1209600}
     network_mode: "service:keycloak"
     depends_on:
       keycloak:

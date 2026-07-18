@@ -413,7 +413,7 @@ async function loadZipEntries(buffer: ArrayBuffer): Promise<ZipFileLike[]> {
     // defensive — some bundlers reuse raw zip metadata.
     const normalisedPath = path.replace(/\\/g, "/");
     // Compute uncompressed size from the underlying _data record;
-    // jszip exposes it under `(entry as any)._data.uncompressedSize`
+    // JSZip exposes it through its internal `_data.uncompressedSize` field.
     // for older zips. Fall back to a `Uint8Array` lookup if missing.
     let bytes = 0;
     const dataBag = (entry as unknown as {

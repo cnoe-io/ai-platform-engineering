@@ -1,3 +1,4 @@
+import { getErrorMessage } from "@/lib/error-utils";
 import type {
 CreateWorkflowRunInput,
 UpdateWorkflowRunInput,
@@ -56,9 +57,9 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
       const runs = await response.json();
       set({ runs, isLoading: false });
       console.log(`[WorkflowRunStore] Loaded ${runs.length} workflow runs`);
-    } catch (error: any) {
+    } catch (error) {
       console.error("[WorkflowRunStore] Failed to load runs:", error);
-      set({ error: error.message, isLoading: false });
+      set({ error: getErrorMessage(error, ""), isLoading: false });
       throw error;
     }
   },
@@ -106,7 +107,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
       set({ activeRunId: runId });
 
       return runId;
-    } catch (error: any) {
+    } catch (error) {
       console.error("[WorkflowRunStore] Failed to create run:", error);
       throw error;
     }
@@ -147,7 +148,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
       if (get().activeRunId === id && updates.status && updates.status !== "running") {
         set({ activeRunId: null });
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("[WorkflowRunStore] ❌ Failed to update run:", error);
       console.error("[WorkflowRunStore] Error details:", error);
       throw error;
@@ -186,7 +187,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
       if (get().activeRunId === id) {
         set({ activeRunId: null });
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("[WorkflowRunStore] Failed to delete run:", error);
       throw error;
     }

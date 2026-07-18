@@ -21,7 +21,7 @@ import { render, screen } from '@testing-library/react'
 
 jest.mock('next/link', () => {
   // eslint-disable-next-line react/display-name
-  return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
+  return React.forwardRef(({ children, href, className, ...props }: unknown, ref: unknown) => (
     <a ref={ref} href={href} className={className} data-testid={props['data-testid'] || `link-${href}`} {...props}>
       {children}
     </a>
@@ -29,16 +29,16 @@ jest.mock('next/link', () => {
 })
 
 jest.mock('lucide-react', () => ({
-  MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
-  Plus: (props: any) => <svg data-testid="icon-plus" {...props} />,
-  Users2: (props: any) => <svg data-testid="icon-users2" {...props} />,
-  Clock: (props: any) => <svg data-testid="icon-clock" {...props} />,
-  Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
+  MessageSquare: (props: unknown) => <svg data-testid="icon-message-square" {...props} />,
+  Plus: (props: unknown) => <svg data-testid="icon-plus" {...props} />,
+  Users2: (props: unknown) => <svg data-testid="icon-users2" {...props} />,
+  Clock: (props: unknown) => <svg data-testid="icon-clock" {...props} />,
+  Bot: (props: unknown) => <svg data-testid="icon-bot" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
-  formatRelativeTimeCompact: (date: any) => 'Just now',
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  formatRelativeTimeCompact: () => 'Just now',
 }))
 
 // ============================================================================

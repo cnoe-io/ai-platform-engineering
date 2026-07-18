@@ -38,7 +38,7 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('next/link', () => {
   // eslint-disable-next-line react/display-name
-  return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
+  return React.forwardRef(({ children, href, className, ...props }: unknown, ref: unknown) => (
     <a ref={ref} href={href} className={className} data-testid={props['data-testid'] || `link-${href}`} {...props}>
       {children}
     </a>
@@ -48,42 +48,42 @@ jest.mock('next/link', () => {
 jest.mock('framer-motion', () => ({
   motion: {
     // eslint-disable-next-line react/display-name
-    div: React.forwardRef(({ children, className, ...props }: any, ref: any) => (
+    div: React.forwardRef(({ children, className, ...props }: unknown, ref: unknown) => (
       <div ref={ref} className={className} {...props}>{children}</div>
     )),
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }))
 
 jest.mock('@/components/auth-guard', () => ({
-  AuthGuard: ({ children }: any) => <div data-testid="auth-guard">{children}</div>,
+  AuthGuard: ({ children }: unknown) => <div data-testid="auth-guard">{children}</div>,
 }))
 
 jest.mock('@/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, ...props }: any) => <div data-testid={props['data-testid'] || 'scroll-area'} {...props}>{children}</div>,
+  ScrollArea: ({ children, ...props }: unknown) => <div data-testid={props['data-testid'] || 'scroll-area'} {...props}>{children}</div>,
 }))
 
 jest.mock('lucide-react', () => ({
-  MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
-  Users2: (props: any) => <svg data-testid="icon-users2" {...props} />,
-  Users: (props: any) => <svg data-testid="icon-users" {...props} />,
-  Globe: (props: any) => <svg data-testid="icon-globe" {...props} />,
-  Clock: (props: any) => <svg data-testid="icon-clock" {...props} />,
-  Plus: (props: any) => <svg data-testid="icon-plus" {...props} />,
-  Sparkles: (props: any) => <svg data-testid="icon-sparkles" {...props} />,
-  Zap: (props: any) => <svg data-testid="icon-zap" {...props} />,
-  Workflow: (props: any) => <svg data-testid="icon-workflow" {...props} />,
-  Database: (props: any) => <svg data-testid="icon-database" {...props} />,
-  ArrowRight: (props: any) => <svg data-testid="icon-arrow-right" {...props} />,
-  TrendingUp: (props: any) => <svg data-testid="icon-trending-up" {...props} />,
-  Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
-  Server: (props: any) => <svg data-testid="icon-server" {...props} />,
-  Settings: (props: any) => <svg data-testid="icon-settings" {...props} />,
+  MessageSquare: (props: unknown) => <svg data-testid="icon-message-square" {...props} />,
+  Users2: (props: unknown) => <svg data-testid="icon-users2" {...props} />,
+  Users: (props: unknown) => <svg data-testid="icon-users" {...props} />,
+  Globe: (props: unknown) => <svg data-testid="icon-globe" {...props} />,
+  Clock: (props: unknown) => <svg data-testid="icon-clock" {...props} />,
+  Plus: (props: unknown) => <svg data-testid="icon-plus" {...props} />,
+  Sparkles: (props: unknown) => <svg data-testid="icon-sparkles" {...props} />,
+  Zap: (props: unknown) => <svg data-testid="icon-zap" {...props} />,
+  Workflow: (props: unknown) => <svg data-testid="icon-workflow" {...props} />,
+  Database: (props: unknown) => <svg data-testid="icon-database" {...props} />,
+  ArrowRight: (props: unknown) => <svg data-testid="icon-arrow-right" {...props} />,
+  TrendingUp: (props: unknown) => <svg data-testid="icon-trending-up" {...props} />,
+  Bot: (props: unknown) => <svg data-testid="icon-bot" {...props} />,
+  Server: (props: unknown) => <svg data-testid="icon-server" {...props} />,
+  Settings: (props: unknown) => <svg data-testid="icon-settings" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
-  formatRelativeTimeCompact: (date: any) => 'Just now',
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  formatRelativeTimeCompact: () => 'Just now',
 }))
 
 let mockStorageMode = 'mongodb'
@@ -100,7 +100,7 @@ jest.mock('@/lib/config', () => ({
 }))
 
 const mockLoadConversationsFromServer = jest.fn()
-const mockLocalConversations: any[] = []
+const mockLocalConversations: unknown[] = []
 jest.mock('@/store/chat-store', () => ({
   useChatStore: () => ({
     conversations: mockLocalConversations,
@@ -114,9 +114,9 @@ const mockGetSharedConversations = jest.fn()
 const mockGetUserStats = jest.fn()
 jest.mock('@/lib/api-client', () => ({
   apiClient: {
-    getConversations: (...args: any[]) => mockGetConversations(...args),
-    getSharedConversations: (...args: any[]) => mockGetSharedConversations(...args),
-    getUserStats: (...args: any[]) => mockGetUserStats(...args),
+    getConversations: (...args: unknown[]) => mockGetConversations(...args),
+    getSharedConversations: (...args: unknown[]) => mockGetSharedConversations(...args),
+    getUserStats: (...args: unknown[]) => mockGetUserStats(...args),
   },
 }))
 
@@ -146,7 +146,7 @@ function makeConversationItems(count: number) {
   }))
 }
 
-function makeUserStats(overrides: Record<string, any> = {}) {
+function makeUserStats(overrides: Record<string, unknown> = {}) {
   return {
     total_conversations: 42,
     total_messages: 256,
@@ -161,9 +161,9 @@ function makeUserStats(overrides: Record<string, any> = {}) {
 }
 
 function setupMockAPIs(opts: {
-  conversations?: any[];
-  shared?: any[];
-  stats?: any;
+  conversations?: unknown[];
+  shared?: unknown[];
+  stats?: unknown;
 } = {}) {
   mockGetConversations.mockResolvedValue({
     items: opts.conversations ?? makeConversationItems(3),
@@ -190,7 +190,7 @@ describe('HomePage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockSession.status = 'authenticated' as const
-    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as unknown
     mockStorageMode = 'mongodb'
     mockRagEnabled = true
     mockLocalConversations.length = 0
@@ -236,7 +236,7 @@ describe('HomePage', () => {
     })
 
     it('shows generic greeting when no session', () => {
-      mockSession.data = null as any
+      mockSession.data = null as unknown
       setupMockAPIs()
       render(<HomePage />)
       expect(screen.getByText('Welcome to CAIPE')).toBeInTheDocument()
@@ -418,7 +418,7 @@ describe('HomePage', () => {
 
   describe('not authenticated', () => {
     it('does not fetch conversations when not authenticated', () => {
-      mockSession.status = 'loading' as any
+      mockSession.status = 'loading' as unknown
       setupMockAPIs()
       render(<HomePage />)
       expect(mockGetConversations).not.toHaveBeenCalled()

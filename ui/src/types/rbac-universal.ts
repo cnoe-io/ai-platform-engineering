@@ -75,6 +75,7 @@ export type UniversalRebacSubjectType =
   | "team"
   | "slack_channel"
   | "webex_space"
+  | "webex_bot_installation"
   | "external_group"
   | "service_account";
 

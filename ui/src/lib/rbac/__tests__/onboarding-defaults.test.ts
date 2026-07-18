@@ -70,7 +70,7 @@ describe("readOnboardingDefaults", () => {
     expect(getCollection).toHaveBeenCalledWith("platform_config");
   });
 
-  it("falls back to env vars when nothing is saved (webex)", async () => {
+  it("does not read Webex defaults from the UI environment", async () => {
     findOne.mockResolvedValue(null);
     process.env.WEBEX_DEFAULT_TEAM_SLUG = "ops";
     process.env.WEBEX_DEFAULT_AGENT_ID = "ops-agent";
@@ -78,12 +78,12 @@ describe("readOnboardingDefaults", () => {
     const result = await readOnboardingDefaults("webex");
 
     expect(result).toEqual({
-      team_slug: "ops",
-      agent_id: "ops-agent",
+      team_slug: "",
+      agent_id: "",
       create_routes: true,
       updated_at: "",
       updated_by: "",
-      source: "env",
+      source: "unset",
     });
   });
 

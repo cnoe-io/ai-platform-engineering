@@ -32,7 +32,7 @@ Each script:
 
 * Prints a clear PASS/FAIL marker per pin.
 * Cleans up its own MongoDB state at the end (sets the user's
-  `dm_default_agent_id` back to `null`).
+  the surface-specific default agent back to `null`).
 * Logs the curl request bodies (with bearers redacted) when run with
   `DEBUG=1`.
 

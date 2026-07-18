@@ -17,6 +17,7 @@ export interface ItemSummary {
   team_slug?: string;
   /** Highest-priority enabled route agent, when the list API provides it. */
   primary_agent_id?: string;
+  bot_id?: string;
   active_grants: number;
   can_manage?: boolean;
   health?: {
@@ -153,6 +154,8 @@ export interface DiscoveredItem {
   secondary: string;
   teamRequired?: boolean;
   selectable?: boolean;
+  botId?: string;
+  availableBotIds?: string[];
 }
 
 export interface DiscoveryPage {
@@ -163,12 +166,32 @@ export interface DiscoveryPage {
   totalMatches?: number;
 }
 
+export interface DiscoveryIdentityOption {
+  id: string;
+  name: string;
+  available: boolean;
+  onboardingDefaults?: {
+    team_slug: string;
+    agent_id: string;
+  };
+}
+
 export interface ConnectorAdminAdapter {
   // ── Branding ──────────────────────────────────────────────────────────
   connectorName: string;    // "Slack" | "Webex"
   itemSingular: string;     // "channel" | "space"
   itemPlural: string;       // "channels" | "spaces"
   singlePanelView?: "channels" | "onboard" | "advanced";
+  directMessagesPanel?: {
+    title: string;
+    description: string;
+    render: (options: { disabled: boolean }) => ReactNode;
+  };
+  migrationPanel?: {
+    title: string;
+    description: string;
+    render: (options: { disabled: boolean }) => ReactNode;
+  };
 
   // ── API paths ─────────────────────────────────────────────────────────
   api: {
@@ -176,13 +199,21 @@ export interface ConnectorAdminAdapter {
     // Returns the paged discovery URL for the given page index + cursor.
     // Slack: /api/admin/slack/available-channels?member_only=1&limit=500[&cursor=…]
     // Webex: /api/admin/webex/available-spaces?limit=200[&cursor=…][&q=…]
-    discoveryUrl: (page: number, cursor: string | null, q?: string) => string;
+    discoveryUrl: (
+      page: number,
+      cursor: string | null,
+      q?: string,
+      identityId?: string,
+      refresh?: boolean,
+    ) => string;
+    discoveryIdentities?: string;
     defaults: string;                                                // GET / PUT / POST
     runtimeStatus: string;
     runtimeReload: string;
     runtimeSyncFromConfig: string;
-    routesFor: (workspaceId: string, itemId: string) => string;
-    diagnosticsFor: (workspaceId: string, itemId: string) => string;
+    runtimeSyncUsesDiscoveryIdentity?: boolean;
+    routesFor: (workspaceId: string, itemId: string, identityId?: string) => string;
+    diagnosticsFor: (workspaceId: string, itemId: string, identityId?: string) => string;
     legacyConfigDefaults?: string | null;                            // Slack only
   };
 
@@ -254,6 +285,13 @@ export interface ConnectorAdminAdapter {
   /** When true, debounced search queries the BFF `q=` param instead of client filtering. Webex only. */
   discoveryServerSearch?: boolean;
 
+  discoveryIdentity?: {
+    label: string;
+    parseResponse: (json: unknown) => DiscoveryIdentityOption[];
+  };
+  /** Show connector identities as a compact selector on each discovered row. */
+  discoveryIdentityPerItem?: boolean;
+
   // ── Onboarding apply ─────────────────────────────────────────────────
   // Different connectors send different POST payloads and fire different
   // success messages. The adapter owns the request(s) and the toast text.
@@ -266,6 +304,7 @@ export interface ConnectorAdminAdapter {
       selected: boolean;
       teamRequired?: boolean;
       selectable?: boolean;
+      botId?: string;
     }>;
     defaultTeamSlug: string;
     defaultAgentId: string;
@@ -290,7 +329,7 @@ export interface ConnectorAdminAdapter {
     // after destructive actions (e.g. deleting the item) so the panel doesn't
     // linger on a now-nonexistent row while the list reloads.
     onDeselect: () => void;
-    routesFor: (workspaceId: string, itemId: string) => string;
+    routesFor: (workspaceId: string, itemId: string, identityId?: string) => string;
     listApi: string;
   }) => ReactNode;
 

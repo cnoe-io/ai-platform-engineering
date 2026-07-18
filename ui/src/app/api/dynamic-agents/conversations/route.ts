@@ -18,6 +18,33 @@ import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
 import { NextRequest } from "next/server";
 
+interface DynamicAgentConversationItem {
+  agent_id?: string;
+  checkpoint_count?: number;
+  client_type?: string;
+  created_at: Date;
+  deleted_at?: Date | null;
+  file_count?: number;
+  id: string;
+  idempotency_key?: string;
+  is_archived: boolean;
+  message_count?: number;
+  metadata: Conversation["metadata"];
+  owner_id: string;
+  title: string;
+  updated_at: Date;
+}
+
+interface CountResult {
+  _id: string;
+  count: number;
+}
+
+interface NamespaceCountResult {
+  _id?: [string,string,string];
+  count: number;
+}
+
 /**
  * GET /api/dynamic-agents/conversations
  * List all Dynamic Agent conversations for operators with OpenFGA audit access.
@@ -108,14 +135,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       },
     ];
 
-    const items: any[] = await conversations.aggregate(pipeline).toArray();
+    const items = await conversations.aggregate<DynamicAgentConversationItem>(pipeline).toArray();
 
     // Batch-fetch checkpoint counts for this page (avoids sub-pipeline $lookup)
     if (items.length > 0) {
       const threadIds = items.map((item) => item.id);
       const checkpoints = await getCollection("checkpoints_conversation");
-      const counts: any[] = await checkpoints
-        .aggregate([
+      const counts = await checkpoints
+        .aggregate<CountResult>([
           { $match: { thread_id: { $in: threadIds } } },
           { $group: { _id: "$thread_id", count: { $sum: 1 } } },
         ])
@@ -132,8 +159,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (webuiIds.length > 0) {
         try {
           const messagesCol = await getCollection("messages");
-          const msgCounts: any[] = await messagesCol
-            .aggregate([
+          const msgCounts = await messagesCol
+            .aggregate<CountResult>([
               { $match: { conversation_id: { $in: webuiIds } } },
               { $group: { _id: "$conversation_id", count: { $sum: 1 } } },
             ])
@@ -157,8 +184,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           .map((item) => [item.agent_id, item.id, "filesystem"]);
 
         if (namespacePairs.length > 0) {
-          const fileCounts: any[] = await gridfsFiles
-            .aggregate([
+          const fileCounts = await gridfsFiles
+            .aggregate<NamespaceCountResult>([
               { $match: { "metadata.namespace": { $in: namespacePairs } } },
               { $group: { _id: "$metadata.namespace", count: { $sum: 1 } } },
             ])

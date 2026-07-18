@@ -23,10 +23,11 @@ def bootstrap_webex_bot_runtime() -> None:
         else:
             logger.info("Webex bot admin API bootstrap complete")
 
-    from .webex_wdm import start_webex_wdm_listener
+    from .webex_wdm import start_webex_wdm_listeners
 
-    if start_webex_wdm_listener() is not None:
-        logger.info("Webex WDM transport bootstrap complete")
+    listeners = start_webex_wdm_listeners()
+    if listeners:
+        logger.info("Webex WDM transport bootstrap complete listeners=%d", len(listeners))
 
 
 def run_until_stopped() -> None:

@@ -220,12 +220,12 @@ describe("agent-skills-store", () => {
 
   describe("loadSkills", () => {
     it("sets isLoading during fetch", async () => {
-      let resolveSeed!: (v: any) => void;
+      let resolveSeed!: (v: unknown) => void;
       const seedPromise = new Promise<Response>((r) => {
         resolveSeed = (v) => r(v as Response);
       });
 
-      mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+      mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/skills/seed") && init?.method !== "POST") {
           return seedPromise;
@@ -261,7 +261,7 @@ describe("agent-skills-store", () => {
       resolveSeed({
         ok: true,
         json: () => Promise.resolve({ needsSeeding: false }),
-      } as any);
+      } as unknown);
       await loadPromise;
 
       expect(useAgentSkillsStore.getState().isLoading).toBe(false);
@@ -295,7 +295,7 @@ describe("agent-skills-store", () => {
     });
 
     it("handles 503 - returns empty configs", async () => {
-      mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+      mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/skills/seed")) {
           return Promise.resolve({

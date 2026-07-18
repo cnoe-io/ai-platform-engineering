@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 /**
  * IngestView - Data Sources Management
  *
@@ -26,6 +28,7 @@ import { useToast } from "@/components/ui/toast";
 import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
 import { cn,DEFAULT_RELOAD_INTERVAL,formatFreshUntil,formatNextReload,formatRelativeTime,isRefreshOverdue } from "@/lib/utils";
 import { AnimatePresence,motion } from 'framer-motion';
+import Image from 'next/image';
 import {
 Activity,
 AlertCircle,
@@ -55,7 +58,7 @@ Trash2,
 Users,
 X
 } from 'lucide-react';
-import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { KbSharingPanel } from './KbSharingPanel';
@@ -83,33 +86,6 @@ WEBLOADER_INGESTOR_ID
 } from './api/index';
 import { getIconForType,ingestTypeConfigs,isIngestTypeAvailable } from './typeConfig';
 
-// Animation variants
-const fadeIn = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1 },
-  exit: { opacity: 0 }
-}
-
-const expandCollapse = {
-  initial: { height: 0, opacity: 0 },
-  animate: { height: "auto", opacity: 1 },
-  exit: { height: 0, opacity: 0 }
-}
-
-const staggerContainer = {
-  animate: {
-    transition: {
-      staggerChildren: 0.05
-    }
-  }
-}
-
-const slideUp = {
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -10 }
-}
-
 // Helper component to render icon (either emoji or SVG image)
 const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
   const isEmoji = !icon.startsWith('/')
@@ -119,9 +95,11 @@ const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className
   }
   
   return (
-    <img 
-      src={icon} 
-      alt="" 
+    <Image
+      src={icon}
+      alt=""
+      width={20}
+      height={20}
       className={className}
       style={{ display: 'inline-block' }}
     />
@@ -405,18 +383,6 @@ export default function IngestView() {
     }
   }, [ingestType])
 
-  useEffect(() => {
-    fetchDataSources()
-    fetchIngestors()
-    fetch('/api/rbac/ingest-teams')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        setAvailableTeams(d?.teams ?? [])
-        setIngestIsOrgAdmin(Boolean(d?.org_admin))
-      })
-      .catch(() => {})
-  }, [])
-
   // Effect to auto-select first available ingest type when ingestors load
   useEffect(() => {
     if (ingestors.length > 0) {
@@ -482,7 +448,7 @@ export default function IngestView() {
     const interval = setInterval(async () => {
       // Find all datasources that have active jobs (in_progress or pending)
       const datasourcesWithActiveJobs = Object.entries(dataSourceJobs)
-        .filter(([_, jobs]) => 
+        .filter(([, jobs]) =>
           jobs.some(job => job.status === 'in_progress' || job.status === 'pending')
         )
         .map(([datasourceId]) => datasourceId)
@@ -527,12 +493,14 @@ export default function IngestView() {
         return next
       })
       setDatasourceDocuments(prev => {
-        const { [datasourceId]: _, ...rest } = prev
-        return rest
+        const next = { ...prev }
+        delete next[datasourceId]
+        return next
       })
       setDocumentsPagination(prev => {
-        const { [datasourceId]: _, ...rest } = prev
-        return rest
+        const next = { ...prev }
+        delete next[datasourceId]
+        return next
       })
       // Clear expanded documents/chunks for this datasource
       setExpandedDocuments(prev => {
@@ -659,6 +627,21 @@ export default function IngestView() {
       setRefreshingIngestors(false)
     }
   }
+
+  const fetchDataSourcesEvent = useEffectEvent(fetchDataSources)
+  const fetchIngestorsEvent = useEffectEvent(fetchIngestors)
+
+  useEffect(() => {
+    fetchDataSourcesEvent()
+    fetchIngestorsEvent()
+    fetch('/api/rbac/ingest-teams')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        setAvailableTeams(d?.teams ?? [])
+        setIngestIsOrgAdmin(Boolean(d?.org_admin))
+      })
+      .catch(() => {})
+  }, [])
 
   const toggleRow = (datasourceId: string) => {
     setExpandedRows(prev => {
@@ -814,8 +797,9 @@ export default function IngestView() {
         newSet.delete(chunkId)
         // Purge content from memory when collapsing to avoid MBs of data in state
         setChunkContents(prevContents => {
-          const { [chunkId]: _, ...rest } = prevContents
-          return rest
+          const next = { ...prevContents }
+          delete next[chunkId]
+          return next
         })
       } else {
         newSet.add(chunkId)
@@ -922,7 +906,7 @@ export default function IngestView() {
             // Per-datasource reload interval (null = use global default)
             reload_interval: ingestType === 'web' ? reloadInterval : undefined,
           })
-      const { datasource_id, job_id, message } = response
+      const { datasource_id } = response
       await fetchDataSources()
       if (datasource_id) {
         await fetchJobsForDataSource(datasource_id)
@@ -933,9 +917,9 @@ export default function IngestView() {
       setSelectedFiles([])
       setDescription('')
       setIngestOwnerTeamSlug('')
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error ingesting data:', error)
-      toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
+      toast(`Ingestion failed: ${getErrorMessage(error, "") || 'unknown error'}`, 'error')
     }
   }
 
@@ -944,9 +928,9 @@ export default function IngestView() {
     try {
       await deleteDataSource(datasourceId)
       fetchDataSources()
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting data source:', error)
-      toast(`Failed to delete data source: ${error?.message || 'unknown error'}`, 'error')
+      toast(`Failed to delete data source: ${getErrorMessage(error, "") || 'unknown error'}`, 'error')
     } finally {
       setIsDeletingDataSource(false)
       setShowDeleteDataSourceConfirm(null)
@@ -958,9 +942,9 @@ export default function IngestView() {
       await deleteIngestor(ingestorId)
       fetchIngestors()
       toast('Ingestor deleted successfully', 'success')
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting ingestor:', error)
-      toast(`Failed to delete ingestor: ${error?.message || 'unknown error'}`, 'error')
+      toast(`Failed to delete ingestor: ${getErrorMessage(error, "") || 'unknown error'}`, 'error')
     }
     setShowDeleteIngestorConfirm(null)
   }
@@ -972,9 +956,9 @@ export default function IngestView() {
       await reloadDataSource(datasourceId)
       await fetchDataSources()
       await fetchJobsForDataSource(datasourceId)
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error re-ingesting data source:', error)
-      setReIngestError(error?.message || 'unknown error')
+      setReIngestError(getErrorMessage(error, "") || 'unknown error')
     } finally {
       setIsReIngesting(false)
       setShowReIngestConfirm(null)
@@ -988,9 +972,9 @@ export default function IngestView() {
       // Clear documents state since cleanup may have removed chunks
       clearDocumentsState(datasourceId)
       toast(result.message, 'success')
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error cleaning up data source:', error)
-      toast(`Cleanup failed: ${error?.message || 'unknown error'}`, 'error')
+      toast(`Cleanup failed: ${getErrorMessage(error, "") || 'unknown error'}`, 'error')
     } finally {
       setIsCleaningUp(false)
       setShowCleanupConfirm(null)
@@ -1002,9 +986,9 @@ export default function IngestView() {
       await terminateJob(jobId)
       await pollJob(datasourceId, jobId)
       toast('Job termination requested...', 'info')
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error terminating job:', error)
-      toast(`Termination failed: ${error?.message || 'unknown error'}`, 'error')
+      toast(`Termination failed: ${getErrorMessage(error, "") || 'unknown error'}`, 'error')
     }
   }
 
@@ -1459,7 +1443,7 @@ export default function IngestView() {
                                         const baseUrl = `${parsed.origin}${parsed.pathname}`
                                         const escapedPattern = `^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
                                         setAllowedUrlPatterns(escapedPattern)
-                                      } catch (e) {
+                                      } catch {
                                         // Invalid URL, ignore
                                       }
                                     }}

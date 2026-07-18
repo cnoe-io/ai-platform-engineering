@@ -11,6 +11,7 @@
  */
 
 import { authErrorToastTitle, parseAuthError } from "../auth-error";
+import type { AuthFailureReason } from "../auth-error";
 
 /**
  * Minimal duck-typed Response for tests. The Jest JSDOM env in this project
@@ -142,7 +143,7 @@ describe("parseAuthError", () => {
 });
 
 describe("authErrorToastTitle", () => {
-  const cases: Array<[string, string]> = [
+  const cases: Array<[AuthFailureReason, string]> = [
     ["not_signed_in", "Sign in required"],
     ["session_expired", "Session expired"],
     ["bearer_invalid", "Authentication failed"],
@@ -159,8 +160,7 @@ describe("authErrorToastTitle", () => {
       authErrorToastTitle({
         status: 401,
         message: "x",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        reason: reason as any,
+        reason,
       }),
     ).toBe(expected);
   });
