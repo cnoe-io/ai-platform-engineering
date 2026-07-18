@@ -54,7 +54,7 @@ function createMockCollection() {
 
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440001';
 
-function makeAutonomousConversation(overrides: Record<string, any> = {}) {
+function makeAutonomousConversation(overrides: Record<string, unknown> = {}) {
   return {
     _id: VALID_UUID,
     title: '[Autonomous] My Task',
@@ -75,7 +75,7 @@ function makeAutonomousConversation(overrides: Record<string, any> = {}) {
   };
 }
 
-function makeMockGetCollection(collections: Record<string, any>) {
+function makeMockGetCollection(collections: Record<string, unknown>) {
   return jest.fn().mockImplementation((name: string) => {
     return Promise.resolve(collections[name] ?? createMockCollection());
   });
@@ -89,9 +89,9 @@ describe('requireConversationAccess — autonomous conversations', () => {
   let requireConversationAccess: (
     conversationId: string,
     userId: string,
-    getCollectionFn: (name: string) => Promise<any>,
+    getCollectionFn: (name: string) => Promise<unknown>,
     session?: { role?: string; canViewAdmin?: boolean }
-  ) => Promise<any>;
+  ) => Promise<unknown>;
 
   beforeEach(async () => {
     jest.resetModules();

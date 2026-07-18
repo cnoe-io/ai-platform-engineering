@@ -12,11 +12,7 @@ overrides = [{ name = "protobuf", specifier = "==5.29.6" }]
 
 [[package]]
 name = "ai-platform-engineering"
-<<<<<<< HEAD
-version = "0.5.51.dev4"
-=======
 version = "0.5.55"
->>>>>>> main
 source = { virtual = "." }
 dependencies = [
     { name = "beautifulsoup4" },

@@ -24,7 +24,7 @@ import type { AutonomousTask } from '../types';
 
 jest.mock('next/link', () => {
   // eslint-disable-next-line react/display-name
-  return ({ href, children, ...rest }: any) => (
+  return ({ href, children, ...rest }: { href: string; children: React.ReactNode; [key: string]: unknown }) => (
     <a href={href} {...rest}>
       {children}
     </a>
@@ -33,7 +33,7 @@ jest.mock('next/link', () => {
 
 jest.mock('lucide-react', () => {
   const stub = (name: string) => {
-    const Icon = (props: any) => <span data-testid={`icon-${name}`} {...props} />;
+    const Icon = (props: Record<string, unknown>) => <span data-testid={`icon-${name}`} {...props} />;
     Icon.displayName = `Icon-${name}`;
     return Icon;
   };

@@ -22,7 +22,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // without pulling in the Next.js runtime.
 jest.mock('next/link', () => {
   // eslint-disable-next-line react/display-name
-  return ({ href, children, ...rest }: any) => (
+  return ({ href, children, ...rest }: { href: string; children: React.ReactNode; [key: string]: unknown }) => (
     <a href={href} {...rest}>
       {children}
     </a>
@@ -33,10 +33,10 @@ jest.mock('next/link', () => {
 // stub them to bare spans to keep the test output readable and avoid
 // any Jest/Next ESM friction with the real package.
 jest.mock('lucide-react', () => ({
-  RefreshCw: (props: any) => <span data-testid="icon-refresh" {...props} />,
-  ChevronDown: (props: any) => <span data-testid="icon-down" {...props} />,
-  ChevronRight: (props: any) => <span data-testid="icon-right" {...props} />,
-  MessageSquare: (props: any) => <span data-testid="icon-chat" {...props} />,
+  RefreshCw: (props: Record<string, unknown>) => <span data-testid="icon-refresh" {...props} />,
+  ChevronDown: (props: Record<string, unknown>) => <span data-testid="icon-down" {...props} />,
+  ChevronRight: (props: Record<string, unknown>) => <span data-testid="icon-right" {...props} />,
+  MessageSquare: (props: Record<string, unknown>) => <span data-testid="icon-chat" {...props} />,
 }));
 
 // The component fetches via `autonomousApi.listRuns`; we stub the
