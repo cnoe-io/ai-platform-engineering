@@ -5,6 +5,7 @@ import { getCollection } from '@/lib/mongodb';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { readOpenFgaTuples, writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
+import { cascadePauseAutonomousTasksForAgents } from '@/lib/dynamic-agents/autonomousTaskCascade';
 import { NextRequest } from 'next/server';
 
 /**
@@ -81,5 +82,14 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: { p
     const result = await writeOpenFgaTuples({ writes: [], deletes: [tuple] });
     if (!result.enabled) throw new ApiError('OpenFGA is not configured; cannot disable autonomous', 503);
   }
+  // Best-effort: pause this agent's autonomous tasks so they stop firing
+  // (and failing) instead of running forever with no visible "paused"
+  // state. Never blocks the response -- the live per-run authz check in
+  // dynamic-agents already enforces the revocation regardless of whether
+  // this cleanup succeeds. Re-enabling autonomous for the team does NOT
+  // auto-resume these tasks; an operator re-enables them manually.
+  await cascadePauseAutonomousTasksForAgents([id]).catch((err) =>
+    console.warn('[dynamic-agents] autonomous-task pause cascade failed:', err),
+  );
   return successResponse({ agent_id: id, team_slug: teamSlug, autonomous_enabled: false });
 });

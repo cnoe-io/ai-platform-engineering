@@ -21,6 +21,7 @@ allowedToolsFromAgent,
 deleteAllAgentToolTuples,
 reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
+import { cascadeDeleteAutonomousTasksForAgent } from "@/lib/dynamic-agents/autonomousTaskCascade";
 import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { getPlatformDefaultAgentId,isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
@@ -897,6 +898,24 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
         PLATFORM_DEFAULT_DELETE_ERROR,
         409,
         "AGENT_IS_PLATFORM_DEFAULT",
+      );
+    }
+
+    // Autonomous tasks are owned by a separate service (autonomous-agents)
+    // keyed on this agent's id. Cascade-delete them BEFORE removing the
+    // agent doc / OpenFGA tuples, and abort on failure: agent ids are
+    // deterministic slugs of the name, so an orphaned task left behind here
+    // would silently reappear (and start firing again) under any future
+    // agent recreated with the same name. Fail-closed keeps the whole
+    // operation safely retryable — nothing below has run yet.
+    try {
+      await cascadeDeleteAutonomousTasksForAgent(id);
+    } catch (err) {
+      console.warn("[dynamic-agents] autonomous-task cascade delete failed:", err);
+      throw new ApiError(
+        "Failed to remove autonomous tasks for this agent. Deletion aborted; retry once the autonomous-agents service is reachable.",
+        502,
+        "AUTONOMOUS_TASK_CASCADE_FAILED",
       );
     }
 

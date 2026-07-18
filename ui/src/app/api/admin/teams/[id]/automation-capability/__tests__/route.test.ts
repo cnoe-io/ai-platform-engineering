@@ -9,6 +9,7 @@ const mockRequireRbacPermission = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockRevokeTeamAutomatorGrants = jest.fn();
+const mockCascadePauseAutonomousTasksForAgents = jest.fn();
 const mockCollections: Record<string, unknown> = {};
 
 jest.mock("@/lib/api-middleware", () => {
@@ -47,6 +48,10 @@ jest.mock("@/lib/rbac/organization", () => ({ organizationObjectId: () => "organ
 jest.mock("@/lib/rbac/autonomous-cascade", () => ({
   revokeTeamAutomatorGrants: (...a: unknown[]) => mockRevokeTeamAutomatorGrants(...a),
 }));
+jest.mock("@/lib/dynamic-agents/autonomousTaskCascade", () => ({
+  cascadePauseAutonomousTasksForAgents: (...a: unknown[]) =>
+    mockCascadePauseAutonomousTasksForAgents(...a),
+}));
 
 import { GET, PUT, DELETE } from "@/app/api/admin/teams/[id]/automation-capability/route";
 
@@ -64,7 +69,8 @@ describe("/api/admin/teams/[id]/automation-capability", () => {
     mockRequireRbacPermission.mockResolvedValue(undefined);
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
-    mockRevokeTeamAutomatorGrants.mockResolvedValue(0);
+    mockRevokeTeamAutomatorGrants.mockResolvedValue({ count: 0, agentIds: [] });
+    mockCascadePauseAutonomousTasksForAgents.mockResolvedValue({ attempted: 0, paused: 0 });
   });
 
   it("GET reports false when no tuple exists", async () => {
@@ -95,10 +101,34 @@ describe("/api/admin/teams/[id]/automation-capability", () => {
   });
   it("DELETE cascades to revoke the team's agent automator grants", async () => {
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: CAP_TUPLE }] });
-    mockRevokeTeamAutomatorGrants.mockResolvedValue(3);
+    mockRevokeTeamAutomatorGrants.mockResolvedValue({ count: 3, agentIds: ["agent-a", "agent-b", "agent-c"] });
     const body = await (await DELETE(req(), ctx())).json();
     expect(body.data.automation_eligible).toBe(false);
     expect(body.data.cascaded_agent_grants).toBe(3);
     expect(mockRevokeTeamAutomatorGrants).toHaveBeenCalledWith(TEAM_SLUG);
+  });
+
+  it("DELETE pauses autonomous tasks on every agent that lost its automator grant", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: CAP_TUPLE }] });
+    mockRevokeTeamAutomatorGrants.mockResolvedValue({ count: 2, agentIds: ["agent-a", "agent-b"] });
+    await DELETE(req(), ctx());
+    expect(mockCascadePauseAutonomousTasksForAgents).toHaveBeenCalledWith(["agent-a", "agent-b"]);
+  });
+
+  it("DELETE skips the pause cascade when no agent lost its grant", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
+    mockRevokeTeamAutomatorGrants.mockResolvedValue({ count: 0, agentIds: [] });
+    await DELETE(req(), ctx());
+    expect(mockCascadePauseAutonomousTasksForAgents).not.toHaveBeenCalled();
+  });
+
+  it("DELETE still succeeds when the pause cascade fails", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: CAP_TUPLE }] });
+    mockRevokeTeamAutomatorGrants.mockResolvedValue({ count: 1, agentIds: ["agent-a"] });
+    mockCascadePauseAutonomousTasksForAgents.mockRejectedValue(new Error("upstream down"));
+    const response = await DELETE(req(), ctx());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.automation_eligible).toBe(false);
   });
 });

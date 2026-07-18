@@ -8,6 +8,7 @@ const mockRequireTeamMembershipManagementPermission = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockFindOne = jest.fn();
+const mockCascadePauseAutonomousTasksForAgents = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -44,6 +45,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: (...a: unknown[]) => mockReadOpenFgaTuples(...a),
 }));
 jest.mock("@/lib/rbac/organization", () => ({ organizationObjectId: () => "organization:caipe" }));
+jest.mock("@/lib/dynamic-agents/autonomousTaskCascade", () => ({
+  cascadePauseAutonomousTasksForAgents: (...a: unknown[]) =>
+    mockCascadePauseAutonomousTasksForAgents(...a),
+}));
 
 import { PUT, DELETE } from "@/app/api/dynamic-agents/agents/[id]/automation/route";
 
@@ -65,6 +70,7 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: ELIG_TUPLE }] });
     mockFindOne.mockResolvedValue({ _id: AGENT_ID, owner_team_slug: TEAM_SLUG });
+    mockCascadePauseAutonomousTasksForAgents.mockResolvedValue({ attempted: 0, paused: 0 });
   });
 
   it("PUT enables the agent for the team (writes automator tuple)", async () => {
@@ -124,5 +130,18 @@ describe("/api/dynamic-agents/agents/[id]/automation", () => {
     const res = await DELETE(req({ team_slug: TEAM_SLUG }), ctx());
     expect(res.status).toBe(200);
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({ writes: [], deletes: [AUTOMATOR_TUPLE] });
+  });
+
+  it("DELETE pauses the agent's autonomous tasks", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: AUTOMATOR_TUPLE }] });
+    await DELETE(req({ team_slug: TEAM_SLUG }), ctx());
+    expect(mockCascadePauseAutonomousTasksForAgents).toHaveBeenCalledWith([AGENT_ID]);
+  });
+
+  it("DELETE still succeeds when the pause cascade fails", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: AUTOMATOR_TUPLE }] });
+    mockCascadePauseAutonomousTasksForAgents.mockRejectedValue(new Error("upstream down"));
+    const res = await DELETE(req({ team_slug: TEAM_SLUG }), ctx());
+    expect(res.status).toBe(200);
   });
 });

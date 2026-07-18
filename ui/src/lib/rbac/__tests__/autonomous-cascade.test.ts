@@ -17,12 +17,12 @@ describe("revokeTeamAutomatorGrants", () => {
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 2 });
   });
 
-  it("deletes every automator tuple for the team and returns the count", async () => {
+  it("deletes every automator tuple for the team and returns the count plus affected agent ids", async () => {
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [{ key: A1 }, { key: A2 }] });
-    const n = await revokeTeamAutomatorGrants(SLUG);
-    expect(n).toBe(2);
+    const result = await revokeTeamAutomatorGrants(SLUG);
+    expect(result).toEqual({ count: 2, agentIds: ["agent-a", "agent-b"] });
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
-      tuple: { user: `team:${SLUG}#member`, relation: "automator" },
+      tuple: { user: `team:${SLUG}#member`, relation: "automator", object: "agent:" },
       continuationToken: undefined,
       pageSize: 100,
     });
@@ -35,11 +35,11 @@ describe("revokeTeamAutomatorGrants", () => {
       .mockResolvedValueOnce({ tuples: [{ key: A1 }, { key: nonAgent }], continuationToken: "next" })
       .mockResolvedValueOnce({ tuples: [{ key: A2 }] });
 
-    const n = await revokeTeamAutomatorGrants(SLUG);
+    const result = await revokeTeamAutomatorGrants(SLUG);
 
-    expect(n).toBe(2);
+    expect(result).toEqual({ count: 2, agentIds: ["agent-a", "agent-b"] });
     expect(mockReadOpenFgaTuples).toHaveBeenNthCalledWith(2, {
-      tuple: { user: `team:${SLUG}#member`, relation: "automator" },
+      tuple: { user: `team:${SLUG}#member`, relation: "automator", object: "agent:" },
       continuationToken: "next",
       pageSize: 100,
     });
@@ -48,8 +48,8 @@ describe("revokeTeamAutomatorGrants", () => {
 
   it("no-ops when the team has no automator grants", async () => {
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
-    const n = await revokeTeamAutomatorGrants(SLUG);
-    expect(n).toBe(0);
+    const result = await revokeTeamAutomatorGrants(SLUG);
+    expect(result).toEqual({ count: 0, agentIds: [] });
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 });
