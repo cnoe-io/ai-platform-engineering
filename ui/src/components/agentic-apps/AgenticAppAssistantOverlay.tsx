@@ -220,7 +220,6 @@ export function AgenticAppAssistantOverlay({
 
           <div className="min-h-0 flex-1">
             <ChatPanel
-              endpoint="/api/dynamic-agents/chat"
               agentId={assistantAgentId}
               agent={chatPanelAgent}
               clientContext={clientContext}
