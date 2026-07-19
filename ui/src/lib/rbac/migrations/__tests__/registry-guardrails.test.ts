@@ -12,6 +12,7 @@ import {
   SCHEMA_AREA_CLASSIFICATIONS,
 } from "../schema-area-classifications";
 import { MIGRATION_DEFINITIONS } from "../registry";
+import { USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID } from "../user-preferences-default-agent-cleanup";
 
 describe("migration registry guardrails", () => {
   it("classifies every registered migration schema area", () => {
@@ -31,5 +32,24 @@ describe("migration registry guardrails", () => {
     expect(getUnclassifiedSchemaAreas(["new_collection_without_registry_entry"])).toEqual([
       "new_collection_without_registry_entry",
     ]);
+  });
+
+  it("registers the user-preferences cleanup in the 0.6.0 manifest", () => {
+    const definition = MIGRATION_DEFINITIONS.find(
+      (migration) =>
+        migration.id === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
+    );
+
+    expect(definition).toMatchObject({
+      release: "0.6.0",
+      schema_area: "user_preferences",
+      from_version: 1,
+      to_version: 2,
+      kind: "explicit",
+      implemented: true,
+    });
+    expect(SCHEMA_AREA_CLASSIFICATIONS.user_preferences).toMatchObject({
+      classification: "migration",
+    });
   });
 });

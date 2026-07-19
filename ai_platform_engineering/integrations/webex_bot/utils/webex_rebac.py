@@ -110,6 +110,7 @@ class WebexRebacEvaluator:
     def check_space_grant(
         self,
         *,
+        bot_id: str,
         workspace_id: str,
         space_id: str,
         agent_id: str,
@@ -131,6 +132,7 @@ class WebexRebacEvaluator:
             f"{urllib.parse.quote(space_id, safe='')}/access-check"
         )
         payload: dict[str, object] = {
+            "bot_id": bot_id,
             "resource": {"type": "agent", "id": agent_id},
             "action": "use",
         }

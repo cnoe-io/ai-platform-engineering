@@ -24,6 +24,7 @@ const teamMemberSession = {
 };
 
 const workflowAgent = buildMcpWorkflowAgentFixture();
+const webexBot = { id: "primary", name: "Primary bot", available: true };
 
 function webexHandler(state: {
   routeWrites: unknown[];
@@ -31,6 +32,11 @@ function webexHandler(state: {
   routes: unknown[];
 }): MockRouteHandler {
   return async ({ route, path, method }) => {
+    if (path === "/api/admin/webex/bots" && method === "GET") {
+      await fulfillJson(route, { data: { bots: [webexBot] } });
+      return true;
+    }
+
     if (
       path === "/api/admin/webex/spaces" ||
       path === "/api/admin/webex/spaces?health=1"
@@ -39,6 +45,7 @@ function webexHandler(state: {
         data: {
           spaces: [
             {
+              bot_id: webexBot.id,
               workspace_id: "WEBEX-WORKSPACE",
               space_id: "space-incidents",
               space_name: "Incident Bridge",
@@ -64,12 +71,14 @@ function webexHandler(state: {
               name: "Incident Bridge",
               type: "group",
               is_locked: false,
+              available_bot_ids: [webexBot.id],
             },
             {
               id: "space-onboard-new",
               name: "Workflow Alerts",
               type: "group",
               is_locked: false,
+              available_bot_ids: [webexBot.id],
             },
           ],
           has_more: false,
@@ -272,8 +281,8 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       agent_id: workflowAgent.id,
       create_routes: true,
       manual_spaces: [
-        { id: "space-incidents", name: "Incident Bridge" },
-        { id: "space-onboard-new", name: "Workflow Alerts" },
+        { id: "space-incidents", name: "Incident Bridge", bot_id: webexBot.id },
+        { id: "space-onboard-new", name: "Workflow Alerts", bot_id: webexBot.id },
       ],
     });
   });

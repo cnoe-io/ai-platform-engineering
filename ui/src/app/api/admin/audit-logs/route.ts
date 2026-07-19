@@ -7,8 +7,15 @@ withErrorHandler
 } from '@/lib/api-middleware';
 import { getServerConfig } from '@/lib/config';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
-import type { Conversation } from '@/types/mongodb';
+import type { Conversation,Message } from '@/types/mongodb';
+import type { Document,Filter } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
+
+type AuditConversation = Conversation & {
+  last_message_at?: Date | null;
+  message_count: number;
+  status: 'active' | 'archived' | 'deleted';
+};
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
@@ -38,7 +45,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const includeDeleted = url.searchParams.get('include_deleted') === 'true';
     const status = url.searchParams.get('status') as 'active' | 'archived' | 'deleted' | null;
 
-    const matchStage: Record<string, any> = {};
+    const matchStage: Filter<Conversation> = {};
 
     if (ownerEmail) {
       matchStage.owner_id = { $regex: ownerEmail, $options: 'i' };
@@ -49,9 +56,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     if (dateFrom || dateTo) {
-      matchStage.created_at = {};
-      if (dateFrom) matchStage.created_at.$gte = new Date(dateFrom);
-      if (dateTo) matchStage.created_at.$lte = new Date(dateTo);
+      const createdAtRange: { $gte?: Date; $lte?: Date } = {};
+      if (dateFrom) createdAtRange.$gte = new Date(dateFrom);
+      if (dateTo) createdAtRange.$lte = new Date(dateTo);
+      matchStage.created_at = createdAtRange;
     }
 
     if (status === 'deleted') {
@@ -75,7 +83,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // IMPORTANT: All queries must be compatible with CosmosDB and DocumentDB.
     // Do NOT use $facet or sub-pipeline $lookup (let/pipeline) — they are unsupported.
-    const pipeline: any[] = [
+    const pipeline: Document[] = [
       { $match: matchStage },
       {
         $addFields: {
@@ -105,14 +113,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       { $limit: pageSize },
     ];
 
-    const items: any[] = await conversations.aggregate(pipeline).toArray();
+    const items = await conversations.aggregate<AuditConversation>(pipeline).toArray();
 
     // Batch-fetch last message timestamps (avoids sub-pipeline $lookup)
     if (items.length > 0) {
       const convIds = items.map((item) => item._id);
-      const messages = await getCollection('messages');
-      const lastMessages: any[] = await messages
-        .aggregate([
+      const messages = await getCollection<Message>('messages');
+      const lastMessages = await messages
+        .aggregate<{ _id: string; last_at: Date }>([
           { $match: { conversation_id: { $in: convIds } } },
           { $sort: { created_at: -1 as const } },
           { $group: { _id: '$conversation_id', last_at: { $first: '$created_at' } } },

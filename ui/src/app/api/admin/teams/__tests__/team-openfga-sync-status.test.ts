@@ -67,7 +67,7 @@ jest.mock("@/lib/rbac/team-membership-source-store", () => ({
     mockUpsertTeamMembershipSource(...args),
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 let mockIsMongoDBConfigured = true;
 
 jest.mock("@/lib/mongodb", () => ({
@@ -145,7 +145,7 @@ function teamDocument(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function membershipSources(overrides: Partial<any>[] = []) {
+function membershipSources(overrides: Partial<unknown>[] = []) {
   // Default fixture: admin is fully synced, member is fully synced.
   return [
     {
@@ -339,7 +339,7 @@ describe("POST /api/admin/teams/[id]/openfga/reconcile", () => {
     // admin row already had its subject so its admin tuple is also
     // (idempotently) written.
     const allWrites = mockWriteOpenFgaTuples.mock.calls.flatMap(
-      (call: any[]) => call[0]?.writes ?? [],
+      (call: unknown[]) => call[0]?.writes ?? [],
     );
     expect(allWrites).toEqual(
       expect.arrayContaining([
@@ -380,10 +380,10 @@ describe("POST /api/admin/teams/[id]/openfga/reconcile", () => {
     expect(json.data.summary.unresolved_emails).toContain("ghost@example.com");
     // No tuple should be written for the unresolved user.
     const allWrites = mockWriteOpenFgaTuples.mock.calls.flatMap(
-      (call: any[]) => call[0]?.writes ?? [],
+      (call: unknown[]) => call[0]?.writes ?? [],
     );
     expect(
-      allWrites.some((w: any) => w.user === "user:ghost@example.com-sub"),
+      allWrites.some((w: unknown) => w.user === "user:ghost@example.com-sub"),
     ).toBe(false);
   });
 });

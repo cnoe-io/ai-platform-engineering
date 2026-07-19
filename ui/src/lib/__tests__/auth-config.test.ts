@@ -30,10 +30,8 @@ jest.mock('@/lib/rbac/oidc-claim-reconciler', () => ({
 }))
 
 import {
-  hasRequiredGroup,
   isAdminUser,
   canViewAdminDashboard,
-  canAccessDynamicAgents,
   authOptions,
   _resetInflightRefreshes,
   _resetServerTokenStore,
@@ -1209,7 +1207,7 @@ describe('auth-config', () => {
           refresh_token: 'new-rt',
           expires_in: 3600,
         }),
-      } as any)
+      } as unknown)
 
       const [result1, result2] = await Promise.all([call1, call2])
 
@@ -1244,7 +1242,7 @@ describe('auth-config', () => {
           ok: false,
           headers: { get: () => 'application/json' },
           json: async () => ({ error: 'invalid_grant', error_description: 'Token already used' }),
-        } as any
+        } as unknown
       })
 
       const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
@@ -1299,7 +1297,7 @@ describe('auth-config', () => {
           ok: false,
           headers: { get: () => 'application/json' },
           json: async () => ({ error: 'invalid_grant', error_description: 'Token already used' }),
-        } as any
+        } as unknown
       })
 
       const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({

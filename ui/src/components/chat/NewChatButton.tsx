@@ -2,10 +2,10 @@
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { Button } from "@/components/ui/button";
-import { getConfig } from "@/lib/config";
+import { fetchChatDefaultAgentIds } from "@/lib/chat-agent-selection";
 import { cn } from "@/lib/utils";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { Bot,ChevronDown,Loader2,Plus,Search } from "lucide-react";
+import { ChevronDown,Loader2,Plus,Search } from "lucide-react";
 import React,{ useEffect,useRef,useState } from "react";
 
 interface NewChatButtonProps {
@@ -31,11 +31,9 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
     async function fetchDefaultAgent() {
       try {
-        const configResponse = await fetch('/api/admin/platform-config');
-        const configData = await configResponse.json().catch(() => ({ success: false }));
-        const agentId = configData.success && configData.data.default_agent_id
-          ? String(configData.data.default_agent_id)
-          : null;
+        const { userDefaultAgentId, platformDefaultAgentId } =
+          await fetchChatDefaultAgentIds();
+        const agentId = userDefaultAgentId ?? platformDefaultAgentId;
 
         if (cancelled) return;
 

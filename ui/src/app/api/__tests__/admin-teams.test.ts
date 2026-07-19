@@ -31,7 +31,7 @@ const mockGetServerSession = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
 const mockListOpenFgaObjects = jest.fn(async () => ({ objects: [] as string[] }));
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 // Mock auth config
@@ -104,7 +104,7 @@ jest.mock('@/lib/config', () => ({
 }));
 
 // Mock MongoDB
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -113,7 +113,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 
@@ -274,7 +274,7 @@ beforeEach(() => {
 // ============================================================================
 
 describe('GET /api/admin/teams', () => {
-  let GET: any;
+  let GET: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -443,7 +443,7 @@ describe('GET /api/admin/teams', () => {
 // ============================================================================
 
 describe('POST /api/admin/teams', () => {
-  let POST: any;
+  let POST: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -544,7 +544,7 @@ describe('POST /api/admin/teams', () => {
 // ============================================================================
 
 describe('GET /api/admin/teams/[id]', () => {
-  let GET: any;
+  let GET: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -609,7 +609,7 @@ describe('GET /api/admin/teams/[id]', () => {
 // ============================================================================
 
 describe('PATCH /api/admin/teams/[id]', () => {
-  let PATCH: any;
+  let PATCH: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -695,7 +695,7 @@ describe('PATCH /api/admin/teams/[id]', () => {
 // ============================================================================
 
 describe('DELETE /api/admin/teams/[id]', () => {
-  let DELETE: any;
+  let DELETE: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -745,7 +745,7 @@ describe('DELETE /api/admin/teams/[id]', () => {
 // ============================================================================
 
 describe('POST /api/admin/teams/[id]/members', () => {
-  let POST: any;
+  let POST: unknown;
 
   beforeEach(async () => {
     resetRouteModules();
@@ -891,7 +891,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
 // ============================================================================
 
 describe('DELETE /api/admin/teams/[id]/members', () => {
-  let DELETE: any;
+  let DELETE: unknown;
 
   beforeEach(async () => {
     resetRouteModules();

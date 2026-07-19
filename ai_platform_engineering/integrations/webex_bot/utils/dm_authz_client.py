@@ -27,7 +27,6 @@ class DmAgentAccessDecision:
     reason: str
     path: str
     available: bool
-    matched_team_slug: Optional[str]
 
 
 def _default_base_url() -> str:
@@ -43,7 +42,6 @@ _UNAVAILABLE = DmAgentAccessDecision(
     reason="PDP_UNAVAILABLE",
     path="unavailable",
     available=False,
-    matched_team_slug=None,
 )
 
 
@@ -67,7 +65,10 @@ class DmAuthzClient:
         return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310 — internal HTTPS endpoint
 
     def check_agent_access(
-        self, *, agent_id: str, bearer_token: str
+        self,
+        *,
+        agent_id: str,
+        bearer_token: str,
     ) -> DmAgentAccessDecision:
         if not self._base_url or not bearer_token:
             return _UNAVAILABLE
@@ -119,15 +120,9 @@ class DmAuthzClient:
         allowed = bool(data.get("allowed"))
         reason = str(data.get("reason") or "")
         path = str(data.get("path") or "")
-        matched = data.get("matched_team_slug")
-        matched_slug = (
-            matched if isinstance(matched, str) and matched.strip() else None
-        )
-
         return DmAgentAccessDecision(
             allowed=allowed,
             reason=reason or ("ALLOW" if allowed else "DENY"),
             path=path or ("allowed" if allowed else "denied"),
             available=True,
-            matched_team_slug=matched_slug,
         )

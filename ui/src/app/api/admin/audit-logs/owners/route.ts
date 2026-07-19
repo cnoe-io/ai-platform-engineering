@@ -7,6 +7,7 @@ withErrorHandler,
 import { getServerConfig } from '@/lib/config';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { Conversation } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -32,12 +33,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    const matchStage: Record<string, any> = {};
+    const matchStage: Document = {};
     if (q) {
       matchStage.owner_id = { $regex: q, $options: 'i' };
     }
 
-    const pipeline: any[] = [
+    const pipeline: Document[] = [
       ...(Object.keys(matchStage).length > 0 ? [{ $match: matchStage }] : []),
       { $group: { _id: '$owner_id' } },
       { $sort: { _id: 1 as const } },
@@ -45,8 +46,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       { $project: { _id: 0, owner_id: '$_id' } },
     ];
 
-    const results = await conversations.aggregate(pipeline).toArray();
-    const owners: string[] = results.map((r: any) => r.owner_id).filter(Boolean);
+    const results = await conversations.aggregate<{ owner_id?: string }>(pipeline).toArray();
+    const owners = results.flatMap((result) => result.owner_id ? [result.owner_id] : []);
 
     return successResponse({ owners });
 });

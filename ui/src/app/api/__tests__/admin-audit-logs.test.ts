@@ -32,7 +32,7 @@ import { ObjectId } from 'mongodb';
 const mockGetServerSession = jest.fn();
 const mockCheckPermission = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -52,9 +52,9 @@ jest.mock('@/lib/config', () => ({
   getServerConfig: () => mockServerConfig,
 }));
 
-let mockServerConfig: Record<string, any> = { auditLogsEnabled: true };
+let mockServerConfig: Record<string, unknown> = { auditLogsEnabled: true };
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -64,7 +64,7 @@ const mockGetCollection = jest.fn((name: string) => {
 
 let mockIsMongoDBConfigured = true;
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   get isMongoDBConfigured() {
     return mockIsMongoDBConfigured;
   },
@@ -126,7 +126,7 @@ function resetMocks() {
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
-function setupAdminWithConversations(convData: any[] = []) {
+function setupAdminWithConversations(convData: unknown[] = []) {
   mockGetServerSession.mockResolvedValue(adminSession());
 
   const convCol = createMockCollection();
@@ -245,7 +245,7 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.owner_id).toEqual({ $regex: 'alice', $options: 'i' });
   });
 
@@ -256,7 +256,7 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.title).toEqual({ $regex: 'kubernetes', $options: 'i' });
   });
 
@@ -269,7 +269,7 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.created_at.$gte).toEqual(new Date('2026-01-01'));
     expect(matchStage.$match.created_at.$lte).toEqual(new Date('2026-03-01'));
   });
@@ -281,7 +281,7 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.is_archived).toEqual({ $ne: true });
   });
 
@@ -292,7 +292,7 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.deleted_at).toEqual({ $ne: null, $exists: true });
   });
 
@@ -306,7 +306,7 @@ describe('GET /api/admin/audit-logs — Listing', () => {
 
     // Pipeline should NOT contain $lookup
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const lookupStage = pipeline.find((s: any) => s.$lookup);
+    const lookupStage = pipeline.find((s: unknown) => s.$lookup);
     expect(lookupStage).toBeUndefined();
   });
 
@@ -320,10 +320,10 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     expect(convCol.countDocuments).toHaveBeenCalled();
     // Pipeline should have $skip and $limit but no $facet
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const facetStage = pipeline.find((s: any) => s.$facet);
+    const facetStage = pipeline.find((s: unknown) => s.$facet);
     expect(facetStage).toBeUndefined();
-    const skipStage = pipeline.find((s: any) => s.$skip !== undefined);
-    const limitStage = pipeline.find((s: any) => s.$limit !== undefined);
+    const skipStage = pipeline.find((s: unknown) => s.$skip !== undefined);
+    const limitStage = pipeline.find((s: unknown) => s.$limit !== undefined);
     expect(skipStage.$skip).toBe(10);
     expect(limitStage.$limit).toBe(10);
   });
@@ -648,7 +648,7 @@ describe('GET /api/admin/audit-logs/export — CSV', () => {
     await exportGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.owner_id).toEqual({ $regex: 'alice', $options: 'i' });
     expect(matchStage.$match.is_archived).toBe(true);
   });
@@ -738,7 +738,7 @@ describe('GET /api/admin/audit-logs/owners — Search', () => {
     await ownersGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage).toBeDefined();
     expect(matchStage.$match.owner_id).toEqual({ $regex: 'alice', $options: 'i' });
   });
@@ -756,7 +756,7 @@ describe('GET /api/admin/audit-logs/owners — Search', () => {
     await ownersGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const groupStage = pipeline.find((s: any) => s.$group);
+    const groupStage = pipeline.find((s: unknown) => s.$group);
     expect(groupStage).toBeDefined();
     expect(groupStage.$group._id).toBe('$owner_id');
   });
@@ -774,7 +774,7 @@ describe('GET /api/admin/audit-logs/owners — Search', () => {
     await ownersGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const limitStage = pipeline.find((s: any) => s.$limit);
+    const limitStage = pipeline.find((s: unknown) => s.$limit);
     expect(limitStage).toBeDefined();
     expect(limitStage.$limit).toBe(50);
   });
@@ -830,7 +830,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.is_archived).toBe(true);
   });
 
@@ -841,7 +841,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.$or).toBeUndefined();
   });
 
@@ -852,7 +852,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.$or).toBeDefined();
     expect(matchStage.$match.$or).toEqual([
       { deleted_at: null },
@@ -867,7 +867,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.created_at.$gte).toEqual(new Date('2026-02-01'));
     expect(matchStage.$match.created_at.$lte).toBeUndefined();
   });
@@ -879,7 +879,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.created_at.$lte).toEqual(new Date('2026-03-15'));
     expect(matchStage.$match.created_at.$gte).toBeUndefined();
   });
@@ -893,7 +893,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.owner_id).toEqual({ $regex: 'alice', $options: 'i' });
     expect(matchStage.$match.title).toEqual({ $regex: 'deploy', $options: 'i' });
     expect(matchStage.$match.is_archived).toEqual({ $ne: true });
@@ -907,8 +907,8 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const skipStage = pipeline.find((s: any) => s.$skip !== undefined);
-    const limitStage = pipeline.find((s: any) => s.$limit !== undefined);
+    const skipStage = pipeline.find((s: unknown) => s.$skip !== undefined);
+    const limitStage = pipeline.find((s: unknown) => s.$limit !== undefined);
     expect(skipStage.$skip).toBe(0);
     expect(limitStage.$limit).toBe(20);
   });
@@ -920,7 +920,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const sortStage = pipeline.find((s: any) => s.$sort);
+    const sortStage = pipeline.find((s: unknown) => s.$sort);
     expect(sortStage.$sort.updated_at).toBe(-1);
   });
 });
@@ -1047,7 +1047,7 @@ describe('GET /api/admin/audit-logs/export — Edge Cases', () => {
     await exportGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const matchStage = pipeline.find((s: any) => s.$match);
+    const matchStage = pipeline.find((s: unknown) => s.$match);
     expect(matchStage.$match.deleted_at).toEqual({ $ne: null, $exists: true });
   });
 });

@@ -8,8 +8,6 @@
  * - Client: reads storageMode from window.__APP_CONFIG__ via getConfig().
  */
 
-import type { Config } from '../config';
-
 // We test client-side behavior (jsdom env has window defined).
 // The module under test uses `typeof window === 'undefined'` to decide
 // server vs client, so we mock getConfig for client-side paths.
@@ -31,13 +29,13 @@ describe('storage-config (client-side via jsdom)', () => {
 
   describe('getStorageMode', () => {
     it('should return "mongodb" when config says mongodb', () => {
-      mockedGetConfig.mockReturnValue('mongodb' as any);
+      mockedGetConfig.mockReturnValue('mongodb' as unknown);
       expect(getStorageMode()).toBe('mongodb');
       expect(mockedGetConfig).toHaveBeenCalledWith('storageMode');
     });
 
     it('should return "localStorage" when config says localStorage', () => {
-      mockedGetConfig.mockReturnValue('localStorage' as any);
+      mockedGetConfig.mockReturnValue('localStorage' as unknown);
       expect(getStorageMode()).toBe('localStorage');
       expect(mockedGetConfig).toHaveBeenCalledWith('storageMode');
     });
@@ -45,12 +43,12 @@ describe('storage-config (client-side via jsdom)', () => {
 
   describe('shouldUseLocalStorage', () => {
     it('should return false when storageMode is mongodb', () => {
-      mockedGetConfig.mockReturnValue('mongodb' as any);
+      mockedGetConfig.mockReturnValue('mongodb' as unknown);
       expect(shouldUseLocalStorage()).toBe(false);
     });
 
     it('should return true when storageMode is localStorage', () => {
-      mockedGetConfig.mockReturnValue('localStorage' as any);
+      mockedGetConfig.mockReturnValue('localStorage' as unknown);
       expect(shouldUseLocalStorage()).toBe(true);
     });
   });
@@ -69,13 +67,13 @@ describe('storage-config (client-side via jsdom)', () => {
     });
 
     it('should use current config when no mode argument provided', () => {
-      mockedGetConfig.mockReturnValue('mongodb' as any);
+      mockedGetConfig.mockReturnValue('mongodb' as unknown);
       const display = getStorageModeDisplay();
       expect(display).toContain('MongoDB');
     });
 
     it('should use current config (localStorage) when no mode argument provided', () => {
-      mockedGetConfig.mockReturnValue('localStorage' as any);
+      mockedGetConfig.mockReturnValue('localStorage' as unknown);
       const display = getStorageModeDisplay();
       expect(display).toContain('LocalStorage');
     });
@@ -92,13 +90,13 @@ describe('storage-config (client-side via jsdom)', () => {
  */
 describe('storage-config integration with config', () => {
   it('getConfig("storageMode") returns mongodb when server has MONGODB configured', () => {
-    mockedGetConfig.mockReturnValue('mongodb' as any);
+    mockedGetConfig.mockReturnValue('mongodb' as unknown);
     expect(getStorageMode()).toBe('mongodb');
     expect(shouldUseLocalStorage()).toBe(false);
   });
 
   it('getConfig("storageMode") returns localStorage when server has no MongoDB', () => {
-    mockedGetConfig.mockReturnValue('localStorage' as any);
+    mockedGetConfig.mockReturnValue('localStorage' as unknown);
     expect(getStorageMode()).toBe('localStorage');
     expect(shouldUseLocalStorage()).toBe(true);
   });

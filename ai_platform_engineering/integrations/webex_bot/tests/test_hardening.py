@@ -47,6 +47,7 @@ def test_parse_webex_event_ignores_event_workspace_id(
     monkeypatch.setenv("WEBEX_WORKSPACE_ALIAS", "CAIPE-WEBEX")
     parsed = parse_webex_event(
         {
+            "botId": "primary",
             "person_id": "person1234",
             "space_id": "space12345",
             "workspace_id": "EVENT-SHOULD-NOT-WIN",
@@ -64,6 +65,7 @@ def test_parse_webex_event_canonicalizes_public_room_id(
     parsed = parse_webex_event(
         {
             "data": {
+                "botId": "primary",
                 "id": "message-public-id",
                 "roomId": PUBLIC_ROOM_ID,
                 "personId": "person1234",
@@ -113,6 +115,7 @@ def test_identity_lookup_exception_fail_closed() -> None:
         handle_webex_message(
             _event(),
             identity_linker=FailingIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
             dispatcher=dispatcher,
         )
     )

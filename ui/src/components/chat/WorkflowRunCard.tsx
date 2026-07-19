@@ -114,7 +114,7 @@ function RunCard({ runId }: { runId: string }) {
   }, [status?.workflow_config_id, configInfo]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchStatus is async; setState only called after awaited fetch completes
+
     void fetchStatus();
   }, [fetchStatus]);
 

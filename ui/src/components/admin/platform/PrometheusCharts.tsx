@@ -6,7 +6,6 @@ getLabeledValues,
 getScalarValue,
 usePrometheusQuery
 } from "@/hooks/use-prometheus";
-import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import React,{ useCallback, useMemo } from "react";
 import {
@@ -16,7 +15,6 @@ Bar,
 BarChart,
 CartesianGrid,
 Cell,
-Legend,
 Line,
 LineChart,
 Pie,
@@ -26,6 +24,7 @@ Tooltip,
 XAxis,
 YAxis,
 } from "recharts";
+import type { TooltipContentProps } from "recharts";
 
 // ────────────────────────────────────────────────────────────────
 // Color palette (matches the dark theme)
@@ -213,7 +212,7 @@ export function TimeseriesChart({
     const hiddenCount = Math.max(0, allSeries.length - TOP_N);
 
     return { chartData: sorted, series: allSeries, legendSeries, hiddenCount };
-  }, [data, labelKey, formatTime]);
+  }, [data, labelKey, formatTime, labelTransform]);
 
   const ChartComponent = type === "area" ? AreaChart : LineChart;
 
@@ -241,9 +240,15 @@ export function TimeseriesChart({
   ), [legendSeries, hiddenCount, seriesColorIndex]);
 
   const renderTooltip = useCallback(
-    ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
+    ({ active, payload, label }: TooltipContentProps) => {
       if (!active || !payload || payload.length === 0) return null;
-      const sorted = [...payload].sort((a, b) => b.value - a.value);
+      const sorted = payload
+        .filter((entry): entry is typeof entry & { name: string; value: number; color: string } =>
+          typeof entry.name === "string" &&
+          typeof entry.value === "number" &&
+          typeof entry.color === "string",
+        )
+        .sort((a, b) => b.value - a.value);
       const TOP_TOOLTIP = 3;
       const visible = sorted.slice(0, TOP_TOOLTIP);
       const tooltipHidden = Math.max(0, sorted.length - TOP_TOOLTIP);
@@ -323,8 +328,7 @@ export function TimeseriesChart({
                   className="text-muted-foreground"
                   tickFormatter={formatValue}
                 />
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                <Tooltip content={renderTooltip as any} />
+                <Tooltip content={renderTooltip} />
                 {series.map((name, i) =>
                   type === "area" ? (
                     <Area
@@ -514,6 +518,10 @@ export function DonutChart({
         ) : loading && chartData.length === 0 ? (
           <div className="flex items-center justify-center h-48">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center h-48 text-destructive text-sm">
+            {error}
           </div>
         ) : chartData.length === 0 ? (
           <div className="flex items-center justify-center h-48 text-muted-foreground">

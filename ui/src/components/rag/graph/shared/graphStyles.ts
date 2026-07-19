@@ -1,5 +1,7 @@
 // Shared color scheme for graph nodes across Ontology and Data views
 
+import type { GraphRelation,RelationHeuristic } from './graphTypes';
+
 // Color map for different entity type prefixes
 export const colorMap: { [key: string]: string } = {
     // GitHub colors
@@ -105,12 +107,22 @@ export const getColorForNode = (label: string): string => {
 };
 
 // Helper to get evaluation result from relation data
-export const getEvaluationResult = (relation: any): EvaluationResult | null => {
+export const getEvaluationResult = (relation: GraphRelation): EvaluationResult | null => {
     const hasEvaluation = relation.relation_properties?.eval_last_evaluated !== undefined &&
                           relation.relation_properties?.eval_last_evaluated !== null &&
                           relation.relation_properties?.eval_last_evaluated > 0;
 
-    return hasEvaluation ? relation.relation_properties?.eval_result : null;
+    const result = hasEvaluation ? relation.relation_properties?.eval_result : undefined;
+    switch (result) {
+        case 'ACCEPTED':
+            return EvaluationResult.ACCEPTED;
+        case 'REJECTED':
+            return EvaluationResult.REJECTED;
+        case 'UNSURE':
+            return EvaluationResult.UNSURE;
+        default:
+            return null;
+    }
 };
 
 // Simple edge styling for data graphs
@@ -132,14 +144,19 @@ export const getDataEdgeStyle = (isSelected: boolean = false) => {
 };
 
 // Complex edge styling for ontology graphs with evaluation result-based styling
-export const getOntologyEdgeStyle = (relation: any, isSelected: boolean = false) => {
+export const getOntologyEdgeStyle = (relation: GraphRelation, isSelected: boolean = false) => {
     const hasEvaluation = relation.relation_properties?.evaluation_last_evaluated !== undefined &&
                           relation.relation_properties?.evaluation_last_evaluated !== null &&
                           relation.relation_properties?.evaluation_last_evaluated > 0;
 
     const result = hasEvaluation ? relation.relation_properties?.evaluation_result : null;
 
-    let baseStyle: any;
+    let baseStyle: {
+        stroke: string;
+        strokeDasharray?: string;
+        strokeWidth: number;
+        zIndex?: number;
+    };
 
     if (result === EvaluationResult.ACCEPTED) {
         baseStyle = {
@@ -177,8 +194,8 @@ export const getOntologyEdgeStyle = (relation: any, isSelected: boolean = false)
 // Note: Sigma doesn't support dashed/dotted edges out of the box
 // We'll use color and size to differentiate edge types
 export const getSigmaEdgeStyle = (
-    relation: any,
-    heuristicsData?: any,
+    relation: GraphRelation,
+    heuristicsData?: RelationHeuristic,
     statsData?: { mean: number; stdDev: number },
     thicknessMultiplier: number = 1.0
 ) => {

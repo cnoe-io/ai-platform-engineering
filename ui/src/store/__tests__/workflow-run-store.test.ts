@@ -99,7 +99,7 @@ describe("workflow-run-store", () => {
 
   describe("loadRuns", () => {
     it("sets isLoading during fetch", async () => {
-      let resolveFetch!: (v: any) => void;
+      let resolveFetch!: (v: unknown) => void;
       const fetchPromise = new Promise<Response>((r) => {
         resolveFetch = (v) => r(v as Response);
       });
@@ -115,7 +115,7 @@ describe("workflow-run-store", () => {
       resolveFetch({
         ok: true,
         json: () => Promise.resolve([]),
-      } as any);
+      } as unknown);
       await loadPromise;
 
       expect(useWorkflowRunStore.getState().isLoading).toBe(false);

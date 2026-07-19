@@ -1,3 +1,4 @@
+import { getErrorMessage } from "@/lib/error-utils";
 import {
 ApiError,
 getAuthFromBearerOrSession,
@@ -85,12 +86,12 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     return NextResponse.json({ success: true, data }, {
       headers: { 'Cache-Control': 'no-store' },
     });
-  } catch (err: any) {
+  } catch (err) {
     if (err instanceof ApiError) throw err;
-    if (err.name === 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new ApiError('Prometheus query timed out', 504);
     }
-    console.error('[Metrics] Prometheus fetch error:', err.message);
+    console.error('[Metrics] Prometheus fetch error:', getErrorMessage(err, ""));
     throw new ApiError('Failed to reach Prometheus', 502);
   } finally {
     clearTimeout(timeout);
@@ -134,7 +135,7 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
     throw new ApiError('Maximum 20 queries per batch', 400);
   }
 
-  const results: Record<string, any> = {};
+  const results: Record<string, unknown> = {};
 
   await Promise.all(
     queries.map(async (q) => {
@@ -169,8 +170,8 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         } finally {
           clearTimeout(timeout);
         }
-      } catch (err: any) {
-        results[q.id] = { status: 'error', error: err.message };
+      } catch (err) {
+        results[q.id] = { status: 'error', error: getErrorMessage(err, "") };
       }
     }),
   );

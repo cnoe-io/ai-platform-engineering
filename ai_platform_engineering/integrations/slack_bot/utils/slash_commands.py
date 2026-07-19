@@ -74,8 +74,8 @@ USE_OK_MESSAGE = (
 )
 
 USE_DEFAULT_OK_MESSAGE = (
-    "Cleared your saved DM preference and any active thread override. Future "
-    "DM messages will route to the deployment default."
+    "Cleared your Slack default and any active thread override. Future DM "
+    "messages will use the platform default."
 )
 
 USE_DEFAULT_PARTIAL_OK_MESSAGE = (
@@ -101,8 +101,8 @@ def help_message() -> str:
         f"(use `/{cmd}-use default` to clear your saved preference)\n"
         f"• `/{cmd}-help` — show this message\n"
         "\n"
-        "Direct messages dispatch via: thread override → your saved default → "
-        "the deployment default."
+        "Direct messages dispatch via: thread override → your Slack default "
+        "→ the deployment direct-message default → the platform default."
     )
 
 

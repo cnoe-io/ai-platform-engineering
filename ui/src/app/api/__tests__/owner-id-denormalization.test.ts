@@ -26,7 +26,7 @@ const mockGetServerSession = jest.fn();
 const mockRequireConversationResourcePermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -35,7 +35,7 @@ jest.mock('@/lib/auth-config', () => ({
   REQUIRED_ADMIN_GROUP: '',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -44,7 +44,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 

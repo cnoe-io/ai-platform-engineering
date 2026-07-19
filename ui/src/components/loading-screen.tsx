@@ -1,6 +1,7 @@
 "use client";
 
 import { config,getLogoFilterClass } from "@/lib/config";
+import Image from "next/image";
 
 interface LoadingScreenProps {
   message?: string;
@@ -50,7 +51,14 @@ export function LoadingScreen({
           />
           {/* Logo container */}
           <div className="relative w-20 h-20 rounded-2xl gradient-primary-br flex items-center justify-center shadow-2xl">
-            <img src={config.logoUrl} alt={config.appName} className={`h-12 w-12 ${getLogoFilterClass(config.logoStyle)}`} />
+            <Image
+              src={config.logoUrl}
+              alt={config.appName}
+              width={48}
+              height={48}
+              unoptimized
+              className={`h-12 w-12 ${getLogoFilterClass(config.logoStyle)}`}
+            />
           </div>
         </div>
 

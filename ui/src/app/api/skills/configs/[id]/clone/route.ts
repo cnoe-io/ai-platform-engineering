@@ -50,7 +50,7 @@ export const POST = withErrorHandler(
     }
 
     return await withAuth(request, async (_req, user, session) => {
-      const source = await getAgentSkillVisibleToUser(id, user.email);
+      const source = await getAgentSkillVisibleToUser(id);
       if (!source) {
         // 404 (not 403) so we don't leak existence of skills the
         // caller can't see.

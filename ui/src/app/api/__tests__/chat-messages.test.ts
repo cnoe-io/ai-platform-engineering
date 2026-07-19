@@ -26,7 +26,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -39,7 +39,7 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -48,7 +48,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 
@@ -1343,8 +1343,8 @@ describe('Cross-device message persistence', () => {
 describe('POST /api/chat/conversations/[id]/messages — admin audit write blocking', () => {
   const testConversationId = '550e8400-e29b-41d4-a716-446655440000';
 
-  let POST: any;
-  let GET: any;
+  let POST: unknown;
+  let GET: unknown;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -1422,7 +1422,7 @@ describe('POST /api/chat/conversations/[id]/messages — admin audit write block
       sub: 'owner-sub',
     });
 
-    const convCol = setupConversationMocks('owner@example.com');
+    setupConversationMocks('owner@example.com');
     const msgCol = createMockCollection();
     msgCol.updateOne.mockResolvedValue({
       upsertedId: new ObjectId(),

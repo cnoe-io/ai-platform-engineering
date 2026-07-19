@@ -25,7 +25,7 @@ import { apiClient } from '../api-client';
 // Helpers
 // ============================================================================
 
-function mockSuccessResponse(data: any) {
+function mockSuccessResponse(data: unknown) {
   return {
     ok: true,
     status: 200,

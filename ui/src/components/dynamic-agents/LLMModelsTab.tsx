@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 // assisted-by Codex Codex-sonnet-4-6
 
 import { Badge } from "@/components/ui/badge";
@@ -64,8 +66,8 @@ function LLMModelEditor({ model, readOnly, onSave, onCancel }: LLMModelEditorPro
         if (!data.success) throw new Error(data.error || "Failed to create model");
       }
       onSave();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setSaving(false);
     }
@@ -235,8 +237,8 @@ export function LLMModelsTab({
       } else {
         setError(data.error || "Failed to fetch models");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch models");
+    } catch (err) {
+      setError(getErrorMessage(err, "") || "Failed to fetch models");
     } finally {
       setLoading(false);
     }
@@ -304,8 +306,8 @@ export function LLMModelsTab({
       } else {
         alert(data.error || "Failed to delete model");
       }
-    } catch (err: any) {
-      alert(err.message || "Failed to delete model");
+    } catch (err) {
+      alert(getErrorMessage(err, "") || "Failed to delete model");
     }
   };
 

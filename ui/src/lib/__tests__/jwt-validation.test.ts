@@ -8,7 +8,6 @@
  */
 
 let capturedOptions: Record<string, unknown> | undefined;
-let capturedKey: unknown;
 
 // Mock jose — intercept jwtVerify to capture the audience option
 jest.mock('jose', () => {
@@ -16,8 +15,7 @@ jest.mock('jose', () => {
   return {
     ...actual,
     createRemoteJWKSet: jest.fn().mockReturnValue('mock-jwks'),
-    jwtVerify: jest.fn().mockImplementation(async (_token: string, key: unknown, options?: Record<string, unknown>) => {
-      capturedKey = key;
+    jwtVerify: jest.fn().mockImplementation(async (_token: string, _key: unknown, options?: Record<string, unknown>) => {
       capturedOptions = options;
       return {
         payload: {
@@ -33,7 +31,6 @@ jest.mock('jose', () => {
 
 beforeEach(() => {
   capturedOptions = undefined;
-  capturedKey = undefined;
 
   global.fetch = jest.fn().mockImplementation(async () => ({
     ok: true,

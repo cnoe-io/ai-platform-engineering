@@ -189,6 +189,7 @@ beforeEach(() => {
   ]);
   collections.webex_space_agent_routes = createCollection([
     {
+      bot_id: "bot-primary",
       workspace_id: "WEBEX",
       space_id: "space-2",
       agent_id: "agent-1",
@@ -829,7 +830,7 @@ describe("admin ReBAC migrations API", () => {
     expect(planBody.data.counts).toMatchObject({
       grants_scanned: 1,
       routes_scanned: 1,
-      tuples_planned: 2,
+      tuples_planned: 4,
       relationships_planned: 2,
     });
 
@@ -845,7 +846,21 @@ describe("admin ReBAC migrations API", () => {
     expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "webex_space:WEBEX--space-1", relation: "reader", object: "knowledge_base:kb-1" },
-        { user: "webex_space:WEBEX--space-2", relation: "user", object: "agent:agent-1" },
+        {
+          user: "webex_bot:bot-primary",
+          relation: "bot",
+          object: "webex_bot_installation:bot-primary--WEBEX--space-2",
+        },
+        {
+          user: "webex_space:WEBEX--space-2",
+          relation: "space",
+          object: "webex_bot_installation:bot-primary--WEBEX--space-2",
+        },
+        {
+          user: "webex_bot_installation:bot-primary--WEBEX--space-2",
+          relation: "user",
+          object: "agent:agent-1",
+        },
       ]),
       deletes: [],
     });

@@ -23,7 +23,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 // ============================================================================
 
 const mockSession = {
-  data: { user: { name: 'Test User', email: 'test@test.com' } } as any,
+  data: { user: { name: 'Test User', email: 'test@test.com' } } as unknown,
   status: 'authenticated' as const,
   update: jest.fn(),
 }
@@ -65,7 +65,7 @@ jest.mock('@/hooks/use-admin-role', () => ({
 }))
 
 // Mock chat store
-let mockStreamingConversations = new Map<string, any>()
+let mockStreamingConversations = new Map<string, unknown>()
 let mockUnviewedConversations = new Set<string>()
 let mockInputRequiredConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
@@ -156,8 +156,8 @@ const mockReleasePrompt = {
   open: false,
   isAdmin: false,
   releaseVersion: null as string | null,
-  release: null as any,
-  releaseMarkdown: null as any,
+  release: null as unknown,
+  releaseMarkdown: null as unknown,
   skipUntilNextLogin: jest.fn(),
   dismissPermanently: jest.fn(),
   isLoading: false,
@@ -168,7 +168,7 @@ jest.mock('@/hooks/use-release-upgrade-prompt', () => ({
 }))
 
 let mockMigrationStatus = {
-  status: null as any,
+  status: null as unknown,
   isLoading: false,
 }
 jest.mock('@/hooks/use-migration-status', () => ({
@@ -176,7 +176,7 @@ jest.mock('@/hooks/use-migration-status', () => ({
 }))
 
 let mockKeycloakHealth = {
-  summary: null as any,
+  summary: null as unknown,
   isLoading: false,
 }
 jest.mock('@/hooks/use-keycloak-health-summary', () => ({
@@ -184,7 +184,7 @@ jest.mock('@/hooks/use-keycloak-health-summary', () => ({
 }))
 
 jest.mock('@/components/release/ReleaseUpgradeDialog', () => ({
-  ReleaseUpgradeDialog: ({ open, isAdmin, releaseVersion }: any) =>
+  ReleaseUpgradeDialog: ({ open, isAdmin, releaseVersion }: unknown) =>
     open ? (
       <div data-testid="release-upgrade-dialog">
         ReleaseUpgradeDialog {releaseVersion} {isAdmin ? 'admin' : 'user'}
@@ -216,7 +216,7 @@ jest.mock('@/lib/config', () => ({
     get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
-    const configs: Record<string, any> = {
+    const configs: Record<string, unknown> = {
       appName: 'Test App',
       ssoEnabled: true,
       envBadge: '',
@@ -237,7 +237,7 @@ jest.mock('@/components/ticket/ReportProblemDialog', () => ({
 
 // Mock Link component
 jest.mock('next/link', () => {
-  const MockLink = React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
+  const MockLink = React.forwardRef(({ children, href, className, ...props }: unknown, ref: unknown) => (
     <a ref={ref} href={href} className={className} data-testid={`link-${href}`} {...props}>{children}</a>
   ))
   MockLink.displayName = 'MockLink'
@@ -247,8 +247,8 @@ jest.mock('next/link', () => {
 // Mock UI components
 jest.mock('@/components/ui/tooltip', () => {
   const TooltipTrigger = React.forwardRef(function MockTooltipTrigger(
-    { children, asChild, ...props }: any,
-    ref: any,
+    { children, asChild, ...props }: unknown,
+    ref: unknown,
   ) {
     if (asChild && React.isValidElement(children)) {
       return children
@@ -256,9 +256,9 @@ jest.mock('@/components/ui/tooltip', () => {
     return <div ref={ref} {...props}>{children}</div>
   })
   return {
-    Tooltip: ({ children }: any) => <>{children}</>,
-    TooltipContent: ({ children }: any) => <div>{children}</div>,
-    TooltipProvider: ({ children }: any) => <>{children}</>,
+    Tooltip: ({ children }: unknown) => <>{children}</>,
+    TooltipContent: ({ children }: unknown) => <div>{children}</div>,
+    TooltipProvider: ({ children }: unknown) => <>{children}</>,
     TooltipTrigger,
   }
 })
@@ -278,21 +278,21 @@ let lastPopoverState: {
   onOpenChange?: (next: boolean) => void
 } = { open: false }
 jest.mock('@/components/ui/popover', () => {
-  const Popover = ({ children, open, onOpenChange }: any) => {
+  const Popover = ({ children, open, onOpenChange }: unknown) => {
     popoverOpenProps.push(Boolean(open))
     // eslint-disable-next-line react-hooks/globals
     lastPopoverState = { open: Boolean(open), onOpenChange }
     return <>{children}</>
   }
   const PopoverTrigger = React.forwardRef(function MockPopoverTrigger(
-    { children, asChild, ...props }: any,
-    ref: any,
+    { children, asChild, ...props }: unknown,
+    ref: unknown,
   ) {
     const toggleOpen = () => {
       lastPopoverState.onOpenChange?.(!lastPopoverState.open)
     }
     if (asChild && React.isValidElement(children)) {
-      const child = children as React.ReactElement<any>
+      const child = children as React.ReactElement<unknown>
       const originalClick = child.props.onClick
       const handleClick = (e: React.MouseEvent) => {
         originalClick?.(e)
@@ -306,7 +306,7 @@ jest.mock('@/components/ui/popover', () => {
       </div>
     )
   })
-  const PopoverContent = ({ children }: any) => <div>{children}</div>
+  const PopoverContent = ({ children }: unknown) => <div>{children}</div>
   return {
     Popover,
     PopoverContent,
@@ -327,7 +327,7 @@ jest.mock('@/components/settings-panel', () => ({
 }))
 
 jest.mock('@/components/ui/button', () => ({
-  Button: React.forwardRef(function MockButton({ children, ...props }: any, ref: any) {
+  Button: React.forwardRef(function MockButton({ children, ...props }: unknown, ref: unknown) {
     return (
     <button ref={ref} {...props}>{children}</button>
     )
@@ -335,7 +335,7 @@ jest.mock('@/components/ui/button', () => ({
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }))
 
 // ============================================================================
@@ -378,7 +378,7 @@ describe('AppHeader — nav tabs', () => {
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
-    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as unknown
     mockReleasePrompt.open = false
     mockReleasePrompt.isAdmin = false
     mockReleasePrompt.releaseVersion = null
@@ -624,7 +624,7 @@ describe('AppHeader — connection status badge', () => {
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
-    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as unknown
   })
 
   describe('green — Connected', () => {
@@ -923,7 +923,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
-    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as unknown
   })
 
   it('shows green badge with count on Chat tab when conversations are streaming', () => {
@@ -1416,7 +1416,7 @@ describe('AppHeader — Report a Problem button', () => {
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
-    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as unknown
   })
 
   it('does NOT show "Report a Problem" button when reportProblemEnabled is false', () => {

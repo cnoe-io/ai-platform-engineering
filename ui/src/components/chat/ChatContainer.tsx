@@ -1,9 +1,10 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { ChatView } from "@/components/chat/DynamicAgentChatView";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { apiClient } from "@/lib/api-client";
-import { getConfig } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation as LocalConversation, ConversationAccessLevel } from "@/types/a2a";
@@ -11,8 +12,8 @@ import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import type { Conversation } from "@/types/mongodb";
 import { useSession } from "next-auth/react";
-import { useParams,useRouter,useSearchParams } from "next/navigation";
-import { useEffect,useMemo,useRef,useState } from "react";
+import { useParams,useRouter } from "next/navigation";
+import { useEffect,useRef,useState } from "react";
 
 /**
  * ChatContainer - renders the appropriate chat view based on conversation type.
@@ -22,12 +23,10 @@ import { useEffect,useMemo,useRef,useState } from "react";
 export function ChatContainer() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { data: session } = useSession();
   
   // Get uuid from params - this will be undefined on /chat (redirect page)
   const uuid = params?.uuid as string | undefined;
-  const adminOrigin = searchParams.get('from') as 'audit-logs' | 'feedback' | null;
 
   const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
   // Track when a dynamic agent has been deleted but conversation still references it
@@ -44,14 +43,6 @@ export function ChatContainer() {
       return conv ? getAgentId(conv) : undefined;
     }
   );
-
-  const dynamicAgentsUrl = getConfig('dynamicAgentsUrl');
-
-  // Compute the dynamic-agent chat endpoint for the selected agent.
-  const chatEndpoint = useMemo(() => {
-    if (!selectedAgentId) return '';
-    return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
-  }, [selectedAgentId, dynamicAgentsUrl]);
 
   const storageMode = getStorageMode();
 
@@ -199,7 +190,7 @@ export function ChatContainer() {
             } catch (err) {
               console.warn('[ChatContainer] Failed to load messages from server:', err);
             }
-          } catch (apiErr: any) {
+          } catch (apiErr) {
             const storeConv = useChatStore.getState().conversations.find(c => c.id === uuid);
             if (storeConv) {
               console.log("[ChatContainer] Conversation appeared in store during fetch");
@@ -207,10 +198,10 @@ export function ChatContainer() {
               return;
             }
 
-            if (apiErr.message?.includes('not found') || apiErr.message?.includes('404')) {
+            if (getErrorMessage(apiErr, "")?.includes('not found') || getErrorMessage(apiErr, "")?.includes('404')) {
               console.log("[ChatContainer] Conversation not found in MongoDB (expected for new conversations)");
             } else {
-              console.warn("[ChatContainer] Failed to load from MongoDB:", apiErr.message);
+              console.warn("[ChatContainer] Failed to load from MongoDB:", getErrorMessage(apiErr, ""));
             }
             const newConv: LocalConversation = {
               id: uuid,
@@ -364,10 +355,6 @@ export function ChatContainer() {
     );
   }
 
-  const conversationTitle = conversation
-    ? ('_id' in conversation ? conversation.title : conversation.title)
-    : undefined;
-
   const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
   const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
 
@@ -384,15 +371,12 @@ export function ChatContainer() {
 
   return (
     <ChatView
-      endpoint={chatEndpoint}
       conversationId={uuid}
-      conversationTitle={conversationTitle}
       selectedAgentId={effectiveAgentId}
       agent={agentInfo}
       agentNotFound={isAgentGone}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
-      adminOrigin={adminOrigin}
       isLoadingMessages={isLoadingMessages}
     />
   );

@@ -61,8 +61,8 @@ jest.mock("@/lib/storage-config", () => ({
 }));
 
 // Deferred promise to control when getConversation resolves
-let resolveGetConversation: (value: any) => void;
-let rejectGetConversation: (err: any) => void;
+let resolveGetConversation: (value: unknown) => void;
+let rejectGetConversation: (err: unknown) => void;
 
 jest.mock("@/lib/api-client", () => ({
   apiClient: {
@@ -79,7 +79,7 @@ jest.mock("@/lib/api-client", () => ({
 
 const mockSetActiveConversation = jest.fn();
 let resolveLoadMessages: () => void;
-let rejectLoadMessages: (err: any) => void;
+let rejectLoadMessages: (err: unknown) => void;
 // Every conversation targets a dynamic agent and loads via loadMessagesFromServer.
 const mockLoadMessagesFromServer = jest.fn(
   () =>
@@ -87,7 +87,7 @@ const mockLoadMessagesFromServer = jest.fn(
       resolveLoadMessages = () => {
         // Simulate what the real loadMessagesFromServer does: populate
         // the conversation's messages array so storeHasMessages flips true.
-        const conv = mockConversations.find((c: any) => c.id === mockUuid);
+        const conv = mockConversations.find((c: unknown) => c.id === mockUuid);
         if (conv && conv.messages.length === 0) {
           conv.messages = [{ id: "loaded-1", role: "assistant", content: "loaded" }];
         }
@@ -98,7 +98,7 @@ const mockLoadMessagesFromServer = jest.fn(
 );
 const mockCreateConversation = jest.fn(() => "new-id");
 
-let mockConversations: any[] = [];
+let mockConversations: unknown[] = [];
 let mockActiveConversationId: string | null = null;
 
 jest.mock("@/store/chat-store", () => {
@@ -107,7 +107,7 @@ jest.mock("@/store/chat-store", () => {
     activeConversationId: mockActiveConversationId,
   });
 
-  const store = (selector?: (s: any) => any) => {
+  const store = (selector?: (s: unknown) => unknown) => {
     const state = {
       setActiveConversation: mockSetActiveConversation,
       loadMessagesFromServer: mockLoadMessagesFromServer,
@@ -119,7 +119,7 @@ jest.mock("@/store/chat-store", () => {
   };
 
   store.getState = getState;
-  store.setState = jest.fn((updater: any) => {
+  store.setState = jest.fn((updater: unknown) => {
     if (typeof updater === "function") {
       const result = updater({ conversations: mockConversations });
       mockConversations = result.conversations || mockConversations;
@@ -154,7 +154,7 @@ jest.mock("framer-motion", () => ({
     div: ({
       children,
       ...props
-    }: React.PropsWithChildren<Record<string, any>>) => (
+    }: React.PropsWithChildren<Record<string, unknown>>) => (
       <div {...props}>{children}</div>
     ),
   },
@@ -747,7 +747,7 @@ describe("ChatContainer", () => {
     });
 
     // The conversation should have been added to mockConversations
-    const addedConv = mockConversations.find((c: any) => c.id === mockUuid);
+    const addedConv = mockConversations.find((c: unknown) => c.id === mockUuid);
     expect(addedConv).toBeDefined();
     expect(addedConv.title).toBe("From MongoDB");
   });
@@ -806,7 +806,7 @@ describe("ChatContainer", () => {
       expect(useChatStore.setState).toHaveBeenCalled();
     });
 
-    const addedConv = mockConversations.find((c: any) => c.id === mockUuid);
+    const addedConv = mockConversations.find((c: unknown) => c.id === mockUuid);
     expect(addedConv).toBeDefined();
     expect(addedConv.title).toBe("New Conversation");
     expect(addedConv.messages).toEqual([]);

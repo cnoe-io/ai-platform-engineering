@@ -10,6 +10,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockDeleteExactOpenFgaTuples = jest.fn();
 const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
 // space onboarding flow no longer calls `ensureTeamClientScope` or
@@ -20,6 +21,7 @@ const mockAuditQuery = jest.fn();
 const mockEnsureWebexBotOboPermissions = jest.fn();
 // (See the Phase 3 comment above the removed mockEnsureTeamClientScope declaration.)
 const mockCallWebexBotAdmin = jest.fn();
+const mockRequireAvailableWebexBotPolicy = jest.fn();
 
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
 
@@ -33,6 +35,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
     mockCheckUniversalRebacRelationship(...args),
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+  deleteExactOpenFgaTuples: (...args: unknown[]) => mockDeleteExactOpenFgaTuples(...args),
 }));
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
@@ -81,6 +84,10 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
 
 jest.mock("@/lib/webex-bot-admin", () => ({
   callWebexBotAdmin: (...args: unknown[]) => mockCallWebexBotAdmin(...args),
+}));
+jest.mock("@/lib/webex-bot-policy", () => ({
+  requireAvailableWebexBotPolicy: (...args: unknown[]) =>
+    mockRequireAvailableWebexBotPolicy(...args),
 }));
 
 jest.mock("@/lib/jwt-validation", () => ({
@@ -190,6 +197,11 @@ function createMockCollection(rows: Record<string, unknown>[]) {
       if (index >= 0) rows.splice(index, 1);
       return { deletedCount: index >= 0 ? 1 : 0 };
     }),
+    deleteMany: jest.fn(async (filter: Record<string, unknown>) => {
+      const matching = rows.filter((candidate) => matchesFilter(candidate, filter));
+      for (const row of matching) rows.splice(rows.indexOf(row), 1);
+      return { deletedCount: matching.length };
+    }),
   };
 }
 
@@ -216,6 +228,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   process.env.OPENFGA_HTTP = "http://openfga:8080";
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
+  mockRequireAvailableWebexBotPolicy.mockResolvedValue({
+    id: "primary",
+    name: "Primary",
+    available: true,
+  });
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
   mockAuditQuery.mockResolvedValue([]);
@@ -223,6 +240,7 @@ beforeEach(() => {
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, deletes: 0 });
   // Phase 3 (spec 2026-05-24-derive-team-from-channel): no team
   // client-scope mock to reset — the helper is gone.
   mockEnsureWebexBotOboPermissions.mockResolvedValue(undefined);
@@ -239,16 +257,34 @@ describe("Webex space ReBAC resource APIs", () => {
   it("filters the Webex space list to concrete spaces the caller can read or manage", async () => {
     mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
       {
+        bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: spaceId,
         space_name: "Incident Room",
         active: true,
       },
       {
+        bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: "space-private",
         space_name: "Private Leadership",
         active: true,
+      },
+    ]);
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "incident-agent",
+        status: "active",
+      },
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: "space-private",
+        agent_id: "leadership-agent",
+        status: "active",
       },
     ]);
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
@@ -258,7 +294,7 @@ describe("Webex space ReBAC resource APIs", () => {
     }));
     const { GET } = await import("../route");
 
-    const response = await GET(request("/api/admin/webex/spaces"));
+    const response = await GET(request("/api/admin/webex/spaces?bot_id=primary"));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -271,19 +307,93 @@ describe("Webex space ReBAC resource APIs", () => {
     ]);
   });
 
+  it("resolves UUID fallback names from the selected bot without replacing saved names", async () => {
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
+      {
+        bot_id: "primary",
+        webex_workspace_id: workspaceId,
+        webex_space_id: spaceId,
+        space_name: spaceId,
+        active: true,
+      },
+      {
+        bot_id: "primary",
+        webex_workspace_id: workspaceId,
+        webex_space_id: "space-saved",
+        space_name: "Saved Display Name",
+        active: true,
+      },
+    ]);
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "incident-agent",
+        status: "active",
+      },
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: "space-saved",
+        agent_id: "saved-agent",
+        status: "active",
+      },
+    ]);
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+    mockCallWebexBotAdmin.mockResolvedValue({
+      spaces: [
+        { id: spaceId, name: "Resolved Room Name" },
+        { id: "space-saved", name: "Discovered Name" },
+      ],
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/webex/spaces?bot_id=primary"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.spaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ space_id: spaceId, space_name: "Resolved Room Name" }),
+      expect.objectContaining({ space_id: "space-saved", space_name: "Saved Display Name" }),
+    ]));
+    expect(mockCallWebexBotAdmin).toHaveBeenCalledWith(
+      "/admin/webex/bots/primary/spaces",
+      { query: { limit: 500 } },
+    );
+  });
+
   it("scopes a View As space list to the simulated user", async () => {
     mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
       {
+        bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: spaceId,
         space_name: "Incident Room",
         active: true,
       },
       {
+        bot_id: "primary",
         webex_workspace_id: workspaceId,
         webex_space_id: "space-private",
         space_name: "Private Leadership",
         active: true,
+      },
+    ]);
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "incident-agent",
+        status: "active",
+      },
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: "space-private",
+        agent_id: "leadership-agent",
+        status: "active",
       },
     ]);
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: {
@@ -302,7 +412,9 @@ describe("Webex space ReBAC resource APIs", () => {
     const { GET } = await import("../route");
 
     const response = await GET(
-      request("/api/admin/webex/spaces?simulate_type=user&simulate_id=target-sub")
+      request(
+        "/api/admin/webex/spaces?bot_id=primary&simulate_type=user&simulate_id=target-sub"
+      )
     );
     const body = await response.json();
 
@@ -326,7 +438,9 @@ describe("Webex space ReBAC resource APIs", () => {
     const { GET } = await import("../route");
 
     const response = await GET(
-      request("/api/admin/webex/spaces?simulate_type=user&simulate_id=target-sub")
+      request(
+        "/api/admin/webex/spaces?bot_id=primary&simulate_type=user&simulate_id=target-sub"
+      )
     );
 
     expect(response.status).toBe(403);
@@ -337,7 +451,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources`, {
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources?bot_id=primary`, {
         method: "PUT",
         body: JSON.stringify({ grants: [agentGrant] }),
       }),
@@ -358,7 +472,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources`, {
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources?bot_id=primary`, {
         method: "PUT",
         body: JSON.stringify({
           grants: [{ resource: { type: "agent", id: "incident-agent" }, actions: ["not-a-real-action"] }],
@@ -371,7 +485,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
-  it("replaces space resource grants and writes webex_space OpenFGA tuples with filtered reads", async () => {
+  it("replaces space resource grants and writes bot-scoped OpenFGA tuples with filtered reads", async () => {
     // Not an org admin (organization:caipe denied) so the per-space can_manage
     // check is what authorizes the actor — exercise that path explicitly.
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
@@ -391,7 +505,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources`, {
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/resources?bot_id=primary`, {
         method: "PUT",
         body: JSON.stringify({ grants: [agentGrant] }),
       }),
@@ -409,23 +523,23 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
       expect.objectContaining({
         tuple: {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:",
         },
       })
     );
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
+      writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:incident-agent",
         },
-      ],
+      ]),
       deletes: [
         {
-          user: `webex_space:${workspaceAlias}--${spaceId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
           relation: "user",
           object: "agent:stale-agent",
         },
@@ -478,6 +592,7 @@ describe("Webex space ReBAC resource APIs", () => {
         method: "POST",
         body: JSON.stringify({
           workspace_id: "Cisco",
+          bot_id: "primary",
           space_id: publicRoomId,
           space_name: "Grid Test",
           team_slug: "platform",
@@ -502,6 +617,7 @@ describe("Webex space ReBAC resource APIs", () => {
       team_slug: "platform",
       agent_id: "agent-sri-demo-agent",
       listen: "mention",
+      bot_id: "primary",
     });
     // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
     // space onboarding flow no longer touches Keycloak team scopes,
@@ -511,12 +627,14 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockEnsureWebexBotOboPermissions).toHaveBeenCalled();
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
       {
+        bot_id: "primary",
         webex_workspace_id: workspaceAlias,
         webex_space_id: rawRoomId,
       },
       expect.objectContaining({
         $set: expect.objectContaining({
           space_name: "Grid Test",
+          bot_id: "primary",
           team_id: "team-1",
           team_slug: "platform",
           active: true,
@@ -525,15 +643,15 @@ describe("Webex space ReBAC resource APIs", () => {
       { upsert: true }
     );
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].updateOne).toHaveBeenCalledWith(
-      {
-        workspace_id: workspaceAlias,
-        space_id: rawRoomId,
-        agent_id: "agent-sri-demo-agent",
-      },
+      { _id: `["primary","${workspaceAlias}","${rawRoomId}"]` },
       expect.objectContaining({
         $set: expect.objectContaining({
+          bot_id: "primary",
+          workspace_id: workspaceAlias,
+          space_id: rawRoomId,
+          agent_id: "agent-sri-demo-agent",
           users: { enabled: true, listen: "mention" },
-          source_type: "bootstrap",
+          source_type: "manual",
           status: "active",
         }),
       }),
@@ -542,7 +660,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--${rawRoomId}`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--${rawRoomId}`,
           relation: "user",
           object: "agent:agent-sri-demo-agent",
         },
@@ -556,8 +674,98 @@ describe("Webex space ReBAC resource APIs", () => {
     });
     expect(mockCallWebexBotAdmin).toHaveBeenCalledWith("/admin/webex/routes/reload", {
       method: "POST",
-      body: { workspace_id: workspaceAlias, space_id: rawRoomId },
+      body: {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: rawRoomId,
+      },
     });
+  });
+
+  it("replaces the existing agent for the same bot and space", async () => {
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
+      {
+        bot_id: "primary",
+        webex_workspace_id: workspaceAlias,
+        webex_space_id: spaceId,
+        space_name: "Operations",
+        active: true,
+      },
+    ]);
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
+      {
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "old-agent",
+        enabled: true,
+        status: "active",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mockCollections.teams = createMockCollection([
+      { _id: "team-1", slug: "platform", name: "Platform" },
+    ]);
+    mockCollections.dynamic_agents = createMockCollection([
+      { _id: "new-agent", name: "New Agent", enabled: true },
+    ]);
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
+            relation: "user",
+            object: "agent:old-agent",
+          },
+        },
+      ],
+      continuationToken: undefined,
+    });
+    const { POST } = await import("../defaults/route");
+
+    const response = await POST(
+      request("/api/admin/webex/spaces/defaults", {
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform",
+          agent_id: "new-agent",
+          create_routes: true,
+          manual_spaces: [
+            { id: spaceId, name: "Operations", bot_id: "primary" },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].rows).toEqual([
+      expect.objectContaining({
+        _id: `["primary","${workspaceAlias}","${spaceId}"]`,
+        bot_id: "primary",
+        workspace_id: workspaceAlias,
+        space_id: spaceId,
+        agent_id: "new-agent",
+        status: "active",
+      }),
+    ]);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: expect.arrayContaining([
+          {
+            user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
+            relation: "user",
+            object: "agent:new-agent",
+          },
+        ]),
+        deletes: expect.arrayContaining([
+          {
+            user: `webex_bot_installation:primary--${workspaceAlias}--${spaceId}`,
+            relation: "user",
+            object: "agent:old-agent",
+          },
+        ]),
+      }),
+    );
   });
 
   it("rejects invalid manually entered Webex space ids", async () => {
@@ -580,7 +788,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
-  it("onboards manually entered spaces before applying defaults without overwriting config-synced routes", async () => {
+  it("applies one selected agent per bot and space", async () => {
     mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
       {
         webex_workspace_id: workspaceAlias,
@@ -602,6 +810,7 @@ describe("Webex space ReBAC resource APIs", () => {
     ]);
     mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes] = createMockCollection([
       {
+        bot_id: "primary",
         workspace_id: workspaceAlias,
         space_id: "space-config-managed",
         agent_id: "incident-agent",
@@ -622,8 +831,8 @@ describe("Webex space ReBAC resource APIs", () => {
           agent_id: "incident-agent",
           create_routes: true,
           manual_spaces: [
-            { id: "space-config-managed", name: "Config Managed" },
-            { id: "space-new-manual", name: "Manual Escalations" },
+            { id: "space-config-managed", name: "Config Managed", bot_id: "primary" },
+            { id: "space-new-manual", name: "Manual Escalations", bot_id: "primary" },
           ],
         }),
       })
@@ -637,11 +846,12 @@ describe("Webex space ReBAC resource APIs", () => {
       spaces_onboarded: 2,
       spaces_assigned_team: 2,
       space_grants_ensured: 2,
-      routes_ensured: 1,
-      routes_preserved: 1,
+      routes_ensured: 2,
+      routes_preserved: 0,
     });
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
       {
+        bot_id: "primary",
         webex_workspace_id: workspaceAlias,
         webex_space_id: "space-config-managed",
       },
@@ -649,39 +859,32 @@ describe("Webex space ReBAC resource APIs", () => {
         $set: expect.objectContaining({
           space_name: "Config Managed",
           active: true,
-        }),
-        $setOnInsert: expect.objectContaining({
           webex_workspace_id: workspaceAlias,
           webex_space_id: "space-config-managed",
         }),
       }),
       { upsert: true }
     );
-    expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].updateOne).not.toHaveBeenCalledWith(
-      {
-        workspace_id: workspaceAlias,
-        space_id: "space-config-managed",
-        agent_id: "incident-agent",
-      },
+    expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].updateOne).toHaveBeenCalledWith(
+      { _id: `["primary","${workspaceAlias}","space-config-managed"]` },
       expect.objectContaining({
         $set: expect.objectContaining({
+          agent_id: "incident-agent",
           priority: 100,
-          users: { enabled: true, listen: "all" },
+          users: { enabled: true, listen: "mention" },
+          source_type: "manual",
         }),
       }),
       { upsert: true }
     );
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceAgentRoutes].updateOne).toHaveBeenCalledWith(
-      {
-        workspace_id: workspaceAlias,
-        space_id: "space-new-manual",
-        agent_id: "incident-agent",
-      },
+      { _id: `["primary","${workspaceAlias}","space-new-manual"]` },
       expect.objectContaining({
         $set: expect.objectContaining({
+          agent_id: "incident-agent",
           priority: 100,
           users: { enabled: true, listen: "mention" },
-          source_type: "bootstrap",
+          source_type: "manual",
         }),
       }),
       { upsert: true }
@@ -689,7 +892,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--space-config-managed`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--space-config-managed`,
           relation: "user",
           object: "agent:incident-agent",
         },
@@ -700,7 +903,7 @@ describe("Webex space ReBAC resource APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         {
-          user: `webex_space:${workspaceAlias}--space-new-manual`,
+          user: `webex_bot_installation:primary--${workspaceAlias}--space-new-manual`,
           relation: "user",
           object: "agent:incident-agent",
         },
@@ -726,6 +929,7 @@ describe("Webex space ReBAC resource APIs", () => {
       {
         workspace_id: workspaceAlias,
         space_id: spaceId,
+        bot_id: "primary",
         agent_id: "incident-agent",
         enabled: true,
         priority: 100,
@@ -746,7 +950,7 @@ describe("Webex space ReBAC resource APIs", () => {
     const { GET } = await import("../[workspaceId]/[spaceId]/diagnostics/route");
 
     const response = await GET(
-      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/diagnostics`),
+      request(`/api/admin/webex/spaces/${workspaceId}/${spaceId}/diagnostics?bot_id=primary`),
       { params: Promise.resolve({ workspaceId, spaceId }) }
     );
     const body = await response.json();

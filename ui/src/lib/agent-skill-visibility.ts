@@ -12,7 +12,6 @@ import type { AgentSkill } from "@/types/agent-skill";
  */
 export async function getAgentSkillVisibleToUser(
   id: string,
-  _ownerEmail: string,
 ): Promise<AgentSkill | null> {
   const collection = await getCollection<AgentSkill>("agent_skills");
   return collection.findOne({ id });
@@ -54,14 +53,10 @@ export async function hydrateAgentSkillTeamSharesList(
  *      (`skill#write`, `skill#manage`, etc.). Non-built-in rows reach this
  *      helper only after that check has allowed the operation.
  *
- * Note: the ``user`` argument is kept for forward-compatibility with
- * an admin override (e.g. ``user.role === "admin"`` could in future
- * bypass the built-in lock). Today no role auto-bypasses — the env
- * flag is the only escape.
+ * No role auto-bypasses this lock; the environment flag is the only escape.
  */
 export function userCanModifyAgentSkill(
   existing: AgentSkill,
-  user: { email: string; role?: string },
 ): boolean {
   if (existing.is_system) {
     return canMutateBuiltinSkill(existing);

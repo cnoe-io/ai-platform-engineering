@@ -6,6 +6,7 @@ import { config,getLogoFilterClass } from "@/lib/config";
 import { motion } from "framer-motion";
 import { ArrowRight,CheckCircle2,Loader2,LogOut } from "lucide-react";
 import { signOut,useSession } from "next-auth/react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect,useState } from "react";
 
@@ -98,7 +99,14 @@ export default function LogoutPage() {
           {/* Header */}
           <div className="p-8 text-center border-b border-border bg-muted/30">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl gradient-primary-br flex items-center justify-center">
-              <img src={config.logoUrl} alt={config.appName} className={`h-10 w-10 ${getLogoFilterClass(config.logoStyle)}`} />
+              <Image
+                src={config.logoUrl}
+                alt={config.appName}
+                width={40}
+                height={40}
+                unoptimized
+                className={`h-10 w-10 ${getLogoFilterClass(config.logoStyle)}`}
+              />
             </div>
             <div className="flex items-center justify-center gap-2">
               <h1 className="text-2xl font-bold gradient-text">{config.appName}</h1>

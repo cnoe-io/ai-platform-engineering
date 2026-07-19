@@ -12,7 +12,6 @@ import { isFileToolName,isTodoToolName,isWorkflowToolName } from "@/lib/streamin
 import { cn } from "@/lib/utils";
 import type {
 ContentSegment,
-DoneSegment,
 ErrorSegment,
 StatusSegment,
 SubagentSegment,
@@ -229,17 +228,17 @@ export function AgentTimeline({
       return;
     }
     if (hasWarningsOrErrors && !prevHadWarningsOrErrorsRef.current) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: surface new warnings/errors instead of hiding them behind the summary row
+
       setMachineryExpanded(true);
     }
     // Collapse when HITL input is resolved (pendingHitl went true → false)
     if (prevPendingHitlRef.current && !hasWarningsOrErrors) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setMachineryExpanded(false);
     }
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: collapse when streaming ends and mark streaming-complete for animation
+
       setMachineryExpanded(hasWarningsOrErrors);
       setWasStreaming(true);
     }
@@ -486,7 +485,7 @@ function SegmentRenderer({
     )}>
       <TimelineDot color={getDotColor()} size={isNested ? "sm" : "md"} />
       {segment.type === "content" && (
-        <ContentSegmentView segment={segment} isStreaming={isStreaming} isNested={isNested} />
+        <ContentSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "tool" && (
         <ToolSegmentView segment={segment} isNested={isNested} />
@@ -507,7 +506,7 @@ function SegmentRenderer({
         <StatusSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "done" && (
-        <DoneSegmentView segment={segment} isNested={isNested} />
+        <DoneSegmentView isNested={isNested} />
       )}
     </div>
   );
@@ -519,11 +518,9 @@ function SegmentRenderer({
 
 function ContentSegmentView({
   segment,
-  isStreaming,
   isNested = false,
 }: {
   segment: ContentSegment;
-  isStreaming: boolean;
   isNested?: boolean;
 }) {
   // For nested subagent content, use smaller text with no special styling
@@ -1079,7 +1076,7 @@ function StatusSegmentView({ segment, isNested = false }: { segment: StatusSegme
 // Done Segment (completion marker)
 // ═══════════════════════════════════════════════════════════════
 
-function DoneSegmentView({ segment, isNested = false }: { segment: DoneSegment; isNested?: boolean }) {
+function DoneSegmentView({ isNested = false }: { isNested?: boolean }) {
   return (
     <div className={cn(
       "flex items-center gap-1.5 text-emerald-500",

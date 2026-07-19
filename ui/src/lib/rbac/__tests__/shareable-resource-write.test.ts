@@ -22,7 +22,6 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
 }));
 
 import { handleShareableResourceWrite } from "@/lib/rbac/shareable-resource";
-import { ApiError } from "@/lib/api-error";
 
 const session = { sub: "creator-1" } as const;
 const noopReconcile = jest.fn().mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });

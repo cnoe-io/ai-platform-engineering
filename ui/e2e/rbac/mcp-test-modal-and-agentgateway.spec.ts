@@ -574,7 +574,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
             sharedWithTeams: ["platform-team"],
           },
         ],
-        testToolResponder: (body) => ({
+        testToolResponder: () => ({
           success: true,
           application_success: true,
           status: 200,

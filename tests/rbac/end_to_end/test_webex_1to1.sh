@@ -22,15 +22,15 @@ wait_for_bff
 
 # Pin 1
 _log "Pin 1 — clearing any pre-existing DM preference"
-clear_body=$(_curl /api/user/preferences -X PUT -d '{"dm_default_agent_id": null}')
-assert_jq_eq "Pin 1" "$clear_body" '.data.dm_default_agent_id' "null"
+clear_body=$(_curl /api/user/preferences -X PUT -d '{"webex_default_agent_id": null}')
+assert_jq_eq "Pin 1" "$clear_body" '.data.webex_default_agent_id' "null"
 
 # Pin 2
 _log "Pin 2 — GET preferences after clear"
 get_body=$(_curl /api/user/preferences)
-agent=$(jq -r '.data.dm_default_agent_id // "null"' <<<"$get_body")
+agent=$(jq -r '.data.webex_default_agent_id // "null"' <<<"$get_body")
 if [[ "$agent" == "null" ]]; then
-  _pass "Pin 2: dm_default_agent_id null after clear"
+  _pass "Pin 2: webex_default_agent_id null after clear"
 else
   _fail "Pin 2: expected null, got $agent"
 fi
@@ -46,12 +46,12 @@ read -r _
 
 # Pin 4
 _log "Pin 4 — PUT saved preference to ${TEST_AGENT_ID}"
-put_body=$(_curl /api/user/preferences -X PUT -d "{\"dm_default_agent_id\": \"${TEST_AGENT_ID}\"}")
-assert_jq_eq "Pin 4" "$put_body" '.data.dm_default_agent_id' "$TEST_AGENT_ID"
+put_body=$(_curl /api/user/preferences -X PUT -d "{\"webex_default_agent_id\": \"${TEST_AGENT_ID}\"}")
+assert_jq_eq "Pin 4" "$put_body" '.data.webex_default_agent_id' "$TEST_AGENT_ID"
 
 # Pin 5
 get_body=$(_curl /api/user/preferences)
-assert_jq_eq "Pin 5" "$get_body" '.data.dm_default_agent_id' "$TEST_AGENT_ID"
+assert_jq_eq "Pin 5" "$get_body" '.data.webex_default_agent_id' "$TEST_AGENT_ID"
 
 cat <<EOF
   [MANUAL CHECKPOINT 6] In Webex, message the bot:
@@ -80,7 +80,7 @@ read -r _
 
 # Pin 10
 get_body=$(_curl /api/user/preferences)
-agent=$(jq -r '.data.dm_default_agent_id // "null"' <<<"$get_body")
+agent=$(jq -r '.data.webex_default_agent_id // "null"' <<<"$get_body")
 if [[ "$agent" == "null" ]]; then
   _pass "Pin 10: 'use default' cleared the saved pref"
 else

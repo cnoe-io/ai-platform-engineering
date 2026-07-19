@@ -7,12 +7,19 @@ successResponse,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { connectToDatabase,isMongoDBConfigured } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 // Limits to prevent overloading MongoDB
 const MAX_PEEK_DOCS = 2;          // documents per agent in data peek
 const MAX_PEEK_DOC_SIZE = 2000;   // max chars per serialized document
 const MAX_DISTINCT_THREADS = 500; // cap on distinct() results
+
+type PeekEntry = {
+  agent: string;
+  collection: string;
+  documents: Record<string, unknown>[];
+};
 
 /** Compute a { from, to } date range from query params.
  *  Accepts either `from`/`to` ISO strings or a `range` shorthand like "7d". */
@@ -41,13 +48,13 @@ function resolveRange(searchParams: URLSearchParams): { from: Date; to: Date; da
 }
 
 /** Safely serialize a MongoDB doc for JSON, truncating large values. */
-function serializeDoc(doc: Record<string, any>): Record<string, any> {
-  const out: Record<string, any> = {};
+function serializeDoc(doc: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(doc)) {
     if (key === '_id') {
       out._id = String(val);
-    } else if (val instanceof Buffer || (val && typeof val === 'object' && val.buffer instanceof ArrayBuffer)) {
-      out[key] = `<binary ${(val as Buffer).length || 0} bytes>`;
+    } else if (Buffer.isBuffer(val) || ArrayBuffer.isView(val)) {
+      out[key] = `<binary ${val.byteLength} bytes>`;
     } else if (typeof val === 'string' && val.length > 300) {
       out[key] = val.substring(0, 300) + `... (${val.length} chars)`;
     } else if (typeof val === 'object' && val !== null) {
@@ -103,8 +110,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         ]);
 
         let latestCheckpoint: string | null = null;
-        if (latestDoc?._id && typeof latestDoc._id === 'object' && 'getTimestamp' in latestDoc._id) {
-          latestCheckpoint = (latestDoc._id as any).getTimestamp().toISOString();
+        if (latestDoc?._id instanceof ObjectId) {
+          latestCheckpoint = latestDoc._id.getTimestamp().toISOString();
         }
 
         return {
@@ -155,7 +162,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     };
 
     // ── Data Peek (only if requested, with strict limits) ────────────────
-    let peekData: any[] = [];
+    let peekData: PeekEntry[] = [];
     if (includePeek) {
       const activeCollections = cpCollNames.filter((c: string) => {
         const a = agents.find((ag) => ag.name === c.replace(/_checkpoints$/, ''));
@@ -187,7 +194,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             return null;
           }
         }),
-      )).filter(Boolean);
+      )).filter((entry): entry is PeekEntry => entry !== null);
     }
 
     // ── Daily activity ───────────────────────────────────────────────────

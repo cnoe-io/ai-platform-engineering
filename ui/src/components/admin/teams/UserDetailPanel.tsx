@@ -4,6 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent } from "@/components/ui/card";
 import {
+  withAdminSimulationParams,
+  type AdminSimulationQueryTarget,
+} from "@/lib/rbac/admin-simulation-query";
+import {
 Calendar,Clock,
 ExternalLink,
 Globe,
@@ -68,6 +72,7 @@ interface UserDetailData {
 interface UserDetailPanelProps {
   email: string | null;
   onClose: () => void;
+  simulationTarget?: AdminSimulationQueryTarget | null;
 }
 
 const VALUE_LABELS: Record<string, string> = {
@@ -95,7 +100,11 @@ function getConvLink(conv: UserConversation): string | null {
   return `/chat/${conv.id}?from=admin`;
 }
 
-export function UserDetailPanel({ email, onClose }: UserDetailPanelProps) {
+export function UserDetailPanel({
+  email,
+  onClose,
+  simulationTarget = null,
+}: UserDetailPanelProps) {
   const [data, setData] = useState<UserDetailData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,11 +117,14 @@ export function UserDetailPanel({ email, onClose }: UserDetailPanelProps) {
       setData(null);
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: fetch user data when email changes and update loading/error/tab state
+
     setLoading(true);
     setError(null);
     setActiveTab("overview");
-    fetch(`/api/admin/users/${encodeURIComponent(email)}`)
+    fetch(withAdminSimulationParams(
+      `/api/admin/users/${encodeURIComponent(email)}`,
+      simulationTarget,
+    ))
       .then((res) => res.json())
       .then((json) => {
         if (json.success) {
@@ -123,7 +135,7 @@ export function UserDetailPanel({ email, onClose }: UserDetailPanelProps) {
       })
       .catch(() => setError("Failed to load user"))
       .finally(() => setLoading(false));
-  }, [email]);
+  }, [email, simulationTarget]);
 
   // Close on escape
   useEffect(() => {

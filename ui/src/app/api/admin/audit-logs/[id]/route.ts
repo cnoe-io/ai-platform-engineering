@@ -13,7 +13,16 @@ withErrorHandler,
 import { getServerConfig } from '@/lib/config';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { Conversation } from '@/types/mongodb';
+import type { Document,ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
+
+interface GridFsFileDocument extends Document {
+  _id: ObjectId;
+}
+
+interface GridFsChunkDocument extends Document {
+  files_id: ObjectId;
+}
 
 export const DELETE = withErrorHandler(
   async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
@@ -78,8 +87,8 @@ export const DELETE = withErrorHandler(
       let filesDeleted = 0;
       if (agentId) {
         try {
-          const gridfsFiles = await getCollection('agent_files.files');
-          const gridfsChunks = await getCollection('agent_files.chunks');
+          const gridfsFiles = await getCollection<GridFsFileDocument>('agent_files.files');
+          const gridfsChunks = await getCollection<GridFsChunkDocument>('agent_files.chunks');
 
           // Find all file docs matching the namespace
           const fileDocs = await gridfsFiles
@@ -89,8 +98,8 @@ export const DELETE = withErrorHandler(
           if (fileDocs.length > 0) {
             const fileIds = fileDocs.map((d) => d._id);
             // Delete chunks first, then file metadata
-            await gridfsChunks.deleteMany({ files_id: { $in: fileIds } as any });
-            const delResult = await gridfsFiles.deleteMany({ _id: { $in: fileIds } as any });
+            await gridfsChunks.deleteMany({ files_id: { $in: fileIds } });
+            const delResult = await gridfsFiles.deleteMany({ _id: { $in: fileIds } });
             filesDeleted = delResult.deletedCount;
           }
         } catch {

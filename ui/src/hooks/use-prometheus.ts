@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { useCallback,useEffect,useRef,useState } from "react";
 
 // ────────────────────────────────────────────────────────────────
@@ -107,9 +109,9 @@ export function usePrometheusQuery(options: UsePrometheusOptions): UsePrometheus
       } else {
         setError(promResult.error || "Unknown Prometheus error");
       }
-    } catch (err: any) {
+    } catch (err) {
       if (mountedRef.current) {
-        setError(err.message || "Network error");
+        setError(getErrorMessage(err, "") || "Network error");
       }
     } finally {
       if (mountedRef.current) {
@@ -198,9 +200,9 @@ export function useBatchPrometheus(
       }
 
       setResults(json.data);
-    } catch (err: any) {
+    } catch (err) {
       if (mountedRef.current) {
-        setError(err.message || "Network error");
+        setError(getErrorMessage(err, "") || "Network error");
       }
     } finally {
       if (mountedRef.current) {

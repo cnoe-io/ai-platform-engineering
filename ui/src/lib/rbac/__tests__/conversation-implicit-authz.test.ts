@@ -78,13 +78,13 @@ describe("conversation implicit authorization", () => {
       { sub: "alice-sub" },
       "legacy@example.com",
       [
-        { _id: "owned-sub", owner_id: "other@example.com", owner_subject: "alice-sub" } as any,
-        { _id: "owned-email", owner_id: "legacy@example.com" } as any,
-        { _id: "direct-embedded", owner_id: "carol@example.com", sharing: { shared_with: ["Legacy@Example.com"] } } as any,
-        { _id: "direct-access", owner_id: "carol@example.com" } as any,
-        { _id: "public", owner_id: "carol@example.com", sharing: { is_public: true } } as any,
-        { _id: "shared", owner_id: "carol@example.com" } as any,
-        { _id: "denied", owner_id: "dave@example.com" } as any,
+        { _id: "owned-sub", owner_id: "other@example.com", owner_subject: "alice-sub" } as unknown,
+        { _id: "owned-email", owner_id: "legacy@example.com" } as unknown,
+        { _id: "direct-embedded", owner_id: "carol@example.com", sharing: { shared_with: ["Legacy@Example.com"] } } as unknown,
+        { _id: "direct-access", owner_id: "carol@example.com" } as unknown,
+        { _id: "public", owner_id: "carol@example.com", sharing: { is_public: true } } as unknown,
+        { _id: "shared", owner_id: "carol@example.com" } as unknown,
+        { _id: "denied", owner_id: "dave@example.com" } as unknown,
       ],
       "discover",
       ["direct-access"],
@@ -142,7 +142,7 @@ describe("conversation implicit authorization", () => {
     await requireConversationResourcePermission(
       { sub: "alice-sub" },
       "alice@example.com",
-      { _id: "owned", owner_id: "alice@example.com" } as any,
+      { _id: "owned", owner_id: "alice@example.com" } as unknown,
       "write",
     );
     expect(requireResourcePermission).not.toHaveBeenCalled();
@@ -150,7 +150,7 @@ describe("conversation implicit authorization", () => {
     await requireConversationResourcePermission(
       { sub: "bob-sub" },
       "bob@example.com",
-      { _id: "shared", owner_id: "alice@example.com" } as any,
+      { _id: "shared", owner_id: "alice@example.com" } as unknown,
       "write",
     );
     expect(requireResourcePermission).toHaveBeenCalledWith(

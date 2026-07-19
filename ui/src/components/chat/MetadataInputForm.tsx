@@ -37,7 +37,6 @@ interface MetadataInputFormProps {
 }
 
 export function MetadataInputForm({
-  messageId,
   title = "Additional Input Required",
   description,
   inputFields,

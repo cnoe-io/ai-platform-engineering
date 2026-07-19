@@ -5,7 +5,7 @@ import { isTokenExpired } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
 import { signOut,useSession } from "next-auth/react";
 import { usePathname,useRouter } from "next/navigation";
-import { useEffect,useState } from "react";
+import { useCallback,useEffect,useState } from "react";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -25,18 +25,19 @@ export function AuthGuard({ children }: AuthGuardProps) {
   // Initialize authChecked to true if already authenticated to avoid spinner on navigation
   const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [autoResetInitiated, setAutoResetInitiated] = useState(false);
 
   /**
    * Build a login URL that preserves the current page as callbackUrl so the
    * user returns here after re-authenticating (e.g. /chat/<uuid>).
    */
-  function loginUrl(params?: string): string {
+  const loginUrl = useCallback((params?: string): string => {
     const cb = pathname && pathname !== '/' && pathname !== '/login'
       ? `callbackUrl=${encodeURIComponent(pathname)}`
       : '';
     const parts = [params, cb].filter(Boolean).join('&');
     return parts ? `/login?${parts}` : '/login';
-  }
+  }, [pathname]);
 
   // Check for corrupted session cookies on mount
   useEffect(() => {
@@ -55,11 +56,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
       });
       window.location.href = loginUrl('session_reset=auto');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loginUrl]);
 
-  // Show a manual-reset cancel button after 5 seconds if auth check is stuck.
-  // Auto-resetting is intentionally omitted: it clears cookies on valid sessions
+  // Show a manual-reset cancel button after 5 seconds if auth check is stuck, and
+  // auto-reset the session after 15 seconds if it's still stuck. Auto-resetting on
+  // the 5s cancel path is intentionally omitted: it clears cookies on valid sessions
   // during normal back-navigation remounts, causing a redirect loop.
   useEffect(() => {
     if ((status === "authenticated" || status === "loading") && !authChecked) {
@@ -68,9 +69,33 @@ export function AuthGuard({ children }: AuthGuardProps) {
         setLoadingTimeout(true);
       }, 5000);
 
-      return () => clearTimeout(timeoutButton);
+      // Auto-reset after 15 seconds if still stuck
+      const timeoutReset = setTimeout(() => {
+        if (!autoResetInitiated) {
+          console.error("[AuthGuard] Authorization stuck for 15s - auto-resetting session...");
+          setAutoResetInitiated(true);
+
+          // Clear everything
+          if (typeof window !== 'undefined') {
+            localStorage.clear();
+            sessionStorage.clear();
+            // Clear all cookies
+            document.cookie.split(";").forEach((c) => {
+              document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+          }
+
+          // Force redirect to login
+          window.location.href = loginUrl('session_reset=auto');
+        }
+      }, 15000); // 15 seconds
+
+      return () => {
+        clearTimeout(timeoutButton);
+        clearTimeout(timeoutReset);
+      };
     }
-  }, [status, authChecked]);
+  }, [status, authChecked, autoResetInitiated, loginUrl]);
 
   useEffect(() => {
     if (!getConfig('ssoEnabled')) {
@@ -140,7 +165,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       setAuthChecked(true);
       console.log("[AuthGuard] ✅ Authorization complete, rendering app");
     }
-  }, [status, session, router]);
+  }, [status, session, router, loginUrl]);
 
   // If SSO is not enabled, render children directly
   if (!getConfig('ssoEnabled')) {

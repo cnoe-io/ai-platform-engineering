@@ -2,7 +2,7 @@
 import { ApiError, requireRbacPermission, withErrorHandler } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
 import { getServerSession } from "next-auth";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 const auditServiceUrl = (): string =>
   (process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010").replace(
@@ -33,7 +33,7 @@ export interface AuditStorageResponse {
   errors: string[];
 }
 
-export const GET = withErrorHandler(async (_req: NextRequest) => {
+export const GET = withErrorHandler(async () => {
   const session = (await getServerSession(authOptions)) as {
     accessToken?: string;
     sub?: string;

@@ -31,7 +31,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { NextRequest } from 'next/server';
 import * as yaml from 'js-yaml';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,83 +248,6 @@ function routeFileForPath(routePath: string): string {
   );
   const trimmed = canonicalRoutePath.replace(/^\//, '');
   return path.resolve(__dirname, '../app', trimmed, 'route.ts');
-}
-
-function loadRouteHandler(routePath: string, method: string): (req: NextRequest, ctx?: unknown) => Promise<Response> {
-  const file = routeFileForPath(routePath);
-  if (!fs.existsSync(file)) {
-    throw new Error(`route handler file does not exist: ${file}`);
-  }
-  // jest's `require` will run the route module, which will pick up the mocks above.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require(file);
-  const handler = mod[method];
-  if (typeof handler !== 'function') {
-    throw new Error(`route ${routePath} does not export ${method}`);
-  }
-  return handler;
-}
-
-function placeholderForParam(name: string): string {
-  const values: Record<string, string> = {
-    id: '507f1f77bcf86cd799439011',
-    teamId: 'team-1',
-    userId: 'user@example.com',
-    hubId: 'hub-1',
-    skillId: 'skill-1',
-    revisionId: 'rev-1',
-    source: 'agent_skills',
-    source_id: 'skill-1',
-  };
-  return values[name] ?? `${name}-1`;
-}
-
-function paramsForPath(routePath: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  for (const match of routePath.matchAll(/\[([^\]]+)\]/g)) {
-    const raw = match[1];
-    const name = raw.startsWith('...') ? raw.slice(3) : raw;
-    params[name] = placeholderForParam(name);
-  }
-  return params;
-}
-
-function requestPathForRoute(routePath: string): string {
-  return routePath.replace(/\[([^\]]+)\]/g, (_match, raw: string) => {
-    const name = raw.startsWith('...') ? raw.slice(3) : raw;
-    return encodeURIComponent(placeholderForParam(name));
-  });
-}
-
-function contextForPath(routePath: string): { params: Promise<Record<string, string>> } {
-  return { params: Promise.resolve(paramsForPath(routePath)) };
-}
-
-function makeRequest(routePath: string, method: string): NextRequest {
-  const url = new URL(requestPathForRoute(routePath), 'http://localhost:3000');
-  const body = {
-    client_type: 'public',
-    conversations: [],
-    description: 'Matrix test description',
-    dry_run: true,
-    email: 'user@example.com',
-    enabled: true,
-    members: [],
-    message: 'Matrix test message',
-    name: 'Matrix Test',
-    reason: 'Matrix test reason',
-    resources: [],
-    reviewed: true,
-    role: 'member',
-    team_id: 'team-1',
-    title: 'Matrix Test',
-    user_id: 'user@example.com',
-  };
-  return new NextRequest(url, {
-    method,
-    headers: { 'content-type': 'application/json' },
-    body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(body),
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

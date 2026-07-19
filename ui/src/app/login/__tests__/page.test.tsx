@@ -64,9 +64,9 @@ jest.mock('@/components/gallery/IntegrationOrbit', () => ({
 // Mock framer-motion
 jest.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    div: ({ children, ...props }: unknown) => <div {...props}>{children}</div>,
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }))
 
 describe('Login Page', () => {
@@ -107,15 +107,15 @@ describe('Login Page', () => {
     // Mock document.cookie
     Object.defineProperty(document, 'cookie', { value: '', writable: true, configurable: true })
 
-    mockUseRouter.mockReturnValue({ push: mockPush } as any)
+    mockUseRouter.mockReturnValue({ push: mockPush } as unknown)
 
     // Default searchParams: no special params
     mockSearchParamsGet.mockReturnValue(null)
     mockUseSearchParams.mockReturnValue({
       get: mockSearchParamsGet,
-    } as any)
+    } as unknown)
 
-    mockSignIn.mockResolvedValue(undefined as any)
+    mockSignIn.mockResolvedValue(undefined as unknown)
   })
 
   // ─────────────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ describe('Login Page', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   it('should render login button when unauthenticated', () => {
-    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
     render(<LoginPage />)
 
@@ -131,7 +131,7 @@ describe('Login Page', () => {
   })
 
   it('should not show environment badge when envBadge is empty', () => {
-    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
     render(<LoginPage />)
 
@@ -141,7 +141,7 @@ describe('Login Page', () => {
   })
 
   it('should show loading screen while session is loading', () => {
-    mockUseSession.mockReturnValue({ data: null, status: 'loading' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'loading' } as unknown)
 
     render(<LoginPage />)
 
@@ -156,7 +156,7 @@ describe('Login Page', () => {
     mockUseSession.mockReturnValue({
       data: { user: { name: 'Test' } },
       status: 'authenticated',
-    } as any)
+    } as unknown)
 
     render(<LoginPage />)
 
@@ -175,7 +175,7 @@ describe('Login Page', () => {
     mockUseSession.mockReturnValue({
       data: { user: { name: 'Test' } },
       status: 'authenticated',
-    } as any)
+    } as unknown)
 
     render(<LoginPage />)
 
@@ -193,7 +193,7 @@ describe('Login Page', () => {
     mockUseSession.mockReturnValue({
       data: { user: { name: 'Test' } },
       status: 'authenticated',
-    } as any)
+    } as unknown)
 
     render(<LoginPage />)
 
@@ -212,7 +212,7 @@ describe('Login Page', () => {
     mockUseSession.mockReturnValue({
       data: { user: { name: 'Test' } },
       status: 'authenticated',
-    } as any)
+    } as unknown)
 
     // Simulate 2 prior visits within the time window
     const now = Date.now()
@@ -231,7 +231,7 @@ describe('Login Page', () => {
   })
 
   it('should reset loop counter when visits are outside the time window', async () => {
-    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
     // Simulate 2 prior visits but outside the 10s window (old timestamp)
     sessionStorageData['login-redirect-count'] = '2'
@@ -252,7 +252,7 @@ describe('Login Page', () => {
     mockUseSession.mockReturnValue({
       data: { user: { name: 'Test' } },
       status: 'authenticated',
-    } as any)
+    } as unknown)
 
     // At threshold
     sessionStorageData['login-redirect-count'] = '2'
@@ -280,7 +280,7 @@ describe('Login Page', () => {
       return null
     })
 
-    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
     render(<LoginPage />)
 
@@ -296,7 +296,7 @@ describe('Login Page', () => {
       return null
     })
 
-    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
     render(<LoginPage />)
 
@@ -314,7 +314,7 @@ describe('Login Page', () => {
     mockUseSession.mockReturnValue({
       data: { user: { name: 'Test' } },
       status: 'authenticated',
-    } as any)
+    } as unknown)
 
     // Trigger loop detection
     sessionStorageData['login-redirect-count'] = '2'
@@ -335,7 +335,7 @@ describe('Login Page', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   it('should clear loop counter and token-expiry flag on sign-in click', async () => {
-    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
     // Set some stale data
     sessionStorageData['login-redirect-count'] = '1'
@@ -371,7 +371,7 @@ describe('Login Page', () => {
       mockUseSession.mockReturnValue({
         data: { user: { name: 'Test' } },
         status: 'authenticated',
-      } as any)
+      } as unknown)
 
       render(<LoginPage />)
 
@@ -386,7 +386,7 @@ describe('Login Page', () => {
         return null
       })
 
-      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
       render(<LoginPage />)
 
@@ -403,7 +403,7 @@ describe('Login Page', () => {
         return null
       })
 
-      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
       render(<LoginPage />)
 
@@ -420,7 +420,7 @@ describe('Login Page', () => {
       mockUseSession.mockReturnValue({
         data: { user: { name: 'Test' } },
         status: 'authenticated',
-      } as any)
+      } as unknown)
 
       render(<LoginPage />)
 
@@ -438,7 +438,7 @@ describe('Login Page', () => {
       mockUseSession.mockReturnValue({
         data: { user: { name: 'Test' } },
         status: 'authenticated',
-      } as any)
+      } as unknown)
 
       render(<LoginPage />)
 
@@ -456,7 +456,7 @@ describe('Login Page', () => {
       mockUseSession.mockReturnValue({
         data: { user: { name: 'Test' } },
         status: 'authenticated',
-      } as any)
+      } as unknown)
 
       render(<LoginPage />)
 
@@ -475,7 +475,7 @@ describe('Login Page', () => {
       mockUseSession.mockReturnValue({
         data: { user: { name: 'Test' } },
         status: 'authenticated',
-      } as any)
+      } as unknown)
 
       render(<LoginPage />)
 
@@ -491,7 +491,7 @@ describe('Login Page', () => {
         return null
       })
 
-      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
       render(<LoginPage />)
 
@@ -511,7 +511,7 @@ describe('Login Page', () => {
         return null
       })
 
-      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
+      mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as unknown)
 
       render(<LoginPage />)
 

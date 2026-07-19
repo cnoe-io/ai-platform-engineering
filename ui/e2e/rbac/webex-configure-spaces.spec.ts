@@ -8,7 +8,7 @@
  * bulk team/agent apply, per-row overrides, and setup payload grouping.
  */
 
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   fulfillJson,
@@ -35,11 +35,14 @@ const agents = [
   { _id: "agent-kb", name: "KB Agent" },
 ];
 
+const webexBot = { id: "primary", name: "Primary bot", available: true };
+
 type WebexSpace = {
   id: string;
   name: string;
   type?: "group" | "direct";
   is_locked?: boolean;
+  available_bot_ids?: string[];
 };
 
 type WebexConfigureState = {
@@ -48,6 +51,7 @@ type WebexConfigureState = {
   discoveryRequests: URL[];
   defaultsRequests: unknown[];
   configuredSpaces: Array<{
+    bot_id: string;
     workspace_id: string;
     space_id: string;
     space_name: string;
@@ -65,18 +69,21 @@ function pageOneSpaces(): WebexSpace[] {
       name: "Incident Bridge",
       type: "group",
       is_locked: false,
+      available_bot_ids: [webexBot.id],
     },
     {
       id: "space-alerts",
       name: "Workflow Alerts",
       type: "group",
       is_locked: false,
+      available_bot_ids: [webexBot.id],
     },
     {
       id: "direct-sri",
       name: "Sri Aradhyula",
       type: "direct",
       is_locked: false,
+      available_bot_ids: [webexBot.id],
     },
   ];
 }
@@ -88,6 +95,7 @@ function pageTwoSpaces(): WebexSpace[] {
       name: "Night Ops",
       type: "group",
       is_locked: false,
+      available_bot_ids: [webexBot.id],
     },
   ];
 }
@@ -100,6 +108,7 @@ function defaultState(): WebexConfigureState {
     defaultsRequests: [],
     configuredSpaces: [
       {
+        bot_id: webexBot.id,
         workspace_id: "WEBEX-WORKSPACE",
         space_id: "space-incidents",
         space_name: "Incident Bridge",
@@ -122,6 +131,14 @@ function visibleSpacesForSearch(query: string): WebexSpace[] {
 
 function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
   return async ({ route, path, method, url }) => {
+    if (path === "/api/admin/webex/bots" && method === "GET") {
+      await fulfillJson(route, {
+        success: true,
+        data: { bots: [webexBot] },
+      });
+      return true;
+    }
+
     if (path === "/api/admin/webex/spaces" && method === "GET") {
       await fulfillJson(route, {
         success: true,
@@ -236,10 +253,11 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       const request = body as {
         team_slug?: string;
         agent_id?: string;
-        manual_spaces?: Array<{ id: string; name?: string }>;
+        manual_spaces?: Array<{ id: string; name?: string; bot_id?: string }>;
       } | null;
       for (const space of request?.manual_spaces ?? []) {
         state.configuredSpaces.push({
+          bot_id: space.bot_id ?? webexBot.id,
           workspace_id: "WEBEX-WORKSPACE",
           space_id: space.id,
           space_name: space.name ?? space.id,
@@ -298,10 +316,6 @@ async function pickTeam(page: Page, buttonName: RegExp, optionName: RegExp) {
 async function pickAgent(page: Page, buttonName: RegExp, optionName: RegExp) {
   await page.getByRole("button", { name: buttonName }).click();
   await page.getByRole("option", { name: optionName }).click();
-}
-
-function spaceRow(page: Page, spaceName: string): Locator {
-  return page.locator(".grid", { hasText: spaceName }).last();
 }
 
 test.describe("mocked Webex Configure spaces UI", () => {
@@ -374,25 +388,17 @@ test.describe("mocked Webex Configure spaces UI", () => {
 
     await page.getByRole("button", { name: "Find spaces" }).click();
     await expect(page.getByText("Workflow Alerts")).toBeVisible();
-    await expect(page.getByText("Sri Aradhyula")).toBeVisible();
+    await expect(page.getByText("Sri Aradhyula")).toHaveCount(0);
     await expect(
       page.getByRole("status", {
-        name: /Discovered: 3 .* Configured: 1 .* New: 2/i,
+        name: /Discovered: 2 .* Configured: 1 .* New: 1/i,
       }),
     ).toBeVisible();
-    await expect(page.getByText(/^Discovered: 3$/)).toHaveCount(0);
+    await expect(page.getByText(/^Discovered: 2$/)).toHaveCount(0);
     await expect(page.getByText(/^Configured: 1$/)).toHaveCount(0);
-    await expect(page.getByText("New: 2", { exact: true })).toBeVisible();
+    await expect(page.getByText("New: 1", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Load more spaces" }),
-    ).toBeVisible();
-
-    const directCheckbox = page.getByRole("checkbox", {
-      name: "Import Sri Aradhyula",
-    });
-    await expect(directCheckbox).toBeDisabled();
-    await expect(
-      spaceRow(page, "Sri Aradhyula").getByText("Personal DM").first(),
     ).toBeVisible();
 
     await search.fill("Alerts");
@@ -462,7 +468,6 @@ test.describe("mocked Webex Configure spaces UI", () => {
     await expect(
       page.getByRole("checkbox", { name: "Import Night Ops" }),
     ).toBeChecked();
-    await expect(directCheckbox).not.toBeChecked();
 
     await page.getByRole("button", { name: "Clear selection" }).click();
     await page
@@ -518,13 +523,17 @@ test.describe("mocked Webex Configure spaces UI", () => {
           team_slug: "platform",
           agent_id: "agent-sre",
           create_routes: true,
-          manual_spaces: [{ id: "space-alerts", name: "Workflow Alerts" }],
+          manual_spaces: [
+            { id: "space-alerts", name: "Workflow Alerts", bot_id: webexBot.id },
+          ],
         }),
         expect.objectContaining({
           team_slug: "ops",
           agent_id: "agent-kb",
           create_routes: true,
-          manual_spaces: [{ id: "space-night-ops", name: "Night Ops" }],
+          manual_spaces: [
+            { id: "space-night-ops", name: "Night Ops", bot_id: webexBot.id },
+          ],
         }),
       ]),
     );

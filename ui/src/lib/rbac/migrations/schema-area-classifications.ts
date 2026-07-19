@@ -176,6 +176,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "baseline_v1",
     description: "Chat turn records.",
   },
+  user_preferences: {
+    classification: "migration",
+    description:
+      "Per-surface default-agent preferences. `user_preferences_default_agent_cleanup_v1` removes the retired shared DM default field.",
+  },
   user_settings: {
     classification: "baseline_v1",
     description: "User preference records.",

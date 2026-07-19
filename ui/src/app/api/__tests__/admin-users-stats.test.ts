@@ -36,7 +36,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -70,7 +70,7 @@ const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
   '@/lib/rbac/keycloak-authz'
 ).checkPermission;
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -80,7 +80,7 @@ const mockGetCollection = jest.fn((name: string) => {
 
 let mockIsMongoDBConfigured = true;
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   get isMongoDBConfigured() {
     return mockIsMongoDBConfigured;
   },
@@ -178,7 +178,7 @@ function resetMocks() {
 }
 
 /** Set up users collection to return paginated data. */
-function setupUsersCol(usersData: any[]) {
+function setupUsersCol(usersData: unknown[]) {
   const usersCol = createMockCollection();
   usersCol.find.mockReturnValue({
     sort: jest.fn().mockReturnValue({
@@ -380,14 +380,14 @@ describe('GET /api/admin/users/stats — User List', () => {
     expect(body.data.pagination).toBeDefined();
     expect(body.data.pagination.page).toBe(1);
 
-    const alice = body.data.users.find((u: any) => u.email === 'alice@example.com');
+    const alice = body.data.users.find((u: unknown) => u.email === 'alice@example.com');
     expect(alice).toBeDefined();
     expect(alice.name).toBe('Alice');
     expect(alice.role).toBe('user');
     expect(alice.stats.conversations).toBe(5);
     expect(alice.stats.messages).toBe(25);
 
-    const bob = body.data.users.find((u: any) => u.email === 'bob@example.com');
+    const bob = body.data.users.find((u: unknown) => u.email === 'bob@example.com');
     expect(bob).toBeDefined();
     expect(bob.name).toBe('Bob');
     expect(bob.role).toBe('admin');
@@ -436,11 +436,11 @@ describe('GET /api/admin/users/stats — Batch Aggregation', () => {
     const pipeline = msgCol.aggregate.mock.calls[0][0];
     expect(Array.isArray(pipeline)).toBe(true);
 
-    const matchStage = pipeline.find((stage: Record<string, any>) => stage.$match);
+    const matchStage = pipeline.find((stage: Record<string, unknown>) => stage.$match);
     expect(matchStage).toBeDefined();
     expect(matchStage.$match.owner_id).toBeDefined();
 
-    const groupStage = pipeline.find((stage: Record<string, any>) => stage.$group);
+    const groupStage = pipeline.find((stage: Record<string, unknown>) => stage.$group);
     expect(groupStage).toBeDefined();
     expect(groupStage.$group._id).toBe('$owner_id');
   });

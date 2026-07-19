@@ -116,6 +116,54 @@ function createService(
 }
 
 describe("SecretService", () => {
+  it("idempotently bootstraps a stable secret id and repairs its team relationships", async () => {
+    const {
+      refs,
+      payloadStore,
+      reconcileOwnerRelationships,
+      reconcileShare,
+      service,
+    } = createService();
+    payloadStore.getSecret.mockRejectedValueOnce(new Error("payload missing"));
+
+    const input = {
+      id: "webex-pam-bot-token",
+      owner: { type: "team" as const, id: "super-admins" },
+      name: "Webex Pam bot token",
+      type: "bearer_token" as const,
+      plaintext: "pam-token-value",
+      description: "Shared Webex bot identity",
+      sharedWithTeams: ["platform-users", "platform-users"],
+    };
+
+    await expect(service.upsertBootstrapSecret(input)).resolves.toBe("created");
+    expect(payloadStore.putSecret).toHaveBeenCalledWith({
+      secretRefId: "webex-pam-bot-token",
+      plaintext: "pam-token-value",
+      maskedPreview: "pam-...alue",
+    });
+    expect(reconcileOwnerRelationships).toHaveBeenCalledWith({
+      secretId: "webex-pam-bot-token",
+      owner: { type: "team", id: "super-admins" },
+      ownerSubject: null,
+    });
+    expect(reconcileShare).toHaveBeenCalledWith(
+      "webex-pam-bot-token",
+      "platform-users",
+    );
+    expect(refs.docs[0]).toMatchObject({
+      id: "webex-pam-bot-token",
+      owner: { type: "team", id: "super-admins" },
+      createdBy: { type: "service_account", id: "credential-bootstrap" },
+      sharedWithTeams: ["platform-users"],
+    });
+
+    payloadStore.getSecret.mockResolvedValueOnce("pam-token-value");
+    await expect(service.upsertBootstrapSecret(input)).resolves.toBe("unchanged");
+    expect(payloadStore.putSecret).toHaveBeenCalledTimes(1);
+    expect(reconcileOwnerRelationships).toHaveBeenCalledTimes(2);
+  });
+
   it("creates a secret ref and stores raw material plus masked preview only in the encrypted payload store", async () => {
     const { refs, payloadStore, reconcileOwnerRelationships, service } = createService();
 

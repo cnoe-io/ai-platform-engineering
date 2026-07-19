@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -26,8 +26,8 @@ jest.mock("@/lib/api-middleware", () => {
     requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
     successResponse: (data: unknown) => NextResponse.json({ success: true, data }),
     withErrorHandler:
-      (handler: (...args: any[]) => Promise<Response>) =>
-      async (...args: any[]) => {
+      (handler: (...args: unknown[]) => Promise<Response>) =>
+      async (...args: unknown[]) => {
         try {
           return await handler(...args);
         } catch (error) {
@@ -69,10 +69,10 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
  *   - $ne:                    { status: { $ne: "removed" } }
  *   - $in:                    { slug: { $in: [...] } }
  */
-function matchesFilter(row: any, filter: Record<string, any>): boolean {
+function matchesFilter(row: unknown, filter: Record<string, unknown>): boolean {
   return Object.entries(filter).every(([key, value]) => {
     if (key === "$or" && Array.isArray(value)) {
-      return value.some((clause: Record<string, any>) => matchesFilter(row, clause));
+      return value.some((clause: Record<string, unknown>) => matchesFilter(row, clause));
     }
     if (value instanceof ObjectId) return String(row[key]) === String(value);
     if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -83,20 +83,20 @@ function matchesFilter(row: any, filter: Record<string, any>): boolean {
   });
 }
 
-function createMockCollection(rows: any[]) {
+function createMockCollection(rows: unknown[]) {
   // Cursor must support `find().toArray()` so the canonical
   // team-membership reader (post 2026-05-26 canonical-membership refactor)
   // can resolve the calling user's role for KB-permission gates.
   return {
     rows,
-    findOne: jest.fn(async (filter: Record<string, any>) => rows.find((row) => matchesFilter(row, filter)) ?? null),
-    find: jest.fn((filter: Record<string, any> = {}) => ({
+    findOne: jest.fn(async (filter: Record<string, unknown>) => rows.find((row) => matchesFilter(row, filter)) ?? null),
+    find: jest.fn((filter: Record<string, unknown> = {}) => ({
       toArray: jest.fn(async () => rows.filter((row) => matchesFilter(row, filter))),
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn(async () => rows.filter((row) => matchesFilter(row, filter))),
       }),
     })),
-    updateOne: jest.fn(async (filter: Record<string, any>, update: any, options?: any) => {
+    updateOne: jest.fn(async (filter: Record<string, unknown>, update: unknown, options?: unknown) => {
       const row = rows.find((candidate) => matchesFilter(candidate, filter));
       if (row && update.$set) Object.assign(row, update.$set);
       if (!row && options?.upsert) rows.push({ ...filter, ...(update.$set ?? {}) });

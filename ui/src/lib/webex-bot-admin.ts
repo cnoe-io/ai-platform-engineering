@@ -86,12 +86,20 @@ async function getWebexBotAdminToken(): Promise<string> {
 
 export async function callWebexBotAdmin<T>(
   path: string,
-  options: { method?: "GET" | "POST"; body?: unknown } = {}
+  options: {
+    method?: "GET" | "POST";
+    body?: unknown;
+    query?: Record<string, string | number | boolean | undefined>;
+  } = {}
 ): Promise<T> {
   const safePath = assertAllowedAdminPath(path);
   const token = await getWebexBotAdminToken();
   const method = options.method ?? "GET";
-  const response = await fetch(`${webexBotAdminBaseUrl()}${safePath}`, {
+  const url = new URL(`${webexBotAdminBaseUrl()}${safePath}`);
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,

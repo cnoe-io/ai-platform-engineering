@@ -14,10 +14,10 @@ import { checkOpenFgaTuple, listOpenFgaObjects } from "@/lib/rbac/openfga";
  * gated per-affected-team). Fail-soft: a transient PDP error returns false so
  * the stricter org-admin path still governs.
  */
-async function callerAdministersAnyTeam(subject: string): Promise<boolean> {
+async function actorAdministersAnyTeam(openfgaUser: string): Promise<boolean> {
   try {
     const result = await listOpenFgaObjects({
-      user: `user:${subject}`,
+      user: openfgaUser,
       relation: "admin",
       type: "team",
     });
@@ -107,13 +107,57 @@ export async function requireUserProfileRead(
     throw new ApiError("Your session has expired. Please sign in again.", 401, "NO_TOKEN", "session_expired", "sign_in");
   }
 
+  return requireUserProfileReadAsActor(
+    { openfgaUser: `user:${caller}`, selfSubjectId: caller },
+    subject,
+  );
+}
+
+export interface UserProfileReadActor {
+  openfgaUser: string;
+  /** Stable user subject for self-read semantics; omitted for team usersets. */
+  selfSubjectId?: string;
+  /** Team-admin usersets receive the same read-only profile access as a team admin. */
+  administersAnyTeam?: boolean;
+}
+
+/** Apply the normal profile-read policy to an explicit access-preview actor. */
+export async function requireUserProfileReadAsActor(
+  actor: UserProfileReadActor,
+  subject: string,
+): Promise<void> {
+  if (isDevAnonymousAuthEnabled()) return;
+
+  const openfgaUser = actor.openfgaUser.trim();
+  if (!openfgaUser) {
+    throw new ApiError("A stable preview subject is required.", 401, "NO_TOKEN", "session_expired", "sign_in");
+  }
+
   // Fast path: a user can always read their own profile.
-  if (caller === subject) {
-    return requireDerivedTuple(
-      session,
-      "can_read",
-      userProfileObject(subject),
-      `user_profile:${subject}#can_read`
+  if (actor.selfSubjectId === subject) {
+    try {
+      const result = await checkOpenFgaTuple({
+        user: openfgaUser,
+        relation: "can_read",
+        object: userProfileObject(subject),
+      });
+      if (result.allowed) return;
+    } catch {
+      throw new ApiError(
+        "Authorization service is temporarily unavailable. Please try again in a moment.",
+        503,
+        "PDP_UNAVAILABLE",
+        "pdp_unavailable",
+        "retry",
+      );
+    }
+
+    throw new ApiError(
+      "You do not have permission to view this read-only dashboard surface.",
+      403,
+      `user_profile:${subject}#can_read`,
+      "pdp_denied",
+      "contact_admin",
     );
   }
 
@@ -125,7 +169,7 @@ export async function requireUserProfileRead(
   // users' profiles.
   try {
     const result = await checkOpenFgaTuple({
-      user: `user:${caller}`,
+      user: openfgaUser,
       relation: "can_manage",
       object: adminSurfaceObject("users"),
     });
@@ -143,7 +187,7 @@ export async function requireUserProfileRead(
   // Team admins may VIEW any user's profile (read-only). Per-team edit
   // endpoints stay gated by `requireTeamMembershipManagementPermission`, so
   // this only widens read visibility, never write.
-  if (await callerAdministersAnyTeam(caller)) return;
+  if (actor.administersAnyTeam || await actorAdministersAnyTeam(openfgaUser)) return;
 
   throw new ApiError(
     "You do not have permission to view this user's profile.",

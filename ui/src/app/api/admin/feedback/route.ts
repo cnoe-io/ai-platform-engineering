@@ -16,7 +16,25 @@ resolveAuthorizedAdminSimulationScope,
 simulationSubjectCanManageAdminSurface,
 } from '@/lib/rbac/admin-simulation-server';
 import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
+import type { Conversation } from '@/types/mongodb';
+import type { Document,ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
+
+interface FeedbackDocument extends Document {
+  _id?: ObjectId;
+  channel_name?: string;
+  comment?: string;
+  conversation_id?: string;
+  created_at?: Date;
+  message_id?: string;
+  rating?: string;
+  slack_permalink?: string;
+  source?: string;
+  trace_id?: string;
+  user_email?: string;
+  user_id?: string;
+  value?: string;
+}
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!getConfig('feedbackEnabled')) {
@@ -79,9 +97,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const skip = (page - 1) * limit;
 
-    const feedbackColl = await getCollection('feedback');
+    const feedbackColl = await getCollection<FeedbackDocument>('feedback');
 
-    const filter: Record<string, any> = {};
+    const filter: Document = {};
     if (rating === 'positive' || rating === 'negative') {
       filter.rating = rating;
     }
@@ -173,17 +191,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     ]);
 
     // For web feedback that has a conversation_id, batch-fetch conversation titles
-    const convIds = [...new Set(
-      docs.map((d: any) => d.conversation_id).filter(Boolean)
-    )];
+    const convIds = [...new Set(docs.flatMap((doc) =>
+      doc.conversation_id ? [doc.conversation_id] : []
+    ))];
     let convTitleMap = new Map<string, string>();
     if (convIds.length > 0) {
       try {
-        const conversations = await getCollection('conversations');
+        const conversations = await getCollection<Conversation>('conversations');
         const convDocs = await conversations
           .find({ _id: { $in: convIds } }, { projection: { _id: 1, title: 1 } })
           .toArray();
-        convTitleMap = new Map(convDocs.map((c: any) => [c._id, c.title]));
+        convTitleMap = new Map(convDocs.map((conversation) => [conversation._id, conversation.title]));
       } catch {
         // conversations collection may not exist for Slack-only data
       }
@@ -199,7 +217,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       other: 'Other',
     };
 
-    const entries = docs.map((doc: any) => {
+    const entries = docs.map((doc) => {
       const valueLabel = VALUE_LABELS[doc.value] || doc.value || null;
       const comment = doc.comment || null;
       // Combine value and comment: "Wrong answer; check the team..."

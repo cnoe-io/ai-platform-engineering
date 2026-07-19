@@ -26,18 +26,10 @@ interface AccessibleAgentsResponse {
   error?: string;
 }
 
-/**
- * Tiny hook that fetches `/api/user/accessible-agents` once on mount and
- * exposes a `refresh()` callback for cases where the list changes (e.g. the
- * user just got added to a team).
- *
- * Intentionally simple — no SWR-like deduping. The DM-preference panel is
- * a small, mostly-idle surface; we'd rather keep the dependency surface
- * minimal than introduce a global cache.
- */
+/** Fetch the signed-in user's available agents for all personal-default pickers. */
 export function useAccessibleAgents(): UseAccessibleAgentsState {
   const [agents, setAgents] = useState<AccessibleAgent[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {

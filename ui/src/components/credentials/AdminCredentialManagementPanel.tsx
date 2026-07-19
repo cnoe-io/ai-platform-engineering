@@ -5,6 +5,7 @@
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React from "react";
 
+import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 
 import { AdminSecretsManager } from "./AdminSecretsManager";
@@ -33,7 +34,10 @@ export function AdminCredentialManagementPanel({ readOnly = false }: { readOnly?
   return (
     <section className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold">Credentials</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold">
+          Credentials
+          <AdminBadge />
+        </h1>
         <p className="text-sm text-muted-foreground">
           Review saved secrets, connected apps, access, usage, and recent activity.
         </p>
